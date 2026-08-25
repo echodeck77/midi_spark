@@ -4971,7 +4971,7 @@ extension DiagView {
         let outerPad: CGFloat = 16, headerH: CGFloat = 46, gap: CGFloat = 3
         let bodyH = max(80, size.height - 2 * outerPad - headerH - 14)
         let rightW = min(300, size.width * 0.30)
-        let gridAvail = size.width - 2 * outerPad - rightW - 16
+        let gridAvail = size.width - 2 * outerPad - rightW - 32 - 44   // reserve the row-selector strip (~44) + two HStack gaps
         let side = max(80, min(gridAvail, bodyH))
         let cell = (side - 7 * gap) / 8
         return ZStack {
@@ -5011,6 +5011,11 @@ extension DiagView {
                             }.frame(width: side, height: side).background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.55)))
                         }
                     }
+                    // §3.2 ROW SELECTORS ON THE GRID EDGE (Paul 2026-08-25): a vertical strip of 8 PART buttons aligned to the
+                    // grid rows (Launchpad-mappable — the scene-launch column). TAP = aim · HOLD = overwrite that part.
+                    VStack(spacing: gap) {
+                        ForEach(0..<8, id: \.self) { r in buildGridSelRowChip(r, height: cell) }
+                    }.frame(width: max(30, cell), height: side)
                     buildGridSelRightColumn(width: rightW)
                     Spacer(minLength: 0)
                 }
@@ -5069,48 +5074,37 @@ extension DiagView {
             }
         }
     }
+    // §3.3 THE BROWSE CONTEXT (Paul 2026-08-25): the panel REUSES the main-page left-column objects — the MIDI IN
+    // (receiver) selector · the MIDI CHAIN processor boxes · the MIDI OUT (emitter) toggles — so the grid selector reads
+    // and edits identically to BUILD (the audition rides the transient gsAud colour, so these show/edit its machine + I/O).
     @ViewBuilder private func buildGridSelRightColumn(width: CGFloat) -> some View {
         let selected = buildGridSelSel.map { buildGridSelPresent($0) } ?? false
-        VStack(alignment: .leading, spacing: 10) {
-            // §3.2 THE PART BUTTONS (Paul 2026-08-25): row selector — TAP = aim (this part becomes the target + the audition
-            // plays through its door); LONG-PRESS = overwrite that part with the selected chain. Styled like the main-page tabs.
-            Text("DEAL TO A PART  ·  tap = aim · hold = overwrite").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(buildDim)
-            VStack(spacing: 4) {
-                ForEach(0..<2, id: \.self) { row in
-                    HStack(spacing: 4) { ForEach(0..<4, id: \.self) { c in buildGridSelRowChip(row * 4 + c) } }
-                }
-            }.frame(width: width)
-            // §3.3 THE BROWSE CONTEXT: the selected chain as processor boxes + its piano-roll, and the target's MIDI IN/OUT
-            // selectors (they set up the AIMED part's door + wire, which the audition then plays through). (Paul 2026-08-25)
-            Text("THE CHAIN").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1.2).foregroundColor(buildDim)
-            if selected, let i = buildGridSelSel {
-                let hue = Color(hex: buildGridSelCellHex(i))
-                buildGridSelChainBoxes(width: width)
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.28))
-                    buildGridSelRollFace(buildGridSelActiveRoll, animated: d.playing).padding(6)
-                }.frame(width: width, height: width * 0.34)
-                buildGridSelReceiverRow(width: width)
-                buildGridSelEmitterRow(width: width)
-                Text(d.playing ? "playing against your input — the piece plays on" : "press ▶ play to hear it sweep")
+        let castW = width - 2
+        VStack(alignment: .center, spacing: 10) {
+            Text("THE MACHINE  ·  tap a cell to audition").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(buildDim).frame(width: castW, alignment: .leading)
+            if selected {
+                buildReceiverSelector(castW: castW)                      // MIDI IN — reused from the main page
+                buildProcessorBlock(castW: castW, cell: 14)              // the MIDI CHAIN boxes — reused
+                buildEmitterToggles(castW: castW).padding(.top, 8)       // MIDI OUT — reused
+                Text(d.playing ? "playing against your input" : "press ▶ play to hear it sweep")
                     .font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(d.playing ? buildDim : buildCyan.opacity(0.8))
             } else {
                 Text("tap a cell to hear its chain\nagainst your held input").font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(buildDim).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-        }.frame(width: width, alignment: .leading)
+        }.frame(width: width, alignment: .center)
     }
     // A row chip = a PART (the destination). OCCUPIED shows its hue, EMPTY is hollow; the AIMED part wears a white ring.
-    @ViewBuilder private func buildGridSelRowChip(_ n: Int) -> some View {
+    @ViewBuilder private func buildGridSelRowChip(_ n: Int, height: CGFloat = 28) -> some View {
         let cid = buildRowColour(n)
         let tint = cid.flatMap { colourColor($0) }
         let aimed = buildGridSelArrivalRow == n
         RoundedRectangle(cornerRadius: 5).fill(aimed ? (tint ?? buildCyan) : (cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
-            .frame(height: 28)
+            .frame(height: height)
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(aimed ? Color.white : (tint ?? buildEdge), lineWidth: aimed ? 2 : 1))
             .overlay { if cid == nil { RoundedRectangle(cornerRadius: 5).stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(buildEdge) } }
-            .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(aimed ? .black.opacity(0.75) : (tint ?? .white.opacity(0.7))))
+            .overlay(Text("\(n + 1)").font(.system(size: min(13, height * 0.4), weight: .heavy, design: .monospaced)).foregroundColor(aimed ? .black.opacity(0.75) : (tint ?? .white.opacity(0.7))))
             .contentShape(Rectangle())
             .onTapGesture { buildGridSelAimRow(n) }                       // TAP = aim (target + audition through its door)
             .onLongPressGesture(minimumDuration: 0.35) { buildGridSelCommit(to: n) }   // HOLD = overwrite that part
@@ -5122,59 +5116,6 @@ extension DiagView {
         if buildGridSelSel != nil { buildPublishScene() }
     }
     // The selected chain as compact read-only processor boxes (the transient gsAud machine, minus the register-home transpose).
-    @ViewBuilder private func buildGridSelChainBoxes(width: CGFloat) -> some View {
-        let chain = (buildColourReg[buildGridSelAudID] ?? []).filter { !buildIsEmptySlot($0) && $0.type != .transpose }
-        let cols = 4, gap: CGFloat = 3
-        let bw = (width - gap * CGFloat(cols - 1)) / CGFloat(cols)
-        let rows = max(1, (min(chain.count, 8) + cols - 1) / cols)
-        VStack(alignment: .leading, spacing: gap) {
-            ForEach(0..<rows, id: \.self) { r in
-                HStack(spacing: gap) {
-                    ForEach(0..<cols, id: \.self) { c in
-                        let idx = r * cols + c
-                        if idx < min(chain.count, 8) {
-                            Text(buildProcLabel(chain[idx])).font(.system(size: 8, weight: .heavy, design: .monospaced))
-                                .foregroundColor(.black).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 2)
-                                .frame(width: bw, height: 22)
-                                .background(RoundedRectangle(cornerRadius: 4).fill(buildCyan.opacity(0.85)))
-                        } else { Color.clear.frame(width: bw, height: 22) }
-                    }
-                }
-            }
-            if chain.isEmpty { Text("no machine — a live wire").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim) }
-        }.frame(width: width, alignment: .leading)
-    }
-    // MIDI IN / MIDI OUT for the AIMED part — reuse the main-page two-line chip; editing sets that part's door/wire + re-auditions.
-    @ViewBuilder private func buildGridSelReceiverRow(width: CGFloat) -> some View {
-        HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { i in
-                let on = buildGridSelArrivalRow.map { buildRowReceiverResolved($0) == i } ?? (buildSelReceiver == i)
-                buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on) { buildGridSelSetReceiver(i) }
-            }
-        }.frame(width: width)
-    }
-    @ViewBuilder private func buildGridSelEmitterRow(width: CGFloat) -> some View {
-        HStack(spacing: 4) {
-            ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
-                let on = buildGridSelArrivalRow.map { buildRowEmittersResolved($0).contains(b) } ?? buildPartEmitters.contains(b)
-                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on) { buildGridSelToggleEmitter(b) }
-            }
-        }.frame(width: width)
-    }
-    private func buildGridSelSetReceiver(_ i: Int) {
-        if let r = buildGridSelArrivalRow, r < buildRowReceiver.count { buildRowReceiver[r] = i }
-        buildSelReceiver = i; ddStickyReceiver = i
-        receivers = au?.uiReceivers() ?? receivers
-        if buildGridSelSel != nil { buildPublishScene() }                 // re-audition through the new door
-    }
-    private func buildGridSelToggleEmitter(_ b: Bus) {
-        guard let r = buildGridSelArrivalRow, r < buildRowEmitters.count else { return }
-        var buses = buildRowEmittersResolved(r)
-        if buses.contains(b) { buses.remove(b) } else { buses.insert(b) }
-        if buses.isEmpty { buses = [b] }
-        buildRowEmitters[r] = buses; ddStickyBuses = buses
-        if buildGridSelSel != nil { buildPublishScene() }
-    }
 }
 
 // One note of a GRID SELECTOR chain's piano-roll fingerprint — normalized 0…1 (x = time, y = pitch, w = gate).
