@@ -331,6 +331,12 @@ struct DiagView: View {
     @State var buildStageEyeDoor = -1                         // the door the eye watches (set on open) — drives the INPUT-onset accumulation below
     @State var buildEyeInRoll: [OutMark] = []                 // §4: INPUT onsets drifting in the eye's top lane (eye-open only)
     @State var buildEyeInPrev: Set<Int> = []                  // previous held set at the watched door (onset diffing)
+    // §1 IN-STRIP DEBOUNCE: don't flash "nothing held" between notes — hold the state for a full PASS (8 steps when
+    // playing, else ~0.8s) after the last input. Per door; the strip shows the sticky silhouette during the grace.
+    @State var buildInSeenStep: [Int] = [-1, -1, -1, -1]      // absoluteStep when each door last had input
+    @State var buildInLastHeldAt: [Date?] = [nil, nil, nil, nil]
+    @State var buildInSticky: [[Int]] = [[], [], [], []]      // last non-empty held set per door (shown dimmed during the grace)
+    @State var buildInGrace: [Bool] = [false, false, false, false]   // within one pass of the last input → suppress the teach text
     @State var buildLastEditAt: Date? = nil                   // idea 24 TOUCH-TO-DIFF: when the editor's chain last changed
     @State var buildEditStartedAt: Date? = nil                // the START of the current edit gesture (marks born after this = the NEW behaviour)
     @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
@@ -864,6 +870,20 @@ struct DiagView: View {
                     if llen != recvReplayLen { recvReplayLen = llen }
                 }
                 recvHeldNotes = notes   // IN strip / config roll read this
+                // §1 IN-STRIP DEBOUNCE (editor only): hold the "has input" state for a full PASS after the last note, so the
+                // teach text never flashes on note-off. By STEP when playing (8 steps = one pass) · by ~0.8s wall-clock else.
+                if editorOpen {
+                    for i in 0..<4 {
+                        if !notes[i].isEmpty {
+                            buildInSeenStep[i] = nd.absoluteStep; buildInLastHeldAt[i] = mnow
+                            buildInSticky[i] = notes[i].map { Int($0) }; buildInGrace[i] = true
+                        } else {
+                            let byStep = nd.playing && buildInSeenStep[i] >= 0 && (nd.absoluteStep - buildInSeenStep[i]) < 8
+                            let byClock = buildInLastHeldAt[i].map { mnow.timeIntervalSince($0) < 0.8 } ?? false
+                            buildInGrace[i] = byStep || byClock
+                        }
+                    }
+                }
             } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) || !recvReplayRoll.allSatisfy({ $0.isEmpty }) || !recvHeldNotes.allSatisfy({ $0.isEmpty }) {
                 recvInputRoll = [[], [], [], []]; recvHeldNotes = [[], [], [], []]   // sheet+editor closed → drop the marks
                 recvReplayRoll = [[], [], [], []]; recvReplayLen = [0, 0, 0, 0]

@@ -4162,34 +4162,56 @@ extension DiagView {
     // play at INPUT A"), so silence explains itself instead of reading as breakage (the spec's §7 teach-in-place law).
     // OUT = a live mini-roll of what the plugin emits (the processor's effect made visible). v1: OUT aggregates the whole
     // board — during a chain audition (part stopped) that IS the chain's output. Tap-to-expand (the §4 STAGE EYE) is later.
+    // Is the EDITED cell the one actually sounding right now? In "PLAY THIS MIDI CHAIN" the OUT IS this chain (true). In
+    // "PLAY THIS PART" it's only this cell when the edited colour's rung is the active one under the playhead — otherwise
+    // the OUT strip is showing OTHER cells of the part, so we say so + dim it (idea 24 follow-up, Paul 2026-08-25).
+    private var buildTruthOutContext: (label: String, live: Bool) {
+        switch buildDisplayVoice {
+        case .chain: return ("this chain", true)
+        case .part:
+            let r = buildSelectedRow
+            let sounding = d.playing && r != nil && d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == r
+            return (sounding ? "this cell — live" : "part — not this cell", sounding)
+        case .none: return ("press ▶ to hear it", false)
+        }
+    }
     @ViewBuilder private func buildTruthStrips() -> some View {
         let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         let held = (door >= 0 && door < recvHeldNotes.count) ? recvHeldNotes[door].map { Int($0) } : []
+        let inGrace = door >= 0 && door < buildInGrace.count && buildInGrace[door]
+        let sticky = (door >= 0 && door < buildInSticky.count) ? buildInSticky[door] : []
         let letter = (door >= 0 && door < 4) ? ["A", "B", "C", "D"][door] : "A"
         let hue = buildSelHue
+        let out = buildTruthOutContext
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Text("IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 8, weight: .heavy)).foregroundColor(buildDim.opacity(0.7))
-                }
-                if held.isEmpty {
-                    Text("nothing held — LATCH or play at INPUT \(letter)")
+                buildStripLabel("IN")
+                if !held.isEmpty {
+                    buildInKeyboard(held, hue: hue)                         // live input → lit
+                } else if inGrace {
+                    buildInKeyboard(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
+                } else {
+                    Text("nothing held — LATCH or play at INPUT \(letter)")  // truly empty for a whole pass
                         .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85))
                         .lineLimit(2).minimumScaleFactor(0.8).frame(height: 30, alignment: .leading)
-                } else {
-                    buildInKeyboard(held, hue: hue)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }   // tap → the STAGE EYE (§4)
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Text("OUT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 8, weight: .heavy)).foregroundColor(buildDim.opacity(0.7))
+                HStack(spacing: 6) {
+                    buildStripLabel("OUT")
+                    Text(out.label).font(.system(size: 9, weight: .heavy, design: .monospaced))   // §2: what's driving OUT right now
+                        .foregroundColor(out.live ? hue.opacity(0.9) : buildDim).lineLimit(1)
                 }
-                buildOutStrip(hue: hue)
+                buildOutStrip(hue: hue).opacity(out.live ? 1 : 0.4)        // §2: dim when the OUT isn't this cell
             }.frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }
+        }
+    }
+    private func buildStripLabel(_ t: String) -> some View {
+        HStack(spacing: 4) {
+            Text(t).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+            Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 8, weight: .heavy)).foregroundColor(buildDim.opacity(0.7))
         }
     }
     private func buildOpenStageEye() {
@@ -4227,11 +4249,11 @@ extension DiagView {
                         }.buttonStyle(.plain)
                     }
                     // three strata, one shared pitch axis (top+bottom); the mechanism sits between
-                    buildEyeLane("INPUT — what arrives", empty: held.isEmpty ? "nothing held — LATCH or play at INPUT \(letter)" : nil) {
+                    buildEyeLane("INPUT — what arrives", empty: (held.isEmpty && !(door >= 0 && door < buildInGrace.count && buildInGrace[door])) ? "nothing held — LATCH or play at INPUT \(letter)" : nil) {
                         buildEyeRoll(buildEyeInRoll, hue: hue)
                     }
                     buildEyeLane("MECHANISM — the \(buildProcLabel(proc))", empty: nil) {
-                        buildEyeMechanism(proc, hue: hue)
+                        buildEyeMechanism(proc, poolN: held.isEmpty ? 3 : held.count, hue: hue)
                     }
                     buildEyeLane("OUTPUT — what leaves", empty: buildOutRoll.isEmpty && buildEditStartedAt == nil ? "—" : nil) {
                         buildEyeRoll(buildOutRoll, hue: hue, editStart: buildEditStartedAt)   // TOUCH-TO-DIFF (idea 24)
@@ -4286,12 +4308,17 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(hue.opacity(glow), lineWidth: 2))
         }
     }
-    // The MECHANISM lane: the machine drawn live + read-only, with a position light on the current step. EUCLID draws its
-    // pulse pattern (Paul's self-explaining example); every other type shows the 8-step grid with the live column lit.
-    @ViewBuilder private func buildEyeMechanism(_ proc: ProcessorSlot, hue: Color) -> some View {
+    // The MECHANISM lane: the machine drawn live + read-only, with a position light on where it is now. EUCLID draws its
+    // pulse pattern; ARP draws its note-WALK contour (up/down/triangle/scatter — self-explaining); every other type shows
+    // the generic 8-step position lane (bespoke per-type art is the v2 rollout — Paul 2026-08-25).
+    @ViewBuilder private func buildEyeMechanism(_ proc: ProcessorSlot, poolN: Int, hue: Color) -> some View {
+        if proc.type == .arp { buildEyeArp(proc, poolN: poolN, hue: hue) }
+        else { buildEyeStepLane(proc, hue: hue) }
+    }
+    // EUCLID pulses (lit dots on the hit steps) · everything else = the 8-column position lane.
+    private func buildEyeStepLane(_ proc: ProcessorSlot, hue: Color) -> some View {
         let col = (d.playing && d.effColumn >= 0) ? d.effColumn % 8 : -1
-        let steps: Int
-        let pulses: [Bool]
+        let steps: Int, pulses: [Bool]
         if proc.type == .euclid {
             let n = max(2, min(16, proc.params.euclidSteps ?? 8))
             let k = max(0, min(n, proc.params.euclidPulses ?? 5))
@@ -4305,12 +4332,50 @@ extension DiagView {
                 let cell = CGRect(x: x + 2, y: 6, width: max(2, cw - 4), height: size.height - 12)
                 let isPulse = proc.type == .euclid ? (s < pulses.count && pulses[s]) : true
                 ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(.white.opacity(isPulse ? 0.14 : 0.05)))
-                if s == liveStep {                                                        // the position light
+                if s == liveStep {
                     ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(hue.opacity(isPulse ? 0.9 : 0.4)))
                 } else if proc.type == .euclid && isPulse {
                     ctx.fill(Path(ellipseIn: CGRect(x: x + cw / 2 - 4, y: size.height / 2 - 4, width: 8, height: 8)), with: .color(hue.opacity(0.6)))
                 }
             }
+        }
+    }
+    // ARP note-WALK: the arp visits `pool × octaves` notes one per rate-tick, ordered by PATTERN. Drawn as a contour of
+    // dots (height = the pool rank it lands on) joined by faint lines — UP climbs, DOWN falls, UP-DN bounces, RANDOM
+    // scatters — with the current step lit + a rising sweep line. Reads as "an UP arp, here now", not eight blank boxes.
+    private func buildEyeArp(_ proc: ProcessorSlot, poolN: Int, hue: Color) -> some View {
+        let pat = proc.params.pattern ?? .up
+        let oct = max(1, min(4, proc.params.octaves ?? 1))
+        let cyc = min(16, max(2, max(1, poolN) * oct))
+        let ranks = (0..<cyc).map { arpRankForStep($0, cyc: cyc, pattern: pat) }
+        let rate = proc.params.rate?.beats ?? 0.25
+        let pos = (d.playing && rate > 0) ? ((Int((d.beat / rate).rounded(.down)) % cyc) + cyc) % cyc : -1
+        return Canvas { ctx, size in
+            let cw = size.width / CGFloat(cyc)
+            func pt(_ i: Int) -> CGPoint {
+                CGPoint(x: CGFloat(i) * cw + cw / 2,
+                        y: size.height - 8 - (size.height - 16) * CGFloat(ranks[i]) / CGFloat(max(1, cyc - 1)))
+            }
+            var line = Path()                                                   // the walk contour
+            for i in 0..<cyc { i == 0 ? line.move(to: pt(i)) : line.addLine(to: pt(i)) }
+            ctx.stroke(line, with: .color(hue.opacity(0.35)), lineWidth: 1.5)
+            for i in 0..<cyc {
+                let p = pt(i), live = i == pos, r: CGFloat = live ? 6 : 4
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)),
+                         with: .color(live ? hue : hue.opacity(0.55)))
+                if live { ctx.stroke(Path { $0.move(to: CGPoint(x: p.x, y: 0)); $0.addLine(to: CGPoint(x: p.x, y: size.height)) },
+                                     with: .color(.white.opacity(0.25)), lineWidth: 1) }
+            }
+        }
+    }
+    // The pool-RANK the arp lands on at step i (its note-order shape). Pure geometry — the drawing, not the exact pitch.
+    private func arpRankForStep(_ i: Int, cyc: Int, pattern: ArpPattern) -> Int {
+        guard cyc > 1 else { return 0 }
+        switch pattern {
+        case .up, .asPlayed: return i % cyc
+        case .down:          return (cyc - 1) - (i % cyc)
+        case .upDown:        let period = 2 * (cyc - 1); let j = i % period; return j < cyc ? j : period - j
+        case .random:        return Int(splitmix64Mix(UInt64(i) &+ 0x9E3779B9) % UInt64(cyc))
         }
     }
     // The IN silhouette: a compact C1–C7 keyboard (black keys fainter for orientation), held notes filled the colour hue.
