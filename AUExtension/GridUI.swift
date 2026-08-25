@@ -872,6 +872,12 @@ struct ProcessorBox: View {
         case .arp:
             heroField("PATTERN") { iconSeg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP", glyph: { i, t in arpGlyph(i, t) }) { i in
                 setParam { $0.pattern = ArpPattern.allCases[i] } } }
+            // RANDOM ANCHOR (Paul 2026-08-22): only meaningful for RANDOM — pins the first note of each cycle low/high.
+            // Sits DIRECTLY under PATTERN so the conditional chip reads with it (Paul 2026-08-25).
+            if (p.pattern ?? .up) == .random {
+                field("RANDOM ANCHOR", \.arpRandomAnchor) { seg(["OFF", "LOW", "HIGH"], sel: ["OFF", "LOW", "HIGH"][max(0, min(2, p.arpRandomAnchor ?? 0))]) { i in
+                    setParam { $0.arpRandomAnchor = i } } }
+            }
             field("SPEED", \.rate) { seg(ArpRate.allCases.map(\.rawValue), sel: p.rate?.rawValue ?? "1/16") { i in
                 setParam { $0.rate = ArpRate.allCases[i] } } }
             HStack(spacing: 8) {
@@ -884,11 +890,6 @@ struct ProcessorBox: View {
                 setParam { $0.phase = ArpPhase.allCases[i] } } }
             field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
                 slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
-            }
-            // RANDOM ANCHOR (Paul 2026-08-22): only meaningful for RANDOM — pins the first note of each cycle low/high.
-            if (p.pattern ?? .up) == .random {
-                field("RANDOM ANCHOR", \.arpRandomAnchor) { seg(["OFF", "LOW", "HIGH"], sel: ["OFF", "LOW", "HIGH"][max(0, min(2, p.arpRandomAnchor ?? 0))]) { i in
-                    setParam { $0.arpRandomAnchor = i } } }
             }
             optionsCluster([("FIT 1 BEAT", p.arpFit ?? false, { setParam { $0.arpFit = !($0.arpFit ?? false) } })])
         case .ratchet:
