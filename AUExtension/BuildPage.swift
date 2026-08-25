@@ -1532,7 +1532,7 @@ extension DiagView {
             ForEach(0..<4, id: \.self) { r in
                 HStack(spacing: gap) {
                     ForEach(0..<2, id: \.self) { c in
-                        buildProcBox(r * 2 + c, chain: chain, w: boxW, h: boxH)
+                        buildProcBox(r * 2 + c, chain: chain, w: boxW, h: boxH, gap: gap)
                     }
                 }
             }
@@ -1540,6 +1540,22 @@ extension DiagView {
         // §1 THE FLOW LINE (design 2026-08-17): the dotted thread draws ORDER (the numbers' old job) — door ┈▶ slot 0 ┈▶
         // … ┈▶ slot 7 ┈▶ wire, in chain order, with a TURN MARK at each row wrap (the boustrophedon made visible).
         .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap))
+        .coordinateSpace(name: "chainBlock")                        // DRAG-TO-REORDER: a stable space for the finger track + the floating ghost
+        .overlay(alignment: .topLeading) { buildChainDragGhost(chain: chain, boxW: boxW, boxH: boxH) }
+    }
+    // DRAG-TO-REORDER: the floating ghost of the box under the finger (drawn in the "chainBlock" space, hit-transparent).
+    @ViewBuilder private func buildChainDragGhost(chain: [ProcessorSlot], boxW: CGFloat, boxH: CGFloat) -> some View {
+        if let from = buildChainDragFrom, from < chain.count, !buildIsEmptySlot(chain[from]) {
+            Text(buildProcLabel(chain[from]))
+                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(.black)
+                .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
+                .frame(width: boxW * 0.8, height: boxH * 0.8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(buildSelHue))
+                .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
+                .position(buildChainDragLoc)
+                .allowsHitTesting(false)
+        }
     }
     private func buildChainFlowLine(boxW: CGFloat, boxH: CGFloat, gap: CGFloat) -> some View {
         Canvas { ctx, size in
@@ -1558,9 +1574,11 @@ extension DiagView {
         }
     }
 
-    @ViewBuilder private func buildProcBox(_ i: Int, chain: [ProcessorSlot], w: CGFloat, h: CGFloat) -> some View {
+    @ViewBuilder private func buildProcBox(_ i: Int, chain: [ProcessorSlot], w: CGFloat, h: CGFloat, gap: CGFloat) -> some View {
         let populated = i < chain.count && !buildIsEmptySlot(chain[i])
         let bw = w * 0.8, bh = h * 0.8                             // the button is 80% of the 2×2-cell footprint …
+        let isDragged = buildChainDragFrom == i
+        let isDropTarget = buildChainDragFrom != nil && buildChainDragFrom != i && buildChainDropTo == i
         Group {
             if populated {
                 Text(buildProcLabel(chain[i]))
@@ -1582,8 +1600,27 @@ extension DiagView {
             }
         }
         .frame(width: w, height: h)                               // … centred in the full cell footprint
+        .opacity(isDragged ? 0.3 : 1)                             // DRAG-TO-REORDER: the lifted source recedes (the ghost carries it)
+        .overlay {                                                 // … and the slot the finger is over rings cyan (where it will land)
+            if isDropTarget { RoundedRectangle(cornerRadius: 8).stroke(buildCyan, lineWidth: 3).frame(width: bw + 4, height: bh + 4) }
+        }
         .contentShape(Rectangle())
         .onTapGesture { buildExitPlaceMode(); buildPlaceMsg = nil; if populated { buildEditSlot = i } else { buildAddSlot = i } }   // fresh pop-up → clear stale PLACE feedback; box is not a play-grid row → leaves PLACE mode
+        // DRAG-TO-REORDER (Paul 2026-08-25): a populated box is a drag source — track the finger in the "chainBlock" space,
+        // ring the slot under it, and on release move the processor there (array move, chain folds in the new order). A
+        // simultaneousGesture so a plain TAP still opens the editor; a >14pt drag reorders. Empty boxes aren't sources.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 14, coordinateSpace: .named("chainBlock"))
+                .onChanged { g in
+                    guard populated else { return }
+                    buildChainDragFrom = i; buildChainDragLoc = g.location
+                    buildChainDropTo = buildChainTargetIndex(g.location, boxW: w, boxH: h, gap: gap, count: chain.count)
+                }
+                .onEnded { _ in
+                    if let from = buildChainDragFrom, let to = buildChainDropTo, from != to { buildChainMoveSlot(from: from, to: to) }
+                    buildChainDragFrom = nil; buildChainDropTo = nil
+                }
+        )
     }
 
     @ViewBuilder private func buildInputSection(castW: CGFloat) -> some View {
@@ -4496,6 +4533,20 @@ extension DiagView {
     private func buildChainSetType(_ i: Int, _ t: ProcessorType) { buildChainEditSlot(i) { $0.type = t } }
     private func buildChainRemoveSlot(_ i: Int) {                  // DELETE → leave an empty (passthrough) box, keep positions
         var c = selectedColourChain(); guard i < c.count else { return }; c[i] = buildPassthroughSlot(); buildApplyChain(c)
+    }
+    // DRAG-TO-REORDER (Paul 2026-08-25): move the processor at `from` to position `to` — an array move, so the chain
+    // folds in the new order (composeChainSet reads it in order). Colour-scoped + undoable via buildApplyChain.
+    private func buildChainMoveSlot(from: Int, to: Int) {
+        var c = selectedColourChain()
+        guard from >= 0, from < c.count, to >= 0, to < c.count, from != to else { return }
+        let s = c.remove(at: from); c.insert(s, at: to)
+        buildApplyChain(c)
+    }
+    // The 2×4 processor grid: map a finger location (in the "chainBlock" space) to the slot index under it.
+    private func buildChainTargetIndex(_ loc: CGPoint, boxW: CGFloat, boxH: CGFloat, gap: CGFloat, count: Int) -> Int {
+        let col = loc.x < (boxW + gap * 0.5) ? 0 : 1
+        let row = max(0, min(3, Int(max(0, loc.y) / (boxH + gap))))
+        return max(0, min(count - 1, row * 2 + col))
     }
     // ── THE STOREFRONT CATALOG ───────────────────────────────────────────────────────────────────────────────────
     // ONE ENGINE, MANY DOORS (design ratified by Paul 2026-08-22, AcceptanceCriteria-storefront-catalog.md):

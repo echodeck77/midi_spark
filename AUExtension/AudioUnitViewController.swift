@@ -110,6 +110,10 @@ struct DiagView: View {
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     @State var buildBypassHeld: Int? = nil      // HOLD-BYPASS A/B (idea 23): the slot momentarily bypassed while the BYPASS button is held
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
+    // DRAG-TO-REORDER the chain (Paul 2026-08-25): a custom finger-track (native .onDrag doesn't survive the AU host).
+    @State var buildChainDragFrom: Int? = nil   // the processor box being dragged (nil = no drag in flight)
+    @State var buildChainDragLoc: CGPoint = .zero   // finger location in the "chainBlock" coordinate space
+    @State var buildChainDropTo: Int? = nil     // the slot index under the finger (highlighted; committed on release)
     // PROCESSOR EDITOR transaction (Paul 2026-08-19): the colour's chain as it was when the editor OPENED, so CANCEL can
     // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.
     @State var buildEditorSnapshot: [ProcessorSlot] = []
@@ -563,7 +567,6 @@ struct DiagView: View {
     // auto-detect (user ruling 2026-07-25) — no control.
     func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
     func toggleReceiverEnabled(_ i: Int) { au?.toggleReceiverEnabled(i); receivers = au?.uiReceivers() ?? receivers }
-    func toggleReceiverBypass(_ i: Int) { au?.toggleReceiverBypass(i); receivers = au?.uiReceivers() ?? receivers }   // BYPASS toggle on the strip
     func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
     // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
     // gate is `audible = ¬muted ∧ (soloSet=∅ ∨ member)`; the whole set clears on transport stop.
