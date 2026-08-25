@@ -1982,4 +1982,27 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(glideSynthCCTime(10), 127, "long glide clamps at the ceiling")
         XCTAssertGreaterThanOrEqual(glideSynthCCTime(1.0), glideSynthCCTime(0.5), "monotonic non-decreasing")
     }
+
+    // COIN — SIZE WEIGHTS (Paul 2026-08-26 ①): a seeded weighted pick over 2·3·4·6·8; all weight on one size → always it;
+    // equal weights → every size appears; deterministic per step.
+    func testRtcCoinSizePicksByWeight() {
+        XCTAssertTrue((0..<64).allSatisfy { rtcCoinSize(step: $0, weights: [1, 0, 0, 0, 0]) == 2 }, "all weight on size 2 → always 2")
+        XCTAssertTrue((0..<64).allSatisfy { rtcCoinSize(step: $0, weights: [0, 0, 0, 0, 1]) == 8 }, "all weight on size 8 → always 8")
+        XCTAssertEqual(Set((0..<200).map { rtcCoinSize(step: $0, weights: [1, 1, 1, 1, 1]) }), [2, 3, 4, 6, 8], "equal weights → every size appears")
+        XCTAssertEqual(rtcCoinSize(step: 5, weights: [1, 2, 3, 0, 0]), rtcCoinSize(step: 5, weights: [1, 2, 3, 0, 0]), "deterministic")
+    }
+    // COIN — FIRE GATE (Paul 2026-08-26 ②③④): fast path == rtcCoinRatchets; GAP spaces fires; QUOTA caps per row; velocity scales odds.
+    func testRtcCoinFiresGapQuotaAndVelocity() {
+        for s in 0..<64 { XCTAssertEqual(rtcCoinFires(step: s, chance: 0.5, gap: 0, quota: 0, velFactor: 1), rtcCoinRatchets(step: s, chance: 0.5), "fast path byte-identical") }
+        // GAP 2, chance 1 (every raw step fires) → fires ≥3 steps apart within a row
+        var last = -100
+        for s in 0..<8 where rtcCoinFires(step: s, chance: 1.0, gap: 2, quota: 0, velFactor: 1) { XCTAssertGreaterThan(s - last, 2, "gap keeps fires >2 apart"); last = s }
+        // QUOTA 3, chance 1 → exactly 3 fires per 8-step row
+        XCTAssertEqual((0..<8).filter { rtcCoinFires(step: $0, chance: 1.0, gap: 0, quota: 3, velFactor: 1) }.count, 3, "quota caps fires per row")
+        // VELOCITY: factor 0 → never fires; lower factor → fewer fires
+        XCTAssertFalse((0..<64).contains { rtcCoinFires(step: $0, chance: 0.5, gap: 0, quota: 0, velFactor: 0) }, "silent chord never fires")
+        let hi = (0..<300).filter { rtcCoinFires(step: $0, chance: 0.5, gap: 0, quota: 0, velFactor: 1.0) }.count
+        let lo = (0..<300).filter { rtcCoinFires(step: $0, chance: 0.5, gap: 0, quota: 0, velFactor: 0.3) }.count
+        XCTAssertLessThan(lo, hi, "lower velocity → fewer fires")
+    }
 }

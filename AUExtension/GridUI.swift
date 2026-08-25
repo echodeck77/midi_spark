@@ -893,8 +893,21 @@ struct ProcessorBox: View {
                 Text("each step rolls: ratchet (a burst) or plain (one hit)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
                 heroField("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%") {
                     slider(bind(p.rtcChance ?? 0.5) { v in setParam { $0.rtcChance = v } }, in: 0...1) }
-                row2({ field("SIZE MIN", \.rtcCountLo) { numPair(p.rtcCountLo ?? 2, 1...8) { v in setParam { $0.rtcCountLo = v; if ($0.rtcCountHi ?? 4) < v { $0.rtcCountHi = v } } } } },
-                     { field("SIZE MAX", \.rtcCountHi) { numPair(p.rtcCountHi ?? 4, 1...8) { v in setParam { $0.rtcCountHi = v; if ($0.rtcCountLo ?? 2) > v { $0.rtcCountLo = v } } } } })
+                // ① SIZE WEIGHTS (Paul 2026-08-26) — the drawn distribution over roll sizes 2·3·4·6·8 (replaces SIZE MIN/MAX).
+                let defW: [Int] = rtcCoinSizes.map { ((p.rtcCountLo ?? 2)...(p.rtcCountHi ?? 4)).contains($0) ? 4 : 0 }
+                field("SIZE WEIGHTS — draw each roll size's odds", \.rtcSizeWeights) {
+                    VStack(spacing: 3) {
+                        sliderLane(p.rtcSizeWeights ?? defW, count: 5, max: 8) { i, v in
+                            setParam { var a = $0.rtcSizeWeights ?? defW; while a.count < 5 { a.append(0) }; a[i] = v; $0.rtcSizeWeights = a } }
+                            .frame(height: 44)
+                        HStack(spacing: 0) { ForEach(rtcCoinSizes, id: \.self) { s in
+                            Text("\(s)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).frame(maxWidth: .infinity) } }
+                    }
+                }
+                // ②③④ REFIRE GAP · QUOTA · ODDS FROM (the phrasing / density / performance couplings)
+                row2({ field("REFIRE GAP — quiet steps after a fire", \.rtcGap) { numPair(p.rtcGap ?? 0, 0...4) { v in setParam { $0.rtcGap = v } } } },
+                     { field("QUOTA — rough fires per row", \.rtcQuota) { seg(["FREE", "~2", "~3", "~4"], sel: ["FREE", "~2", "~3", "~4"][[0, 2, 3, 4].firstIndex(of: p.rtcQuota ?? 0) ?? 0]) { i in setParam { $0.rtcQuota = [0, 2, 3, 4][i] } } } })
+                field("ODDS FROM", \.rtcOddsVel) { seg(["FIXED", "VELOCITY"], sel: (p.rtcOddsVel ?? false) ? "VELOCITY" : "FIXED") { i in setParam { $0.rtcOddsVel = (i == 1) } } }
             } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
                 heroField("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
                     stateMatrixRadio([0, 2, 3, 4],

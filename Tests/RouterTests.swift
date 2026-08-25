@@ -2858,6 +2858,27 @@ final class RouterTests: XCTestCase {
 
     // MODE ROW: the driver-not-tail fold also covers RATCHET. [ratchet → closed passgate] gates every re-strike →
     // silence; [ratchet → open passgate] re-strikes as a plain ratchet (the gate is transparent).
+    // COIN — SHAPING THE DICE (Paul 2026-08-26): SIZE WEIGHTS change the audible burst length (size-8 bursts more notes
+    // than size-2); QUOTA caps the fires per row; replay-exact. Proves the engine reads the new fields end-to-end.
+    func testRatchetCoinSizeWeightsAndQuota() {
+        func onCount(weights: [Int]? = nil, quota: Int? = nil) -> Int {
+            var c = Colour(colourID: "gold", type: .ratchet)
+            c.paramsA.rtcMode = .coin; c.paramsA.rtcChance = 1.0     // every step bursts
+            if let weights { c.paramsA.rtcSizeWeights = weights }
+            if let quota { c.paramsA.rtcQuota = quota }
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            // across the ROW so consecutive columns (= consecutive coin STEPS) fire — exercises quota-per-row
+            let b = box(colours: cs) { s in for col in 0..<8 { s.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 8, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let small = onCount(weights: [1, 0, 0, 0, 0])   // always size 2
+        let big = onCount(weights: [0, 0, 0, 0, 1])     // always size 8
+        XCTAssertGreaterThan(big, small, "size-8 weights burst more notes than size-2")
+        XCTAssertEqual(small, onCount(weights: [1, 0, 0, 0, 0]), "replay-exact")
+        XCTAssertLessThan(onCount(quota: 2), onCount(), "QUOTA ~2 fires fewer bursts than FREE")
+    }
     func testRatchetThenClosedPassgateIsSilent() {
         let cs = arpColours()
         let rat = ProcessorSlot(type: .ratchet)

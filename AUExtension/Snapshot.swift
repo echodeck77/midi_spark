@@ -177,6 +177,10 @@ struct SnapParams {
     var rtcChance: Double = 0.5
     var rtcCountLo: Int = 2
     var rtcCountHi: Int = 4
+    var rtcSizeWeights: [Int] = []   // COIN ① (Paul 2026-08-26): weights for 2·3·4·6·8; EMPTY ⇒ fall back to LO/HI (byte-identical)
+    var rtcGap: Int = 0              // COIN ② refire gap (0 = off) · ③ quota (0 = FREE) · ④ odds-from-velocity
+    var rtcQuota: Int = 0
+    var rtcOddsVel: Bool = false
     var rtcSlices: [Int] = [2, 0, 2, 0, 2, 0, 2, 0]   // PATTERN: per-slice counts (0 = plain)
     var rtcRateBeats: Double = 0.5                    // PATTERN: slice width in beats (from rtcRate)
     var rtcRotate: Int = 0

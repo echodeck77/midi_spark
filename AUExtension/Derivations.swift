@@ -819,6 +819,42 @@ func rtcCoinCount(step: Int, lo: Int, hi: Int) -> Int {
     let x = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x2545F4914F6CDD1D &+ 0x1234567898765432)
     return l + Int(x % UInt64(h - l + 1))
 }
+/// COIN — the FIRE decision (Paul 2026-08-26 ②③④): does this step ratchet, after REFIRE GAP + QUOTA + velocity-odds?
+/// FAST PATH: gap=0 & quota=0 ⇒ `rtcCoinRatchets(step, chance·velFactor)` (byte-identical when velFactor==1). Otherwise a
+/// bounded, deterministic SCAN of the coin from the ROW START (the 8-step pass) — replay-exact, NO accumulated state
+/// ("derived, never accumulated"). GAP: a fire suppresses the next N steps. QUOTA: at most `quota` fires per row.
+/// v1: gap + quota reset per 8-step row (a fire on step 7 doesn't reach step 8 — a negligible boundary edge).
+@inline(__always)
+func rtcCoinFires(step s: Int, chance: Double, gap: Int, quota: Int, velFactor: Double) -> Bool {
+    let eff = chance * velFactor
+    if gap <= 0 && quota <= 0 { return rtcCoinRatchets(step: s, chance: eff) }
+    let rowStart = (s >= 0 ? (s / 8) : ((s - 7) / 8)) * 8   // floor-div to the row origin (handles negative steps)
+    var lastFire = Int.min / 2, fired = 0
+    var t = rowStart
+    while t <= s {
+        var f = rtcCoinRatchets(step: t, chance: eff)
+        if gap > 0 && t - lastFire <= gap { f = false }          // REFIRE GAP
+        if quota > 0 && fired >= quota { f = false }             // QUOTA cap
+        if f { lastFire = t; fired += 1 }
+        if t == s { return f }
+        t += 1
+    }
+    return false
+}
+/// COIN — SIZE WEIGHTS (Paul 2026-08-26 ①): the roll SIZES the dice can pick, and their odds (the drawn distribution).
+let rtcCoinSizes = [2, 3, 4, 6, 8]
+/// A seeded WEIGHTED pick over 2·3·4·6·8 by `weights` (bar heights). Deterministic per step (same salt as rtcCoinCount).
+/// An empty/all-zero weight vector never reaches here (the engine falls back to LO/HI); guarded anyway.
+@inline(__always)
+func rtcCoinSize(step: Int, weights: [Int]) -> Int {
+    let n = min(rtcCoinSizes.count, weights.count)
+    var total = 0; for i in 0..<n { total += max(0, weights[i]) }
+    guard total > 0 else { return rtcCoinSizes[0] }
+    let x = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x2545F4914F6CDD1D &+ 0x1234567898765432)
+    var pick = Int(x % UInt64(total))
+    for i in 0..<n { pick -= max(0, weights[i]); if pick < 0 { return rtcCoinSizes[i] } }
+    return rtcCoinSizes[n - 1]
+}
 
 // MARK: - WEAVE (Paul 2026-08-07): a rank-clocked polyrhythm driver — each rank ticks on its own clock
 

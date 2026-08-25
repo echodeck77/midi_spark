@@ -247,6 +247,12 @@ struct ColourParams: Codable, Equatable {
     var rtcChance: Double? = 0.5               // COIN: P(ratchet) per step (else plain single hit)
     var rtcCountLo: Int? = 2                   // COIN: the burst count range low (when it ratchets)
     var rtcCountHi: Int? = 4                   // COIN: the burst count range high
+    // COIN — SHAPING THE DICE (Paul 2026-08-26, `SPEC-ratchet-coin-randomness`): ① SIZE WEIGHTS over 2·3·4·6·8 (nil/empty
+    // ⇒ fall back to LO/HI, byte-identical) · ② REFIRE GAP 0–4 steps · ③ QUOTA 0=FREE|2|3|4 per row · ④ ODDS FROM velocity.
+    var rtcSizeWeights: [Int]? = nil           // ① 5 weights for sizes 2·3·4·6·8 (the drawn distribution); nil ⇒ LO/HI uniform
+    var rtcGap: Int? = nil                     // ② after a fire, suppress for N steps (0…4; nil/0 ⇒ off)
+    var rtcQuota: Int? = nil                   // ③ rough fires-per-row budget (0 = FREE · 2/3/4; nil/0 ⇒ off)
+    var rtcOddsVel: Bool? = nil                // ④ fire-odds scale with the incoming note velocity (nil/false ⇒ FIXED)
     var rtcSlices: [Int]? = [2, 0, 2, 0, 2, 0, 2, 0]   // PATTERN: 8 per-slice counts (0 = plain single · 2/3/4 = roll)
     var rtcRate: ArpRate? = .r1_8              // PATTERN: slice rate (slices per window, walks the bar)
     var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)

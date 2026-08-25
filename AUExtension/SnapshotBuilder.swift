@@ -374,6 +374,11 @@ enum SnapshotBuilder {
         if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
         if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }
         if let v = p.rtcCountHi { out.rtcCountHi = clamp(v, out.rtcCountLo, 8) }
+        // COIN — SHAPING THE DICE (Paul 2026-08-26): weights kept only if any is >0 (else EMPTY ⇒ LO/HI fallback, byte-identical)
+        if let w = p.rtcSizeWeights, w.contains(where: { $0 > 0 }) { out.rtcSizeWeights = w.map { max(0, min(100, $0)) } }
+        if let v = p.rtcGap { out.rtcGap = clamp(v, 0, 4) }
+        if let v = p.rtcQuota { out.rtcQuota = clamp(v, 0, 4) }
+        if let v = p.rtcOddsVel { out.rtcOddsVel = v }
         if let v = p.rtcSlices { var s = v; while s.count < 8 { s.append(0) }; out.rtcSlices = Array(s.prefix(8)).map { clamp($0, 0, 8) } }
         if let v = p.rtcRate { out.rtcRateBeats = max(0.03125, v.beats) }
         if let v = p.rtcRotate { out.rtcRotate = ((v % 8) + 8) % 8 }

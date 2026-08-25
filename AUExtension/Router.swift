@@ -3505,6 +3505,14 @@ final class Router {
         }
     }
 
+    /// COIN — ODDS FROM VELOCITY (Paul 2026-08-26 ④): the representative velocity of the held pool (its PEAK, 0…1) — play
+    /// harder, more rolls. 1.0 (unity) when the pool is empty (no scaling). Bounded scan of the small held pool; no alloc.
+    private func coinVelFactor(_ pool: NotePool) -> Double {
+        let n = pool.srcCount(filter: 0); guard n > 0 else { return 1.0 }
+        var peak: UInt8 = 0
+        for k in 0..<n { let v = pool.velocity(pool.srcAscending(k, filter: 0)); if v > peak { peak = v } }
+        return peak == 0 ? 1.0 : Double(peak) / 127.0
+    }
     /// RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato (0.6), velocity ramp.
     /// Not an arp (no index cycling) — every stab is the pool (or the parent's sounding note, when referenced).
     private func emitRatchetRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
@@ -3585,7 +3593,11 @@ final class Router {
             let colEnd = col + S
             if mode == .coin {
                 let step = Int((col / S).rounded())
-                let count = rtcCoinRatchets(step: step, chance: p.rtcChance) ? rtcCoinCount(step: step, lo: p.rtcCountLo, hi: p.rtcCountHi) : 1
+                // COIN — SHAPING THE DICE (Paul 2026-08-26): ①④ fire decision (gap/quota/velocity-gated), then ① size pick.
+                let ratchets = rtcCoinFires(step: step, chance: p.rtcChance, gap: p.rtcGap, quota: p.rtcQuota,
+                                            velFactor: p.rtcOddsVel ? coinVelFactor(pool) : 1.0)
+                let count = ratchets ? (p.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: p.rtcCountLo, hi: p.rtcCountHi)
+                                                                 : rtcCoinSize(step: step, weights: p.rtcSizeWeights)) : 1
                 let sub = S / Double(max(1, count))
                 for j in 0..<count {
                     let tau = col + Double(j) * sub
