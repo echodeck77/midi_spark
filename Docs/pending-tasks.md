@@ -79,7 +79,20 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     (e) LAYOUT — sticky-hero (27) · section-anchor chips (28) · conditional-animate-in (25) · hero-glyph thumbnails (32);
     (f) LANE gestures — pinch-scale (19) · header-mute (20) · result-ghosting (17);
     (g) hold-to-accelerate (14, low value now — scrub+overlay cover it).
-3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) ·
+3. **NEW FEATURES ON THE SUBSTRATE:** ✅ **THE E-BRUSH — DONE (2026-08-25, `a17efe0`):** `EBrushButton` (ε + K/rotate
+   popover) wired into the SHARED widgets — `sliderLane` (CHANCE·STEP MOD·TIMING), `stateMatrixRadio` (RATCHET·BURST·
+   TUTTI·LENGTH), the MUTE matrix — so euclidean fills land on every grid; UI-only. ✅ **EUCLID LINES MODEL — DONE
+   (2026-08-25, `85d715a`):** `EuclidLine`{target·K·N·rotate·invert} + `euclidLines: [EuclidLine]?` (nil ⇒ single euclid,
+   byte-identical); engine `runEuclidLine` loop (per-line N = polyrhythm; note-target via strikeChord onlyIndex); UI = the
+   LINES STACK + ADD LINE. +1 test, fuzz. Both were `SPEC-euclid-variations §10/§5`. STILL OPEN: per-line PICK + a per-line
+   die (v1b). ✅ **TAP — DONE (2026-08-25, `2621dd3`):** the mid-chain SEND — `ProcessorType.tap` (note-transparent, cellMode
+   `.identity`); a fold-loop special case in `emitDriverNote` mirrors each note to the TAP wire (LEVEL scale · TO THIS/A/B/C/D ·
+   MUTE) via emitArtic, then passes `cur` through; +1 test, fuzz (`AcceptanceCriteria-tap-processor`). STILL OPEN: TAP hold-path.
+   ✅ **ROTATE RETIRE — DONE (2026-08-25):** part 1 (◀ n ▶ nudge pair) already shipped in the presentation pass; part 2 = the
+   `RotateOnDrag` modifier — horizontal drag on the pattern MATRIX rotates by direct manipulation (~26px/step, wrap, taps
+   still set), wired to RATCHET·BURST·TUTTI·LENGTH. The ◀▶ pair stays as the visible hint + precise control. sliderLane cases
+   (CHANCE·STEP MOD·TIMING) keep the ◀▶ pair only (drag conflicts with the vertical draw gesture — flagged); DEST matrix has
+   no rest/rotate. UI-only, device-eye owed. ·
    **✅ RIFF STAGE 1 — DONE (2026-08-26): the rank-stencil ENGINE + editor** (`ProcessorType.riff`, a DRIVER; pure
    `riffResolve`/`riffNote` — rank→sorted-pool note, WRAP fold/clamp/wrap, oct, rest; `emitRiffRow` on the arp tick
    lifecycle, composes as a chain driver; the RANK MATRIX editor + STEPS/RATE/WRAP; MELODY card; +2 tests + fuzz). RIFF

@@ -918,7 +918,8 @@ struct ProcessorBox: View {
                 heroField("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
                     stateMatrixRadio([0, 2, 3, 4],
                         header: { v in AnyView(Text(v <= 0 ? "·" : "\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
-                        eFill: true, selected: { i in rtcSliceAt(p.rtcSlices, i) },
+                        eFill: true, onRotate: { d in setParam { $0.rtcRotate = ((($0.rtcRotate ?? 0) + d) % 8 + 8) % 8 } },
+                        selected: { i in rtcSliceAt(p.rtcSlices, i) },
                         set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 0, count: 8); while s.count < 8 { s.append(0) }; s[i] = v; $0.rtcSlices = s } })
                 }
                 field("GRID — slices per bar", \.rtcRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rtcRate ?? .r1_8).rawValue) { i in
@@ -1066,7 +1067,8 @@ struct ProcessorBox: View {
                 field("BURST SHAPE PER STEP — tap a cell  (B launch · C carry · R rest)") {
                     stateMatrixRadio(BurstSlice.allCases,
                         header: { st in AnyView(Text(burstSliceName(st)).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 46, alignment: .leading)) },
-                        eFill: true, selected: { i in let s = p.burstSlices ?? defBurst; return i < s.count ? s[i] : .rest },
+                        eFill: true, onRotate: { d in setParam { $0.burstRotate = ((($0.burstRotate ?? 0) + d) % 8 + 8) % 8 } },
+                        selected: { i in let s = p.burstSlices ?? defBurst; return i < s.count ? s[i] : .rest },
                         set: { i, st in setParam { var s2 = $0.burstSlices ?? defBurst; while s2.count < 8 { s2.append(.rest) }; s2[i] = st; $0.burstSlices = s2 } })
                 }
                 field("ROTATE", \.burstRotate) { numPair(p.burstRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.burstRotate = v } } }
@@ -1174,7 +1176,8 @@ struct ProcessorBox: View {
                             tuttiShapeIcon(st, tint: accent).frame(width: 16)
                             Text(st.rawValue).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
                         }) },
-                        eFill: true, selected: { i in tuttiSliceAt(p.tuttiSlices, i) },
+                        eFill: true, onRotate: { d in setParam { $0.tuttiRotate = ((($0.tuttiRotate ?? 0) + d) % 8 + 8) % 8 } },
+                        selected: { i in tuttiSliceAt(p.tuttiSlices, i) },
                         set: { i, st in setParam { var s = $0.tuttiSlices ?? Array(repeating: .all, count: 8); while s.count < 8 { s.append(.all) }; s[i] = st; $0.tuttiSlices = s } })
                 }
                 field("GRID — how many slices per bar", \.tuttiRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in
@@ -1190,7 +1193,8 @@ struct ProcessorBox: View {
                         lenGlyph(st, tint: accent).frame(width: 20)
                         Text(st.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
                     }) },
-                    eFill: true, selected: { i in lenSliceAt(p.lenSlices, i) },
+                    eFill: true, onRotate: { d in setParam { $0.lenRotate = ((($0.lenRotate ?? 0) + d) % 8 + 8) % 8 } },
+                    selected: { i in lenSliceAt(p.lenSlices, i) },
                     set: { i, st in setParam { var s = $0.lenSlices ?? Array(repeating: .pass, count: 8); while s.count < 8 { s.append(.pass) }; s[i] = st; $0.lenSlices = s } })
             }
             row2({ field("SHORT =  \(Int((p.lenShort ?? 0.4) * 100))%", \.lenShort) {
@@ -1419,10 +1423,10 @@ struct ProcessorBox: View {
     /// brush, no dead first touch). Row headers (left edge) carry the option's glyph + name — permanent and positional;
     /// the whole pattern reads as geometry. One reusable widget for LENGTH · RATCHET PATTERN · TUTTI PATTERN · … .
     @ViewBuilder private func stateMatrixRadio<Opt: Hashable>(
-        _ options: [Opt], header: @escaping (Opt) -> AnyView, eFill: Bool = false,
+        _ options: [Opt], header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
         selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
     ) -> some View {
-        VStack(spacing: 3) {
+        let grid = VStack(spacing: 3) {
             ForEach(Array(options.enumerated()), id: \.offset) { (_, opt) in
                 HStack(spacing: 3) {
                     if eFill { EBrushButton(steps: 8, accent: accent) { pat in for s in 0..<8 { set(s, pat[s] ? opt : options[0]) } } }   // §5 E-BRUSH: fill this state on K columns, rest = the default (options[0])
@@ -1439,6 +1443,7 @@ struct ProcessorBox: View {
                 }
             }
         }
+        if let onRotate { grid.modifier(RotateOnDrag(onRotate: onRotate)) } else { grid }   // ROTATE §2: drag the matrix to rotate
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.
 
@@ -1793,6 +1798,20 @@ private struct EBrushButton: View {
                     }.buttonStyle(.plain)
                 }.padding(16).background(Color.black)
             }
+    }
+}
+
+/// ROTATE by DIRECT MANIPULATION (FERRY-rotate-control §2, ratified): drag a matrix horizontally to rotate its pattern
+/// (wrap at edges). A `simultaneousGesture` so cell TAPS still set (a tap isn't a drag); ~26px per step. The ◀ n ▶ pair
+/// stays as the visible hint + the precise control. `onRotate` receives the incremental delta (±1) as the finger moves.
+private struct RotateOnDrag: ViewModifier {
+    let onRotate: (Int) -> Void
+    @State private var applied = 0
+    func body(content: Content) -> some View {
+        content.simultaneousGesture(DragGesture(minimumDistance: 20).onChanged { g in
+            let steps = Int((g.translation.width / 26).rounded())
+            if steps != applied { onRotate(steps - applied); applied = steps }
+        }.onEnded { _ in applied = 0 })
     }
 }
 
