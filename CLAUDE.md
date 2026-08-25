@@ -159,6 +159,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ARP EUCLID MASK — euclidean tie/rest on the arp (2026-08-25, on `main`, `8ea8856`; iOS builds, macOS 893 green incl.
+  fuzz; DEVICE ear owed). `Docs/SPEC-arp-euclid-mask.md` (ratified, ferried in). The "euclidean controls to tie/add rests"
+  feature Paul asked about. ONE Bjorklund K-of-N mask on the arp: HITS ◀K▶ of ◀N▶ (default K=N ⇒ OFF, byte-identical). K<N
+  gates the line — GAPS (REST=silence · TIE=sustain the previous note, gate-extended through the run) · WALK (MARCH=walk
+  advances through rests/holes · WAIT=walk steps only on hits/re-spaced) · ROTATE. Additive-Optional (ArpMaskGap/ArpMaskWalk
+  enums + arpMaskK/N/Gap/Walk/Rotate); pure per-step Bjorklund helpers in Derivations (euclidMaskHit/HitsBefore/TieRun, same
+  formula as euclidPatternInto, no alloc); emitArpRow gates the tick (global-step hit test; TIE extends offT; WAIT overrides
+  the walk index with the hit count; K=N short-circuits). Editor: HITS pair dimmed at K=N, GAPS/WALK/ROTATE animate in when
+  K<N. +1 RouterTest (5 behaviours) + fuzz. v1 FLAG: WAIT is FREE-phase-like (RETRIG-per-column reset composing with WAIT is
+  a follow-up).**
+- **▶ SESSION UI/UX BATCH — BUILD polish + RIFF/ARP tweaks (2026-08-25, on `main`; iOS builds; UI-only, DEVICE-eye owed).
+  A run of Paul's device-driven asks: **CHAIN DRAG-REORDER** (`7f25367` then POSITIONAL `f1990eb` — a dragged processor box
+  lands at the target box, overwriting it, and vacates its original; nothing shifts) + **COPY/PASTE** (`50a6316` — a COPY|PASTE
+  row under CLEAR pastes a chain onto a new row). **EMPTY ROW STARTS FRESH** (`66d417c` — an empty row selection mints an EMPTY
+  chain, flashes until a processor/emitter/receiver change). **CHAIN VOICE DEFAULT-ON** (`a15906b` — PLAY THIS MIDI CHAIN
+  engaged at start-up + new part; safe now the reference-chord fallback is gone). **FRAME wraps the row tabs + processor CARD
+  fills to the right edge** (`3f28bc2`); **HIDE the selected-colour box while a card is open** (`5929977`, `buildShowColourBox`).
+  **RIFF SET-ROW buttons** (`165bdae` — a SET button per rank fills/clears the whole row; the engine already matched rank 1 =
+  lowest held note). **ARP RANDOM ANCHOR moved under PATTERN** (`7b299a5`). **Processor-card carriage buttons removed +
+  relabelled "Long press to copy"** (`34e593f`). **RIFF rank-1 regression guard** (`0f076d9` — proved all-rank-1 = a stream of
+  the lowest note; the C/E was leftover stencil content). Also fixed a TAP/DEST emblem glyph collision (`e117641`).**
 - **▶ CHAIN EDIT — DRAG-TO-REORDER + COPY/PASTE (2026-08-25, on `main`, `7f25367`+`50a6316`; iOS builds; UI-only, DEVICE-eye
   owed). **DRAG-TO-REORDER (`7f25367`):** Paul: "drag and drop to move processor boxes to different parts of the chain." A
   populated chain box is now a drag SOURCE — the slot under the finger rings cyan, release moves the processor there
