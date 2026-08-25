@@ -2916,6 +2916,23 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(two, oneLine, "a second line adds its own pulses (polyrhythm)")
         XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
     }
+    // TAP (AcceptanceCriteria-tap-processor): a mid-chain SEND — [ARP→TAP(B)] emits a copy of the stream to wire B AND
+    // passes it on to wire A. No TAP → B silent; TAP to B → B carries the same notes as A; MUTE → B silent. None stuck.
+    func testTapSendsACopyToAParallelWire() {
+        func run2(_ withTap: Bool, to: Int = 2, mute: Bool = false) -> RecordingEmitter {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var tap = ProcessorSlot(type: .tap); tap.params.tapTo = to; tap.params.tapMute = mute
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = withTap ? [arp, tap] : [arp]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e
+        }
+        XCTAssertTrue(run2(false).ons.filter { $0.cable == 2 }.isEmpty, "no TAP → nothing on wire B")
+        let tapB = run2(true, to: 2)
+        XCTAssertFalse(tapB.ons.filter { $0.cable == 2 }.isEmpty, "TAP to B → the copy appears on wire B")
+        XCTAssertEqual(Set(tapB.ons.filter { $0.cable == 1 }.map { $0.note }), Set(tapB.ons.filter { $0.cable == 2 }.map { $0.note }), "wire B (tap) carries the same notes as wire A (passthrough)")
+        XCTAssertTrue(run2(true, to: 2, mute: true).ons.filter { $0.cable == 2 }.isEmpty, "MUTE → the tap is silent")
+    }
     func testRatchetThenClosedPassgateIsSilent() {
         let cs = arpColours()
         let rat = ProcessorSlot(type: .ratchet)

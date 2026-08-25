@@ -852,6 +852,7 @@ struct ProcessorBox: View {
         case .dest:      return "route each step to a chosen emitter (hocket)"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
+        case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
         }
     }
 
@@ -1322,6 +1323,11 @@ struct ProcessorBox: View {
             row2({ field("STEPS", \.riffSteps) { seg(["8", "16"], sel: steps == 8 ? "8" : "16") { i in setParam { $0.riffSteps = [8, 16][i] } } } },
                  { field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } })
             field("RATE", \.riffRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.riffRate ?? .r1_16).rawValue) { i in setParam { $0.riffRate = ArpRate.allCases[i] } } }
+        case .tap:   // ROUTING (AcceptanceCriteria-tap-processor) — the mid-chain send: LEVEL · TO · MUTE
+            let lv = p.tapLevel ?? 1.0
+            heroField("LEVEL  \(Int(lv * 100))%  (the send fader)") { slider(bind(lv) { v in setParam { $0.tapLevel = v } }, in: 0...1.5) }
+            field("TO — where the copy exits", \.tapTo) { seg(["THIS", "A", "B", "C", "D"], sel: ["THIS", "A", "B", "C", "D"][max(0, min(4, p.tapTo ?? 0))]) { i in setParam { $0.tapTo = i } } }
+            optionsCluster([("MUTE", p.tapMute ?? false, { setParam { $0.tapMute = !($0.tapMute ?? false) } })])
         }
     }
 

@@ -204,6 +204,10 @@ struct SnapParams {
     var riffTie: [Bool] = []                             // per-step tie (empty ⇒ none)
     var riffSlide: [Bool] = []                           // per-step slide (empty ⇒ none)
     var riffWrap: RiffWrap = .fold
+    // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
+    var tapLevel: Double = 1.0
+    var tapTo: Int = 0                                    // 0 = THIS WIRE · 1–4 = emitter A–D
+    var tapMute: Bool = false
 }
 
 struct SnapColour {

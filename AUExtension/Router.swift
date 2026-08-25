@@ -3363,6 +3363,19 @@ final class Router {
                 } else if cell.procs[j].type == .split {
                     // SPLIT downstream is a per-note MEMBERSHIP filter against the driver's pool — applied at the final emit
                     // via the row-loop-resolved gate (splitGate*), not as a set transform here (src is a single note).
+                } else if cell.procs[j].type == .tap {
+                    // TAP (AcceptanceCriteria-tap-processor): emit the stream AS-IT-STANDS here to the tap wire (LEVEL-scaled)
+                    // AND pass it on unchanged — [ARP→TAP→HARM] = the straight walk + the harmonized walk, simultaneously.
+                    // THIS WIRE (0) layers on the cell's output; A–D emits on that emitter (the parallel out). No cur change.
+                    let tp = cell.procs[j]
+                    if !tp.tapMute {
+                        let tapBM: UInt8 = tp.tapTo == 0 ? bm : (UInt8(1) << UInt8(max(0, min(3, tp.tapTo - 1))))
+                        for kk in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
+                            let tn = cur.srcAscending(kk, filter: 0, cableMask: 0b1111)
+                            let tv = clampVel(Int((Double(max(1, cur.velocity(tn))) * tp.tapLevel).rounded()))
+                            emitArtic(note: tn, busMask: tapBM, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: tv, out: out, diag: &diag)
+                        }
+                    }
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()

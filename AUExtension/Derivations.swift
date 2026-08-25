@@ -1303,7 +1303,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .split:     return .split                            // set-membership filter — keep a subset of the chord (a HOLD transform / set filter)
     case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
-    case .channel, .nudge, .dest, .muteMatrix: return .identity   // UTILITY/ROUTING — note-transparent; channel/timing/emitter override applies at EMIT (emitOneBus / chopMask)
+    case .channel, .nudge, .dest, .muteMatrix, .tap: return .identity   // UTILITY/ROUTING — note-transparent; the emit-side effect (channel/timing/emitter override · TAP's mid-chain send) applies elsewhere
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -1500,6 +1500,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .dest:      return "arrow.triangle.branch"        // ROUTING — per-step emitter (the hocket)
     case .muteMatrix: return "speaker.slash"               // ROUTING — per-step part-muting (the gate grid)
     case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
+    case .tap:       return "arrow.triangle.branch"        // ROUTING — the mid-chain send (the stream forks to a wire)
     }
 }
 

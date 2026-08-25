@@ -29,6 +29,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case dest = "DEST"         // ROUTING (Paul 2026-08-22 §5): per-onset-slice EMITTER selection — hocket painted (CHOP's dest row generalised to any chain)
     case muteMatrix = "MUTEMATRIX" // ROUTING (Paul 2026-08-25 §5): per-step PART-MUTING — an A/B/C/D × 8 checkbox grid; each onset-slice removes the muted emitters (note-transparent)
     case riff = "RIFF"         // DRIVER (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices derived against the held chord — the chord-following 303. Zero pitches stored.
+    case tap = "TAP"           // ROUTING (AcceptanceCriteria-tap-processor, ratified): emits the stream AS-IT-STANDS at its chain position (LEVEL-scaled, to THIS wire | A–D) AND passes it onward unchanged — layered parallel outputs
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -293,6 +294,10 @@ struct ColourParams: Codable, Equatable {
     var riffTie: [Bool]? = nil                  // per-step: extend the previous note (a held ⌒) — v1b
     var riffSlide: [Bool]? = nil                // per-step: legato → GLIDE SYNTH slide (§5 interlock) — v2
     var riffWrap: RiffWrap? = nil               // rank > held count → FOLD (default) | CLAMP | WRAP
+    // TAP (AcceptanceCriteria-tap-processor, ratified): a mid-chain SEND — emits the stream as it stands at this slot AND passes it on.
+    var tapLevel: Double? = 1.0                 // velocity scale on the tapped copy (the send fader; 0…1+)
+    var tapTo: Int? = 0                         // 0 = THIS WIRE (layer on the cell's output) · 1–4 = emitter A–D (a parallel out)
+    var tapMute: Bool? = false                  // silence the tap without removing it (A/B the layers)
 }
 // TIMING LANE (Paul 2026-08-22 §5): NUDGE's second mode — FIXED = one offset · LANE = a per-column pocket (a centred SLIDER LANE).
 enum NudgeMode: String, Codable, CaseIterable { case fixed = "FIXED", lane = "LANE" }

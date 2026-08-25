@@ -4570,6 +4570,7 @@ extension DiagView {
                 C("NUDGE", "Slides this chain a little earlier or later in time.", .nudge),
                 C("DEST", "Sends each step to a chosen emitter — hocket between synths.", .dest),
                 C("MUTE MATRIX", "Mutes chosen emitters per step — gate parts in and out.", .muteMatrix),
+                C("TAP", "Sends a copy of the stream out here + passes it on — layered parallel outputs.", .tap),
             ]),
         ]
     }

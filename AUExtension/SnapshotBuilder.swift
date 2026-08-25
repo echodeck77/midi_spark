@@ -379,6 +379,10 @@ enum SnapshotBuilder {
         if let v = p.riffTie { out.riffTie = v }
         if let v = p.riffSlide { out.riffSlide = v }
         if let v = p.riffWrap { out.riffWrap = v }
+        // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
+        if let v = p.tapLevel { out.tapLevel = max(0, min(2, v)) }
+        if let v = p.tapTo { out.tapTo = clamp(v, 0, 4) }
+        if let v = p.tapMute { out.tapMute = v }
         if let v = p.rtcMode { out.rtcMode = v }
         if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
         if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }
