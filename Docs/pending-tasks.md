@@ -30,6 +30,19 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
        RATCHET: RATE = slice width, SPAN N = loop period. CASCADE: RATE = reveal spacing, SPAN N = reveal window. +2 tests,
        fuzz-hammered. **MOD EXCLUDED by design** — its rate IS the LFO/shape period (no width×period split; STEP MOD already
        has `modStepSpan`). SPAN LADDER now on 6/7 span procs. Whole rate-proc feel DEVICE-EAR OWED. **TIER 2 ENGINE DONE.**
+- **RATIFIED UI DELTAS filed 2026-08-25 (from the ferry channel; engine-untouched, render+interaction only):**
+  - **`Docs/FERRY-rotate-control-ratified.md`** — the numbered ROTATE row RETIRES everywhere: a **◀ n ▶** nudge pair
+    (tap = slide one step, wrapping; offset shown small between) + **drag the lane/matrix itself** to rotate. Applies to
+    CHANCE/RATCHET/BURST/TUTTI/LENGTH rotate (currently 8-chip 0–7 segs) + euclid lines (per-line ◀▶). Clean self-contained
+    render pass; do after DEST unless prioritised.
+  - **`Docs/FERRY-complement-extensions-ratified.md`** — KEYS EXCLUDE (already BUILT this session) grows: chip → **FREE |
+    MINUS[door] | ONLY[door]** (ONLY = palette ∩ door = scale-lock), LATCH-mode generalisation, truth-strip carving, an
+    exclude-lag hysteresis. All additive on the shipped MINUS door (ONLY = ∩ vs − one-line flip).
+  - **TAP processor is now RATIFIED** (`AcceptanceCriteria-tap-processor.md`) — build when sequenced. Storefront
+    increment-2: per-panel sub-header = YES · type-swap-through-catalog = YES (design-answered, captured).
+  - **DESIGN REQUEST answered:** `_dear_claude/INVENTORY-control-presentation.md` — the full control-presentation inventory
+    (widget-species map · per-proc control lists + ★-importance · known clunk · constraints) for the design-side
+    presentation redesign (addresses Paul's "controls feel clunky/too wide"). Feeds width-Pass-2 + the hierarchy rule set.
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
