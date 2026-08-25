@@ -969,6 +969,21 @@ final class DerivationsTests: XCTestCase {
         cell.chordSplit = ChordSplit()                           // ALL → the whole chord, untouched
         XCTAssertEqual(pool.srcCount(for: cell), 4)
     }
+    // COVERAGE (2026-08-25 housekeeping): omniRead (a LATCH/REPLAY/FILE frozen pool) SKIPS the door channel/cable filter but
+    // KEEPS the cell's VELOCITY WINDOW. The existing omniRead test uses a FULL vel window (the fast path); this pins the
+    // narrow branch — a velocity-windowed cell reading an omniRead pool must still drop out-of-window notes.
+    func testOmniReadKeepsVelocityWindowWhileSkippingDoorFilter() {
+        let pool = NotePool(); pool.omniRead = true
+        pool.noteOn(60, velocity: 30, channel: 3); pool.noteOn(64, velocity: 80, channel: 3); pool.noteOn(67, velocity: 120, channel: 3)   // all on channel index 3
+        pool.rebuildSorted()
+        var cell = SnapCell()
+        cell.inputChanMask = 0b0000_0000_0000_0001                // hears channel 0 ONLY (excludes the notes' channel 3)
+        cell.velFloor = 50; cell.velCeil = 100                    // a NON-full window → the omniRead vel branch, not the fast path
+        XCTAssertEqual(pool.srcCount(for: cell), 1, "omniRead ignores the channel filter but STILL applies the vel window")
+        XCTAssertEqual(Int(pool.srcAscending(0, for: cell)), 64, "only the vel-80 note (64) survives — 30 below floor, 120 above ceil")
+        pool.omniRead = false
+        XCTAssertEqual(pool.srcCount(for: cell), 0, "omniRead OFF → the door channel filter wins → the channel-3 notes are all dropped")
+    }
     func testChordSplitCodableAndMigration() throws {
         var c = Cell(colourID: "gold"); c.chordSplit = ChordSplit(mode: .top, n: 3)
         let back = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(c))
@@ -2004,6 +2019,24 @@ final class DerivationsTests: XCTestCase {
         let hi = (0..<300).filter { rtcCoinFires(step: $0, chance: 0.5, gap: 0, quota: 0, velFactor: 1.0) }.count
         let lo = (0..<300).filter { rtcCoinFires(step: $0, chance: 0.5, gap: 0, quota: 0, velFactor: 0.3) }.count
         XCTAssertLessThan(lo, hi, "lower velocity → fewer fires")
+    }
+    // COVERAGE (2026-08-25 housekeeping): the per-ROW reset (a SECOND row gets a FRESH quota — pins that rowStart advances
+    // to 8, not stuck at 0) + gap∧quota TOGETHER + a negative-step origin (reachable under a fuzz seek-backward, must not trap).
+    func testRtcCoinFiresPerRowResetCombinedAndNegativeStep() {
+        XCTAssertEqual((8..<16).filter { rtcCoinFires(step: $0, chance: 1.0, gap: 0, quota: 2, velFactor: 1) }.count, 2,
+                       "row 2 gets its own fresh quota of 2 (the per-row budget resets — rowStart advanced to 8)")
+        var last = -100, total = 0                                     // gap 1 ∧ quota 3 together, one row
+        for s in 0..<8 where rtcCoinFires(step: s, chance: 1.0, gap: 1, quota: 3, velFactor: 1) { XCTAssertGreaterThan(s - last, 1, "gap holds"); last = s; total += 1 }
+        XCTAssertLessThanOrEqual(total, 3, "quota caps the combined row")
+        _ = rtcCoinFires(step: -1, chance: 0.5, gap: 1, quota: 2, velFactor: 1)   // negative origin must not trap
+    }
+    // COVERAGE: the arp EUCLID MASK Bjorklund helpers by EXACT value — the Router test only asserts relative facts (an
+    // off-by-one in the WAIT cross-lap term or the TIE span would slip past it). Values computed from the mask formula.
+    func testEuclidMaskHelpersExactValues() {
+        XCTAssertEqual((0..<8).map { euclidMaskHit($0, k: 4, n: 8, rotate: 0) }, [true, false, true, false, true, false, true, false], "4-of-8 = every other step")
+        XCTAssertTrue(euclidMaskHit(3, k: 8, n: 8, rotate: 0), "K == N ⇒ every step a hit (mask OFF)")
+        XCTAssertEqual((0...10).map { euclidMaskHitsBefore($0, k: 4, n: 8, rotate: 0) }, [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5], "WAIT walk index; step 8→4 & 10→5 pin the cross-lap laps*K term")
+        XCTAssertEqual([0, 3, 6].map { euclidMaskTieRun($0, k: 3, n: 8, rotate: 0) }, [2, 2, 1], "tie gaps at the 3-of-8 hits {0,3,6}; the 1 wraps into the next lap")
     }
 
     // RIFF (SPEC-riff-processor §1): a stencil RANK resolves against the sorted pool — 1 = lowest … N = highest; a rank

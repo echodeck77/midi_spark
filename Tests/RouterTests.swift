@@ -2944,9 +2944,12 @@ final class RouterTests: XCTestCase {
         run4([EuclidLine(target: 0, pulses: 4, steps: 8, rotate: 0, invert: false)]) { oneLine = aCount($0) }
         run4([EuclidLine(target: 0, pulses: 4, steps: 8), EuclidLine(target: 1, pulses: 3, steps: 16)]) { two = aCount($0) }
         run4([EuclidLine(target: 2, pulses: 4, steps: 8)]) { n2 = Set($0.ons.filter { $0.cable == 1 }.map { $0.note }) }
+        var beyond = -1
+        run4([EuclidLine(target: 6, pulses: 4, steps: 8)]) { beyond = aCount($0) }   // rank 6 of a 3-note chord — absent
         XCTAssertEqual(oneLine, single, "one ALL line = the single euclid (byte-identical)")
         XCTAssertGreaterThan(two, oneLine, "a second line adds its own pulses (polyrhythm)")
         XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
+        XCTAssertEqual(beyond, 0, "a TARGET past the held chord (rank 6 of 3 notes) strikes NOTHING — correctly silent, never wraps")
     }
     // ARP EUCLID MASK (SPEC-arp-euclid-mask): K=N is byte-identical (mask OFF); a 4-of-8 mask drops steps to the
     // Bjorklund hits; TIE keeps the same ONSET count as REST (non-hits sustain, they don't add notes) but lengthens
