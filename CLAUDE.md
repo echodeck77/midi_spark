@@ -178,8 +178,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   opacity=vel), from a new `buildOutRoll` accumulated off the read-and-clear `pollCellNotes` (no second drain; guarded vs
   idle re-renders). v1 OUT aggregates the whole board — during a chain audition (part stopped) that IS the chain output.
   ⚠ §2 AUDITION FALLBACK (reference chord) was built then REMOVED (Paul) — the strips are now the SOLE cure (the see-it
-  half). DEFERRED on this track: **§4 STAGE EYE** (tap a strip → the 3-lane input·mechanism·output timeline) then **idea
-  24 touch→OUT diff** — both build on v1. No engine/param/test change in the whole batch (render-only).**
+  half). **§4 STAGE EYE v1 (`ff8a350`):** tapping a strip opens `buildStageEyeView` — a full-page 3-lane overlay (INPUT
+  roll `buildEyeInRoll` onset-diffed off the door's held set · MECHANISM = the machine live + a position light on the
+  live column, EUCLID drawing its `euclidPattern` pulses / others an 8-step lane · OUTPUT roll reusing `buildOutRoll`),
+  cause→machine→effect on one pitch axis + a NOW line. v1 = the DRIFT model (rolls scroll, now = right edge); layered
+  ABOVE the editor so buildEditSlot stays set + the OUT feed flows; closes on CLOSE/backdrop/editor-close. DEFERRED to
+  v2: the column-aligned SWEEP (output tagged by emitting step) · bespoke per-type mechanism art · embedding the real
+  hero read-only. Still open: **idea 24 touch→OUT diff**. No engine/param/test change in the whole batch (render-only).**
 - **▶ PROCESSOR-EDITOR PRESENTATION REDESIGN A–C (2026-08-25, on `main`; iOS builds; UI-only — macOS suite unaffected,
   DEVICE eye owed). Implements `Docs/SPEC-presentation-pass-ratified.md` (6 hierarchy rules) — ALL render-only, engine +
   every param untouched. **A (`0bf0fdd`) THE NUDGE PAIR** (rule 3): a new shared `NumPair` widget ◀ value ▶ (tap = ±1,

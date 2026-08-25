@@ -1,3 +1,10 @@
+# ✅ §4 STAGE EYE — v1 LANDED 2026-08-25 (`ff8a350`; iOS builds, UI-only; DEVICE eye owed). Tapping a truth strip opens a
+# full-page 3-lane overlay (`buildStageEyeView`): INPUT roll (new `buildEyeInRoll`, onset-diffed off the door's held set)
+# · MECHANISM (the machine live + a position light on the live column — EUCLID draws its pulse pattern via `euclidPattern`,
+# others an 8-step lane) · OUTPUT roll (reuses `buildOutRoll`). v1 = the DRIFT model (rolls scroll, NOW = right edge).
+# DEFERRED to v2: the fully column-aligned SWEEP (output tagged by emitting step) · bespoke per-type mechanism art ·
+# embedding the real hero widget read-only. Idea 24 (touch→OUT diff) still open, builds on §1.
+#
 # ✅ §1 IN/OUT TRUTH STRIPS — v1 LANDED 2026-08-25 (`98bec19`; iOS builds, UI-only; DEVICE eye owed). The processor
 # editor (BuildPage `buildProcessorPanel`) gains a slim IN | OUT band above the controls. IN = a C1–C7 keyboard
 # silhouette lit by the held notes at the colour's input door (`recvHeldNotes[door]`, now polled while the editor is
