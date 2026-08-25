@@ -892,6 +892,23 @@ struct ProcessorBox: View {
                 slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
             }
             optionsCluster([("FIT 1 BEAT", p.arpFit ?? false, { setParam { $0.arpFit = !($0.arpFit ?? false) } })])
+            // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): HITS ◀K▶ of ◀N▶. K = N ⇒ OFF (dimmed, defaults-recede);
+            // turn K down and the kit ANIMATES IN — GAPS (rest/tie) · WALK (march/wait) · ROTATE.
+            let mN = max(2, min(16, p.arpMaskN ?? 8))
+            let mK = max(1, min(mN, p.arpMaskK ?? mN))
+            field("EUCLID MASK — HITS  ◀K▶ of ◀N▶  (K < N gates the line)") {
+                HStack(spacing: 10) {
+                    numPair(mK, 1...mN) { v in setParam { $0.arpMaskK = v; if $0.arpMaskN == nil { $0.arpMaskN = mN } } }
+                    Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    numPair(mN, 2...16) { v in setParam { $0.arpMaskN = v; if let k = $0.arpMaskK, k > v { $0.arpMaskK = v } } }
+                }
+            }
+            .opacity(mK < mN ? 1 : 0.45)                                    // defaults-recede when OFF (K = N)
+            if mK < mN {                                                    // the kit animates in only when the mask bites
+                row2({ field("GAPS", \.arpMaskGap) { seg(["REST", "TIE"], sel: (p.arpMaskGap ?? .rest) == .tie ? "TIE" : "REST") { i in setParam { $0.arpMaskGap = (i == 1 ? .tie : .rest) } } } },
+                     { field("WALK", \.arpMaskWalk) { seg(["MARCH", "WAIT"], sel: (p.arpMaskWalk ?? .march) == .wait ? "WAIT" : "MARCH") { i in setParam { $0.arpMaskWalk = (i == 1 ? .wait : .march) } } } })
+                field("ROTATE", \.arpMaskRotate) { numPair(p.arpMaskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.arpMaskRotate = v } } }
+            }
         case .ratchet:
             let rmode = p.rtcMode ?? .all      // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if rmode == .all {

@@ -395,6 +395,12 @@ enum SnapshotBuilder {
         if let v = p.arpFit { out.arpFit = v }
         if let v = p.arpOctDown { out.arpOctDown = v }
         if let v = p.arpRandomAnchor { out.arpRandomAnchor = max(0, min(2, v)) }
+        // EUCLID MASK: N ∈ 1…64, K ∈ 1…N (nil K ⇒ = N ⇒ OFF). Rotate wrapped into 0…N−1.
+        out.arpMaskN = max(1, min(64, p.arpMaskN ?? 8))
+        out.arpMaskK = max(1, min(out.arpMaskN, p.arpMaskK ?? out.arpMaskN))
+        if let v = p.arpMaskGap { out.arpMaskGap = v }
+        if let v = p.arpMaskWalk { out.arpMaskWalk = v }
+        out.arpMaskRotate = (((p.arpMaskRotate ?? 0) % out.arpMaskN) + out.arpMaskN) % out.arpMaskN
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
             out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),

@@ -1524,6 +1524,30 @@ func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
     return Array(buf[0..<n])
 }
 
+// ── ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26) ──────────────────────────────────────────────────
+// Pure per-step helpers over a Bjorklund K-of-N mask (SAME formula as euclidPatternInto). No allocation — safe in the
+// render hot loop. `step` is the global arp-tick index. K == N ⇒ every step a hit (mask OFF) → callers short-circuit.
+@inline(__always) func euclidMaskHit(_ step: Int, k: Int, n n0: Int, rotate: Int) -> Bool {
+    let n = max(1, min(64, n0)); let kk = max(0, min(n, k))
+    if kk >= n { return true }
+    let i = ((step % n) + n) % n
+    let src = (i + (((rotate % n) + n) % n)) % n
+    return (src * kk) % n < kk
+}
+/// The hits STRICTLY BEFORE `step` — WAIT's walk index (the walk advances only on hits). K hits per N steps.
+@inline(__always) func euclidMaskHitsBefore(_ step: Int, k: Int, n n0: Int, rotate: Int) -> Int {
+    let n = max(1, min(64, n0)); let kk = max(1, min(n, k))
+    let s = ((step % n) + n) % n; let laps = (step - s) / n
+    var within = 0; for i in 0..<s where euclidMaskHit(i, k: kk, n: n, rotate: rotate) { within += 1 }
+    return laps * kk + within
+}
+/// The consecutive NON-HIT steps AFTER `step` until the next hit — TIE's gate-extension span (≤ N−1, since K ≥ 1).
+@inline(__always) func euclidMaskTieRun(_ step: Int, k: Int, n n0: Int, rotate: Int) -> Int {
+    let n = max(1, min(64, n0)); var g = 0
+    while g < n && !euclidMaskHit(step + g + 1, k: k, n: n, rotate: rotate) { g += 1 }
+    return g
+}
+
 /// BURST — the fractional positions (0…<1 of the step) of a `count`-strike roll. `curve` bends the spacing:
 /// 0 = even, +1 = ACCELERATE (gaps shrink → strikes bunch late), −1 = DECELERATE (gaps grow → bunch early).
 /// The first strike is always at 0 (step entry). Pure/testable.

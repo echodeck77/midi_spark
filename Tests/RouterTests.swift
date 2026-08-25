@@ -2948,6 +2948,37 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(two, oneLine, "a second line adds its own pulses (polyrhythm)")
         XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
     }
+    // ARP EUCLID MASK (SPEC-arp-euclid-mask): K=N is byte-identical (mask OFF); a 4-of-8 mask drops steps to the
+    // Bjorklund hits; TIE keeps the same ONSET count as REST (non-hits sustain, they don't add notes) but lengthens
+    // them; WAIT re-spaces the walk vs MARCH. Pure per-step Bjorklund — deterministic, off-device provable.
+    func testArpEuclidMaskGatesRestsTiesAndWalk() {
+        func run4(_ setup: (inout ColourParams) -> Void) -> (count: Int, notes: [Int], span: Int) {
+            var c = Colour(colourID: "gold", type: .arp)
+            c.paramsA.pattern = .up; c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.gate = 0.5
+            setup(&c.paramsA)
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
+            let ons = e.ons.filter { $0.cable == 1 }
+            var firstDur = 0
+            if let on = ons.first, let off = e.offs.first(where: { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }) {
+                firstDur = Int(off.sample - on.sample)
+            }
+            return (ons.count, ons.map { Int($0.note) }, firstDur)
+        }
+        let full = run4 { _ in }                                              // no mask
+        let explicit = run4 { $0.arpMaskN = 8; $0.arpMaskK = 8 }              // K = N ⇒ OFF
+        let rest = run4 { $0.arpMaskN = 8; $0.arpMaskK = 4 }                  // 4-of-8, MARCH, REST
+        let tie  = run4 { $0.arpMaskN = 8; $0.arpMaskK = 4; $0.arpMaskGap = .tie }
+        let wait = run4 { $0.arpMaskN = 8; $0.arpMaskK = 4; $0.arpMaskWalk = .wait }
+        XCTAssertEqual(explicit.count, full.count, "K = N is byte-identical to no mask (mask OFF)")
+        XCTAssertEqual(explicit.notes, full.notes, "K = N leaves the walk untouched")
+        XCTAssertLessThan(rest.count, full.count, "a 4-of-8 mask drops steps to the euclidean hits")
+        XCTAssertGreaterThan(rest.count, 0, "the mask still sounds its hits")
+        XCTAssertEqual(tie.count, rest.count, "TIE keeps the same ONSET count as REST — non-hits sustain, not new notes")
+        XCTAssertGreaterThan(tie.span, rest.span, "a TIE note is LONGER than a rest-gated one (it holds through the gap)")
+        XCTAssertNotEqual(wait.notes, rest.notes, "WAIT re-spaces the walk (advances only on hits) vs MARCH (holes punched)")
+    }
     // TAP (AcceptanceCriteria-tap-processor): a mid-chain SEND — [ARP→TAP(B)] emits a copy of the stream to wire B AND
     // passes it on to wire A. No TAP → B silent; TAP to B → B carries the same notes as A; MUTE → B silent. None stuck.
     func testTapSendsACopyToAParallelWire() {

@@ -61,6 +61,10 @@ enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", 
 // RIFF (SPEC-riff-processor §1): when a stencil RANK exceeds the held-note count (a 5 against a 3-note chord) —
 // FOLD (wrap + octave up, default/musical) · CLAMP (the top note) · WRAP (wrap in the same octave).
 enum RiffWrap: String, Codable, CaseIterable { case fold = "FOLD", clamp = "CLAMP", wrap = "WRAP" }
+// ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): non-hit steps are silence (REST) or sustain the previous
+// note (TIE); the walk marches through rests (MARCH — holes) or steps only on hits (WAIT — the sequence re-spaced).
+enum ArpMaskGap: String, Codable, CaseIterable { case rest = "REST", tie = "TIE" }
+enum ArpMaskWalk: String, Codable, CaseIterable { case march = "MARCH", wait = "WAIT" }
 // EUCLID LINES (SPEC-euclid-variations §10, ratified): EUCLID = up to 8 lines in one card — each a euclid pattern
 // (K-of-N · ROTATE · INVERT) striking a TARGET (0 = ALL the chord, honouring the card's PICK · 1–8 = a specific pool
 // rank). Per-line STEPS = polyrhythm (kick/hat/pulse from one chord, one machine). Line 1 = today's single euclid; when
@@ -166,6 +170,13 @@ struct ColourParams: Codable, Equatable {
     var arpFit: Bool? = false      // arp FIT (user 2026-08-11): rate derives so ONE pool traversal = one beat (constant cycle)
     var arpOctDown: Bool? = false  // OCT DIRECTION (Paul 2026-08-22): laps descend the octaves (top octave first) — "up the chord, down the octaves". Orthogonal to PATTERN (which orders WITHIN a lap).
     var arpRandomAnchor: Int? = 0  // RANDOM ANCHOR (Paul 2026-08-22): 0 OFF · 1 LOW-first · 2 HIGH-first — when PATTERN=RANDOM, each cycle (a full pool×oct traversal) OPENS on the lowest/highest note, the rest shuffle (seeded).
+    // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): ONE Bjorklund K-of-N mask on the arp. K = N ⇒ OFF (today's
+    // arp byte-identical). K < N gates the line — GAPS · WALK · ROTATE. All Optional/additive; nil ⇒ untouched.
+    var arpMaskN: Int? = nil          // the mask window (steps). nil ⇒ 8
+    var arpMaskK: Int? = nil          // hits (K of N). nil ⇒ = N (OFF). K < N animates the kit in.
+    var arpMaskGap: ArpMaskGap? = nil    // non-hit steps: REST (silence) | TIE (sustain the previous note). nil ⇒ REST
+    var arpMaskWalk: ArpMaskWalk? = nil  // MARCH (walk advances through rests) | WAIT (walk advances only on hits). nil ⇒ MARCH
+    var arpMaskRotate: Int? = 0       // rotate the Bjorklund figure (0…N−1)
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]

@@ -91,6 +91,12 @@ struct SnapParams {
     var arpFit: Bool = false         // arp FIT: one pool traversal = one beat (constant cycle)
     var arpOctDown: Bool = false     // OCT DIRECTION: laps descend the octaves (top octave first)
     var arpRandomAnchor: Int = 0     // RANDOM ANCHOR: 0 off · 1 low-first · 2 high-first (RANDOM pattern)
+    // EUCLID MASK (SPEC-arp-euclid-mask): resolved. maskK == maskN ⇒ OFF (untouched arp).
+    var arpMaskN: Int = 8            // the mask window (steps)
+    var arpMaskK: Int = 8            // hits (K of N); K == N ⇒ off
+    var arpMaskGap: ArpMaskGap = .rest   // non-hit steps: rest | tie
+    var arpMaskWalk: ArpMaskWalk = .march // march (through rests) | wait (advance on hits)
+    var arpMaskRotate: Int = 0       // rotate the Bjorklund figure
     var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
     var harmVelScale: Double = 0.8   // harmonize: velocity scale on added voices
     // ECHO (user 2026-08-08)

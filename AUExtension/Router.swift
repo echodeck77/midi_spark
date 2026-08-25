@@ -3544,11 +3544,25 @@ final class Router {
         }
         if arpBeats <= 0 { arpBeats = 0.25 }
         if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = arpBeats }
+        // EUCLID MASK (SPEC-arp-euclid-mask): K == N ⇒ OFF (byte-identical). K < N gates the walk per the Bjorklund
+        // mask — REST/TIE on non-hits, MARCH (walk through rests) / WAIT (advance on hits), ROTATE. Resolved once.
+        let mN = colour.a.arpMaskN, mK = colour.a.arpMaskK, mRot = colour.a.arpMaskRotate
+        let mActive = mK < mN, mTie = colour.a.arpMaskGap == .tie, mWait = colour.a.arpMaskWalk == .wait
 
         iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded()))) { tick, mTickBeat, onTime, offTime in
-            let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
+            let onT = onTime; var offT = offTime; var maskWalk: Int64? = nil
+            if mActive {
+                let g = Int((mTickBeat / arpBeats).rounded(.down))          // global tick index (replay-exact)
+                if !euclidMaskHit(g, k: mK, n: mN, rotate: mRot) { return }  // non-hit ⇒ REST (TIE: the prior hit already extends over it)
+                if mWait { maskWalk = Int64(euclidMaskHitsBefore(g, k: mK, n: mN, rotate: mRot)) }   // WAIT: the walk advances only on hits
+                if mTie {                                                    // TIE: hold this hit through the following non-hit steps (gated)
+                    let ties = euclidMaskTieRun(g, k: mK, n: mN, rotate: mRot)
+                    offT = onTime + Int64((Double(ties + 1) * arpBeats * gate / beatsPerSample).rounded())
+                }
+            }
+            let pIdx = maskWalk ?? phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
                                   cycleBeats: cycleBeats, phase: colour.a.phase,
                                   runStartColumn: cell.runStartColumn)
             let base: Int
@@ -3571,14 +3585,14 @@ final class Router {
             }
             let noteValue = base + transpose
             guard noteValue >= 0 && noteValue <= 127 else { return }
-            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
+            storeArtic(row: r, on: onT, off: offT, note: UInt8(noteValue), beat: mTickBeat)
             if emits {
                 // §cell-edit F CHOP + the chain's post-driver stages fold onto each arp note (e.g. a downstream passgate).
                 if chainDriver >= 0 {
-                    emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
+                    emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT,
                                    windowEnd: windowEnd, velocity: srcVel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else {
-                    emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
+                    emitChop(noteValue, cell: cell, bm: bm, onSample: onT, offSample: offT, windowEnd: windowEnd,
                              velocity: srcVel, m: mTickBeat, S: S, out: out, diag: &diag)
                 }
             }

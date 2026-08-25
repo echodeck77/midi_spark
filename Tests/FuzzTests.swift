@@ -80,6 +80,10 @@ final class FuzzTests: XCTestCase {
             if c.type == .burst && r.chance(0.5) { applyRandomBurst(&c.paramsA, &r) }
             if c.type == .echo && r.chance(0.6) { applyRandomEcho(&c.paramsA, &r) }   // §7② hammer ROUTE=CHAIN (driver + non-driver) for no-stuck-notes
             if c.type == .arp && r.chance(0.5) { c.paramsA.arpOctDown = r.chance(0.5); c.paramsA.arpRandomAnchor = r.int(3); c.paramsA.octaves = 1 + r.int(4) }   // OCT DIR + RANDOM ANCHOR (Paul 2026-08-22)
+            if c.type == .arp && r.chance(0.5) {   // EUCLID MASK (Paul 2026-08-26): random K-of-N + gap/walk/rotate — no stuck notes across REST/TIE/MARCH/WAIT
+                let n = 2 + r.int(15); c.paramsA.arpMaskN = n; c.paramsA.arpMaskK = 1 + r.int(n)
+                c.paramsA.arpMaskGap = r.chance(0.5) ? .tie : .rest; c.paramsA.arpMaskWalk = r.chance(0.5) ? .wait : .march; c.paramsA.arpMaskRotate = r.int(n)
+            }
             if c.type == .euclid && r.chance(0.6) { c.paramsA.euclidPick = EuclidPick.allCases[r.int(EuclidPick.allCases.count)]; c.paramsA.euclidInvert = r.chance(0.4) }   // PICK + INVERT
             if c.type == .euclid && r.chance(0.4) {   // EUCLID LINES §10 — 1…8 lines (per-line N = polyrhythm · targets incl. notes past the chord → silent); no stuck notes
                 c.paramsA.euclidLines = (0..<(1 + r.int(8))).map { _ in EuclidLine(target: r.int(9), pulses: r.int(17), steps: 2 + r.int(15), rotate: r.int(16), invert: r.chance(0.3)) }
