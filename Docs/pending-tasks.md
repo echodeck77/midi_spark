@@ -68,10 +68,12 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     values) add gravity-snap + a firmer bump + track pips. Wired glideTime/glideRange octaves/mod attack+release. Device-
     ear owed on the haptic feel. **THE CONTROLS-POLISH WAVE (numeric grammar + fader) is now COHESIVE + done.**
     **REMAINING TRACKS (each a distinct build):**
-    (b) LONG-PRESS EXPLANATIONS (10) — DEFERRED by Paul (2026-08-25, "ignore for now"); (c)
-    TRUTH STRIPS (24 touch→OUT diff) — needs the unbuilt IN/OUT strips (big); (d) MACRO-BIND (26 long-press→bind) —
-    reconnect the macro authoring flow; (e) LAYOUT — sticky-hero (27) · section-anchor chips (28) · conditional-animate-in
-    (25) · hero-glyph thumbnails (32); (f) LANE gestures — pinch-scale (19) · header-mute (20) · result-ghosting (17);
+    (b) LONG-PRESS EXPLANATIONS (10) — DEFERRED by Paul (2026-08-25, "ignore for now"). ✅ **§1 TRUTH STRIPS v1
+    (`98bec19`)** — IN silhouette (held @ door) + empty-state teach + OUT mini-roll on the processor editor; device-eye
+    owed. NEXT on this track: **§4 STAGE EYE** (tap a strip → the 3-lane input·mechanism·output timeline) then **idea 24
+    touch→OUT diff** (both build on v1). (d) MACRO-BIND (26) — HELD by Paul (downstream-processor version instead);
+    (e) LAYOUT — sticky-hero (27) · section-anchor chips (28) · conditional-animate-in (25) · hero-glyph thumbnails (32);
+    (f) LANE gestures — pinch-scale (19) · header-mute (20) · result-ghosting (17);
     (g) hold-to-accelerate (14, low value now — scrub+overlay cover it).
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock

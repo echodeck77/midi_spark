@@ -1,8 +1,13 @@
-# ✅ §2 AUDITION FALLBACK — LANDED 2026-08-23 (macOS green, iOS builds; device eye/ear owed). BUILD "PLAY THIS MIDI
-# CHAIN" now feeds a fixed C-major reference chord to its door when nothing's held (Router `refPool`/`refChordDoor`,
-# thread-safe scalar; emit guards `|| referenceSet`); a "no input · reference chord" tell shows by the button. +1
-# RouterTest. v1: per-DOOR scope (a concurrent piece on the same door also hears it — per-row is a follow-up). The §1
-# IN/OUT truth strips + §4 STAGE EYE remain UI-device-owed.
+# ✅ §1 IN/OUT TRUTH STRIPS — v1 LANDED 2026-08-25 (`98bec19`; iOS builds, UI-only; DEVICE eye owed). The processor
+# editor (BuildPage `buildProcessorPanel`) gains a slim IN | OUT band above the controls. IN = a C1–C7 keyboard
+# silhouette lit by the held notes at the colour's input door (`recvHeldNotes[door]`, now polled while the editor is
+# open); EMPTY-STATE TEACHES "nothing held — LATCH or play at INPUT A" (the cure). OUT = a live mini-roll of emitted
+# note-ons drifting ~2.5s (new `buildOutRoll` from the read-and-clear `pollCellNotes`). v1: OUT aggregates the whole
+# board (during a chain audition, part stopped, = the chain). DEFERRED: §4 STAGE EYE (tap-to-expand) + idea 24 touch-diff.
+#
+# ⚠ §2 AUDITION FALLBACK — was LANDED 2026-08-23, then REMOVED 2026-08-23 (Paul: a synthetic chord from nowhere "should
+# never be part of the user experience"). The reference-chord path (`refPool`/`refChordDoor`/`referenceSet`) is GONE.
+# So the "hear something anyway" half is retired; the §1 truth strips are now the sole cure — the SEE-IT half.
 #
 # INSTRUCTIONS → Code — THE IN/OUT TRUTH STRIPS (Paul, 2026-08-22:
 # the TUTTI confusion, cured by visibility — ratified fix set)

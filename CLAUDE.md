@@ -159,6 +159,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PRESENTATION INFRASTRUCTURE (the F-remaining wave) + TRUTH STRIPS §1 v1 (2026-08-25, on `main`; iOS builds; UI/
+  render-only — macOS suite unaffected, DEVICE eye/ear owed on all). Follows the A–F presentation redesign. Paul: "start
+  the infrastructure items"; deferred long-press explanations (10) + macro-bind (26, wants it as a downstream processor
+  instead). **THE CONTROLS-POLISH WAVE (`8a78175`·`e233b8c`·`1e30344`):** ✅ **12+31 VALUE OVERLAY** — tap a NumPair's
+  number → a grid picker (≤24 vals) / 3×4 keypad (CC 0–127) popover for exact entry. ✅ **5 FINE-MODE FADER** — a custom
+  `FineSlider` replaces SwiftUI's Slider at all 29 sites (+ bipolar + morph) via a drop-in `slider(_:in:)` taking the same
+  Binding; coarse = absolute tap-to-position, PULL AWAY from the bar (>44pt vertical) → latches FINE ×10 relative scrub
+  (thumb grows, "FINE ×10" pip), no jump. ✅ **3 DETENTS + HAPTICS** — every slider fires a soft SELECTION haptic on notch
+  crossings (20/range coarse · 100 fine); optional `detents` (musical values) add gravity-snap + a firmer rigid bump +
+  faint track pips (wired glideTime [0·¼·½·1·2] · glideRange octaves [12·24·36·48] · mod attack/release). Shared static
+  feedback generators. Feel-tunable knobs (44pt threshold · ×10 · notch density · 2% snap) all device-owed. **§1 TRUTH
+  STRIPS v1 (`98bec19`, spec `AcceptanceCriteria-in-out-truth-strips.md`):** the processor editor (`buildProcessorPanel`)
+  gains a slim IN | OUT band above the controls — the TUTTI-confusion cure (silence must explain itself). **IN** = a
+  C1–C7 keyboard silhouette lit (colour hue) by the notes HELD at the colour's input door (`recvHeldNotes[door]`, poll
+  now gated on `buildMidiConfigOpen || buildEditSlot != nil`); EMPTY-STATE TEACHES "nothing held — LATCH or play at INPUT
+  A" (door named, cure pointed at). **OUT** = a live mini-roll, emitted note-ons drifting right→left ~2.5s (lane=pitch,
+  opacity=vel), from a new `buildOutRoll` accumulated off the read-and-clear `pollCellNotes` (no second drain; guarded vs
+  idle re-renders). v1 OUT aggregates the whole board — during a chain audition (part stopped) that IS the chain output.
+  ⚠ §2 AUDITION FALLBACK (reference chord) was built then REMOVED (Paul) — the strips are now the SOLE cure (the see-it
+  half). DEFERRED on this track: **§4 STAGE EYE** (tap a strip → the 3-lane input·mechanism·output timeline) then **idea
+  24 touch→OUT diff** — both build on v1. No engine/param/test change in the whole batch (render-only).**
 - **▶ PROCESSOR-EDITOR PRESENTATION REDESIGN A–C (2026-08-25, on `main`; iOS builds; UI-only — macOS suite unaffected,
   DEVICE eye owed). Implements `Docs/SPEC-presentation-pass-ratified.md` (6 hierarchy rules) — ALL render-only, engine +
   every param untouched. **A (`0bf0fdd`) THE NUDGE PAIR** (rule 3): a new shared `NumPair` widget ◀ value ▶ (tap = ±1,
