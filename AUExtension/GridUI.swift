@@ -960,6 +960,7 @@ struct ProcessorBox: View {
             let dec = p.echoDecay ?? 0.5, pit = p.echoPitch ?? 0, thru = p.echoThru ?? true
             let spill = p.echoSpill ?? .ring
             heroField("REPEATS") { numPair(reps, 1...16) { v in setParam { $0.echoRepeats = v } } }
+            sectionLabel("TIMING")
             field("SYNC") { seg(["ON", "OFF"], sel: sync ? "ON" : "OFF") { i in setParam { $0.echoSync = (i == 0) } } }
             if sync {
                 field("DELAY\(div == 4 ? "  (1 beat)" : "")") { numPair(div, 1...16, format: { "\($0)/16" }) { v in setParam { $0.echoDelayDiv = v } } }
@@ -968,11 +969,13 @@ struct ProcessorBox: View {
             }
             field("NUDGE  \(off > 0 ? "+" : "")\(Int(off * 100))%") {
                 Slider(value: bind(off) { v in setParam { $0.echoOffset = v } }, in: -0.33...0.33).tint(accent) }
+            sectionLabel("TONE")
             field("1ST ECHO  \(Int(fd * 100))%") {
                 Slider(value: bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1).tint(accent) }
             field("FADE  \(Int(dec * 100))%") {
                 Slider(value: bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1).tint(accent) }
             field("PITCH STEP  \(pit > 0 ? "+" : "")\(pit) st / echo") { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
+            sectionLabel("TAIL")
             // ROUTE (§7②, ratified 2026-08-22): DIRECT echoes the cell's final set (v1). CHAIN runs each repeat back
             // through the stages AFTER this ECHO slot — [ECHO→LENGTH] chokes/ties repeats, [ECHO→SPLIT] thins the trail.
             let route = p.echoRoute ?? .direct
@@ -1069,6 +1072,7 @@ struct ProcessorBox: View {
                 field("SPAN") { seg(["CELL", "ROW"], sel: mspan == .row ? "ROW" : "CELL") { i in setParam { $0.modSpan = (i == 1) ? .row : .cell } } }   // CELL = the CYCLE period · ROW = one cycle spans the bar
             }
             let target = p.modTarget ?? .cc
+            sectionLabel("TARGET")
             field("SEND") { seg(ModTarget.allCases.map { $0 == .chain ? "THIS CHAIN" : $0.rawValue }, sel: target == .chain ? "THIS CHAIN" : "CC") { i in setParam { $0.modTarget = ModTarget.allCases[i] } } }   // §2: CC (emit) | THIS CHAIN (modulate a chain param, no CC)
             if target == .cc {
                 let cc = p.modCC ?? 74
@@ -1391,6 +1395,14 @@ struct ProcessorBox: View {
         }
         .padding(.leading, 10).padding(.vertical, 7)
         .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1).fill(accent).frame(width: 2) }
+    }
+    // A SECTION LABEL (§presentation rule 4): a quiet header + hairline that groups a long card (ECHO → TIMING·TONE·TAIL,
+    // MOD → source·TARGET) so below-the-fold stops being a mystery.
+    private func sectionLabel(_ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35)).tracking(1.5)
+            Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
+        }.padding(.top, 5)
     }
     // THE OPTIONS CLUSTER (§presentation rule 2): the card's ★ minor toggles gathered into ONE compact foot row — each a
     // lit/unlit chip (idea 11: ON/OFF collapses to one chip). No minor toggle ever eats a full row again.
