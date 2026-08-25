@@ -1315,6 +1315,7 @@ struct ProcessorBox: View {
             heroField("THE STENCIL — tap a rank per step (empty column = rest); the held chord fills it") {
                 VStack(spacing: 2) {
                     ForEach(Array((1...8).reversed()), id: \.self) { rank in
+                        let allThis = (0..<steps).allSatisfy { ($0 < ranks.count ? ranks[$0] : 0) == rank }   // the whole row is this rank
                         HStack(spacing: 2) {
                             Text("\(rank)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).frame(width: 16)
                             ForEach(0..<steps, id: \.self) { s in
@@ -1326,6 +1327,15 @@ struct ProcessorBox: View {
                                         setParam { var a = $0.riffRanks ?? dr; while a.count < steps { a.append(0) }; a[s] = (a[s] == rank ? 0 : rank); $0.riffRanks = a }
                                     }
                             }
+                            // SET-ROW (Paul 2026-08-25): fill EVERY step with this rank (tap again = clear the whole row to rests).
+                            // Rank 1 = the bottom row = the lowest held note. The fast way to make a clean "row of 1".
+                            RoundedRectangle(cornerRadius: 3).fill(allThis ? accent.opacity(0.55) : Color.white.opacity(0.08))
+                                .frame(width: 30, height: 16)
+                                .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(allThis ? 0.8 : 0.2), lineWidth: 1))
+                                .overlay(Text("SET").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)))
+                                .contentShape(Rectangle()).onTapGesture {
+                                    setParam { var a = $0.riffRanks ?? dr; while a.count < steps { a.append(0) }; let t = allThis ? 0 : rank; for i in 0..<steps { a[i] = t }; $0.riffRanks = a }
+                                }
                         }
                     }
                 }
