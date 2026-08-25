@@ -89,8 +89,12 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    pocket; step = cell column). Together they delivered the SLIDER LANE species fully: `modStepBars`→shared `sliderLane`
    with unipolar + CENTRE(bipolar) modes, now 3 consumers (STEP MOD · CHANCE · TIMING). **✅ DEST MATRIX — DONE
    (2026-08-25):** a new routing-class `ProcessorType.dest` — the 8-slice per-onset EMITTER hocket via `chopMask`; UI =
-   the STATE MATRIX (A–D × 8, radio). +1 test, fuzz-hammered. TODO: **MUTE MATRIX** (part-muting — the last §5 matrix).
-   ARRANGEMENT MATRIX = NOT ratified.
+   the STATE MATRIX (A–D × 8, radio). +1 test, fuzz-hammered. **✅ MUTE MATRIX — DONE (2026-08-25):** a new routing-class
+   `ProcessorType.muteMatrix` — an A/B/C/D × 8 MULTI-SELECT grid; each onset-slice removes the muted emitters (composes on
+   top of DEST/CHOP in `chopMask`; last-MUTE-wins; empties → note dropped, no stuck note). Additive-Optional `muteSlices`
+   (nil ⇒ nothing muted, byte-identical). +1 RouterTest, fuzz-hammered. **The §5 matrix/lane family is now COMPLETE**
+   (STATE MATRIX · SLIDER LANE · SPAN LADDER · CHANCE PATTERN · TIMING LANE · DEST MATRIX · MUTE MATRIX). ARRANGEMENT
+   MATRIX = NOT ratified.
 6. **SLIDER LANE / WIDTH:** the `sliderLane` shared component now has 2 consumers (STEP MOD · CHANCE). Processor-editor
    WIDTH PASS 1 landed (compact segs + ≤600pt panel); **PASS 2 = two-column packing** of short fields (device-eye owed).
 

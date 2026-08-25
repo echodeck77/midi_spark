@@ -159,6 +159,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MUTE MATRIX — the per-step PART-MUTING processor, completing the §5 matrix/lane family (2026-08-25, on `main`; iOS
+  builds, macOS green incl. fuzz; DEVICE ear owed). The last ratified §5 matrix candidate. A new note-transparent
+  `ProcessorType.muteMatrix` (append-only ID `"MUTEMATRIX"`): an **A/B/C/D × 8 MULTI-SELECT grid** — each cell mutes one
+  emitter on one onset-slice. Mirrors DEST but as checkboxes (DEST = radio, one emitter; MUTE = remove any subset). The
+  gate lives in the SAME per-onset choke point `chopMask` (both ticks + holds route through it): after DEST/CHOP resolves
+  the mask, `result &= ~muteSlices[slice]` — so it COMPOSES on top of DEST (DEST routes, MUTE gates), last-MUTE-wins; an
+  emptied mask drops the note for that slice (emitChop/holds skip a 0 mask → no voice opens → no note-off owed → NO stuck
+  note; a held note whose bus is muted at the next column's onset closes cleanly via close-except-legato). Additive-
+  Optional `muteSlices: [Int]?` (nil ⇒ nothing muted, byte-identical; SnapParams `[Int]` clamped 0…15). cellMode
+  `.muteMatrix = .identity` (note-transparent like CHANNEL/NUDGE/DEST). UI = a red multi-select grid (muted = red +
+  speaker.slash, playhead column lit) in the ROUTING typeParams; storefront card in UTILITY; `buildProcLabel` → "MUTE
+  MTX". +1 RouterTest ([ARP→MUTE] silences emitter A per step, others play; all-zero mask byte-identical; nothing left
+  sounding) + fuzz roster/randomizer (random per-step masks incl. full-mute). **§5 matrix/lane family COMPLETE** (STATE
+  MATRIX · SLIDER LANE · SPAN LADDER · CHANCE PATTERN · TIMING LANE · DEST MATRIX · MUTE MATRIX). v1: gate is per onset-
+  slice (a driver hockets within the column — use ARP/etc.); UI device-eye owed.**
 - **▶ PRESENTATION INFRASTRUCTURE (the F-remaining wave) + TRUTH STRIPS §1 v1 (2026-08-25, on `main`; iOS builds; UI/
   render-only — macOS suite unaffected, DEVICE eye/ear owed on all). Follows the A–F presentation redesign. Paul: "start
   the infrastructure items"; deferred long-press explanations (10) + macro-bind (26, wants it as a downstream processor
