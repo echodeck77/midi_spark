@@ -159,6 +159,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FREE-RUN CLOCK + euclid mask + grid-selector §3.2/§3.3 + fixes (2026-08-25, on `main`; iOS builds, macOS 894 green
+  incl. fuzz; DEVICE ear/eye owed). A long device-driven batch. **ARP EUCLID MASK (`8ea8856`, engine):** ONE Bjorklund
+  K-of-N mask on the arp — HITS ◀K▶ of ◀N▶ (K=N ⇒ OFF, byte-identical) · GAPS REST|TIE · WALK MARCH|WAIT · ROTATE; pure
+  helpers (euclidMaskHit/HitsBefore/TieRun), emitArpRow gates the tick; +1 test + fuzz. `SPEC-arp-euclid-mask` (ferried,
+  ratified). **ARP RANDOM → FREE INDEX (`42f32ec`, engine):** RANDOM ANCHOR LOW pedalled the low note under RETRIG (the
+  per-column reset fired the anchor every column); RANDOM now runs on the free `tick` so the anchor opens each POOL CYCLE +
+  the shuffle never repeats. +1 test. **FREE-RUN CLOCK (`4baf048`, Kernel/render — NOT unit-testable, device-critical):**
+  the host stopped + an effective note held (live OR latched — LATCH/HOLD/KEYS honoured) ⇒ the plugin advances its OWN beat
+  and drives the scene as if playing; stop + FLUSH (allNotesOff) when the pool empties / the host starts / free-run disabled.
+  Byte-identical while the host plays (`!playing` guard). `setFreeRunEnabled` (AU→Kernel), VC enables on BUILD. Interpretation
+  flagged: "all three stopped" read as "host transport stopped" (plays whatever's engaged, chain by default). **GRID SELECTOR
+  §3.2/§3.3 (`5a1dc8d`→`1b190ae`, UI):** row selectors on the grid's RIGHT EDGE (vertical, 8, Launchpad-mappable — TAP aim ·
+  HOLD overwrite a part) + the browse panel REUSES the main-page left-column objects (buildReceiverSelector / buildProcessor
+  Block / buildEmitterToggles). **FIXES:** MIDI-IN KEYS piano — black keys used `.offset` (render-only → hit frame at x=0, so
+  taps missed) → layout-positioned + enlarged (`e4b412c`); RIFF rank-1 guard + emblem collision (earlier). All device-owed.**
 - **▶ ARP EUCLID MASK — euclidean tie/rest on the arp (2026-08-25, on `main`, `8ea8856`; iOS builds, macOS 893 green incl.
   fuzz; DEVICE ear owed). `Docs/SPEC-arp-euclid-mask.md` (ratified, ferried in). The "euclidean controls to tie/add rests"
   feature Paul asked about. ONE Bjorklund K-of-N mask on the arp: HITS ◀K▶ of ◀N▶ (default K=N ⇒ OFF, byte-identical). K<N
