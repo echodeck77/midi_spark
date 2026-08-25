@@ -40,9 +40,13 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     exclude-lag hysteresis. All additive on the shipped MINUS door (ONLY = ∩ vs − one-line flip).
   - **TAP processor is now RATIFIED** (`AcceptanceCriteria-tap-processor.md`) — build when sequenced. Storefront
     increment-2: per-panel sub-header = YES · type-swap-through-catalog = YES (design-answered, captured).
-  - **DESIGN REQUEST answered:** `_dear_claude/INVENTORY-control-presentation.md` — the full control-presentation inventory
-    (widget-species map · per-proc control lists + ★-importance · known clunk · constraints) for the design-side
-    presentation redesign (addresses Paul's "controls feel clunky/too wide"). Feeds width-Pass-2 + the hierarchy rule set.
+  - **DESIGN REQUEST answered** (inventory delivered) → **PRESENTATION REDESIGN RATIFIED + PLANNED (2026-08-25):** the
+    design side returned `Docs/SPEC-presentation-pass-ratified.md` (6 hierarchy rules + per-card remap) +
+    `Docs/FERRY-presentation-ideas-ratified.md` (32 ideas; Paul's high-value wave 21·23·16·15·8). My implementation plan =
+    **`Docs/PLAN-presentation-redesign.md`** — ALL render-only (engine + params untouched; device-eye is the judge).
+    Sequence: **A** the `numPair` ◀value▶ keystone + numeric remap (retires grid16/numeric-radio/CHANNEL-wall/ROTATE at
+    once) → **B** hero law + options cluster + fixed order → **C** section the long cards → **D** the 21·23·16·15·8 wave →
+    **E** two-column (= width-Pass-2) → **F** the à-la-carte 27. Awaiting Paul's word on sequencing (rec: A first).
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
