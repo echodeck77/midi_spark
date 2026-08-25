@@ -369,6 +369,7 @@ enum SnapshotBuilder {
         if let v = p.utilNudgeMode { out.utilNudgeMode = v }                 // TIMING LANE (Paul 2026-08-22 §5)
         if let v = p.utilNudgeLane { out.utilNudgeLane = v.map { clamp($0, -8, 8) } }
         if let v = p.destSlices { out.destSlices = v.map { clamp($0, 0, 3) } }   // DEST MATRIX (Paul 2026-08-22 §5)
+        if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice
         if let v = p.rtcMode { out.rtcMode = v }
         if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
         if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }

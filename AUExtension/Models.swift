@@ -27,6 +27,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case channel = "CHANNEL"   // UTILITY: this chain exits on a chosen MIDI channel (WIRE default | 1–16) — multitimbral from one output
     case nudge = "NUDGE"       // UTILITY: a pure time offset (± sixteenths) on the stream — slides what's already there (does NOT drive)
     case dest = "DEST"         // ROUTING (Paul 2026-08-22 §5): per-onset-slice EMITTER selection — hocket painted (CHOP's dest row generalised to any chain)
+    case muteMatrix = "MUTEMATRIX" // ROUTING (Paul 2026-08-25 §5): per-step PART-MUTING — an A/B/C/D × 8 checkbox grid; each onset-slice removes the muted emitters (note-transparent)
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -261,6 +262,7 @@ struct ColourParams: Codable, Equatable {
     var utilNudgeMode: NudgeMode? = nil         // TIMING LANE (Paul 2026-08-22 §5): FIXED (one offset, default) | LANE (8 per-column offsets — the pocket drawn). nil ⇒ FIXED
     var utilNudgeLane: [Int]? = nil             // LANE: 8 per-step time offsets (−8…+8 sixteenths); the cell's COLUMN picks the slot
     var destSlices: [Int]? = nil                // DEST MATRIX (Paul 2026-08-22 §5): 8 per-onset-slice emitters (0=A…3=D) — hocket painted. nil ⇒ a rotating default
+    var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
 }
 // TIMING LANE (Paul 2026-08-22 §5): NUDGE's second mode — FIXED = one offset · LANE = a per-column pocket (a centred SLIDER LANE).
 enum NudgeMode: String, Codable, CaseIterable { case fixed = "FIXED", lane = "LANE" }

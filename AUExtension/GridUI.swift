@@ -850,6 +850,7 @@ struct ProcessorBox: View {
         case .channel:   return "send this chain out on a chosen MIDI channel"
         case .nudge:     return "slide this chain earlier or later in time"
         case .dest:      return "route each step to a chosen emitter (hocket)"
+        case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         }
     }
 
@@ -1226,6 +1227,29 @@ struct ProcessorBox: View {
                     header: { e in AnyView(Text(["A", "B", "C", "D"][e]).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
                     selected: { i in let s = p.destSlices ?? base; return i < s.count ? s[i] : 0 },
                     set: { i, e in setParam { var s = $0.destSlices ?? base; while s.count < 8 { s.append(0) }; s[i] = e; $0.destSlices = s } })
+            }
+        case .muteMatrix:   // ROUTING (Paul 2026-08-25 §5) — the MUTE MATRIX: per-step PART-MUTING (A/B/C/D × 8 multi-select)
+            field("MUTE PER STEP — tap to silence an emitter on that step") {
+                VStack(spacing: 3) {
+                    ForEach(0..<4, id: \.self) { e in
+                        HStack(spacing: 3) {
+                            Text(["A", "B", "C", "D"][e]).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)
+                            ForEach(0..<8, id: \.self) { step in
+                                let s = p.muteSlices ?? Array(repeating: 0, count: 8)
+                                let muted = ((step < s.count ? s[step] : 0) >> e) & 1 == 1
+                                let live = step == liveStep                   // PLAYHEAD (idea 15): the live grid column
+                                RoundedRectangle(cornerRadius: 4).fill(muted ? Color.red.opacity(0.8) : Color.white.opacity(live ? 0.14 : 0.06))
+                                    .frame(maxWidth: .infinity).frame(height: 24)
+                                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(muted ? 0.9 : 0.12), lineWidth: muted ? 1.5 : 1))
+                                    .overlay { if muted { Image(systemName: "speaker.slash.fill").font(.system(size: 9, weight: .black)).foregroundColor(.white) } }
+                                    .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
+                                    .contentShape(Rectangle()).onTapGesture {
+                                        setParam { var arr = $0.muteSlices ?? Array(repeating: 0, count: 8); while arr.count < 8 { arr.append(0) }; arr[step] ^= (1 << e); $0.muteSlices = arr }
+                                    }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

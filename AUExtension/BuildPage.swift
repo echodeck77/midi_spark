@@ -4488,6 +4488,7 @@ extension DiagView {
                 C("CHANNEL", "Sends this chain out on its own MIDI channel.", .channel),
                 C("NUDGE", "Slides this chain a little earlier or later in time.", .nudge),
                 C("DEST", "Sends each step to a chosen emitter — hocket between synths.", .dest),
+                C("MUTE MATRIX", "Mutes chosen emitters per step — gate parts in and out.", .muteMatrix),
             ]),
         ]
     }
@@ -4495,7 +4496,7 @@ extension DiagView {
     // A chain-box / editor label: the type name + its fixed mode written in (e.g. "WEAVE HARM", "MOD LFO"), so the
     // mode is legible without an in-editor radio (Paul 2026-08-22). Single-mode processors show just the type.
     private func buildProcLabel(_ s: ProcessorSlot) -> String {
-        let base = s.type == .passgate ? "PASSES" : s.type.rawValue
+        let base = s.type == .passgate ? "PASSES" : (s.type == .muteMatrix ? "MUTE MTX" : s.type.rawValue)
         let m: String
         switch s.type {
         case .ratchet: switch s.params.rtcMode ?? .all { case .all: m = "ALL"; case .coin: m = "COIN"; case .pattern: m = "PAT" }

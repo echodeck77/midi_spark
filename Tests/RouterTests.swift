@@ -169,6 +169,26 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(Set(hocket.map { $0.cable }).count, 1, "DEST spreads the arp across multiple emitters")
         XCTAssertLessThan(hocket.count, plain.count, "DEST routes each note to ONE emitter, not the 4-way fan-out")
     }
+    // MUTE MATRIX (Paul 2026-08-25 §5): [ARP→MUTE] gates emitters per step — a muted emitter goes silent while the
+    // others keep playing; an all-zero mask is byte-identical (nothing muted); nothing left sounding either way.
+    func testMuteMatrixGatesEmittersPerStep() {
+        func run2(_ withMute: Bool, _ mask: Int) -> RecordingEmitter {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mute = ProcessorSlot(type: .muteMatrix); mute.params.muteSlices = Array(repeating: mask, count: 8)
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) {
+                $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a, .b, .c, .d]); c.processors = withMute ? [arp, mute] : [arp]; return c }()
+            }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e
+        }
+        let plain = run2(false, 0), zero = run2(true, 0), muteA = run2(true, 0b0001)   // 0b0001 = emitter A muted every step
+        XCTAssertEqual(zero.events, plain.events, "MUTE MATRIX with an all-zero mask is byte-identical (nothing muted)")
+        XCTAssertFalse(muteA.ons.contains { $0.cable == 1 }, "MUTE silences emitter A (cable 1) on every step")
+        XCTAssertTrue(muteA.ons.contains { $0.cable == 2 }, "the other emitters keep playing")
+        XCTAssertLessThan(muteA.ons.filter { $0.cable >= 1 }.count, plain.ons.filter { $0.cable >= 1 }.count, "muting drops A's copies")
+    }
     // TIMING LANE (Paul 2026-08-22 §5): NUDGE's LANE mode — the cell's COLUMN picks a per-step time offset (the pocket).
     func testTimingLaneNudgesTheOnsetByColumn() {
         func firstOn(lane: [Int]?) -> Int64 {
