@@ -962,8 +962,8 @@ extension DiagView {
         let castW = max(160, colW - 4)                            // the cast + processor boxes FILL the column width
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) })).padding(.bottom, 6)   // tap = play/STOP the chain; sweeps over the whole scene like the grids (Paul 2026-08-18)
-            AnyView(buildColourTabs(castW: castW, cell: cell))    // the ROW SELECTOR tabs — above the outlined section
-            AnyView(VStack(spacing: 8) {                          // THE OUTLINED MACHINE SECTION: receiver toggles · chain · buttons · emitter toggles (Paul 2026-08-18)
+            AnyView(VStack(spacing: 8) {                          // THE OUTLINED MACHINE SECTION: ROW-SELECTOR tabs · receiver toggles · chain · buttons · emitter toggles (tabs moved INSIDE the border, Paul 2026-08-25)
+                AnyView(buildColourTabs(castW: castW, cell: cell))    // the ROW SELECTOR tabs — now WITHIN the selected-colour frame
                 AnyView(buildMachineBlock(castW: castW, cell: cell))
                 AnyView(buildEmitterToggles(castW: castW)).padding(.top, 16)
             }
@@ -4141,13 +4141,13 @@ extension DiagView {
                 Color.clear.frame(height: topReserve).allowsHitTesting(false)   // pass taps through to the play-button row
                 HStack(spacing: 0) {
                     Color.clear.frame(width: leftReserve).allowsHitTesting(false)   // pass taps through to the LEFT column
-                    // Pass 1 (Paul 2026-08-25, "controls feel too wide"): the panel is a TIDY COLUMN (≤ 600pt), docked to
-                    // the left of its region — not stretched across the whole grid. Controls stop sprawling to full width.
-                    let panelW = min(600, contentW)
+                    // The panel now FILLS the width to the page's right border (Paul 2026-08-25) — the earlier ≤600pt cap
+                    // ("controls feel too wide") is lifted; the card reaches the right edge (a small margin via contentW's −24).
+                    let panelW = contentW
                     buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: panelW)
                         .frame(width: panelW).frame(maxHeight: .infinity)
                         .padding(.bottom, 12)
-                    Spacer(minLength: 10)
+                    Spacer(minLength: 0)
                 }
             }
             .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // capture the OPEN snapshot (for CANCEL / overwrite-revert)
