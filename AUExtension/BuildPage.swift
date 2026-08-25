@@ -4541,19 +4541,25 @@ extension DiagView {
     private func buildChainRemoveSlot(_ i: Int) {                  // DELETE → leave an empty (passthrough) box, keep positions
         var c = selectedColourChain(); guard i < c.count else { return }; c[i] = buildPassthroughSlot(); buildApplyChain(c)
     }
-    // DRAG-TO-REORDER (Paul 2026-08-25): move the processor at `from` to position `to` — an array move, so the chain
-    // folds in the new order (composeChainSet reads it in order). Colour-scoped + undoable via buildApplyChain.
+    // DRAG-TO-REORDER (Paul 2026-08-25): a POSITIONAL move — the dragged processor LANDS at the target box (box index `to`,
+    // OVERWRITING whatever was there) and its ORIGINAL box is vacated (→ empty passthrough). Nothing else shifts. So RIFF on
+    // box 1 + ARP on box 2, RIFF→box 3 ⇒ box 1 empty · box 2 ARP · box 3 RIFF. The chain folds in box order (composeChainSet).
     private func buildChainMoveSlot(from: Int, to: Int) {
+        guard from != to, from >= 0, to >= 0, to < 8 else { return }
         var c = selectedColourChain()
-        guard from >= 0, from < c.count, to >= 0, to < c.count, from != to else { return }
-        let s = c.remove(at: from); c.insert(s, at: to)
+        guard from < c.count else { return }
+        let moved = c[from]
+        while c.count <= to { c.append(buildPassthroughSlot()) }   // extend to reach the target box (dropping onto an empty slot)
+        c[to] = moved                                              // land at the target box (overwrite it)
+        c[from] = buildPassthroughSlot()                           // vacate the original box (trailing empties are trimmed on read)
         buildApplyChain(c)
     }
-    // The 2×4 processor grid: map a finger location (in the "chainBlock" space) to the slot index under it.
+    // The 2×4 processor grid: map a finger location (in the "chainBlock" space) to the box index under it (any of the 8,
+    // incl. empty ones — a processor can be dropped onto an empty box).
     private func buildChainTargetIndex(_ loc: CGPoint, boxW: CGFloat, boxH: CGFloat, gap: CGFloat, count: Int) -> Int {
         let col = loc.x < (boxW + gap * 0.5) ? 0 : 1
         let row = max(0, min(3, Int(max(0, loc.y) / (boxH + gap))))
-        return max(0, min(count - 1, row * 2 + col))
+        return max(0, min(7, row * 2 + col))
     }
     // ── THE STOREFRONT CATALOG ───────────────────────────────────────────────────────────────────────────────────
     // ONE ENGINE, MANY DOORS (design ratified by Paul 2026-08-22, AcceptanceCriteria-storefront-catalog.md):
