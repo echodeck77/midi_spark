@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RIFF — the chord-following 303, STAGE 1 (2026-08-26, on `main`, `3dfae82`; iOS builds, macOS green incl. fuzz;
+  DEVICE ear/eye owed). Paul ordered it (spec `Docs/SPEC-riff-processor.md`, ratified). A new DRIVER `ProcessorType.riff`
+  (append-only "RIFF"): a stored STENCIL of RANK choices that DERIVES against the held chord — ZERO pitches stored, so
+  one riff plays in any key (the family: ARP computes the walk · RIFF authors it · CLIP photographs it). **ENGINE:** pure
+  `riffResolve` (rank → the sorted pool's k-th note; a rank PAST the held count wraps — FOLD = wrap+octave default · CLAMP
+  = top · WRAP = same octave; OCT nudges; rank 0 = REST) + `riffNote` (the cell-filtered path). `emitRiffRow` = a driver on
+  the ARP's tick lifecycle (`iterateTicks` at riffRate; step = the stencil position, FREE phase, replay-exact) — so it
+  composes as a chain driver ([X→RIFF] re-pools the composed set per tick, OMNI) + folds through CHOP/downstream via
+  emitChop/emitDriverNote. Wired: `isDriverType` + BOTH dispatch switches (chain-driver `driveP.type` + single-slot
+  `mode`) + `cellMode`(.riff→.riff) + CellMode enum + emblem. Additive-Optional params (riffSteps/riffRate/riffRanks/
+  riffOct/riffAccent/riffTie/riffSlide/riffWrap); a DEFAULT figure ships (SnapParams) so a fresh RIFF plays; ACCENT boosts
+  the held chord's peak velocity (`coinVelFactor`). **EDITOR (stage 1):** the RANK MATRIX (rows ranks 1–8 · cols steps ·
+  tap = set / re-tap = REST) + STEPS · RATE · WRAP; MELODY storefront card. +2 tests (riffResolve rank/wrap/oct; RIFF
+  follows Cm vs F — the SAME stencil plays each chord's notes) + fuzz roster/randomizer (ranks past the chord, oct, wrap
+  — no stuck notes). **DEFERRED to later stages:** the OCT/ACCENT/TIE/SLIDE modifier LANES (§5) + the GLIDE-SYNTH slide
+  interlock · CAPTURE (§2 — arm + play the line in, records as ranks; input-driven) · the FOLLOWING frame (§4 — each step's
+  rank vs the chord AT ITS MOMENT). v1: FOLD/HELD-frame only; the matrix is the sole editor (capture is stage 3).**
 - **▶ RATCHET COIN — SHAPING THE DICE (2026-08-26, on `main`, `cbee38f`; iOS builds, macOS green incl. fuzz; DEVICE ear
   owed). Paul ordered it (spec `Docs/SPEC-ratchet-coin-randomness.md`, via the ferry channel). Four additive-Optional COIN
   additions, all seeded/replay-exact, nil ⇒ byte-identical: **① SIZE WEIGHTS** — a `sliderLane` over the roll sizes

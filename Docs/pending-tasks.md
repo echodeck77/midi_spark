@@ -79,9 +79,13 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     (e) LAYOUT — sticky-hero (27) · section-anchor chips (28) · conditional-animate-in (25) · hero-glyph thumbnails (32);
     (f) LANE gestures — pinch-scale (19) · header-mute (20) · result-ghosting (17);
     (g) hold-to-accelerate (14, low value now — scrub+overlay cover it).
-3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
-   the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
-   (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
+3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) ·
+   **✅ RIFF STAGE 1 — DONE (2026-08-26): the rank-stencil ENGINE + editor** (`ProcessorType.riff`, a DRIVER; pure
+   `riffResolve`/`riffNote` — rank→sorted-pool note, WRAP fold/clamp/wrap, oct, rest; `emitRiffRow` on the arp tick
+   lifecycle, composes as a chain driver; the RANK MATRIX editor + STEPS/RATE/WRAP; MELODY card; +2 tests + fuzz). RIFF
+   **remaining stages (open):** the OCT/ACCENT/TIE/SLIDE modifier lanes (§5) + the GLIDE-SYNTH slide interlock · CAPTURE
+   (§2, arm + play-in, records as ranks — input-driven, device-owed) · the FOLLOWING frame (§4, rank-vs-chord-at-its-
+   moment) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
 4. **GRID SELECTOR §2/§3** (`SPEC-grid-selector`) — **ACTIVATED 2026-08-26** (ferry `FERRY-select-grid-activated` = Paul's
    go-signal; sequencing still his word). Enhances the ALREADY-BUILT grid selector: EXCLUSIVE ON|OFF toggle + layered
    audition (QUANTIZE already ships), PART-BUTTONS-as-COMMIT (retire COMMIT; tap cell→tap part N deals it), LAYERED DEALS
