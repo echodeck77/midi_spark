@@ -4103,13 +4103,18 @@ extension DiagView {
                 Image(systemName: emblemSymbol(proc.type)).font(.system(size: 20, weight: .black)).foregroundColor(.white)
                 Text(buildProcLabel(proc)).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)   // type + its fixed mode (the radio moved to the card)
                 Spacer()
-                Button { buildChainToggleBypass(slot) } label: {
-                    Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(proc.bypassed ? 0.9 : 0.3), lineWidth: 1))
-                }.buttonStyle(.plain)
+                // HOLD-BYPASS A/B (idea 23): TAP = toggle (persistent); HOLD = momentary flip (hear it in/out, restore on
+                // release). The momentary uses the same undoable bypass edit (v1: may add an undo step for a placed colour).
+                Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14).frame(height: 34)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(proc.bypassed ? 0.9 : 0.3), lineWidth: buildBypassHeld == slot ? 2 : 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture { buildChainToggleBypass(slot) }
+                    .onLongPressGesture(minimumDuration: 0.22, pressing: { pressing in
+                        if !pressing, buildBypassHeld == slot { buildChainToggleBypass(slot); buildBypassHeld = nil }   // release → restore
+                    }, perform: { buildChainToggleBypass(slot); buildBypassHeld = slot })                              // held → momentary flip
                 Button { buildChainRemoveSlot(slot); buildEditSlot = nil } label: {
                     Text("DELETE").font(.system(size: 12, weight: .heavy, design: .monospaced))
                         .foregroundColor(.red)

@@ -104,6 +104,7 @@ struct DiagView: View {
     @State var buildFlattenMode: Bool = false        // FLATTEN toggle (default OFF): ON = the valve/part-button play grid · OFF = plain row-master chevrons + hidden right column
     @State var buildPlaceMsg: String? = nil          // the processor pop-up's PLACE feedback line ("added to row 6 — 2 remaining")
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
+    @State var buildBypassHeld: Int? = nil      // HOLD-BYPASS A/B (idea 23): the slot momentarily bypassed while the BYPASS button is held
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
     // PROCESSOR EDITOR transaction (Paul 2026-08-19): the colour's chain as it was when the editor OPENED, so CANCEL can
     // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.
