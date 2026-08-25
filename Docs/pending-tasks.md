@@ -82,8 +82,17 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
-4. **GRID SELECTOR §2/§3** (`SPEC-grid-selector`) — enhances the ALREADY-BUILT grid selector: QUANTIZE/EXCLUSIVE toggles,
-   the PREGEN CORPUS (bulk background generation → preset mining), PART-BUTTONS-as-COMMIT, the right-column browse-context I/O.
+4. **GRID SELECTOR §2/§3** (`SPEC-grid-selector`) — **ACTIVATED 2026-08-26** (ferry `FERRY-select-grid-activated` = Paul's
+   go-signal; sequencing still his word). Enhances the ALREADY-BUILT grid selector: EXCLUSIVE ON|OFF toggle + layered
+   audition (QUANTIZE already ships), PART-BUTTONS-as-COMMIT (retire COMMIT; tap cell→tap part N deals it), LAYERED DEALS
+   (EXCLUSIVE-OFF + N lit + part → the part's rows, one undo), right-column BROWSE-CONTEXT I/O (audition-only; deal uses the
+   part's own I/O), the PREGEN CORPUS (bulk background gen → instant DEAL + preset mining; profile the live-roll first).
+   Riders NOT ratified: HOLD part = preview · OCCUPIED/EMPTY part-button states. **Plan: `Docs/PLAN-grid-selector-and-
+   ratchet-coin.md`** (increments 1→4→2→3 UI, then 5 corpus). Recommended order: after ROTATE-retire or as its own pass.
+   **↳ RATCHET COIN — SHAPING THE DICE** (`SPEC-ratchet-coin-randomness`, filed 2026-08-26; CAPTURED, awaiting Paul's word):
+   four seeded additive-Optional RATCHET-COIN additions — ① SIZE WEIGHTS slider-lane over 2·3·4·6·8 (replaces SIZE LO/HI;
+   5th `sliderLane` consumer) · ② REFIRE GAP 0–4 · ③ QUOTA per-row FREE|~2|~3|~4 · ④ ODDS FROM FIXED|VELOCITY. ①④ contained;
+   ②③ need a pure deterministic per-row SCAN (sequential dep — replay-safe, "derived never accumulated"). Plan in the same doc.
 5. **THE MATRIX/LANE CANDIDATES (ratified §5):** **✅ CHANCE PATTERN + ✅ TIMING LANE — DONE (2026-08-25).** CHANCE =
    the odds SLIDER LANE (SINGLE|PATTERN, step-aware `effectiveProbability`). TIMING = NUDGE FIXED|LANE (per-column ±8/16
    pocket; step = cell column). Together they delivered the SLIDER LANE species fully: `modStepBars`→shared `sliderLane`
