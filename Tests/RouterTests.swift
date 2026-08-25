@@ -2784,6 +2784,25 @@ final class RouterTests: XCTestCase {
         render(NotePool(), playing: false)   // stop → flush
         assertNothingLeftSounding(e)
     }
+    // METER-TRUTH (Paul 2026-08-25): GLIDE emits its note-on via a direct openVoice (it bypasses emitArtic/emitOneBus),
+    // so before the `meter` opt-in it sounded WITHOUT lighting the emitter strip. Prove the note-on now meters on its bus.
+    func testGlideLightsTheEmitterMeter() {
+        let cs = arpColours()
+        var g = ProcessorSlot(type: .glide); g.params.glideRange = 2; g.params.glideTime = 0
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func render(_ pool: NotePool) { router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        render(chord([60]))                    // ANCHOR 60 (vel 100) → a note-on on emitter A (bus 0)
+        let m = router.drainMeters()
+        XCTAssertGreaterThan(m.events[0], 0, "GLIDE's note-on lights emitter A's meter (meter-truth: no emission without a meter event)")
+        XCTAssertGreaterThan(Int(m.peak[0]), 0, "the meter carries the note's velocity")
+        XCTAssertEqual(router.drainMeters().events[0], 0, "read-and-clear")
+        render(NotePool()); router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
     // GLIDE SYNTH mode (Paul 2026-08-22): drive the synth's own portamento — CC65 on + CC5 time, then legato note
     // transitions (new note opens before old closes), NO pitch-bend.
     func testGlideSynthModeSendsPortamentoCCsAndTransitionsLegato() {

@@ -1148,6 +1148,12 @@ struct ProcessorBox: View {
             let gmode = p.glideMode ?? .bend
             heroField("MODE") { seg(GlideMode.allCases.map(\.rawValue), sel: gmode.rawValue) { i in setParam { $0.glideMode = GlideMode.allCases[i] } } }
             Text(glideModeBlurb(gmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
+            // TERMINAL (Paul 2026-08-25): GLIDE is one mono voice + continuous bend — it does NOT feed a downstream stage.
+            // Say so, so a [GLIDE→X] chain isn't a silent surprise.
+            Text("TERMINAL — GLIDE is the last stage. A processor placed after it is not fed.")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(UI.amber.opacity(0.85))
+                .frame(maxWidth: .infinity, alignment: .leading)
             if gmode == .bend {
                 row2({ field("TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
                     slider(bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2, detents: [0, 0.25, 0.5, 1, 2]) } },
