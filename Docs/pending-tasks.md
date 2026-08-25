@@ -49,7 +49,9 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     hold-bypass A/B (`321e885`). **DEFERRED (each has a wrinkle):** **16 SPAN BRACKET** — the ladder's ×2/×4 values don't
     fit an 8-column bracket cleanly (needs a design for the multi-bar case). **21 DEFAULTS-RECEDE** — needs per-control
     "is-at-default" plumbing across ~50 controls (a large mechanical pass; the options-chips already show deviation).
-    → **E** two-column (= width-Pass-2, TODO) → **F** the à-la-carte 27 (TODO). All UI-only, iOS builds, DEVICE eye owed.
+    → **✅ E** two-column (= width-Pass-2, `e773fa5`) — `row2` pairs the short couples (RATCHET SIZE·STRUM·ECHO SYNC/DELAY+
+    1ST/FADE·MOD MIN/MAX·LENGTH SHORT/LONG·WEAVE·GLIDE). → **F** the à-la-carte 27 (TODO) + the 16/21 fixes. All UI-only,
+    iOS builds, DEVICE eye owed. **A–E landed** (D partial: 8/15/23 done).
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
