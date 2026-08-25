@@ -59,6 +59,14 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     thumbnails. **✅ 21 DEFAULTS-RECEDE — DONE (`90c105e`):** keypath-`field` overload vs one static `ColourParams()`
     snapshot dims ~45 at-default fields (no per-render alloc, one Equatable compare — Paul's low-cost constraint met).
     **16 span-bracket = LEFT AS-IS** (Paul's call — the ×2/×4 multi-bar look isn't worth reworking now).
+    **F INFRASTRUCTURE (started 2026-08-25):** ✅ **12+31 VALUE OVERLAY (`8a78175`)** — tap a numPair's number → a grid
+    picker (small ranges) / keypad (CC 0–127) for exact entry, self-contained on NumPair. **REMAINING TRACKS (each a
+    distinct build):** (a) CUSTOM SLIDER = fine-mode (5) + detents/haptics (3) — replaces SwiftUI Slider, feel-critical;
+    (b) LONG-PRESS EXPLANATIONS (10) — a seg-chip explain popover + per-enum text (learnability, content-heavy); (c)
+    TRUTH STRIPS (24 touch→OUT diff) — needs the unbuilt IN/OUT strips (big); (d) MACRO-BIND (26 long-press→bind) —
+    reconnect the macro authoring flow; (e) LAYOUT — sticky-hero (27) · section-anchor chips (28) · conditional-animate-in
+    (25) · hero-glyph thumbnails (32); (f) LANE gestures — pinch-scale (19) · header-mute (20) · result-ghosting (17);
+    (g) hold-to-accelerate (14, low value now — scrub+overlay cover it).
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
