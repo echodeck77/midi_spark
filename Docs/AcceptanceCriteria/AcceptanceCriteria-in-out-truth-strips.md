@@ -4,6 +4,15 @@
 # start (the NEW behaviour) draw bright + white-ringed, earlier ones dim to a ghost, the box glows the hue. Only the
 # OUTPUT diffs. Shared `buildRollCanvas`. TRUTH-STRIPS TRACK (§1 · §4 · 24) IS NOW FEATURE-COMPLETE (all device-eye owed).
 #
+# ✅ DEVICE-FEEDBACK PASS — 2026-08-25 (`7c1e5f7`; iOS builds, UI-only; DEVICE eye owed). Three fixes from Paul's look:
+# (1) IN no longer flashes "nothing held" on every note-off — a per-door grace holds the state for a full PASS (8 steps
+# playing · ~0.8s else, computed in the poll); during the grace the strip shows the last-held silhouette DIMMED, the
+# teach text only after a genuinely empty pass (panel + eye INPUT lane). (2) OUT names its driver + dims when it isn't
+# this cell: chain audition → "this chain"; PLAY THIS PART → "this cell — live" only when the edited rung is active under
+# the playhead, else "part — not this cell" (dimmed). (3) The eye MECHANISM lane draws a real ARP note-WALK contour
+# (UP/DOWN/UP-DN/RANDOM shapes + current step lit) instead of the generic 8 boxes; EUCLID keeps its pulses, other types
+# the position lane (bespoke per-type mechanism art = the v2 rollout, now started with ARP).
+#
 # ✅ §4 STAGE EYE — v1 LANDED 2026-08-25 (`ff8a350`; iOS builds, UI-only; DEVICE eye owed). Tapping a truth strip opens a
 # full-page 3-lane overlay (`buildStageEyeView`): INPUT roll (new `buildEyeInRoll`, onset-diffed off the door's held set)
 # · MECHANISM (the machine live + a position light on the live column — EUCLID draws its pulse pattern via `euclidPattern`,
