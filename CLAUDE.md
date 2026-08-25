@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROCESSOR-EDITOR PRESENTATION REDESIGN A–C (2026-08-25, on `main`; iOS builds; UI-only — macOS suite unaffected,
+  DEVICE eye owed). Implements `Docs/SPEC-presentation-pass-ratified.md` (6 hierarchy rules) — ALL render-only, engine +
+  every param untouched. **A (`0bf0fdd`) THE NUDGE PAIR** (rule 3): a new shared `NumPair` widget ◀ value ▶ (tap = ±1,
+  drag the value = scrub; `wrap` cycles; `format` prints units/glyphs) — the ONE numeric grammar. Remapped EVERY
+  number-picker to it + DELETED the dead `grid16`: ECHO REPEATS/DELAY, EUCLID → the K-of-N hero row "◀5▶ of ◀16▶", ARP
+  OCTAVES, RATCHET REPEATS/SIZE, BURST HITS, WEAVE VOICES, SPLIT NOTES, CHANNEL's 17-chip wall → ◀ WIRE ▶, and EVERY
+  ROTATE → ◀n▶ wrap (the ratified ROTATE control unified). `seg` now only for word-enums. **B (`1f46a94`) THE HIERARCHY
+  LAW** (rules 1/2/5): `heroField` (the ★★★ hero wears a 2pt accent bar + breathing room — "important controls look
+  important") on every card's hero; `optionsCluster` gathers the ★ toggles (FIT 1 BEAT · RAKE · CONSTANT-N · DRY · CUT
+  SPILL · INVERT) into ONE compact foot row of lit/unlit chips; heroes reordered first. **C (`49366c3`) SECTION THE LONG
+  CARDS** (rule 4): `sectionLabel` — ECHO → TIMING·TONE·TAIL, MOD → a TARGET section. NEXT (Paul's word): the D wave
+  (21 defaults-recede · 23 hold-bypass A/B · 16 span-bracket · 15 playhead-sweeps-matrix · 8 self-drawing chips) → E
+  two-column (= width Pass 2) → F the à-la-carte 27. Plan: `Docs/PLAN-presentation-redesign.md`.**
 - **▶ DEST MATRIX — the per-step emitter hocket (ratified §5, routing-class) (2026-08-25, on `main`; iOS builds, macOS
   green incl. fuzz; DEVICE ear owed). The first STATE-MATRIX §5 candidate + the first NEW routing-class processor. A new
   note-transparent `ProcessorType.dest` (append-only ID): an 8-slice matrix (`destSlices: [Int]?`, 0=A…3=D) picks WHICH
