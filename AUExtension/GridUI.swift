@@ -866,8 +866,7 @@ struct ProcessorBox: View {
             field("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: p.rate?.rawValue ?? "1/16") { i in
                 setParam { $0.rate = ArpRate.allCases[i] } } }
             HStack(spacing: 8) {
-                field("OCTAVES") { seg(["1","2","3","4"], sel: "\(p.octaves ?? 1)") { i in
-                    setParam { $0.octaves = i + 1 } } }
+                field("OCTAVES") { numPair(p.octaves ?? 1, 1...4) { v in setParam { $0.octaves = v } } }
                 // OCT DIRECTION (Paul 2026-08-22): the laps ascend the octaves (UP) or descend them (DOWN).
                 field("OCT DIR") { seg(["UP", "DOWN"], sel: (p.arpOctDown ?? false) ? "DOWN" : "UP") { i in
                     setParam { $0.arpOctDown = (i == 1) } } }
@@ -886,16 +885,13 @@ struct ProcessorBox: View {
         case .ratchet:
             let rmode = p.rtcMode ?? .all      // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if rmode == .all {
-                field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
-                    setParam { $0.count = [2,3,4,6,8][i] } } }
+                field("REPEATS") { numPair(p.count ?? 3, 2...8) { v in setParam { $0.count = v } } }
             } else if rmode == .coin {
                 Text("each step rolls: ratchet (a burst) or plain (one hit)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
                 field("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%") {
                     Slider(value: bind(p.rtcChance ?? 0.5) { v in setParam { $0.rtcChance = v } }, in: 0...1).tint(accent) }
-                field("SIZE MIN  \(p.rtcCountLo ?? 2)") { seg((1...8).map { "\($0)" }, sel: "\(p.rtcCountLo ?? 2)") { i in
-                    setParam { $0.rtcCountLo = i + 1; if ($0.rtcCountHi ?? 4) < i + 1 { $0.rtcCountHi = i + 1 } } } }
-                field("SIZE MAX  \(p.rtcCountHi ?? 4)  (burst length range)") { seg((1...8).map { "\($0)" }, sel: "\(p.rtcCountHi ?? 4)") { i in
-                    setParam { $0.rtcCountHi = i + 1; if ($0.rtcCountLo ?? 2) > i + 1 { $0.rtcCountLo = i + 1 } } } }
+                field("SIZE MIN") { numPair(p.rtcCountLo ?? 2, 1...8) { v in setParam { $0.rtcCountLo = v; if ($0.rtcCountHi ?? 4) < v { $0.rtcCountHi = v } } } }
+                field("SIZE MAX  (burst length range)") { numPair(p.rtcCountHi ?? 4, 1...8) { v in setParam { $0.rtcCountHi = v; if ($0.rtcCountLo ?? 2) > v { $0.rtcCountLo = v } } } }
             } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
                 field("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
                     stateMatrixRadio([0, 2, 3, 4],
@@ -905,8 +901,7 @@ struct ProcessorBox: View {
                 }
                 field("GRID — slices per bar") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rtcRate ?? .r1_8).rawValue) { i in
                     setParam { $0.rtcRate = ArpRate.allCases[i] } } }
-                field("ROTATE — walk the pattern  (\(p.rtcRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.rtcRotate ?? 0)") { i in
-                    setParam { $0.rtcRotate = i } } }
+                field("ROTATE — walk the pattern") { numPair(p.rtcRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.rtcRotate = v } } }
                 // SPAN LADDER (RATE×ladder): GRID (above) = slice width; this dial = the pattern's loop period in columns.
                 spanLadderField(p.rtcSpanN ?? ((p.rtcSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.rtcSpanN = v } }
             }
@@ -945,7 +940,7 @@ struct ProcessorBox: View {
                 let shown = (0..<8).map { i -> Int in let s = p.chanceSlices ?? base; return i < s.count ? s[i] : 100 }
                 field("ODDS PER STEP  (drag to draw · %)") { sliderLane(shown, count: 8, max: 100) { i, v in
                     setParam { var s = $0.chanceSlices ?? base; while s.count < 8 { s.append(100) }; s[i] = v; $0.chanceSlices = s } } }
-                field("ROTATE — walk the odds  (\(p.chanceRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.chanceRotate ?? 0)") { i in setParam { $0.chanceRotate = i } } }
+                field("ROTATE — walk the odds") { numPair(p.chanceRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.chanceRotate = v } } }
             } else {
                 field("CHANCE \(Int((p.probability ?? 1) * 100))%") {
                     Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
@@ -965,10 +960,10 @@ struct ProcessorBox: View {
             let ms = p.echoDelayMs ?? 250, off = p.echoOffset ?? 0, fd = p.echoFeedDelay ?? 0.7
             let dec = p.echoDecay ?? 0.5, pit = p.echoPitch ?? 0, thru = p.echoThru ?? true
             let spill = p.echoSpill ?? .ring
-            field("REPEATS  \(reps)") { grid16(sel: reps) { v in setParam { $0.echoRepeats = v } } }
+            field("REPEATS") { numPair(reps, 1...16) { v in setParam { $0.echoRepeats = v } } }
             field("SYNC") { seg(["ON", "OFF"], sel: sync ? "ON" : "OFF") { i in setParam { $0.echoSync = (i == 0) } } }
             if sync {
-                field("DELAY  \(div)/16 note\(div == 4 ? "  (1 beat)" : "")") { grid16(sel: div) { v in setParam { $0.echoDelayDiv = v } } }
+                field("DELAY\(div == 4 ? "  (1 beat)" : "")") { numPair(div, 1...16, format: { "\($0)/16" }) { v in setParam { $0.echoDelayDiv = v } } }
             } else {
                 field("DELAY  \(Int(ms)) ms") { Slider(value: bind(ms) { v in setParam { $0.echoDelayMs = v } }, in: 10...2000).tint(accent) }
             }
@@ -991,18 +986,24 @@ struct ProcessorBox: View {
             let steps = p.euclidSteps ?? 8
             let fromPool = p.euclidPulsesFromPool ?? false
             field("HITS FROM") { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
+            // The K-of-N hero row (§presentation ⑤): HITS and STEPS as two nudge-pairs on one line — "◀5▶ of ◀16▶".
             if !fromPool {
-                field("  \(p.euclidPulses ?? 5)  of  \(steps)") { grid16(sel: p.euclidPulses ?? 5) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } } }
+                field("HITS OF STEPS") { HStack(spacing: 8) {
+                    numPair(p.euclidPulses ?? 5, 1...steps) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } }
+                    Text("of").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                    numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } }
+                } }
+            } else {
+                field("STEPS") { numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
             }
-            field("STEPS  \(steps)") { grid16(sel: steps) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
-            field("ROTATE  \(p.euclidRot ?? 0)") { stepper(p.euclidRot ?? 0, 0, 15) { v in setParam { $0.euclidRot = v } } }
+            field("ROTATE") { numPair(p.euclidRot ?? 0, 0...15, wrap: true) { v in setParam { $0.euclidRot = v } } }
             spanLadderField(p.euclidSpanN ?? ((p.euclidSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.euclidSpanN = v } }
             // PICK = what each hit strikes; INVERT = play the N−K rests (Paul 2026-08-22)
             field("PICK") { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
             field("INVERT") { seg(["OFF", "ON"], sel: (p.euclidInvert ?? false) ? "ON" : "OFF") { i in setParam { $0.euclidInvert = (i == 1) } } }
         case .burst:    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)
             let bmode = p.burstMode ?? .once   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
-            field("HITS  \(p.count ?? 4)") { seg(["2", "3", "4", "6", "8", "12", "16"], sel: "\(p.count ?? 4)") { i in setParam { $0.count = [2, 3, 4, 6, 8, 12, 16][i] } } }
+            field("HITS") { numPair(p.count ?? 4, 2...16) { v in setParam { $0.count = v } } }
             let cv = p.curve ?? 0
             field("SHAPE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%") {
                 Slider(value: bind(cv) { v in setParam { $0.curve = v } }, in: -1...1).tint(accent) }
@@ -1018,7 +1019,7 @@ struct ProcessorBox: View {
                         selected: { i in let s = p.burstSlices ?? defBurst; return i < s.count ? s[i] : .rest },
                         set: { i, st in setParam { var s2 = $0.burstSlices ?? defBurst; while s2.count < 8 { s2.append(.rest) }; s2[i] = st; $0.burstSlices = s2 } })
                 }
-                field("ROTATE  (\(p.burstRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.burstRotate ?? 0)") { i in setParam { $0.burstRotate = i } } }
+                field("ROTATE") { numPair(p.burstRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.burstRotate = v } } }
             }
             spanLadderField(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.burstSpanN = v } }
         case .cascade:  // GENERATOR — incremental chord reveal
@@ -1126,8 +1127,7 @@ struct ProcessorBox: View {
                 }
                 field("GRID — how many slices per bar") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in
                     setParam { $0.tuttiRate = ArpRate.allCases[i] } } }
-                field("ROTATE — slide the whole figure earlier/later  (\(p.tuttiRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.tuttiRotate ?? 0)") { i in
-                    setParam { $0.tuttiRotate = i } } }
+                field("ROTATE — slide the figure") { numPair(p.tuttiRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.tuttiRotate = v } } }
                 // SPAN LADDER (RATE×ladder): RATE (above) = slice width; this dial = the pattern's loop period in columns.
                 spanLadderField(p.tuttiSpanN ?? ((p.tuttiSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.tuttiSpanN = v } }
             }
@@ -1145,8 +1145,7 @@ struct ProcessorBox: View {
                 Slider(value: bind(p.lenShort ?? 0.4) { v in setParam { $0.lenShort = v } }, in: 0.05...0.95).tint(accent) }
             field("LONG =  \(Int((p.lenLong ?? 0.7) * 100))%  (25% … step end)") {
                 Slider(value: bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1).tint(accent) }
-            field("ROTATE — shift the phrasing  (\(p.lenRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.lenRotate ?? 0)") { i in
-                setParam { $0.lenRotate = i } } }
+            field("ROTATE — shift the phrasing") { numPair(p.lenRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.lenRotate = v } } }
             spanLadderField(p.lenSpanN ?? ((p.lenSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.lenSpanN = v } }
         case .weave:   // rank-clocked polyrhythm driver — each held note on its own clock
             let wmode = p.weaveMode ?? .ladder   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
@@ -1202,7 +1201,7 @@ struct ProcessorBox: View {
             field("SEMITONES  \(st > 0 ? "+" : "")\(st)") { stepper(st, -24, 24) { v in setParam { $0.utilTranspose = v } } }
         case .channel:   // UTILITY — output channel override (WIRE = the bus stamp)
             let ch = p.utilChannel ?? 0
-            field("CHANNEL  \(ch == 0 ? "WIRE" : "\(ch)")") { seg(["WIRE"] + (1...16).map { "\($0)" }, sel: ch == 0 ? "WIRE" : "\(ch)") { i in setParam { $0.utilChannel = i } } }
+            field("CHANNEL") { numPair(ch, 0...16, wrap: true, format: { $0 == 0 ? "WIRE" : "\($0)" }) { v in setParam { $0.utilChannel = v } } }
         case .nudge:   // UTILITY — time offset in sixteenths; FIXED (one) | LANE (the pocket, drawn per column)
             let nmode = p.utilNudgeMode ?? .fixed
             field("MODE") { seg(NudgeMode.allCases.map(\.rawValue), sel: nmode.rawValue) { i in setParam { $0.utilNudgeMode = NudgeMode.allCases[i] } } }
@@ -1333,23 +1332,6 @@ struct ProcessorBox: View {
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.
-    private func grid16(sel: Int, _ set: @escaping (Int) -> Void) -> some View {
-        VStack(spacing: 6) {
-            ForEach(0..<2, id: \.self) { row in
-                HStack(spacing: 6) {
-                    ForEach(0..<8, id: \.self) { coln in
-                        let val = 1 + row * 8 + coln
-                        let on = val == sel
-                        Text("\(val)").font(.system(size: 13, weight: .heavy, design: .monospaced))
-                            .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.5)
-                            .frame(maxWidth: .infinity).frame(height: 36)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.09)))
-                            .contentShape(Rectangle()).onTapGesture { set(val) }
-                    }
-                }
-            }
-        }
-    }
 
     // CC-stage §1: a labelled CC number ("74 · CUTOFF" for the named dozen, else the bare number).
     private func ccLabelText(_ n: Int) -> String { ccName(n).map { "\(n) · \($0)" } ?? "\(n)" }
@@ -1442,6 +1424,48 @@ struct ProcessorBox: View {
                 .contentShape(Rectangle()).onTapGesture { set(min(hi, v + 1)) }
             Spacer()
         }
+    }
+    // THE NUDGE PAIR (Paul 2026-08-25 §presentation rule 3): ◀ value ▶ — the ONE numeric grammar. tap = ±1 · drag the
+    // value = scrub. Replaces grid16, numeric-as-radio, CHANNEL's chip wall, AND is the ROTATE control. `wrap` cycles
+    // (rotate/channel); `format` prints units/glyphs (e.g. "3/16", "WIRE").
+    private func numPair(_ v: Int, _ range: ClosedRange<Int>, wrap: Bool = false,
+                         format: @escaping (Int) -> String = { "\($0)" }, _ set: @escaping (Int) -> Void) -> some View {
+        NumPair(value: v, range: range, wrap: wrap, format: format, accent: accent, set: set)
+    }
+}
+
+/// The nudge-pair view (its own struct so the drag-scrub can hold gesture state). §presentation rule 3.
+private struct NumPair: View {
+    let value: Int
+    let range: ClosedRange<Int>
+    var wrap = false
+    var format: (Int) -> String = { "\($0)" }
+    let accent: Color
+    let set: (Int) -> Void
+    @State private var dragBase: Int? = nil
+    private func clampWrap(_ raw: Int) -> Int {
+        if wrap { let n = max(1, range.count); return range.lowerBound + (((raw - range.lowerBound) % n) + n) % n }
+        return min(range.upperBound, max(range.lowerBound, raw))
+    }
+    private func apply(_ raw: Int) { let x = clampWrap(raw); if x != value { set(x) } }
+    private func arrow(_ glyph: String, _ act: @escaping () -> Void) -> some View {
+        Text(glyph).font(.system(size: 17, weight: .heavy)).foregroundColor(.white.opacity(0.85))
+            .frame(width: 44, height: 42).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
+            .contentShape(Rectangle()).onTapGesture(perform: act)
+    }
+    var body: some View {
+        HStack(spacing: 6) {
+            arrow("◀") { apply(value - 1) }
+            Text(format(value)).font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                .lineLimit(1).padding(.horizontal, 10).frame(minWidth: 56, minHeight: 42)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)))
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 4).onChanged { g in
+                    let base = dragBase ?? value; if dragBase == nil { dragBase = value }
+                    apply(base + Int((g.translation.width / 14).rounded()))   // drag-scrub: ~14pt per step
+                }.onEnded { _ in dragBase = nil })
+            arrow("▶") { apply(value + 1) }
+        }   // content-sized; the parent field (VStack .leading) left-aligns it
     }
 }
 
