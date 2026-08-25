@@ -1059,9 +1059,9 @@ struct ProcessorBox: View {
                 field("GLIDE", \.modSmooth) { seg(["SMOOTH", "STEP"], sel: (p.modSmooth ?? true) ? "SMOOTH" : "STEP") { i in setParam { $0.modSmooth = (i == 0) } } }
             case .strike:
                 field("RISE  \(String(format: "%.2f", p.modAttack ?? 0.15)) beats", \.modAttack) {
-                    slider(bind(p.modAttack ?? 0.15) { v in setParam { $0.modAttack = v } }, in: 0.01...4) }
+                    slider(bind(p.modAttack ?? 0.15) { v in setParam { $0.modAttack = v } }, in: 0.01...4, detents: [0.25, 0.5, 1, 2]) }
                 field("FALL  \(String(format: "%.2f", p.modRelease ?? 0.6)) beats", \.modRelease) {
-                    slider(bind(p.modRelease ?? 0.6) { v in setParam { $0.modRelease = v } }, in: 0.01...4) }
+                    slider(bind(p.modRelease ?? 0.6) { v in setParam { $0.modRelease = v } }, in: 0.01...4, detents: [0.25, 0.5, 1, 2]) }
             case .extern:
                 let ec = p.modExternCC ?? 1
                 field("FROM CC", \.modExternCC) { numPair(ec, 0...127, format: { ccLabelText($0) }) { v in setParam { $0.modExternCC = v } } }
@@ -1101,12 +1101,12 @@ struct ProcessorBox: View {
             Text(glideModeBlurb(gmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
             if gmode == .bend {
                 row2({ field("TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
-                    slider(bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2) } },
+                    slider(bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2, detents: [0, 0.25, 0.5, 1, 2]) } },
                      { field("BEND RANGE  ±\(p.glideRange ?? 2) st") {
-                    slider(bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48) } })
+                    slider(bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48, detents: [12, 24, 36, 48]) } })
             } else {
                 field(gmode == .step ? "RUN TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats" : "TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
-                    slider(bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2) }
+                    slider(bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2, detents: [0, 0.25, 0.5, 1, 2]) }
             }
             field("FOLLOW", \.glidePriority) { seg(GlidePriority.allCases.map(\.rawValue), sel: (p.glidePriority ?? .last).rawValue) { i in setParam { $0.glidePriority = GlidePriority.allCases[i] } } }
             if gmode == .bend {
@@ -1392,8 +1392,8 @@ struct ProcessorBox: View {
     // coarse (absolute, tap-to-position like before); PULL THE FINGER AWAY from the bar (>44pt vertical) and it latches to
     // FINE ×10 — a relative scrub at a tenth the sensitivity, anchored where you crossed, so there's no jump. The pro-audio
     // "drag away to fine-tune" idiom; discoverable, one gesture, no timing. Drop-in for the old `Slider(value:in:).tint`.
-    private func slider(_ b: Binding<Double>, in range: ClosedRange<Double>) -> some View {
-        FineSlider(value: b.wrappedValue, range: range, accent: accent, set: { b.wrappedValue = $0 })
+    private func slider(_ b: Binding<Double>, in range: ClosedRange<Double>, detents: [Double] = []) -> some View {
+        FineSlider(value: b.wrappedValue, range: range, accent: accent, set: { b.wrappedValue = $0 }, detents: detents)
     }
     /// THE SPAN LADDER dial (Paul 2026-08-22 §3): 1·2·3·4·6·8·×2·×4 — the pattern's loop period in columns (odd N =
     /// polymeter against the 8-column row). Replaces the CELL|ROW toggle; 1 = CELL, 8 = ROW (byte-identical endpoints).
@@ -1659,20 +1659,46 @@ private struct NumPair: View {
     }
 }
 
-/// THE FADER (§presentation idea 5 — fine mode). Its own struct so the drag can hold latch/anchor @State. Coarse =
-/// absolute (tap-to-position); pull away from the bar (>44pt vertical) → latches FINE ×10, a relative scrub anchored
-/// where you crossed (no jump), for the rest of that drag. Releases back to coarse. Render-only; no engine touch.
+/// THE FADER (§presentation idea 5 — fine mode; idea 3 — detents + haptics). Its own struct so the drag can hold
+/// latch/anchor @State. Coarse = absolute (tap-to-position); pull away from the bar (>44pt vertical) → latches FINE ×10,
+/// a relative scrub anchored where you crossed (no jump), for the rest of that drag. Releases back to coarse. Every
+/// slider fires a soft SELECTION haptic as the value crosses a notch (a "notched" tactile feel); `detents` (musical
+/// values, natural range) add GRAVITY — a nearby value SNAPS to the detent + a firmer bump. Render-only; no engine touch.
 private struct FineSlider: View {
     let value: Double
     let range: ClosedRange<Double>
     let accent: Color
     let set: (Double) -> Void
+    var detents: [Double] = []
     @State private var fine = false
     @State private var anchorX: CGFloat = 0
     @State private var anchorVal: Double = 0
+    @State private var lastNotch: Int = .min          // last notch index we ticked at (haptic dedup)
+    @State private var inDetent: Double? = nil         // detent we're currently snapped to (bump dedup)
+    private static let selHaptic = UISelectionFeedbackGenerator()   // shared → no per-render alloc, stays prepared
+    private static let bumpHaptic = UIImpactFeedbackGenerator(style: .rigid)
     private var lo: Double { range.lowerBound }
     private var hi: Double { range.upperBound }
-    private var frac: CGFloat { CGFloat((value - lo) / max(0.000001, hi - lo)) }
+    private var span: Double { max(0.000001, hi - lo) }
+    private var frac: CGFloat { CGFloat((value - lo) / span) }
+    // 20 notches across the range (coarse) / 100 (fine) — consistent tactile density regardless of the range's units.
+    private func tick(_ v: Double) {
+        let notches = Double(fine ? 100 : 20)
+        let idx = Int(((v - lo) / span * notches).rounded())
+        if idx != lastNotch { lastNotch = idx; FineSlider.selHaptic.selectionChanged() }
+    }
+    // DETENT gravity: a raw value within 2% of the range of a detent snaps to it (a firmer bump on entry). Small enough
+    // never to block a value one integer/step away (glideRange octaves, glideTime beats, mod attack/release beats).
+    private func snap(_ v: Double) -> Double {
+        guard !detents.isEmpty else { inDetent = nil; return v }
+        let thr = span * 0.02
+        if let d = detents.min(by: { abs($0 - v) < abs($1 - v) }), abs(d - v) < thr {
+            if inDetent != d { inDetent = d; FineSlider.bumpHaptic.impactOccurred(intensity: 0.7) }
+            return d
+        }
+        inDetent = nil; return v
+    }
+    private func commit(_ raw: Double) { let v = snap(min(hi, max(lo, raw))); tick(v); set(v) }
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -1680,6 +1706,11 @@ private struct FineSlider: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.12)).frame(height: 5)
                 Capsule().fill(accent.opacity(0.85)).frame(width: max(5, frac * w), height: 5)
+                // detent pips on the track (a faint tick where each snap value sits)
+                ForEach(detents.indices, id: \.self) { i in
+                    Circle().fill(Color.white.opacity(0.3)).frame(width: 3, height: 3)
+                        .offset(x: min(w - 3, max(0, CGFloat((detents[i] - lo) / span) * w - 1.5)))
+                }
                 Circle().fill(.white).frame(width: d, height: d)
                     .overlay(Circle().stroke(accent, lineWidth: fine ? 3 : 0))
                     .offset(x: min(w - d, max(0, frac * w - d / 2)))
@@ -1698,14 +1729,14 @@ private struct FineSlider: View {
                         fine = true; anchorX = g.location.x; anchorVal = value
                     }
                     if fine {
-                        let delta = Double((g.location.x - anchorX) / max(1, w)) * (hi - lo) * 0.1
-                        set(min(hi, max(lo, anchorVal + delta)))
+                        let delta = Double((g.location.x - anchorX) / max(1, w)) * span * 0.1
+                        commit(anchorVal + delta)
                     } else {
                         let f = min(1, max(0, g.location.x / max(1, w)))
-                        set(lo + Double(f) * (hi - lo))            // coarse = absolute position
+                        commit(lo + Double(f) * span)              // coarse = absolute position
                     }
                 }
-                .onEnded { _ in fine = false })
+                .onEnded { _ in fine = false; inDetent = nil })
         }
         .frame(height: 30)
     }
