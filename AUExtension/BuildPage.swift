@@ -972,8 +972,10 @@ extension DiagView {
             // was a CHANNEL COLLISION (frames = voice/zone duty, hue = machine duty). It gains the voice accent ONLY when
             // the chain audition is sounding (the frame doing its own job); the machine's hue speaks through the chips,
             // the slot tints, and a thin low-alpha SPINE on the left edge (the thread law's original form).
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildDisplayVoice == .chain ? buildSelHue : buildEdge, lineWidth: buildDisplayVoice == .chain ? 2 : 1))
-            .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1.5).fill(buildSelHue.opacity(0.5)).frame(width: 2).padding(.vertical, 9).padding(.leading, 1) })
+            // HIDE the selected-colour box while a processor CARD is open — show it only when the card is closed AND
+            // PLAY THIS MIDI CHAIN is selected (Paul 2026-08-25). Otherwise the frame is the quiet neutral chrome.
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildShowColourBox ? buildSelHue : buildEdge, lineWidth: buildShowColourBox ? 2 : 1))
+            .overlay(alignment: .leading) { if buildShowColourBox { RoundedRectangle(cornerRadius: 1.5).fill(buildSelHue.opacity(0.5)).frame(width: 2).padding(.vertical, 9).padding(.leading, 1) } })
             Spacer(minLength: 0)                                 // any remaining column space sits below (RECORD/RATE/CONFIG moved to the top header, Paul 2026-08-23)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -1746,6 +1748,9 @@ extension DiagView {
     // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADERS read this so
     // they highlight the new state IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
     var buildDisplayVoice: BuildWorkshopVoice { buildPendingWorkshopVoice ?? buildWorkshopVoice }
+    // The left column wears its SELECTED-COLOUR frame only when PLAY THIS MIDI CHAIN is the voice AND no processor card
+    // is open — a card open hides the box (Paul 2026-08-25), so the two coloured frames don't fight while editing.
+    var buildShowColourBox: Bool { buildDisplayVoice == .chain && buildEditSlot == nil }
 
     // A header TOGGLES its section: play it if stopped, STOP it if playing (Paul 2026-08-15). Both sections can be off.
     // While the transport runs the switch is QUANTIZED to the next cell boundary (buildCommitPendingVoice, fired from the
