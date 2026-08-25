@@ -1505,23 +1505,30 @@ extension DiagView {
             buildPopulateTab(n)                                  // an EMPTY tab → create/copy/place, then pulse until edited
         }
     }
-    // Touch an EMPTY tab: mint tab n's colour carrying a COPY of the last-selected colour's chain, place it on row n,
-    // select it, and mark it PENDING (pulsing). Only one pending → revert the previous one first. (Paul 2026-08-17)
+    // Touch an EMPTY tab: mint tab n's colour with an EMPTY chain (NO duplication of the current settings — Paul
+    // 2026-08-25), place it on row n, default its I/O to the LAST-USED receivers/emitters, select it, and mark it
+    // PENDING (flashing). The flash stays until a change is made to the processors, emitters, or receivers (see
+    // buildApplyChain + buildClearPendingOnEdit). Only one pending → revert the previous unedited candidate first.
     private func buildPopulateTab(_ n: Int) {
-        let sourceChain = buildSelID.map { buildColourMachine($0) } ?? []
+        let sourceChain: [ProcessorSlot] = []                    // a fresh EMPTY row (was: a copy of the last-selected chain)
         if let p = buildPendingTab, p != n {                     // ONE pending → discard the previous unedited candidate
             if let old = buildRowColour(p) { buildPartCast.removeAll { $0 == old } }
             buildSetRow(p, to: nil)
         }
-        let y = buildNewTabColour(n, machine: sourceChain)       // tab n's fixed hue + the copied chain
+        let y = buildNewTabColour(n, machine: sourceChain)       // tab n's fixed hue + the empty chain
         buildPartCast.append(y)
         buildSetRow(n, to: y)                                    // placed on part-grid row n
-        if n < buildRowReceiver.count { buildRowReceiver[n] = ddStickyReceiver; buildRowEmitters[n] = ddStickyBuses }   // the new row inherits the LAST-USED I/O (Paul 2026-08-18)
+        if n < buildRowReceiver.count { buildRowReceiver[n] = ddStickyReceiver; buildRowEmitters[n] = ddStickyBuses }   // DEFAULT the new row's I/O to the LAST-USED receivers/emitters (Paul 2026-08-18/25)
         for c in 0..<8 { buildStagingSel[c] = n }
         buildSelectID(y)
         buildPendingTab = n
-        buildPendingSource = selectedColourChain()               // the exact form buildApplyChain compares against
+        buildPendingSource = selectedColourChain()               // == [] here; buildApplyChain clears the flash once the chain diverges
         buildStagingSyncIfPlaying()
+    }
+    // The PENDING (flashing) row ends its flash the moment the user changes its EMITTERS or RECEIVERS — the processor
+    // path already clears it via buildApplyChain. Only fires while the pending row is the selected one. (Paul 2026-08-25)
+    private func buildClearPendingOnEdit() {
+        if let p = buildPendingTab, buildSelectedRow == p { buildPendingTab = nil; buildPendingSource = [] }
     }
 
     // The chain as the block's lower half: 8 processor boxes, each the size of 2×2 cast cells, laid 1·2·3·4 /
@@ -1664,6 +1671,7 @@ extension DiagView {
     // §2: the INPUT door is PART-owned — one door for the whole part (every colour follows). Applied uniformly at
     // scene-build + audition; no per-colour cell fanning.
     private func buildSelectDoor(_ i: Int) {
+        buildClearPendingOnEdit()                                // a RECEIVER change ends the fresh-row flash (Paul 2026-08-25)
         if let r = buildSelectedRow, r < buildRowReceiver.count { buildRowReceiver[r] = i }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
         else { buildSelReceiver = i }                            // nothing on a row → set the part DEFAULT
         ddStickyReceiver = i                                     // a new row inherits the LAST-USED
@@ -1703,6 +1711,7 @@ extension DiagView {
     private func ddSelectedColourBuses() -> Set<Bus> { buildPartEmitters }
 
     private func buildToggleBus(_ bus: Bus) {
+        buildClearPendingOnEdit()                                // an EMITTER change ends the fresh-row flash (Paul 2026-08-25)
         let selR = buildSelectedRow
         var buses = selR.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
@@ -1714,6 +1723,7 @@ extension DiagView {
     }
     // LONG-PRESS → apply the door to EVERY row (Paul 2026-08-19).
     private func buildSelectDoorAll(_ i: Int) {
+        buildClearPendingOnEdit()                                // a RECEIVER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
         for r in 0..<min(8, buildRowReceiver.count) { buildRowReceiver[r] = i }
         buildSelReceiver = i; ddStickyReceiver = i
         receivers = au?.uiReceivers() ?? receivers
@@ -1721,6 +1731,7 @@ extension DiagView {
     }
     // LONG-PRESS → toggle the emitter on EVERY row (all rows take the reference row's toggled set). (Paul 2026-08-19)
     private func buildToggleBusAll(_ bus: Bus) {
+        buildClearPendingOnEdit()                                // an EMITTER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
         var buses = buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
         if buses.isEmpty { buses = [bus] }
