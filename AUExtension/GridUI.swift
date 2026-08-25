@@ -189,7 +189,6 @@ struct GridView: View {
     var ladderArmed: Set<GridPos> = []               // LADDER: armed rungs — blink until they commit at the column's next entry
     var ladderBlink = false                          // LADDER: the blink phase (beat-toggled by the parent)
     var verbInvite: Color? = nil                     // §11b a verb is held: the grid glows its hue (invite); nil = triggers
-    var routeFoci: Set<GridPos> = []                 // §10 ROUTE mode: the cells being wired (solid amber ring)
     var routeIn: Set<GridPos> = []                   // §10 SRC candidates above (pulsing "SRC" label — tap = route-in)
     var routeOut: Set<GridPos> = []                  // §10 DEST candidates below (pulsing "DEST" label — tap = feed)
     var tapAltMask: UInt64 = 0                        // §9 item 1 ON TAP: ephemeral per-cell ALT flips (bit col*8+row)
@@ -655,14 +654,6 @@ struct GridView: View {
 
 // MARK: - Velocity marks (design item 4) — the strip meter is floating marks, not a bottom-fill
 
-/// A floating velocity MARK: a note-on drawn at its velocity height, fading ~250ms. `col` is the source
-/// colourIndex — emitters tint by the source Colour, −1 = the strip's own hue (receivers / master).
-struct VelMark: Equatable { let vel: Double; let col: Int8; let born: Date; var withheld: Bool = false }
-
-/// §strips-done: one currently-SOUNDING note on an emitter — a STEADY tick (no `born`; present while it
-/// sounds, so the value only changes when the sounding set does — no per-poll state churn). `col` = the
-/// source cell's colourIndex, for the cargo tint (the mark wears the Colour that struck it).
-struct SoundMark: Equatable { let vel: Double; let col: Int8 }
 
 /// Draw a strip's velocity marks — horizontal ticks at each mark's velocity height, opacity fading over
 /// ~250ms. Behind a TimelineView (the caller animates by passing `now`). `hueFor` maps a mark to its colour.

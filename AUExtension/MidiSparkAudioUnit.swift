@@ -90,11 +90,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         if let p = cell.processors { return p }                                // per-cell override — incl. an explicit EMPTY chain (passthrough)
         return colourTemplateChain(cell.colourID)                              // else the colour TEMPLATE → legacy A face (3-tier, matches the builder)
     }
-    /// The pointed cell's TWIN positions (config-equal cells, incl. itself), as encoded indices — for the grid's
-    /// advertise-PULSE set (twins only advertise now; editing is the manual selection set below).
-    private func twinTargets(col: Int, row: Int) -> [Int] {
-        document.scenes[document.activeSceneResolved].editScopeTargets(col: col, row: row, scope: .twins)
-    }
     // MODE ROW — edit a MANUAL SELECTION SET (INSTRUCTIONS-edit-page-mode-row): apply the SAME operation to EACH
     // selected cell's OWN config — so a mixed selection keeps its per-cell differences except where the edit touches.
     func editCells(_ targets: [(col: Int, row: Int)], _ mutate: @escaping (inout Cell) -> Void) {
@@ -227,9 +222,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
-    func twinPositions(col: Int, row: Int) -> [(col: Int, row: Int)] {
-        twinTargets(col: col, row: row).map { (col: $0 / 8, row: $0 % 8) }
-    }
 
     // MARK: - CELL MACHINE stage-4 — the CELL LIBRARY (named saved cells, reusable across sessions)
 
@@ -450,14 +442,12 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // INPUT ENABLE (the strip header): DISABLE stops the door listening (dark meter, latch sealed) — an armed
     // latch keeps feeding the grid; a mute (below) is what stops the feed. Persisted, like mute.
     func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
-    func setReceiverEnabled(_ i: Int, _ on: Bool) { editReceiver(i) { $0.inputEnabled = on } }   // config-sheets: the channel NONE option blocks the door (Paul 2026-08-20)
     // KEYS EXCLUDE (Paul 2026-08-22): the complement door — subtract door `d`'s live notes (by pitch class) from this
     // door's typed KEYS pool. -1 = OFF; never self. UI offers the three doors that aren't this one.
     func uiExcludeDoor(_ i: Int) -> Int { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].excludeDoorResolved : -1 }
     func setExcludeDoor(_ i: Int, _ d: Int) { editReceiver(i) { $0.excludeDoor = (d >= 0 && d <= 3 && d != i) ? d : -1 } }
     // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE radio. Sets doorMode + syncs the legacy latch fields for the 3
     // existing modes (lossless downgrade). REPLAY/FILE store the mode only (their behaviour lands in stages 3/4).
-    func uiDoorMode(_ i: Int) -> DoorMode { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].doorModeResolved : .latch }
     func setDoorMode(_ i: Int, _ mode: DoorMode) {
         editReceiver(i) { r in
             r.doorMode = mode
@@ -470,7 +460,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
     // REPLAY (stage 3): how much input history loops (1·2·4·8 passes).
-    func uiReplayPasses(_ i: Int) -> Int { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].replayPassesResolved : 1 }
     func setReplayPasses(_ i: Int, _ passes: Int) { editReceiver(i) { $0.replayPasses = [1, 2, 4, 8].contains(passes) ? passes : 1 } }
     func toggleReplayCatch(_ i: Int) { kernel.toggleReplayCatch(i) }   // "LAST N" — capture+loop / release (config-sheets, Paul 2026-08-20)
     func replayEngaged() -> UInt8 { kernel.replayEngaged() }           // which REPLAY doors are actively looping
@@ -485,7 +474,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return true
     }
     func clearDoorFile(_ i: Int) { editReceiver(i) { $0.fileClip = nil; $0.fileLoopBeats = nil; $0.fileName = nil } }
-    func uiDoorFileName(_ i: Int) -> String? { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].fileName : nil }
     func toggleReceiverPianoNote(_ i: Int, _ note: Int) {   // pick/unpick a note on the on-screen keyboard
         editReceiver(i) { var s = Set($0.pianoNotes ?? []); if s.contains(note) { s.remove(note) } else { s.insert(note) }; $0.pianoNotes = s.sorted() }
     }
@@ -495,10 +483,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         let l = max(0, min(127, lo)), h = max(0, min(127, hi))
         editReceiver(i) { $0.rangeLo = min(l, h); $0.rangeHi = max(l, h) }
     }
-    func setReceiverControllerMask(_ i: Int, _ mask: Int) { editReceiver(i) { $0.controllerMask = mask & 0b1111 } }   // CONTROLLER ROUTING
     // §MPE (cog page, 2026-07-xx — supersedes the 2026-07-25 "no UI, silent auto-detect" ruling): the mpeMerge
     // field is now surfaced as an explicit per-receiver toggle, PLUS a live auto-detect indicator (mpeLikely).
-    func setReceiverMpeMerge(_ i: Int, _ on: Bool) { editReceiver(i) { $0.mpeMerge = on } }
     private func editReceiver(_ i: Int, _ f: (inout Receiver) -> Void) {
         guard (0..<4).contains(i) else { return }
         editDocument { d in
@@ -830,10 +816,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
     func uiThruReceiver() -> Int { document.thruReceiverResolved }
-    func setThruReceiver(_ i: Int) {
-        guard (0..<4).contains(i) else { return }
-        editDocument { $0.thruReceiver = i }
-    }
 
     /// Read-only Colours (type + params) so the grid can render each cell's type glyph + params text.
     func uiColours() -> [Colour] { document.colours }

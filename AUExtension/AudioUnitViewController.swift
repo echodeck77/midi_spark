@@ -356,7 +356,6 @@ struct DiagView: View {
     @State var swing = 50
     // MODELESS (2026-07-27): GRID CONTROLS — the verb palette. Radio-armed; INSPECT is functional in 1b, the
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
-    @State var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
     @State var buildStagingLane: UInt8 = 0   // PER-ROW LAP (Paul 2026-08-19): the BUILD STAGING grid's own column-loop (independent of the play grid)
     @State var buildPerformLane: UInt8 = 0   // PER-ROW LAP: the BUILD PLAY grid's own column-loop (baked into the composed scene per-row)
@@ -459,14 +458,6 @@ struct DiagView: View {
     /// The blinking cells while a SINGLE switch/mute is pending (commits at the column's next entry). The CURRENTLY
     /// ACTIVE cell flashes to show it's about to DEACTIVATE (user 2026-08-07 — whether the touched cell is populated
     /// or empty); an incoming POPULATED rung also flashes to show where the column is going (an empty rung shows nothing).
-    var ladderArmedSet: Set<GridView.GridPos> {
-        var s = Set<GridView.GridPos>()
-        for (col, row) in ladderPending {
-            if let active = scene.ladderActiveRow(col) { s.insert(GridView.GridPos(col: col, row: active)) }   // leaving → flashes
-            if scene.cellAt(col, row) != nil { s.insert(GridView.GridPos(col: col, row: row)) }                // arriving (populated)
-        }
-        return s
-    }
 
     func refreshTapMasks() {
         let r = tapOverlayMasks(tapActions, now: d.beat, footSolo: emitterFootSolo)   // pure: expire + build masks
@@ -543,9 +534,7 @@ struct DiagView: View {
 
     // ---- PROCESSOR box: edit the selected (brush) Colour ----
     var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
-    var brushColour: Colour? { docColours.first { $0.colourID == brush } }
 
-    func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     // (setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Colour desk.)
     func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
     var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
@@ -568,7 +557,6 @@ struct DiagView: View {
     // auto-detect (user ruling 2026-07-25) — no control.
     func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
     func toggleReceiverEnabled(_ i: Int) { au?.toggleReceiverEnabled(i); receivers = au?.uiReceivers() ?? receivers }
-    func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
     // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
     // gate is `audible = ¬muted ∧ (soloSet=∅ ∨ member)`; the whole set clears on transport stop.
     func toggleReceiverSolo(_ i: Int) {
@@ -684,14 +672,8 @@ struct DiagView: View {
     }
     func setTurnsPerNoteMode(_ on: Bool) { au?.setTurnsPerNote(on); turnsPerNote = au?.uiTurnsPerNote() ?? turnsPerNote }
     // master panel: MUTE (persisted, tap) / PANIC (long-press) / KEY ± (persisted per-scene) / the momentary fader.
-    func toggleMasterMute() { au?.setMasterMute(!masterMute); masterMute = au?.uiMasterMute() ?? masterMute }
     func masterPanic() { au?.masterPanic() }
     func nudgeMasterKey(_ d: Int) { au?.nudgeMasterKey(d); masterKey = au?.uiMasterKey() ?? masterKey }
-    func setMasterVel(_ v: Int?) {
-        // §4b FADER-KILL: master fader bottom = 0 = KILL every emitter (the DJ master-down).
-        if v == 0 { au?.setMasterKill(true); au?.setMasterVelOverride(nil) }
-        else { au?.setMasterKill(false); au?.setMasterVelOverride(v) }
-    }
     func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in

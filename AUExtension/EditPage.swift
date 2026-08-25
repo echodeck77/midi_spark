@@ -288,7 +288,6 @@ extension DiagView {
     // F — OUTPUT: MAIN destination toggles (live, edit cell.buses) · the CHOP 8×3 grid + ALT destination. The chop
     // routing engine IS wired: tick cells (arp/ratchet/strum) route per-slice; a HOLD cell routes by its onset slice.
     var mainDestHue: Color { UI.cyan }   // cyan — the emitters
-    enum ChopRow { case main, alt, mute }
     /// The OUTPUT block — MAIN dest · the 8×3 CHOP grid · ALT dest — CENTRED at the emitter section's width so it
     /// lines up over the MIDI OUTPUT strips below (user 2026-07-31). Each slice column: TOP → the cell's own (MAIN)
     /// emitters · MIDDLE → MUTE · BOTTOM → the ALT DESTINATION set (chosen below). The routing runs in the engine.
