@@ -4233,8 +4233,8 @@ extension DiagView {
                     buildEyeLane("MECHANISM — the \(buildProcLabel(proc))", empty: nil) {
                         buildEyeMechanism(proc, hue: hue)
                     }
-                    buildEyeLane("OUTPUT — what leaves", empty: buildOutRoll.isEmpty ? "—" : nil) {
-                        buildEyeRoll(buildOutRoll, hue: hue)
+                    buildEyeLane("OUTPUT — what leaves", empty: buildOutRoll.isEmpty && buildEditStartedAt == nil ? "—" : nil) {
+                        buildEyeRoll(buildOutRoll, hue: hue, editStart: buildEditStartedAt)   // TOUCH-TO-DIFF (idea 24)
                     }
                 }
                 .padding(18)
@@ -4258,10 +4258,11 @@ extension DiagView {
     }
     // A drifting note roll (input or output): marks enter at the right ("now"), drift left over 2.5s; y = pitch (C1–C7),
     // opacity by velocity + age. A bright NOW line marks the right edge (the shared present across the lanes).
-    @ViewBuilder private func buildEyeRoll(_ marks: [OutMark], hue: Color) -> some View {
+    @ViewBuilder private func buildEyeRoll(_ marks: [OutMark], hue: Color, editStart: Date? = nil) -> some View {
         let lo = 24.0, span = 72.0
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || marks.isEmpty)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || (marks.isEmpty && editStart == nil))) { tl in
             let now = tl.date
+            let glow = editStart == nil ? 0.0 : max(0.0, 1 - (buildLastEditAt.map { now.timeIntervalSince($0) } ?? 1) / 0.6)
             Canvas { ctx, size in
                 for oct in stride(from: 0.0, through: 1.0, by: 12.0 / span) {           // faint octave gridlines
                     let y = size.height * (1 - CGFloat(oct))
@@ -4273,12 +4274,16 @@ extension DiagView {
                     let x = size.width * CGFloat(1 - age / 2.5)
                     let lane = CGFloat(min(1, max(0, (Double(m.note) - lo) / span)))
                     let y = size.height * (1 - lane)
-                    let op = (1 - age / 2.5) * (0.5 + 0.5 * m.vel)
-                    ctx.fill(Path(roundedRect: CGRect(x: x - 4, y: y - 3, width: 8, height: 6), cornerRadius: 3), with: .color(hue.opacity(op)))
+                    let isNew = editStart.map { m.born >= $0 } ?? false
+                    let op = (1 - age / 2.5) * (isNew ? 1.0 : (0.5 + 0.5 * m.vel) * (editStart == nil ? 1.0 : 0.35))
+                    let r = CGRect(x: x - 4, y: y - 3, width: 8, height: 6)
+                    ctx.fill(Path(roundedRect: r, cornerRadius: 3), with: .color(hue.opacity(op)))
+                    if isNew { ctx.stroke(Path(roundedRect: r.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 4), with: .color(.white.opacity(0.9 * (1 - age / 2.5))), lineWidth: 1.2) }
                 }
                 ctx.stroke(Path { $0.move(to: CGPoint(x: size.width - 1, y: 0)); $0.addLine(to: CGPoint(x: size.width - 1, y: size.height)) },
                            with: .color(.white.opacity(0.35)), lineWidth: 2)                // the NOW line
             }
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(hue.opacity(glow), lineWidth: 2))
         }
     }
     // The MECHANISM lane: the machine drawn live + read-only, with a position light on the current step. EUCLID draws its
@@ -4325,28 +4330,45 @@ extension DiagView {
         .frame(height: 30)
         .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
     }
-    // The OUT mini-roll: emitted note-ons drift right→left over ~2.5s, lane = pitch, opacity by velocity + age. A "—" when idle.
+    // The OUT mini-roll: emitted note-ons drift right→left over ~2.5s, lane = pitch, opacity by velocity + age. A "—" when
+    // idle. TOUCH-TO-DIFF (idea 24): while a control is being edited, the notes the NEW settings produce (born after the
+    // gesture started) draw bright + ringed, the OLD ones dim, and the box glows — so your edit's effect stands out live.
     @ViewBuilder private func buildOutStrip(hue: Color) -> some View {
-        let lo = 24.0, span = 72.0
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || buildOutRoll.isEmpty)) { tl in
+        let editStart = buildEditStartedAt
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || (buildOutRoll.isEmpty && editStart == nil))) { tl in
             let now = tl.date
-            Canvas { ctx, size in
-                for m in buildOutRoll {
-                    let age = now.timeIntervalSince(m.born)
-                    if age < 0 || age > 2.5 { continue }
-                    let x = size.width * CGFloat(1 - age / 2.5)               // enter right, drift left as it ages
-                    let lane = CGFloat(min(1, max(0, (Double(m.note) - lo) / span)))
-                    let y = size.height * (1 - lane)
-                    let op = (1 - age / 2.5) * (0.45 + 0.55 * m.vel)
-                    ctx.fill(Path(roundedRect: CGRect(x: x - 3, y: y - 2, width: 6, height: 4), cornerRadius: 2), with: .color(hue.opacity(op)))
-                }
-            }
+            let glow = editStart == nil ? 0.0 : max(0.0, 1 - (buildLastEditAt.map { now.timeIntervalSince($0) } ?? 1) / 0.6)
+            buildRollCanvas(buildOutRoll, hue: hue, now: now, editStart: editStart)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(hue.opacity(glow), lineWidth: 2))
         }
         .frame(height: 30)
         .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
         .overlay(alignment: .leading) {
             if buildOutRoll.isEmpty {
                 Text("—").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).padding(.leading, 8)
+            }
+        }
+    }
+    // Shared note-roll drawing (OUT strip + Stage Eye lanes). `editStart` non-nil ⇒ TOUCH-TO-DIFF: marks born at/after it
+    // are the NEW behaviour (bright + white ring), earlier ones dim to a "before" ghost. nil ⇒ a plain roll (input lane).
+    private func buildRollCanvas(_ marks: [OutMark], hue: Color, now: Date, editStart: Date?) -> some View {
+        let lo = 24.0, span = 72.0
+        return Canvas { ctx, size in
+            for m in marks {
+                let age = now.timeIntervalSince(m.born)
+                if age < 0 || age > 2.5 { continue }
+                let x = size.width * CGFloat(1 - age / 2.5)
+                let lane = CGFloat(min(1, max(0, (Double(m.note) - lo) / span)))
+                let y = size.height * (1 - lane)
+                let isNew = editStart.map { m.born >= $0 } ?? false
+                let base = 0.45 + 0.55 * m.vel
+                let op = (1 - age / 2.5) * (isNew ? 1.0 : base * (editStart == nil ? 1.0 : 0.35))   // dim the "before" while editing
+                let r = CGRect(x: x - 3, y: y - 2, width: 6, height: 4)
+                ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(hue.opacity(op)))
+                if isNew {
+                    ctx.stroke(Path(roundedRect: r.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 3),
+                               with: .color(.white.opacity(0.9 * (1 - age / 2.5))), lineWidth: 1)
+                }
             }
         }
     }
@@ -4378,6 +4400,9 @@ extension DiagView {
     // whole with setColourChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
     private func buildApplyChain(_ chain: [ProcessorSlot]) {
         guard let cid = ddSelectedColourID else { return }
+        // idea 24 TOUCH-TO-DIFF: every chain edit funnels here — stamp the edit clock so the OUT read-out glows and the
+        // notes the NEW settings produce (born after the gesture started) stand out from the old ones, as you drag.
+        let now = Date(); if buildEditStartedAt == nil { buildEditStartedAt = now }; buildLastEditAt = now
         buildWriteColourMachine(cid, chain)
         // PLACED: a pending tab whose chain has diverged from its source is committed (stops pulsing). (2026-08-17)
         if let p = buildPendingTab, buildRowColour(p) == cid, chain != buildPendingSource {

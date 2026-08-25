@@ -331,6 +331,8 @@ struct DiagView: View {
     @State var buildStageEyeDoor = -1                         // the door the eye watches (set on open) — drives the INPUT-onset accumulation below
     @State var buildEyeInRoll: [OutMark] = []                 // §4: INPUT onsets drifting in the eye's top lane (eye-open only)
     @State var buildEyeInPrev: Set<Int> = []                  // previous held set at the watched door (onset diffing)
+    @State var buildLastEditAt: Date? = nil                   // idea 24 TOUCH-TO-DIFF: when the editor's chain last changed
+    @State var buildEditStartedAt: Date? = nil                // the START of the current edit gesture (marks born after this = the NEW behaviour)
     @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
     @State var recvReplayRoll: [[DoorRing.Note]] = [[], [], [], []]   // an ENGAGED REPLAY door's captured loop as DURATION notes — the roll reflects what's PLAYING (Paul 2026-08-23)
     @State var recvReplayLen: [Double] = [0, 0, 0, 0]                 // each engaged loop's length in beats (x-scale for the roll)
@@ -900,6 +902,8 @@ struct DiagView: View {
                 if inr != buildEyeInRoll { buildEyeInRoll = inr }
                 if cur != buildEyeInPrev { buildEyeInPrev = cur }
             } else if !buildEyeInRoll.isEmpty || !buildEyeInPrev.isEmpty { buildEyeInRoll = []; buildEyeInPrev = [] }
+            // idea 24: the edit gesture is over once the chain has been quiet ~0.6s → the OUT diff-highlight relaxes.
+            if let e = buildLastEditAt, Date().timeIntervalSince(e) > 0.6 { buildEditStartedAt = nil; buildLastEditAt = nil }
             let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
                 let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq
