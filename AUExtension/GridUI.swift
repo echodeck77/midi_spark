@@ -913,7 +913,7 @@ struct ProcessorBox: View {
                 heroField("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
                     stateMatrixRadio([0, 2, 3, 4],
                         header: { v in AnyView(Text(v <= 0 ? "·" : "\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
-                        selected: { i in rtcSliceAt(p.rtcSlices, i) },
+                        eFill: true, selected: { i in rtcSliceAt(p.rtcSlices, i) },
                         set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 0, count: 8); while s.count < 8 { s.append(0) }; s[i] = v; $0.rtcSlices = s } })
                 }
                 field("GRID — slices per bar", \.rtcRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rtcRate ?? .r1_8).rawValue) { i in
@@ -955,7 +955,7 @@ struct ProcessorBox: View {
             if cmode == .pattern {
                 let base: [Int] = [100, 40, 70, 40, 100, 40, 70, 40]
                 let shown = (0..<8).map { i -> Int in let s = p.chanceSlices ?? base; return i < s.count ? s[i] : 100 }
-                heroField("ODDS PER STEP  (drag to draw · %)") { sliderLane(shown, count: 8, max: 100) { i, v in
+                heroField("ODDS PER STEP  (drag to draw · %)") { sliderLane(shown, count: 8, max: 100, eFill: true) { i, v in
                     setParam { var s = $0.chanceSlices ?? base; while s.count < 8 { s.append(100) }; s[i] = v; $0.chanceSlices = s } } }
                 field("ROTATE — walk the odds", \.chanceRotate) { numPair(p.chanceRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.chanceRotate = v } } }
             } else {
@@ -1034,7 +1034,7 @@ struct ProcessorBox: View {
                 field("BURST SHAPE PER STEP — tap a cell  (B launch · C carry · R rest)") {
                     stateMatrixRadio(BurstSlice.allCases,
                         header: { st in AnyView(Text(burstSliceName(st)).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 46, alignment: .leading)) },
-                        selected: { i in let s = p.burstSlices ?? defBurst; return i < s.count ? s[i] : .rest },
+                        eFill: true, selected: { i in let s = p.burstSlices ?? defBurst; return i < s.count ? s[i] : .rest },
                         set: { i, st in setParam { var s2 = $0.burstSlices ?? defBurst; while s2.count < 8 { s2.append(.rest) }; s2[i] = st; $0.burstSlices = s2 } })
                 }
                 field("ROTATE", \.burstRotate) { numPair(p.burstRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.burstRotate = v } } }
@@ -1067,7 +1067,7 @@ struct ProcessorBox: View {
                 let n = sspan.stepCount
                 let base = [0, 18, 36, 54, 72, 90, 108, 127]
                 let shown = (0..<n).map { i -> Int in let s = p.modSteps ?? base; return s[i % s.count] }   // pad the stored steps to N for drawing
-                heroField("STEPS  (drag to draw · \(n))") { sliderLane(shown, count: n) { i, v in
+                heroField("STEPS  (drag to draw · \(n))") { sliderLane(shown, count: n, eFill: true) { i, v in
                     setParam { var s = $0.modSteps ?? base; let orig = s; while s.count < n { s.append(orig[s.count % orig.count]) }; s[i] = v; $0.modSteps = s } } }
                 field("SPAN", \.modStepSpan) { seg(ModStepSpan.allCases.map(\.rawValue), sel: sspan.rawValue) { i in setParam { $0.modStepSpan = ModStepSpan.allCases[i] } } }   // PERIOD (rate) · ROW · ROW×2 · ROW×4 (16/32 breakpoints)
                 if sspan == .period { field("CYCLE  (beats / cycle)", \.modRate) { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } } }   // the rate period only drives PERIOD span
@@ -1142,7 +1142,7 @@ struct ProcessorBox: View {
                             tuttiShapeIcon(st, tint: accent).frame(width: 16)
                             Text(st.rawValue).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
                         }) },
-                        selected: { i in tuttiSliceAt(p.tuttiSlices, i) },
+                        eFill: true, selected: { i in tuttiSliceAt(p.tuttiSlices, i) },
                         set: { i, st in setParam { var s = $0.tuttiSlices ?? Array(repeating: .all, count: 8); while s.count < 8 { s.append(.all) }; s[i] = st; $0.tuttiSlices = s } })
                 }
                 field("GRID — how many slices per bar", \.tuttiRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in
@@ -1158,7 +1158,7 @@ struct ProcessorBox: View {
                         lenGlyph(st, tint: accent).frame(width: 20)
                         Text(st.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
                     }) },
-                    selected: { i in lenSliceAt(p.lenSlices, i) },
+                    eFill: true, selected: { i in lenSliceAt(p.lenSlices, i) },
                     set: { i, st in setParam { var s = $0.lenSlices ?? Array(repeating: .pass, count: 8); while s.count < 8 { s.append(.pass) }; s[i] = st; $0.lenSlices = s } })
             }
             row2({ field("SHORT =  \(Int((p.lenShort ?? 0.4) * 100))%", \.lenShort) {
@@ -1228,7 +1228,7 @@ struct ProcessorBox: View {
             if nmode == .lane {
                 let base = [Int](repeating: 0, count: 8)
                 let shown = (0..<8).map { i -> Int in let s = p.utilNudgeLane ?? base; return i < s.count ? s[i] : 0 }
-                field("POCKET PER STEP  (drag · ±8/16 · centre = on-grid)") { sliderLane(shown, count: 8, max: 8, center: true) { i, v in
+                field("POCKET PER STEP  (drag · ±8/16 · centre = on-grid)") { sliderLane(shown, count: 8, max: 8, center: true, eFill: true) { i, v in
                     setParam { var s = $0.utilNudgeLane ?? base; while s.count < 8 { s.append(0) }; s[i] = v; $0.utilNudgeLane = s } } }
             } else {
                 let nu = p.utilNudge ?? 0
@@ -1247,6 +1247,7 @@ struct ProcessorBox: View {
                 VStack(spacing: 3) {
                     ForEach(0..<4, id: \.self) { e in
                         HStack(spacing: 3) {
+                            EBrushButton(steps: 8, accent: accent) { pat in setParam { var arr = $0.muteSlices ?? Array(repeating: 0, count: 8); while arr.count < 8 { arr.append(0) }; for s in 0..<8 { if pat[s] { arr[s] |= (1 << e) } else { arr[s] &= ~(1 << e) } }; $0.muteSlices = arr } }   // §5 E-BRUSH: euclidean mute pattern for this emitter
                             Text(["A", "B", "C", "D"][e]).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)
                             ForEach(0..<8, id: \.self) { step in
                                 let s = p.muteSlices ?? Array(repeating: 0, count: 8)
@@ -1381,12 +1382,13 @@ struct ProcessorBox: View {
     /// brush, no dead first touch). Row headers (left edge) carry the option's glyph + name — permanent and positional;
     /// the whole pattern reads as geometry. One reusable widget for LENGTH · RATCHET PATTERN · TUTTI PATTERN · … .
     @ViewBuilder private func stateMatrixRadio<Opt: Hashable>(
-        _ options: [Opt], header: @escaping (Opt) -> AnyView,
+        _ options: [Opt], header: @escaping (Opt) -> AnyView, eFill: Bool = false,
         selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
     ) -> some View {
         VStack(spacing: 3) {
             ForEach(Array(options.enumerated()), id: \.offset) { (_, opt) in
                 HStack(spacing: 3) {
+                    if eFill { EBrushButton(steps: 8, accent: accent) { pat in for s in 0..<8 { set(s, pat[s] ? opt : options[0]) } } }   // §5 E-BRUSH: fill this state on K columns, rest = the default (options[0])
                     header(opt).frame(width: 64, alignment: .leading)
                     ForEach(0..<8, id: \.self) { step in
                         let on = selected(step) == opt
@@ -1409,7 +1411,9 @@ struct ProcessorBox: View {
     // THE SLIDER LANE (Paul 2026-08-22 §2): 8+ per-step bars — TAP sets to tap-height (first touch always responds), DRAG
     // draws the lane. The ONE shared continuous-per-step component: STEP MOD (CC 0…127) · CHANCE PATTERN (odds 0…100) ·
     // (future VELOCITY PATTERN · CHOP levels). `max` = the value ceiling; the bar height + the write both scale to it.
-    private func sliderLane(_ steps: [Int], count: Int = 8, max maxV: Int = 127, center: Bool = false, _ set: @escaping (Int, Int) -> Void) -> some View {
+    private func sliderLane(_ steps: [Int], count: Int = 8, max maxV: Int = 127, center: Bool = false, eFill: Bool = false, _ set: @escaping (Int, Int) -> Void) -> some View {
+        HStack(spacing: 6) {
+        if eFill { EBrushButton(steps: count, accent: accent) { pat in for i in 0..<count { set(i, pat[i] ? maxV : 0) } } }   // §5 E-BRUSH: euclidean fill (hit = max, rest = 0)
         ZStack(alignment: .top) {
         HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
             ForEach(0..<count, id: \.self) { i in
@@ -1442,6 +1446,7 @@ struct ProcessorBox: View {
             Text(r).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                 .padding(.horizontal, 8).padding(.vertical, 3).background(RoundedRectangle(cornerRadius: 5).fill(accent))
                 .offset(y: -4)
+        }
         }
         }
     }
@@ -1719,6 +1724,38 @@ private struct NumPair: View {
         case "✓": if let n = Int(padEntry) { apply(n) }; padEntry = ""; showPicker = false
         default:  if padEntry.count < 4 { padEntry += k }
         }
+    }
+}
+
+/// THE EUCLID BRUSH (SPEC-euclid-variations §5): an "ε" button that fills a matrix row / slider lane with a K-of-N
+/// euclidean pattern (dial HITS, rotate). Euclid becomes an authoring tool across the whole widget language — euclidean
+/// accents, mutes, hockets, odds. `apply(euclidPattern)` lets the host lane set its hit/rest cells. Its own struct (K/rot @State).
+private struct EBrushButton: View {
+    let steps: Int
+    let accent: Color
+    let apply: ([Bool]) -> Void
+    @State private var open = false
+    @State private var k = 4
+    @State private var rot = 0
+    private func fire() { apply(euclidPattern(pulses: max(0, Swift.min(steps, k)), steps: Swift.max(1, steps), rotation: ((rot % Swift.max(1, steps)) + steps) % Swift.max(1, steps))) }
+    var body: some View {
+        Text("ε").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(accent)
+            .frame(width: 22, height: 22).background(RoundedRectangle(cornerRadius: 5).fill(accent.opacity(0.16)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(accent.opacity(0.5), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { k = Swift.max(1, Swift.min(steps, k)); open = true }
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("EUCLID FILL — K of \(steps)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                    HStack(spacing: 8) { Text("HITS").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7)).frame(width: 52, alignment: .leading)
+                        NumPair(value: k, range: 1...Swift.max(1, steps), accent: accent) { k = $0; fire() } }
+                    HStack(spacing: 8) { Text("ROTATE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7)).frame(width: 52, alignment: .leading)
+                        NumPair(value: rot, range: 0...Swift.max(0, steps - 1), wrap: true, accent: accent) { rot = $0; fire() } }
+                    Button { fire(); open = false } label: {
+                        Text("FILL").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                            .padding(.horizontal, 18).frame(height: 32).background(RoundedRectangle(cornerRadius: 6).fill(accent))
+                    }.buttonStyle(.plain)
+                }.padding(16).background(Color.black)
+            }
     }
 }
 
