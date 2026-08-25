@@ -63,9 +63,12 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     picker (small ranges) / keypad (CC 0–127) for exact entry, self-contained on NumPair. ✅ **5 FINE-MODE SLIDER
     (`e233b8c`)** — a custom FineSlider replaces SwiftUI's Slider at all 29 sites (+ bipolar + morph); coarse = absolute,
     PULL AWAY from the bar (>44pt) → latches FINE ×10 relative scrub (thumb grows, "FINE ×10" pip). Drop-in via
-    `slider(_:in:)`. Device-eye owed on the pull-away feel + threshold. **REMAINING TRACKS (each a distinct build):**
-    (a) DETENTS/HAPTICS (3) — snap the few musical-value sliders + a haptic tick (a small follow-on to FineSlider);
-    (b) LONG-PRESS EXPLANATIONS (10) — a seg-chip explain popover + per-enum text (learnability, content-heavy); (c)
+    `slider(_:in:)`. Device-eye owed on the pull-away feel + threshold. ✅ **3 DETENTS + HAPTICS (`1e30344`)** — every
+    slider fires a soft SELECTION haptic on notch crossings (20/range coarse · 100 fine); optional `detents` (musical
+    values) add gravity-snap + a firmer bump + track pips. Wired glideTime/glideRange octaves/mod attack+release. Device-
+    ear owed on the haptic feel. **THE CONTROLS-POLISH WAVE (numeric grammar + fader) is now COHESIVE + done.**
+    **REMAINING TRACKS (each a distinct build):**
+    (b) LONG-PRESS EXPLANATIONS (10) — DEFERRED by Paul (2026-08-25, "ignore for now"); (c)
     TRUTH STRIPS (24 touch→OUT diff) — needs the unbuilt IN/OUT strips (big); (d) MACRO-BIND (26 long-press→bind) —
     reconnect the macro authoring flow; (e) LAYOUT — sticky-hero (27) · section-anchor chips (28) · conditional-animate-in
     (25) · hero-glyph thumbnails (32); (f) LANE gestures — pinch-scale (19) · header-mute (20) · result-ghosting (17);
