@@ -4145,6 +4145,8 @@ extension DiagView {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
+            buildTruthStrips().padding(.horizontal, 16).padding(.vertical, 8)   // §1 IN | OUT truths — silence explains itself
+            Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
             ScrollView { buildSlotBox(slot, proc, cid: cid).padding(16) }   // CONTROLS — reuse ProcessorBox (our chrome hidden)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -4152,6 +4154,76 @@ extension DiagView {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(hue, lineWidth: 2))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
         .contentShape(Rectangle()).onTapGesture { }            // swallow taps inside the panel so they don't reach the backdrop (close)
+    }
+
+    // §1 TRUTH STRIPS (Paul 2026-08-22, the TUTTI-confusion cure): a slim IN | OUT band above the controls. IN = the
+    // held-note silhouette at the colour's INPUT door — and when NOTHING is held it TEACHES ("nothing held — LATCH or
+    // play at INPUT A"), so silence explains itself instead of reading as breakage (the spec's §7 teach-in-place law).
+    // OUT = a live mini-roll of what the plugin emits (the processor's effect made visible). v1: OUT aggregates the whole
+    // board — during a chain audition (part stopped) that IS the chain's output. Tap-to-expand (the §4 STAGE EYE) is later.
+    @ViewBuilder private func buildTruthStrips() -> some View {
+        let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        let held = (door >= 0 && door < recvHeldNotes.count) ? recvHeldNotes[door].map { Int($0) } : []
+        let letter = (door >= 0 && door < 4) ? ["A", "B", "C", "D"][door] : "A"
+        let hue = buildSelHue
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                if held.isEmpty {
+                    Text("nothing held — LATCH or play at INPUT \(letter)")
+                        .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85))
+                        .lineLimit(2).minimumScaleFactor(0.8).frame(height: 30, alignment: .leading)
+                } else {
+                    buildInKeyboard(held, hue: hue)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("OUT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                buildOutStrip(hue: hue)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    // The IN silhouette: a compact C1–C7 keyboard (black keys fainter for orientation), held notes filled the colour hue.
+    private func buildInKeyboard(_ held: [Int], hue: Color) -> some View {
+        let lo = 24, hi = 96   // C1..C7 — covers the usual playing range; out-of-range notes simply don't light (v1)
+        return Canvas { ctx, size in
+            let n = hi - lo
+            let bw = size.width / CGFloat(n)
+            for s in 0..<n {
+                let midi = lo + s
+                let isBlack = [1, 3, 6, 8, 10].contains(((midi % 12) + 12) % 12)
+                let rect = CGRect(x: CGFloat(s) * bw, y: 0, width: max(1, bw - 0.4), height: size.height)
+                ctx.fill(Path(rect), with: .color(.white.opacity(isBlack ? 0.05 : 0.11)))
+                if held.contains(midi) { ctx.fill(Path(rect), with: .color(hue)) }
+            }
+        }
+        .frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
+    }
+    // The OUT mini-roll: emitted note-ons drift right→left over ~2.5s, lane = pitch, opacity by velocity + age. A "—" when idle.
+    @ViewBuilder private func buildOutStrip(hue: Color) -> some View {
+        let lo = 24.0, span = 72.0
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || buildOutRoll.isEmpty)) { tl in
+            let now = tl.date
+            Canvas { ctx, size in
+                for m in buildOutRoll {
+                    let age = now.timeIntervalSince(m.born)
+                    if age < 0 || age > 2.5 { continue }
+                    let x = size.width * CGFloat(1 - age / 2.5)               // enter right, drift left as it ages
+                    let lane = CGFloat(min(1, max(0, (Double(m.note) - lo) / span)))
+                    let y = size.height * (1 - lane)
+                    let op = (1 - age / 2.5) * (0.45 + 0.55 * m.vel)
+                    ctx.fill(Path(roundedRect: CGRect(x: x - 3, y: y - 2, width: 6, height: 4), cornerRadius: 2), with: .color(hue.opacity(op)))
+                }
+            }
+        }
+        .frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
+        .overlay(alignment: .leading) {
+            if buildOutRoll.isEmpty {
+                Text("—").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).padding(.leading, 8)
+            }
+        }
     }
 
     // ProcessorBox for a BUILD colour-template slot — mirrors DiagView.slotBox but writes COLOUR-scoped (the selected

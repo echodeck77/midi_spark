@@ -61,6 +61,10 @@ enum AppTab: String, CaseIterable {
 /// One scrolling mark in the MIDI CONFIG REPLAY input roll: a note that ONSET at `born`, drifting right→left. (Paul 2026-08-20)
 struct InputMark: Equatable { let note: UInt8; let born: Date; let beat: Double }   // beat = the onset beat → the roll is BEAT-driven (freezes when stopped, stays pass-synced); born = the memory-prune stamp
 
+/// One emitted note in the TRUTH-STRIP "OUT" mini-roll (the processor editor): a note-on the plugin emitted at `born`,
+/// drifting right→left as it fades. Accumulated from pollCellNotes (read-and-clear → each is a fresh onset). §1 truth strips.
+struct OutMark: Equatable { let note: UInt8; let vel: Double; let born: Date }
+
 /// CPU (device 2026-08-24): the FAST-changing telemetry — the emitter/receiver meter peaks (updated at 30 Hz) — used to
 /// live as `@State` on the giant `DiagView`, so every peak update re-ran the WHOLE BuildPage body 30×/sec (80% CPU, the
 /// watchdog kill). It now lives in this plain class held by `DiagView` via `@State` — `@State` tracks the class REFERENCE
@@ -322,6 +326,7 @@ struct DiagView: View {
     @State var recvDragVel: [Int?] = [nil, nil, nil, nil]     // BUILD receiver fader: the live drag input-velocity override per door (nil = not dragging)
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1) — the MIDI-IN length bar reads this
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
+    @State var buildOutRoll: [OutMark] = []                   // §1 TRUTH STRIPS: emitted note-ons drifting in the editor's OUT mini-roll (editor-open only)
     @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
     @State var recvReplayRoll: [[DoorRing.Note]] = [[], [], [], []]   // an ENGAGED REPLAY door's captured loop as DURATION notes — the roll reflects what's PLAYING (Paul 2026-08-23)
     @State var recvReplayLen: [Double] = [0, 0, 0, 0]                 // each engaged loop's length in beats (x-scale for the roll)
@@ -826,29 +831,35 @@ struct DiagView: View {
             if held != recvHeld { recvHeld = held }
             // config-sheets REPLAY roll: while the MIDI CONFIG sheet is open, accumulate per-door input ONSETS (a pitch
             // newly in the held set) as scrolling marks; prune to ~4s. Gated on the sheet so it costs nothing otherwise.
-            if buildMidiConfigOpen {
+            // recvHeldNotes feeds the config REPLAY roll AND the §1 TRUTH-STRIP "IN" silhouette in the processor editor —
+            // so poll it while EITHER is open. The scrolling-roll + replay accumulation stays config-only (the strip just
+            // reads the held set). editorOpen is reused below for the OUT mini-roll.
+            let editorOpen = buildEditSlot != nil
+            if buildMidiConfigOpen || editorOpen {
                 let notes = au.pollReceiverSoundingNotes()
-                var roll = recvInputRoll
-                for i in 0..<4 {
-                    let cur = Set(i < notes.count ? notes[i] : []), prev = Set(i < recvHeldNotes.count ? recvHeldNotes[i] : [])
-                    for n in cur.subtracting(prev) { roll[i].append(InputMark(note: n, born: mnow, beat: nd.beat)) }   // a new onset (beat-stamped for the beat-driven roll)
-                    roll[i] = roll[i].filter { mnow.timeIntervalSince($0.born) < 40.0 }   // generous; the roll view clips to its own N-pass window
-                    if roll[i].count > 128 { roll[i] = Array(roll[i].suffix(128)) }
+                if buildMidiConfigOpen {
+                    var roll = recvInputRoll
+                    for i in 0..<4 {
+                        let cur = Set(i < notes.count ? notes[i] : []), prev = Set(i < recvHeldNotes.count ? recvHeldNotes[i] : [])
+                        for n in cur.subtracting(prev) { roll[i].append(InputMark(note: n, born: mnow, beat: nd.beat)) }   // a new onset (beat-stamped for the beat-driven roll)
+                        roll[i] = roll[i].filter { mnow.timeIntervalSince($0.born) < 40.0 }   // generous; the roll view clips to its own N-pass window
+                        if roll[i].count > 128 { roll[i] = Array(roll[i].suffix(128)) }
+                    }
+                    recvInputRoll = roll
+                    let eng = au.replayEngaged(); if eng != replayEngagedMask { replayEngagedMask = eng }   // the LAST-N toggle state
+                    // REPLAY loop roll (Paul 2026-08-23): while a door is ENGAGED, poll its captured loop as DURATION notes so
+                    // the piano roll shows exactly what's playing from the RECORDING (held chords, note lengths) — not live input.
+                    var lroll = recvReplayRoll, llen = recvReplayLen
+                    for i in 0..<4 {
+                        if eng & (1 << UInt8(i)) != 0 { lroll[i] = au.replayLoopRoll(door: i); llen[i] = au.replayLoopLen(door: i) }
+                        else if !lroll[i].isEmpty { lroll[i] = []; llen[i] = 0 }
+                    }
+                    if lroll != recvReplayRoll { recvReplayRoll = lroll }
+                    if llen != recvReplayLen { recvReplayLen = llen }
                 }
-                recvInputRoll = roll
-                recvHeldNotes = notes
-                let eng = au.replayEngaged(); if eng != replayEngagedMask { replayEngagedMask = eng }   // the LAST-N toggle state
-                // REPLAY loop roll (Paul 2026-08-23): while a door is ENGAGED, poll its captured loop as DURATION notes so
-                // the piano roll shows exactly what's playing from the RECORDING (held chords, note lengths) — not live input.
-                var lroll = recvReplayRoll, llen = recvReplayLen
-                for i in 0..<4 {
-                    if eng & (1 << UInt8(i)) != 0 { lroll[i] = au.replayLoopRoll(door: i); llen[i] = au.replayLoopLen(door: i) }
-                    else if !lroll[i].isEmpty { lroll[i] = []; llen[i] = 0 }
-                }
-                if lroll != recvReplayRoll { recvReplayRoll = lroll }
-                if llen != recvReplayLen { recvReplayLen = llen }
-            } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) || !recvReplayRoll.allSatisfy({ $0.isEmpty }) {
-                recvInputRoll = [[], [], [], []]; recvHeldNotes = [[], [], [], []]   // sheet closed → drop the marks
+                recvHeldNotes = notes   // IN strip / config roll read this
+            } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) || !recvReplayRoll.allSatisfy({ $0.isEmpty }) || !recvHeldNotes.allSatisfy({ $0.isEmpty }) {
+                recvInputRoll = [[], [], [], []]; recvHeldNotes = [[], [], [], []]   // sheet+editor closed → drop the marks
                 recvReplayRoll = [[], [], [], []]; recvReplayLen = [0, 0, 0, 0]
             }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
@@ -859,6 +870,21 @@ struct DiagView: View {
             let sw = au.uiSwing();         if sw != swing { swing = sw }
             let cn = au.pollCellNotes()                    // NOTE-SWEEP: per-cell recent emitted notes (pitch/vel/count) — drained every tick
             if cn.count.contains(where: { $0 > 0 }) { cellNotePitch = cn.pitch; cellNoteVel = cn.vel; cellNoteCount = cn.count }
+            // §1 TRUTH STRIPS — OUT mini-roll: while the processor editor is open, accumulate emitted note-ons into a
+            // drifting roll (cn is read-and-clear → every note is a fresh onset; no diffing). Aggregated across the board:
+            // during a chain audition (part stopped) that IS the chain's output. Pruned to ~2.5s; ≤96 marks.
+            if editorOpen {
+                var out = buildOutRoll
+                for i in 0..<64 {
+                    let k = min(Int(cn.count[i]), 6)
+                    for j in 0..<k where i * 6 + j < cn.pitch.count {
+                        out.append(OutMark(note: cn.pitch[i * 6 + j], vel: Double(cn.vel[i * 6 + j]) / 127.0, born: mnow))
+                    }
+                }
+                out = out.filter { mnow.timeIntervalSince($0.born) < 2.5 }
+                if out.count > 96 { out = Array(out.suffix(96)) }
+                if out != buildOutRoll { buildOutRoll = out }   // guard idle re-renders
+            } else if !buildOutRoll.isEmpty { buildOutRoll = [] }
             let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
                 let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq
