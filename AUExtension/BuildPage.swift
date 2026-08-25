@@ -619,15 +619,16 @@ extension DiagView {
     }
     // KEYS (inline): the fresh multi-octave piano + CLEAR. (buildKeyboard is NOT reused — it's broken from a prior context.)
     @ViewBuilder private func buildDoorKeyboardInline(_ i: Int, _ r: Receiver) -> some View {
+        let kbW: CGFloat = 520
         VStack(alignment: .leading, spacing: 8) {
-            buildInputPiano(receiver: i, held: Set(r.pianoNotesResolved), width: 380)
+            buildInputPiano(receiver: i, held: Set(r.pianoNotesResolved), width: kbW, height: 128)
             HStack {
                 Text("\(r.pianoNotesResolved.count) note\(r.pianoNotesResolved.count == 1 ? "" : "s") picked").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                 Spacer()
                 Text("CLEAR").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                     .padding(.horizontal, 10).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
                     .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
-            }.frame(width: 380)
+            }.frame(width: kbW)
             // KEYS EXCLUDE (Paul 2026-08-22): the complement door — this door plays the typed set MINUS another door's chord.
             let exSel = au?.uiExcludeDoor(i) ?? -1
             HStack(spacing: 6) {
@@ -639,13 +640,13 @@ extension DiagView {
                         .background(RoundedRectangle(cornerRadius: 5).fill(exSel == d ? buildCyan : Color.white.opacity(0.08)))
                         .contentShape(Rectangle()).onTapGesture { au?.setExcludeDoor(i, d); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
                 }
-            }.frame(width: 380, alignment: .leading)
-            Text("Plays the picked notes MINUS the excluded door's chord — the flourish door.").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim).frame(width: 380, alignment: .leading)
+            }.frame(width: kbW, alignment: .leading)
+            Text("Plays the picked notes MINUS the excluded door's chord — the flourish door.").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim).frame(width: kbW, alignment: .leading)
         }
     }
     // A BRAND-NEW multi-octave piano (C2…B4, 3 octaves): white keys in a row, black keys overlaid; tap = pick/unpick a
     // note into the door's held set. Built fresh (buildKeyboard was broken by an earlier reuse). (Paul 2026-08-20)
-    @ViewBuilder private func buildInputPiano(receiver i: Int, held: Set<Int>, width: CGFloat) -> some View {
+    @ViewBuilder private func buildInputPiano(receiver i: Int, held: Set<Int>, width: CGFloat, height: CGFloat = 100) -> some View {
         let startOct = 2, octaves = 3
         let base = (startOct + 1) * 12                              // MIDI C2 = 36
         let whiteSemis = [0, 2, 4, 5, 7, 9, 11]
@@ -653,7 +654,7 @@ extension DiagView {
         let whiteCount = octaves * 7
         let gap: CGFloat = 1
         let ww = (width - CGFloat(whiteCount - 1) * gap) / CGFloat(whiteCount)
-        let height: CGFloat = 68, bw = ww * 0.62, bh = height * 0.6
+        let bw = ww * 0.64, bh = height * 0.6
         func pick(_ note: Int) { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
         return ZStack(alignment: .topLeading) {
             HStack(spacing: gap) {                                  // WHITE keys
@@ -661,18 +662,27 @@ extension DiagView {
                     let note = base + (wi / 7) * 12 + whiteSemis[wi % 7]
                     RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color.white.opacity(0.85))
                         .frame(width: ww, height: height)
-                        .overlay(alignment: .bottom) { if wi % 7 == 0 { Text("C\(startOct + wi / 7)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.black.opacity(0.45)).padding(.bottom, 2) } }
+                        .overlay(alignment: .bottom) { if wi % 7 == 0 { Text("C\(startOct + wi / 7)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black.opacity(0.45)).padding(.bottom, 2) } }
                         .contentShape(Rectangle()).onTapGesture { pick(note) }
                 }
             }
-            ForEach(0..<whiteCount, id: \.self) { wi in            // BLACK keys, overlaid at the white-key boundaries
-                if let bs = blackSemis[wi % 7] {
-                    let note = base + (wi / 7) * 12 + bs
-                    RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : Color.black)
-                        .frame(width: bw, height: bh)
-                        .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.white.opacity(0.25), lineWidth: 0.5))
-                        .offset(x: CGFloat(wi + 1) * (ww + gap) - bw / 2 - gap / 2, y: 0)
-                        .contentShape(Rectangle()).onTapGesture { pick(note) }
+            // BLACK keys — LAYOUT-positioned (per-white-slot HStack, key pinned trailing + straddling the boundary via a
+            // negative trailing inset). NOT `.offset` — that shifts only the render and leaves the hit frame at x=0, which
+            // is why black-key taps missed (Paul 2026-08-25). Padding is layout, so the hit frame moves with the key.
+            HStack(spacing: gap) {
+                ForEach(0..<whiteCount, id: \.self) { wi in
+                    Color.clear.frame(width: ww, height: height)
+                        .overlay(alignment: .trailing) {
+                            if let bs = blackSemis[wi % 7] {
+                                let note = base + (wi / 7) * 12 + bs
+                                RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : Color.black)
+                                    .frame(width: bw, height: bh)
+                                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.white.opacity(0.25), lineWidth: 0.5))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { pick(note) }
+                                    .padding(.trailing, -(bw / 2 + gap / 2))   // straddle the white-key boundary (still layout ⇒ honest hit frame)
+                            }
+                        }
                 }
             }
         }.frame(width: width, height: height, alignment: .topLeading)
