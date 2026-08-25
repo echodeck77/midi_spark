@@ -60,8 +60,11 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     snapshot dims ~45 at-default fields (no per-render alloc, one Equatable compare — Paul's low-cost constraint met).
     **16 span-bracket = LEFT AS-IS** (Paul's call — the ×2/×4 multi-bar look isn't worth reworking now).
     **F INFRASTRUCTURE (started 2026-08-25):** ✅ **12+31 VALUE OVERLAY (`8a78175`)** — tap a numPair's number → a grid
-    picker (small ranges) / keypad (CC 0–127) for exact entry, self-contained on NumPair. **REMAINING TRACKS (each a
-    distinct build):** (a) CUSTOM SLIDER = fine-mode (5) + detents/haptics (3) — replaces SwiftUI Slider, feel-critical;
+    picker (small ranges) / keypad (CC 0–127) for exact entry, self-contained on NumPair. ✅ **5 FINE-MODE SLIDER
+    (`e233b8c`)** — a custom FineSlider replaces SwiftUI's Slider at all 29 sites (+ bipolar + morph); coarse = absolute,
+    PULL AWAY from the bar (>44pt) → latches FINE ×10 relative scrub (thumb grows, "FINE ×10" pip). Drop-in via
+    `slider(_:in:)`. Device-eye owed on the pull-away feel + threshold. **REMAINING TRACKS (each a distinct build):**
+    (a) DETENTS/HAPTICS (3) — snap the few musical-value sliders + a haptic tick (a small follow-on to FineSlider);
     (b) LONG-PRESS EXPLANATIONS (10) — a seg-chip explain popover + per-enum text (learnability, content-heavy); (c)
     TRUTH STRIPS (24 touch→OUT diff) — needs the unbuilt IN/OUT strips (big); (d) MACRO-BIND (26 long-press→bind) —
     reconnect the macro authoring flow; (e) LAYOUT — sticky-hero (27) · section-anchor chips (28) · conditional-animate-in
