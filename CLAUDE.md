@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DEST MATRIX — the per-step emitter hocket (ratified §5, routing-class) (2026-08-25, on `main`; iOS builds, macOS
+  green incl. fuzz; DEVICE ear owed). The first STATE-MATRIX §5 candidate + the first NEW routing-class processor. A new
+  note-transparent `ProcessorType.dest` (append-only ID): an 8-slice matrix (`destSlices: [Int]?`, 0=A…3=D) picks WHICH
+  EMITTER each onset-slice routes to — the hocket painted. It GENERALISES CHOP's dest row: the override lives in the
+  existing per-onset hook `chopMask` (a cheap ≤8-proc scan; the DEST emitter WINS over chop, last DEST wins if several) —
+  so `[ARP→DEST]` sends each arp note to a chosen emitter, and a DEST colour across a row hockets per column. cellMode
+  `.dest = .identity` (note-transparent like CHANNEL/NUDGE — no note change, routing only). Additive-Optional (nil ⇒ a
+  rotating default; no old-doc effect since the type is new). UI = the **STATE MATRIX** (rows A/B/C/D × 8 steps,
+  radio-per-column) — the ratified species' second family beyond the pattern editors. Storefront: a DEST card in UTILITY.
+  +1 RouterTest (`[ARP→DEST]` spreads across >1 emitter cable + routes each note to ONE emitter, not the 4-way fan);
+  fuzz hammers random per-slice re-routes for no-stuck-notes. v1: routes to exactly one emitter per slice (no per-step
+  MUTE — use LENGTH/CHANCE); step = the onset-slice (chopSlice), so a driver hockets within the column. **NEXT §5: the
+  MUTE MATRIX** (part-muting) — the last ratified matrix candidate.**
 - **▶ TIMING LANE — NUDGE gains a per-column POCKET (ratified §5) (2026-08-25, on `main`; iOS builds, macOS green incl.
   fuzz; DEVICE ear owed). The second §5 lane, the sibling to CHANCE PATTERN. NUDGE gains a MODE — FIXED (one offset,
   today) | LANE (8 per-step time offsets ±8/16, the groove HAND-DRAWN). Additive-Optional (`utilNudgeMode`/

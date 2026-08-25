@@ -847,6 +847,7 @@ struct ProcessorBox: View {
         case .transpose: return "shift this chain by semitones (moves notes off the held chord)"
         case .channel:   return "send this chain out on a chosen MIDI channel"
         case .nudge:     return "slide this chain earlier or later in time"
+        case .dest:      return "route each step to a chosen emitter (hocket)"
         }
     }
 
@@ -1213,6 +1214,14 @@ struct ProcessorBox: View {
             } else {
                 let nu = p.utilNudge ?? 0
                 field("NUDGE  \(nu > 0 ? "+" : "")\(nu)/16 beat") { stepper(nu, -8, 8) { v in setParam { $0.utilNudge = v } } }
+            }
+        case .dest:    // ROUTING (Paul 2026-08-22 §5) — the DEST MATRIX: which emitter each onset-slice hockets to
+            let base = [0, 1, 2, 3, 0, 1, 2, 3]
+            field("EMITTER PER STEP — tap a cell (the hocket)") {
+                stateMatrixRadio([0, 1, 2, 3],
+                    header: { e in AnyView(Text(["A", "B", "C", "D"][e]).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
+                    selected: { i in let s = p.destSlices ?? base; return i < s.count ? s[i] : 0 },
+                    set: { i, e in setParam { var s = $0.destSlices ?? base; while s.count < 8 { s.append(0) }; s[i] = e; $0.destSlices = s } })
             }
         }
     }

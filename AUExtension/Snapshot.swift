@@ -189,6 +189,7 @@ struct SnapParams {
     var utilNudge: Int = 0                            // NUDGE: time offset in sixteenths (−8…+8)
     var utilNudgeMode: NudgeMode = .fixed            // TIMING LANE (Paul 2026-08-22 §5): FIXED = one offset · LANE = a per-column pocket
     var utilNudgeLane: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]   // LANE: 8 per-step offsets (−8…+8), the cell's COLUMN picks the slot
+    var destSlices: [Int] = [0, 1, 2, 3, 0, 1, 2, 3]      // DEST MATRIX (Paul 2026-08-22 §5): per-onset-slice emitter (0=A…3=D), the hocket
 }
 
 struct SnapColour {

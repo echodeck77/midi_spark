@@ -3405,10 +3405,19 @@ final class Router {
     }
     /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).
     private func chopMask(_ cell: SnapCell, m: Double, S: Double, base: UInt8) -> UInt8 {
+        // DEST MATRIX (Paul 2026-08-22 §5): a routing-class processor OVERRIDES the emitter per onset-slice — the hocket
+        // painted (CHOP's dest row generalised). It wins over CHOP (DEST is the router). Cheap per-onset scan (≤8 procs).
+        let sl = Int(chopSlice(m, columnBeats: S))
+        var destProc = -1
+        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .dest { destProc = j }   // last DEST wins
+        if destProc >= 0 {
+            let d = cell.procs[destProc].destSlices
+            let e = sl < d.count ? max(0, min(3, d[sl])) : 0
+            return UInt8(1) << UInt8(e)   // route to exactly this emitter
+        }
         guard cell.chopActive else { return base }
-        let sl = UInt8(chopSlice(m, columnBeats: S))
-        return chopBusMask(base, main: (cell.chopMain >> sl) & 1 == 1, alt: (cell.chopAlt >> sl) & 1 == 1,
-                           mute: (cell.chopMute >> sl) & 1 == 1, altMask: cell.chopAltMask)
+        return chopBusMask(base, main: (cell.chopMain >> UInt8(sl)) & 1 == 1, alt: (cell.chopAlt >> UInt8(sl)) & 1 == 1,
+                           mute: (cell.chopMute >> UInt8(sl)) & 1 == 1, altMask: cell.chopAltMask)
     }
     /// Emit one note applying the cell's per-slice CHOP routing (the shared tail of every tick emitter).
     private func emitChop(_ note: Int, cell: SnapCell, bm: UInt8, onSample: Int64, offSample: Int64,

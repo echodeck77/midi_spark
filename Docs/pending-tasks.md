@@ -51,8 +51,10 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
 5. **THE MATRIX/LANE CANDIDATES (ratified §5):** **✅ CHANCE PATTERN + ✅ TIMING LANE — DONE (2026-08-25).** CHANCE =
    the odds SLIDER LANE (SINGLE|PATTERN, step-aware `effectiveProbability`). TIMING = NUDGE FIXED|LANE (per-column ±8/16
    pocket; step = cell column). Together they delivered the SLIDER LANE species fully: `modStepBars`→shared `sliderLane`
-   with unipolar + CENTRE(bipolar) modes, now 3 consumers (STEP MOD · CHANCE · TIMING). TODO: **DEST MATRIX** (wire×step
-   radio, routing-class) · **MUTE MATRIX** (part-muting) — both use the STATE MATRIX. ARRANGEMENT MATRIX = NOT ratified.
+   with unipolar + CENTRE(bipolar) modes, now 3 consumers (STEP MOD · CHANCE · TIMING). **✅ DEST MATRIX — DONE
+   (2026-08-25):** a new routing-class `ProcessorType.dest` — the 8-slice per-onset EMITTER hocket via `chopMask`; UI =
+   the STATE MATRIX (A–D × 8, radio). +1 test, fuzz-hammered. TODO: **MUTE MATRIX** (part-muting — the last §5 matrix).
+   ARRANGEMENT MATRIX = NOT ratified.
 6. **SLIDER LANE / WIDTH:** the `sliderLane` shared component now has 2 consumers (STEP MOD · CHANCE). Processor-editor
    WIDTH PASS 1 landed (compact segs + ≤600pt panel); **PASS 2 = two-column packing** of short fields (device-eye owed).
 

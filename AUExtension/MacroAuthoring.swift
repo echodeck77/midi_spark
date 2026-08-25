@@ -211,8 +211,8 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "splitHigh", label: "SIDE", kind: .toggle),
                 MacroControlParam(key: "splitVFloor", label: "VEL MIN", kind: .stepper(lo: 1, hi: 127)),
                 MacroControlParam(key: "splitVCeil", label: "VEL MAX", kind: .stepper(lo: 1, hi: 127))]
-    case .octave, .transpose, .channel, .nudge:
-        return [bypass]   // UTILITY (Paul 2026-08-22): a single simple control; edited directly (macro-folding is out of scope)
+    case .octave, .transpose, .channel, .nudge, .dest:
+        return [bypass]   // UTILITY/ROUTING (Paul 2026-08-22): a single simple control; edited directly (macro-folding is out of scope)
     }
 }
 

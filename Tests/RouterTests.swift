@@ -151,6 +151,24 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ons(legacy: .row), 3, "legacy euclidSpan=.row migrates to SPAN 8 (byte-identical)")
         XCTAssertEqual(ons(), 12, "no span set = CELL (SPAN 1, byte-identical)")
     }
+    // DEST MATRIX (Paul 2026-08-22 §5): [ARP→DEST] hockets the walk across emitters — each onset-slice routes to its
+    // chosen emitter (the routing override wins over the cell's fan-out).
+    func testDestMatrixHocketsTheArpAcrossEmitters() {
+        func run2(_ withDest: Bool) -> [RecordingEmitter.Ev] {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var dest = ProcessorSlot(type: .dest); dest.params.destSlices = [0, 1, 2, 3, 0, 1, 2, 3]
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) {
+                $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a, .b, .c, .d]); c.processors = withDest ? [arp, dest] : [arp]; return c }()
+            }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable >= 1 }   // emitter cables (1=A…4=D), excluding the All cable 0
+        }
+        let plain = run2(false), hocket = run2(true)
+        XCTAssertGreaterThan(Set(hocket.map { $0.cable }).count, 1, "DEST spreads the arp across multiple emitters")
+        XCTAssertLessThan(hocket.count, plain.count, "DEST routes each note to ONE emitter, not the 4-way fan-out")
+    }
     // TIMING LANE (Paul 2026-08-22 §5): NUDGE's LANE mode — the cell's COLUMN picks a per-step time offset (the pocket).
     func testTimingLaneNudgesTheOnsetByColumn() {
         func firstOn(lane: [Int]?) -> Int64 {

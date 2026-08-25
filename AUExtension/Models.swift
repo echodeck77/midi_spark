@@ -26,6 +26,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case transpose = "TRANSPOSE" // UTILITY: shift the chain ±24 semitones (moves notes OFF the held chord — the chromatic crowd's tool)
     case channel = "CHANNEL"   // UTILITY: this chain exits on a chosen MIDI channel (WIRE default | 1–16) — multitimbral from one output
     case nudge = "NUDGE"       // UTILITY: a pure time offset (± sixteenths) on the stream — slides what's already there (does NOT drive)
+    case dest = "DEST"         // ROUTING (Paul 2026-08-22 §5): per-onset-slice EMITTER selection — hocket painted (CHOP's dest row generalised to any chain)
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -259,6 +260,7 @@ struct ColourParams: Codable, Equatable {
     var utilNudge: Int? = 0                     // NUDGE: time offset in sixteenths of a beat (−8…+8)
     var utilNudgeMode: NudgeMode? = nil         // TIMING LANE (Paul 2026-08-22 §5): FIXED (one offset, default) | LANE (8 per-column offsets — the pocket drawn). nil ⇒ FIXED
     var utilNudgeLane: [Int]? = nil             // LANE: 8 per-step time offsets (−8…+8 sixteenths); the cell's COLUMN picks the slot
+    var destSlices: [Int]? = nil                // DEST MATRIX (Paul 2026-08-22 §5): 8 per-onset-slice emitters (0=A…3=D) — hocket painted. nil ⇒ a rotating default
 }
 // TIMING LANE (Paul 2026-08-22 §5): NUDGE's second mode — FIXED = one offset · LANE = a per-column pocket (a centred SLIDER LANE).
 enum NudgeMode: String, Codable, CaseIterable { case fixed = "FIXED", lane = "LANE" }

@@ -4259,6 +4259,7 @@ extension DiagView {
                 C("TRANSPOSE", "Shifts this chain by semitones (off the held chord).", .transpose),
                 C("CHANNEL", "Sends this chain out on its own MIDI channel.", .channel),
                 C("NUDGE", "Slides this chain a little earlier or later in time.", .nudge),
+                C("DEST", "Sends each step to a chosen emitter — hocket between synths.", .dest),
             ]),
         ]
     }
