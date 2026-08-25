@@ -1001,6 +1001,10 @@ extension DiagView {
             buildChainBtn("RANDOMIZE", fill: true) { buildRandomizeSimple() } // reroll the chain
             buildChainBtn("MUTATE", fill: true)    { buildMutateChain() }     // nudge the chain
             buildChainBtn("CLEAR", fill: true)     { buildClearChain() }      // empty the chain
+            HStack(spacing: BuildGeom.castGap) {                              // COPY | PASTE — copy this chain into a new row position (Paul 2026-08-25)
+                buildChainBtn("COPY", fill: true) { buildCopyChain() }
+                buildChainBtn("PASTE", enabled: !(buildChainClipboard ?? []).isEmpty, fill: true) { buildPasteChain() }   // disabled until the buffer holds a chain
+            }
         }
         .frame(width: width)
         .frame(height: height, alignment: .center)                           // the stack is EXACTLY this tall (matches the 4-row processor block); the buttons share it
@@ -2136,6 +2140,24 @@ extension DiagView {
         guard let cid = ddSelectedColourID else { return }
         buildWriteColourMachine(cid, [])
         refreshFromDocument()
+    }
+    // <<< COPY / PASTE (Paul 2026-08-25): COPY grabs the SELECTED colour's chain into a buffer; PASTE drops that chain
+    // into a NEW row (mints a fresh colour carrying it on the first empty row, then selects it). PASTE is disabled
+    // until the buffer holds a non-empty chain. Used to copy one chain into a new row position.
+    private func buildCopyChain() {
+        let chain = selectedColourChain()
+        guard !chain.isEmpty else { return }               // nothing to copy → leave the buffer (paste stays disabled)
+        buildChainClipboard = chain
+    }
+    private func buildPasteChain() {
+        guard let chain = buildChainClipboard, !chain.isEmpty else { return }
+        guard let row = (0..<8).first(where: { buildRowColour($0) == nil }) else { return }   // the first EMPTY row (a new position)
+        let newID = buildNewColour(hex: buildDistinctHue(), machine: chain)
+        if row < buildRowUnder.count { buildRowUnder[row] = nil }   // an empty row displaces nothing
+        buildSetRow(row, to: newID)
+        buildSelectID(newID)                               // focus the pasted colour
+        for c in 0..<8 { buildStagingSel[c] = row }        // select the whole new row (like PLACE/MUTATE)
+        buildStagingSyncIfPlaying()
     }
     // RANDOMIZE >>> — randomize the PART grid's performance: a random POPULATED rung per column. (Paul 2026-08-18)
     // RANDOMIZE (under the part grid): generate 8 rows and lay them on the standard colours in order of complexity.
