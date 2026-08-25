@@ -398,6 +398,24 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = -1 }), 0.1, "the floor is 0.1, not 0")
     }
 
+    // CHANCE PATTERN (Paul 2026-08-22 §5): effectiveProbability(step:) reads the rotated 8-slice odds; step wraps mod 8;
+    // a missing slice falls back to pass (100%); SINGLE mode ignores step. (Only the SINGLE clamp path was tested before.)
+    func testEffectiveProbabilityPatternReadsTheRotatedSlice() {
+        let slices = [100, 0, 70, 0, 100, 0, 70, 0]
+        let p = snapColour { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = 0 }.a
+        XCTAssertEqual(effectiveProbability(p, step: 0), 1.0, "slice 0 = 100%")
+        XCTAssertEqual(effectiveProbability(p, step: 1), 0.0, "slice 1 = 0%")
+        XCTAssertEqual(effectiveProbability(p, step: 9), effectiveProbability(p, step: 1), "step wraps mod 8")
+        let pr = snapColour { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = 1 }.a
+        XCTAssertEqual(effectiveProbability(pr, step: 0), 0.0, "rotate 1 → step 0 reads slice 1")
+        let pn = snapColour { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = -1 }.a
+        XCTAssertEqual(effectiveProbability(pn, step: 1), 1.0, "negative rotate wraps: step 1 → slice 0 = 100%")
+        let ps = snapColour { $0.chanceMode = .pattern; $0.chanceSlices = [50]; $0.chanceRotate = 0 }.a
+        XCTAssertEqual(effectiveProbability(ps, step: 3), 1.0, "a missing slice falls back to pass (100%)")
+        let single = snapColour { $0.probability = 0.5 }.a
+        XCTAssertEqual(effectiveProbability(single, step: 5), effectiveProbability(single, step: 0), "SINGLE ignores step")
+    }
+
     // MARK: laneValue — guard + wrap + all-bypass-smooth edges
 
     /// The guard returns the manual value for a degenerate lane (empty, zero step, zero rate) — no divide-by-zero.

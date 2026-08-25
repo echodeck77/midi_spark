@@ -1958,4 +1958,28 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(p.pitchClassMask(chanMask: 1 << 1, cableMask: 0b1111, noteLo: 0, noteHi: 127), 0, "channel 2 hears nothing (all notes on channel 1)")
         XCTAssertEqual(p.pitchClassMask(chanMask: 0xFFFF, cableMask: 0b1111, noteLo: 62, noteHi: 66), (1 << 4), "only E is in the 62–66 window")
     }
+
+    // SPAN LADDER (Paul 2026-08-22 §3): the WIDTH-in-beats dial. Endpoints CELL(1)=S and ROW(8)=rowBeats are the
+    // byte-identical legacy anchors; 2·3·4·6 = N columns; 16/32 = ×2/×4 the row (the multi-bar polymeter spans — never
+    // reached by the 1-bar Router integration tests, so proven directly here).
+    func testSpanLadderBeatsCoversEveryRung() {
+        let S = 0.5, row = 4.0
+        XCTAssertEqual(spanLadderBeats(1, S: S, row: row), S, "CELL = one column (S)")
+        XCTAssertEqual(spanLadderBeats(8, S: S, row: row), row, "ROW = the whole row (rowBeats)")
+        XCTAssertEqual(spanLadderBeats(3, S: S, row: row), 1.5, "3 columns = 3·S")
+        XCTAssertEqual(spanLadderBeats(6, S: S, row: row), 3.0, "6 columns = 6·S")
+        XCTAssertEqual(spanLadderBeats(16, S: S, row: row), 8.0, "×2 = 2 rows")
+        XCTAssertEqual(spanLadderBeats(32, S: S, row: row), 16.0, "×4 = 4 rows")
+        XCTAssertEqual(spanLadderBeats(0, S: S, row: row), S, "sub-1 clamps to CELL")
+        XCTAssertEqual(spanLadderLabel(16), "×2"); XCTAssertEqual(spanLadderLabel(32), "×4"); XCTAssertEqual(spanLadderLabel(3), "3")
+    }
+
+    // GLIDE SYNTH mode (Paul 2026-08-22): glide TIME (beats) → CC5 portamento value (0…127), linear ·24 with clamps.
+    func testGlideSynthCCTimeMapsBeatsToPortamentoValue() {
+        XCTAssertEqual(glideSynthCCTime(0), 0, "instant = 0")
+        XCTAssertEqual(glideSynthCCTime(0.25), 6, "0.25 beat → 6")
+        XCTAssertEqual(glideSynthCCTime(0.5), 12, "0.5 beat → 12")
+        XCTAssertEqual(glideSynthCCTime(10), 127, "long glide clamps at the ceiling")
+        XCTAssertGreaterThanOrEqual(glideSynthCCTime(1.0), glideSynthCCTime(0.5), "monotonic non-decreasing")
+    }
 }

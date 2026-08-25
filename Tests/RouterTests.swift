@@ -189,6 +189,21 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(muteA.ons.contains { $0.cable == 2 }, "the other emitters keep playing")
         XCTAssertLessThan(muteA.ons.filter { $0.cable >= 1 }.count, plain.ons.filter { $0.cable >= 1 }.count, "muting drops A's copies")
     }
+    // MUTE composes ON TOP of DEST (Paul 2026-08-25 §5): DEST routes each slice to one emitter, MUTE then removes muted
+    // emitters. [ARP→DEST(alt A/B)→MUTE(A)] → the A-routed slices go silent, the B-routed ones still play; none stuck.
+    func testMuteMatrixComposesOverDest() {
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var dest = ProcessorSlot(type: .dest); dest.params.destSlices = [0, 1, 0, 1, 0, 1, 0, 1]      // alternate A, B
+        var mute = ProcessorSlot(type: .muteMatrix); mute.params.muteSlices = Array(repeating: 0b0001, count: 8)  // A muted every step
+        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        let b = box(colours: cs) {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a, .b, .c, .d]); c.processors = [arp, dest, mute]; return c }()
+        }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+        assertNothingLeftSounding(e)
+        XCTAssertFalse(e.ons.contains { $0.cable == 1 }, "the A-routed slices are muted → nothing on emitter A")
+        XCTAssertTrue(e.ons.contains { $0.cable == 2 }, "the B-routed slices still play on emitter B")
+    }
     // TIMING LANE (Paul 2026-08-22 §5): NUDGE's LANE mode — the cell's COLUMN picks a per-step time offset (the pocket).
     func testTimingLaneNudgesTheOnsetByColumn() {
         func firstOn(lane: [Int]?) -> Int64 {
@@ -317,6 +332,30 @@ final class RouterTests: XCTestCase {
         let (cycC, cycNotes) = mk(.cycle)
         XCTAssertEqual(cycC * 3, allC, "CYCLE strikes one note per pulse; ALL strikes all three")
         XCTAssertEqual(cycNotes, [60, 64, 67], "CYCLE walks through every chord note")
+    }
+    // EUCLID PICK HIGH (Paul 2026-08-22): every hit strikes only the pool's HIGHEST note (the counterpart to LOW).
+    func testEuclidPickHighStrikesOnlyTheHighestNote() {
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .high; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+        let ons = e.ons.filter { $0.cable == 1 }
+        XCTAssertEqual(ons.count, 4, "4 pulses × 1 picked note")
+        XCTAssertTrue(ons.allSatisfy { $0.note == 67 }, "PICK HIGH strikes only the highest pool note")
+        assertNothingLeftSounding(e)
+    }
+    // EUCLID PICK RANDOM (Paul 2026-08-22): a seeded scatter — replay-EXACT (same stream twice) and always in the held pool.
+    func testEuclidPickRandomIsReplayExactAndInPool() {
+        func notes() -> [UInt8] {
+            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+                c.paramsA.euclidPulses = 5; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .random; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.note }
+        }
+        let a = notes(), b = notes()
+        XCTAssertEqual(a, b, "PICK RANDOM is replay-exact (seeded by the pulse ordinal)")
+        XCTAssertFalse(a.isEmpty, "it strikes")
+        XCTAssertTrue(a.allSatisfy { [60, 64, 67].contains(Int($0)) }, "every struck note is one of the held pool")
     }
     // PER-PART CLOCK (Paul 2026-08-19): two rows on DIFFERENT step rates play at different tempos in ONE grid —
     // the multi-clock render path. Both rows are fully populated with the SAME 4-of-8 euclid; row 0 runs SLOW
