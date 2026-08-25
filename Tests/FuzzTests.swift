@@ -145,7 +145,6 @@ final class FuzzTests: XCTestCase {
             if r.chance(0.25) { let lo = r.int(128); rv.rangeLo = lo; rv.rangeHi = r.range(lo, 127) }
             if r.chance(0.15) { rv.inputEnabled = false }
             if r.chance(0.15) { rv.muted = true }
-            if r.chance(0.20) { rv.bypass = true; rv.bypassDest = r.range(1, 15) }
             if r.chance(0.30) { rv.latchAdd = r.chance(0.5) }
             return rv
         }

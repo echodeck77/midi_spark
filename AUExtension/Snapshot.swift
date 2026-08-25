@@ -268,8 +268,6 @@ final class SnapshotBox {
     let receiverDisabledMask: UInt8  // INPUT ENABLE: bit i = receiver i is DISABLED (not listening) — its frozen latch still feeds the grid, but no new live notes reach its cells
     let receiverRangeLo: [UInt8]     // RANGE (§2): the 4 receivers' note-window low bound (0…127) — for the latch capture (upstream of latch)
     let receiverRangeHi: [UInt8]     // RANGE (§2): the 4 receivers' note-window high bound (0…127)
-    let receiverBypassMask: UInt8    // BYPASS (§1/§2): bit i = receiver i bypasses the grid (its stream injects straight to emitters)
-    let receiverBypassDest: [UInt8]  // BYPASS: the 4 receivers' destination emitter masks (A–D), default ALL
     let passEmitterMask: [UInt8]     // NO-MACHINE WIRE (Paul 2026-08-23): per door, the UNION of empty-chain (passthrough) cells' emitters — their input passes straight through in realtime via reconcileBypass (like bypass, but per-cell)
     let receiverControllerMask: [UInt8]  // CONTROLLER ROUTING (v1): each door's emitters (A–D) it forwards incoming CC/PB/AT/PC to, re-stamped. Default ALL-LIVE.
     let receiverPianoMask: UInt8         // PIANO LATCH: bit i = receiver i's latch reads its on-screen keyboard selection (not live input)
@@ -309,7 +307,6 @@ final class SnapshotBox {
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0,
          receiverDisabledMask: UInt8 = 0,
          receiverRangeLo: [UInt8] = [0, 0, 0, 0], receiverRangeHi: [UInt8] = [127, 127, 127, 127],
-         receiverBypassMask: UInt8 = 0, receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          passEmitterMask: [UInt8] = [0, 0, 0, 0],
          receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverPianoMask: UInt8 = 0, receiverPianoNotes: [[UInt8]] = [[], [], [], []],
@@ -363,8 +360,6 @@ final class SnapshotBox {
         self.receiverDisabledMask = receiverDisabledMask
         self.receiverRangeLo = receiverRangeLo
         self.receiverRangeHi = receiverRangeHi
-        self.receiverBypassMask = receiverBypassMask
-        self.receiverBypassDest = receiverBypassDest
         self.passEmitterMask = passEmitterMask
         self.receiverControllerMask = receiverControllerMask
         self.receiverPianoMask = receiverPianoMask

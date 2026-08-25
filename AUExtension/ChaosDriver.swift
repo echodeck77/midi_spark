@@ -201,7 +201,6 @@ final class ChaosDriver {
             if selected {
                 if !r.inputEnabledResolved { au.toggleReceiverEnabled(i) }
                 if r.muted { au.toggleReceiverMute(i) }
-                if r.bypassResolved { au.toggleReceiverBypass(i) }
                 au.setReceiverChannel(i, 0); au.setReceiverRange(i, lo: 0, hi: 127)
             } else if r.inputEnabledResolved {
                 au.toggleReceiverEnabled(i)   // disable the non-selected door

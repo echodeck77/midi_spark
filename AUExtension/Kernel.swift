@@ -492,7 +492,6 @@ final class Kernel {
         let r = Int(c.resolvedReceiver)
         if r >= 0 {
             let bit = UInt8(1 << r)
-            if box.receiverBypassMask   & bit != 0 { return "recv BYPASS (grid diverted)" }
             if box.receiverDisabledMask & bit != 0 { return "recv DISABLED (not listening)" }
             if effectiveLatchMask       & bit != 0 { return "recv LATCHED (reads frozen, not live)" }
         }
@@ -509,7 +508,6 @@ final class Kernel {
         func rflags(_ r: Int) -> String {
             let bit = UInt8(1 << r); var f = ""
             if box.receiverDisabledMask & bit != 0 { f += " [DISABLED]" }
-            if box.receiverBypassMask   & bit != 0 { f += " [BYPASS]" }
             if effectiveLatchMask       & bit != 0 { f += " [LATCHED]" }
             return f
         }

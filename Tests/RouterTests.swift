@@ -3772,13 +3772,15 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(latched, [60, 72], "48 and 84 were excluded upstream — never entered the frozen pool")
     }
 
-    // BYPASS (§1/§2) — a bypassed door skips the grid and injects straight to its dest emitters.
-    private func bypassBox(dest: Int, rangeLo: Int? = nil, rangeHi: Int? = nil,
-                           cell: Bool = false, masterMute: Bool = false) -> SnapshotBox {
+    // NO-MACHINE LIVE WIRE — a passthrough (empty-chain) cell on door 0 injects its input straight to its emitters in
+    // realtime via the reconcileBypass monitor. (The door-level BYPASS toggle that once shared this mechanism was
+    // retired 2026-08-25 — Paul; these tests now exercise the surviving wire path: range, solo, master-mute, release, stop.)
+    private func wireBox(dest: Int, rangeLo: Int? = nil, rangeHi: Int? = nil, masterMute: Bool = false) -> SnapshotBox {
         var s = SceneState.empty()
-        if cell { s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        let buses = Set(Bus.allCases.enumerated().filter { dest & (1 << $0.offset) != 0 }.map { $0.element })
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: buses); c.inputReceiver = 0; c.processors = []; return c }()   // EMPTY chain → the live wire
         var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]; st.masterMute = masterMute
-        var r1 = Receiver(name: "1"); r1.bypass = true; r1.bypassDest = dest; r1.rangeLo = rangeLo; r1.rangeHi = rangeHi
+        var r1 = Receiver(name: "1"); r1.rangeLo = rangeLo; r1.rangeHi = rangeHi
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         return SnapshotBuilder.build(from: st)
     }
@@ -3789,17 +3791,9 @@ final class RouterTests: XCTestCase {
                        timestampSample: beat * 24_000, frameCount: 512, out: out, diag: &diag)
     }
 
-    // A bypassed door's GRID cells fall silent — its stream skipped the grid (here with no dests, so nothing sounds).
-    func testBypassDivertsItsGridCellsToSilence() {
-        let b = bypassBox(dest: 0, cell: true)   // bypassed, NO destinations → total silence (isolates the diversion)
-        let e = RecordingEmitter()
-        run(b, chord([60, 64]), beats: 8, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "a bypassed door's grid cells are silent (the stream left the grid)")
-    }
-
-    // Bypass injects a held note on its destination emitter's cable (+ the ALL cable) with that emitter's channel.
-    func testBypassInjectsHeldNotesToDestEmitters() {
-        let b = bypassBox(dest: 0b0001)   // → emitter A: cable 1, channel 0 (busChannels[0] = 1 → wire 0)
+    // The wire injects a held note on its emitter's cable (+ the ALL cable) with that emitter's channel.
+    func testWireInjectsHeldNotesToDestEmitters() {
+        let b = wireBox(dest: 0b0001)   // → emitter A: cable 1, channel 0 (busChannels[0] = 1 → wire 0)
         let router = Router(); let e = RecordingEmitter()
         stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)
         XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 1 && $0.chan == 0 }, "injects on dest emitter A")
@@ -3807,38 +3801,38 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(e.ons.contains { $0.cable == 2 || $0.cable == 3 || $0.cable == 4 }, "not on unselected emitters")
     }
 
-    // CR-4[review]: MASTER MUTE is a global emission kill (the emitOneBus grid path already honours it) — the BYPASS
+    // CR-4[review]: MASTER MUTE is a global emission kill (the emitOneBus grid path already honours it) — the wire
     // monitor is a parallel emission path, so it must fall silent under master mute too, else the whole-instrument mute
     // leaks a live wire.
-    func testMasterMuteSilencesTheBypassMonitor() {
-        let b = bypassBox(dest: 0b0001, masterMute: true)
+    func testMasterMuteSilencesTheWireMonitor() {
+        let b = wireBox(dest: 0b0001, masterMute: true)
         let router = Router(); let e = RecordingEmitter()
         stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)
-        XCTAssertTrue(e.ons.isEmpty, "master mute silences the bypass wire, not just the grid")
+        XCTAssertTrue(e.ons.isEmpty, "master mute silences the wire monitor, not just the grid")
     }
 
-    // Releasing the key emits the bypass note-off — no stuck note.
-    func testBypassReleaseEmitsNoteOff() {
-        let b = bypassBox(dest: 0b0001)
+    // Releasing the key emits the wire note-off — no stuck note.
+    func testWireReleaseEmitsNoteOff() {
+        let b = wireBox(dest: 0b0001)
         let router = Router(); let e = RecordingEmitter()
         stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)      // press
         stepWindow(router, b, NotePool(), playing: true, beat: 0.25, out: e)    // release
-        XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "release emits the bypass note-off")
+        XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "release emits the wire note-off")
         assertNothingLeftSounding(e)
     }
 
-    // BYPASS + LATCH (PIANO/held): a bypassed door with an ARMED latch injects its FROZEN chord — the live pool is
+    // WIRE + LATCH (PIANO/held): a no-machine cell reading an ARMED-latch door injects its FROZEN chord — the live pool is
     // empty (PIANO has no physical keys), so reading live would inject nothing. Locks the reconcileBypass frozen read.
-    func testBypassInjectsTheFrozenLatchPoolNotLive() {
-        let b = bypassBox(dest: 0b0001)   // bypassed R1 → emitter A (cable 1)
+    func testWireInjectsTheFrozenLatchPoolNotLive() {
+        let b = wireBox(dest: 0b0001)   // a no-machine cell on R1 → emitter A (cable 1)
         let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.noteOn(72, velocity: 100, channel: 0); frozen.rebuildSorted()
         let pools = [frozen, NotePool(), NotePool(), NotePool()]
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         // LIVE pool empty (as with PIANO); the frozen R1 pool holds the picked chord. latchMask 0b0001 arms R1.
         router.process(box: b, pool: NotePool(), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
                        timestampSample: 0, frameCount: 512, latchMask: 0b0001, latchedPools: pools, out: e, diag: &diag)
-        XCTAssertTrue(e.ons.contains { $0.note == 67 && $0.cable == 1 }, "bypass injects the frozen chord (67)")
-        XCTAssertTrue(e.ons.contains { $0.note == 72 && $0.cable == 1 }, "bypass injects the frozen chord (72)")
+        XCTAssertTrue(e.ons.contains { $0.note == 67 && $0.cable == 1 }, "the wire injects the frozen chord (67)")
+        XCTAssertTrue(e.ons.contains { $0.note == 72 && $0.cable == 1 }, "the wire injects the frozen chord (72)")
     }
 
     // Latch on a NON-R1 door (R2): a cell reading R2 arps the frozen chord — proves the per-receiver index is honoured
@@ -3851,39 +3845,39 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(latched.contains(67) && latched.contains(72), "R2 armed ⇒ the cell arps R2's frozen chord")
     }
 
-    // Bypass admits only in-range notes (the door's RANGE window applies to the injected stream too).
-    func testBypassRespectsRange() {
-        let b = bypassBox(dest: 0b0001, rangeLo: 62, rangeHi: 127)
+    // The wire admits only in-range notes (the door's RANGE window applies to the injected stream too).
+    func testWireRespectsRange() {
+        let b = wireBox(dest: 0b0001, rangeLo: 62, rangeHi: 127)
         let router = Router(); let e = RecordingEmitter()
         stepWindow(router, b, chord([60, 64]), playing: true, beat: 0, out: e)
         XCTAssertFalse(e.ons.contains { $0.note == 60 }, "60 is below the window — not injected")
         XCTAssertTrue(e.ons.contains { $0.note == 64 && $0.cable == 1 }, "64 is in-window — injected")
     }
 
-    // Bypass is a LIVE MONITOR: it survives a transport stop (the transport edge doesn't release it); only the key
+    // The wire is a LIVE MONITOR: it survives a transport stop (the transport edge doesn't release it); only the key
     // lifting (or panic) closes it.
-    func testBypassPersistsAcrossTransportStop() {
-        let b = bypassBox(dest: 0b0001)
+    func testWirePersistsAcrossTransportStop() {
+        let b = wireBox(dest: 0b0001)
         let router = Router(); let e = RecordingEmitter()
         stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)      // press (playing)
         stepWindow(router, b, chord([60]), playing: false, beat: 0.25, out: e)  // transport STOP, key still down
-        XCTAssertEqual(e.offs.filter { $0.note == 60 && $0.cable == 1 }.count, 0, "bypass survives the stop — no release")
+        XCTAssertEqual(e.offs.filter { $0.note == 60 && $0.cable == 1 }.count, 0, "the wire survives the stop — no release")
         stepWindow(router, b, NotePool(), playing: false, beat: 0.5, out: e)    // release while stopped
         XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "released while stopped → off")
     }
 
-    // SOLO includes bypass (ruling 2026-08-04): a receiver solo set that EXCLUDES the bypassed door silences its
-    // bypass too; the SOLOED door's bypass still sounds.
-    func testBypassRespectsReceiverSolo() {
-        let b = bypassBox(dest: 0b0001)   // R1 bypassed → emitter A
+    // SOLO includes the wire (ruling 2026-08-04): a receiver solo set that EXCLUDES the door silences its
+    // wire too; the SOLOED door's wire still sounds.
+    func testWireRespectsReceiverSolo() {
+        let b = wireBox(dest: 0b0001)   // a no-machine cell on R1 → emitter A
         let e1 = RecordingEmitter(); var d1 = KernelDiag()
         Router().process(box: b, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
                          timestampSample: 0, frameCount: 512, soloReceiverMask: 0b0010, out: e1, diag: &d1)   // R2 soloed, R1 excluded
-        XCTAssertTrue(e1.ons.isEmpty, "a solo set excluding the bypassed door silences its bypass")
+        XCTAssertTrue(e1.ons.isEmpty, "a solo set excluding the door silences its wire")
         let e2 = RecordingEmitter(); var d2 = KernelDiag()
         Router().process(box: b, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
                          timestampSample: 0, frameCount: 512, soloReceiverMask: 0b0001, out: e2, diag: &d2)   // R1 soloed
-        XCTAssertTrue(e2.ons.contains { $0.note == 60 && $0.cable == 1 }, "the soloed door's bypass still sounds")
+        XCTAssertTrue(e2.ons.contains { $0.note == 60 && $0.cable == 1 }, "the soloed door's wire still sounds")
     }
 
     // LADDER commit signal: absoluteStep advances EACH step even during a column LAP (where effColumn is pinned to
@@ -5283,8 +5277,8 @@ final class RouterTests: XCTestCase {
 
     /// A bypassed door with a MULTI-emitter dest injects the held note on EACH selected cable (+ ALL), and
     /// releasing the key closes them all — the multi-dest case existing bypass tests (single dest) never cover.
-    func testBypassInjectsToMultipleDests() {
-        let b = bypassBox(dest: 0b0011)   // emitters A + B → cables 1 and 2
+    func testWireInjectsToMultipleDests() {
+        let b = wireBox(dest: 0b0011)   // emitters A + B → cables 1 and 2
         let router = Router(); let e = RecordingEmitter()
         stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)
         XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 1 }, "injected on emitter A")

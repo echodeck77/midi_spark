@@ -602,16 +602,9 @@ struct Receiver: Codable, Equatable {
     /// The note window, nil-safe + clamped: missing ⇒ full range. Non-persisting read helpers.
     var rangeLoResolved: UInt8 { UInt8(max(0, min(127, rangeLo ?? 0))) }
     var rangeHiResolved: UInt8 { max(rangeLoResolved, UInt8(max(0, min(127, rangeHi ?? 127)))) }   // CR-18[extra]: order the bounds — an inverted decoded window (hi < lo) would otherwise silently kill the door
-    /// True when the door admits every note (the fast path skips the window check).
-    // BYPASS (2026-08-03, redesign §1/§2): when on, this door's shaped, in-range held notes sound DIRECTLY on its
-    // destination emitters (A–D), skipping the grid — a live monitor path (works stopped too). A DIRECT injection:
-    // no emitter roles (claim/flatten/alt). `bypassDest` is the A–D emitter bitmask (bit i = emitter i). Optional so
-    // old docs decode nil ⇒ off / all dests. Persisted rig config.
-    var bypass: Bool? = nil
-    var bypassDest: Int? = nil
-    var bypassResolved: Bool { bypass ?? false }
-    /// The destination emitter mask, nil-safe: missing ⇒ emitter A (CR-18[extra]: comment was stale — code intentionally defaults to A, not all four, per user 2026-08-05). Non-persisting read helper.
-    var bypassDestResolved: UInt8 { UInt8((bypassDest ?? 0b0001) & 0b1111) }   // default = emitter A (user 2026-08-05)
+    // (The door-level BYPASS toggle — `bypass`/`bypassDest`, redesign §1/§2 — was RETIRED 2026-08-25 (Paul: unused; the
+    // no-machine LIVE WIRE covers the passthrough case). Codable is synthesized, so an old doc's `bypass`/`bypassDest`
+    // keys simply decode away. Do NOT re-add these names — the wire path (`passEmitterMask`) is the replacement.)
     // §item 11 INPUT CABLES (amendment 2026-07-26): the input cable(s) this receiver reads, as a BITMASK
     // (bit i = cable i+1; cables 1–4). Optional so pre-cable docs decode as nil ⇒ ANY (all cables) — a
     // migration no-op. The v1 stepper writes ANY or a single bit; the bitmask reserves subset-multi later.

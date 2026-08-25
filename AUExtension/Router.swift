@@ -432,8 +432,6 @@ final class Router {
     private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]
     private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]
     private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
-    private var receiverBypassMask: UInt8 = 0
-    private var receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]
     private var passEmitterMask: [UInt8] = [0, 0, 0, 0]   // NO-MACHINE WIRE: per door, the union of passthrough cells' emitters (reconcileBypass injects the door's input to them in realtime)
     private var bypassDesired = [Bool](repeating: false, count: 128)   // scratch: desired source notes this render
     private var bypassScratch = [UInt8](repeating: 0, count: 128)      // scratch: the desired notes, read once
@@ -444,34 +442,31 @@ final class Router {
     private func effectivePool(for cell: SnapCell, live: NotePool) -> NotePool {
         let r = cell.resolvedReceiver
         if r >= 0 {
-            if receiverBypassMask & (1 << UInt8(r)) != 0 { return emptyPool }   // BYPASS: the door skips the grid (its stream injects to emitters instead)
             if latchMask & (1 << UInt8(r)) != 0, Int(r) < latchedPools.count { return latchedPools[Int(r)] }
             if receiverDisabledMask & (1 << UInt8(r)) != 0 { return emptyPool }   // not armed + not listening → silent
         }
         return live
     }
 
-    /// BYPASS (§1/§2): a bypassed door's shaped, in-range held notes sound DIRECTLY on its destination emitters,
-    /// skipping the grid. Runs every render (stopped + playing — a live monitor). Reuses openVoice/closeVoice so
-    /// the refcount + dual-cable (own + All) + panic-safety all apply; the voices are IMMORTAL and tagged
-    /// (bypassRecv ≥ 0) so the grid's continuity/transport flushes leave them be. DIRECT injection: no emitter
-    /// roles. v1 applies RANGE + channel/cable admission (a muted/disabled door goes quiet — same filter);
-    /// octave/velocity SHAPING is deferred (the output note = the source note, so on/off balance by note).
+    /// NO-MACHINE LIVE WIRE (Paul 2026-08-23): a passthrough (empty-chain) cell's shaped, in-range held notes sound
+    /// DIRECTLY on its emitters, in realtime, skipping the grid's step clock. Runs every render (stopped + playing — a
+    /// live monitor). Reuses openVoice/closeVoice so the refcount + dual-cable (own + All) + panic-safety all apply; the
+    /// voices are IMMORTAL and tagged (bypassRecv ≥ 0) so the grid's continuity/transport flushes leave them be. DIRECT
+    /// injection: no emitter roles. v1 applies RANGE + channel/cable admission (a muted/disabled door goes quiet — same
+    /// filter); octave/velocity SHAPING is deferred (the output note = the source note, so on/off balance by note).
+    /// (The door-level BYPASS toggle that once shared this path was retired 2026-08-25 — Paul; only the wire remains.)
     private func reconcileBypass(pool: NotePool, atSample sample: Int64, out: MIDIEmitter?) {
-        guard receiverBypassMask != 0 || passEmitterMask.contains(where: { $0 != 0 }) || anyBypassVoiceActive() else { return }   // fast path: nothing bypassed / no wire cells / none to close
+        guard passEmitterMask.contains(where: { $0 != 0 }) || anyBypassVoiceActive() else { return }   // fast path: no wire cells / none to close
         let savedCI = currentColourIndex, savedCell = currentCellIndex, savedAlt = currentAlt
-        currentColourIndex = -1; currentCellIndex = -1; currentAlt = false        // bypass voices carry no grid identity / SEAL
+        currentColourIndex = -1; currentCellIndex = -1; currentAlt = false        // wire voices carry no grid identity / SEAL
         defer { currentColourIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
         for r in 0..<4 {
-            // SOLO includes bypass (ruling 2026-08-04): a receiver SOLO set silences every non-soloed door's bypass
-            // too — the door mutes with the grid. (LIVE-off already silences bypass via the match-nothing filter.)
+            // SOLO includes the wire (ruling 2026-08-04): a receiver SOLO set silences every non-soloed door's wire
+            // too — the door mutes with the grid. (LIVE-off already silences it via the match-nothing filter.)
             let soloExcluded = soloReceiverMask != 0 && (soloReceiverMask & (1 << UInt8(r))) == 0
-            let bypassed = (receiverBypassMask & (1 << UInt8(r)) != 0) && !soloExcluded
-            // NO-MACHINE WIRE (Paul 2026-08-23): a passthrough cell's emitters get the door's input in realtime, right
-            // alongside a real BYPASS dest (both are "straight through"). Solo-excluded doors go silent, like bypass.
-            // CR-4: master MUTE (the "nothing sounds" contract) silences the BYPASS/wire monitor too — destMask 0 both
-            // opens none AND closes any live monitor voice (the reconcile below). Matches the grid/MOD/GLIDE mute guards.
-            let destMask = (masterMute && !previewMode) ? 0 : ((bypassed ? receiverBypassDest[r] : 0) | (soloExcluded ? 0 : passEmitterMask[r]))
+            // CR-4: master MUTE (the "nothing sounds" contract) silences the wire monitor too — destMask 0 both opens
+            // none AND closes any live monitor voice (the reconcile below). Matches the grid/MOD/GLIDE mute guards.
+            let destMask = (masterMute && !previewMode) ? 0 : (soloExcluded ? 0 : passEmitterMask[r])
             // LATCH (incl. self-armed PIANO): a bypassed door with an armed latch injects its FROZEN chord, not the
             // (for PIANO, empty) live pool. The frozen pool is already receiver-filtered at capture, so read it whole
             // (OMNI / all-cables / full-range) — mirrors the input meter's `armed ? OMNI` read.
@@ -1947,7 +1942,7 @@ final class Router {
         self.receiverDisabledMask = box.receiverDisabledMask   // INPUT ENABLE: disabled doors block their cells' live read
         self.receiverChannels = box.receiverChannels; self.receiverCables = box.receiverCables   // BYPASS: per-receiver admission for the direct-injection pass
         self.receiverRangeLo = box.receiverRangeLo; self.receiverRangeHi = box.receiverRangeHi
-        self.receiverBypassMask = box.receiverBypassMask; self.receiverBypassDest = box.receiverBypassDest; self.passEmitterMask = box.passEmitterMask
+        self.passEmitterMask = box.passEmitterMask
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         busRemap = box.busRemap                      // ROW 8 REDIRECT/SWAP: per-bus output remap, this render

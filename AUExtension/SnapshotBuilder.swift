@@ -217,9 +217,6 @@ enum SnapshotBuilder {
         // the per-cell window resolved above).
         let receiverRangeLo = doc.receiversResolved.map { $0.rangeLoResolved }
         let receiverRangeHi = doc.receiversResolved.map { $0.rangeHiResolved }
-        // BYPASS (§1/§2): which doors inject straight to emitters + each door's destination emitter mask (A–D).
-        let receiverBypassMask = packMask(doc.receiversResolved.map { $0.bypassResolved })
-        let receiverBypassDest = doc.receiversResolved.map { $0.bypassDestResolved }
         let receiverControllerMask = doc.receiversResolved.map { $0.controllerMaskResolved }   // CONTROLLER ROUTING: per-door emitter forward mask
         let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH: doors whose latch reads the keyboard
         let receiverPianoNotes = doc.receiversResolved.map { $0.pianoNotesResolved.map { UInt8(max(0, min(127, $0))) } }
@@ -298,8 +295,6 @@ enum SnapshotBuilder {
                            receiverDisabledMask: receiverDisabledMask,
                            receiverRangeLo: receiverRangeLo,
                            receiverRangeHi: receiverRangeHi,
-                           receiverBypassMask: receiverBypassMask,
-                           receiverBypassDest: receiverBypassDest,
                            passEmitterMask: passEmit,
                            receiverControllerMask: receiverControllerMask,
                            receiverPianoMask: receiverPianoMask,
