@@ -735,7 +735,7 @@ struct ProcessorBox: View {
                     typeParams(ft)
                     if !slotMode && isB && glides {      // morph glides A↔B; only meaningful for a FULL B
                         field("MORPH \(Int(colour.morph * 100))%  → B") {
-                            Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
+                            slider(Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1)
                         }
                     }
                 } else {
@@ -876,7 +876,7 @@ struct ProcessorBox: View {
             field("NEW CHORD", \.phase) { seg(ArpPhase.allCases.map(\.rawValue), sel: p.phase?.rawValue ?? "RETRIG") { i in
                 setParam { $0.phase = ArpPhase.allCases[i] } } }
             field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
-                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent)
+                slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
             }
             // RANDOM ANCHOR (Paul 2026-08-22): only meaningful for RANDOM — pins the first note of each cycle low/high.
             if (p.pattern ?? .up) == .random {
@@ -891,7 +891,7 @@ struct ProcessorBox: View {
             } else if rmode == .coin {
                 Text("each step rolls: ratchet (a burst) or plain (one hit)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
                 heroField("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%") {
-                    Slider(value: bind(p.rtcChance ?? 0.5) { v in setParam { $0.rtcChance = v } }, in: 0...1).tint(accent) }
+                    slider(bind(p.rtcChance ?? 0.5) { v in setParam { $0.rtcChance = v } }, in: 0...1) }
                 row2({ field("SIZE MIN", \.rtcCountLo) { numPair(p.rtcCountLo ?? 2, 1...8) { v in setParam { $0.rtcCountLo = v; if ($0.rtcCountHi ?? 4) < v { $0.rtcCountHi = v } } } } },
                      { field("SIZE MAX", \.rtcCountHi) { numPair(p.rtcCountHi ?? 4, 1...8) { v in setParam { $0.rtcCountHi = v; if ($0.rtcCountLo ?? 2) > v { $0.rtcCountLo = v } } } } })
             } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
@@ -908,7 +908,7 @@ struct ProcessorBox: View {
                 spanLadderField(p.rtcSpanN ?? ((p.rtcSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.rtcSpanN = v } }
             }
             field("BURST FADE — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%", \.ramp) {
-                Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
+                slider(bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1)
             }
         case .passgate:
             field("PLAY ON PASS") { HStack(spacing: 6) {
@@ -926,7 +926,7 @@ struct ProcessorBox: View {
             } }
         case .strum:
             heroField("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
-                Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
+                slider(bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1) }
             row2({ field("DIRECTION", \.strumDir) { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
                 setParam { $0.strumDir = StrumDir.allCases[i] } } } },
                  { bipolarSlider("VOL TILT \(Int((p.velTilt ?? 0) * 100))", p.velTilt ?? 0) { v in setParam { $0.velTilt = v } } })
@@ -945,7 +945,7 @@ struct ProcessorBox: View {
                 field("ROTATE — walk the odds", \.chanceRotate) { numPair(p.chanceRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.chanceRotate = v } } }
             } else {
                 heroField("CHANCE \(Int((p.probability ?? 1) * 100))%") {
-                    Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
+                    slider(bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1) }
             }
             bipolarSlider("FAVOUR \(Int((p.chanceTilt ?? 0) * 100))  (−bottom · +top)", p.chanceTilt ?? 0) { v in setParam { $0.chanceTilt = v } }
             optionsCluster([("CONSTANT N", p.chanceDensity ?? false, { setParam { $0.chanceDensity = !($0.chanceDensity ?? false) } })])
@@ -967,14 +967,14 @@ struct ProcessorBox: View {
                  { if sync {
                      field("DELAY\(div == 4 ? "  (1 beat)" : "")") { numPair(div, 1...16, format: { "\($0)/16" }) { v in setParam { $0.echoDelayDiv = v } } }
                    } else {
-                     field("DELAY  \(Int(ms)) ms") { Slider(value: bind(ms) { v in setParam { $0.echoDelayMs = v } }, in: 10...2000).tint(accent) }
+                     field("DELAY  \(Int(ms)) ms") { slider(bind(ms) { v in setParam { $0.echoDelayMs = v } }, in: 10...2000) }
                    } })
             bipolarSlider("NUDGE  \(off > 0 ? "+" : "")\(Int(off * 100))%", off, in: -0.33...0.33) { v in setParam { $0.echoOffset = v } }
             sectionLabel("TONE")
             row2({ field("1ST ECHO  \(Int(fd * 100))%", \.echoFeedDelay) {
-                Slider(value: bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1).tint(accent) } },
+                slider(bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1) } },
                  { field("FADE  \(Int(dec * 100))%", \.echoDecay) {
-                Slider(value: bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1).tint(accent) } })
+                slider(bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1) } })
             field("PITCH STEP  \(pit > 0 ? "+" : "")\(pit) st / echo", \.echoPitch) { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
             sectionLabel("TAIL")
             // ROUTE (§7②, ratified 2026-08-22): DIRECT echoes the cell's final set (v1). CHAIN runs each repeat back
@@ -1012,7 +1012,7 @@ struct ProcessorBox: View {
             bipolarSlider("SHAPE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%", cv) { v in setParam { $0.curve = v } }
             if bmode == .coin {
                 let ch = p.burstChance ?? 0.5
-                field("CHANCE  \(Int(ch * 100))%", \.burstChance) { Slider(value: bind(ch) { v in setParam { $0.burstChance = v } }, in: 0...1).tint(accent) }
+                field("CHANCE  \(Int(ch * 100))%", \.burstChance) { slider(bind(ch) { v in setParam { $0.burstChance = v } }, in: 0...1) }
             }
             if bmode == .pattern {   // a STATE MATRIX — rows = B/C/R, cols = the 8 steps
                 let defBurst: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]
@@ -1032,13 +1032,13 @@ struct ProcessorBox: View {
             spanLadderField(p.cascadeSpanN ?? ((p.cascadeSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.cascadeSpanN = v } }
         case .drone:    // GENERATOR — flat sustained pad (gate = pad level)
             heroField("LEVEL  \(Int((p.gate ?? 0.6) * 127))") {
-                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
+                slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) }
         case .shift:    // GENERATOR — groove nudge (spread = push late)
             heroField("PUSH  \(Int((p.spread ?? 0.1) * 100))% late") {
-                Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
+                slider(bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1) }
         case .humanize: // GENERATOR — seeded jitter (spread = amount)
             heroField("FEEL  \(Int((p.spread ?? 0.5) * 100))%") {
-                Slider(value: bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
+                slider(bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1) }
         case .mod:      // CC GENERATOR / CC-stage §1 — a SOURCE spine (row 2 reshapes) + a universal TARGET/RANGE (row 3)
             let src = p.modSource ?? .shape    // source set by the storefront card — no in-editor radio (Paul 2026-08-22)
             switch src {
@@ -1059,9 +1059,9 @@ struct ProcessorBox: View {
                 field("GLIDE", \.modSmooth) { seg(["SMOOTH", "STEP"], sel: (p.modSmooth ?? true) ? "SMOOTH" : "STEP") { i in setParam { $0.modSmooth = (i == 0) } } }
             case .strike:
                 field("RISE  \(String(format: "%.2f", p.modAttack ?? 0.15)) beats", \.modAttack) {
-                    Slider(value: bind(p.modAttack ?? 0.15) { v in setParam { $0.modAttack = v } }, in: 0.01...4).tint(accent) }
+                    slider(bind(p.modAttack ?? 0.15) { v in setParam { $0.modAttack = v } }, in: 0.01...4) }
                 field("FALL  \(String(format: "%.2f", p.modRelease ?? 0.6)) beats", \.modRelease) {
-                    Slider(value: bind(p.modRelease ?? 0.6) { v in setParam { $0.modRelease = v } }, in: 0.01...4).tint(accent) }
+                    slider(bind(p.modRelease ?? 0.6) { v in setParam { $0.modRelease = v } }, in: 0.01...4) }
             case .extern:
                 let ec = p.modExternCC ?? 1
                 field("FROM CC", \.modExternCC) { numPair(ec, 0...127, format: { ccLabelText($0) }) { v in setParam { $0.modExternCC = v } } }
@@ -1091,9 +1091,9 @@ struct ProcessorBox: View {
             }
             let lo = p.modMin ?? 0, hi = p.modMax ?? 127
             row2({ field("MIN  \(lo)", \.modMin) {
-                Slider(value: bind(Double(lo)) { v in setParam { $0.modMin = Int(v.rounded()) } }, in: 0...127).tint(accent) } },
+                slider(bind(Double(lo)) { v in setParam { $0.modMin = Int(v.rounded()) } }, in: 0...127) } },
                  { field("MAX  \(hi)\(lo > hi ? "  (inv)" : "")", \.modMax) {
-                Slider(value: bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127).tint(accent) } })
+                slider(bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127) } })
             field("ON EXIT", \.modReset) { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
         case .glide:    // one mono sliding voice — small steps bend, big leaps jump (Paul 2026-08-22)
             let gmode = p.glideMode ?? .bend
@@ -1101,12 +1101,12 @@ struct ProcessorBox: View {
             Text(glideModeBlurb(gmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
             if gmode == .bend {
                 row2({ field("TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
-                    Slider(value: bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2).tint(accent) } },
+                    slider(bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2) } },
                      { field("BEND RANGE  ±\(p.glideRange ?? 2) st") {
-                    Slider(value: bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48).tint(accent) } })
+                    slider(bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48) } })
             } else {
                 field(gmode == .step ? "RUN TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats" : "TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
-                    Slider(value: bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2).tint(accent) }
+                    slider(bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2) }
             }
             field("FOLLOW", \.glidePriority) { seg(GlidePriority.allCases.map(\.rawValue), sel: (p.glidePriority ?? .last).rawValue) { i in setParam { $0.glidePriority = GlidePriority.allCases[i] } } }
             if gmode == .bend {
@@ -1116,7 +1116,7 @@ struct ProcessorBox: View {
             // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if (p.tuttiMode ?? .coin) == .coin {
                 heroField("BALANCE   SOLO  ◂  \(Int((p.tuttiBalance ?? 0.5) * 100))%  ▸  TUTTI") {   // the slider IS the idea
-                    Slider(value: bind(p.tuttiBalance ?? 0.5) { v in setParam { $0.tuttiBalance = v } }, in: 0...1).tint(accent) }
+                    slider(bind(p.tuttiBalance ?? 0.5) { v in setParam { $0.tuttiBalance = v } }, in: 0...1) }
                 field("SOLO NOTE  (which note carries a SOLO step)", \.tuttiPick) { seg(TuttiPick.allCases.map(\.rawValue), sel: (p.tuttiPick ?? .low).rawValue) { i in
                     setParam { $0.tuttiPick = TuttiPick.allCases[i] } } }
             } else {
@@ -1147,9 +1147,9 @@ struct ProcessorBox: View {
                     set: { i, st in setParam { var s = $0.lenSlices ?? Array(repeating: .pass, count: 8); while s.count < 8 { s.append(.pass) }; s[i] = st; $0.lenSlices = s } })
             }
             row2({ field("SHORT =  \(Int((p.lenShort ?? 0.4) * 100))%", \.lenShort) {
-                Slider(value: bind(p.lenShort ?? 0.4) { v in setParam { $0.lenShort = v } }, in: 0.05...0.95).tint(accent) } },
+                slider(bind(p.lenShort ?? 0.4) { v in setParam { $0.lenShort = v } }, in: 0.05...0.95) } },
                  { field("LONG =  \(Int((p.lenLong ?? 0.7) * 100))%", \.lenLong) {
-                Slider(value: bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1).tint(accent) } })
+                slider(bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1) } })
             field("ROTATE — shift the phrasing", \.lenRotate) { numPair(p.lenRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.lenRotate = v } } }
             spanLadderField(p.lenSpanN ?? ((p.lenSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.lenSpanN = v } }
         case .weave:   // rank-clocked polyrhythm driver — each held note on its own clock
@@ -1173,13 +1173,13 @@ struct ProcessorBox: View {
                 field("BRUSH — rank 0 = bass (left) … rank 7 (right)") { seg(StepRate.allCases.map(\.rawValue), sel: weaveBrush.rawValue) { i in weaveBrush = StepRate.allCases[i] } }
             } else {   // euclid
                 field("STEPS  \(p.weaveEuclidSteps ?? 8)  (bass fills 1, each rank up fills 2 more)", \.weaveEuclidSteps) {
-                    Slider(value: bind(Double(p.weaveEuclidSteps ?? 8)) { v in setParam { $0.weaveEuclidSteps = Int(v.rounded()) } }, in: 2...16).tint(accent) }
+                    slider(bind(Double(p.weaveEuclidSteps ?? 8)) { v in setParam { $0.weaveEuclidSteps = Int(v.rounded()) } }, in: 2...16) }
             }
             field("NEW CHORD — RETRIG restarts each step · FREE runs the grid · LEGATO flows from the hold", \.weavePhase) { seg(ArpPhase.allCases.map(\.rawValue), sel: (p.weavePhase ?? .retrig).rawValue) { i in
                 setParam { $0.weavePhase = ArpPhase.allCases[i] } } }
             row2({ field("VOICES — how many weave", \.weaveSpan) { numPair(p.weaveSpan ?? 4, 1...8) { v in setParam { $0.weaveSpan = v } } } },
                  { field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
-                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) } })
+                slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) } })
         case .split:   // set-membership filter — keep a subset of the chord (before a driver = re-pool · after = punch holes)
             let sm = p.splitSet?.mode ?? .all
             heroField("KEEP") { seg(SplitMode.allCases.map(\.rawValue), sel: sm.rawValue) { i in
@@ -1188,14 +1188,14 @@ struct ProcessorBox: View {
                 field("NOTES — how many notes", \.splitSet) { numPair(p.splitSet?.n ?? 2, 1...6) { v in setParam { var c = $0.splitSet ?? ChordSplit(); c.n = v; $0.splitSet = c } } }
             } else if sm == .range {
                 field("AT NOTE  \(midiNoteName(UInt8(max(0, min(127, p.splitSet?.note ?? 60)))))") {
-                    Slider(value: bind(Double(p.splitSet?.note ?? 60)) { v in setParam { var c = $0.splitSet ?? ChordSplit(); c.note = Int(v.rounded()); $0.splitSet = c } }, in: 0...127).tint(accent) }
+                    slider(bind(Double(p.splitSet?.note ?? 60)) { v in setParam { var c = $0.splitSet ?? ChordSplit(); c.note = Int(v.rounded()); $0.splitSet = c } }, in: 0...127) }
                 field("SIDE", \.splitSet) { seg(["≥ SPLIT", "< SPLIT"], sel: (p.splitSet?.high ?? true) ? "≥ SPLIT" : "< SPLIT") { i in
                     setParam { var c = $0.splitSet ?? ChordSplit(); c.high = (i == 0); $0.splitSet = c } } }
             }
             field("VEL MIN  \(p.splitVel?.floor ?? 1)") {
-                Slider(value: bind(Double(p.splitVel?.floor ?? 1)) { v in setParam { var w = $0.splitVel ?? VelWindow(); w.floor = min(Int(v.rounded()), w.ceil); $0.splitVel = w } }, in: 1...127).tint(accent) }
+                slider(bind(Double(p.splitVel?.floor ?? 1)) { v in setParam { var w = $0.splitVel ?? VelWindow(); w.floor = min(Int(v.rounded()), w.ceil); $0.splitVel = w } }, in: 1...127) }
             field("VEL MAX  \(p.splitVel?.ceil ?? 127)") {
-                Slider(value: bind(Double(p.splitVel?.ceil ?? 127)) { v in setParam { var w = $0.splitVel ?? VelWindow(); w.ceil = max(Int(v.rounded()), w.floor); $0.splitVel = w } }, in: 1...127).tint(accent) }
+                slider(bind(Double(p.splitVel?.ceil ?? 127)) { v in setParam { var w = $0.splitVel ?? VelWindow(); w.ceil = max(Int(v.rounded()), w.floor); $0.splitVel = w } }, in: 1...127) }
         case .octave:   // UTILITY — shift ±3 octaves (pitch-class preserved)
             let oct = p.utilOctave ?? 0
             field("OCTAVE  \(oct > 0 ? "+" : "")\(oct)", \.utilOctave) { stepper(oct, -3, 3) { v in setParam { $0.utilOctave = v } } }
@@ -1388,6 +1388,13 @@ struct ProcessorBox: View {
     private func bind(_ v: Double, _ set: @escaping (Double) -> Void) -> Binding<Double> {
         Binding(get: { v }, set: set)
     }
+    // THE FADER (§presentation idea 5 — fine mode): a custom slider that replaces the plain SwiftUI one. Horizontal drag =
+    // coarse (absolute, tap-to-position like before); PULL THE FINGER AWAY from the bar (>44pt vertical) and it latches to
+    // FINE ×10 — a relative scrub at a tenth the sensitivity, anchored where you crossed, so there's no jump. The pro-audio
+    // "drag away to fine-tune" idiom; discoverable, one gesture, no timing. Drop-in for the old `Slider(value:in:).tint`.
+    private func slider(_ b: Binding<Double>, in range: ClosedRange<Double>) -> some View {
+        FineSlider(value: b.wrappedValue, range: range, accent: accent, set: { b.wrappedValue = $0 })
+    }
     /// THE SPAN LADDER dial (Paul 2026-08-22 §3): 1·2·3·4·6·8·×2·×4 — the pattern's loop period in columns (odd N =
     /// polymeter against the 8-column row). Replaces the CELL|ROW toggle; 1 = CELL, 8 = ROW (byte-identical endpoints).
     @ViewBuilder private func spanLadderField(_ current: Int, _ set: @escaping (Int) -> Void) -> some View {
@@ -1419,7 +1426,7 @@ struct ProcessorBox: View {
         return VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
                 .contentShape(Rectangle()).onTapGesture(count: 2) { set(0) }   // double-tap → centre (0)
-            Slider(value: bind((v - lo) / (hi - lo)) { set(lo + $0 * (hi - lo)) }, in: 0...1).tint(accent)
+            slider(bind((v - lo) / (hi - lo)) { set(lo + $0 * (hi - lo)) }, in: 0...1)
         }
     }
     // TWO-COLUMN PAIRING (§presentation rule 6 / E): two compact ★★ fields share one row on the wide panel — halving the
@@ -1649,6 +1656,58 @@ private struct NumPair: View {
         case "✓": if let n = Int(padEntry) { apply(n) }; padEntry = ""; showPicker = false
         default:  if padEntry.count < 4 { padEntry += k }
         }
+    }
+}
+
+/// THE FADER (§presentation idea 5 — fine mode). Its own struct so the drag can hold latch/anchor @State. Coarse =
+/// absolute (tap-to-position); pull away from the bar (>44pt vertical) → latches FINE ×10, a relative scrub anchored
+/// where you crossed (no jump), for the rest of that drag. Releases back to coarse. Render-only; no engine touch.
+private struct FineSlider: View {
+    let value: Double
+    let range: ClosedRange<Double>
+    let accent: Color
+    let set: (Double) -> Void
+    @State private var fine = false
+    @State private var anchorX: CGFloat = 0
+    @State private var anchorVal: Double = 0
+    private var lo: Double { range.lowerBound }
+    private var hi: Double { range.upperBound }
+    private var frac: CGFloat { CGFloat((value - lo) / max(0.000001, hi - lo)) }
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let d: CGFloat = fine ? 22 : 16          // thumb diameter (grows in fine mode)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.12)).frame(height: 5)
+                Capsule().fill(accent.opacity(0.85)).frame(width: max(5, frac * w), height: 5)
+                Circle().fill(.white).frame(width: d, height: d)
+                    .overlay(Circle().stroke(accent, lineWidth: fine ? 3 : 0))
+                    .offset(x: min(w - d, max(0, frac * w - d / 2)))
+            }
+            .frame(height: 30, alignment: .center)
+            .contentShape(Rectangle())
+            .overlay(alignment: .topTrailing) {
+                if fine {
+                    Text("FINE ×10").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(accent).offset(y: -13)
+                }
+            }
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { g in
+                    if !fine && abs(g.translation.height) > 44 {   // pull away → latch fine for the rest of the drag
+                        fine = true; anchorX = g.location.x; anchorVal = value
+                    }
+                    if fine {
+                        let delta = Double((g.location.x - anchorX) / max(1, w)) * (hi - lo) * 0.1
+                        set(min(hi, max(lo, anchorVal + delta)))
+                    } else {
+                        let f = min(1, max(0, g.location.x / max(1, w)))
+                        set(lo + Double(f) * (hi - lo))            // coarse = absolute position
+                    }
+                }
+                .onEnded { _ in fine = false })
+        }
+        .frame(height: 30)
     }
 }
 
