@@ -861,7 +861,7 @@ struct ProcessorBox: View {
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
         switch ft {
         case .arp:
-            field("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP") { i in
+            heroField("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP") { i in
                 setParam { $0.pattern = ArpPattern.allCases[i] } } }
             field("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: p.rate?.rawValue ?? "1/16") { i in
                 setParam { $0.rate = ArpRate.allCases[i] } } }
@@ -876,24 +876,24 @@ struct ProcessorBox: View {
             field("LENGTH \(Int((p.gate ?? 0.6) * 100))%") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent)
             }
-            field("FIT 1 BEAT") { seg(["OFF", "ON"], sel: (p.arpFit ?? false) ? "ON" : "OFF") { i in setParam { $0.arpFit = (i == 1) } } }
             // RANDOM ANCHOR (Paul 2026-08-22): only meaningful for RANDOM — pins the first note of each cycle low/high.
             if (p.pattern ?? .up) == .random {
                 field("RANDOM ANCHOR") { seg(["OFF", "LOW", "HIGH"], sel: ["OFF", "LOW", "HIGH"][max(0, min(2, p.arpRandomAnchor ?? 0))]) { i in
                     setParam { $0.arpRandomAnchor = i } } }
             }
+            optionsCluster([("FIT 1 BEAT", p.arpFit ?? false, { setParam { $0.arpFit = !($0.arpFit ?? false) } })])
         case .ratchet:
             let rmode = p.rtcMode ?? .all      // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if rmode == .all {
-                field("REPEATS") { numPair(p.count ?? 3, 2...8) { v in setParam { $0.count = v } } }
+                heroField("REPEATS") { numPair(p.count ?? 3, 2...8) { v in setParam { $0.count = v } } }
             } else if rmode == .coin {
                 Text("each step rolls: ratchet (a burst) or plain (one hit)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
-                field("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%") {
+                heroField("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%") {
                     Slider(value: bind(p.rtcChance ?? 0.5) { v in setParam { $0.rtcChance = v } }, in: 0...1).tint(accent) }
                 field("SIZE MIN") { numPair(p.rtcCountLo ?? 2, 1...8) { v in setParam { $0.rtcCountLo = v; if ($0.rtcCountHi ?? 4) < v { $0.rtcCountHi = v } } } }
                 field("SIZE MAX  (burst length range)") { numPair(p.rtcCountHi ?? 4, 1...8) { v in setParam { $0.rtcCountHi = v; if ($0.rtcCountLo ?? 2) > v { $0.rtcCountLo = v } } } }
             } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
-                field("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
+                heroField("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
                     stateMatrixRadio([0, 2, 3, 4],
                         header: { v in AnyView(Text(v <= 0 ? "·" : "\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
                         selected: { i in rtcSliceAt(p.rtcSlices, i) },
@@ -923,14 +923,13 @@ struct ProcessorBox: View {
                 }
             } }
         case .strum:
+            heroField("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
+                Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
             field("DIRECTION") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
                 setParam { $0.strumDir = StrumDir.allCases[i] } } }
-            field("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
-                Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
-            field("RAKE (3 notes or 6)") { seg(["EVEN", "PER-NOTE"], sel: (p.strumSpreadNorm ?? true) ? "EVEN" : "PER-NOTE") { i in
-                setParam { $0.strumSpreadNorm = (i == 0) } } }
             field("VOL TILT \(Int((p.velTilt ?? 0) * 100))") {
                 Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+            optionsCluster([("PER-NOTE RAKE", !(p.strumSpreadNorm ?? true), { setParam { $0.strumSpreadNorm = !($0.strumSpreadNorm ?? true) } })])
         case .chance:
             // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = the odds SLIDER LANE (per-step %).
             let cmode = p.chanceMode ?? .single
@@ -938,16 +937,16 @@ struct ProcessorBox: View {
             if cmode == .pattern {
                 let base: [Int] = [100, 40, 70, 40, 100, 40, 70, 40]
                 let shown = (0..<8).map { i -> Int in let s = p.chanceSlices ?? base; return i < s.count ? s[i] : 100 }
-                field("ODDS PER STEP  (drag to draw · %)") { sliderLane(shown, count: 8, max: 100) { i, v in
+                heroField("ODDS PER STEP  (drag to draw · %)") { sliderLane(shown, count: 8, max: 100) { i, v in
                     setParam { var s = $0.chanceSlices ?? base; while s.count < 8 { s.append(100) }; s[i] = v; $0.chanceSlices = s } } }
                 field("ROTATE — walk the odds") { numPair(p.chanceRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.chanceRotate = v } } }
             } else {
-                field("CHANCE \(Int((p.probability ?? 1) * 100))%") {
+                heroField("CHANCE \(Int((p.probability ?? 1) * 100))%") {
                     Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
             }
             field("FAVOUR \(Int((p.chanceTilt ?? 0) * 100))  (−bottom · +top)") {
                 Slider(value: bind((p.chanceTilt ?? 0) / 2 + 0.5) { v in setParam { $0.chanceTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
-            field("KEEP") { seg(["FIXED %", "CONSTANT N"], sel: (p.chanceDensity ?? false) ? "CONSTANT N" : "FIXED %") { i in setParam { $0.chanceDensity = (i == 1) } } }
+            optionsCluster([("CONSTANT N", p.chanceDensity ?? false, { setParam { $0.chanceDensity = !($0.chanceDensity ?? false) } })])
         case .harmonize:
             let iv = p.harmIntervals ?? [0,0,0]
             ForEach(0..<3, id: \.self) { k in
@@ -960,7 +959,7 @@ struct ProcessorBox: View {
             let ms = p.echoDelayMs ?? 250, off = p.echoOffset ?? 0, fd = p.echoFeedDelay ?? 0.7
             let dec = p.echoDecay ?? 0.5, pit = p.echoPitch ?? 0, thru = p.echoThru ?? true
             let spill = p.echoSpill ?? .ring
-            field("REPEATS") { numPair(reps, 1...16) { v in setParam { $0.echoRepeats = v } } }
+            heroField("REPEATS") { numPair(reps, 1...16) { v in setParam { $0.echoRepeats = v } } }
             field("SYNC") { seg(["ON", "OFF"], sel: sync ? "ON" : "OFF") { i in setParam { $0.echoSync = (i == 0) } } }
             if sync {
                 field("DELAY\(div == 4 ? "  (1 beat)" : "")") { numPair(div, 1...16, format: { "\($0)/16" }) { v in setParam { $0.echoDelayDiv = v } } }
@@ -974,36 +973,37 @@ struct ProcessorBox: View {
             field("FADE  \(Int(dec * 100))%") {
                 Slider(value: bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1).tint(accent) }
             field("PITCH STEP  \(pit > 0 ? "+" : "")\(pit) st / echo") { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
-            field("DRY NOTE") { seg(["THRU", "MUTE"], sel: thru ? "THRU" : "MUTE") { i in setParam { $0.echoThru = (i == 0) } } }
-            // TAIL SPILL (design 2026-08-07): RING lets echoes spill past the bar; CUT keeps them inside it (the note
-            // already sounding always finishes). HAND is a birthstone (deferred) — not offered yet.
-            field("SPILL") { seg(["RING", "CUT"], sel: spill == .cut ? "CUT" : "RING") { i in setParam { $0.echoSpill = (i == 0 ? .ring : .cut) } } }
             // ROUTE (§7②, ratified 2026-08-22): DIRECT echoes the cell's final set (v1). CHAIN runs each repeat back
             // through the stages AFTER this ECHO slot — [ECHO→LENGTH] chokes/ties repeats, [ECHO→SPLIT] thins the trail.
             let route = p.echoRoute ?? .direct
             field("ROUTE") { seg(["DIRECT", "CHAIN"], sel: route == .chain ? "CHAIN" : "DIRECT") { i in setParam { $0.echoRoute = (i == 0 ? .direct : .chain) } } }
+            // DRY = the dry note passes (THRU) · MUTE = echoes only; CUT SPILL keeps repeats inside the bar (RING spills).
+            optionsCluster([
+                ("DRY", thru, { setParam { $0.echoThru = !($0.echoThru ?? true) } }),
+                ("CUT SPILL", spill == .cut, { setParam { $0.echoSpill = ($0.echoSpill ?? .ring) == .cut ? .ring : .cut } }),
+            ])
         case .euclid:   // GENERATOR — K-of-N euclidean rhythm (user 2026-08-08); PULSES FIXED | POOL (2026-08-09)
             let steps = p.euclidSteps ?? 8
             let fromPool = p.euclidPulsesFromPool ?? false
             field("HITS FROM") { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
             // The K-of-N hero row (§presentation ⑤): HITS and STEPS as two nudge-pairs on one line — "◀5▶ of ◀16▶".
             if !fromPool {
-                field("HITS OF STEPS") { HStack(spacing: 8) {
+                heroField("HITS OF STEPS") { HStack(spacing: 8) {
                     numPair(p.euclidPulses ?? 5, 1...steps) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } }
                     Text("of").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
                     numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } }
                 } }
             } else {
-                field("STEPS") { numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
+                heroField("STEPS") { numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
             }
             field("ROTATE") { numPair(p.euclidRot ?? 0, 0...15, wrap: true) { v in setParam { $0.euclidRot = v } } }
             spanLadderField(p.euclidSpanN ?? ((p.euclidSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.euclidSpanN = v } }
-            // PICK = what each hit strikes; INVERT = play the N−K rests (Paul 2026-08-22)
+            // PICK = what each hit strikes; INVERT (options) = play the N−K rests (Paul 2026-08-22)
             field("PICK") { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
-            field("INVERT") { seg(["OFF", "ON"], sel: (p.euclidInvert ?? false) ? "ON" : "OFF") { i in setParam { $0.euclidInvert = (i == 1) } } }
+            optionsCluster([("INVERT", p.euclidInvert ?? false, { setParam { $0.euclidInvert = !($0.euclidInvert ?? false) } })])
         case .burst:    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)
             let bmode = p.burstMode ?? .once   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
-            field("HITS") { numPair(p.count ?? 4, 2...16) { v in setParam { $0.count = v } } }
+            heroField("HITS") { numPair(p.count ?? 4, 2...16) { v in setParam { $0.count = v } } }
             let cv = p.curve ?? 0
             field("SHAPE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%") {
                 Slider(value: bind(cv) { v in setParam { $0.curve = v } }, in: -1...1).tint(accent) }
@@ -1023,24 +1023,24 @@ struct ProcessorBox: View {
             }
             spanLadderField(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.burstSpanN = v } }
         case .cascade:  // GENERATOR — incremental chord reveal
-            field("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
+            heroField("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
             field("ORDER") { seg(["UP", "DOWN"], sel: (p.strumDir ?? .up) == .down ? "DOWN" : "UP") { i in setParam { $0.strumDir = (i == 0 ? .up : .down) } } }
             // SPAN LADDER (RATE×ladder): RATE = reveal spacing; this dial = the reveal window in columns.
             spanLadderField(p.cascadeSpanN ?? ((p.cascadeSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.cascadeSpanN = v } }
         case .drone:    // GENERATOR — flat sustained pad (gate = pad level)
-            field("LEVEL  \(Int((p.gate ?? 0.6) * 127))") {
+            heroField("LEVEL  \(Int((p.gate ?? 0.6) * 127))") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
         case .shift:    // GENERATOR — groove nudge (spread = push late)
-            field("PUSH  \(Int((p.spread ?? 0.1) * 100))% late") {
+            heroField("PUSH  \(Int((p.spread ?? 0.1) * 100))% late") {
                 Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
         case .humanize: // GENERATOR — seeded jitter (spread = amount)
-            field("FEEL  \(Int((p.spread ?? 0.5) * 100))%") {
+            heroField("FEEL  \(Int((p.spread ?? 0.5) * 100))%") {
                 Slider(value: bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
         case .mod:      // CC GENERATOR / CC-stage §1 — a SOURCE spine (row 2 reshapes) + a universal TARGET/RANGE (row 3)
             let src = p.modSource ?? .shape    // source set by the storefront card — no in-editor radio (Paul 2026-08-22)
             switch src {
             case .shape:
-                field("WAVE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
+                heroField("WAVE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
                 field("CYCLE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } }
             case .follow:
                 field("LISTEN TO") { seg(ModFollow.allCases.map(\.rawValue), sel: (p.modFollow ?? .register).rawValue) { i in setParam { $0.modFollow = ModFollow.allCases[i] } } }
@@ -1049,7 +1049,7 @@ struct ProcessorBox: View {
                 let n = sspan.stepCount
                 let base = [0, 18, 36, 54, 72, 90, 108, 127]
                 let shown = (0..<n).map { i -> Int in let s = p.modSteps ?? base; return s[i % s.count] }   // pad the stored steps to N for drawing
-                field("STEPS  (drag to draw · \(n))") { sliderLane(shown, count: n) { i, v in
+                heroField("STEPS  (drag to draw · \(n))") { sliderLane(shown, count: n) { i, v in
                     setParam { var s = $0.modSteps ?? base; let orig = s; while s.count < n { s.append(orig[s.count % orig.count]) }; s[i] = v; $0.modSteps = s } } }
                 field("SPAN") { seg(ModStepSpan.allCases.map(\.rawValue), sel: sspan.rawValue) { i in setParam { $0.modStepSpan = ModStepSpan.allCases[i] } } }   // PERIOD (rate) · ROW · ROW×2 · ROW×4 (16/32 breakpoints)
                 if sspan == .period { field("CYCLE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } } }   // the rate period only drives PERIOD span
@@ -1095,7 +1095,7 @@ struct ProcessorBox: View {
             field("ON EXIT") { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
         case .glide:    // one mono sliding voice — small steps bend, big leaps jump (Paul 2026-08-22)
             let gmode = p.glideMode ?? .bend
-            field("MODE") { seg(GlideMode.allCases.map(\.rawValue), sel: gmode.rawValue) { i in setParam { $0.glideMode = GlideMode.allCases[i] } } }
+            heroField("MODE") { seg(GlideMode.allCases.map(\.rawValue), sel: gmode.rawValue) { i in setParam { $0.glideMode = GlideMode.allCases[i] } } }
             Text(glideModeBlurb(gmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
             field(gmode == .step ? "RUN TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats" : "TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
                 Slider(value: bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2).tint(accent) }
@@ -1110,13 +1110,13 @@ struct ProcessorBox: View {
         case .tutti:    // SET-level chance — one MODE radio; COIN now, PATTERN in phase 2
             // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if (p.tuttiMode ?? .coin) == .coin {
-                field("BALANCE   SOLO  ◂  \(Int((p.tuttiBalance ?? 0.5) * 100))%  ▸  TUTTI") {   // the slider IS the idea
+                heroField("BALANCE   SOLO  ◂  \(Int((p.tuttiBalance ?? 0.5) * 100))%  ▸  TUTTI") {   // the slider IS the idea
                     Slider(value: bind(p.tuttiBalance ?? 0.5) { v in setParam { $0.tuttiBalance = v } }, in: 0...1).tint(accent) }
                 field("SOLO NOTE  (which note carries a SOLO step)") { seg(TuttiPick.allCases.map(\.rawValue), sel: (p.tuttiPick ?? .low).rawValue) { i in
                     setParam { $0.tuttiPick = TuttiPick.allCases[i] } } }
             } else {
                 // An 8×8 STATE MATRIX — rows = the chord shapes, columns = the 8 steps; tap a cell to set that step.
-                field("CHORD SHAPE PER STEP — tap a cell (dots = which notes sound)") {
+                heroField("CHORD SHAPE PER STEP — tap a cell (dots = which notes sound)") {
                     stateMatrixRadio(TuttiSlice.allCases,
                         header: { st in AnyView(HStack(spacing: 4) {
                             tuttiShapeIcon(st, tint: accent).frame(width: 16)
@@ -1132,7 +1132,7 @@ struct ProcessorBox: View {
                 spanLadderField(p.tuttiSpanN ?? ((p.tuttiSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.tuttiSpanN = v } }
             }
         case .length:   // per-slice GATE override — PASS/MUTE/SHORT/LONG as a STATE MATRIX (rows = states, cols = steps)
-            field("LENGTH PER STEP — tap a cell: that step takes that length") {
+            heroField("LENGTH PER STEP — tap a cell: that step takes that length") {
                 stateMatrixRadio(LenState.allCases,
                     header: { st in AnyView(HStack(spacing: 5) {
                         lenGlyph(st, tint: accent).frame(width: 20)
@@ -1152,7 +1152,7 @@ struct ProcessorBox: View {
             Text(weaveModeBlurb(wmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
                 .frame(maxWidth: .infinity, alignment: .leading)
             if wmode == .ladder || wmode == .harmonic {
-                field("BASS CLOCK — the bass rank's clock (higher ranks weave faster)") { seg(StepRate.allCases.map(\.rawValue), sel: (p.weaveBaseStep ?? .r1_4).rawValue) { i in
+                heroField("BASS CLOCK — the bass rank's clock (higher ranks weave faster)") { seg(StepRate.allCases.map(\.rawValue), sel: (p.weaveBaseStep ?? .r1_4).rawValue) { i in
                     setParam { $0.weaveBaseStep = StepRate.allCases[i] } } }
             } else if wmode == .drawn {
                 field("PER-NOTE — pick a rate below, then tap ranks") { HStack(spacing: 3) {
@@ -1172,17 +1172,15 @@ struct ProcessorBox: View {
             }
             field("NEW CHORD — RETRIG restarts each step · FREE runs the grid · LEGATO flows from the hold") { seg(ArpPhase.allCases.map(\.rawValue), sel: (p.weavePhase ?? .retrig).rawValue) { i in
                 setParam { $0.weavePhase = ArpPhase.allCases[i] } } }
-            field("VOICES — how many notes weave  (\(p.weaveSpan ?? 4))") { seg((1...8).map { "\($0)" }, sel: "\(p.weaveSpan ?? 4)") { i in
-                setParam { $0.weaveSpan = i + 1 } } }
+            field("VOICES — how many notes weave") { numPair(p.weaveSpan ?? 4, 1...8) { v in setParam { $0.weaveSpan = v } } }
             field("LENGTH \(Int((p.gate ?? 0.6) * 100))%") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
         case .split:   // set-membership filter — keep a subset of the chord (before a driver = re-pool · after = punch holes)
             let sm = p.splitSet?.mode ?? .all
-            field("KEEP") { seg(SplitMode.allCases.map(\.rawValue), sel: sm.rawValue) { i in
+            heroField("KEEP") { seg(SplitMode.allCases.map(\.rawValue), sel: sm.rawValue) { i in
                 setParam { var c = $0.splitSet ?? ChordSplit(); c.mode = SplitMode.allCases[i]; $0.splitSet = c } } }
             if sm == .top || sm == .bottom {
-                field("NOTES — how many notes  (\(p.splitSet?.n ?? 2))") { seg((1...6).map { "\($0)" }, sel: "\(p.splitSet?.n ?? 2)") { i in
-                    setParam { var c = $0.splitSet ?? ChordSplit(); c.n = i + 1; $0.splitSet = c } } }
+                field("NOTES — how many notes") { numPair(p.splitSet?.n ?? 2, 1...6) { v in setParam { var c = $0.splitSet ?? ChordSplit(); c.n = v; $0.splitSet = c } } }
             } else if sm == .range {
                 field("AT NOTE  \(midiNoteName(UInt8(max(0, min(127, p.splitSet?.note ?? 60)))))") {
                     Slider(value: bind(Double(p.splitSet?.note ?? 60)) { v in setParam { var c = $0.splitSet ?? ChordSplit(); c.note = Int(v.rounded()); $0.splitSet = c } }, in: 0...127).tint(accent) }
@@ -1382,6 +1380,32 @@ struct ProcessorBox: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
             content()
+        }
+    }
+    // THE HERO (§presentation rule 1): the card's ★★★ control — a 2pt accent bar on the left edge (the only control that
+    // wears one) + breathing room. Everything else is a plain `field`. A hero opens the card and never shares a row.
+    private func heroField<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            content()
+        }
+        .padding(.leading, 10).padding(.vertical, 7)
+        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1).fill(accent).frame(width: 2) }
+    }
+    // THE OPTIONS CLUSTER (§presentation rule 2): the card's ★ minor toggles gathered into ONE compact foot row — each a
+    // lit/unlit chip (idea 11: ON/OFF collapses to one chip). No minor toggle ever eats a full row again.
+    private func optionsCluster(_ chips: [(label: String, on: Bool, act: () -> Void)]) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("OPTIONS").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            HStack(spacing: 6) {
+                ForEach(Array(chips.enumerated()), id: \.offset) { _, c in
+                    Text(c.label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(c.on ? .black : .white.opacity(0.6)).lineLimit(1)
+                        .padding(.horizontal, 12).frame(minHeight: 38)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(c.on ? accent : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture(perform: c.act)
+                }
+                Spacer(minLength: 0)
+            }
         }
     }
     // MODE ROW (device round 2): an enum field is an ALWAYS-VISIBLE RADIO ROW — every option shown, the selected
