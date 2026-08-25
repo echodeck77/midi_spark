@@ -187,8 +187,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   speaker.slash, playhead column lit) in the ROUTING typeParams; storefront card in UTILITY; `buildProcLabel` → "MUTE
   MTX". +1 RouterTest ([ARP→MUTE] silences emitter A per step, others play; all-zero mask byte-identical; nothing left
   sounding) + fuzz roster/randomizer (random per-step masks incl. full-mute). **§5 matrix/lane family COMPLETE** (STATE
-  MATRIX · SLIDER LANE · SPAN LADDER · CHANCE PATTERN · TIMING LANE · DEST MATRIX · MUTE MATRIX). v1: gate is per onset-
-  slice (a driver hockets within the column — use ARP/etc.); UI device-eye owed.**
+  MATRIX · SLIDER LANE · SPAN LADDER · CHANCE PATTERN · TIMING LANE · DEST MATRIX · MUTE MATRIX). **FOLLOW-UP FIX
+  (`9a00e69`, device: "MUTE does nothing"): MUTE now indexes by the GRID COLUMN, not chopSlice.** chopSlice is a sub-slice
+  WITHIN a column (frac×8) — a hold / normal arp only ever hits sub-slice 0, so muting the rest was inert. MUTE now uses
+  `columnStart(m,S)/S mod 8` (like CHANCE PATTERN / TIMING LANE), so a MUTE colour across a ROW mutes the drawn columns
+  — audible with a plain hold. DEST stays sub-slice (a DIFFERENT tool: DEST sends each note to an emitter/hockets within
+  the column; MUTE gates emitters per column). UI label → "MUTE PER COLUMN". +1 RouterTest (per-column differentiation).**
 - **▶ PRESENTATION INFRASTRUCTURE (the F-remaining wave) + TRUTH STRIPS §1 v1 (2026-08-25, on `main`; iOS builds; UI/
   render-only — macOS suite unaffected, DEVICE eye/ear owed on all). Follows the A–F presentation redesign. Paul: "start
   the infrastructure items"; deferred long-press explanations (10) + macro-bind (26, wants it as a downstream processor

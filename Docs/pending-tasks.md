@@ -90,8 +90,9 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    with unipolar + CENTRE(bipolar) modes, now 3 consumers (STEP MOD · CHANCE · TIMING). **✅ DEST MATRIX — DONE
    (2026-08-25):** a new routing-class `ProcessorType.dest` — the 8-slice per-onset EMITTER hocket via `chopMask`; UI =
    the STATE MATRIX (A–D × 8, radio). +1 test, fuzz-hammered. **✅ MUTE MATRIX — DONE (2026-08-25):** a new routing-class
-   `ProcessorType.muteMatrix` — an A/B/C/D × 8 MULTI-SELECT grid; each onset-slice removes the muted emitters (composes on
-   top of DEST/CHOP in `chopMask`; last-MUTE-wins; empties → note dropped, no stuck note). Additive-Optional `muteSlices`
+   `ProcessorType.muteMatrix` — an A/B/C/D × 8 MULTI-SELECT grid; each GRID COLUMN removes the muted emitters (indexed by
+   `columnStart(m,S)/S mod 8` like CHANCE PATTERN — the `9a00e69` "MUTE does nothing" fix; was chopSlice = inert for holds;
+   composes on top of DEST/CHOP in `chopMask`; last-MUTE-wins; empties → note dropped, no stuck note). Additive-Optional `muteSlices`
    (nil ⇒ nothing muted, byte-identical). +1 RouterTest, fuzz-hammered. **The §5 matrix/lane family is now COMPLETE**
    (STATE MATRIX · SLIDER LANE · SPAN LADDER · CHANCE PATTERN · TIMING LANE · DEST MATRIX · MUTE MATRIX). ARRANGEMENT
    MATRIX = NOT ratified.
