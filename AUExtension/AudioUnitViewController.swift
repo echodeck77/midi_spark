@@ -327,6 +327,10 @@ struct DiagView: View {
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1) — the MIDI-IN length bar reads this
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     @State var buildOutRoll: [OutMark] = []                   // §1 TRUTH STRIPS: emitted note-ons drifting in the editor's OUT mini-roll (editor-open only)
+    @State var buildStageEye = false                          // §4 STAGE EYE: the expanded 3-lane (input · mechanism · output) view is open
+    @State var buildStageEyeDoor = -1                         // the door the eye watches (set on open) — drives the INPUT-onset accumulation below
+    @State var buildEyeInRoll: [OutMark] = []                 // §4: INPUT onsets drifting in the eye's top lane (eye-open only)
+    @State var buildEyeInPrev: Set<Int> = []                  // previous held set at the watched door (onset diffing)
     @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
     @State var recvReplayRoll: [[DoorRing.Note]] = [[], [], [], []]   // an ENGAGED REPLAY door's captured loop as DURATION notes — the roll reflects what's PLAYING (Paul 2026-08-23)
     @State var recvReplayLen: [Double] = [0, 0, 0, 0]                 // each engaged loop's length in beats (x-scale for the roll)
@@ -885,6 +889,17 @@ struct DiagView: View {
                 if out.count > 96 { out = Array(out.suffix(96)) }
                 if out != buildOutRoll { buildOutRoll = out }   // guard idle re-renders
             } else if !buildOutRoll.isEmpty { buildOutRoll = [] }
+            // §4 STAGE EYE — INPUT roll: while the eye is open, accumulate the watched door's note ONSETS (diff the held set)
+            // so the top lane scrolls what arrives. recvHeldNotes is already updated above (editor open ⊇ eye open).
+            if buildStageEye, buildStageEyeDoor >= 0, buildStageEyeDoor < recvHeldNotes.count {
+                let cur = Set(recvHeldNotes[buildStageEyeDoor].map { Int($0) })
+                var inr = buildEyeInRoll
+                for n in cur.subtracting(buildEyeInPrev) { inr.append(OutMark(note: UInt8(n), vel: 1, born: mnow)) }
+                inr = inr.filter { mnow.timeIntervalSince($0.born) < 2.5 }
+                if inr.count > 96 { inr = Array(inr.suffix(96)) }
+                if inr != buildEyeInRoll { buildEyeInRoll = inr }
+                if cur != buildEyeInPrev { buildEyeInPrev = cur }
+            } else if !buildEyeInRoll.isEmpty || !buildEyeInPrev.isEmpty { buildEyeInRoll = []; buildEyeInPrev = [] }
             let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
                 let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq

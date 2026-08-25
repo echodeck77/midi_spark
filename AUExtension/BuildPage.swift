@@ -83,6 +83,7 @@ extension DiagView {
                 // a narrow/portrait host pane keeps the landscape structure rather than switching to a separate portrait tree.
                 AnyView(buildLandscape(size))
                 if let slot = buildEditSlot { AnyView(buildProcessorEditor(slot: slot, size: size)) }   // the processor pop-up editor
+                if buildStageEye, let slot = buildEditSlot { AnyView(buildStageEyeView(slot: slot, size: size)) }   // §4 THE STAGE EYE — layered above the editor (keeps the OUT feed flowing)
                 if let slot = buildAddSlot { AnyView(buildProcessorPicker(slot: slot, size: size)) }    // the ADD-processor picker
                 if buildFlowOpen { AnyView(buildFlowPopup(size: size)) }                               // the signal-flow diagram pop-up
                 if let kind = buildGridPopup { AnyView(buildGridPopupView(kind, size: size)) }          // the full-screen grid pop-up
@@ -4092,7 +4093,7 @@ extension DiagView {
     // way = SAVE the live edits.) After an overwrite-and-follow the snapshot is the target's committed chain (a no-op).
     private func buildEditorCancel() {
         if let cid = buildEditorSnapCid { buildWriteColourMachine(cid, buildEditorSnapshot) }
-        buildEditSlot = nil
+        buildEditSlot = nil; buildStageEye = false
     }
 
     @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, contentW: CGFloat) -> some View {
@@ -4115,7 +4116,7 @@ extension DiagView {
                     .onLongPressGesture(minimumDuration: 0.22, pressing: { pressing in
                         if !pressing, buildBypassHeld == slot { buildChainToggleBypass(slot); buildBypassHeld = nil }   // release → restore
                     }, perform: { buildChainToggleBypass(slot); buildBypassHeld = slot })                              // held → momentary flip
-                Button { buildChainRemoveSlot(slot); buildEditSlot = nil } label: {
+                Button { buildChainRemoveSlot(slot); buildEditSlot = nil; buildStageEye = false } label: {
                     Text("DELETE").font(.system(size: 12, weight: .heavy, design: .monospaced))
                         .foregroundColor(.red)
                         .padding(.horizontal, 14).frame(height: 34)
@@ -4129,7 +4130,7 @@ extension DiagView {
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.3), lineWidth: 1))
                 }.buttonStyle(.plain)
-                Button { buildEditSlot = nil } label: {          // DONE — keep the edits + close (Paul 2026-08-19)
+                Button { buildEditSlot = nil; buildStageEye = false } label: {          // DONE — keep the edits + close (Paul 2026-08-19)
                     Text("DONE").font(.system(size: 12, weight: .heavy, design: .monospaced))
                         .foregroundColor(.black)
                         .padding(.horizontal, 16).frame(height: 34)
@@ -4168,7 +4169,10 @@ extension DiagView {
         let hue = buildSelHue
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                HStack(spacing: 4) {
+                    Text("IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 8, weight: .heavy)).foregroundColor(buildDim.opacity(0.7))
+                }
                 if held.isEmpty {
                     Text("nothing held — LATCH or play at INPUT \(letter)")
                         .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85))
@@ -4177,10 +4181,131 @@ extension DiagView {
                     buildInKeyboard(held, hue: hue)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }   // tap → the STAGE EYE (§4)
             VStack(alignment: .leading, spacing: 4) {
-                Text("OUT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                HStack(spacing: 4) {
+                    Text("OUT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 8, weight: .heavy)).foregroundColor(buildDim.opacity(0.7))
+                }
                 buildOutStrip(hue: hue)
             }.frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }
+        }
+    }
+    private func buildOpenStageEye() {
+        buildStageEyeDoor = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        buildEyeInRoll = []; buildEyeInPrev = []
+        buildStageEye = true
+    }
+    // §4 THE STAGE EYE (Paul 2026-08-22, "captured with enthusiasm"): tap a truth strip → the spacious three-strata page.
+    // TOP = the INPUT roll (what arrives) · MIDDLE = the MECHANISM (the stage working, a position light on the step) ·
+    // BOTTOM = the OUTPUT roll (what leaves) — cause → machine → effect, on one shared pitch axis. v1 = the DRIFT model
+    // (rolls scroll, "now" = the right edge; the mechanism is the live machine with a lit current column). The fully
+    // column-aligned sweep (output tagged by its emitting step) is v2. EUCLID draws its pulse pattern; others a step lane.
+    @ViewBuilder func buildStageEyeView(slot: Int, size: CGSize) -> some View {
+        let chain = selectedColourChain()
+        if slot < chain.count {
+            let proc = chain[slot]
+            let hue = buildSelHue
+            let door = buildStageEyeDoor
+            let letter = (door >= 0 && door < 4) ? ["A", "B", "C", "D"][door] : "A"
+            let held = (door >= 0 && door < recvHeldNotes.count) ? recvHeldNotes[door].map { Int($0) } : []
+            ZStack {
+                Color.black.opacity(0.94).ignoresSafeArea()
+                    .contentShape(Rectangle()).onTapGesture { buildStageEye = false }   // tap the backdrop → close
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {                                                // HEADER
+                        RoundedRectangle(cornerRadius: 7).fill(hue).frame(width: 28, height: 28)
+                        Image(systemName: emblemSymbol(proc.type)).font(.system(size: 17, weight: .black)).foregroundColor(.white)
+                        Text(buildProcLabel(proc)).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(.white)
+                        Text("· THE EYE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                        Spacer()
+                        Text("IN: \(letter)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(hue)
+                        Button { buildStageEye = false } label: {
+                            Text("CLOSE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                                .padding(.horizontal, 16).frame(height: 32).background(RoundedRectangle(cornerRadius: 8).fill(buildCyan))
+                        }.buttonStyle(.plain)
+                    }
+                    // three strata, one shared pitch axis (top+bottom); the mechanism sits between
+                    buildEyeLane("INPUT — what arrives", empty: held.isEmpty ? "nothing held — LATCH or play at INPUT \(letter)" : nil) {
+                        buildEyeRoll(buildEyeInRoll, hue: hue)
+                    }
+                    buildEyeLane("MECHANISM — the \(buildProcLabel(proc))", empty: nil) {
+                        buildEyeMechanism(proc, hue: hue)
+                    }
+                    buildEyeLane("OUTPUT — what leaves", empty: buildOutRoll.isEmpty ? "—" : nil) {
+                        buildEyeRoll(buildOutRoll, hue: hue)
+                    }
+                }
+                .padding(18)
+            }
+            .transition(.opacity)
+        }
+    }
+    // A titled full-width lane; `empty` (if set) shows teaching/idle text instead of the content.
+    @ViewBuilder private func buildEyeLane<C: View>(_ title: String, empty: String?, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04))
+                if let empty {
+                    Text(empty).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.8)).padding(.leading, 14)
+                } else {
+                    content()
+                }
+            }
+        }.frame(maxHeight: .infinity)
+    }
+    // A drifting note roll (input or output): marks enter at the right ("now"), drift left over 2.5s; y = pitch (C1–C7),
+    // opacity by velocity + age. A bright NOW line marks the right edge (the shared present across the lanes).
+    @ViewBuilder private func buildEyeRoll(_ marks: [OutMark], hue: Color) -> some View {
+        let lo = 24.0, span = 72.0
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || marks.isEmpty)) { tl in
+            let now = tl.date
+            Canvas { ctx, size in
+                for oct in stride(from: 0.0, through: 1.0, by: 12.0 / span) {           // faint octave gridlines
+                    let y = size.height * (1 - CGFloat(oct))
+                    ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: size.width, y: y)) }, with: .color(.white.opacity(0.05)), lineWidth: 1)
+                }
+                for m in marks {
+                    let age = now.timeIntervalSince(m.born)
+                    if age < 0 || age > 2.5 { continue }
+                    let x = size.width * CGFloat(1 - age / 2.5)
+                    let lane = CGFloat(min(1, max(0, (Double(m.note) - lo) / span)))
+                    let y = size.height * (1 - lane)
+                    let op = (1 - age / 2.5) * (0.5 + 0.5 * m.vel)
+                    ctx.fill(Path(roundedRect: CGRect(x: x - 4, y: y - 3, width: 8, height: 6), cornerRadius: 3), with: .color(hue.opacity(op)))
+                }
+                ctx.stroke(Path { $0.move(to: CGPoint(x: size.width - 1, y: 0)); $0.addLine(to: CGPoint(x: size.width - 1, y: size.height)) },
+                           with: .color(.white.opacity(0.35)), lineWidth: 2)                // the NOW line
+            }
+        }
+    }
+    // The MECHANISM lane: the machine drawn live + read-only, with a position light on the current step. EUCLID draws its
+    // pulse pattern (Paul's self-explaining example); every other type shows the 8-step grid with the live column lit.
+    @ViewBuilder private func buildEyeMechanism(_ proc: ProcessorSlot, hue: Color) -> some View {
+        let col = (d.playing && d.effColumn >= 0) ? d.effColumn % 8 : -1
+        let steps: Int
+        let pulses: [Bool]
+        if proc.type == .euclid {
+            let n = max(2, min(16, proc.params.euclidSteps ?? 8))
+            let k = max(0, min(n, proc.params.euclidPulses ?? 5))
+            steps = n; pulses = euclidPattern(pulses: k, steps: n, rotation: proc.params.euclidRot ?? 0)
+        } else { steps = 8; pulses = [] }
+        return Canvas { ctx, size in
+            let cw = size.width / CGFloat(steps)
+            let liveStep = proc.type == .euclid ? (col >= 0 ? col % steps : -1) : col
+            for s in 0..<steps {
+                let x = CGFloat(s) * cw
+                let cell = CGRect(x: x + 2, y: 6, width: max(2, cw - 4), height: size.height - 12)
+                let isPulse = proc.type == .euclid ? (s < pulses.count && pulses[s]) : true
+                ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(.white.opacity(isPulse ? 0.14 : 0.05)))
+                if s == liveStep {                                                        // the position light
+                    ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(hue.opacity(isPulse ? 0.9 : 0.4)))
+                } else if proc.type == .euclid && isPulse {
+                    ctx.fill(Path(ellipseIn: CGRect(x: x + cw / 2 - 4, y: size.height / 2 - 4, width: 8, height: 8)), with: .color(hue.opacity(0.6)))
+                }
+            }
         }
     }
     // The IN silhouette: a compact C1–C7 keyboard (black keys fainter for orientation), held notes filled the colour hue.
