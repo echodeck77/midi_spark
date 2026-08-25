@@ -102,7 +102,7 @@ final class Router {
         if amount == 0 { return v }
         let u = Double(v) / 127.0
         let mapped = pow(u, pow(2.0, -Double(amount) / 100.0))
-        return UInt8(max(1, min(127, Int((mapped * 127.0).rounded()))))
+        return clampVel(Int((mapped * 127.0).rounded()))
     }
     // THE RACK — FENCE (design-the-rack §6): per-emitter note-RANGE policy on the OUTPUT note. `fenceMask` = which
     // emitters fence; policy 0 DROP · 1 CLAMP · 2 FOLD; lo/hi = the window. Rack-gated in the builder.
@@ -343,6 +343,7 @@ final class Router {
     // fixed buffer (no render-path alloc — was a fresh `[(Int,UInt8)]` per generator/weave/tutti/length cell). The
     // emitters bind `srcNoteBuf[0..<srcNoteCount]` — a view whose 0-based indices match, so their reads are unchanged.
     private var srcNoteBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
+    private var lenEventBuf = [(on: Double, off: Double)](repeating: (0, 0), count: 8)   // LENGTH: reused no-alloc scratch (invariant 3)
     private var srcNoteCount = 0
     // Render-hot-loop scratch for the pattern helpers (no per-window array alloc — invariant 3). euclid/burst are
     // weave-XOR-generator per cell (never nested) → one buffer each; tutti CAN nest ([TUTTI-pattern → TUTTI] folds the
@@ -426,8 +427,9 @@ final class Router {
     private var latchedPools: [NotePool] = []
     private var receiverDisabledMask: UInt8 = 0            // INPUT ENABLE: bit i = receiver i not listening (door closed)
     private let emptyPool: NotePool = { let p = NotePool(); p.rebuildSorted(); return p }()   // a disabled door's cells read this
-    // BYPASS (§1/§2): this render's per-receiver admission (channel/cable/range, mute+disable already folded into
-    // receiverChannels) + which doors bypass + their destination emitter masks. Read from the box each render.
+    // INPUT ADMISSION: this render's per-receiver channel/cable/range filter (mute+disable already folded into
+    // receiverChannels) + the no-machine LIVE WIRE mask. Read from the box each render. (The door-level BYPASS mask/dest
+    // that once lived here was retired 2026-08-25; only passEmitterMask remains.)
     private var receiverChannels: [UInt8] = [0, 0, 0, 0]
     private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]
     private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]
@@ -1542,7 +1544,7 @@ final class Router {
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 let vel0 = max(1, holdChain ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
-                let vel = droneScale < 1.0 ? UInt8(max(1, min(127, Int((Double(vel0) * droneScale).rounded())))) : vel0   // DRONE scales by GATE
+                let vel = droneScale < 1.0 ? clampVel(Int((Double(vel0) * droneScale).rounded())) : vel0   // DRONE scales by GATE
                 if mode == .chance && !chancePassesPool(beat: colStart, note: n, rank: k, count: srcN, probability: prob, tilt: treat.a.chanceTilt, constantDensity: treat.a.chanceDensity) { continue }   // POOL-AWARE chance (user 2026-08-11)
                 if mode == .tutti && tuttiSolo >= 0 && k != tuttiSolo { continue }   // TUTTI SOLO step: only the PICK-chosen rank sounds
                 if mode == .split && (k < splitWin.start || k >= splitWin.start + splitWin.len || Int(vel0) < treat.a.splitVel.floor || Int(vel0) > treat.a.splitVel.ceil) { continue }   // SPLIT: keep the subset + vel band
@@ -2784,7 +2786,7 @@ final class Router {
                 if let only = onlyIndex, k != only { continue }
                 let n = sn.note + transpose
                 guard n >= 0 && n <= 127 else { continue }
-                let vel = UInt8(max(1, min(127, Int((Double(max(1, sn.vel)) * velScale).rounded()))))   // inherited velocity × envelope
+                let vel = clampVel(Int((Double(max(1, sn.vel)) * velScale).rounded()))   // inherited velocity × envelope
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
                 if !emits { continue }
                 if hasDownstream {   // fold the post-driver stages onto each generated note (a downstream passgate/harmonize/…)
@@ -3150,8 +3152,10 @@ final class Router {
         let span = spanLadderBeats(p.lenSpanN, S: S, row: Double(Snap.cols) * S)   // SPAN LADDER (Paul 2026-08-22)
         var col = columnStart(mWinStart, span)
         while col < mWinEnd {
-            let events = lengthColumnEvents(slices: p.lenSlices, rotate: p.lenRotate, shortFrac: p.lenShort, longFrac: p.lenLong, colStart: col, S: span)
-            for e in events where e.on >= mWinStart && e.on < mWinEnd {
+            let evN = lengthColumnEventsInto(&lenEventBuf, slices: p.lenSlices, rotate: p.lenRotate, shortFrac: p.lenShort, longFrac: p.lenLong, colStart: col, S: span)
+            for ei in 0..<evN {
+                let e = lenEventBuf[ei]
+                guard e.on >= mWinStart && e.on < mWinEnd else { continue }
                 let onT = sampleOf(musical: e.on, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                 let offT = sampleOf(musical: e.off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                 let tbm = chopMask(cell, m: e.on, S: S, base: bm)
@@ -3190,8 +3194,10 @@ final class Router {
             composeChainSet(cell: cell, pool: cellPool, upto: lenIdx - 1, m: col, S: S, cycleBeats: cycleBeats)   // the upstream set at this span-unit start
             let cnt = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
             if cnt > 0 {
-                let events = lengthColumnEvents(slices: lp.lenSlices, rotate: lp.lenRotate, shortFrac: lp.lenShort, longFrac: lp.lenLong, colStart: col, S: span)
-                for e in events where e.on >= mWinStart && e.on < mWinEnd {
+                let evN = lengthColumnEventsInto(&lenEventBuf, slices: lp.lenSlices, rotate: lp.lenRotate, shortFrac: lp.lenShort, longFrac: lp.lenLong, colStart: col, S: span)
+                for ei in 0..<evN {
+                    let e = lenEventBuf[ei]
+                    guard e.on >= mWinStart && e.on < mWinEnd else { continue }
                     let onT = sampleOf(musical: e.on, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     let offT = sampleOf(musical: e.off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     let tbm = chopMask(cell, m: e.on, S: S, base: bm)

@@ -718,14 +718,16 @@ func tuttiSliceRanks(_ state: TuttiSlice, count: Int) -> (ranks: [Int], octave: 
 /// ringing note), SHORT is staccato (5–95% of a slice), LONG rings (0.25 slice … the STEP end). Pure + window-
 /// independent (recomputed per column from `colStart`); every off is capped at the column end (nothing rings past the
 /// step — the envelope law). `rotate` shifts which painted slice maps to which time-slice.
-func lengthColumnEvents(slices: [LenState], rotate: Int, shortFrac: Double, longFrac: Double,
-                        colStart: Double, S: Double) -> [(on: Double, off: Double)] {
-    guard S > 0, !slices.isEmpty else { return [] }
+// No-alloc form for the render hot loop: fill a caller-owned `buf` (≥ 8) with the events, return the count (≤ 8, since at
+// most one event is appended per slice). Router binds a reused `lenEventBuf`; the array wrapper below is for the tests.
+@discardableResult func lengthColumnEventsInto(_ buf: inout [(on: Double, off: Double)], slices: [LenState], rotate: Int,
+                                               shortFrac: Double, longFrac: Double, colStart: Double, S: Double) -> Int {
+    guard S > 0, !slices.isEmpty, buf.count >= 8 else { return 0 }
     let sliceLen = S / 8
     let colEnd = colStart + S
     let sf = max(0.05, min(0.95, shortFrac)), lf = max(0.0, min(1.0, longFrac))
     let eps = sliceLen * 1e-6
-    var events: [(on: Double, off: Double)] = []
+    var n = 0
     var lastIdx = -1
     var lastOff = -Double.greatestFiniteMagnitude
     for s in 0..<8 {
@@ -734,25 +736,31 @@ func lengthColumnEvents(slices: [LenState], rotate: Int, shortFrac: Double, long
         let state = slices[((s + rotate) % slices.count + slices.count) % slices.count]
         switch state {
         case .mute:
-            if lastOff > tau + eps { events[lastIdx].off = tau; lastOff = tau }        // cut a ringing note at the rest
+            if lastOff > tau + eps { buf[lastIdx].off = tau; lastOff = tau }           // cut a ringing note at the rest
         case .short:
-            if lastOff > tau + eps { events[lastIdx].off = tau }                       // a re-attack cuts the prior ring
+            if lastOff > tau + eps { buf[lastIdx].off = tau }                          // a re-attack cuts the prior ring
             let off = min(colEnd, tau + sf * sliceLen)
-            events.append((tau, off)); lastIdx = events.count - 1; lastOff = off
+            buf[n] = (tau, off); lastIdx = n; n += 1; lastOff = off
         case .long:
-            if lastOff > tau + eps { events[lastIdx].off = tau }
+            if lastOff > tau + eps { buf[lastIdx].off = tau }
             let longLen = 0.25 * sliceLen + lf * max(0, (colEnd - tau) - 0.25 * sliceLen)
             let off = min(colEnd, tau + longLen)
-            events.append((tau, off)); lastIdx = events.count - 1; lastOff = off
+            buf[n] = (tau, off); lastIdx = n; n += 1; lastOff = off
         case .pass:
             if lastOff >= tau - eps {                                                  // still ringing → TIE (extend, no re-attack)
-                let newOff = min(colEnd, max(lastOff, sliceEnd)); events[lastIdx].off = newOff; lastOff = newOff
+                let newOff = min(colEnd, max(lastOff, sliceEnd)); buf[lastIdx].off = newOff; lastOff = newOff
             } else {                                                                   // silence behind → resume, sustained
-                let off = min(colEnd, sliceEnd); events.append((tau, off)); lastIdx = events.count - 1; lastOff = off
+                let off = min(colEnd, sliceEnd); buf[n] = (tau, off); lastIdx = n; n += 1; lastOff = off
             }
         }
     }
-    return events
+    return n
+}
+func lengthColumnEvents(slices: [LenState], rotate: Int, shortFrac: Double, longFrac: Double,
+                        colStart: Double, S: Double) -> [(on: Double, off: Double)] {
+    var buf = [(on: Double, off: Double)](repeating: (0, 0), count: 8)
+    let n = lengthColumnEventsInto(&buf, slices: slices, rotate: rotate, shortFrac: shortFrac, longFrac: longFrac, colStart: colStart, S: S)
+    return Array(buf[0..<n])
 }
 
 /// LENGTH — the per-onset gate decision for the DOWNSTREAM case (LENGTH after a driver: each existing onset gets its

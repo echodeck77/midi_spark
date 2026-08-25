@@ -493,8 +493,8 @@ final class Kernel {
         if chaosSilentStreak == 12 { let t = buildRoutingText(box); chaosDump.withLock { $0 = t } }   // once, at threshold
     }
     // Why a cell can't route the LIVE pool to an emitter (nil = it CAN → a genuine path). Mirrors effectivePool's
-    // gates: a BYPASSED door diverts the grid, a DISABLED door isn't listening, a LATCH-ARMED door reads the FROZEN
-    // pool (so the live admission is moot) — in all three the cell won't sound from the live held notes.
+    // gates: a DISABLED door isn't listening, a LATCH-ARMED door reads the FROZEN pool (so the live admission is moot) —
+    // in both the cell won't sound from the live held notes. (The door-level BYPASS gate was retired 2026-08-25.)
     private func cellRouteBlock(_ c: SnapCell, _ box: SnapshotBox) -> String? {
         let r = Int(c.resolvedReceiver)
         if r >= 0 {
