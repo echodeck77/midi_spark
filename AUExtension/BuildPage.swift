@@ -4313,30 +4313,45 @@ extension DiagView {
     // the generic 8-step position lane (bespoke per-type art is the v2 rollout — Paul 2026-08-25).
     @ViewBuilder private func buildEyeMechanism(_ proc: ProcessorSlot, poolN: Int, hue: Color) -> some View {
         if proc.type == .arp { buildEyeArp(proc, poolN: poolN, hue: hue) }
+        else if proc.type == .euclid { buildEyeEuclid(proc, hue: hue) }
         else { buildEyeStepLane(proc, hue: hue) }
     }
-    // EUCLID pulses (lit dots on the hit steps) · everything else = the 8-column position lane.
+    // EUCLID: the K-of-N rhythm on a rail — a BOLD hue dot on every HIT step, a faint tick on the rests, and a ring on the
+    // step under the playhead (whether hit or rest). INVERT strikes the rests (matches the engine). Reads as the pattern.
+    private func buildEyeEuclid(_ proc: ProcessorSlot, hue: Color) -> some View {
+        let n = max(2, min(16, proc.params.euclidSteps ?? 8))
+        let k = max(0, min(n, proc.params.euclidPulses ?? 5))
+        let base = euclidPattern(pulses: k, steps: n, rotation: proc.params.euclidRot ?? 0)
+        let inv = proc.params.euclidInvert ?? false
+        let live = (d.playing && d.effColumn >= 0) ? d.effColumn % n : -1
+        return Canvas { ctx, size in
+            let cw = size.width / CGFloat(n), cy = size.height / 2
+            ctx.stroke(Path { $0.move(to: CGPoint(x: cw / 2, y: cy)); $0.addLine(to: CGPoint(x: size.width - cw / 2, y: cy)) },
+                       with: .color(.white.opacity(0.1)), lineWidth: 1)                 // the rail
+            for s in 0..<n {
+                let cx = CGFloat(s) * cw + cw / 2
+                let isHit = (s < base.count && base[s]) != inv                          // INVERT flips hit⇄rest
+                if isHit {
+                    let r: CGFloat = s == live ? 8 : 6
+                    ctx.fill(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(s == live ? 1 : 0.75)))
+                } else {
+                    ctx.fill(Path(ellipseIn: CGRect(x: cx - 2, y: cy - 2, width: 4, height: 4)), with: .color(.white.opacity(0.2)))
+                }
+                if s == live {
+                    ctx.stroke(Path(ellipseIn: CGRect(x: cx - 12, y: cy - 12, width: 24, height: 24)), with: .color(.white.opacity(0.85)), lineWidth: 1.5)
+                }
+            }
+        }
+    }
+    // GENERIC MECHANISM (types without bespoke art yet): the 8-column position lane, the live column lit.
     private func buildEyeStepLane(_ proc: ProcessorSlot, hue: Color) -> some View {
         let col = (d.playing && d.effColumn >= 0) ? d.effColumn % 8 : -1
-        let steps: Int, pulses: [Bool]
-        if proc.type == .euclid {
-            let n = max(2, min(16, proc.params.euclidSteps ?? 8))
-            let k = max(0, min(n, proc.params.euclidPulses ?? 5))
-            steps = n; pulses = euclidPattern(pulses: k, steps: n, rotation: proc.params.euclidRot ?? 0)
-        } else { steps = 8; pulses = [] }
         return Canvas { ctx, size in
-            let cw = size.width / CGFloat(steps)
-            let liveStep = proc.type == .euclid ? (col >= 0 ? col % steps : -1) : col
-            for s in 0..<steps {
-                let x = CGFloat(s) * cw
-                let cell = CGRect(x: x + 2, y: 6, width: max(2, cw - 4), height: size.height - 12)
-                let isPulse = proc.type == .euclid ? (s < pulses.count && pulses[s]) : true
-                ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(.white.opacity(isPulse ? 0.14 : 0.05)))
-                if s == liveStep {
-                    ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(hue.opacity(isPulse ? 0.9 : 0.4)))
-                } else if proc.type == .euclid && isPulse {
-                    ctx.fill(Path(ellipseIn: CGRect(x: x + cw / 2 - 4, y: size.height / 2 - 4, width: 8, height: 8)), with: .color(hue.opacity(0.6)))
-                }
+            let cw = size.width / 8
+            for s in 0..<8 {
+                let cell = CGRect(x: CGFloat(s) * cw + 2, y: 6, width: max(2, cw - 4), height: size.height - 12)
+                ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(.white.opacity(0.08)))
+                if s == col { ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(hue.opacity(0.9))) }
             }
         }
     }
