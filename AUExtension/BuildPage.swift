@@ -4521,6 +4521,7 @@ extension DiagView {
         return [
             BuildCardGroup(title: "MELODY", note: nil, cards: [
                 C("ARP", "Walks the held chord one note at a time.", .arp),
+                C("RIFF", "An authored line that follows the held chord — the same shape in any key.", .riff),
                 C("CASCADE", "Builds the chord up one note at a time, holding each.", .cascade),
                 C("STRUM", "Rolls the chord in like a guitar rake.", .strum),
                 C("GLIDE", "One sliding voice: small steps bend, big leaps jump.", .glide),

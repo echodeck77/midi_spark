@@ -2005,4 +2005,19 @@ final class DerivationsTests: XCTestCase {
         let lo = (0..<300).filter { rtcCoinFires(step: $0, chance: 0.5, gap: 0, quota: 0, velFactor: 0.3) }.count
         XCTAssertLessThan(lo, hi, "lower velocity → fewer fires")
     }
+
+    // RIFF (SPEC-riff-processor §1): a stencil RANK resolves against the sorted pool — 1 = lowest … N = highest; a rank
+    // past the held count WRAPS (FOLD = wrap + octave · CLAMP = top · WRAP = same octave); OCT nudges; rank 0 = rest.
+    func testRiffResolveRankWrapAndOctave() {
+        let notes = [60, 64, 67]   // a 3-note chord ascending
+        func r(_ rank: Int, _ oct: Int, _ w: RiffWrap) -> Int? { riffResolve(rank: rank, oct: oct, n: notes.count, wrap: w) { notes[$0] } }
+        XCTAssertEqual(r(1, 0, .fold), 60); XCTAssertEqual(r(2, 0, .fold), 64); XCTAssertEqual(r(3, 0, .fold), 67)
+        XCTAssertEqual(r(4, 0, .fold), 72, "FOLD: rank 4 = the root an octave up")
+        XCTAssertEqual(r(4, 0, .clamp), 67, "CLAMP: the top note")
+        XCTAssertEqual(r(4, 0, .wrap), 60, "WRAP: the root, same octave")
+        XCTAssertEqual(r(7, 0, .fold), 84, "FOLD: rank 7 = root two octaves up (idx 6 = 2 laps over 3)")
+        XCTAssertEqual(r(1, 1, .fold), 72, "OCT +1"); XCTAssertEqual(r(1, -1, .fold), 48, "OCT −1")
+        XCTAssertNil(r(0, 0, .fold), "rank 0 = rest")
+        XCTAssertNil(riffResolve(rank: 1, oct: 0, n: 0, wrap: .fold) { _ in 0 }, "empty pool = nil")
+    }
 }

@@ -1373,6 +1373,11 @@ final class Router {
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                  S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
+                case .riff:
+                    emitRiffRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                                box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                                windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
                 default: break
                 }
                 return
@@ -1411,6 +1416,11 @@ final class Router {
                              pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                              windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                              S: S, a: a, out: out, diag: &diag)
+            case .riff:                            // DRIVER — the stored rank stencil, derived against the held chord
+                emitRiffRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                            box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                            windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                            S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .echo, .identity, .chance, .harmonize, .split, .octave, .transpose:
                 break   // echo's dry fired at the transition (repeats drain per-window); the hold types (SPLIT filter · OCTAVE/TRANSPOSE shift) emit at the transition
             case .tutti:
@@ -2953,7 +2963,7 @@ final class Router {
     }
     private func isDriverType(_ t: ProcessorType) -> Bool {
         switch t {
-        case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave: return true
+        case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave, .riff: return true
         default: return false
         }
     }
@@ -3447,6 +3457,55 @@ final class Router {
 
     /// ARP (§3): index the input each tick — MIDI IN → filtered source pool; referencing → the parent's
     /// CURRENT sounding note by derivation, octave-arped by this cell (delta §1 "arpeggiate the arpeggio").
+    /// RIFF (SPEC-riff-processor): a DRIVER that plays a stored RANK STENCIL against the held chord — the chord-following
+    /// 303. Per tick (at riffRate), the step's RANK resolves to a pool note (`riffResolve` — chord-following), REST for
+    /// rank 0; WRAP/OCT applied; ACCENT boosts the played-chord's peak velocity. Mirrors emitArpRow's tick lifecycle so it
+    /// composes as a chain driver + folds through CHOP/downstream stages. v1: no TIE/SLIDE (the §5 lanes are stage 2).
+    private func emitRiffRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+                             emits: Bool, box: SnapshotBox, pool: NotePool,
+                             effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
+                             windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
+                             chainDriver: Int = -1,
+                             out: MIDIEmitter?, diag: inout KernelDiag) {
+        let pool = effectivePool(for: cell, live: pool)
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let p = colour.a
+        let steps = max(1, min(16, p.riffSteps))
+        var riffBeats = p.riffRateBeats; if riffBeats <= 0 { riffBeats = 0.25 }
+        let gate = effectiveGate(colour)
+        let baseVel = max(1, Int(coinVelFactor(pool) * 127))   // inherit the held chord's peak velocity (accent boosts it)
+        if r == diag.activeCellRow { diag.effMorphGold = 0; diag.effRateBeats = riffBeats }
+        iterateTicks(row: r, effColumn: effColumn, sub: riffBeats, gateFraction: gate,
+                     beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                     beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded()))) { tick, mTickBeat, onTime, offTime in
+            let step = ((Int((mTickBeat / riffBeats).rounded(.down)) % steps) + steps) % steps   // FREE phase (global grid, replay-exact)
+            let rank = step < p.riffRanks.count ? p.riffRanks[step] : 0
+            guard rank >= 1 else { return }   // 0 = REST
+            let oct = step < p.riffOct.count ? p.riffOct[step] : 0
+            let base: Int?
+            if chainDriver >= 0 {   // [X → RIFF]: derive the stencil against the composed upstream set (re-pooled per tick, OMNI)
+                composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
+                base = riffResolve(rank: rank, oct: oct, n: chainScratch.srcCount(filter: 0), wrap: p.riffWrap) { Int(chainScratch.srcAscending($0, filter: 0)) }
+            } else {
+                base = riffNote(rank: rank, oct: oct, pool: pool, for: cell, wrap: p.riffWrap)
+            }
+            guard let b = base else { return }
+            let noteValue = b + transpose
+            guard noteValue >= 0 && noteValue <= 127 else { return }
+            let accent = step < p.riffAccent.count ? p.riffAccent[step] : 0
+            let vel = clampVel(baseVel + accent)
+            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
+            if emits {
+                if chainDriver >= 0 {
+                    emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
+                                   windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
+                } else {
+                    emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
+                             velocity: vel, m: mTickBeat, S: S, out: out, diag: &diag)
+                }
+            }
+        }
+    }
     private func emitArpRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
                             emits: Bool, box: SnapshotBox, pool: NotePool,
                             effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,

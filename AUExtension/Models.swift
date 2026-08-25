@@ -28,6 +28,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case nudge = "NUDGE"       // UTILITY: a pure time offset (± sixteenths) on the stream — slides what's already there (does NOT drive)
     case dest = "DEST"         // ROUTING (Paul 2026-08-22 §5): per-onset-slice EMITTER selection — hocket painted (CHOP's dest row generalised to any chain)
     case muteMatrix = "MUTEMATRIX" // ROUTING (Paul 2026-08-25 §5): per-step PART-MUTING — an A/B/C/D × 8 checkbox grid; each onset-slice removes the muted emitters (note-transparent)
+    case riff = "RIFF"         // DRIVER (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices derived against the held chord — the chord-following 303. Zero pitches stored.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -56,6 +57,9 @@ enum GlidePriority: String, Codable, CaseIterable { case last = "LAST", low = "L
 // synth's own portamento (CC65 on + CC5 time, notes legato) · STEP = a fast chromatic run source→target. (MPE = v2.)
 enum GlideMode: String, Codable, CaseIterable { case bend = "BEND", synth = "SYNTH", step = "STEP" }
 enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED" }
+// RIFF (SPEC-riff-processor §1): when a stencil RANK exceeds the held-note count (a 5 against a 3-note chord) —
+// FOLD (wrap + octave up, default/musical) · CLAMP (the top note) · WRAP (wrap in the same octave).
+enum RiffWrap: String, Codable, CaseIterable { case fold = "FOLD", clamp = "CLAMP", wrap = "WRAP" }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 // SPAN — the timeline a pattern-based processor runs on (Paul 2026-08-18): CELL restarts the pattern each column
 // (N steps = one column); ROW stretches the SAME N steps across the whole 8-column bar (a cross-column phrase). The
@@ -267,6 +271,16 @@ struct ColourParams: Codable, Equatable {
     var utilNudgeLane: [Int]? = nil             // LANE: 8 per-step time offsets (−8…+8 sixteenths); the cell's COLUMN picks the slot
     var destSlices: [Int]? = nil                // DEST MATRIX (Paul 2026-08-22 §5): 8 per-onset-slice emitters (0=A…3=D) — hocket painted. nil ⇒ a rotating default
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
+    // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
+    // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.
+    var riffSteps: Int? = 16                    // 8 | 16 stencil steps
+    var riffRate: ArpRate? = .r1_16             // the step rate
+    var riffRanks: [Int]? = nil                 // per-step: 0 = REST · 1–8 = the pool rank to strike (nil ⇒ a default ascending figure)
+    var riffOct: [Int]? = nil                   // per-step octave nudge −1·0·+1
+    var riffAccent: [Int]? = nil                // per-step velocity accent (0 = normal · >0 louder) — v1b
+    var riffTie: [Bool]? = nil                  // per-step: extend the previous note (a held ⌒) — v1b
+    var riffSlide: [Bool]? = nil                // per-step: legato → GLIDE SYNTH slide (§5 interlock) — v2
+    var riffWrap: RiffWrap? = nil               // rank > held count → FOLD (default) | CLAMP | WRAP
 }
 // TIMING LANE (Paul 2026-08-22 §5): NUDGE's second mode — FIXED = one offset · LANE = a per-column pocket (a centred SLIDER LANE).
 enum NudgeMode: String, Codable, CaseIterable { case fixed = "FIXED", lane = "LANE" }

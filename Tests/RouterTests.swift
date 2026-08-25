@@ -2879,6 +2879,24 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(small, onCount(weights: [1, 0, 0, 0, 0]), "replay-exact")
         XCTAssertLessThan(onCount(quota: 2), onCount(), "QUOTA ~2 fires fewer bursts than FREE")
     }
+    // RIFF (SPEC-riff-processor): the stored RANK stencil follows the held chord — the SAME riff plays Cm's notes over Cm
+    // and F's notes over F (zero pitches stored). Ranks 1·2·3 cover the 3-note chord; nothing left sounding.
+    func testRiffFollowsTheHeldChord() {
+        func played(_ notes: [UInt8]) -> Set<UInt8> {
+            var c = Colour(colourID: "gold", type: .riff)
+            c.paramsA.riffRanks = [1, 2, 3, 1, 2, 3, 1, 2]; c.paramsA.riffSteps = 8; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord(notes), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        }
+        let cm = played([60, 63, 67])   // Cm
+        let f = played([65, 69, 72])    // F
+        XCTAssertEqual(cm, Set([60, 63, 67]), "the riff plays Cm's three notes")
+        XCTAssertEqual(f, Set([65, 69, 72]), "the SAME stencil plays F's notes — chord-following, no pitches stored")
+        XCTAssertNotEqual(cm, f, "a different chord → different pitches")
+    }
     func testRatchetThenClosedPassgateIsSilent() {
         let cs = arpColours()
         let rat = ProcessorSlot(type: .ratchet)

@@ -370,6 +370,15 @@ enum SnapshotBuilder {
         if let v = p.utilNudgeLane { out.utilNudgeLane = v.map { clamp($0, -8, 8) } }
         if let v = p.destSlices { out.destSlices = v.map { clamp($0, 0, 3) } }   // DEST MATRIX (Paul 2026-08-22 §5)
         if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice
+        // RIFF (SPEC-riff-processor): resolve the stencil. riffRanks nil ⇒ keeps the default figure. rate → beats.
+        if let v = p.riffSteps { out.riffSteps = clamp(v, 1, 16) }
+        if let v = p.riffRate { out.riffRateBeats = max(0.03125, v.beats) }
+        if let v = p.riffRanks { out.riffRanks = v.map { clamp($0, 0, 8) } }
+        if let v = p.riffOct { out.riffOct = v.map { clamp($0, -1, 1) } }
+        if let v = p.riffAccent { out.riffAccent = v.map { clamp($0, 0, 127) } }
+        if let v = p.riffTie { out.riffTie = v }
+        if let v = p.riffSlide { out.riffSlide = v }
+        if let v = p.riffWrap { out.riffWrap = v }
         if let v = p.rtcMode { out.rtcMode = v }
         if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
         if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }

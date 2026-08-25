@@ -856,6 +856,31 @@ func rtcCoinSize(step: Int, weights: [Int]) -> Int {
     return rtcCoinSizes[n - 1]
 }
 
+/// RIFF (SPEC-riff-processor §1): the note a stencil RANK strikes against the held pool (sorted ascending, cell-filtered).
+/// rank 1 = the lowest held note … N = the highest. A rank BEYOND the held count wraps per `wrap`: FOLD (wrap + octave up,
+/// musical) · CLAMP (the top note) · WRAP (wrap in the same octave). `oct` nudges ±. Returns nil for a REST (rank ≤ 0) or
+/// an empty pool. Zero pitches stored — the chord answers the stencil, so one riff plays in any key. Pure/testable.
+func riffNote(rank: Int, oct: Int, pool: NotePool, for cell: SnapCell, wrap: RiffWrap) -> Int? {
+    riffResolve(rank: rank, oct: oct, n: pool.srcCount(for: cell), wrap: wrap) { Int(pool.srcAscending($0, for: cell)) }
+}
+/// The RIFF rank→note core, over a sorted (ascending) note supply of size `n`. Shared by the direct (cell-filtered) path
+/// and the chain-driver (OMNI composed set) path — `asc(k)` is the k-th note. Non-escaping closure ⇒ no render-path alloc.
+@inline(__always) func riffResolve(rank: Int, oct: Int, n: Int, wrap: RiffWrap, asc: (Int) -> Int) -> Int? {
+    guard rank >= 1, n > 0 else { return nil }
+    let idx0 = rank - 1
+    let note: Int
+    if idx0 < n { note = asc(idx0) }
+    else {
+        let over = idx0 % n, laps = idx0 / n
+        switch wrap {
+        case .fold:  note = asc(over) + 12 * laps
+        case .clamp: note = asc(n - 1)
+        case .wrap:  note = asc(over)
+        }
+    }
+    return note + 12 * oct
+}
+
 // MARK: - WEAVE (Paul 2026-08-07): a rank-clocked polyrhythm driver — each rank ticks on its own clock
 
 /// The tick spacing (beats per tick) for `rank` (0 = bass) at a MODE and BASE clock. LADDER halves per rank
@@ -1054,7 +1079,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, riff, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -1274,6 +1299,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .tutti:     return .tutti                            // SET-level chance — a per-step HOLD transform (SOLO/TUTTI), never a driver
     case .length:    return .length                           // per-slice GATE override — re-articulates a hold; overrides a driver's gates downstream
     case .weave:     return .weave                            // DRIVER — each held note ticks on its own rank-derived clock (polyrhythm)
+    case .riff:      return .riff                             // DRIVER — a stored RANK stencil derived against the held chord (the chord-following 303)
     case .split:     return .split                            // set-membership filter — keep a subset of the chord (a HOLD transform / set filter)
     case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
@@ -1473,6 +1499,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .nudge:     return "arrow.left.and.right"         // UTILITY — time offset
     case .dest:      return "arrow.triangle.branch"        // ROUTING — per-step emitter (the hocket)
     case .muteMatrix: return "speaker.slash"               // ROUTING — per-step part-muting (the gate grid)
+    case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
     }
 }
 

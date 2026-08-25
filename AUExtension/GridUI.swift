@@ -851,6 +851,7 @@ struct ProcessorBox: View {
         case .nudge:     return "slide this chain earlier or later in time"
         case .dest:      return "route each step to a chosen emitter (hocket)"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
+        case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
         }
     }
 
@@ -1264,6 +1265,31 @@ struct ProcessorBox: View {
                     }
                 }
             }
+        case .riff:   // RIFF (SPEC-riff-processor) — THE RANK MATRIX: rows = pool ranks 1–8 · cols = steps · empty column = REST.
+            let steps = max(1, min(16, p.riffSteps ?? 16))
+            let dr = [1, 2, 3, 0, 2, 3, 4, 0, 1, 2, 3, 0, 5, 4, 3, 0]   // the default figure (matches SnapParams)
+            let ranks = p.riffRanks ?? dr
+            heroField("THE STENCIL — tap a rank per step (empty column = rest); the held chord fills it") {
+                VStack(spacing: 2) {
+                    ForEach(Array((1...8).reversed()), id: \.self) { rank in
+                        HStack(spacing: 2) {
+                            Text("\(rank)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).frame(width: 16)
+                            ForEach(0..<steps, id: \.self) { s in
+                                let on = (s < ranks.count ? ranks[s] : 0) == rank
+                                RoundedRectangle(cornerRadius: 3).fill(on ? accent : Color.white.opacity(0.06))
+                                    .frame(maxWidth: .infinity).frame(height: 16)
+                                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(on ? 0.9 : 0.1), lineWidth: on ? 1.5 : 1))
+                                    .contentShape(Rectangle()).onTapGesture {
+                                        setParam { var a = $0.riffRanks ?? dr; while a.count < steps { a.append(0) }; a[s] = (a[s] == rank ? 0 : rank); $0.riffRanks = a }
+                                    }
+                            }
+                        }
+                    }
+                }
+            }
+            row2({ field("STEPS", \.riffSteps) { seg(["8", "16"], sel: steps == 8 ? "8" : "16") { i in setParam { $0.riffSteps = [8, 16][i] } } } },
+                 { field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } })
+            field("RATE", \.riffRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.riffRate ?? .r1_16).rawValue) { i in setParam { $0.riffRate = ArpRate.allCases[i] } } }
         }
     }
 
