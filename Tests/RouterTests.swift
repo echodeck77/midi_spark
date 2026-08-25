@@ -2916,6 +2916,19 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(f, Set([65, 69, 72]), "the SAME stencil plays F's notes — chord-following, no pitches stored")
         XCTAssertNotEqual(cm, f, "a different chord → different pitches")
     }
+    // Paul 2026-08-25 bug repro: a stencil of ALL rank-1, holding C+E, must be a STREAM of C (the lowest held note) —
+    // not an alternation between C and E. Every step resolves rank 1 → asc(0) → the lowest note.
+    func testRiffAllRankOnePlaysOnlyTheLowestNote() {
+        var c = Colour(colourID: "gold", type: .riff)
+        c.paramsA.riffRanks = [1, 1, 1, 1, 1, 1, 1, 1]; c.paramsA.riffSteps = 8; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
+        let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 64]), beats: 2, into: e)
+        assertNothingLeftSounding(e)
+        let notes = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        XCTAssertFalse(notes.isEmpty, "the riff sounds")
+        XCTAssertTrue(notes.allSatisfy { $0 == 60 }, "every rank-1 tick plays the LOWEST held note (C=60), never E(64) — got \(notes)")
+    }
     // EUCLID LINES (§10): up to 8 lines from ONE chord — one ALL line = the single euclid (byte-identical); a second line
     // adds its own pulses (polyrhythm); a NOTE-target line strikes only that pool rank. Nothing left sounding.
     func testEuclidLinesPolyrhythmAndNoteTargets() {
