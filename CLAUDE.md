@@ -159,6 +159,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET COIN — SHAPING THE DICE (2026-08-26, on `main`, `cbee38f`; iOS builds, macOS green incl. fuzz; DEVICE ear
+  owed). Paul ordered it (spec `Docs/SPEC-ratchet-coin-randomness.md`, via the ferry channel). Four additive-Optional COIN
+  additions, all seeded/replay-exact, nil ⇒ byte-identical: **① SIZE WEIGHTS** — a `sliderLane` over the roll sizes
+  2·3·4·6·8 (bar = that size's odds), REPLACING the SIZE MIN/MAX rows; `rtcSizeWeights: [Int]?` + pure `rtcCoinSize`
+  (seeded weighted pick); empty/all-zero ⇒ the LO/HI fallback (byte-identical), the lane defaults from the old LO/HI for
+  display. **② REFIRE GAP 0–4** — after a fire the coin can't fire for N steps. **③ QUOTA FREE|~2|~3|~4** — a rough
+  fires-per-row budget. **④ ODDS FROM FIXED|VELOCITY** — fire-odds scale with the held pool's PEAK velocity (`coinVelFactor`,
+  a bounded no-alloc pool scan). ②③ share `rtcCoinFires` — a BOUNDED DETERMINISTIC SCAN of the coin from the 8-step row
+  origin (gap spaces fires, quota caps them), no accumulated cross-render state ("derived, never accumulated"); FAST PATH
+  (gap=0 & quota=0 & velFactor=1) == `rtcCoinRatchets` byte-identical. Threaded at the one COIN emit site in `emitRatchetModal`.
+  UI: the COIN editor gains the SIZE WEIGHTS lane (+ 2·3·4·6·8 labels) + REFIRE GAP · QUOTA · ODDS FROM. +2 DerivationsTests
+  (weight-pick; gap/quota/velocity + fast-path identity) +1 RouterTest (weights change burst length; quota < FREE across a
+  row) + fuzz randomizer (all four incl. all-zero weights). v1: gap/quota reset per 8-step row (a fire on step 7 doesn't
+  reach step 8 — negligible boundary edge). NEXT (Paul, same session): the GRID (PICK) SELECTOR §2/§3 + its preset corpus.**
 - **▶ HOUSEKEEPING — survey-driven coverage + dead-code + refactor (2026-08-25, on `main`; macOS 876→882 green, iOS
   builds). Three parallel READ-ONLY surveys (coverage gaps · dead code · refactor/efficiency), EVERY finding verified
   against the code before acting. **+6 COVERAGE TESTS (`6ffd3bc`)** closing verified pure-core gaps: `spanLadderBeats`

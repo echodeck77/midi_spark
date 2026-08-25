@@ -89,10 +89,11 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    part's own I/O), the PREGEN CORPUS (bulk background gen → instant DEAL + preset mining; profile the live-roll first).
    Riders NOT ratified: HOLD part = preview · OCCUPIED/EMPTY part-button states. **Plan: `Docs/PLAN-grid-selector-and-
    ratchet-coin.md`** (increments 1→4→2→3 UI, then 5 corpus). Recommended order: after ROTATE-retire or as its own pass.
-   **↳ RATCHET COIN — SHAPING THE DICE** (`SPEC-ratchet-coin-randomness`, filed 2026-08-26; CAPTURED, awaiting Paul's word):
-   four seeded additive-Optional RATCHET-COIN additions — ① SIZE WEIGHTS slider-lane over 2·3·4·6·8 (replaces SIZE LO/HI;
-   5th `sliderLane` consumer) · ② REFIRE GAP 0–4 · ③ QUOTA per-row FREE|~2|~3|~4 · ④ ODDS FROM FIXED|VELOCITY. ①④ contained;
-   ②③ need a pure deterministic per-row SCAN (sequential dep — replay-safe, "derived never accumulated"). Plan in the same doc.
+   **↳ ✅ RATCHET COIN — SHAPING THE DICE — DONE (2026-08-26, Paul ordered it):** all four seeded additive-Optional COIN
+   additions — ① SIZE WEIGHTS slider-lane over 2·3·4·6·8 (`rtcSizeWeights` + `rtcCoinSize`; replaces SIZE LO/HI, empty ⇒
+   LO/HI byte-identical) · ② REFIRE GAP 0–4 · ③ QUOTA FREE|~2|~3|~4 · ④ ODDS FROM FIXED|VELOCITY. ②③ = the bounded
+   deterministic `rtcCoinFires` per-row SCAN (gap spaces, quota caps; "derived never accumulated", v1 resets per row);
+   ④ = `coinVelFactor` (pool peak vel). +3 tests, fuzz-hammered, iOS builds. v1: gap/quota reset per 8-step row.
 5. **THE MATRIX/LANE CANDIDATES (ratified §5):** **✅ CHANCE PATTERN + ✅ TIMING LANE — DONE (2026-08-25).** CHANCE =
    the odds SLIDER LANE (SINGLE|PATTERN, step-aware `effectiveProbability`). TIMING = NUDGE FIXED|LANE (per-column ±8/16
    pocket; step = cell column). Together they delivered the SLIDER LANE species fully: `modStepBars`→shared `sliderLane`
