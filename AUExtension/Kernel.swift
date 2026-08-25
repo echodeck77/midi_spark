@@ -172,6 +172,13 @@ final class Kernel {
     private var renderWindowBeats = 0.0             // this render block's beat span — the REPLAY look-ahead (block-latency compensation)
     private var prevRenderBeatPos = 0.0             // last render's beat — to spot a transport stop→start / seek / loop discontinuity
     private var prevRenderPlaying = false           // …so the DoorRing history can be cleared before it goes non-monotone
+    // FREE-RUN CLOCK (Paul 2026-08-25): when the HOST transport is STOPPED and an effective note is held, the plugin runs
+    // its OWN beat so the published scene plays (note-triggered play). Enabled by the UI; a persistent accumulator like the
+    // note tracker (a transport is inherently accumulated — the host's beatPos is too). Never advances while the host plays.
+    private var freeRunEnabled = false
+    private var freeRunActive = false
+    private var freeRunBeat = 0.0
+    func setFreeRunEnabled(_ b: Bool) { freeRunEnabled = b }   // main-thread bool write; a torn read is benign (one late block)
     private var recordBeatBase = 0.0, recordBps = 0.0, recordWinStart: Int64 = 0   // beat mapping for handleIncoming's ring recording
     private var recordPlaying = false
     // Buffers for the REPLAY pool fill (fixed, no render-path alloc).
@@ -826,13 +833,31 @@ final class Kernel {
         reelTap.recording = playing && !reelFrozen
         reelTap.base = beatPos; reelTap.beatsPerSample = reelBps; reelTap.cycleBeats = reelCycleBeats; reelTap.windowStart = reelWinStart
 
+        // FREE-RUN CLOCK: host stopped + an effective note held (live OR latched — latch/hold/keys honoured) ⇒ advance the
+        // plugin's own beat and drive the scene as if playing; stop + FLUSH when the pool empties (no stuck notes). The
+        // router sees a start-edge (scene reset) on begin. Byte-identical while the host plays (the guard is `!playing`).
+        var rPlaying = playing, rBeat = beatPos
+        if freeRunEnabled && !playing {
+            let effHeld = pool.count > 0 || (0..<4).contains { (effectiveLatchMask & (1 << UInt8($0))) != 0 && $0 < latchedPools.count && latchedPools[$0].count > 0 }
+            if effHeld {
+                if !freeRunActive { freeRunActive = true; freeRunBeat = 0 }
+                freeRunBeat += renderWindowBeats
+                rPlaying = true; rBeat = freeRunBeat
+            } else if freeRunActive {
+                freeRunActive = false; freeRunBeat = 0
+                router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)
+            }
+        } else if freeRunActive {   // host started, or free-run disabled mid-run → stop + flush the free-run notes
+            freeRunActive = false; freeRunBeat = 0
+            router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)
+        }
         if reel.state == .replaying, reel.hasLoop {               // REPLACE the live output with the recorded loop
             reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reel.loopCycle,   // loop at the SELECTED pass's own length, not the live rate
                         beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
         } else {
         // ---- hand off to the router (columns, arp, emission, note tracker) — output through the recording tap ----
         router.process(box: box, pool: pool,
-                        playing: playing, beatPos: beatPos, tempo: tempo,
+                        playing: rPlaying, beatPos: rBeat, tempo: tempo,
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
                         frameCount: frameCount, audition: audition, forceColumn: Int(soloColumn), laneMask: laneMask,

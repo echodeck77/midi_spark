@@ -25,6 +25,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     /// Live kernel diagnostics for the debug UI (polled; torn reads are fine for display).
     func kernelDiagnostics() -> KernelDiag { kernel.diag }
+    // FREE-RUN CLOCK (Paul 2026-08-25): let the plugin run its own beat when the host transport is stopped + a note is held.
+    func setFreeRunEnabled(_ b: Bool) { kernel.setFreeRunEnabled(b) }
     #if DEBUG
     func chaosInjectMIDI(_ status: UInt8, _ d1: UInt8, _ d2: UInt8) { kernel.chaosEnqueue(status, d1, d2) }   // CHAOS SIMULATED source
     func chaosSetActive(_ on: Bool) { kernel.chaosActive = on }                                               // gate the render-side oracle dump

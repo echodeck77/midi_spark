@@ -983,6 +983,7 @@ struct DiagView: View {
             // 2026-08-23, so an engaged chain voice is SILENT until the user holds a note. Engaging on start-up just
             // arms the chain as the workshop voice so a held chord sounds the selected machine straight away.
             if activeTab == .build { buildSeedCastIfNeeded(); buildRequestWorkshopVoice(.chain) }
+            au?.setFreeRunEnabled(true)   // FREE-RUN (Paul 2026-08-25): the plugin drives its own clock on a held note when the host is stopped
         }
         .onDisappear { uiAppeared = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
