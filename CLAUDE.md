@@ -159,6 +159,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ HOUSEKEEPING — survey-driven coverage + dead-code + refactor (2026-08-25, on `main`; macOS 876→882 green, iOS
+  builds). Three parallel READ-ONLY surveys (coverage gaps · dead code · refactor/efficiency), EVERY finding verified
+  against the code before acting. **+6 COVERAGE TESTS (`6ffd3bc`)** closing verified pure-core gaps: `spanLadderBeats`
+  ×2/×4(16/32) multi-bar branches (never reached by 1-bar Router tests) · `glideSynthCCTime` beats→CC5 + ceiling ·
+  `effectiveProbability` PATTERN (rotated slice, step mod-8 incl. negative rotate, short-array fallback, SINGLE-ignores-
+  step) · MUTE-composes-over-DEST · EUCLID PICK HIGH + RANDOM (replay-exact/in-pool). **DEAD-CODE + REFACTOR (`48d636f`,
+  net −21 lines):** removed grep-verified zero-ref symbols — PURE: `SnapParams.burstRateBeats` (write-only),
+  `SnapshotBox.rowStepBeats`/`rowLen` STORED props (render reads resolved `rowStep`/`rowLength`; raw arrays stay as init
+  params), `Receiver.rangeIsFull`, `ModStepSpan.barMultiple`; AU/KERNEL: `uiDocument`/`restoreDocument`, `clearEditSolo`,
+  `setReceiverLatchAdd`/`setReceiverLatchPiano` (door-sheet redesign routes via `setDoorMode`), the whole receiver
+  velocity-mark feed (`pollReceiverMarks`/`drainReceiverMarks`/`recvMarkVel`/`recvMarkCount` + write site). REFACTOR
+  (byte-identical): `chopMask` now finds the last DEST + last MUTE in ONE bounded scan (was two passes/note); fixed 2
+  stale "paramsB merged over paramsA" comments (morph long removed). DELIBERATELY LEFT (flagged): the `applyInternalMods`
+  COW alloc (feature-gated, invasive), `NotePool.reset` chan/cbl micro-clear (behaviour-sensitive), and all reserved/
+  decode-zombie/test-covered/held-for-rebuild inert code (per prior-pass policy). Router.swift came back dead-code-clean.**
 - **▶ MUTE MATRIX — the per-step PART-MUTING processor, completing the §5 matrix/lane family (2026-08-25, on `main`; iOS
   builds, macOS green incl. fuzz; DEVICE ear owed). The last ratified §5 matrix candidate. A new note-transparent
   `ProcessorType.muteMatrix` (append-only ID `"MUTEMATRIX"`): an **A/B/C/D × 8 MULTI-SELECT grid** — each cell mutes one
