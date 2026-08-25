@@ -3424,11 +3424,14 @@ final class Router {
             result = chopBusMask(base, main: (cell.chopMain >> UInt8(sl)) & 1 == 1, alt: (cell.chopAlt >> UInt8(sl)) & 1 == 1,
                                  mute: (cell.chopMute >> UInt8(sl)) & 1 == 1, altMask: cell.chopAltMask)
         } else { result = base }
-        // MUTE MATRIX (Paul 2026-08-25 §5): remove the muted emitters for this onset-slice. If it empties the mask the note
-        // is dropped for this slice (emitChop / emitColumnHolds skip a 0 mask → no voice opens → no note-off owed → no stuck note).
+        // MUTE MATRIX (Paul 2026-08-25 §5): remove the muted emitters for this step, indexed by the GRID COLUMN (0…7) —
+        // NOT the chop sub-slice — so it matches CHANCE PATTERN / TIMING LANE: a MUTE colour across a ROW mutes the drawn
+        // columns (a hold or a normal-rate driver only ever touches sub-slice 0, so sub-slice muting looked inert). If it
+        // empties the mask the note is dropped (emitChop / emitColumnHolds skip a 0 mask → no voice opens → no stuck note).
         if muteProc >= 0 {
             let mm = cell.procs[muteProc].muteSlices
-            result &= ~UInt8(sl < mm.count ? max(0, min(15, mm[sl])) : 0)
+            let col = ((Int((columnStart(m, S) / S).rounded()) % 8) + 8) % 8   // the grid column, like CHANCE PATTERN's step
+            result &= ~UInt8(col < mm.count ? max(0, min(15, mm[col])) : 0)
         }
         return result
     }

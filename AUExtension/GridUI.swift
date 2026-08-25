@@ -1229,7 +1229,7 @@ struct ProcessorBox: View {
                     set: { i, e in setParam { var s = $0.destSlices ?? base; while s.count < 8 { s.append(0) }; s[i] = e; $0.destSlices = s } })
             }
         case .muteMatrix:   // ROUTING (Paul 2026-08-25 §5) — the MUTE MATRIX: per-step PART-MUTING (A/B/C/D × 8 multi-select)
-            field("MUTE PER STEP — tap to silence an emitter on that step") {
+            field("MUTE PER COLUMN — tap to silence an emitter on that grid column") {
                 VStack(spacing: 3) {
                     ForEach(0..<4, id: \.self) { e in
                         HStack(spacing: 3) {

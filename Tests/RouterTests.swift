@@ -204,6 +204,27 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(e.ons.contains { $0.cable == 1 }, "the A-routed slices are muted → nothing on emitter A")
         XCTAssertTrue(e.ons.contains { $0.cable == 2 }, "the B-routed slices still play on emitter B")
     }
+    // MUTE MATRIX indexes by the GRID COLUMN (Paul 2026-08-25 — the "does nothing" fix): a MUTE colour across a ROW mutes
+    // the drawn columns. Muting emitter A on columns 0–3 only → A still plays (from columns 4–7); muting it everywhere → none.
+    func testMuteMatrixMutesByColumnAcrossARow() {
+        func aCount(_ mask: [Int]) -> Int {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mute = ProcessorSlot(type: .muteMatrix); mute.params.muteSlices = mask
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) {
+                for col in 0..<8 { $0.cells[col][0] = { var c = Cell(colourID: "gold", buses: [.a, .b]); c.processors = [arp, mute]; return c }() }
+            }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count   // emitter A
+        }
+        let none = aCount(Array(repeating: 0, count: 8))                 // nothing muted
+        let half = aCount([1, 1, 1, 1, 0, 0, 0, 0])                      // A muted on columns 0–3 only
+        let all  = aCount(Array(repeating: 1, count: 8))                 // A muted everywhere
+        XCTAssertEqual(all, 0, "A muted on every column → no A at all")
+        XCTAssertGreaterThan(half, 0, "A still plays on the unmuted columns 4–7 (per-column, not sub-slice)")
+        XCTAssertLessThan(half, none, "muting columns 0–3 drops A there")
+    }
     // TIMING LANE (Paul 2026-08-22 §5): NUDGE's LANE mode — the cell's COLUMN picks a per-step time offset (the pocket).
     func testTimingLaneNudgesTheOnsetByColumn() {
         func firstOn(lane: [Int]?) -> Int64 {
