@@ -159,6 +159,35 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CHAIN EDIT — DRAG-TO-REORDER + COPY/PASTE (2026-08-25, on `main`, `7f25367`+`50a6316`; iOS builds; UI-only, DEVICE-eye
+  owed). **DRAG-TO-REORDER (`7f25367`):** Paul: "drag and drop to move processor boxes to different parts of the chain." A
+  populated chain box is now a drag SOURCE — the slot under the finger rings cyan, release moves the processor there
+  (`buildChainMoveSlot` = an array move on the colour's chain → composeChainSet folds it in the new order; colour-scoped +
+  undoable via `buildApplyChain`). Custom finger-track (`simultaneousGesture(DragGesture, minDist 14, coordinateSpace
+  "chainBlock")` — native `.onDrag` doesn't survive the AU host; the house pattern) so a plain TAP still opens the editor; a
+  floating ghost follows the finger, the source recedes to 0.3. Empty "+" boxes aren't sources; target clamped to the
+  populated range. **COPY/PASTE (`50a6316`):** a COPY | PASTE row under CLEAR in the left-column verb stack — COPY grabs the
+  selected colour's chain into `buildChainClipboard`; PASTE mints a fresh colour carrying it on the first EMPTY row (a new
+  position) + selects it; PASTE dimmed/inert until the buffer is non-empty. The stack's `fill:true` auto-shrinks every
+  button to fit the same span. Engine untouched both.**
+- **▶ I/O AUDIT — glide made honest · door-BYPASS retired · io-principles.md (2026-08-25, on `main`, `eb91988`+`924fde3`+
+  `e117641`; iOS builds, macOS 891 green incl. fuzz; DEVICE ear/eye owed). Design ferry `REQUEST-io-principles.md` (symptom:
+  input/notes flowing without lighting the strips). Ran a 3-way read-only audit (emission · input · auditions); Paul steered
+  the scope (NOT the grand "every emission must meter" refactor — reel replay is a DECLARED exception, not a bug). **GLIDE
+  (`eb91988`):** it emitted its note-on via a direct `openVoice` (bypassing the metered `emitArtic`/`emitOneBus`), so it
+  sounded WITHOUT lighting the strip — the tell that GLIDE is TERMINAL (mono voice + continuous bend; nothing downstream is
+  fed). Ruling: keep terminal, make honest — `openVoice` gained an opt-in `meter` flag (bumps the §6a accumulators; set only
+  at glide's note-on sites, no double-count) + an editor "TERMINAL — a processor after it is not fed" caption. +1 RouterTest
+  (`testGlideLightsTheEmitterMeter`). **DOOR-BYPASS RETIRED (`924fde3`):** `reconcileBypass` served TWO features on one
+  mechanism — the door-level BYPASS toggle (unused) + the no-machine LIVE WIRE (wanted). Removed the door-toggle half
+  (`Receiver.bypass`/`bypassDest`, `SnapshotBox.receiverBypassMask`/`Dest`, the `effectivePool` branch, AU/VC/ChaosDriver
+  refs, Kernel routability strings); kept the wire (`passEmitterMask`) + the immortal `bypassRecv` machinery. Codable
+  synthesized ⇒ old docs' keys decode away. The door-bypass RouterTests were re-pointed to a `wireBox` (no-machine cell) so
+  range/solo/master-mute/release/stop coverage now guards the SURVIVING wire path. **DEFERRED (flagged):** the dead
+  audition/preview renderers (`auditionRender`/`previewStopped/Playing` — `previewMode` threads ~15 hot-path guards, zero
+  functional gain); receiver strip coarseness (armed-playback modes light only the 4Hz held bar, not the 30fps flash).
+  **DELIVERABLE:** `Docs/io-principles.md` (the spine + the six principles amended to code truth + the declared exceptions).
+  ALSO fixed a latent emblem collision (`e117641`, TAP reused DEST's glyph → the one suite failure).**
 - **▶ THE 4-FEATURE SEQUENCE — E-BRUSH · EUCLID LINES · TAP · ROTATE RETIRE (2026-08-25, on `main`; iOS builds, macOS
   green incl. fuzz; DEVICE eye/ear owed). Paul's order "e-brush, euclid lines, ten tap, then retired rotate." **E-BRUSH
   (`a17efe0`, UI-only):** `EBrushButton` (an "ε" button + K/rotate popover, `apply(euclidPattern)`) wired into the SHARED
