@@ -790,13 +790,15 @@ extension DiagView {
         let gridW = size.width - 2 * outerPad
         let gridH = size.height - 2 * outerPad - headerH - 10
         let rowH = max(16, (gridH - 7 * gap) / 8)                               // 8 equal rows fill the screen height
-        let cellW = (gridW - 7 * gap) / 8
+        let cellSize = rowH                                                      // SQUARE pass cells (Paul 2026-08-26 #1) — height stays, width = height
+        let passes = reelPassNumbers.filter { $0 >= 0 }                          // NON-EMPTY passes ONLY, contiguous — no gaps (Paul #2)
         return ZStack {
             Color(red: 0.055, green: 0.065, blue: 0.085).ignoresSafeArea()      // FULL-SCREEN opaque backdrop
             VStack(spacing: 10) {
                 HStack {
                     Text("REEL · PASS BROWSER").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
                     Spacer()
+                    buildReelStepBtn(back: true); buildReelStepBtn(back: false)   // PREV / NEXT — step to the earlier/later non-empty pass (Paul 2026-08-26 #4)
                     Button { buildReelExport() } label: {
                         Text(reelSelPassNo >= 0 ? "SAVE PASS \(reelSelPassNo + 1)" : "SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)   // SAVE carries its scope (design §1.3)
                             .foregroundColor(reelSelPassNo >= 0 || !reelPassNumbers.filter { $0 >= 0 }.isEmpty ? .black : buildDim)
@@ -808,8 +810,14 @@ extension DiagView {
                     }
                 }.frame(maxWidth: .infinity).frame(height: headerH)
                 VStack(spacing: gap) {
-                    ForEach(0..<4, id: \.self) { r in                            // TOP 4 rows — the passes
-                        HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in buildReelPassCell(r * 8 + c, w: cellW, h: rowH) } }
+                    ForEach(0..<4, id: \.self) { r in                            // TOP 4 rows — the passes (SQUARE, LEFT-ALIGNED, non-empty only)
+                        HStack(spacing: gap) {
+                            ForEach(0..<8, id: \.self) { c in
+                                let idx = r * 8 + c
+                                buildReelPassCell(idx < passes.count ? passes[idx] : -1, w: cellSize, h: rowH)
+                            }
+                            Spacer(minLength: 0)                                 // hug the left
+                        }
                     }
                     buildReelRollSection(width: gridW, laneH: rowH)              // BOTTOM 4 rows — A/B/C/D piano-roll lanes + playhead
                 }
@@ -819,21 +827,32 @@ extension DiagView {
         .onAppear { au?.reelSetBrowsing(true) }                                   // freeze the history tape while browsing
         .onDisappear { au?.reelStopReplay(); au?.reelSetBrowsing(false) }         // close → stop any replay + resume normal play, record again next pass
     }
+    // PREV / NEXT (Paul 2026-08-26 #4): step the selection to the earlier/later NON-EMPTY pass (the roll + wash follow).
+    @ViewBuilder private func buildReelStepBtn(back: Bool) -> some View {
+        let enabled = reelPassNumbers.contains { $0 >= 0 }
+        Button { buildReelStepPass(back ? -1 : 1) } label: {
+            Image(systemName: back ? "chevron.left" : "chevron.right").font(.system(size: 14, weight: .heavy))
+                .foregroundColor(enabled ? buildCyan : buildDim).frame(width: 34, height: 30)
+                .background(RoundedRectangle(cornerRadius: 6).fill(buildCell)).overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
+        }.disabled(!enabled)
+    }
+    private func buildReelStepPass(_ dir: Int) {
+        let passes = reelPassNumbers.filter { $0 >= 0 }
+        guard !passes.isEmpty else { return }
+        let cur = passes.firstIndex(of: reelSelPassNo) ?? (dir > 0 ? -1 : passes.count)   // no selection → step in from before-first / after-last
+        let idx = max(0, min(passes.count - 1, cur + dir))
+        au?.reelSelectPass(passes[idx])
+    }
     // The 4 piano-roll lanes + a shared PLAYHEAD that sweeps while a pass replays (notes light as it crosses them).
     private func buildReelRollSection(width: CGFloat, laneH: CGFloat) -> some View {
-        // COLLAPSE EMPTY LANES (design §1.1): a lane with no events shrinks to a thin labelled strip; the active lanes
-        // share the freed height (a single-emitter session gives lane A ~4× the pitch resolution — the common case).
-        let active = (0..<4).filter { lane in reelRoll.contains { Int($0.cable) == lane + 1 } }
-        let thin: CGFloat = 16
-        let total = laneH * 4                                                     // the four lanes' combined height
-        let activeH = active.isEmpty ? laneH : max(thin, (total - CGFloat(4 - active.count) * thin) / CGFloat(max(1, active.count)))
-        func heightFor(_ lane: Int) -> CGFloat { active.isEmpty ? laneH : (active.contains(lane) ? activeH : thin) }
+        // LANES DO NOT COLLAPSE (Paul 2026-08-26): all four emitter lanes render at FULL height whether populated or not —
+        // stable geometry (reverses the earlier collapse-empty-lanes fix; device word outranks).
         return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reelState != 2)) { tl in
             let phase = reelPlayheadPhase(tl.date)                                // 0…1 across the pass, or nil (not replaying)
             VStack(spacing: 0) {
                 ForEach(0..<4, id: \.self) { lane in
                     if lane > 0 { Rectangle().fill(Color.white.opacity(0.22)).frame(width: width, height: 2) }   // divider between the four outputs
-                    buildReelLane(lane, width: width, height: heightFor(lane), phase: phase)
+                    buildReelLane(lane, width: width, height: laneH, phase: phase)
                 }
             }
             .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(reelSelPassNo >= 0 ? 0.05 : 0)))   // SELECTION WASH (design §1.2) — neutral ink BENEATH the hued notes; links the cyan chip to the roll
@@ -852,8 +871,7 @@ extension DiagView {
     }
     // One pass cell. Populated → shows its 1-based pass number; the pinned/replaying pass lights cyan. Tap = select+replay,
     // or (if it's already the replaying pass) stop and resume live.
-    @ViewBuilder private func buildReelPassCell(_ index: Int, w: CGFloat, h: CGFloat) -> some View {
-        let pass = index < reelPassNumbers.count ? reelPassNumbers[index] : -1
+    @ViewBuilder private func buildReelPassCell(_ pass: Int, w: CGFloat, h: CGFloat) -> some View {
         let sel = pass >= 0 && pass == reelSelPassNo
         let playing = sel && reelState == 2
         RoundedRectangle(cornerRadius: 3)
