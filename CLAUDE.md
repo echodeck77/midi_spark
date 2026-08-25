@@ -178,9 +178,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   design wrinkle) · **21 DEFAULTS-RECEDE** (per-control is-default plumbing across ~50 controls — a big mechanical pass).
   **E (`e773fa5`) TWO-COLUMN** (rule 6): `row2` pairs the short couples (RATCHET SIZE·STRUM·ECHO·MOD·LENGTH·WEAVE·GLIDE) —
   halves the tall cards. **F batch 1 (`bb378b2`):** 30 CC-picker (MOD CC → numPair named-CC format) · 4/22 double-tap-to-
-  zero (bipolarSlider) · 9 teach-lines (CHANCE·NUDGE) · 18 lane-readout-at-finger. **A–F ALL LANDED** (D partial 8/15/23;
-  16/21 deferred; F-remaining = the infrastructure-heavy 17 ideas, listed in pending-tasks). Device-approved A–E on glass;
-  D/F device-eye owed. Plan: `Docs/PLAN-presentation-redesign.md`.**
+  zero (bipolarSlider) · 9 teach-lines (CHANCE·NUDGE) · 18 lane-readout-at-finger · **21 DEFAULTS-RECEDE (`90c105e`)** —
+  a keypath-`field` overload dims at-default controls vs ONE static `ColourParams()` snapshot (~45 fields, no per-render
+  cost). **16 span-bracket = left as-is (Paul's call).** **A–F ALL LANDED** (D 8/15/23); F-remaining = the
+  infrastructure-heavy ~16 ideas (truth-strips/haptics/macro-flow/overlays), listed in pending-tasks. Device-approved
+  A–E on glass; D/F device-eye owed. Plan: `Docs/PLAN-presentation-redesign.md`.**
 - **▶ DEST MATRIX — the per-step emitter hocket (ratified §5, routing-class) (2026-08-25, on `main`; iOS builds, macOS
   green incl. fuzz; DEVICE ear owed). The first STATE-MATRIX §5 candidate + the first NEW routing-class processor. A new
   note-transparent `ProcessorType.dest` (append-only ID): an 8-slice matrix (`destSlices: [Int]?`, 0=A…3=D) picks WHICH

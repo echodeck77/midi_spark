@@ -56,7 +56,9 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     10 long-press-chip-explain (per-enum text) · 12 tap-value big-picker overlay · 14 hold-to-accelerate · 17 result-ghosting ·
     19 pinch-lane · 20 lane-header-mute · 24 touch→OUT-strip diff (needs truth strips) · 25 conditional-animate-in ·
     26 long-press=bind-macro (macro flow) · 27 sticky-hero · 28 section-anchor-chips · 31 keypad-overlay · 32 hero-glyph
-    thumbnails. Plus the deferred **16 span-bracket** (multi-bar design) + **21 defaults-recede** (per-control plumbing).
+    thumbnails. **✅ 21 DEFAULTS-RECEDE — DONE (`90c105e`):** keypath-`field` overload vs one static `ColourParams()`
+    snapshot dims ~45 at-default fields (no per-render alloc, one Equatable compare — Paul's low-cost constraint met).
+    **16 span-bracket = LEFT AS-IS** (Paul's call — the ×2/×4 multi-bar look isn't worth reworking now).
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
