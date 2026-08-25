@@ -3548,6 +3548,11 @@ final class Router {
         // mask — REST/TIE on non-hits, MARCH (walk through rests) / WAIT (advance on hits), ROTATE. Resolved once.
         let mN = colour.a.arpMaskN, mK = colour.a.arpMaskK, mRot = colour.a.arpMaskRotate
         let mActive = mK < mN, mTie = colour.a.arpMaskGap == .tie, mWait = colour.a.arpMaskWalk == .wait
+        // RANDOM is FREE-running (Paul 2026-08-25 fix): a random walk gains nothing from RETRIG's per-column reset — it just
+        // re-anchors + repeats the same shuffle every column (so RANDOM ANCHOR pedalled the low note instead of "anchor then
+        // shuffle until the next pool cycle"). Using the free `tick` makes the anchor fire once per pool traversal + the
+        // shuffle never repeat. Other patterns keep their NEW-CHORD phase.
+        let arpIsRandom = Int(colour.a.patternIndex) < ArpPattern.allCases.count && ArpPattern.allCases[Int(colour.a.patternIndex)] == .random
 
         iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
@@ -3562,9 +3567,9 @@ final class Router {
                     offT = onTime + Int64((Double(ties + 1) * arpBeats * gate / beatsPerSample).rounded())
                 }
             }
-            let pIdx = maskWalk ?? phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
+            let pIdx = maskWalk ?? (arpIsRandom ? tick : phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
                                   cycleBeats: cycleBeats, phase: colour.a.phase,
-                                  runStartColumn: cell.runStartColumn)
+                                  runStartColumn: cell.runStartColumn))
             let base: Int
             let srcVel: UInt8   // velocity inherited from the picked source note (user 2026-08-09)
             if chainDriver >= 0 {

@@ -2979,6 +2979,20 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(tie.span, rest.span, "a TIE note is LONGER than a rest-gated one (it holds through the gap)")
         XCTAssertNotEqual(wait.notes, rest.notes, "WAIT re-spaces the walk (advances only on hits) vs MARCH (holes punched)")
     }
+    // RANDOM ANCHOR (Paul 2026-08-25 fix): on a FREE index, RANDOM ANCHOR LOW opens each pool cycle (span ticks) on the
+    // LOWEST held note, then the rest shuffle — NOT a stream of the low note (the RETRIG per-column reset used to pedal it).
+    func testRandomAnchorOpensEachPoolCycleThenShuffles() {
+        let pool = NotePool(); for n: UInt8 in [60, 64, 67, 71] { pool.noteOn(n, velocity: 100, channel: 0) }; pool.rebuildSorted()   // C E G B, C lowest
+        let randomIdx = UInt8(ArpPattern.allCases.firstIndex(of: .random)!)
+        var lowAtCycleStart = 0, cycles = 0, nonLowElsewhere = 0
+        for tick in Int64(0)..<32 {   // the FREE tick the Router now passes for RANDOM
+            let note = arpPick(phaseIndex: tick, octaves: 1, pattern: randomIdx, pool: pool, filter: 0, randomAnchor: 1).note   // 1 = LOW
+            if tick % 4 == 0 { cycles += 1; if note == 60 { lowAtCycleStart += 1 } }
+            else if note != 60 { nonLowElsewhere += 1 }
+        }
+        XCTAssertEqual(lowAtCycleStart, cycles, "every pool-cycle start (tick % span == 0) opens on the LOW anchor (60)")
+        XCTAssertGreaterThan(nonLowElsewhere, 0, "the non-anchor steps shuffle to OTHER notes — not a stream of low")
+    }
     // TAP (AcceptanceCriteria-tap-processor): a mid-chain SEND — [ARP→TAP(B)] emits a copy of the stream to wire B AND
     // passes it on to wire A. No TAP → B silent; TAP to B → B carries the same notes as A; MUTE → B silent. None stuck.
     func testTapSendsACopyToAParallelWire() {
