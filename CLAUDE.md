@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ HOUSEKEEPING — survey-driven coverage + dead-code + refactor (2026-08-25, on `main`; macOS 894→897 green incl. fuzz,
+  iOS builds clean). Three parallel READ-ONLY surveys (coverage gaps · dead code · refactor/efficiency), EVERY finding
+  re-verified against the code before acting (one proposed coverage gap — harmonize de-dup/clamp — was a FALSE POSITIVE,
+  already covered by testHarmonizeDeDupesAndClampsRange; skipped). **+4 COVERAGE TESTS (`8acb3de`):** the arp EUCLID MASK
+  helpers by EXACT value (euclidMaskHit/HitsBefore/TieRun — the Router test only asserts relative facts) · rtcCoinFires
+  PER-ROW reset (step ≥ 8 fresh quota) + gap∧quota + negative-step · omniRead keeps the vel-window while skipping the door
+  filter (the narrow branch) · euclid LINES note-TARGET past the chord = silent. **REFACTOR/EFFICIENCY (`793ebed`, byte-
+  identical):** `lengthColumnEventsInto` — a no-alloc `…Into` variant + a reused `lenEventBuf` (the LAST render-path pure
+  helper that heap-allocated a growing array — closes the invariant-3 gap; array wrapper kept for tests); 3 inline
+  vel-clamps → `clampVel`; 2 stale door-BYPASS comments corrected. DEFERRED: the 20-site OMNI-read `srcCount(filter:0)`
+  dedup (lowest value). **DEAD CODE (`b4f4d4d`, ~20 symbols, −46 lines):** grep-reverified zero-ref removed-feature residue —
+  `flowVariation`/`VelMark`/`SoundMark`/`ChopRow`/`routeFoci`/`ladderArmedSet`/`brushColour`+`setBrushTranspose`, the
+  `setThru`→`setThruReceiver` chain, `toggleMasterMute`/`setMasterVel`, the door-redesign AU orphans (`setReceiverEnabled`/
+  `setReceiverControllerMask`/`setReceiverMpeMerge`/`uiDoorMode`/`uiDoorFileName`/`uiReplayPasses`), `twinPositions`+
+  `twinTargets`. KEPT per the survey (flagged for Paul, not blind-deleted): `GridMacroBand.swift`, `saveCellToLibrary`,
+  `buildGridSelSummary` (BuildPage/held-for-rebuild); the reserved macro/colour-chain APIs; the RouterTests-exercised feeds;
+  `hasDuplicateVoices`. process()/emitOneBus decomposition + applyInternalMods/NotePool.reset correctly LEFT (too risky).**
 - **▶ FREE-RUN CLOCK + euclid mask + grid-selector §3.2/§3.3 + fixes (2026-08-25, on `main`; iOS builds, macOS 894 green
   incl. fuzz; DEVICE ear/eye owed). A long device-driven batch. **ARP EUCLID MASK (`8ea8856`, engine):** ONE Bjorklund
   K-of-N mask on the arp — HITS ◀K▶ of ◀N▶ (K=N ⇒ OFF, byte-identical) · GAPS REST|TIE · WALK MARCH|WAIT · ROTATE; pure
