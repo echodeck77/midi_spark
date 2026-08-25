@@ -1,7 +1,7 @@
 //  SnapshotBuilder.swift
 //  MidiSpark — document → SnapshotBox, on the UI thread (spec v2.8 §7).
 //  The builder resolves everything the render thread must never compute:
-//  paramsB merged over paramsA, enum → index mapping, LEGATO run starts.
+//  Optional → concrete params, enum → index mapping, LEGATO run starts. (The A/B morph layer is gone — paramsB is decode-only.)
 
 import Foundation
 
@@ -413,7 +413,6 @@ enum SnapshotBuilder {
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
         if let v = p.burstMode { out.burstMode = v }
         if let v = p.burstSlices { var s = v; while s.count < 8 { s.append(.rest) }; out.burstSlices = Array(s.prefix(8)) }
-        if let v = p.burstRate { out.burstRateBeats = max(0.03125, v.beats) }
         if let v = p.burstRotate { out.burstRotate = ((v % 8) + 8) % 8 }
         if let v = p.burstChance { out.burstChance = clamp(v, 0, 1) }
         if let v = p.cascadeSpan { out.cascadeSpan = v }

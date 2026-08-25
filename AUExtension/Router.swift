@@ -3408,8 +3408,13 @@ final class Router {
         // DEST MATRIX (Paul 2026-08-22 §5): a routing-class processor OVERRIDES the emitter per onset-slice — the hocket
         // painted (CHOP's dest row generalised). It wins over CHOP (DEST is the router). Cheap per-onset scan (≤8 procs).
         let sl = Int(chopSlice(m, columnBeats: S))
-        var destProc = -1
-        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .dest { destProc = j }   // last DEST wins
+        // ONE bounded scan (≤8 procs) for the last DEST + the last MUTE — a proc is never both, so the else-if keeps each
+        // "last wins" independently. DEST is the router (overrides CHOP); MUTE (§5) composes on top, removing emitters.
+        var destProc = -1, muteProc = -1
+        for j in 0..<cell.procs.count where !cell.slotBypass[j] {
+            let t = cell.procs[j].type
+            if t == .dest { destProc = j } else if t == .muteMatrix { muteProc = j }
+        }
         var result: UInt8
         if destProc >= 0 {
             let d = cell.procs[destProc].destSlices
@@ -3419,11 +3424,8 @@ final class Router {
             result = chopBusMask(base, main: (cell.chopMain >> UInt8(sl)) & 1 == 1, alt: (cell.chopAlt >> UInt8(sl)) & 1 == 1,
                                  mute: (cell.chopMute >> UInt8(sl)) & 1 == 1, altMask: cell.chopAltMask)
         } else { result = base }
-        // MUTE MATRIX (Paul 2026-08-25 §5): per-step PART-MUTING — remove the muted emitters for this onset-slice (last
-        // MUTE wins; composes ON TOP of DEST/CHOP). Note-transparent. If it empties the mask the note is dropped for this
-        // slice (emitChop / emitColumnHolds skip a 0 mask → no voice opens → no note-off owed → no stuck note).
-        var muteProc = -1
-        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .muteMatrix { muteProc = j }
+        // MUTE MATRIX (Paul 2026-08-25 §5): remove the muted emitters for this onset-slice. If it empties the mask the note
+        // is dropped for this slice (emitChop / emitColumnHolds skip a 0 mask → no voice opens → no note-off owed → no stuck note).
         if muteProc >= 0 {
             let mm = cell.procs[muteProc].muteSlices
             result &= ~UInt8(sl < mm.count ? max(0, min(15, mm[sl])) : 0)

@@ -391,15 +391,6 @@ final class Kernel {
         for i in 0..<4 { peak[i] = inputPeak[i]; inputPeak[i] = 0; events[i] = inputEvents[i]; inputEvents[i] = 0; channels[i] = inputChannelMask[i]; inputChannelMask[i] = 0 }
         return (peak, events, channels)
     }
-    // item 4 VELOCITY MARKS (input side): per receiver, recent note-on velocities since the last poll (input
-    // has no Colour → the UI tints them the strip's identity hue). Bounded to 8 per poll cycle.
-    private var recvMarkVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 8), count: 4)
-    private var recvMarkCount = [Int](repeating: 0, count: 4)
-    func drainReceiverMarks() -> [[UInt8]] {
-        var out = [[UInt8]]()
-        for i in 0..<4 { out.append(Array(recvMarkVel[i][0..<recvMarkCount[i]])); recvMarkCount[i] = 0 }
-        return out
-    }
     // SOUNDING SNAPSHOT (duration): per receiver, the velocities of the notes CURRENTLY HELD in the pool that
     // pass its filter. Refreshed each render into a fixed buffer (display-only, best-effort like the meters);
     // the UI reads it so a held-chord line/mark shows WHILE the chord is down and vanishes on release. A muted
@@ -959,7 +950,6 @@ final class Kernel {
                     if vel > inputPeak[i] { inputPeak[i] = vel }
                     inputEvents[i] &+= 1
                     inputChannelMask[i] |= UInt16(1) << UInt16(channel)   // §MPE: track the channel spread this window
-                    if recvMarkCount[i] < 8 { recvMarkVel[i][recvMarkCount[i]] = vel; recvMarkCount[i] += 1 }   // item 4 mark
                 }
             }
             recordReplay(note: bytes[1], vel: vel, on: vel > 0, sampleTime: sampleTime, channel: channel, cable: cable)

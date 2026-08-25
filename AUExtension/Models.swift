@@ -62,12 +62,10 @@ enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = 
 // column gate makes each cell voice only the pulses landing in its own column. Shared across EUCLID/LENGTH/TUTTI/… .
 enum PatternSpan: String, Codable, CaseIterable { case cell = "CELL", row = "ROW" }
 // MOD STEPS span (Paul 2026-08-20): PERIOD = today (8 steps over the modRate period) · ROW = 8 steps over the bar ·
-// ROW×2 / ROW×4 = 16 / 32 breakpoints across 2 / 4 bars (the sequence longer than the row). `stepCount` = the # of
-// breakpoints; `barMultiple` = how many bars the sequence spans (period → 1, but it uses the rate period, not the bar).
+// ROW×2 / ROW×4 = 16 / 32 breakpoints across 2 / 4 bars (the sequence longer than the row). `stepCount` = the # of breakpoints.
 enum ModStepSpan: String, Codable, CaseIterable {
     case period = "PERIOD", row = "ROW", row2 = "ROW×2", row4 = "ROW×4"
     var stepCount: Int { switch self { case .period, .row: return 8; case .row2: return 16; case .row4: return 32 } }
-    var barMultiple: Int { switch self { case .row2: return 2; case .row4: return 4; default: return 1 } }
 }
 enum StepRate: String, Codable, CaseIterable {
     case r2_1 = "2/1", r1_1 = "1/1", r1_2 = "1/2", r1_2d = "1/2.", r1_4 = "1/4", r1_8 = "1/8"
@@ -568,7 +566,6 @@ struct Receiver: Codable, Equatable {
     var rangeLoResolved: UInt8 { UInt8(max(0, min(127, rangeLo ?? 0))) }
     var rangeHiResolved: UInt8 { max(rangeLoResolved, UInt8(max(0, min(127, rangeHi ?? 127)))) }   // CR-18[extra]: order the bounds — an inverted decoded window (hi < lo) would otherwise silently kill the door
     /// True when the door admits every note (the fast path skips the window check).
-    var rangeIsFull: Bool { rangeLoResolved <= 0 && rangeHiResolved >= 127 }
     // BYPASS (2026-08-03, redesign §1/§2): when on, this door's shaped, in-range held notes sound DIRECTLY on its
     // destination emitters (A–D), skipping the grid — a live monitor path (works stopped too). A DIRECT injection:
     // no emitter roles (claim/flatten/alt). `bypassDest` is the A–D emitter bitmask (bit i = emitter i). Optional so

@@ -280,8 +280,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     /// The live document — for the EDIT page's SELECTION undo (which snapshots (selection, document) per select/
     /// deselect and restores both). Separate from the transactional undo stack above (which it never touches).
-    func uiDocument() -> PluginState { document }
-    func restoreDocument(_ d: PluginState) { document = d; scheduleRebuild() }
 
     /// AUDITION (§6.4 / delta §5): hold a cell → sound its processor alone while stopped. Ephemeral
     /// UI gesture — writes the render-thread target only, never the document (no rebuild, not persisted).
@@ -317,7 +315,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         for c in cells where c.col >= 0 && c.col < 8 && c.row >= 0 && c.row < 8 { m |= UInt64(1) << UInt64(c.col * 8 + c.row) }
         kernel.setSoloCellMask(m)
     }
-    func clearEditSolo() { kernel.setSoloCellMask(0) }
 
     /// PLAY: THIS CELL (user 2026-08-09) — isolate ONE cell and freeze the timeline on its column, so ONLY that
     /// cell's colour machine sounds, ungated by the grid sequence (the grid's active column is ignored). The full
@@ -428,7 +425,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { kernel.drainCellNotes() }   // NOTE-SWEEP: per-cell recent emitted note-ons
     func pollCellSounding() -> UInt64 { kernel.pollCellSounding() }   // SEAL comet: per-cell sounding gate (note-on/off)
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
-    func pollReceiverMarks() -> [[UInt8]] { kernel.drainReceiverMarks() }
     func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes (latch-aware meter)
     func pollReceiverSoundingNotes() -> [[UInt8]] { kernel.pollReceiverSoundingNotes() }   // PITCHES held per door (REPLAY roll)
     func pollReceiverLiveHeld() -> UInt8 { kernel.pollReceiverLiveHeld() }       // the header dot: bit i = a LIVE accepted note is held (scalar, race-safe)
@@ -453,8 +449,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // latch keeps feeding the grid; a mute (below) is what stops the feed. Persisted, like mute.
     func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
     func setReceiverEnabled(_ i: Int, _ on: Bool) { editReceiver(i) { $0.inputEnabled = on } }   // config-sheets: the channel NONE option blocks the door (Paul 2026-08-20)
-    func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // KEYS|CHORD (true = KEYS)
-    func setReceiverLatchPiano(_ i: Int, _ on: Bool) { editReceiver(i) { $0.latchPiano = on } }   // PIANO latch mode
     // KEYS EXCLUDE (Paul 2026-08-22): the complement door — subtract door `d`'s live notes (by pitch class) from this
     // door's typed KEYS pool. -1 = OFF; never self. UI offers the three doors that aren't this one.
     func uiExcludeDoor(_ i: Int) -> Int { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].excludeDoorResolved : -1 }

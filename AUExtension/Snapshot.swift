@@ -65,7 +65,7 @@ struct SnapCell {
     var proc: SnapParams { procs.first ?? SnapParams() }   // the head treatment (stage-1 read path)
 }
 
-// MARK: - Resolved per-state params (paramsB pre-merged over paramsA at build time)
+// MARK: - Resolved per-state params (the single resolved param bag — the A/B morph layer was removed; paramsB/typeB are decode-only legacy)
 
 struct SnapParams {
     var type: ProcessorType = .arp
@@ -118,7 +118,6 @@ struct SnapParams {
     var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns
     var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)
     var burstSlices: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]   // PATTERN: 8 slices (B/C/R)
-    var burstRateBeats: Double = 0.5         // PATTERN: slice width in beats (from burstRate)
     var burstRotate: Int = 0                 // PATTERN: rotate the slice figure
     var burstChance: Double = 0.5            // COIN: seeded chance-of-burst per step
     var cascadeSpan: PatternSpan = .cell     // CASCADE: CELL = per-column reveal · ROW = the reveal spans the bar (Paul 2026-08-19)
@@ -262,8 +261,8 @@ final class SnapshotBox {
     let receiverReplayPasses: [UInt8]    // REPLAY: per-receiver history length in passes (1·2·4·8) that loops
     let receiverFile: [SnapFileClip]     // FILE (config-sheets stage 4): per-door loaded .mid clip that loops as input (empty = none)
     let macroValues: [Double]        // MACRO MODULATION: the 24 live macro values (0…1), index = macro slot. The derivation reads these; the per-cell targets ride on SnapCell (added with the offset term).
-    let rowStepBeats: [Double]       // PER-PART CLOCK (Paul 2026-08-19): per-row step width in beats; empty/0 ⇒ the global `stepBeats` (uniform = today)
-    let rowLen: [Int]                // PER-PART CLOCK: per-row LOOP length in columns; empty/0 ⇒ Snap.cols (8). A part loops over its own length.
+    // PER-PART CLOCK (Paul 2026-08-19): the raw per-row step/len arrive as init params + are resolved below; only the
+    // RESOLVED arrays are stored (the raw ones were write-only dead — removed 2026-08-25 housekeeping).
     let rowStep: [Double]            // RESOLVED per-row step (always Snap.rows long; falls back to `stepBeats`) — what the render reads
     let rowLength: [Int]             // RESOLVED per-row loop length (always Snap.rows long; falls back to Snap.cols) — what the render reads
     let rowLaneMask: [UInt8]         // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask; empty ⇒ use the EPHEMERAL global lap (laneMask) for every row (GRID tab = today). Non-empty (count Snap.rows) ⇒ each row laps its OWN columns (0 = no loop) — so the BUILD staging + perform grids loop independently.
@@ -357,8 +356,6 @@ final class SnapshotBox {
         self.receiverReplayPasses = receiverReplayPasses
         self.receiverFile = receiverFile
         self.macroValues = macroValues
-        self.rowStepBeats = rowStepBeats
-        self.rowLen = rowLen
         // PER-PART CLOCK helpers: resolve a row's step + loop length, falling back to the global values (uniform = today).
         func resolvedStep(_ r: Int) -> Double { (r >= 0 && r < rowStepBeats.count && rowStepBeats[r] > 0) ? rowStepBeats[r] : stepBeats }
         func resolvedLen(_ r: Int) -> Int { (r >= 0 && r < rowLen.count && rowLen[r] >= 1) ? min(Snap.cols, rowLen[r]) : Snap.cols }
