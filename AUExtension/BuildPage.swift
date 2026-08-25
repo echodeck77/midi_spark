@@ -2421,7 +2421,7 @@ extension DiagView {
         // QoL: if a restore left an undefined bench pending, RETURN to it (the part the user was building) instead of a
         // fresh one — so restore→promote drops them back on their in-progress work. (Paul 2026-08-15)
         if let ret = buildReturnPart, ret != buildCurrentPart, ret < buildParts.count, !buildParts[ret].deployed {
-            buildReturnPart = nil; buildLoadPart(ret); return
+            buildReturnPart = nil; buildLoadPart(ret); buildRequestWorkshopVoice(.chain); return
         }
         buildReturnPart = nil
         if let reuse = buildParts.indices.first(where: { $0 != buildCurrentPart && buildPartIsUnused(buildParts[$0]) }) {
@@ -2431,6 +2431,7 @@ extension DiagView {
             buildParts.append(fresh); buildLoadPart(buildParts.count - 1)
             buildSeedTab1()
         }
+        buildRequestWorkshopVoice(.chain)                                    // default PLAY THIS MIDI CHAIN to ON for the new part (Paul 2026-08-25)
     }
     // A SINGLE deployed row = the staging SELECTION flattened: the selected cell per column (wherever its staging row
     // sits), and a column with NOTHING selected is left BLANK. Carries the part's I/O. Does NOT set deployed/claim/publish

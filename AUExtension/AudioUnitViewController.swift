@@ -978,11 +978,11 @@ struct DiagView: View {
         .environment(\.animationsPaused, animationsPaused)
         .onAppear {
             uiAppeared = true
-            // Seed the cast, but do NOT auto-engage the chain audition (Paul 2026-08-23). The auto-solo armed the
-            // REFERENCE CHORD (a fixed C-E-G triad the audition injects when no keys are held) and sounded the selected
-            // (empty, .retrig-passthrough) colour — so a fresh session "played chords from nowhere" before the user built
-            // anything. The audition now sounds ONLY when the user explicitly presses PLAY THIS MIDI CHAIN.
-            if activeTab == .build { buildSeedCastIfNeeded() }
+            // Seed the cast, then default PLAY THIS MIDI CHAIN to ON (Paul 2026-08-25). The old reason NOT to auto-engage
+            // (the reference-chord fallback that "played chords from nowhere") is GONE — that fallback was removed
+            // 2026-08-23, so an engaged chain voice is SILENT until the user holds a note. Engaging on start-up just
+            // arms the chain as the workshop voice so a held chord sounds the selected machine straight away.
+            if activeTab == .build { buildSeedCastIfNeeded(); buildRequestWorkshopVoice(.chain) }
         }
         .onDisappear { uiAppeared = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
