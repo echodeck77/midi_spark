@@ -704,6 +704,7 @@ struct ProcessorBox: View {
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
+    @State private var laneReadout: String? = nil        // LANE READOUT (idea 18): the value floating while a lane bar is dragged
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -928,13 +929,14 @@ struct ProcessorBox: View {
                 Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
             row2({ field("DIRECTION") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
                 setParam { $0.strumDir = StrumDir.allCases[i] } } } },
-                 { field("VOL TILT \(Int((p.velTilt ?? 0) * 100))") {
-                Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) } })
+                 { bipolarSlider("VOL TILT \(Int((p.velTilt ?? 0) * 100))", p.velTilt ?? 0) { v in setParam { $0.velTilt = v } } })
             optionsCluster([("PER-NOTE RAKE", !(p.strumSpreadNorm ?? true), { setParam { $0.strumSpreadNorm = !($0.strumSpreadNorm ?? true) } })])
         case .chance:
             // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = the odds SLIDER LANE (per-step %).
             let cmode = p.chanceMode ?? .single
             field("MODE") { seg(ChanceMode.allCases.map(\.rawValue), sel: cmode.rawValue) { i in setParam { $0.chanceMode = ChanceMode.allCases[i] } } }
+            Text(cmode == .pattern ? "PATTERN — draw the odds per step (the trig-condition)" : "SINGLE — one probability for every note")
+                .font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
             if cmode == .pattern {
                 let base: [Int] = [100, 40, 70, 40, 100, 40, 70, 40]
                 let shown = (0..<8).map { i -> Int in let s = p.chanceSlices ?? base; return i < s.count ? s[i] : 100 }
@@ -945,8 +947,7 @@ struct ProcessorBox: View {
                 heroField("CHANCE \(Int((p.probability ?? 1) * 100))%") {
                     Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
             }
-            field("FAVOUR \(Int((p.chanceTilt ?? 0) * 100))  (−bottom · +top)") {
-                Slider(value: bind((p.chanceTilt ?? 0) / 2 + 0.5) { v in setParam { $0.chanceTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+            bipolarSlider("FAVOUR \(Int((p.chanceTilt ?? 0) * 100))  (−bottom · +top)", p.chanceTilt ?? 0) { v in setParam { $0.chanceTilt = v } }
             optionsCluster([("CONSTANT N", p.chanceDensity ?? false, { setParam { $0.chanceDensity = !($0.chanceDensity ?? false) } })])
         case .harmonize:
             let iv = p.harmIntervals ?? [0,0,0]
@@ -968,8 +969,7 @@ struct ProcessorBox: View {
                    } else {
                      field("DELAY  \(Int(ms)) ms") { Slider(value: bind(ms) { v in setParam { $0.echoDelayMs = v } }, in: 10...2000).tint(accent) }
                    } })
-            field("NUDGE  \(off > 0 ? "+" : "")\(Int(off * 100))%") {
-                Slider(value: bind(off) { v in setParam { $0.echoOffset = v } }, in: -0.33...0.33).tint(accent) }
+            bipolarSlider("NUDGE  \(off > 0 ? "+" : "")\(Int(off * 100))%", off, in: -0.33...0.33) { v in setParam { $0.echoOffset = v } }
             sectionLabel("TONE")
             row2({ field("1ST ECHO  \(Int(fd * 100))%") {
                 Slider(value: bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1).tint(accent) } },
@@ -1009,8 +1009,7 @@ struct ProcessorBox: View {
             let bmode = p.burstMode ?? .once   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             heroField("HITS") { numPair(p.count ?? 4, 2...16) { v in setParam { $0.count = v } } }
             let cv = p.curve ?? 0
-            field("SHAPE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%") {
-                Slider(value: bind(cv) { v in setParam { $0.curve = v } }, in: -1...1).tint(accent) }
+            bipolarSlider("SHAPE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%", cv) { v in setParam { $0.curve = v } }
             if bmode == .coin {
                 let ch = p.burstChance ?? 0.5
                 field("CHANCE  \(Int(ch * 100))%") { Slider(value: bind(ch) { v in setParam { $0.burstChance = v } }, in: 0...1).tint(accent) }
@@ -1065,8 +1064,7 @@ struct ProcessorBox: View {
                     Slider(value: bind(p.modRelease ?? 0.6) { v in setParam { $0.modRelease = v } }, in: 0.01...4).tint(accent) }
             case .extern:
                 let ec = p.modExternCC ?? 1
-                field("FROM CC  \(ccLabelText(ec))") {
-                    Slider(value: bind(Double(ec)) { v in setParam { $0.modExternCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
+                field("FROM CC") { numPair(ec, 0...127, format: { ccLabelText($0) }) { v in setParam { $0.modExternCC = v } } }
             }
             if src == .shape {                                     // SHAPE keeps CELL|ROW; STEPS has its own 4-way SPAN above
                 let mspan = p.modSpan ?? .cell
@@ -1077,8 +1075,7 @@ struct ProcessorBox: View {
             field("SEND") { seg(ModTarget.allCases.map { $0 == .chain ? "THIS CHAIN" : $0.rawValue }, sel: target == .chain ? "THIS CHAIN" : "CC") { i in setParam { $0.modTarget = ModTarget.allCases[i] } } }   // §2: CC (emit) | THIS CHAIN (modulate a chain param, no CC)
             if target == .cc {
                 let cc = p.modCC ?? 74
-                field("SEND CC  \(ccLabelText(cc))") {
-                    Slider(value: bind(Double(cc)) { v in setParam { $0.modCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
+                field("SEND CC") { numPair(cc, 0...127, format: { ccLabelText($0) }) { v in setParam { $0.modCC = v } } }
             } else {
                 let params: [MacroParam] = [.gate, .ramp, .spread, .curve, .velTilt, .probability, .harmVelScale, .tuttiBalance, .lenShort, .lenLong, .rtcChance]
                 let cur = p.modChainParam ?? .gate
@@ -1211,6 +1208,8 @@ struct ProcessorBox: View {
         case .nudge:   // UTILITY — time offset in sixteenths; FIXED (one) | LANE (the pocket, drawn per column)
             let nmode = p.utilNudgeMode ?? .fixed
             field("MODE") { seg(NudgeMode.allCases.map(\.rawValue), sel: nmode.rawValue) { i in setParam { $0.utilNudgeMode = NudgeMode.allCases[i] } } }
+            Text(nmode == .lane ? "LANE — draw a push/pull per column (the pocket)" : "FIXED — one time offset for the whole chain")
+                .font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
             if nmode == .lane {
                 let base = [Int](repeating: 0, count: 8)
                 let shown = (0..<8).map { i -> Int in let s = p.utilNudgeLane ?? base; return i < s.count ? s[i] : 0 }
@@ -1348,6 +1347,7 @@ struct ProcessorBox: View {
     // draws the lane. The ONE shared continuous-per-step component: STEP MOD (CC 0…127) · CHANCE PATTERN (odds 0…100) ·
     // (future VELOCITY PATTERN · CHOP levels). `max` = the value ceiling; the bar height + the write both scale to it.
     private func sliderLane(_ steps: [Int], count: Int = 8, max maxV: Int = 127, center: Bool = false, _ set: @escaping (Int, Int) -> Void) -> some View {
+        ZStack(alignment: .top) {
         HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
             ForEach(0..<count, id: \.self) { i in
                 let v = i < steps.count ? steps[i] : 0
@@ -1368,11 +1368,18 @@ struct ProcessorBox: View {
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { val in
                         let y = min(1, Swift.max(0, val.location.y / Swift.max(1, h)))   // 0 top … 1 bottom
-                        set(i, center ? Int(((0.5 - y) * 2 * CGFloat(maxV)).rounded()) : Int((1 - y) * CGFloat(maxV)))
-                    })
+                        let nv = center ? Int(((0.5 - y) * 2 * CGFloat(maxV)).rounded()) : Int((1 - y) * CGFloat(maxV))
+                        set(i, nv); laneReadout = (center && nv > 0 ? "+" : "") + "\(nv)"   // idea 18: float the value
+                    }.onEnded { _ in laneReadout = nil })
                 }
                 .frame(maxWidth: .infinity).frame(height: 84)
             }
+        }
+        if let r = laneReadout {   // LANE READOUT (idea 18): the touched bar's value floats at the top
+            Text(r).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .padding(.horizontal, 8).padding(.vertical, 3).background(RoundedRectangle(cornerRadius: 5).fill(accent))
+                .offset(y: -4)
+        }
         }
     }
 
@@ -1392,6 +1399,16 @@ struct ProcessorBox: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
             content()
+        }
+    }
+    // A BIPOLAR slider (§presentation idea 4/22): centred on 0; DOUBLE-TAP the label = reset to centre. `v`/`set` are in
+    // the natural range; the track maps it to 0…1.
+    private func bipolarSlider(_ label: String, _ v: Double, in range: ClosedRange<Double> = -1...1, _ set: @escaping (Double) -> Void) -> some View {
+        let lo = range.lowerBound, hi = range.upperBound
+        return VStack(alignment: .leading, spacing: 5) {
+            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+                .contentShape(Rectangle()).onTapGesture(count: 2) { set(0) }   // double-tap → centre (0)
+            Slider(value: bind((v - lo) / (hi - lo)) { set(lo + $0 * (hi - lo)) }, in: 0...1).tint(accent)
         }
     }
     // TWO-COLUMN PAIRING (§presentation rule 6 / E): two compact ★★ fields share one row on the wide panel — halving the
