@@ -88,7 +88,13 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    (EXCLUSIVE-OFF + N lit + part → the part's rows, one undo), right-column BROWSE-CONTEXT I/O (audition-only; deal uses the
    part's own I/O), the PREGEN CORPUS (bulk background gen → instant DEAL + preset mining; profile the live-roll first).
    Riders NOT ratified: HOLD part = preview · OCCUPIED/EMPTY part-button states. **Plan: `Docs/PLAN-grid-selector-and-
-   ratchet-coin.md`** (increments 1→4→2→3 UI, then 5 corpus). Recommended order: after ROTATE-retire or as its own pass.
+   ratchet-coin.md`**. **✅ §3.1 PREGEN CORPUS — DONE (2026-08-26, Paul):** `Dice.rollCorpus` (quality `rollEnsemble` passes,
+   cheap STRUCTURAL dedup — not the render-heavy sig — seeded/deterministic) + `buildGridSelBuildCorpus` (INCREMENTAL 64/
+   batch → 256 target, background utility thread, non-blocking); DEAL now SAMPLES 64 instantly (RE-DEAL bumps the seed),
+   fresh-64 fallback until batch 1 lands. +1 DiceTest (8.6s; was 95s before dropping the double-render). v1: in-memory
+   (persist-to-disk + preset-mining curation = follow-ups). **STILL OPEN (device-owed interaction increments): EXCLUSIVE
+   ON|OFF + layering audition · PART-BUTTONS-as-COMMIT (retire COMMIT) · LAYERED DEALS · right-column BROWSE-CONTEXT I/O**
+   — these touch BUILD's delicate device-verified part-deploy/audition model + are feel-heavy (recommend a device pass).
    **↳ ✅ RATCHET COIN — SHAPING THE DICE — DONE (2026-08-26, Paul ordered it):** all four seeded additive-Optional COIN
    additions — ① SIZE WEIGHTS slider-lane over 2·3·4·6·8 (`rtcSizeWeights` + `rtcCoinSize`; replaces SIZE LO/HI, empty ⇒
    LO/HI byte-identical) · ② REFIRE GAP 0–4 · ③ QUOTA FREE|~2|~3|~4 · ④ ODDS FROM FIXED|VELOCITY. ②③ = the bounded
