@@ -4166,6 +4166,7 @@ extension DiagView {
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
             accentOverride: buildSelHue,
             passHead: d.playing ? (d.pass & 3) : -1,
+            liveStep: d.playing ? ((d.effColumn % 8) + 8) % 8 : -1,   // PLAYHEAD (idea 15): the live grid column sweeps the matrix/lane
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
             onMacro: nil, plainTitle: true, showSlotChrome: false)

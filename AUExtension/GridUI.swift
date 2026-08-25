@@ -696,6 +696,7 @@ struct ProcessorBox: View {
     var slotBypassed: Bool = false
     var accentOverride: Color? = nil                     // MODE ROW: force the control accent (blue, to match the emitters)
     var passHead: Int = -1                               // MODE ROW: the live PASS index (0…3) for the passgate playhead; -1 = stopped
+    var liveStep: Int = -1                               // PLAYHEAD (idea 15): the live GRID COLUMN (0…7) lit in the matrices/lanes; -1 = stopped
     var onBypass: () -> Void = {}
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
     var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
@@ -861,7 +862,7 @@ struct ProcessorBox: View {
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
         switch ft {
         case .arp:
-            heroField("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP") { i in
+            heroField("PATTERN") { iconSeg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP", glyph: { i, t in arpGlyph(i, t) }) { i in
                 setParam { $0.pattern = ArpPattern.allCases[i] } } }
             field("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: p.rate?.rawValue ?? "1/16") { i in
                 setParam { $0.rate = ArpRate.allCases[i] } } }
@@ -1043,7 +1044,7 @@ struct ProcessorBox: View {
             let src = p.modSource ?? .shape    // source set by the storefront card — no in-editor radio (Paul 2026-08-22)
             switch src {
             case .shape:
-                heroField("WAVE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
+                heroField("WAVE") { iconSeg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue, glyph: { i, t in waveGlyph(ModShape.allCases[i], t) }) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
                 field("CYCLE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } }
             case .follow:
                 field("LISTEN TO") { seg(ModFollow.allCases.map(\.rawValue), sel: (p.modFollow ?? .register).rawValue) { i in setParam { $0.modFollow = ModFollow.allCases[i] } } }
@@ -1324,9 +1325,11 @@ struct ProcessorBox: View {
                     header(opt).frame(width: 64, alignment: .leading)
                     ForEach(0..<8, id: \.self) { step in
                         let on = selected(step) == opt
-                        RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.06))
+                        let live = step == liveStep                       // PLAYHEAD (idea 15): the live grid column
+                        RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(live ? 0.14 : 0.06))
                             .frame(maxWidth: .infinity).frame(height: 26)
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: on ? 1.5 : 1))
+                            .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
                             .contentShape(Rectangle()).onTapGesture { set(step, opt) }
                     }
                 }
@@ -1345,10 +1348,11 @@ struct ProcessorBox: View {
         HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
             ForEach(0..<count, id: \.self) { i in
                 let v = i < steps.count ? steps[i] : 0
+                let live = i == liveStep                       // PLAYHEAD (idea 15): the live grid column
                 GeometryReader { g in
                     let h = g.size.height
                     ZStack(alignment: center ? .center : .bottom) {   // CENTRE = a bipolar lane (0 = mid, + above, − below) — the TIMING pocket
-                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08))
+                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(live ? 0.16 : 0.08))
                         if center {
                             let frac = CGFloat(v) / CGFloat(maxV)   // −1…1
                             let barH = Swift.max(2, abs(frac) * h / 2)
@@ -1357,6 +1361,7 @@ struct ProcessorBox: View {
                             RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, h * CGFloat(v) / CGFloat(maxV)))
                         }
                     }
+                    .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { val in
                         let y = min(1, Swift.max(0, val.location.y / Swift.max(1, h)))   // 0 top … 1 bottom
@@ -1441,6 +1446,62 @@ struct ProcessorBox: View {
                 }
             }
         }
+    }
+    // SELF-DRAWING CHIPS (§presentation idea 8): a `seg` whose chips carry a small drawn GLYPH above the label — the
+    // control shows its meaning (a waveform, an arrow) not just its name. Same content-sized, left-aligned chip grammar.
+    private func iconSeg<G: View>(_ options: [String], sel: String, glyph: @escaping (Int, Color) -> G, _ onPick: @escaping (Int) -> Void) -> some View {
+        let rows = radioRows(options.count)
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, span in
+                HStack(spacing: 6) {
+                    ForEach(span, id: \.self) { i in
+                        let on = options[i] == sel
+                        VStack(spacing: 3) {
+                            glyph(i, on ? .black : accent).frame(width: 24, height: 13)
+                            Text(options[i]).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : accent).lineLimit(1)
+                        }
+                        .padding(.horizontal, 12).frame(minWidth: 52, minHeight: 48)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(on ? accent : Color.white.opacity(0.09)))
+                        .contentShape(Rectangle()).onTapGesture { onPick(i) }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+    // A small waveform drawn for the MOD WAVE chips (idea 8). Stroked in a 24×13 box.
+    private func waveGlyph(_ s: ModShape, _ tint: Color) -> some View {
+        Canvas { ctx, size in
+            let w = size.width, h = size.height, mid = h / 2
+            var p = Path()
+            switch s {
+            case .sine:
+                p.move(to: CGPoint(x: 0, y: mid))
+                var x: CGFloat = 0
+                while x <= w { p.addLine(to: CGPoint(x: x, y: mid - CGFloat(sin(Double(x / w) * 2 * .pi)) * (mid - 1))); x += 1 }
+            case .triangle:
+                p.move(to: CGPoint(x: 0, y: h - 1)); p.addLine(to: CGPoint(x: w / 2, y: 1)); p.addLine(to: CGPoint(x: w, y: h - 1))
+            case .square:
+                p.move(to: CGPoint(x: 0, y: h - 1)); p.addLine(to: CGPoint(x: 0, y: 1)); p.addLine(to: CGPoint(x: w / 2, y: 1))
+                p.addLine(to: CGPoint(x: w / 2, y: h - 1)); p.addLine(to: CGPoint(x: w, y: h - 1)); p.addLine(to: CGPoint(x: w, y: 1))
+            case .ramp:
+                p.move(to: CGPoint(x: 0, y: h - 1)); p.addLine(to: CGPoint(x: w - 1, y: 1)); p.addLine(to: CGPoint(x: w - 1, y: h - 1))
+            case .sampleHold:
+                let n = 4
+                for i in 0..<n {
+                    let x0 = w * CGFloat(i) / CGFloat(n), x1 = w * CGFloat(i + 1) / CGFloat(n)
+                    let y = h - 1 - (h - 2) * CGFloat([0, 2, 1, 3][i]) / 3
+                    if i == 0 { p.move(to: CGPoint(x: x0, y: y)) } else { p.addLine(to: CGPoint(x: x0, y: y)) }
+                    p.addLine(to: CGPoint(x: x1, y: y))
+                }
+            }
+            ctx.stroke(p, with: .color(tint), lineWidth: 1.5)
+        }
+    }
+    // ARP PATTERN chip arrows (idea 8): up · down · up-down · random · as-played.
+    private func arpGlyph(_ i: Int, _ tint: Color) -> some View {
+        let names = ["arrow.up", "arrow.down", "arrow.up.arrow.down", "shuffle", "hand.point.up.left"]
+        return Image(systemName: i >= 0 && i < names.count ? names[i] : "arrow.up").font(.system(size: 11, weight: .heavy)).foregroundColor(tint)
     }
     // Split N options into rows of at most 4 (keeps each segment finger-sized on a full-width box).
     private func radioRows(_ n: Int) -> [[Int]] {
