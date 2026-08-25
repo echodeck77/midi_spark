@@ -891,8 +891,8 @@ struct ProcessorBox: View {
                 Text("each step rolls: ratchet (a burst) or plain (one hit)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
                 heroField("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%") {
                     Slider(value: bind(p.rtcChance ?? 0.5) { v in setParam { $0.rtcChance = v } }, in: 0...1).tint(accent) }
-                field("SIZE MIN") { numPair(p.rtcCountLo ?? 2, 1...8) { v in setParam { $0.rtcCountLo = v; if ($0.rtcCountHi ?? 4) < v { $0.rtcCountHi = v } } } }
-                field("SIZE MAX  (burst length range)") { numPair(p.rtcCountHi ?? 4, 1...8) { v in setParam { $0.rtcCountHi = v; if ($0.rtcCountLo ?? 2) > v { $0.rtcCountLo = v } } } }
+                row2({ field("SIZE MIN") { numPair(p.rtcCountLo ?? 2, 1...8) { v in setParam { $0.rtcCountLo = v; if ($0.rtcCountHi ?? 4) < v { $0.rtcCountHi = v } } } } },
+                     { field("SIZE MAX") { numPair(p.rtcCountHi ?? 4, 1...8) { v in setParam { $0.rtcCountHi = v; if ($0.rtcCountLo ?? 2) > v { $0.rtcCountLo = v } } } } })
             } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
                 heroField("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
                     stateMatrixRadio([0, 2, 3, 4],
@@ -926,10 +926,10 @@ struct ProcessorBox: View {
         case .strum:
             heroField("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
                 Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
-            field("DIRECTION") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
-                setParam { $0.strumDir = StrumDir.allCases[i] } } }
-            field("VOL TILT \(Int((p.velTilt ?? 0) * 100))") {
-                Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+            row2({ field("DIRECTION") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
+                setParam { $0.strumDir = StrumDir.allCases[i] } } } },
+                 { field("VOL TILT \(Int((p.velTilt ?? 0) * 100))") {
+                Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) } })
             optionsCluster([("PER-NOTE RAKE", !(p.strumSpreadNorm ?? true), { setParam { $0.strumSpreadNorm = !($0.strumSpreadNorm ?? true) } })])
         case .chance:
             // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = the odds SLIDER LANE (per-step %).
@@ -962,19 +962,19 @@ struct ProcessorBox: View {
             let spill = p.echoSpill ?? .ring
             heroField("REPEATS") { numPair(reps, 1...16) { v in setParam { $0.echoRepeats = v } } }
             sectionLabel("TIMING")
-            field("SYNC") { seg(["ON", "OFF"], sel: sync ? "ON" : "OFF") { i in setParam { $0.echoSync = (i == 0) } } }
-            if sync {
-                field("DELAY\(div == 4 ? "  (1 beat)" : "")") { numPair(div, 1...16, format: { "\($0)/16" }) { v in setParam { $0.echoDelayDiv = v } } }
-            } else {
-                field("DELAY  \(Int(ms)) ms") { Slider(value: bind(ms) { v in setParam { $0.echoDelayMs = v } }, in: 10...2000).tint(accent) }
-            }
+            row2({ field("SYNC") { seg(["ON", "OFF"], sel: sync ? "ON" : "OFF") { i in setParam { $0.echoSync = (i == 0) } } } },
+                 { if sync {
+                     field("DELAY\(div == 4 ? "  (1 beat)" : "")") { numPair(div, 1...16, format: { "\($0)/16" }) { v in setParam { $0.echoDelayDiv = v } } }
+                   } else {
+                     field("DELAY  \(Int(ms)) ms") { Slider(value: bind(ms) { v in setParam { $0.echoDelayMs = v } }, in: 10...2000).tint(accent) }
+                   } })
             field("NUDGE  \(off > 0 ? "+" : "")\(Int(off * 100))%") {
                 Slider(value: bind(off) { v in setParam { $0.echoOffset = v } }, in: -0.33...0.33).tint(accent) }
             sectionLabel("TONE")
-            field("1ST ECHO  \(Int(fd * 100))%") {
-                Slider(value: bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1).tint(accent) }
-            field("FADE  \(Int(dec * 100))%") {
-                Slider(value: bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1).tint(accent) }
+            row2({ field("1ST ECHO  \(Int(fd * 100))%") {
+                Slider(value: bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1).tint(accent) } },
+                 { field("FADE  \(Int(dec * 100))%") {
+                Slider(value: bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1).tint(accent) } })
             field("PITCH STEP  \(pit > 0 ? "+" : "")\(pit) st / echo") { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
             sectionLabel("TAIL")
             // ROUTE (§7②, ratified 2026-08-22): DIRECT echoes the cell's final set (v1). CHAIN runs each repeat back
@@ -1093,20 +1093,23 @@ struct ProcessorBox: View {
                 }
             }
             let lo = p.modMin ?? 0, hi = p.modMax ?? 127
-            field("MIN  \(lo)") {
-                Slider(value: bind(Double(lo)) { v in setParam { $0.modMin = Int(v.rounded()) } }, in: 0...127).tint(accent) }
-            field("MAX  \(hi)\(lo > hi ? "   (inverted)" : "")") {
-                Slider(value: bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127).tint(accent) }
+            row2({ field("MIN  \(lo)") {
+                Slider(value: bind(Double(lo)) { v in setParam { $0.modMin = Int(v.rounded()) } }, in: 0...127).tint(accent) } },
+                 { field("MAX  \(hi)\(lo > hi ? "  (inv)" : "")") {
+                Slider(value: bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127).tint(accent) } })
             field("ON EXIT") { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
         case .glide:    // one mono sliding voice — small steps bend, big leaps jump (Paul 2026-08-22)
             let gmode = p.glideMode ?? .bend
             heroField("MODE") { seg(GlideMode.allCases.map(\.rawValue), sel: gmode.rawValue) { i in setParam { $0.glideMode = GlideMode.allCases[i] } } }
             Text(glideModeBlurb(gmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
-            field(gmode == .step ? "RUN TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats" : "TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
-                Slider(value: bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2).tint(accent) }
             if gmode == .bend {
-                field("BEND RANGE  ±\(p.glideRange ?? 2) st  (match the synth)") {
-                    Slider(value: bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48).tint(accent) }
+                row2({ field("TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
+                    Slider(value: bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2).tint(accent) } },
+                     { field("BEND RANGE  ±\(p.glideRange ?? 2) st") {
+                    Slider(value: bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48).tint(accent) } })
+            } else {
+                field(gmode == .step ? "RUN TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats" : "TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
+                    Slider(value: bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2).tint(accent) }
             }
             field("FOLLOW") { seg(GlidePriority.allCases.map(\.rawValue), sel: (p.glidePriority ?? .last).rawValue) { i in setParam { $0.glidePriority = GlidePriority.allCases[i] } } }
             if gmode == .bend {
@@ -1146,10 +1149,10 @@ struct ProcessorBox: View {
                     selected: { i in lenSliceAt(p.lenSlices, i) },
                     set: { i, st in setParam { var s = $0.lenSlices ?? Array(repeating: .pass, count: 8); while s.count < 8 { s.append(.pass) }; s[i] = st; $0.lenSlices = s } })
             }
-            field("SHORT =  \(Int((p.lenShort ?? 0.4) * 100))% of a slice") {
-                Slider(value: bind(p.lenShort ?? 0.4) { v in setParam { $0.lenShort = v } }, in: 0.05...0.95).tint(accent) }
-            field("LONG =  \(Int((p.lenLong ?? 0.7) * 100))%  (25% … step end)") {
-                Slider(value: bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1).tint(accent) }
+            row2({ field("SHORT =  \(Int((p.lenShort ?? 0.4) * 100))%") {
+                Slider(value: bind(p.lenShort ?? 0.4) { v in setParam { $0.lenShort = v } }, in: 0.05...0.95).tint(accent) } },
+                 { field("LONG =  \(Int((p.lenLong ?? 0.7) * 100))%") {
+                Slider(value: bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1).tint(accent) } })
             field("ROTATE — shift the phrasing") { numPair(p.lenRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.lenRotate = v } } }
             spanLadderField(p.lenSpanN ?? ((p.lenSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.lenSpanN = v } }
         case .weave:   // rank-clocked polyrhythm driver — each held note on its own clock
@@ -1177,9 +1180,9 @@ struct ProcessorBox: View {
             }
             field("NEW CHORD — RETRIG restarts each step · FREE runs the grid · LEGATO flows from the hold") { seg(ArpPhase.allCases.map(\.rawValue), sel: (p.weavePhase ?? .retrig).rawValue) { i in
                 setParam { $0.weavePhase = ArpPhase.allCases[i] } } }
-            field("VOICES — how many notes weave") { numPair(p.weaveSpan ?? 4, 1...8) { v in setParam { $0.weaveSpan = v } } }
-            field("LENGTH \(Int((p.gate ?? 0.6) * 100))%") {
-                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
+            row2({ field("VOICES — how many weave") { numPair(p.weaveSpan ?? 4, 1...8) { v in setParam { $0.weaveSpan = v } } } },
+                 { field("LENGTH \(Int((p.gate ?? 0.6) * 100))%") {
+                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) } })
         case .split:   // set-membership filter — keep a subset of the chord (before a driver = re-pool · after = punch holes)
             let sm = p.splitSet?.mode ?? .all
             heroField("KEEP") { seg(SplitMode.allCases.map(\.rawValue), sel: sm.rawValue) { i in
@@ -1389,6 +1392,14 @@ struct ProcessorBox: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
             content()
+        }
+    }
+    // TWO-COLUMN PAIRING (§presentation rule 6 / E): two compact ★★ fields share one row on the wide panel — halving the
+    // vertical run. Heroes / matrices / lanes / the options cluster stay full-width; only short segs+numPairs+sliders pair.
+    private func row2<A: View, B: View>(@ViewBuilder _ a: () -> A, @ViewBuilder _ b: () -> B) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            a().frame(maxWidth: .infinity, alignment: .leading)
+            b().frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     // THE HERO (§presentation rule 1): the card's ★★★ control — a 2pt accent bar on the left edge (the only control that
