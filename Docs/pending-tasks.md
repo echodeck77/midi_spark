@@ -49,9 +49,14 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     hold-bypass A/B (`321e885`). **DEFERRED (each has a wrinkle):** **16 SPAN BRACKET** — the ladder's ×2/×4 values don't
     fit an 8-column bracket cleanly (needs a design for the multi-bar case). **21 DEFAULTS-RECEDE** — needs per-control
     "is-at-default" plumbing across ~50 controls (a large mechanical pass; the options-chips already show deviation).
-    → **✅ E** two-column (= width-Pass-2, `e773fa5`) — `row2` pairs the short couples (RATCHET SIZE·STRUM·ECHO SYNC/DELAY+
-    1ST/FADE·MOD MIN/MAX·LENGTH SHORT/LONG·WEAVE·GLIDE). → **F** the à-la-carte 27 (TODO) + the 16/21 fixes. All UI-only,
-    iOS builds, DEVICE eye owed. **A–E landed** (D partial: 8/15/23 done).
+    → **✅ E** two-column (= width-Pass-2, `e773fa5`) — `row2` pairs the short couples. → **F (batch 1, `bb378b2`):** ✅ 30
+    CC picker (MOD CC → numPair with named-CC format) · ✅ 4/22 double-tap-to-zero (bipolarSlider: FAVOUR·VOL TILT·SHAPE·
+    ECHO NUDGE) · ✅ 9 teach-lines (CHANCE·NUDGE mode) · ✅ 18 lane-readout-at-the-finger. **A–F landed.** F REMAINING (each
+    needs infrastructure, do on request): 3 detents+haptics · 5 fine-mode (custom slider) · 7 touch-preview (window render) ·
+    10 long-press-chip-explain (per-enum text) · 12 tap-value big-picker overlay · 14 hold-to-accelerate · 17 result-ghosting ·
+    19 pinch-lane · 20 lane-header-mute · 24 touch→OUT-strip diff (needs truth strips) · 25 conditional-animate-in ·
+    26 long-press=bind-macro (macro flow) · 27 sticky-hero · 28 section-anchor-chips · 31 keypad-overlay · 32 hero-glyph
+    thumbnails. Plus the deferred **16 span-bracket** (multi-bar design) + **21 defaults-recede** (per-control plumbing).
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
