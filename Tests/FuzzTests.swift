@@ -80,6 +80,9 @@ final class FuzzTests: XCTestCase {
             if c.type == .echo && r.chance(0.6) { applyRandomEcho(&c.paramsA, &r) }   // §7② hammer ROUTE=CHAIN (driver + non-driver) for no-stuck-notes
             if c.type == .arp && r.chance(0.5) { c.paramsA.arpOctDown = r.chance(0.5); c.paramsA.arpRandomAnchor = r.int(3); c.paramsA.octaves = 1 + r.int(4) }   // OCT DIR + RANDOM ANCHOR (Paul 2026-08-22)
             if c.type == .euclid && r.chance(0.6) { c.paramsA.euclidPick = EuclidPick.allCases[r.int(EuclidPick.allCases.count)]; c.paramsA.euclidInvert = r.chance(0.4) }   // PICK + INVERT
+            if c.type == .euclid && r.chance(0.4) {   // EUCLID LINES §10 — 1…8 lines (per-line N = polyrhythm · targets incl. notes past the chord → silent); no stuck notes
+                c.paramsA.euclidLines = (0..<(1 + r.int(8))).map { _ in EuclidLine(target: r.int(9), pulses: r.int(17), steps: 2 + r.int(15), rotate: r.int(16), invert: r.chance(0.3)) }
+            }
             if c.type == .glide && r.chance(0.7) { c.paramsA.glideMode = [.bend, .synth, .step][r.int(3)]; c.paramsA.glideTime = [0.0, 0.1, 0.3, 0.6, 1.2][r.int(5)] }   // BEND|SYNTH|STEP — STEP is note-hungry, must never stuck
             if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)

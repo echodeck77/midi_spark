@@ -60,6 +60,17 @@ enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", 
 // RIFF (SPEC-riff-processor §1): when a stencil RANK exceeds the held-note count (a 5 against a 3-note chord) —
 // FOLD (wrap + octave up, default/musical) · CLAMP (the top note) · WRAP (wrap in the same octave).
 enum RiffWrap: String, Codable, CaseIterable { case fold = "FOLD", clamp = "CLAMP", wrap = "WRAP" }
+// EUCLID LINES (SPEC-euclid-variations §10, ratified): EUCLID = up to 8 lines in one card — each a euclid pattern
+// (K-of-N · ROTATE · INVERT) striking a TARGET (0 = ALL the chord, honouring the card's PICK · 1–8 = a specific pool
+// rank). Per-line STEPS = polyrhythm (kick/hat/pulse from one chord, one machine). Line 1 = today's single euclid; when
+// `euclidLines` is nil the engine uses the flat euclidPulses/Steps/Rot params (migration-invisible, byte-identical).
+struct EuclidLine: Codable, Equatable {
+    var target: Int = 0      // 0 = ALL (honours PICK) · 1–8 = strike that pool rank (silent if the chord lacks it)
+    var pulses: Int = 5      // K hits
+    var steps: Int = 8       // N steps (per-line ⇒ polyrhythm)
+    var rotate: Int = 0
+    var invert: Bool = false  // strike the N−K rests
+}
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 // SPAN — the timeline a pattern-based processor runs on (Paul 2026-08-18): CELL restarts the pattern each column
 // (N steps = one column); ROW stretches the SAME N steps across the whole 8-column bar (a cross-column phrase). The
@@ -179,6 +190,7 @@ struct ColourParams: Codable, Equatable {
     var euclidSpan: PatternSpan? = nil        // CELL (per-column, default) | ROW (the N steps span the whole bar) — Paul 2026-08-18
     var euclidSpanN: Int? = nil               // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from euclidSpan: cell→1, row→8)
     var euclidPick: EuclidPick? = nil         // PICK: ALL (today) | CYCLE | LOW | HIGH | RANDOM — what each hit strikes (Paul 2026-08-22)
+    var euclidLines: [EuclidLine]? = nil      // EUCLID LINES (§10, ratified): up to 8 lines (each K·N·ROTATE·INVERT·TARGET). nil ⇒ the single euclid above (byte-identical)
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
     var burstSpanN: Int? = nil                // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from burstSpan)

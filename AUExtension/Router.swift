@@ -2802,48 +2802,50 @@ final class Router {
 
         switch mode {
         case .euclid:
-            let n = max(2, min(16, p.euclidSteps))
-            let k = p.euclidPulsesFromPool ? srcNotes.count : p.euclidPulses   // POOL: K = held-note count (composed set if chained)
-            euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: p.euclidRot)
-            // SPAN: CELL fits N steps in one column (repeats each column); ROW stretches the SAME N steps across the
-            // whole bar (a cross-column phrase). Only `sub` changes — the column gate below keeps each cell voicing
-            // only the pulses that fall in its own column, so a euclid on a full row plays as one phrase. (Paul 2026-08-18)
-            let sub = spanLadderBeats(p.euclidSpanN, S: S, row: cyc) / Double(n)   // SPAN LADDER: n steps across the span; odd N = polymeter (Paul 2026-08-22)
-            // PICK (Paul 2026-08-22): ALL strikes the full chord; LOW/HIGH the pool extremes; CYCLE WALKS the chord
-            // (the euclid-arp); RANDOM scatters — all keyed by the PULSE ORDINAL (count of hits, replay-exact).
-            // INVERT (Paul 2026-08-22): strike the N−K RESTS instead — the anti-pattern.
-            let pick = p.euclidPick, invert = p.euclidInvert
-            var cycleHits = 0; for s in 0..<n where (invert ? !euclidBuf[s] : euclidBuf[s]) { cycleHits += 1 }
-            let effHits = Int64(max(1, cycleHits))
+            // EUCLID LINES (§10, ratified): run 1…8 lines from one chord (kick/hat/pulse). Each line = K·N·ROTATE·INVERT
+            // + TARGET (0 = ALL, honouring the card's PICK · 1–8 = a specific pool rank). Per-line N ⇒ polyrhythm. The
+            // single-line (empty `euclidLines`) path is BYTE-IDENTICAL to the pre-lines euclid — same K/N/rot/pick/invert.
             let srcCount = srcNotes.count
-            // Emit via iterateTicks (like the ARP) instead of a window-scan: its floor + per-row dedup CATCHES the
-            // downbeat pulse (step 0, sitting exactly on the column boundary) that the old `tau >= mWinStart` scan
-            // dropped whenever a render block didn't begin precisely on the boundary — i.e. almost always, so every
-            // EUCLID lost its downbeat (K→K−1; K=1 = silent). The column gate keeps a cell's pulses in ITS column, so
-            // it never reaches into the next one. (Paul 2026-08-18)
-            iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
-                         beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                         beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { tick, mTickBeat, _, _ in
-                let step = Int(((tick % Int64(n)) + Int64(n)) % Int64(n))
-                let isHit = invert ? !euclidBuf[step] : euclidBuf[step]
-                guard isHit else { return }
-                var pickIndex: Int? = nil
-                switch pick {
-                case .all: pickIndex = nil
-                case .low: pickIndex = 0
-                case .high: pickIndex = srcCount - 1
-                case .cycle, .random:
-                    // pulse ordinal = full cycles × hits-per-cycle + hits within this cycle up to `step` (0-based)
-                    let cy = (tick - Int64(step)) / Int64(n)                 // floored cycle (tick = cy·n + step)
-                    var hitsUpTo = 0; for s in 0...step where (invert ? !euclidBuf[s] : euclidBuf[s]) { hitsUpTo += 1 }
-                    let ord = cy * effHits + Int64(hitsUpTo - 1)
-                    if srcCount > 0 {
-                        pickIndex = pick == .cycle
-                            ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
-                            : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(srcCount))
+            // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
+            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, target: Int, invert: Bool) {
+                let n = max(2, min(16, nIn))
+                let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
+                euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
+                let sub = spanLadderBeats(p.euclidSpanN, S: S, row: cyc) / Double(n)   // SPAN LADDER: n steps across the span; odd N = polymeter
+                let pick = p.euclidPick   // PICK applies to TARGET=ALL lines
+                var cycleHits = 0; for s in 0..<n where (invert ? !euclidBuf[s] : euclidBuf[s]) { cycleHits += 1 }
+                let effHits = Int64(max(1, cycleHits))
+                iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
+                             beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { tick, mTickBeat, _, _ in
+                    let step = Int(((tick % Int64(n)) + Int64(n)) % Int64(n))
+                    let isHit = invert ? !euclidBuf[step] : euclidBuf[step]
+                    guard isHit else { return }
+                    var pickIndex: Int? = nil
+                    if target >= 1 { pickIndex = target - 1 }   // TARGET a specific pool rank (strikeChord skips if absent)
+                    else {
+                        switch pick {
+                        case .all: pickIndex = nil
+                        case .low: pickIndex = 0
+                        case .high: pickIndex = srcCount - 1
+                        case .cycle, .random:
+                            let cy = (tick - Int64(step)) / Int64(n)                 // floored cycle (tick = cy·n + step)
+                            var hitsUpTo = 0; for s in 0...step where (invert ? !euclidBuf[s] : euclidBuf[s]) { hitsUpTo += 1 }
+                            let ord = cy * effHits + Int64(hitsUpTo - 1)
+                            if srcCount > 0 {
+                                pickIndex = pick == .cycle
+                                    ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
+                                    : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(srcCount))
+                            }
+                        }
                     }
+                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: pickIndex)
                 }
-                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: pickIndex)
+            }
+            if p.euclidLines.isEmpty {
+                runEuclidLine(pulses: p.euclidPulses, steps: p.euclidSteps, rotate: p.euclidRot, target: 0, invert: p.euclidInvert)
+            } else {
+                for L in p.euclidLines { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, target: L.target, invert: L.invert) }
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))

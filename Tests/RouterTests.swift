@@ -2897,6 +2897,25 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(f, Set([65, 69, 72]), "the SAME stencil plays F's notes — chord-following, no pitches stored")
         XCTAssertNotEqual(cm, f, "a different chord → different pitches")
     }
+    // EUCLID LINES (§10): up to 8 lines from ONE chord — one ALL line = the single euclid (byte-identical); a second line
+    // adds its own pulses (polyrhythm); a NOTE-target line strikes only that pool rank. Nothing left sounding.
+    func testEuclidLinesPolyrhythmAndNoteTargets() {
+        func run4(_ lines: [EuclidLine]?, _ measure: (RecordingEmitter) -> Void) {
+            var c = Colour(colourID: "gold", type: .euclid); c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8
+            if let lines { c.paramsA.euclidLines = lines }
+            let b = box(colours: colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e); measure(e)
+        }
+        func aCount(_ e: RecordingEmitter) -> Int { e.ons.filter { $0.cable == 1 }.count }
+        var single = 0, oneLine = 0, two = 0; var n2: Set<UInt8> = []
+        run4(nil) { single = aCount($0) }
+        run4([EuclidLine(target: 0, pulses: 4, steps: 8, rotate: 0, invert: false)]) { oneLine = aCount($0) }
+        run4([EuclidLine(target: 0, pulses: 4, steps: 8), EuclidLine(target: 1, pulses: 3, steps: 16)]) { two = aCount($0) }
+        run4([EuclidLine(target: 2, pulses: 4, steps: 8)]) { n2 = Set($0.ons.filter { $0.cable == 1 }.map { $0.note }) }
+        XCTAssertEqual(oneLine, single, "one ALL line = the single euclid (byte-identical)")
+        XCTAssertGreaterThan(two, oneLine, "a second line adds its own pulses (polyrhythm)")
+        XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
+    }
     func testRatchetThenClosedPassgateIsSilent() {
         let cs = arpColours()
         let rat = ProcessorSlot(type: .ratchet)

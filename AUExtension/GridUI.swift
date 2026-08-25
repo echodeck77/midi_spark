@@ -861,6 +861,10 @@ struct ProcessorBox: View {
             .background(RoundedRectangle(cornerRadius: 5).fill(accent.opacity(0.2)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
+    // EUCLID LINES (§10): mutate line `idx` in place (through setParam → the colour-scoped edit).
+    private func euclidLineEdit(_ idx: Int, _ f: @escaping (inout EuclidLine) -> Void) {
+        setParam { var a = $0.euclidLines ?? []; guard idx < a.count else { return }; f(&a[idx]); $0.euclidLines = a }
+    }
 
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
         switch ft {
@@ -1001,25 +1005,52 @@ struct ProcessorBox: View {
                 ("DRY", thru, { setParam { $0.echoThru = !($0.echoThru ?? true) } }),
                 ("CUT SPILL", spill == .cut, { setParam { $0.echoSpill = ($0.echoSpill ?? .ring) == .cut ? .ring : .cut } }),
             ])
-        case .euclid:   // GENERATOR — K-of-N euclidean rhythm (user 2026-08-08); PULSES FIXED | POOL (2026-08-09)
+        case .euclid:   // GENERATOR — K-of-N euclidean rhythm; LINES model (§10): up to 8 lines from ONE chord (kick/hat/pulse)
             let steps = p.euclidSteps ?? 8
             let fromPool = p.euclidPulsesFromPool ?? false
+            let lines = p.euclidLines ?? []
             field("HITS FROM", \.euclidPulsesFromPool) { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
-            // The K-of-N hero row (§presentation ⑤): HITS and STEPS as two nudge-pairs on one line — "◀5▶ of ◀16▶".
-            if !fromPool {
-                heroField("HITS OF STEPS") { HStack(spacing: 8) {
-                    numPair(p.euclidPulses ?? 5, 1...steps) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } }
-                    Text("of").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                    numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } }
-                } }
+            if lines.isEmpty {
+                // The single euclid (today) — the K-of-N hero row (§presentation ⑤): "◀5▶ of ◀16▶".
+                if !fromPool {
+                    heroField("HITS OF STEPS") { HStack(spacing: 8) {
+                        numPair(p.euclidPulses ?? 5, 1...steps) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } }
+                        Text("of").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                        numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } }
+                    } }
+                } else {
+                    heroField("STEPS") { numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
+                }
+                field("ROTATE", \.euclidRot) { numPair(p.euclidRot ?? 0, 0...15, wrap: true) { v in setParam { $0.euclidRot = v } } }
+                optionsCluster([("INVERT", p.euclidInvert ?? false, { setParam { $0.euclidInvert = !($0.euclidInvert ?? false) } })])
+                pill("+ ADD LINE") { setParam {   // convert to LINES: line 1 = the current euclid, + a second line to author
+                    let l1 = EuclidLine(target: 0, pulses: $0.euclidPulses ?? 5, steps: $0.euclidSteps ?? 8, rotate: $0.euclidRot ?? 0, invert: $0.euclidInvert ?? false)
+                    $0.euclidLines = [l1, EuclidLine(target: 1, pulses: 4, steps: 8, rotate: 0, invert: false)] } }
             } else {
-                heroField("STEPS") { numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
+                // THE LINES STACK (§10): each row = TARGET · K of N · ROTATE · HITS/REST · ×
+                heroField("LINES — each a euclid from one chord (kick · hat · pulse)") {
+                    VStack(spacing: 5) {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { (idx, L) in
+                            HStack(spacing: 5) {
+                                numPair(L.target, 0...8, format: { $0 == 0 ? "ALL" : "N\($0)" }) { v in euclidLineEdit(idx) { $0.target = v } }
+                                numPair(L.pulses, 0...max(2, L.steps)) { v in euclidLineEdit(idx) { $0.pulses = min(v, $0.steps) } }
+                                Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                                numPair(L.steps, 2...16) { v in euclidLineEdit(idx) { $0.steps = max(2, v); if $0.pulses > max(2, v) { $0.pulses = max(2, v) } } }
+                                numPair(L.rotate, 0...15, wrap: true, format: { "↻\($0)" }) { v in euclidLineEdit(idx) { $0.rotate = v } }
+                                Text(L.invert ? "REST" : "HITS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(L.invert ? accent : .white.opacity(0.45))
+                                    .frame(width: 34, height: 34).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                                    .contentShape(Rectangle()).onTapGesture { euclidLineEdit(idx) { $0.invert.toggle() } }
+                                Button { setParam { var a = $0.euclidLines ?? []; if idx < a.count { a.remove(at: idx) }; $0.euclidLines = a.isEmpty ? nil : a } } label: {
+                                    Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundColor(.red.opacity(0.8)).frame(width: 26, height: 34)
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        if lines.count < 8 { pill("+ ADD LINE") { setParam { var a = $0.euclidLines ?? []; a.append(EuclidLine(target: 0, pulses: 4, steps: 8, rotate: 0, invert: false)); $0.euclidLines = a } } }
+                    }
+                }
             }
-            field("ROTATE", \.euclidRot) { numPair(p.euclidRot ?? 0, 0...15, wrap: true) { v in setParam { $0.euclidRot = v } } }
             spanLadderField(p.euclidSpanN ?? ((p.euclidSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.euclidSpanN = v } }
-            // PICK = what each hit strikes; INVERT (options) = play the N−K rests (Paul 2026-08-22)
-            field("PICK", \.euclidPick) { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
-            optionsCluster([("INVERT", p.euclidInvert ?? false, { setParam { $0.euclidInvert = !($0.euclidInvert ?? false) } })])
+            field("PICK — for ALL-target lines", \.euclidPick) { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
         case .burst:    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)
             let bmode = p.burstMode ?? .once   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             heroField("HITS") { numPair(p.count ?? 4, 2...16) { v in setParam { $0.count = v } } }

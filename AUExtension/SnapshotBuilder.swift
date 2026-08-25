@@ -423,6 +423,10 @@ enum SnapshotBuilder {
         out.euclidSpanN = p.euclidSpanN ?? (out.euclidSpan == .row ? 8 : 1)
         if let v = p.euclidPick { out.euclidPick = v }
         if let v = p.euclidInvert { out.euclidInvert = v }
+        if let v = p.euclidLines {   // EUCLID LINES (§10): clamp each line + cap at 8; empty ⇒ single-euclid fallback
+            out.euclidLines = v.prefix(8).map { EuclidLine(target: clamp($0.target, 0, 8), pulses: clamp($0.pulses, 0, 16),
+                                                           steps: clamp($0.steps, 2, 16), rotate: $0.rotate, invert: $0.invert) }
+        }
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
         if let v = p.burstMode { out.burstMode = v }
