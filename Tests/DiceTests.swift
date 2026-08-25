@@ -57,6 +57,20 @@ final class DiceTests: XCTestCase {
         XCTAssertEqual(Dice.roll(target: 5, using: &a), Dice.roll(target: 5, using: &b))
     }
 
+    // THE PREGEN CORPUS (Paul 2026-08-26, grid-selector §3.1): a pool of quality chains — the requested count (or near it),
+    // structurally deduped (varied), every chain audible, deterministic per seed. (Small count: each chain runs offline renders.)
+    func testRollCorpusIsVariedAndDeterministic() {
+        var rng = DiceRNG(seed: 0xC0DE)
+        let corpus = Dice.rollCorpus(count: 16, using: &rng)
+        XCTAssertGreaterThan(corpus.count, 10, "the corpus fills (structural dedup may trim a little)")
+        XCTAssertLessThanOrEqual(corpus.count, 16, "no more than requested")
+        XCTAssertTrue(corpus.allSatisfy { !Dice.signature($0.chain).isEmpty }, "every corpus chain is audible")
+        XCTAssertGreaterThan(Set(corpus.map { Dice.signature($0.chain) }).count, corpus.count / 2, "varied — mostly audibly distinct")
+        var rng2 = DiceRNG(seed: 0xC0DE)
+        XCTAssertEqual(Dice.rollCorpus(count: 8, using: &rng2).map { $0.chain }, Array(corpus.prefix(8)).map { $0.chain },
+                       "deterministic per seed — a stable library")
+    }
+
     // The effective-chain composition: sliders at 0 + buttons off == the base; a slider at 1 reaches its alt.
     func testEffectiveChainComposition() {
         var rng = DiceRNG(seed: 123)

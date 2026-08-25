@@ -203,7 +203,9 @@ struct DiagView: View {
     @State var buildGridSelTab = 0                       // 0 = DEALT · 1 = MY LIBRARY
     @State var buildGridSelArrivalRow: Int? = nil        // the row selected when the selector OPENED — frozen (never re-read live)
     @State var buildGridSelDealSeed: UInt64 = 1          // RE-DEAL bumps this
-    @State var buildGridSelDealt: [Dice.EnsembleRow] = [] // the 64 generated chains (8 archetypes × 8 re-rolls)
+    @State var buildGridSelDealt: [Dice.EnsembleRow] = [] // the 64 shown chains (sampled from the corpus, or fresh while it builds)
+    @State var buildGridSelCorpus: [Dice.EnsembleRow] = [] // §3.1 THE PREGEN CORPUS: the big pool DEAL samples 64 from (built once, background)
+    @State var buildGridSelCorpusBuilding = false        // the corpus is generating (background)
     @State var buildGridSelLib: [LibEntry] = []          // MY LIBRARY summaries (chains loaded lazily on tap)
     @State var buildGridSelSel: Int? = nil               // the index of the auditioning cell (nil = none)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)

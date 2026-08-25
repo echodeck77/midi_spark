@@ -4735,12 +4735,20 @@ extension DiagView {
         buildGridSelLib = saved + (au?.factoryLibrarySummaries() ?? [])  // v1 folds factory in so first run isn't empty
         buildGridSelLibFactoryFrom = saved.count                         // entries at/after this index are FACTORY (resolve by section, not by name)
         buildGridSelSel = nil
-        if buildGridSelDealt.isEmpty { buildGridSelDeal() }              // deal once; RE-DEAL regenerates
+        buildGridSelBuildCorpus()                                        // §3.1 kick the pregen corpus (background, once) — DEAL upgrades to it when ready
+        if buildGridSelDealt.isEmpty || !buildGridSelCorpus.isEmpty { buildGridSelDeal() }   // corpus ready ⇒ instant draw; else a fresh 64
         buildGridSelOpen = true
     }
     // DEALT — 64 seeded, replay-safe chains (8 archetypes × 8 re-rolls). rollEnsemble runs the offline Router many times,
     // so generate OFF the main thread with a spinner (64 = 8× the grid-RANDOMIZE cost, too much to block on).
     private func buildGridSelDeal() {
+        // §3.1 THE PREGEN CORPUS: once the pool exists, DEAL is INSTANT — a seeded shuffle drawing 64 (RE-DEAL bumps the
+        // seed → a fresh 64). While the corpus is still building, fall back to a fresh 64-roll so the first open isn't empty.
+        if !buildGridSelCorpus.isEmpty {
+            var rng = DiceRNG(seed: buildGridSelDealSeed)
+            buildGridSelDealt = Array(buildGridSelCorpus.shuffled(using: &rng).prefix(64))
+            return
+        }
         guard !buildGridSelGenerating else { return }                    // re-entrancy: one deal at a time (racing deals could land out of seed order)
         buildGridSelGenerating = true
         let seed = buildGridSelDealSeed
@@ -4749,6 +4757,25 @@ extension DiagView {
             var out: [Dice.EnsembleRow] = []
             for _ in 0..<8 { out.append(contentsOf: Dice.rollEnsemble(using: &rng)) }   // each call = 8 contrasting archetypes
             DispatchQueue.main.async { self.buildGridSelDealt = out; self.buildGridSelGenerating = false }
+        }
+    }
+    // §3.1 build the corpus INCREMENTALLY on a low-priority background thread — a batch of 64 at a time, chaining until the
+    // target, so it never blocks and DEAL upgrades to the richer pool after each batch (the "background queue tops it up").
+    // Each batch is seeded by the offset ⇒ a stable, deterministic library per session (persisting to disk is a follow-up).
+    private func buildGridSelBuildCorpus() {
+        let target = 256
+        guard !buildGridSelCorpusBuilding, buildGridSelCorpus.count < target else { return }
+        buildGridSelCorpusBuilding = true
+        let have = buildGridSelCorpus.count
+        DispatchQueue.global(qos: .utility).async {
+            var rng = DiceRNG(seed: 0xC0DE_5EED &+ UInt64(have))         // per-batch seed offset → deterministic, non-repeating
+            let batch = Dice.rollCorpus(count: 64, using: &rng)
+            DispatchQueue.main.async {
+                self.buildGridSelCorpus.append(contentsOf: batch)
+                self.buildGridSelCorpusBuilding = false
+                if self.buildGridSelOpen { self.buildGridSelDeal() }     // upgrade the shown 64 to the growing pool
+                if self.buildGridSelCorpus.count < target { self.buildGridSelBuildCorpus() }   // top up
+            }
         }
     }
     private func buildGridSelReDeal() {

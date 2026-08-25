@@ -337,6 +337,24 @@ enum Dice {
         Archetype.allCases.map { rollArchetype($0, using: &rng) }
     }
 
+    /// THE PREGEN CORPUS (Paul 2026-08-26, grid-selector §3.1): quality chains for the PICK GRID — generated in the
+    /// BACKGROUND (the app builds it in batches so DEAL draws instantly + RE-DEAL shuffles). Each `rollEnsemble` pass = 8
+    /// role-graded, quality-gated archetypes. Deduped by a CHEAP STRUCTURAL key (chain shape) — NOT the rendered signature
+    /// (that doubled the render cost); rollEnsemble's per-archetype randomisation keeps the pool varied. Seeded → stable.
+    static func rollCorpus(count: Int, using rng: inout some RandomNumberGenerator) -> [EnsembleRow] {
+        var out: [EnsembleRow] = []; out.reserveCapacity(count)
+        var seen = Set<String>()
+        let maxPasses = (count + 7) / 8 + count / 8   // just enough + a little headroom for structural dups
+        var passes = 0
+        while out.count < count && passes < maxPasses {
+            passes += 1
+            for row in rollEnsemble(using: &rng) where out.count < count && seen.insert(String(describing: row.chain)).inserted {
+                out.append(row)
+            }
+        }
+        return out
+    }
+
     static func rollArchetype(_ a: Archetype, using rng: inout some RandomNumberGenerator) -> EnsembleRow {
         func attempt() -> [ProcessorSlot] {
             var s = randomSlot(using: &rng)
