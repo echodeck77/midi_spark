@@ -159,6 +159,33 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DOCS STALENESS SWEEP — two survey agents, every finding verified vs code (2026-08-26, on `main`, `57c782e`; docs-only,
+  no code touched). Part of the autonomous overnight batch. Two parallel READ-ONLY doc audits (authoritative specs · forward/
+  manual/procedures), EACH finding checked against the built code before editing. **AUTHORITATIVE SPECS** (read "before
+  designing anything"): `v3.0-delta` gains a top banner flagging the TWO headline sections that are THEMSELVES now dead —
+  §1/§2/§3 reference-GRAPH routing NEVER shipped + was retired (grid-chaining gone; `resolvedParent` hard −1; `inputRow`
+  render-inert; cells route from four receiver DOORS `thru/latch/hold/keys/replay/file`), and §4/§5/§6/§6d PERFORM/EDIT two-
+  mode instrument superseded by the single BUILD page (§6a engine half stays live; CLAIM moved to THE RACK; §5b lap gesture
+  has no surface, primitive repurposed as the per-part clock); §2 schema `presetID:int`→`colourID:string`; §7 "notes have no
+  channel in between" softened (NotePool DOES remember origin channel — multi-channel doors + channel-preserving replay read
+  it). `v2.8` banner: "Fifteen processor types"→27 (full list); "SEAL/MOSAIC face"→piano-roll. `migration-tree-routing` STATUS:
+  "LIVE task"/"42-test"→fully historical (suite is 800+). **MANUAL/PROCEDURES/GUIDES:** `manual-skeleton` top staleness banner
+  (tab row gone→BUILD sole surface + header config buttons; 27 types; door BYPASS removed→six door modes; CLAIM/DUCK/TURNS→
+  RACK; CONTROLS placeholder superseded; FREE-RUN clock) + inline `{#processor-type}` "6 types"→27 + `{#tab-bar}` rewritten
+  (anchors PRESERVED for the DOCS-TEST contract); `test-procedures` P-series + `ui-port-guide` banners (the tab era they cited
+  was itself retired 2026-08-21→BUILD sole); `factory-scenes` T1–T17 run via BuildSelfTest/DEV overlay not the removed panel;
+  `feature-status` refreshed (27 types + BUILD-sole + free-run + removals). **pending-tasks §D:** resolved 3 internal
+  contradictions — truth strips ticked (landed), AUDITION FALLBACK re-marked REMOVED (was falsely "LANDED"), TAP re-marked DONE
+  (was falsely "NOT RATIFIED").**
+- **▶ REEL PAGE — 4 of 7 ferry rulings built, 3 deferred (2026-08-26, on `main`, `6e7d2b8`; iOS builds; UI-only, DEVICE
+  eye owed). Part of the autonomous overnight batch (ferry `INSTRUCTIONS-reel-page-changes`, consumed). BUILT: #1 square,
+  left-aligned pass cells (height kept); #2 no empty passes/no gaps (only non-empty passes render contiguously, true numbers
+  via `passNumbers()`); #4 PREV/NEXT step to the earlier/later non-empty pass; #7 lanes don't collapse (all four full height,
+  the collapse reversed). DEFERRED (need render/infra, not built blind): #3 boundary-deferred reel activation + roll-follows-
+  reel-output (Kernel render-coordination); #5 §4A per-pass STATE snapshot restore (needs a per-pass state-capture mechanism);
+  #6 first-change hue-tinted pass labels (needs a per-pass acts-log). Reply filed `_dear_claude/REPLY-2026-08-26-reel-page-
+  partial.md` (outbox, awaiting ACK). ⚠ CONSTRAINT (ferry heads-up absorbed): do NOT re-touch `reconcileBypass` until
+  `FERRY-passage-law.md` crosses (a wire speaks only while its chain plays — an inbound supersession).**
 - **▶ HOUSEKEEPING — survey-driven coverage + dead-code + refactor (2026-08-25, on `main`; macOS 894→897 green incl. fuzz,
   iOS builds clean). Three parallel READ-ONLY surveys (coverage gaps · dead code · refactor/efficiency), EVERY finding
   re-verified against the code before acting (one proposed coverage gap — harmonize de-dup/clamp — was a FALSE POSITIVE,
