@@ -159,6 +159,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ REEL PAGE REWORK + #5 per-pass STATE (increment 1) (2026-08-26, on `main`, `d368d1b`; iOS builds, macOS 898 green
+  incl. the new dedup test; DEVICE eye owed). Paul's browser rework + the start of ruling #5. **LAYOUT** (BuildPage.swift,
+  UI-only): the browser now reads as ONE uniform 8×8 grid — top 4 rows = the passes (square cells), bottom 4 rows = the four
+  A/B/C/D MIDI lanes, each the FULL grid width + ONE cell tall (the piano roll is reduced to match; no more full-height lanes /
+  left-hugging squares). Header + instructions + controls moved OFF the top banner into a RIGHT-side COLUMN (title · plain-
+  language help · pagination · REMOVE DUPLICATES · RESTORE SETUP · SAVE · CLOSE). PREV/NEXT are now PAGINATION (page the pass
+  block), not step-the-selection. **REMOVE DUPLICATES** toggle collapses runs of identical passes, backed by a new engine
+  content hash. **ENGINE** (Emission.swift, pure+tested): `ReelDeck.passSignatures()` (per-pass note-ON content hash, aligned
+  with passNumbers) + the history ring **32→64 passes / 8192→4096 events per pass = MEMORY-NEUTRAL** (both 262 144 event slots;
+  4096 stays above the flood-governor's ~3k/bar worst case), which makes pagination actually meaningful (2 pages of 32); two
+  ring tests made histCount-relative + a new dedup test. `reelPassSignatures()`/`reelPassCounter()` through Kernel+AU (synchronous
+  reads; tape frozen while browsing → no race). **#5 (increment 1):** the 4Hz poll captures the deployed play-grid arrangement
+  (`BuildSceneSnapshot`) at each pass boundary into a MAIN-THREAD ring keyed by pass number (bounded to the reel ring; no render
+  change); a RESTORE SETUP button applies the selected pass's captured arrangement (a live switch, like a scene change). DEFERRED
+  to increment 2: the append-only/undo-integrated "forward event" model + capture at very fast rates (the 4Hz poll can miss a
+  pass). ⚠ still holding off `reconcileBypass` until `FERRY-passage-law.md` crosses.**
 - **▶ DOCS STALENESS SWEEP — two survey agents, every finding verified vs code (2026-08-26, on `main`, `57c782e`; docs-only,
   no code touched). Part of the autonomous overnight batch. Two parallel READ-ONLY doc audits (authoritative specs · forward/
   manual/procedures), EACH finding checked against the built code before editing. **AUTHORITATIVE SPECS** (read "before
