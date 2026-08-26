@@ -5004,6 +5004,8 @@ extension DiagView {
         buildGridSelSel = nil
         buildGridSelBuildCorpus()                                        // §3.1 kick the pregen corpus (background, once) — DEAL upgrades to it when ready
         if buildGridSelDealt.isEmpty || !buildGridSelCorpus.isEmpty { buildGridSelDeal() }   // corpus ready ⇒ instant draw; else a fresh 64
+        else { buildGridSelComputeCellRolls() }                          // dealt already stocked (reopen) → compute its drifting faces now
+        buildGridSelComputeRowRolls()                                    // the row selectors' drifting faces
         buildGridSelOpen = true
     }
     // DEALT — 64 seeded, replay-safe chains (8 archetypes × 8 re-rolls). rollEnsemble runs the offline Router many times,
@@ -5014,6 +5016,7 @@ extension DiagView {
         if !buildGridSelCorpus.isEmpty {
             var rng = DiceRNG(seed: buildGridSelDealSeed)
             buildGridSelDealt = Array(buildGridSelCorpus.shuffled(using: &rng).prefix(64))
+            buildGridSelComputeCellRolls()                               // the drifting note faces for the freshly-dealt 64
             return
         }
         guard !buildGridSelGenerating else { return }                    // re-entrancy: one deal at a time (racing deals could land out of seed order)
@@ -5023,7 +5026,7 @@ extension DiagView {
             var rng = DiceRNG(seed: seed)
             var out: [Dice.EnsembleRow] = []
             for _ in 0..<8 { out.append(contentsOf: Dice.rollEnsemble(using: &rng)) }   // each call = 8 contrasting archetypes
-            DispatchQueue.main.async { self.buildGridSelDealt = out; self.buildGridSelGenerating = false }
+            DispatchQueue.main.async { self.buildGridSelDealt = out; self.buildGridSelGenerating = false; self.buildGridSelComputeCellRolls() }
         }
     }
     // §3.1 build the corpus INCREMENTALLY on a low-priority background thread — a batch of 64 at a time, chaining until the
@@ -5221,7 +5224,7 @@ extension DiagView {
             .foregroundColor(on ? .black : .white.opacity(0.7))
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan.opacity(0.9) : buildCell))
-            .contentShape(Rectangle()).onTapGesture { if buildGridSelTab != tab { buildGridSelStopAudition(); buildGridSelTab = tab } }   // stop the transient before switching banks (no stranded voice)
+            .contentShape(Rectangle()).onTapGesture { if buildGridSelTab != tab { buildGridSelStopAudition(); buildGridSelTab = tab; buildGridSelComputeCellRolls() } }   // stop the transient before switching banks (no stranded voice); recompute the tab's drifting faces
     }
     @ViewBuilder private func buildGridSelSmallChip(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
@@ -5236,8 +5239,10 @@ extension DiagView {
         let sel = buildGridSelSel == i
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(present ? hue.opacity(sel ? 0.85 : 0.42) : Color.white.opacity(0.03))
-            if sel {   // THE ACTIVE CELL — the auditioning chain's piano-roll (a sweeping playhead over its notes) + a live frame
-                buildGridSelRollFace(buildGridSelActiveRoll, animated: d.playing).padding(3)
+            if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
+                buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: true).padding(3).opacity(sel ? 1.0 : 0.7)
+            }
+            if sel {       // THE ACTIVE CELL — a breathing live frame
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     let f = stagingPulseFraction(tl.date, period: 0.9)
                     RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.45 + 0.5 * f), lineWidth: 3)
@@ -5248,22 +5253,51 @@ extension DiagView {
         .contentShape(Rectangle())
         .onTapGesture { if present { buildGridSelAudition(i) } }
     }
-    // The piano-roll face — normalized note bars over a sweeping playhead (looping; the active cell = animated, the right
-    // column = static). White bars, opacity by velocity. Matches the main grid's piano-roll aesthetic.
-    @ViewBuilder private func buildGridSelRollFace(_ bars: [GridSelBar], animated: Bool) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !animated || bars.isEmpty)) { tl in
+    // THE DRIFTING NOTE FACE (Paul 2026-08-26): notes scroll RIGHT→LEFT, looping — the same aesthetic as the part/play grid
+    // cells (buildNoteSweep). Every present cell + row selector wears its chain's fingerprint drifting across it (a browse
+    // preview: you can't run 64 live voices, so each cell loops its chain's note pattern). Opacity by velocity.
+    @ViewBuilder private func buildGridSelDriftFace(_ bars: [GridSelBar], animated: Bool, period: Double = 2.4) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: animationsPaused || !animated || bars.isEmpty)) { tl in
             Canvas { ctx, size in
-                let barH = max(1.5, size.height * 0.07)
+                let barH = max(1.5, size.height * 0.09)
+                let phase = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period   // 0→1 loop
                 for b in bars {
-                    let rect = CGRect(x: b.x0 * size.width, y: b.y * (size.height - barH) + barH / 2 - barH / 2,
-                                      width: max(1.5, (b.x1 - b.x0) * size.width), height: barH)
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(.white.opacity(0.3 + 0.55 * b.vel)))
-                }
-                if animated && !bars.isEmpty {                              // the looping playhead (a ~2s sweep — "piano roll" liveness)
-                    let ph = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.0) / 2.0
-                    ctx.fill(Path(CGRect(x: ph * size.width, y: 0, width: 1.2, height: size.height)), with: .color(.white.opacity(0.55)))
+                    let w = max(1.5, (b.x1 - b.x0) * size.width)
+                    let y = b.y * (size.height - barH) + barH / 2
+                    let base = ((b.x0 - phase).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // frac(x0 - phase)
+                    for k in [0.0, -1.0] {                                  // draw the note + its wrap-around copy so the flow is seamless at the right edge
+                        let rect = CGRect(x: (base + k) * size.width, y: y - barH / 2, width: w, height: barH)
+                        ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(.white.opacity(0.3 + 0.5 * b.vel)))
+                    }
                 }
             }
+        }
+    }
+    // Compute the drifting-note fingerprint for every present cell of the CURRENT tab, off the main thread (64× gridSelRollBars
+    // is too much to block on — the same reason DEAL is backgrounded). A generation token discards a batch if the deal/tab
+    // changed under it. Chains are gathered on the main thread first (library resolves via `au`), then bars computed pure.
+    private func buildGridSelComputeCellRolls() {
+        buildGridSelRollGen &+= 1
+        let gen = buildGridSelRollGen
+        var chains: [(Int, [ProcessorSlot])] = []
+        for i in 0..<64 where buildGridSelPresent(i) { if let hit = buildGridSelChainAt(i) { chains.append((i, hit.chain)) } }
+        buildGridSelCellRoll = [:]
+        DispatchQueue.global(qos: .userInitiated).async {
+            var out: [Int: [GridSelBar]] = [:]
+            for (i, chain) in chains { out[i] = gridSelRollBars(chain) }
+            DispatchQueue.main.async { if self.buildGridSelRollGen == gen { self.buildGridSelCellRoll = out } }
+        }
+    }
+    // The 8 row selectors get the same drifting face — each row chip loops its PART's chain fingerprint. Cheap (≤8), computed
+    // on open; rows only change on COMMIT (which closes the selector), so no live recompute is needed.
+    private func buildGridSelComputeRowRolls() {
+        var chains: [(Int, [ProcessorSlot])] = []
+        for n in 0..<8 { if let cid = buildRowColour(n) { chains.append((n, buildColourChain(cid))) } }
+        buildGridSelRowRoll = [:]
+        DispatchQueue.global(qos: .userInitiated).async {
+            var out: [Int: [GridSelBar]] = [:]
+            for (n, chain) in chains { out[n] = gridSelRollBars(chain) }
+            DispatchQueue.main.async { self.buildGridSelRowRoll = out }
         }
     }
     // §3.3 THE BROWSE CONTEXT (Paul 2026-08-25): the panel REUSES the main-page left-column objects — the MIDI IN
@@ -5296,6 +5330,8 @@ extension DiagView {
         let aimed = buildGridSelArrivalRow == n
         RoundedRectangle(cornerRadius: 5).fill(aimed ? (tint ?? buildCyan) : (cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
             .frame(height: height)
+            .overlay { if cid != nil { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: true).padding(2).opacity(0.65) } }   // the row selector drifts its part's notes too (Paul 2026-08-26)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(aimed ? Color.white : (tint ?? buildEdge), lineWidth: aimed ? 2 : 1))
             .overlay { if cid == nil { RoundedRectangle(cornerRadius: 5).stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(buildEdge) } }
             .overlay(Text("\(n + 1)").font(.system(size: min(13, height * 0.4), weight: .heavy, design: .monospaced)).foregroundColor(aimed ? .black.opacity(0.75) : (tint ?? .white.opacity(0.7))))
