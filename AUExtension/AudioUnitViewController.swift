@@ -233,6 +233,10 @@ struct DiagView: View {
     @State var buildGridSelCellRoll: [Int: [GridSelBar]] = [:]   // per-CELL piano-roll fingerprints (bg-computed per deal/tab) — the drifting note face on every present cell (Paul 2026-08-26)
     @State var buildGridSelRowRoll: [Int: [GridSelBar]] = [:]    // per-ROW-chip piano-roll fingerprints (bg-computed on open) — the row selectors get the same drifting face
     @State var buildGridSelRollGen = 0                   // generation token so a stale bg roll batch (deal/tab changed under it) is discarded
+    @State var buildGridSelStampRow: Int? = nil          // HOLD-TO-STAMP (Paul 2026-08-26): the row being held — a white sweep fills it while held; at completion the auditioning chain stamps onto it (keeping its colour)
+    @State var buildGridSelStampAt: Date? = nil          // when the hold began (drives the rising white-fill fraction)
+    @State var buildGridSelStampFlashRow: Int? = nil     // a just-stamped row — flashes fully white then fades to its colour
+    @State var buildGridSelStampFlashAt: Date? = nil
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
     @State var buildGridSelPriorSolo = false             // pre-open workshop-voice snapshot — restored on CANCEL (never silence a voice we didn't own)
     @State var buildGridSelPriorStaging = false

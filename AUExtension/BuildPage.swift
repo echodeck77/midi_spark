@@ -5195,6 +5195,27 @@ extension DiagView {
         buildFlashPromote("ROW \(row + 1) ✓")
         buildGridSelTeardown(select: targetID, restoreSolo: false)      // the chain is on a row now → stop the transient audition
     }
+    // HOLD-TO-STAMP (Paul 2026-08-26): while a browse CELL auditions, HOLDING a part-row stamps the auditioning chain onto
+    // that row — KEEPING the row's own colour — WITHOUT closing the browser (so you can stamp one machine onto several
+    // parts). A populated row keeps its hue + register (chain overwritten); an empty row mints a colour carrying the chain.
+    // Fires a white→fade FLASH on the row. Requires a browse cell to be the source (buildGridSelSel != nil).
+    private var buildGridSelCanStamp: Bool { buildGridSelSel != nil }
+    private func buildGridSelStampCommit(_ row: Int) {
+        guard let i = buildGridSelSel, let hit = buildGridSelChainAt(i) else { return }
+        if let tgt = buildRowColour(row) {                               // populated → overwrite its chain, KEEP its colour
+            buildWriteColourMachine(tgt, hit.chain)
+        } else {                                                         // empty → mint a colour carrying the chain + its register home
+            let y = buildNewTabColour(row, machine: hit.chain, transpose: hit.transpose)
+            buildPartCast.append(y)
+            if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }
+            buildSetRow(row, to: y)
+            if row < buildRowReceiver.count { buildRowReceiver[row] = ddStickyReceiver; buildRowEmitters[row] = ddStickyBuses }
+        }
+        buildStagingSyncIfPlaying()
+        buildGridSelComputeRowRolls()                                    // the row's drifting face updates to the stamped chain
+        buildGridSelStampFlashRow = row; buildGridSelStampFlashAt = Date()   // the white→fade confirm
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == row { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
+    }
     // CANCEL — the arrival colour was never written (audition rode the transient); restore the PRE-OPEN workshop voice.
     private func buildGridSelCancel() { buildGridSelTeardown(select: buildGridSelPriorSel, restoreSolo: true) }
     // Shared teardown: reap the transient, restore the selection + (on CANCEL) the pre-open voice + borrowed door, republish.
@@ -5366,6 +5387,9 @@ extension DiagView {
                 buildEmitterToggles(castW: castW).padding(.top, 8)       // MIDI OUT — reused
                 Text(d.playing ? "playing against your input" : "press ▶ play to hear it sweep")
                     .font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(d.playing ? buildDim : buildCyan.opacity(0.8))
+                if buildGridSelSel != nil {                              // a browse cell is auditioning → the hold-to-stamp hint
+                    Text("HOLD a row to stamp this chain onto that part (keeps the part's colour)").font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(buildCyan.opacity(0.8)).fixedSize(horizontal: false, vertical: true).frame(width: castW, alignment: .leading)
+                }
             } else {
                 Text("tap a cell to hear its chain, or a\nrow to load that part's chain").font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(buildDim).fixedSize(horizontal: false, vertical: true)
@@ -5381,12 +5405,43 @@ extension DiagView {
         RoundedRectangle(cornerRadius: 5).fill(aimed ? (tint ?? buildCyan) : (cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
             .frame(height: height)
             .overlay { if cid != nil { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: true).padding(2).opacity(0.65) } }   // the row selector drifts its part's notes too (Paul 2026-08-26)
+            .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // HOLD-TO-STAMP: the rising white fill + post-commit flash
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(aimed ? Color.white : (tint ?? buildEdge), lineWidth: aimed ? 2 : 1))
             .overlay { if cid == nil { RoundedRectangle(cornerRadius: 5).stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(buildEdge) } }
             .overlay(Text("\(n + 1)").font(.system(size: min(13, height * 0.4), weight: .heavy, design: .monospaced)).foregroundColor(aimed ? .black.opacity(0.75) : (tint ?? .white.opacity(0.7))))
             .contentShape(Rectangle())
-            .onTapGesture { buildGridSelAimRow(n) }                       // TAP = aim + load that part's chain (Paul 2026-08-26: hold-to-commit REMOVED — it closed the page unexpectedly; COMMIT button is the explicit commit)
+            .onTapGesture { buildGridSelAimRow(n) }                       // TAP = aim + load that part's chain
+            // HOLD = stamp the auditioning chain onto this part, KEEP its colour, keep the browser open (Paul 2026-08-26).
+            .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
+                                pressing: { p in buildGridSelStampPressing(n, p) }, perform: { buildGridSelStampFire(n) })
+    }
+    private var buildGridSelStampDur: Double { 0.65 }
+    private func buildGridSelStampPressing(_ n: Int, _ pressing: Bool) {
+        if pressing {
+            if buildGridSelCanStamp { buildGridSelStampRow = n; buildGridSelStampAt = Date() }
+        } else if buildGridSelStampRow == n {                            // released before completion → cancel the rising fill
+            buildGridSelStampRow = nil; buildGridSelStampAt = nil
+        }
+    }
+    private func buildGridSelStampFire(_ n: Int) {
+        guard buildGridSelCanStamp else { return }
+        buildGridSelStampRow = nil; buildGridSelStampAt = nil            // hand the rising fill over to the confirm flash
+        buildGridSelStampCommit(n)
+    }
+    // The rising WHITE fill while a row is held (fraction = elapsed / stampDur), then a full-white → fade CONFIRM once stamped.
+    @ViewBuilder private func buildGridSelStampSweep(_ n: Int, height: CGFloat) -> some View {
+        if buildGridSelStampRow == n, let start = buildGridSelStampAt {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let f = min(1.0, max(0.0, tl.date.timeIntervalSince(start) / buildGridSelStampDur))
+                Rectangle().fill(Color.white.opacity(0.9)).frame(height: max(0, height * CGFloat(f)))
+            }
+        } else if buildGridSelStampFlashRow == n, let fs = buildGridSelStampFlashAt {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let a = max(0.0, 0.9 * (1 - tl.date.timeIntervalSince(fs) / 0.5))   // full white → clear over ~0.5s
+                Rectangle().fill(Color.white.opacity(a))
+            }
+        }
     }
     private func buildGridSelAimRow(_ n: Int) {
         buildGridSelArrivalRow = n
