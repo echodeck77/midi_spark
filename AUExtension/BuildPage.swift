@@ -310,6 +310,10 @@ extension DiagView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 buildReceiverControl(i).frame(width: 96)           // the receiver strip at its OWN width, floating over the radios (not squeezing the column)
+                    .padding(6)                                    // ABOVE the mode-row highlight (Paul 2026-08-26): an opaque backing + zIndex so the selected LATCH/HOLD row's cyan tint can't bleed through the strip's gaps
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(red: 0.10, green: 0.115, blue: 0.145)))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                    .zIndex(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -801,24 +805,41 @@ extension DiagView {
         let pageSlice = Array(visible.dropFirst(page * 32).prefix(32))           // this page's ≤32 passes → the 4×8 block
         return ZStack {
             Color(red: 0.055, green: 0.065, blue: 0.085).ignoresSafeArea()      // FULL-SCREEN opaque backdrop
-            HStack(alignment: .top, spacing: colGap) {
-                VStack(spacing: gap) {                                          // LEFT — the 8×8 grid
-                    ForEach(0..<4, id: \.self) { r in                          // TOP 4 rows — the passes (this page)
-                        HStack(spacing: gap) {
-                            ForEach(0..<8, id: \.self) { c in
-                                let idx = r * 8 + c
-                                buildReelPassCell(idx < pageSlice.count ? pageSlice[idx] : -1, w: cellSize, h: cellSize)
+            if size.width <= size.height {                                      // PORTRAIT — the pass browser is a LANDSCAPE-ONLY view; prompt to rotate rather than cram the landscape block into a tall window
+                buildReelRotatePrompt()
+            } else {
+                HStack(alignment: .top, spacing: colGap) {
+                    VStack(spacing: gap) {                                      // LEFT — the 8×8 grid
+                        ForEach(0..<4, id: \.self) { r in                      // TOP 4 rows — the passes (this page)
+                            HStack(spacing: gap) {
+                                ForEach(0..<8, id: \.self) { c in
+                                    let idx = r * 8 + c
+                                    buildReelPassCell(idx < pageSlice.count ? pageSlice[idx] : -1, w: cellSize, h: cellSize)
+                                }
                             }
                         }
-                    }
-                    buildReelRollSection(width: gridSide, laneH: cellSize, gap: gap)   // BOTTOM 4 rows — A/B/C/D lanes + playhead
-                }.frame(width: gridSide, height: gridSide)
-                buildReelSidebar(pageCount: pageCount, page: page)              // RIGHT — header · instructions · controls
-                    .frame(width: sidebarW, height: gridSide, alignment: .top)
+                        buildReelRollSection(width: gridSide, laneH: cellSize, gap: gap)   // BOTTOM 4 rows — A/B/C/D lanes + playhead
+                    }.frame(width: gridSide, height: gridSide)
+                    buildReelSidebar(pageCount: pageCount, page: page)          // RIGHT — header · instructions · controls
+                        .frame(width: sidebarW, height: gridSide, alignment: .top)
+                }
             }
         }
         .onAppear { au?.reelSetBrowsing(true) }                                   // freeze the history tape while browsing
         .onDisappear { au?.reelStopReplay(); au?.reelSetBrowsing(false) }         // close → stop any replay + resume normal play, record again next pass
+    }
+    // PORTRAIT fallback (Paul 2026-08-26): the pass browser is a landscape-only view; in a tall window, prompt to rotate.
+    @ViewBuilder private func buildReelRotatePrompt() -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "arrow.clockwise").font(.system(size: 40, weight: .light)).foregroundColor(buildCyan)
+            Text("ROTATE TO LANDSCAPE").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.85))
+            Text("The pass browser is a landscape view.").font(.system(size: 12, weight: .medium)).foregroundColor(.white.opacity(0.5))
+            Button { reelShowPopup = false } label: {
+                Text("CLOSE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                    .padding(.horizontal, 24).padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCell)).overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
+            }.padding(.top, 6)
+        }.padding(40)
     }
     // The passes to show: non-empty, in ring order; when REMOVE DUPLICATES is on, a pass whose content matches the last
     // KEPT pass is hidden (collapses a run — e.g. a held loop filing the same bar every pass). (Paul 2026-08-26)
@@ -4967,16 +4988,21 @@ extension DiagView {
     // path: turn the chain voice ON (quantized) if not already, else swap which chain (quantized). Piece plays on.
     private func buildGridSelAudition(_ i: Int) {
         guard let hit = buildGridSelChainAt(i) else { return }
-        buildGridSelSel = i
-        buildGridSelActiveRoll = gridSelRollBars(hit.chain)               // the piano-roll shown on this cell + the right column
+        buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i)   // a DEALT/LIBRARY cell — its index is the commit source
+    }
+    // Load a chain onto the ONE transient audition colour, select it, and drive the chain voice (quantized). Shared by a
+    // cell audition (sel = the cell index → the commit source) and a ROW press (sel = nil → a view/hear of that part's chain).
+    private func buildGridSelLoadChain(_ raw: [ProcessorSlot], transpose: Int, hex: UInt32, sel: Int?) {
+        buildGridSelSel = sel
+        buildGridSelActiveRoll = gridSelRollBars(raw)                     // the piano-roll shown on the cell + the right column
         // BAKE the register home into the CHAIN (a leading TRANSPOSE utility) rather than the ephemeral colour's transpose:
         // the chain is baked into the published scene + swapped atomically at the STEP boundary, whereas the colour's
         // transpose is re-resolved on every rebuild — so an ephemeral transpose would jump the still-sounding old chain a
         // step early on a quantized swap. This keeps the whole swap quantized. (transpose stays 0 on the transient colour.)
-        var chain = hit.chain
-        if hit.transpose != 0 { var t = ProcessorSlot(type: .transpose); t.params.utilTranspose = max(-24, min(24, hit.transpose)); chain.insert(t, at: 0) }
+        var chain = raw
+        if transpose != 0 { var t = ProcessorSlot(type: .transpose); t.params.utilTranspose = max(-24, min(24, transpose)); chain.insert(t, at: 0) }
         buildColourReg[buildGridSelAudID] = chain
-        colourHueOverride[buildGridSelAudID] = hit.hex
+        colourHueOverride[buildGridSelAudID] = hex
         buildColourTranspose[buildGridSelAudID] = 0
         buildSyncColours()
         buildSelID = buildGridSelAudID; ddColourSel = -1                  // ddSelectedColourID now returns the transient
@@ -5148,18 +5174,20 @@ extension DiagView {
     // (receiver) selector · the MIDI CHAIN processor boxes · the MIDI OUT (emitter) toggles — so the grid selector reads
     // and edits identically to BUILD (the audition rides the transient gsAud colour, so these show/edit its machine + I/O).
     @ViewBuilder private func buildGridSelRightColumn(width: CGFloat) -> some View {
-        let selected = buildGridSelSel.map { buildGridSelPresent($0) } ?? false
+        let loaded = buildColourReg[buildGridSelAudID] != nil            // a chain is loaded — from a CELL tap OR a ROW press (Paul 2026-08-26)
         let castW = width - 2
         VStack(alignment: .center, spacing: 10) {
-            Text("THE MACHINE  ·  tap a cell to audition").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(buildDim).frame(width: castW, alignment: .leading)
-            if selected {
+            Text("THE MACHINE  ·  tap a cell or a row").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(buildDim).frame(width: castW, alignment: .leading)
+            if loaded {
                 buildReceiverSelector(castW: castW)                      // MIDI IN — reused from the main page
+                buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid,   // a header for the MIDI chain, mirroring the main page (Paul 2026-08-26)
+                                  action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }).frame(width: castW)
                 buildProcessorBlock(castW: castW, cell: 14)              // the MIDI CHAIN boxes — reused
                 buildEmitterToggles(castW: castW).padding(.top, 8)       // MIDI OUT — reused
                 Text(d.playing ? "playing against your input" : "press ▶ play to hear it sweep")
                     .font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(d.playing ? buildDim : buildCyan.opacity(0.8))
             } else {
-                Text("tap a cell to hear its chain\nagainst your held input").font(.system(size: 11, weight: .medium, design: .monospaced))
+                Text("tap a cell to hear its chain, or a\nrow to load that part's chain").font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(buildDim).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -5183,7 +5211,13 @@ extension DiagView {
         buildGridSelArrivalRow = n
         buildSelReceiver = buildRowReceiverResolved(n)                    // the audition plays through the AIMED part's door
         receivers = au?.uiReceivers() ?? receivers
-        if buildGridSelSel != nil { buildPublishScene() }
+        // LOAD the pressed part's own chain into the MIDI CHAIN panel + audition it (Paul 2026-08-26). sel = nil → it's a
+        // view/hear of what's on the row, not a commit source (re-deal or tap a cell to change it). Empty row → clear.
+        if let cid = buildRowColour(n) {
+            buildGridSelLoadChain(buildColourChain(cid), transpose: buildColourTranspose[cid] ?? 0, hex: buildBaseHex(cid), sel: nil)
+        } else {
+            buildGridSelStopAudition()                                    // empty part → nothing to load; silence the transient
+        }
     }
     // The selected chain as compact read-only processor boxes (the transient gsAud machine, minus the register-home transpose).
 }
