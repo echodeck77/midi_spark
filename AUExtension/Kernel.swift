@@ -923,12 +923,19 @@ final class Kernel {
         // ---- a8 ASSERT-ON-SILENCE net: when nothing legitimately sounds (stopped, no held input, no
         //      audition), any lingering router voice or passthrough echo is a STUCK NOTE. Force silence —
         //      safe by construction here (nothing real is playing) — and count the self-heal for the poll.
+        //      EFFECTIVE-PLAYING (Paul 2026-08-26): use `rPlaying`, not the host `playing` — during the FREE-RUN
+        //      clock the engine drives voices while the host is STOPPED (from a latched/held chord, so the LIVE
+        //      pool can be empty). Checking the host flag falsely fired this hard invariant on free-run (crash).
         diag.passthroughHeld = passthroughGate.activeCount
         let now = Int64(timestamp.pointee.mSampleTime)
-        if silenceInvariantViolated(playing: playing, heldInput: pool.count, auditioning: audition >= 0,
+        // `producing` = the engine is legitimately driving output: the host plays, the free-run clock runs, OR the reel
+        // is replaying (which REPLACES the output and SKIPS router.process → activeVoiceCount goes stale; the soft net
+        // already exempts it, so the hard net must too).
+        let producing = rPlaying || reel.state == .replaying
+        if silenceInvariantViolated(playing: producing, heldInput: pool.count, auditioning: audition >= 0,
                                     activeVoices: diag.activeVoiceCount, passthroughHeld: diag.passthroughHeld) {
             healStuckNotes(now: now, hardTrap: true,   // a hard invariant: DEBUG traps into the corpse
-                           reason: "silence violated (playing=\(playing) held=\(pool.count) audition=\(audition))",
+                           reason: "silence violated (playing=\(playing) rPlaying=\(rPlaying) held=\(pool.count) audition=\(audition))",
                            diag: &diag)
             emptyInputSamples = 0
         } else {

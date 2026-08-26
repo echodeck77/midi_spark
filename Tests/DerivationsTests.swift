@@ -879,7 +879,9 @@ final class DerivationsTests: XCTestCase {
                                                activeVoices: 0, passthroughHeld: 1), "an echo held in dead silence = stuck")
     }
     func testSilenceInvariantIgnoresLegitimateSound() {
-        // playing → the sequencer legitimately sounds
+        // playing → the sequencer legitimately sounds. The Kernel passes the EFFECTIVE playing flag here (host transport
+        // OR the FREE-RUN clock OR reel replay) — so a free-run scene driven by a LATCHED chord (live input empty, host
+        // stopped) is exempt, not a crash (Paul 2026-08-26).
         XCTAssertFalse(silenceInvariantViolated(playing: true, heldInput: 0, auditioning: false,
                                                 activeVoices: 5, passthroughHeld: 0))
         // keys held while stopped → passthrough echoes are expected
