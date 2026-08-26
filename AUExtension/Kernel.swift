@@ -338,11 +338,16 @@ final class Kernel {
     }
     /// The reference PITCH-CLASS set of door `ex` for the key filter: its RESOLVED pool — the frozen/derived pool if the
     /// door is armed (SCALE/KEYS/latched chord/replay/file), else its LIVE input filtered by the door's channel+range.
+    /// §4 DYNAMIC REFERENCE + CARRY PIN: a live-played reference (THRU/unlatched B) tracks the CURRENT chord — so A is
+    /// chord-locked, re-deriving live. When B falls momentarily silent (lifting to re-voice), the reference PERSISTS
+    /// (the PEDAL law — the left hand's lift must not mute the right), refreshing on B's next material. A never-yet-played
+    /// reference stays empty (ONLY ⇒ silence, the intended tell). Reset on the transport start edge (a fresh take).
     private func keyReferenceMask(door ex: Int) -> UInt16 {
         let frozen = latchedPools[ex].pitchClassMaskAll()                                              // a built frozen/derived pool
-        if frozen != 0 { return frozen }
-        return pool.pitchClassMask(chanMask: receiverChanMask[ex], cableMask: Int(receiverCables[ex]),
-                                   noteLo: receiverRangeLo[ex], noteHi: receiverRangeHi[ex])           // else live input on that door
+        let live = frozen != 0 ? frozen : pool.pitchClassMask(chanMask: receiverChanMask[ex], cableMask: Int(receiverCables[ex]),
+                                                              noteLo: receiverRangeLo[ex], noteHi: receiverRangeHi[ex])
+        if live != 0 { lastReferenceMask[ex] = live; return live }                                     // new material → refresh + use
+        return lastReferenceMask[ex]                                                                   // momentary silence → hold the last set (0 if B never played)
     }
     /// Apply the key filter to door `i`'s frozen pool IN PLACE (no allocation — fixed scratch): each note is kept, dropped
     /// (BLOCK / out of set), or remapped (SNAP → nearest legal note). Remapped notes keep their velocity/channel/cable; a
@@ -443,6 +448,7 @@ final class Kernel {
     private var receiverExcludeDoor: [Int8] = [-1, -1, -1, -1]                // KEY FILTER: per door, the reference door whose pitch classes filter its pool (-1 = OFF)
     private var receiverExcludeOnly: UInt8 = 0                                // KEY FILTER §3: bit i = door i INTERSECTS (ONLY) vs subtracts (MINUS) the reference
     private var receiverExcludeSnap: UInt8 = 0                                // KEY FILTER §3: bit i = door i SNAPS out-of-set notes vs BLOCKs them
+    private var lastReferenceMask = [UInt16](repeating: 0, count: 4)          // KEY FILTER §4 CARRY PIN: per reference door, its last NON-EMPTY pitch-class set — persists across the door's silences (the PEDAL law), refreshing on its next material
     private var keyFilterNoteBuf = [UInt8](repeating: 0, count: 128)          // §3 no-alloc scratch: notes to close then re-add (remap) when applying the key filter
     private var keyFilterToBuf = [UInt8](repeating: 0, count: 128)
     private var keyFilterVelBuf = [UInt8](repeating: 0, count: 128)
@@ -809,6 +815,7 @@ final class Kernel {
         let startEdge = playing && !prevRenderPlaying
         let jumped = playing && prevRenderPlaying && (beatPos < prevRenderBeatPos - 1e-6 || beatPos - prevRenderBeatPos > max(1.0, 4.0 * renderWindowBeats))   // CR-12: scale with the block span — a NORMAL block advances ~renderWindowBeats, so a fixed >1.0 mis-fired every block at high tempo × large buffer (starved REPLAY capture)
         if startEdge || jumped { for r in 0..<4 { doorRings[r].clearHistory() } }
+        if startEdge { for r in 0..<4 { lastReferenceMask[r] = 0 } }   // §4 CARRY PIN resets on a fresh take (transport start)
         prevRenderBeatPos = beatPos; prevRenderPlaying = playing
 
         // Audition (stopped only) REPLACES raw note passthrough when the held cell will sound — you hear
