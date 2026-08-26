@@ -75,6 +75,8 @@ struct EuclidLine: Codable, Equatable {
     var steps: Int = 8       // N steps (per-line ⇒ polyrhythm)
     var rotate: Int = 0
     var invert: Bool = false  // strike the N−K rests
+    var pick: EuclidPick? = nil   // v1b (Paul 2026-08-26): per-line PICK for TARGET=ALL lines (nil ⇒ the global euclidPick — byte-identical)
+    var die: Int = 0              // v1b: per-line seed salt so CYCLE/RANDOM picks differ across lines (0 ⇒ unsalted, byte-identical)
 }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 // SPAN — the timeline a pattern-based processor runs on (Paul 2026-08-18): CELL restarts the pattern each column
@@ -208,7 +210,8 @@ struct ColourParams: Codable, Equatable {
     var burstSpanN: Int? = nil                // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from burstSpan)
     var burstMode: BurstMode? = nil           // BURST family: ONCE (default) | COIN | PATTERN — Paul 2026-08-19
     var burstSlices: [BurstSlice]? = nil      // PATTERN: 8 slices (B/C/R), pick-then-paint (nil ⇒ a default figure)
-    var burstRate: ArpRate? = .r1_8           // PATTERN: slices per window (walks the span)
+    var burstRate: ArpRate? = .r1_8           // PATTERN: the slice WIDTH when burstRateOn (the 8-figure walks/tiles the span at this rate)
+    var burstRateOn: Bool? = nil              // RATE AXIS (Paul 2026-08-26): PATTERN divides the span by burstRate (not a fixed 8); nil/false ⇒ legacy fixed-8, byte-identical
     var burstRotate: Int? = 0                 // PATTERN: rotate the slice figure (0…7)
     var burstChance: Double? = 0.5            // COIN: seeded chance-of-burst per step (0…1)
     var cascadeSpan: PatternSpan? = nil       // CASCADE: CELL (reveal per column) | ROW (the reveal spans the bar) — Paul 2026-08-19

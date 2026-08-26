@@ -86,7 +86,7 @@ final class FuzzTests: XCTestCase {
             }
             if c.type == .euclid && r.chance(0.6) { c.paramsA.euclidPick = EuclidPick.allCases[r.int(EuclidPick.allCases.count)]; c.paramsA.euclidInvert = r.chance(0.4) }   // PICK + INVERT
             if c.type == .euclid && r.chance(0.4) {   // EUCLID LINES §10 — 1…8 lines (per-line N = polyrhythm · targets incl. notes past the chord → silent); no stuck notes
-                c.paramsA.euclidLines = (0..<(1 + r.int(8))).map { _ in EuclidLine(target: r.int(9), pulses: r.int(17), steps: 2 + r.int(15), rotate: r.int(16), invert: r.chance(0.3)) }
+                c.paramsA.euclidLines = (0..<(1 + r.int(8))).map { _ in EuclidLine(target: r.int(9), pulses: r.int(17), steps: 2 + r.int(15), rotate: r.int(16), invert: r.chance(0.3), pick: r.chance(0.5) ? EuclidPick.allCases[r.int(EuclidPick.allCases.count)] : nil, die: r.int(8)) }   // v1b: per-line PICK + DIE
             }
             if c.type == .glide && r.chance(0.7) { c.paramsA.glideMode = [.bend, .synth, .step][r.int(3)]; c.paramsA.glideTime = [0.0, 0.1, 0.3, 0.6, 1.2][r.int(5)] }   // BEND|SYNTH|STEP — STEP is note-hungry, must never stuck
             if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
@@ -225,6 +225,7 @@ final class FuzzTests: XCTestCase {
         p.burstChance = Double(r.range(0, 100)) / 100
         p.burstSlices = (0..<8).map { _ in BurstSlice.allCases[r.int(BurstSlice.allCases.count)] }   // B · C · R (incl. orphan carries)
         p.burstRotate = r.int(8)
+        if r.chance(0.5) { p.burstRateOn = true; p.burstRate = ArpRate.allCases[r.int(ArpRate.allCases.count)] }   // RATE AXIS: walk the figure at a rate (Paul 2026-08-26)
     }
     private func randomBuses(_ r: inout FuzzRNG) -> Set<Bus> {
         var s = Set<Bus>()

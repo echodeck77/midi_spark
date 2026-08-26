@@ -1042,18 +1042,33 @@ struct ProcessorBox: View {
                 heroField("LINES — each a euclid from one chord (kick · hat · pulse)") {
                     VStack(spacing: 5) {
                         ForEach(Array(lines.enumerated()), id: \.offset) { (idx, L) in
-                            HStack(spacing: 5) {
-                                numPair(L.target, 0...8, format: { $0 == 0 ? "ALL" : "N\($0)" }) { v in euclidLineEdit(idx) { $0.target = v } }
-                                numPair(L.pulses, 0...max(2, L.steps)) { v in euclidLineEdit(idx) { $0.pulses = min(v, $0.steps) } }
-                                Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                                numPair(L.steps, 2...16) { v in euclidLineEdit(idx) { $0.steps = max(2, v); if $0.pulses > max(2, v) { $0.pulses = max(2, v) } } }
-                                numPair(L.rotate, 0...15, wrap: true, format: { "↻\($0)" }) { v in euclidLineEdit(idx) { $0.rotate = v } }
-                                Text(L.invert ? "REST" : "HITS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(L.invert ? accent : .white.opacity(0.45))
-                                    .frame(width: 34, height: 34).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-                                    .contentShape(Rectangle()).onTapGesture { euclidLineEdit(idx) { $0.invert.toggle() } }
-                                Button { setParam { var a = $0.euclidLines ?? []; if idx < a.count { a.remove(at: idx) }; $0.euclidLines = a.isEmpty ? nil : a } } label: {
-                                    Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundColor(.red.opacity(0.8)).frame(width: 26, height: 34)
-                                }.buttonStyle(.plain)
+                            VStack(spacing: 3) {
+                                HStack(spacing: 5) {
+                                    numPair(L.target, 0...8, format: { $0 == 0 ? "ALL" : "N\($0)" }) { v in euclidLineEdit(idx) { $0.target = v } }
+                                    numPair(L.pulses, 0...max(2, L.steps)) { v in euclidLineEdit(idx) { $0.pulses = min(v, $0.steps) } }
+                                    Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                                    numPair(L.steps, 2...16) { v in euclidLineEdit(idx) { $0.steps = max(2, v); if $0.pulses > max(2, v) { $0.pulses = max(2, v) } } }
+                                    numPair(L.rotate, 0...15, wrap: true, format: { "↻\($0)" }) { v in euclidLineEdit(idx) { $0.rotate = v } }
+                                    Text(L.invert ? "REST" : "HITS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(L.invert ? accent : .white.opacity(0.45))
+                                        .frame(width: 34, height: 34).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                                        .contentShape(Rectangle()).onTapGesture { euclidLineEdit(idx) { $0.invert.toggle() } }
+                                    Button { setParam { var a = $0.euclidLines ?? []; if idx < a.count { a.remove(at: idx) }; $0.euclidLines = a.isEmpty ? nil : a } } label: {
+                                        Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundColor(.red.opacity(0.8)).frame(width: 26, height: 34)
+                                    }.buttonStyle(.plain)
+                                }
+                                if L.target == 0 {   // v1b (Paul 2026-08-26): per-line PICK (what each hit strikes) + DIE (salts CYCLE/RANDOM apart from other lines)
+                                    HStack(spacing: 6) {
+                                        Text("PICK").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                                        let cur = L.pick ?? (p.euclidPick ?? .all)
+                                        Text(cur.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                                            .frame(width: 64, height: 24).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                                            .contentShape(Rectangle())
+                                            .onTapGesture { euclidLineEdit(idx) { let all = EuclidPick.allCases; let c = $0.pick ?? (p.euclidPick ?? .all); $0.pick = all[(((all.firstIndex(of: c) ?? 0) + 1) % all.count)] } }
+                                        Text("DIE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                                        numPair(L.die, 0...8, format: { "⚄\($0)" }) { v in euclidLineEdit(idx) { $0.die = v } }
+                                        Spacer(minLength: 0)
+                                    }.padding(.leading, 8)
+                                }
                             }
                         }
                         if lines.count < 8 { pill("+ ADD LINE") { setParam { var a = $0.euclidLines ?? []; a.append(EuclidLine(target: 0, pulses: 4, steps: 8, rotate: 0, invert: false)); $0.euclidLines = a } } }
@@ -1081,6 +1096,10 @@ struct ProcessorBox: View {
                         set: { i, st in setParam { var s2 = $0.burstSlices ?? defBurst; while s2.count < 8 { s2.append(.rest) }; s2[i] = st; $0.burstSlices = s2 } })
                 }
                 field("ROTATE", \.burstRotate) { numPair(p.burstRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.burstRotate = v } } }
+                // RATE AXIS (Paul 2026-08-26): FIXED 8 = the span split into 8 slices; RATE = the 8-figure WALKS the span at a chosen rate (fine = dense, coarse = sparse).
+                let rateOn = p.burstRateOn ?? false
+                field("SLICES  \(rateOn ? "AT RATE" : "FIXED 8")") { seg(["FIXED 8", "RATE"], sel: rateOn ? "RATE" : "FIXED 8") { i in setParam { $0.burstRateOn = (i == 1) } } }
+                if rateOn { field("RATE") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.burstRate ?? .r1_8).rawValue) { i in setParam { $0.burstRate = ArpRate.allCases[i] } } } }
             }
             spanLadderField(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.burstSpanN = v } }
         case .cascade:  // GENERATOR — incremental chord reveal

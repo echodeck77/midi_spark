@@ -1215,8 +1215,29 @@ extension DiagView {
         default:
             let now = !(i < buildRow8On.count && buildRow8On[i])
             if i < buildRow8On.count { buildRow8On[i] = now }         // optimistic
-            au?.setRow8On(i, now)                                    // v1: TAP = toggle the lit state (FREEZE/HALFTIME act; the routing-class + held/one-shot engines land next)
+            au?.setRow8On(i, now)                                    // TAP = toggle the lit state (for TOGGLE/ONE-SHOT movers; HELD movers use the press gesture below)
         }
+    }
+    // HELD-MOVER momentary press (Paul 2026-08-26): a cell whose mover is HELD engages on finger-DOWN and RESTORES on
+    // release (STUTTER/REDIRECT/BROADCAST/CC-PUNCH by default) — punch an effect in while held, out when you let go. The
+    // engine already responds to the setRow8On edge (CC-PUNCH sends the value on / 0 off), so this only changes the gesture.
+    private func buildRow8Press(_ i: Int) {
+        guard i >= 0, i < 8, i < buildRow8Cells.count, buildRow8Cells[i].type != .empty else { return }
+        if buildRow8HeldSlot == i { return }                        // onChanged fires repeatedly — engage once
+        buildRow8HeldSlot = i
+        if buildRow8Cells[i].type == .ccPunch {                     // CC-PUNCH: punch the value on press
+            let c = buildRow8Cells[i]
+            au?.punchCC(max(0, min(127, c.ccNum ?? 74)), max(0, min(127, c.ccVal ?? 127)))
+        }
+        if i < buildRow8On.count { buildRow8On[i] = true }
+        au?.setRow8On(i, true)
+    }
+    private func buildRow8Release(_ i: Int) {
+        guard buildRow8HeldSlot == i else { return }
+        buildRow8HeldSlot = nil
+        if i < buildRow8Cells.count, buildRow8Cells[i].type == .ccPunch { au?.punchCC(max(0, min(127, buildRow8Cells[i].ccNum ?? 74)), 0) }   // restore CC to 0
+        if i < buildRow8On.count { buildRow8On[i] = false }
+        au?.setRow8On(i, false)
     }
 
     // ROW 8 lives in the PLAY GRID's BOTTOM row (row index 7) as POPULATED-looking cells (Paul 2026-08-24) — not a
@@ -1226,7 +1247,8 @@ extension DiagView {
         let c = i < buildRow8Cells.count ? buildRow8Cells[i] : Row8Cell()
         let on = i < buildRow8On.count && buildRow8On[i] && c.type != .empty
         let empty = c.type == .empty
-        RoundedRectangle(cornerRadius: 7)
+        let heldMover = c.type != .empty && c.mover == .held        // momentary press (Paul 2026-08-26) vs a tap for TOGGLE/ONE-SHOT
+        let face = RoundedRectangle(cornerRadius: 7)
             .fill(empty ? Color.black.opacity(0.35) : (on ? buildCyan : buildCell))
             .frame(width: cell, height: cell)
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(
@@ -1241,7 +1263,13 @@ extension DiagView {
                 }.padding(1)
             }
             .contentShape(Rectangle())
-            .onTapGesture { buildRow8Perform(i) }
+        if heldMover {                                              // finger-DOWN engages, release restores (DragGesture(0) survives the AU host — the house pattern)
+            face.simultaneousGesture(DragGesture(minimumDistance: 0)
+                .onChanged { _ in buildRow8Press(i) }
+                .onEnded { _ in buildRow8Release(i) })
+        } else {
+            face.onTapGesture { buildRow8Perform(i) }
+        }
     }
 
     // THE ROW 8 EDIT PAGE (§4): a spacious authoring surface. The 8 cells across the top; tap one to select; below, the

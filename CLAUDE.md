@@ -159,6 +159,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SIX ENGINE FEATURES — EUCLID LINES v1b · TAP hold-path · GLIDE driven mode-awareness · ECHO hold-tail FREE/MUTE ·
+  BURST rate axis · ROW 8 BROADCAST-16 + held-mover (2026-08-26, on `main`; iOS builds, macOS 905 green + fuzz; DEVICE ear
+  owed on all). Paul ordered the batch. All additive-Optional, nil ⇒ byte-identical (fuzz + the pre-existing suite confirm).
+  **EUCLID LINES v1b:** per-line `pick`/`die` on `EuclidLine` (nil pick ⇒ the global euclidPick; die salts CYCLE/RANDOM apart
+  per line — the polyrhythm's voices scatter independently). runEuclidLine takes both; builder now CARRIES them (it was
+  reconstructing the line + dropping the new fields — caught by the test). Editor: a per-line PICK cycle + DIE numPair
+  sub-row for ALL-target lines. **TAP hold-path:** `[X→TAP]` with no tick driver now mirrors to its wire from emitColumnHolds
+  (was driver-fold only) — `isHoldTailChain` recognises a `.tap` tail WHEN there's no driver (so `[ARP→TAP]` stays driver-
+  folded); the mirror rides the once-per-column ECHO-in-hold gate. **GLIDE driven mode-awareness:** `emitGlideDriven` was
+  BEND-only — now SYNTH (CC65/CC5 + legato transitions) and STEP (per-transition chromatic zipper via a shared
+  `emitGlideStepRun`) too; `glidePhraseEnd` centres the bend ONLY for BEND (`GlideVoice.mode` set at anchor — SYNTH/STEP emit
+  no 0xE0, the bug the driven tests caught). **ECHO hold-tail limits retired:** `pushEchoForNote` gains a `tempo` param →
+  FREE (ms) echo now registers tails in a hold chain (was synced-only → silent); ECHO MUTE in a hold chain suppresses the
+  dry (`holdEchoMute` gates the strike loop; tails still ring). `emitColumnHolds` gained a `tempo` arg (3 call sites).
+  **BURST rate axis:** PATTERN can divide the span by `burstRate` (walking the 8-figure, `burstCarryRun` generalised with a
+  `count`) instead of a fixed 8 — opt-in `burstRateOn` (nil/false ⇒ legacy fixed-8, byte-identical); editor SLICES FIXED-8 |
+  RATE. **ROW 8:** BROADCAST all-16-channels wired (`broadcastAllChannels` → box `broadcastAll16` → emitOneBus fans the ALL-
+  cable copy across every channel; nil ⇒ 4-wire, byte-identical; note-hungry, governed) + the HELD-mover momentary press-
+  gesture (`.held` movers engage on finger-down, restore on release via a DragGesture(0); CC-PUNCH punches the value on /
+  0 off) — replaces the v1 tap-toggle for held movers. **+7 RouterTests + fuzz** (per-line pick/die, TAP hold, GLIDE driven
+  synth/step, ECHO free+mute hold-tail, BURST rate density). **DEFERRED:** ROW 8 **PART** (scene-independent playback) — Paul
+  deferred it + the spec is self-contradictory on whether it needs its own clock; not built blind (needs his ruling).**
 - **▶ REEL PAGE REWORK + #5 per-pass STATE (increment 1) (2026-08-26, on `main`, `d368d1b`; iOS builds, macOS 898 green
   incl. the new dedup test; DEVICE eye owed). Paul's browser rework + the start of ruling #5. **LAYOUT** (BuildPage.swift,
   UI-only): the browser now reads as ONE uniform 8×8 grid — top 4 rows = the passes (square cells), bottom 4 rows = the four

@@ -1057,6 +1057,23 @@ final class RouterTests: XCTestCase {
         let lone = onsetSpan([.burst, .rest, .rest, .rest, .rest, .rest, .rest, .rest])         // span 1 slice
         XCTAssertGreaterThan(carried, lone, "CARRY stretches the roll → wider onset span than a lone burst")
     }
+    func testBurstRateAxisChangesSliceDensity() {
+        // BURST RATE AXIS (Paul 2026-08-26): PATTERN divides the span by burstRate (walking the 8-figure) instead of a fixed
+        // 8 — a fine rate packs more roll-slices than a coarse one. burstRateOn=false is the legacy fixed-8 (covered above).
+        func onsetCount(rateOn: Bool, rate: ArpRate) -> Int {
+            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+                c.paramsA.count = 2; c.paramsA.curve = 0; c.paramsA.burstMode = .pattern
+                c.paramsA.burstSlices = [.burst, .rest, .burst, .rest, .burst, .rest, .burst, .rest]   // 4 launches / 8 slices
+                c.paramsA.burstSpan = .row; c.paramsA.burstRateOn = rateOn; c.paramsA.burstRate = rate; return c }) {
+                $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let fine = onsetCount(rateOn: true, rate: .r1_32)
+        let coarse = onsetCount(rateOn: true, rate: .r1_4)
+        XCTAssertGreaterThan(fine, coarse, "a fine RATE (1/32) packs more roll-slices across the span than a coarse one (1/4)")
+        XCTAssertGreaterThan(onsetCount(rateOn: false, rate: .r1_8), 0, "the legacy fixed-8 pattern still fires")
+    }
     // BURST COIN (Paul 2026-08-19): a seeded chance-of-burst per step — chance 0 silent, chance 1 every step, monotone.
     func testBurstCoinChanceIsMonotone() {
         func onCount(_ chance: Double) -> Int {
@@ -2844,6 +2861,32 @@ final class RouterTests: XCTestCase {
         render(NotePool(), playing: false)
         assertNothingLeftSounding(e)
     }
+    func testArpThenGlideSynthDrivenSendsPortamentoCCsNoBend() {
+        // [ARP→GLIDE SYNTH] (Paul 2026-08-26 driven-path mode-awareness): the driver feeds GLIDE's mono voice; SYNTH sends
+        // CC65/CC5 + legato transitions, NO pitch-bend — was BEND-only on the driven path.
+        let cs = arpColours()
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+        var g = ProcessorSlot(type: .glide); g.params.glideMode = .synth; g.params.glideTime = 0.3
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, g]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 }, "SYNTH driven → CC65 portamento ON")
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 5 }, "SYNTH driven → CC5 time")
+        XCTAssertFalse(e.events.contains { $0.status == 0xE0 }, "SYNTH driven → no pitch-bend")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 1, "the driver's walk emits legato note-ons")
+        assertNothingLeftSounding(e)
+    }
+    func testArpThenGlideStepDrivenZippersNoBend() {
+        // [ARP→GLIDE STEP] driven: each driver transition zippers chromatically (intermediate short notes), no bend.
+        let cs = arpColours()
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_4
+        var g = ProcessorSlot(type: .glide); g.params.glideMode = .step; g.params.glideTime = 0.2
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, g]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 67]), beats: 4, into: e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notes.contains(63) || notes.contains(64), "STEP driven zippers through intermediate semitones (got \(notes.sorted()))")
+        XCTAssertFalse(e.events.contains { $0.status == 0xE0 }, "STEP driven → no pitch-bend")
+        assertNothingLeftSounding(e)
+    }
     /// Sweeping the TARGET CC# past a control (VOLUME/CC7) must REVERT it to its standard (127), not leave it knocked
     /// down — the abandoned-target guard (user 2026-08-10).
     func testModTargetChangeRevertsAbandonedCC() {
@@ -2951,6 +2994,20 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
         XCTAssertEqual(beyond, 0, "a TARGET past the held chord (rank 6 of 3 notes) strikes NOTHING — correctly silent, never wraps")
     }
+    func testEuclidLinesPerLinePickAndDie() {
+        // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick; a per-line die salts CYCLE/RANDOM apart.
+        func notesOf(_ line: EuclidLine) -> [Int] {
+            var c = Colour(colourID: "gold", type: .euclid); c.paramsA.euclidLines = [line]
+            let b = box(colours: colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
+        }
+        XCTAssertEqual(Set(notesOf(EuclidLine(target: 0, pulses: 4, steps: 8, pick: .low))), [60], "per-line PICK=LOW strikes only the low note")
+        XCTAssertEqual(Set(notesOf(EuclidLine(target: 0, pulses: 4, steps: 8, pick: .high))), [67], "per-line PICK=HIGH strikes only the high note")
+        let dieA = notesOf(EuclidLine(target: 0, pulses: 5, steps: 8, pick: .random, die: 0))
+        let dieB = notesOf(EuclidLine(target: 0, pulses: 5, steps: 8, pick: .random, die: 5))
+        XCTAssertNotEqual(dieA, dieB, "a different per-line DIE reseeds the RANDOM scatter → a different note sequence")
+    }
     // ARP EUCLID MASK (SPEC-arp-euclid-mask): K=N is byte-identical (mask OFF); a 4-of-8 mask drops steps to the
     // Bjorklund hits; TIE keeps the same ONSET count as REST (non-hits sustain, they don't add notes) but lengthens
     // them; WAIT re-spaces the walk vs MARCH. Pure per-step Bjorklund — deterministic, off-device provable.
@@ -3012,6 +3069,21 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(tapB.ons.filter { $0.cable == 2 }.isEmpty, "TAP to B → the copy appears on wire B")
         XCTAssertEqual(Set(tapB.ons.filter { $0.cable == 1 }.map { $0.note }), Set(tapB.ons.filter { $0.cable == 2 }.map { $0.note }), "wire B (tap) carries the same notes as wire A (passthrough)")
         XCTAssertTrue(run2(true, to: 2, mute: true).ons.filter { $0.cable == 2 }.isEmpty, "MUTE → the tap is silent")
+    }
+    func testTapHoldChainMirrorsToWire() {
+        // TAP HOLD-PATH (Paul 2026-08-26): [HARMONIZE→TAP] has no tick driver, so it emits via emitColumnHolds — the tail
+        // TAP must still mirror the harmonized set to its wire (was driver-path only).
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
+        var tap = ProcessorSlot(type: .tap); tap.params.tapTo = 2
+        let cs = colourIDs.map { Colour(colourID: $0, type: .harmonize) }
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, tap]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
+        XCTAssertFalse(e.ons.filter { $0.cable == 2 }.isEmpty, "a HOLD-chain TAP mirrors to wire B")
+        XCTAssertTrue(e.ons.contains { $0.cable == 2 && $0.note == 67 }, "the harmonized set (incl. 60+7=67) reaches the tap wire")
+        let noTap = { () -> RecordingEmitter in
+            let b2 = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm]; return c }() }
+            let e2 = RecordingEmitter(); run(b2, chord([60, 64, 67]), beats: 2, into: e2); return e2 }()
+        XCTAssertTrue(noTap.ons.filter { $0.cable == 2 }.isEmpty, "without TAP, nothing on wire B")
     }
     func testRatchetThenClosedPassgateIsSilent() {
         let cs = arpColours()
@@ -5435,6 +5507,30 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(root.count, 3, "the echo repeats the root over time (not just the one held chord)")
         XCTAssertGreaterThanOrEqual(harm.count, 3, "…and the echoes are HARMONIZED (the +7 voice repeats too)")
         assertNothingLeftSounding(e)
+    }
+    func testEchoHoldTailFreeDelayRegistersTails() {
+        // ECHO mid-chain limit fix (Paul 2026-08-26): FREE (ms) delay in a HOLD chain now registers tails (was synced-only → silent).
+        var s0 = ProcessorSlot(type: .echo); s0.params.echoSync = false; s0.params.echoDelayMs = 120; s0.params.echoRepeats = 4; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
+        var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
+        let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
+            var c = Cell(colourID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c
+        }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e)
+        XCTAssertGreaterThanOrEqual(e.ons.filter { $0.note == 60 && $0.cable == 1 }.count, 3, "FREE (ms) echo repeats the held root over time")
+        assertNothingLeftSounding(e)
+    }
+    func testEchoHoldTailMuteSuppressesTheDry() {
+        // ECHO MUTE in a hold chain (Paul 2026-08-26): echoes-only — the dry (harmonized) hold is suppressed; the tails ring.
+        func run2(thru: Bool) -> RecordingEmitter {
+            var s0 = ProcessorSlot(type: .echo); s0.params.echoThru = thru; s0.params.echoDelayDiv = 1; s0.params.echoRepeats = 3; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
+            var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
+            let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
+                var c = Cell(colourID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e); assertNothingLeftSounding(e); return e
+        }
+        let thru = run2(thru: true), mute = run2(thru: false)
+        XCTAssertGreaterThan(mute.ons.count, 0, "MUTE still rings the echoes")
+        XCTAssertLessThan(mute.ons.count, thru.ons.count, "MUTE drops the dry hold → fewer note-ons than THRU")
     }
     func testEchoAsChainTailEchoesUpstreamSet() {
         let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {

@@ -793,10 +793,10 @@ func burstSliceAt(_ slices: [BurstSlice], _ i: Int, rotate: Int) -> BurstSlice {
 /// A carry with no preceding burst (or a rest) contributes nothing; the roll's strikes+curve stretch over this many
 /// slices. (Paul 2026-08-19: CARRY = span-stretch, not gate-ring.)
 @inline(__always)
-func burstCarryRun(_ slices: [BurstSlice], at i: Int, rotate: Int) -> Int {
-    guard burstSliceAt(slices, i, rotate: rotate) == .burst else { return 0 }
+func burstCarryRun(_ slices: [BurstSlice], at i: Int, rotate: Int, count: Int = 8) -> Int {
+    guard burstSliceAt(slices, i, rotate: rotate) == .burst else { return 0 }   // burstSliceAt tiles mod-8, so this walks a >8-slice rate-driven pattern
     var run = 1
-    while i + run < 8 && burstSliceAt(slices, i + run, rotate: rotate) == .carry { run += 1 }
+    while i + run < count && burstSliceAt(slices, i + run, rotate: rotate) == .carry { run += 1 }
     return run
 }
 /// Whether this STEP fires a burst under COIN — seeded, deterministic per step, salted apart from RATCHET/CHANCE.

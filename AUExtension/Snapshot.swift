@@ -127,6 +127,8 @@ struct SnapParams {
     var burstSlices: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]   // PATTERN: 8 slices (B/C/R)
     var burstRotate: Int = 0                 // PATTERN: rotate the slice figure
     var burstChance: Double = 0.5            // COIN: seeded chance-of-burst per step
+    var burstRateBeats: Double = ArpRate.r1_8.beats   // RATE AXIS (Paul 2026-08-26): PATTERN slice WIDTH when burstRateOn
+    var burstRateOn: Bool = false            // RATE AXIS: divide the span by burstRate (walking the 8-figure) vs the legacy fixed-8
     var cascadeSpan: PatternSpan = .cell     // CASCADE: CELL = per-column reveal · ROW = the reveal spans the bar (Paul 2026-08-19)
     var cascadeSpanN: Int = 0                // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW · >0 = the reveal window in columns
     // THE MOD PROCESSOR (CC generator, delta / CC-stage §1).
@@ -295,6 +297,7 @@ final class SnapshotBox {
     let clockScale: Double
     let busRemap: [UInt8]            // ROW 8 REDIRECT/SWAP: per-bus output-wire remap (default [0,1,2,3] = no redirect). A lit REDIRECT A→B sets [A]=B; a lit SWAP A↔B sets [A]=B,[B]=A. Applied at the emission stamp (cable+channel).
     let broadcastActive: Bool        // ROW 8 BROADCAST: while lit, every emitted note MIRRORS to ALL 4 emitter wires (the wall) — a per-note fan-out at the emission boundary.
+    let broadcastAll16: Bool         // ROW 8 BROADCAST all-16 (Paul 2026-08-26): the ALL-cable copy also fans across every MIDI channel (a multitimbral wall).
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
@@ -322,11 +325,12 @@ final class SnapshotBox {
          macroValues: [Double] = Array(repeating: 0, count: 24),
          rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt8] = [],
          freezeActive: Bool = false, clockScale: Double = 1.0, busRemap: [UInt8] = [0, 1, 2, 3],
-         broadcastActive: Bool = false) {
+         broadcastActive: Bool = false, broadcastAll16: Bool = false) {
         self.freezeActive = freezeActive
         self.clockScale = clockScale
         self.busRemap = busRemap
         self.broadcastActive = broadcastActive
+        self.broadcastAll16 = broadcastAll16
         self.rowLaneMask = rowLaneMask
         self.generation = generation
         self.stepBeats = stepBeats

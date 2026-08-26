@@ -68,6 +68,7 @@ final class Router {
     private var busChannels: [UInt8] = [1, 2, 3, 4]   // per-bus stamp channels, refreshed each process
     private var busRemap: [UInt8] = [0, 1, 2, 3]      // ROW 8 REDIRECT/SWAP: per-bus output-wire remap (identity = no redirect), refreshed each process
     private var broadcastActive = false               // ROW 8 BROADCAST: mirror every emitted note to all 4 wires, refreshed each process
+    private var broadcastAll16 = false                // ROW 8 BROADCAST (Paul 2026-08-26): also fan the ALL-cable copy across all 16 channels
     private var heldColumns: UInt8 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
@@ -285,6 +286,33 @@ final class Router {
         var stepTotal: Int16 = 0   // |Δ| semitones = number of steps in the run
         var stepsDone: Int16 = 0   // steps already emitted (idempotent across windows)
         var stepRunStart = 0.0     // beat the run began
+        var stepVel: UInt8 = 100   // the run's velocity (captured when the run was set up — used by both glide paths)
+        var mode: GlideMode = .bend   // the voice's glide mode (set at anchor) — phrase-end centres the bend ONLY for BEND
+    }
+    /// Emit the pending STEP chromatic run's strikes that fall in this window (shared by the single-slot + driven paths).
+    /// Intermediate steps are short zipper notes; the final step is the TARGET, held (offSample .max) until the next
+    /// transition. Idempotent across windows via `stepsDone`. (Paul 2026-08-26 — [driver→GLIDE] STEP awareness.)
+    private func emitGlideStepRun(_ gv: inout GlideVoice, cable: UInt8, ch: UInt8, bus: Int, glideTime: Double,
+                                  beatPos: Double, bEnd: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
+        guard gv.stepTotal > 0, gv.stepsDone < gv.stepTotal else { return }
+        let N = Int(gv.stepTotal), from = Int(gv.stepFrom), tgt = Int(gv.stepTarget)
+        let dir = tgt >= from ? 1 : -1
+        let stepBeat = max(0.00005, glideTime) / Double(N)
+        var i = Int(gv.stepsDone) + 1
+        while i <= N {
+            let onBeat = gv.stepRunStart + Double(i) * stepBeat
+            if onBeat >= bEnd { break }                          // a later window carries this step
+            let onS = windowStart + Int64((max(0, onBeat - beatPos) / beatsPerSample).rounded())
+            let sn = max(0, min(127, from + dir * i))
+            if i < N {                                           // intermediate zipper note (short)
+                let offS = onS + Int64(max(1, (stepBeat * 0.9 / beatsPerSample).rounded()))
+                _ = openVoice(note: UInt8(sn), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: offS, velocity: gv.stepVel, out: out, meter: true)
+            } else {                                             // final = the TARGET, held until the next transition
+                let slot = openVoice(note: UInt8(max(0, min(127, tgt))), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: gv.stepVel, out: out, meter: true)
+                gv.slot = Int16(slot)
+            }
+            gv.stepsDone = Int16(i); i += 1
+        }
     }
     private var glideVoices = [GlideVoice](repeating: GlideVoice(), count: 64)
     private var glideLastColumn = [Int32](repeating: -1, count: Snap.rows + 1)   // PER-ROW phrase-end on column exit (slot Snap.rows = the uniform/global call)
@@ -1251,9 +1279,19 @@ final class Router {
                                 onSample: onS, offSample: offS, velocity: v, out: out)
             if own >= 0 && offS <= windowEnd { closeVoice(own, atSample: offS, out: out) }
         }
-        let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
-                            onSample: onS, offSample: offS, velocity: v, out: out)
-        if all >= 0 && offS <= windowEnd { closeVoice(all, atSample: offS, out: out) }
+        if broadcastAll16 && !previewMode {
+            // ROW 8 BROADCAST all-16 (Paul 2026-08-26): fan the ALL-cable copy across every MIDI channel (a multitimbral
+            // wall). Each (cable 0, channel c, note) is a distinct refcount key → each closes cleanly (no stuck notes).
+            // Note-hungry (16× per note) — the flood governor applies. Only reached while BROADCAST is lit.
+            for c in UInt8(0)..<16 {
+                let av = openVoice(note: note, chan: c, cable: 0, bus: UInt8(bus), onSample: onS, offSample: offS, velocity: v, out: out)
+                if av >= 0 && offS <= windowEnd { closeVoice(av, atSample: offS, out: out) }
+            }
+        } else {
+            let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
+                                onSample: onS, offSample: offS, velocity: v, out: out)
+            if all >= 0 && offS <= windowEnd { closeVoice(all, atSample: offS, out: out) }
+        }
         return Int(ch)
     }
 
@@ -1449,7 +1487,7 @@ final class Router {
     private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool, pass: Int,
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
                                  beatsPerSample: Double, windowStart: Int64,
-                                 windowEnd: Int64, out: MIDIEmitter?,
+                                 windowEnd: Int64, tempo: Double, out: MIDIEmitter?,
                                  reconcileOnly: Bool = false,   // PLAY: THIS CELL frozen-column re-run — adopt/close the immortal holds only, never re-strike
                                  onlyRow: Int? = nil,           // PER-PART CLOCK: scope the hold reconcile + emit to ONE row
                                  diag: inout KernelDiag) {
@@ -1496,6 +1534,7 @@ final class Router {
             // CELL MACHINE: a HOLD-TAIL chain holds the TAIL slot's transform of every upstream stage's composed
             // set; a plain cell holds its head-only treatment of the source.
             let holdChain = isHoldTailChain(cell)
+            let holdEchoMute = holdChain && (chainEchoIndex(cell).map { !cell.procs[$0].echoThru } ?? false)   // ECHO MUTE in a hold chain (Paul 2026-08-26): echoes only — suppress the dry (the tails register below); THRU keeps the dry
             let tailIdx = cell.procs.count - 1
             var treat = colour; let treatP = holdChain ? cell.procs[tailIdx] : cell.proc
             treat.a = treatP
@@ -1539,7 +1578,7 @@ final class Router {
                 ? chordSplitWindow(count: srcN, split: treat.a.splitSet,
                                    noteAt: { holdChain ? Int(chainScratch.srcAscending($0, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending($0, for: cell)) })
                 : (0, srcN)
-            for k in 0..<srcN {
+            for k in 0..<srcN where !holdEchoMute {                  // ECHO MUTE: the dry is suppressed (echoes-only); tails still register below
                 let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
@@ -1574,6 +1613,24 @@ final class Router {
                               velocity: vel, out: out, diag: &diag)
                 }
             }
+            // TAP in a HOLD-tail chain (Paul 2026-08-26, [X→TAP] / [X→TAP→Y] with no tick driver): mirror each TAP slot's
+            // INPUT set to its wire (LEVEL-scaled), once per column entry — the parallel send, matching the driver-path TAP
+            // (emitDriverNote). THIS WIRE (0) layers on the cell's chopped output; A–D goes to that emitter; MUTE = no dry
+            // effect (TAP is note-transparent, so the dry hold already played the passing stream).
+            if !reconcileOnly, holdChain {
+                for t in 0..<cell.procs.count where cell.procs[t].type == .tap && !cell.slotBypass[t] {
+                    let tp = cell.procs[t]
+                    if tp.tapMute { continue }
+                    composeChainSet(cell: cell, pool: cellPool, upto: t - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)
+                    let tapBM: UInt8 = tp.tapTo == 0 ? hbm : (UInt8(1) << UInt8(max(0, min(3, tp.tapTo - 1))))
+                    for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
+                        let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
+                        let tn = base + transpose; guard tn >= 0 && tn <= 127 else { continue }
+                        let tv = clampVel(Int((Double(max(1, chainScratch.velocity(UInt8(base)))) * tp.tapLevel).rounded()))
+                        emitArtic(note: UInt8(tn), busMask: tapBM, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: tv, out: out, diag: &diag)
+                    }
+                }
+            }
             // ECHO in a HOLD-tail chain ([ECHO→HARMONIZE], [ECHO→SPLIT], …): register tails. DIRECT (default) repeats the
             // FULLY-PROCESSED final set (position-blind, v1 — without this the echo is dropped, composeChainSet folds it
             // as pass-through; user 2026-08-10 bug). CHAIN (§7②, Paul 2026-08-22) seeds from ECHO's INPUT set and
@@ -1585,7 +1642,7 @@ final class Router {
                 for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
                     let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
                     let n = base + transpose; guard n >= 0 && n <= 127 else { continue }
-                    pushEchoForNote(n, vel: max(1, chainScratch.velocity(UInt8(base))), bm: hbm, p: ep, onset: colStart, S: S,
+                    pushEchoForNote(n, vel: max(1, chainScratch.velocity(UInt8(base))), bm: hbm, p: ep, onset: colStart, S: S, tempo: tempo,
                                     route: chainRoute ? .chain : .direct, cellIdx: chainRoute ? currentCellIndex : -1, echoSlot: chainRoute ? ei : -1)
                 }
             }
@@ -1874,7 +1931,7 @@ final class Router {
             else { for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min } }
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
+                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, onlyRow: onlyRow, diag: &diag)
             emitEchoColumn(box: box, column: effCol, pool: pool, pass: pass,   // ECHO: strike the dry + register the tail
                            S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                            windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
@@ -1883,12 +1940,12 @@ final class Router {
             // PLAY: THIS CELL — the column is FROZEN, so re-run the holds every window to SUSTAIN them (adopt, don't re-strike).
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, out: out, reconcileOnly: true, onlyRow: onlyRow, diag: &diag)
+                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, reconcileOnly: true, onlyRow: onlyRow, diag: &diag)
         } else if heldActive && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
             // AUDIT B2: a single-column lap pins the column so no edge fires — reconcile now to close orphaned drones.
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
+                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, onlyRow: onlyRow, diag: &diag)
         }
         return prevEdge
     }
@@ -1949,6 +2006,7 @@ final class Router {
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         busRemap = box.busRemap                      // ROW 8 REDIRECT/SWAP: per-bus output remap, this render
         broadcastActive = box.broadcastActive        // ROW 8 BROADCAST: mirror to all wires, this render
+        broadcastAll16 = box.broadcastAll16          // ROW 8 BROADCAST: + all 16 channels on the ALL cable
         curBox = box                                // for the reel's colour-by-cell note tag (openVoice reads the sounding colour's hue)
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         // PER-ROW LAP (Paul 2026-08-19): the scene may set a per-row loop mask (BUILD's two grids loop independently);
@@ -2435,7 +2493,7 @@ final class Router {
         let gv = glideVoices[cellIdx]
         if gv.anchor >= 0 {
             if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: atSample, out: out) }
-            if gv.bus >= 0 { emitBend(cable: UInt8(gv.bus + 1), ch: (busChannels[Int(gv.bus)] &- 1) & 15, value: 8192, atSample: atSample, out: out) }
+            if gv.mode == .bend && gv.bus >= 0 { emitBend(cable: UInt8(gv.bus + 1), ch: (busChannels[Int(gv.bus)] &- 1) & 15, value: 8192, atSample: atSample, out: out) }   // SYNTH/STEP emit no bend (Paul 2026-08-26)
         }
         glideVoices[cellIdx] = GlideVoice()
     }
@@ -2557,32 +2615,13 @@ final class Router {
                 } else if Int(gv.lastInput) != inNote {                 // NEW TARGET: start a run from the current note
                     if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: windowStart, out: out) }
                     gv.slot = -1
-                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(inNote)
+                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(inNote); gv.stepVel = pick.vel
                     gv.stepTotal = Int16(abs(inNote - Int(gv.anchor))); gv.stepsDone = 0; gv.stepRunStart = beatPos
                     gv.anchor = Int16(inNote); gv.lastInput = Int16(inNote)   // the target becomes the anchor for the NEXT transition
                 }
-                if gv.stepTotal > 0 && gv.stepsDone < gv.stepTotal {          // emit the run's steps that fall in this window
-                    let N = Int(gv.stepTotal), from = Int(gv.stepFrom), tgt = Int(gv.stepTarget)
-                    let dir = tgt >= from ? 1 : -1
-                    let stepBeat = max(0.00005, p.glideTime) / Double(N)
-                    var i = Int(gv.stepsDone) + 1
-                    while i <= N {
-                        let onBeat = gv.stepRunStart + Double(i) * stepBeat
-                        if onBeat >= bEnd { break }                          // a later window carries this step
-                        let onS = windowStart + Int64((max(0, onBeat - beatPos) / beatsPerSample).rounded())
-                        let sn = max(0, min(127, from + dir * i))
-                        if i < N {                                           // intermediate zipper note (short)
-                            let offS = onS + Int64(max(1, (stepBeat * 0.9 / beatsPerSample).rounded()))
-                            _ = openVoice(note: UInt8(sn), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: offS, velocity: pick.vel, out: out, meter: true)
-                        } else {                                             // final = the TARGET, held until the next transition
-                            let slot = openVoice(note: UInt8(max(0, min(127, tgt))), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                            gv.slot = Int16(slot)
-                        }
-                        gv.stepsDone = Int16(i); i += 1
-                    }
-                }
+                emitGlideStepRun(&gv, cable: cable, ch: ch, bus: bus, glideTime: p.glideTime, beatPos: beatPos, bEnd: bEnd, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
             }
-            gv.bus = Int8(bus)
+            gv.bus = Int8(bus); gv.mode = p.glideMode
             glideVoices[cellIdx] = gv
         }
     }
@@ -2607,47 +2646,80 @@ final class Router {
         let ch = (busChannels[bus] &- 1) & 15
         var gv = glideVoices[cellIdx]
         let cnt = glideDrivenCount[cellIdx]
+        let cable = UInt8(bus + 1)
+        let bEnd = beatPos + windowBeats
         for i in 0..<cnt {                                        // apply each driver target in beat order
             let inNote = Int(glideDrivenNote[cellIdx * Self.glideDrivenCap + i])
             let vel = glideDrivenVel[cellIdx * Self.glideDrivenCap + i]
             let tb = glideDrivenBeat[cellIdx * Self.glideDrivenCap + i]
             let onS = sampleOf(musical: tb, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)   // swing-accurate (was a raw linear conversion that dropped the warp — review 2026-08-23)
-            if gv.anchor < 0 {                                   // ANCHOR: first driver note = note-on + centred bend
-                let slot = openVoice(note: UInt8(inNote), chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote); gv.rampStart = tb
-                emitBend(cable: UInt8(bus + 1), ch: ch, value: 8192, atSample: onS, out: out); gv.lastBend14 = 8192
-            } else if Int(gv.lastInput) != inNote {              // NEW TARGET
-                let semis = inNote - Int(gv.anchor)
-                if p.glideReanchor && glideNeedsReanchor(target: inNote, anchor: Int(gv.anchor), range: p.glideRange) {   // leap → RE-ANCHOR
-                    if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }
-                    emitBend(cable: UInt8(bus + 1), ch: ch, value: 8192, atSample: onS, out: out)
-                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                    gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = tb; gv.lastBend14 = 8192
-                } else {                                         // in range → GLIDE (capture the current bend, ramp to the new target; clamp if not re-anchoring)
-                    let tt = max(0.0001, p.glideTime)
-                    gv.bendFrom = gv.bendFrom + (gv.bendTo - gv.bendFrom) * min(1, p.glideTime > 0 ? (tb - gv.rampStart) / tt : 1)
-                    gv.bendTo = p.glideReanchor ? Double(semis) : Double(max(-p.glideRange, min(p.glideRange, semis)))
-                    gv.rampStart = tb
+            switch p.glideMode {
+            case .bend:
+                if gv.anchor < 0 {                                   // ANCHOR: first driver note = note-on + centred bend
+                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote); gv.rampStart = tb
+                    emitBend(cable: cable, ch: ch, value: 8192, atSample: onS, out: out); gv.lastBend14 = 8192
+                } else if Int(gv.lastInput) != inNote {              // NEW TARGET
+                    let semis = inNote - Int(gv.anchor)
+                    if p.glideReanchor && glideNeedsReanchor(target: inNote, anchor: Int(gv.anchor), range: p.glideRange) {   // leap → RE-ANCHOR
+                        if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }
+                        emitBend(cable: cable, ch: ch, value: 8192, atSample: onS, out: out)
+                        let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                        gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = tb; gv.lastBend14 = 8192
+                    } else {                                         // in range → GLIDE (capture the current bend, ramp to the new target; clamp if not re-anchoring)
+                        let tt = max(0.0001, p.glideTime)
+                        gv.bendFrom = gv.bendFrom + (gv.bendTo - gv.bendFrom) * min(1, p.glideTime > 0 ? (tb - gv.rampStart) / tt : 1)
+                        gv.bendTo = p.glideReanchor ? Double(semis) : Double(max(-p.glideRange, min(p.glideRange, semis)))
+                        gv.rampStart = tb
+                    }
+                    gv.lastInput = Int16(inNote)
                 }
-                gv.lastInput = Int16(inNote)
+            case .synth:                                            // SYNTH: the synth glides itself — CC65 ON + CC5 time at anchor, then LEGATO transitions
+                if gv.anchor < 0 {
+                    out?.emit(sampleTime: onS, cable: cable, 0xB0 | ch, 65, 127)
+                    out?.emit(sampleTime: onS, cable: cable, 0xB0 | ch, 5, UInt8(glideSynthCCTime(p.glideTime)))
+                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote)
+                } else if Int(gv.lastInput) != inNote {
+                    let newSlot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                    if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }   // release old AFTER new = legato
+                    gv.anchor = Int16(inNote); gv.slot = Int16(newSlot); gv.lastInput = Int16(inNote)
+                }
+            case .step:                                             // STEP: a fast chromatic run per transition (emitted after the loop; note-hungry, governed)
+                if gv.anchor < 0 {
+                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote)
+                } else if Int(gv.lastInput) != inNote {
+                    if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }
+                    gv.slot = -1
+                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(inNote); gv.stepVel = vel
+                    gv.stepTotal = Int16(abs(inNote - Int(gv.anchor))); gv.stepsDone = 0; gv.stepRunStart = tb
+                    gv.anchor = Int16(inNote); gv.lastInput = Int16(inNote)
+                }
             }
         }
-        if gv.anchor >= 0 {                                      // emit the bend ramp across this window (control grid, deduped) — sustains between ticks
-            let tt = max(0.0001, p.glideTime)
-            let bEnd = beatPos + windowBeats
-            var k = Int((beatPos / modCtrlBeats).rounded(.up))
-            while Double(k) * modCtrlBeats < bEnd {
-                let b = Double(k) * modCtrlBeats
-                if b >= beatPos {
-                    let prog = p.glideTime > 0 ? min(1, (b - gv.rampStart) / tt) : 1
-                    let v14 = glideBend14(semitones: gv.bendFrom + (gv.bendTo - gv.bendFrom) * prog, range: p.glideRange)
-                    if gv.lastBend14 != Int16(v14) {
-                        emitBend(cable: UInt8(gv.bus + 1), ch: ch, value: v14, atSample: windowStart + Int64(((b - beatPos) / beatsPerSample).rounded()), out: out)
-                        gv.lastBend14 = Int16(v14)
+        gv.bus = Int8(bus); gv.mode = p.glideMode
+        switch p.glideMode {
+        case .bend:
+            if gv.anchor >= 0 {                                  // emit the bend ramp across this window (control grid, deduped) — sustains between ticks
+                let tt = max(0.0001, p.glideTime)
+                var k = Int((beatPos / modCtrlBeats).rounded(.up))
+                while Double(k) * modCtrlBeats < bEnd {
+                    let b = Double(k) * modCtrlBeats
+                    if b >= beatPos {
+                        let prog = p.glideTime > 0 ? min(1, (b - gv.rampStart) / tt) : 1
+                        let v14 = glideBend14(semitones: gv.bendFrom + (gv.bendTo - gv.bendFrom) * prog, range: p.glideRange)
+                        if gv.lastBend14 != Int16(v14) {
+                            emitBend(cable: cable, ch: ch, value: v14, atSample: windowStart + Int64(((b - beatPos) / beatsPerSample).rounded()), out: out)
+                            gv.lastBend14 = Int16(v14)
+                        }
                     }
+                    k += 1
                 }
-                k += 1
             }
+        case .synth: break
+        case .step:
+            emitGlideStepRun(&gv, cable: cable, ch: ch, bus: bus, glideTime: p.glideTime, beatPos: beatPos, bEnd: bEnd, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
         }
         glideVoices[cellIdx] = gv
     }
@@ -2815,12 +2887,12 @@ final class Router {
             // single-line (empty `euclidLines`) path is BYTE-IDENTICAL to the pre-lines euclid — same K/N/rot/pick/invert.
             let srcCount = srcNotes.count
             // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
-            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, target: Int, invert: Bool) {
+            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, target: Int, invert: Bool, pick pickIn: EuclidPick? = nil, die: Int = 0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
                 let sub = spanLadderBeats(p.euclidSpanN, S: S, row: cyc) / Double(n)   // SPAN LADDER: n steps across the span; odd N = polymeter
-                let pick = p.euclidPick   // PICK applies to TARGET=ALL lines
+                let pick = pickIn ?? p.euclidPick   // v1b: per-line PICK (nil ⇒ the global) for TARGET=ALL lines
                 var cycleHits = 0; for s in 0..<n where (invert ? !euclidBuf[s] : euclidBuf[s]) { cycleHits += 1 }
                 let effHits = Int64(max(1, cycleHits))
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
@@ -2839,7 +2911,7 @@ final class Router {
                         case .cycle, .random:
                             let cy = (tick - Int64(step)) / Int64(n)                 // floored cycle (tick = cy·n + step)
                             var hitsUpTo = 0; for s in 0...step where (invert ? !euclidBuf[s] : euclidBuf[s]) { hitsUpTo += 1 }
-                            let ord = cy * effHits + Int64(hitsUpTo - 1)
+                            let ord = (cy * effHits + Int64(hitsUpTo - 1)) &+ Int64(die)   // v1b: per-line die salts CYCLE (rotates the sequence) / RANDOM (reseeds the scatter)
                             if srcCount > 0 {
                                 pickIndex = pick == .cycle
                                     ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
@@ -2853,7 +2925,7 @@ final class Router {
             if p.euclidLines.isEmpty {
                 runEuclidLine(pulses: p.euclidPulses, steps: p.euclidSteps, rotate: p.euclidRot, target: 0, invert: p.euclidInvert)
             } else {
-                for L in p.euclidLines { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, target: L.target, invert: L.invert) }
+                for L in p.euclidLines { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, target: L.target, invert: L.invert, pick: L.pick, die: L.die) }
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
@@ -2880,12 +2952,23 @@ final class Router {
                 // seeded chance-of-burst per column-step — the roll fills THIS column when it fires (replay-exact)
                 if burstCoinFires(step: Int((colStart / S).rounded()), chance: p.burstChance) { layBurst(anchor: colStart, width: S) }
             case .pattern:
-                // 8 slices across the span; at each BURST slice the roll STRETCHES over its carry-run; CARRY/REST launch nothing.
-                let sliceW = bSpan / 8
+                // At each BURST slice the roll STRETCHES over its carry-run; CARRY/REST launch nothing.
                 let patAnchor = columnStart(colStart, bSpan)
-                for i in 0..<8 {
-                    let run = burstCarryRun(p.burstSlices, at: i, rotate: p.burstRotate)
-                    if run > 0 { layBurst(anchor: patAnchor + Double(i) * sliceW, width: Double(run) * sliceW) }
+                if p.burstRateOn {
+                    // RATE AXIS (Paul 2026-08-26): the span is divided into slices of width burstRateBeats; the 8-figure
+                    // WALKS/TILES (mod-8) across them — a fine rate packs many roll-slices, a coarse rate fewer than 8.
+                    let sliceW = max(0.001, p.burstRateBeats)
+                    let nSlices = max(1, min(64, Int((bSpan / sliceW).rounded())))
+                    for i in 0..<nSlices {
+                        let run = burstCarryRun(p.burstSlices, at: i, rotate: p.burstRotate, count: nSlices)
+                        if run > 0 { layBurst(anchor: patAnchor + Double(i) * sliceW, width: Double(run) * sliceW) }
+                    }
+                } else {
+                    let sliceW = bSpan / 8   // LEGACY fixed-8 (byte-identical)
+                    for i in 0..<8 {
+                        let run = burstCarryRun(p.burstSlices, at: i, rotate: p.burstRotate)
+                        if run > 0 { layBurst(anchor: patAnchor + Double(i) * sliceW, width: Double(run) * sliceW) }
+                    }
                 }
             }
         case .cascade:
@@ -3023,6 +3106,7 @@ final class Router {
         case .split: return true                                         // SPLIT tail = a set-membership FILTER over the composed hold ([HARMONIZE → SPLIT] keeps a subset)
         case .octave, .transpose: return true                            // UTILITY pitch-shift tail = a per-note SHIFT of the composed hold ([HARMONIZE → OCTAVE])
         case .tutti: return last.tuttiMode == .coin                      // TUTTI COIN tail = a per-step SET roll over the composed hold; PATTERN re-articulates (tick loop)
+        case .tap: return chainDriverIndex(cell) < 0                     // TAP tail = a held passthrough + its parallel send, but ONLY with no driver ([HARMONIZE→TAP]); [ARP→TAP] stays driver-folded (Paul 2026-08-26)
         default: return false
         }
     }
@@ -3429,12 +3513,16 @@ final class Router {
                      velocity: max(1, cur.velocity(n)), m: m, S: S, out: out, diag: &diag)   // per-note carried velocity (offOut = LENGTH-overridden gate)
         }
     }
-    /// Register an echo tail for ONE tick note ([ARP→ECHO]) at beat `onset`. v1 tick-echo is SYNCED-delay only (the
-    /// tick emitters don't thread tempo, so free-ms tick echo is deferred); the single/hold-tail path supports both.
+    /// Register an echo tail for ONE note at beat `onset`. SYNCED delay always works; FREE (ms) works when `tempo > 0`
+    /// (the hold-tail path threads it — Paul 2026-08-26). The tick-driver path ([ARP→ECHO]) passes tempo 0, so FREE tick
+    /// echo stays deferred there (the tick emitters don't thread tempo).
     private func pushEchoForNote(_ note: Int, vel: UInt8, bm: UInt8, p: SnapParams, onset: Double, S: Double,
-                                 route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1) {
-        guard note >= 0 && note <= 127, p.echoSync else { return }
-        let timeBeats = Double(p.echoDelayDiv) / 4.0
+                                 tempo: Double = 0, route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1) {
+        guard note >= 0 && note <= 127 else { return }
+        let timeBeats: Double
+        if p.echoSync { timeBeats = Double(p.echoDelayDiv) / 4.0 }
+        else if tempo > 0 { timeBeats = max(0.001, p.echoDelayMs / 1000.0 * tempo / 60.0) }   // FREE (ms → beats) — needs tempo
+        else { return }   // FREE with no tempo (tick-driver path) — deferred
         pushEchoTail(onset: onset, note: UInt8(note), vel: vel, busMask: bm, timeBeats: timeBeats,
                      repeats: max(1, min(16, p.echoRepeats)), feedDelay: p.echoFeedDelay, decay: p.echoDecay,
                      offset: p.echoOffset, pitch: p.echoPitch, gateBeats: min(timeBeats * 0.9, S * 0.9), spill: p.echoSpill,

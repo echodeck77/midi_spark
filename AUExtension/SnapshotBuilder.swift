@@ -243,7 +243,7 @@ enum SnapshotBuilder {
         // ROW 8 (Paul 2026-08-22): the toggle cells that flow through the box. A cell counts as ACTIVE when its scene
         // toggle (row8On) is lit. FREEZE ⇒ sustain + pause; HALFTIME ⇒ scale the play-grid clock (÷2 = 2.0 = slower).
         let row8 = doc.row8Resolved, row8On = scene.row8OnResolved
-        var freezeActive = false, clockScale = 1.0, broadcastActive = false
+        var freezeActive = false, clockScale = 1.0, broadcastActive = false, broadcastAll16 = false
         var busRemap: [UInt8] = [0, 1, 2, 3]   // REDIRECT/SWAP: the per-bus output remap
         func wire(_ v: Int?) -> Int { max(0, min(3, v ?? 0)) }
         for i in 0..<min(8, row8.count) where row8On[i] {
@@ -252,7 +252,7 @@ enum SnapshotBuilder {
             case .halftime:  clockScale = [2.0, 1.0, 0.5][max(0, min(2, row8[i].halftimeMode ?? 1))]   // 0 ÷2 · 1 ×1 · 2 ×2
             case .redirect:  let f = wire(row8[i].wireFrom), t = wire(row8[i].wireTo); busRemap[f] = UInt8(t)          // A→B
             case .swap:      let f = wire(row8[i].wireFrom), t = wire(row8[i].wireTo); busRemap[f] = UInt8(t); busRemap[t] = UInt8(f)   // A↔B
-            case .broadcast: broadcastActive = true
+            case .broadcast: broadcastActive = true; if row8[i].broadcastAllChannels ?? false { broadcastAll16 = true }   // all-16 opt-in (nil ⇒ 4-wire, byte-identical)
             default: break
             }
         }
@@ -306,7 +306,7 @@ enum SnapshotBuilder {
                            macroValues: macroVals,
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
                            freezeActive: freezeActive, clockScale: clockScale, busRemap: busRemap,
-                           broadcastActive: broadcastActive)
+                           broadcastActive: broadcastActive, broadcastAll16: broadcastAll16)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
@@ -430,7 +430,8 @@ enum SnapshotBuilder {
         if let v = p.euclidInvert { out.euclidInvert = v }
         if let v = p.euclidLines {   // EUCLID LINES (§10): clamp each line + cap at 8; empty ⇒ single-euclid fallback
             out.euclidLines = v.prefix(8).map { EuclidLine(target: clamp($0.target, 0, 8), pulses: clamp($0.pulses, 0, 16),
-                                                           steps: clamp($0.steps, 2, 16), rotate: $0.rotate, invert: $0.invert) }
+                                                           steps: clamp($0.steps, 2, 16), rotate: $0.rotate, invert: $0.invert,
+                                                           pick: $0.pick, die: $0.die) }   // v1b: carry per-line PICK + DIE (Paul 2026-08-26)
         }
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
@@ -438,6 +439,8 @@ enum SnapshotBuilder {
         if let v = p.burstSlices { var s = v; while s.count < 8 { s.append(.rest) }; out.burstSlices = Array(s.prefix(8)) }
         if let v = p.burstRotate { out.burstRotate = ((v % 8) + 8) % 8 }
         if let v = p.burstChance { out.burstChance = clamp(v, 0, 1) }
+        out.burstRateBeats = (p.burstRate ?? .r1_8).beats           // RATE AXIS (Paul 2026-08-26)
+        out.burstRateOn = p.burstRateOn ?? false
         if let v = p.cascadeSpan { out.cascadeSpan = v }
         out.cascadeSpanN = p.cascadeSpanN ?? 0   // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW; >0 = reveal window in columns
         // THE MOD PROCESSOR (CC generator / CC-stage §1)
