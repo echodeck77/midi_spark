@@ -294,6 +294,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func reelExportFiles() -> [(name: String, data: Data)] { kernel.reelExport() }   // EXPORT (step 2): the recorded pass as SMF (sum + per-emitter)
     // THE PASS BROWSER (Paul 2026-08-19): the pop-up's 8×8 grid + piano roll.
     func reelPassNumbers() -> [Int] { kernel.reelPassNumbers() }          // 32 ring slots, oldest→newest (−1 = empty)
+    func reelPassSignatures() -> [UInt64] { kernel.reelPassSignatures() } // per-pass content hash (aligned with passNumbers) → REMOVE DUPLICATES toggle
+    func reelPassCounter() -> Int { kernel.reelPassCounter() }            // monotone completed-pass count → per-pass STATE capture (Paul #5)
     func reelSelectedRoll() -> [ReelDeck.Note] { kernel.reelSelectedRoll() }   // the selected pass's notes (A–D lanes)
     func reelSelectedPassNo() -> Int { kernel.reelSelectedPassNo() }     // the currently pinned/selected pass (−1 = auto latest)
     func reelSelectPass(_ p: Int) { kernel.reelSelectPass(p) }           // tap a pass → select + replay now

@@ -88,11 +88,12 @@ final class ReelDeckTests: XCTestCase {
         let deck = ReelDeck()
         for n in 0..<3 { filePass(deck, note: UInt8(60 + n)) }     // passes 0,1,2
         let nums = deck.passNumbers()
-        XCTAssertEqual(nums.count, 32)
-        XCTAssertEqual(nums[31], 2, "newest is last (bottom-right of the pop-up)")
-        XCTAssertEqual(nums[30], 1)
-        XCTAssertEqual(nums[29], 0)
-        XCTAssertEqual(nums[28], -1, "unfilled slots are empty")
+        let last = ReelDeck.histCount - 1
+        XCTAssertEqual(nums.count, ReelDeck.histCount)
+        XCTAssertEqual(nums[last], 2, "newest is last (bottom-right of the newest page)")
+        XCTAssertEqual(nums[last - 1], 1)
+        XCTAssertEqual(nums[last - 2], 0)
+        XCTAssertEqual(nums[last - 3], -1, "unfilled slots are empty")
     }
 
     func testSelectPassLoadsThatPassNotTheLatest() {
@@ -117,12 +118,27 @@ final class ReelDeckTests: XCTestCase {
 
     func testRingEvictsBeyondCapacity() {
         let deck = ReelDeck()
-        for n in 0..<(ReelDeck.histCount + 2) { filePass(deck, note: UInt8(1 + (n % 120))) }   // 34 passes
+        for n in 0..<(ReelDeck.histCount + 2) { filePass(deck, note: UInt8(1 + (n % 120))) }   // histCount+2 passes
         let nums = deck.passNumbers()
-        XCTAssertEqual(nums[31], ReelDeck.histCount + 1, "newest kept")
+        XCTAssertEqual(nums[ReelDeck.histCount - 1], ReelDeck.histCount + 1, "newest kept")
         XCTAssertEqual(nums[0], 2, "oldest kept = passCounter − histCount")
         XCTAssertFalse(deck.selectPass(0), "an evicted pass can't be selected")
         XCTAssertTrue(deck.selectPass(2), "the oldest surviving pass can")
+    }
+
+    // REMOVE DUPLICATES (Paul 2026-08-26 #dedup): passes with the same emitted note-ONs hash EQUAL; a differing
+    // note breaks the signature. Aligned with passNumbers (oldest→newest); empty slots → 0.
+    func testPassSignaturesMatchForIdenticalPassesAndDifferForOthers() {
+        let deck = ReelDeck()
+        filePass(deck, note: 60)        // pass 0
+        filePass(deck, note: 60)        // pass 1 — identical content
+        filePass(deck, note: 67)        // pass 2 — different note
+        let sigs = deck.passSignatures()
+        let last = ReelDeck.histCount - 1   // newest = pass 2; last-1 = pass 1; last-2 = pass 0
+        XCTAssertEqual(sigs[last - 1], sigs[last - 2], "identical passes share a signature")
+        XCTAssertNotEqual(sigs[last], sigs[last - 1], "a different note changes the signature")
+        XCTAssertNotEqual(sigs[last - 1], 0, "a filed pass has a non-zero signature")
+        XCTAssertEqual(sigs[last - 3], 0, "an empty ring slot signs as 0")
     }
 
     func testSelectedRollPairsNotesAndClosesOpenOnesAtCycleEnd() {

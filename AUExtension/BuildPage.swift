@@ -785,79 +785,131 @@ extension DiagView {
                                          Color(red: 0.36, green: 0.92, blue: 0.52),   // B green
                                          Color(red: 1.0,  green: 0.72, blue: 0.2),    // C amber
                                          Color(red: 0.85, green: 0.5,  blue: 0.95)] } // D violet
+    // THE PASS BROWSER (Paul 2026-08-26 redesign): the whole thing reads as ONE 8×8 grid — the recorded PASSES fill the
+    // top 4 rows (uniform SQUARE cells), the four A/B/C/D MIDI lanes fill the bottom 4 rows (each the full grid width, one
+    // cell tall). The page header + instructions + controls live in a COLUMN on the RIGHT (was a banner above). PREV/NEXT
+    // PAGINATE the pass block; REMOVE DUPLICATES collapses runs of identical passes.
     private func buildReelPopup(size: CGSize) -> some View {
-        let outerPad: CGFloat = 16, headerH: CGFloat = 42, gap: CGFloat = 2
-        let gridW = size.width - 2 * outerPad
-        let gridH = size.height - 2 * outerPad - headerH - 10
-        let rowH = max(16, (gridH - 7 * gap) / 8)                               // 8 equal rows fill the screen height
-        let cellSize = rowH                                                      // SQUARE pass cells (Paul 2026-08-26 #1) — height stays, width = height
-        let passes = reelPassNumbers.filter { $0 >= 0 }                          // NON-EMPTY passes ONLY, contiguous — no gaps (Paul #2)
+        let outerPad: CGFloat = 16, gap: CGFloat = 3, sidebarW: CGFloat = 234, colGap: CGFloat = 18
+        let areaW = size.width - 2 * outerPad - sidebarW - colGap
+        let areaH = size.height - 2 * outerPad
+        let cellSize = max(14, min((areaW - 7 * gap) / 8, (areaH - 7 * gap) / 8))   // one SQUARE cell → a uniform 8×8
+        let gridSide = 8 * cellSize + 7 * gap
+        let visible = buildReelVisiblePasses()                                   // non-empty (+ deduped if toggled), in ring order
+        let pageCount = max(1, (visible.count + 31) / 32)
+        let page = min(max(0, reelPage), pageCount - 1)
+        let pageSlice = Array(visible.dropFirst(page * 32).prefix(32))           // this page's ≤32 passes → the 4×8 block
         return ZStack {
             Color(red: 0.055, green: 0.065, blue: 0.085).ignoresSafeArea()      // FULL-SCREEN opaque backdrop
-            VStack(spacing: 10) {
-                HStack {
-                    Text("REEL · PASS BROWSER").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
-                    Spacer()
-                    buildReelStepBtn(back: true); buildReelStepBtn(back: false)   // PREV / NEXT — step to the earlier/later non-empty pass (Paul 2026-08-26 #4)
-                    Button { buildReelExport() } label: {
-                        Text(reelSelPassNo >= 0 ? "SAVE PASS \(reelSelPassNo + 1)" : "SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)   // SAVE carries its scope (design §1.3)
-                            .foregroundColor(reelSelPassNo >= 0 || !reelPassNumbers.filter { $0 >= 0 }.isEmpty ? .black : buildDim)
-                            .padding(.horizontal, 14).padding(.vertical, 7)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(buildCyan.opacity(0.9)))
-                    }
-                    Button { reelShowPopup = false } label: {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(buildDim).padding(8)
-                    }
-                }.frame(maxWidth: .infinity).frame(height: headerH)
-                VStack(spacing: gap) {
-                    ForEach(0..<4, id: \.self) { r in                            // TOP 4 rows — the passes (SQUARE, LEFT-ALIGNED, non-empty only)
+            HStack(alignment: .top, spacing: colGap) {
+                VStack(spacing: gap) {                                          // LEFT — the 8×8 grid
+                    ForEach(0..<4, id: \.self) { r in                          // TOP 4 rows — the passes (this page)
                         HStack(spacing: gap) {
                             ForEach(0..<8, id: \.self) { c in
                                 let idx = r * 8 + c
-                                buildReelPassCell(idx < passes.count ? passes[idx] : -1, w: cellSize, h: rowH)
+                                buildReelPassCell(idx < pageSlice.count ? pageSlice[idx] : -1, w: cellSize, h: cellSize)
                             }
-                            Spacer(minLength: 0)                                 // hug the left
                         }
                     }
-                    buildReelRollSection(width: gridW, laneH: rowH)              // BOTTOM 4 rows — A/B/C/D piano-roll lanes + playhead
-                }
+                    buildReelRollSection(width: gridSide, laneH: cellSize, gap: gap)   // BOTTOM 4 rows — A/B/C/D lanes + playhead
+                }.frame(width: gridSide, height: gridSide)
+                buildReelSidebar(pageCount: pageCount, page: page)              // RIGHT — header · instructions · controls
+                    .frame(width: sidebarW, height: gridSide, alignment: .top)
             }
-            .padding(outerPad)
         }
         .onAppear { au?.reelSetBrowsing(true) }                                   // freeze the history tape while browsing
         .onDisappear { au?.reelStopReplay(); au?.reelSetBrowsing(false) }         // close → stop any replay + resume normal play, record again next pass
     }
-    // PREV / NEXT (Paul 2026-08-26 #4): step the selection to the earlier/later NON-EMPTY pass (the roll + wash follow).
-    @ViewBuilder private func buildReelStepBtn(back: Bool) -> some View {
-        let enabled = reelPassNumbers.contains { $0 >= 0 }
-        Button { buildReelStepPass(back ? -1 : 1) } label: {
+    // The passes to show: non-empty, in ring order; when REMOVE DUPLICATES is on, a pass whose content matches the last
+    // KEPT pass is hidden (collapses a run — e.g. a held loop filing the same bar every pass). (Paul 2026-08-26)
+    private func buildReelVisiblePasses() -> [Int] {
+        var out: [Int] = []
+        var lastSig: UInt64? = nil
+        for (i, p) in reelPassNumbers.enumerated() where p >= 0 {
+            let s = i < reelPassSigs.count ? reelPassSigs[i] : 0
+            if reelDedup, s == lastSig { continue }                            // duplicate of the last kept → hide
+            out.append(p); lastSig = s
+        }
+        return out
+    }
+    // The RIGHT sidebar — title + a plain-language instruction + PAGINATION + REMOVE DUPLICATES + RESTORE SETUP (#5) + SAVE.
+    @ViewBuilder private func buildReelSidebar(pageCount: Int, page: Int) -> some View {
+        let anyPass = reelPassNumbers.contains { $0 >= 0 }
+        let hasState = reelSelPassNo >= 0 && reelStateRing[reelSelPassNo] != nil
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("REEL").font(.system(size: 24, weight: .heavy, design: .monospaced)).tracking(3).foregroundColor(buildCyan)
+                Text("PASS BROWSER").font(.system(size: 11, weight: .bold, design: .monospaced)).tracking(2).foregroundColor(buildDim)
+            }
+            Text("The recorded passes fill the top of the grid; the four output lanes run beneath. Tap a pass to hear it — it replaces live output; tap the playing one to stop.")
+                .font(.system(size: 11, weight: .medium)).foregroundColor(.white.opacity(0.55)).fixedSize(horizontal: false, vertical: true)
+            Rectangle().fill(buildEdge).frame(height: 1)
+            HStack(spacing: 8) {                                               // PAGINATION (Paul 2026-08-26 #4 = pages, not step-select)
+                buildReelStepBtn(back: true, enabled: page > 0) { reelPage = max(0, page - 1) }
+                Text("PAGE \(page + 1)/\(pageCount)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(maxWidth: .infinity)
+                buildReelStepBtn(back: false, enabled: page < pageCount - 1) { reelPage = min(pageCount - 1, page + 1) }
+            }
+            buildReelToggle(label: "REMOVE DUPLICATES", on: reelDedup) { reelDedup.toggle(); reelPage = 0 }
+            Button { buildReelRestoreState() } label: {                        // #5 — restore the setup that was live during the selected pass
+                Text(hasState ? "RESTORE SETUP · PASS \(reelSelPassNo + 1)" : "RESTORE SETUP")
+                    .font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundColor(hasState ? .black : buildDim).frame(maxWidth: .infinity).padding(.vertical, 9)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(hasState ? Color(red: 0.85, green: 0.5, blue: 0.95).opacity(0.9) : buildCell))
+                    .overlay(hasState ? nil : RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
+            }.disabled(!hasState)
+            Spacer()
+            Button { buildReelExport() } label: {                             // SAVE the selected pass → share sheet
+                Text(reelSelPassNo >= 0 ? "SAVE PASS \(reelSelPassNo + 1)" : "SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
+                    .foregroundColor(reelSelPassNo >= 0 || anyPass ? .black : buildDim).frame(maxWidth: .infinity).padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCyan.opacity(0.9)))
+            }
+            Button { reelShowPopup = false } label: {
+                Text("CLOSE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                    .frame(maxWidth: .infinity).padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCell)).overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
+            }
+        }
+    }
+    private func buildReelToggle(label: String, on: Bool, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            HStack(spacing: 8) {
+                Image(systemName: on ? "checkmark.square.fill" : "square").font(.system(size: 14, weight: .bold)).foregroundColor(on ? buildCyan : buildDim)
+                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(on ? .white : buildDim)
+                Spacer(minLength: 0)
+            }.padding(.vertical, 8).padding(.horizontal, 9)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan.opacity(0.12) : buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? buildCyan.opacity(0.5) : buildEdge, lineWidth: 1))
+        }
+    }
+    // PREV / NEXT = PAGINATION (Paul 2026-08-26 #4): the action pages the pass block; disabled at the ends.
+    @ViewBuilder private func buildReelStepBtn(back: Bool, enabled: Bool, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
             Image(systemName: back ? "chevron.left" : "chevron.right").font(.system(size: 14, weight: .heavy))
-                .foregroundColor(enabled ? buildCyan : buildDim).frame(width: 34, height: 30)
+                .foregroundColor(enabled ? buildCyan : buildDim).frame(width: 44, height: 30)
                 .background(RoundedRectangle(cornerRadius: 6).fill(buildCell)).overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
         }.disabled(!enabled)
     }
-    private func buildReelStepPass(_ dir: Int) {
-        let passes = reelPassNumbers.filter { $0 >= 0 }
-        guard !passes.isEmpty else { return }
-        let cur = passes.firstIndex(of: reelSelPassNo) ?? (dir > 0 ? -1 : passes.count)   // no selection → step in from before-first / after-last
-        let idx = max(0, min(passes.count - 1, cur + dir))
-        au?.reelSelectPass(passes[idx])
+    // #5 (Paul 2026-08-26): restore the deployed play-grid arrangement that was live during the selected pass. v1 = a LIVE
+    // switch (like a scene change); the append-only / undo-integrated "forward event" model is the next increment.
+    private func buildReelRestoreState() {
+        guard reelSelPassNo >= 0, let snap = reelStateRing[reelSelPassNo] else { return }
+        buildRestoreScene(snap)
     }
-    // The 4 piano-roll lanes + a shared PLAYHEAD that sweeps while a pass replays (notes light as it crosses them).
-    private func buildReelRollSection(width: CGFloat, laneH: CGFloat) -> some View {
-        // LANES DO NOT COLLAPSE (Paul 2026-08-26): all four emitter lanes render at FULL height whether populated or not —
-        // stable geometry (reverses the earlier collapse-empty-lanes fix; device word outranks).
+    // The 4 piano-roll lanes (bottom 4 rows of the 8×8) + a shared PLAYHEAD that sweeps while a pass replays. Each lane is
+    // ONE grid-cell tall and the full grid width, laid out with the SAME gap as the pass rows so the whole page reads as a
+    // uniform 8×8 (Paul 2026-08-26). Lanes do not collapse — all four always render.
+    private func buildReelRollSection(width: CGFloat, laneH: CGFloat, gap: CGFloat) -> some View {
+        let rollH = 4 * laneH + 3 * gap
         return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reelState != 2)) { tl in
             let phase = reelPlayheadPhase(tl.date)                                // 0…1 across the pass, or nil (not replaying)
-            VStack(spacing: 0) {
+            VStack(spacing: gap) {
                 ForEach(0..<4, id: \.self) { lane in
-                    if lane > 0 { Rectangle().fill(Color.white.opacity(0.22)).frame(width: width, height: 2) }   // divider between the four outputs
                     buildReelLane(lane, width: width, height: laneH, phase: phase)
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(reelSelPassNo >= 0 ? 0.05 : 0)))   // SELECTION WASH (design §1.2) — neutral ink BENEATH the hued notes; links the cyan chip to the roll
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(reelSelPassNo >= 0 ? 0.05 : 0)))   // SELECTION WASH (design §1.2) — links the cyan chip to the roll
             .overlay(alignment: .leading) {
-                if let phase { Rectangle().fill(Color.white.opacity(0.75)).frame(width: 1.5).offset(x: CGFloat(phase) * width) }
+                if let phase { Rectangle().fill(Color.white.opacity(0.75)).frame(width: 1.5, height: rollH).offset(x: CGFloat(phase) * width) }
             }
         }
     }
@@ -1827,7 +1879,7 @@ extension DiagView {
     // sounds ALONGSIDE the play grid instead of owning the render via a solo.
     // The SHELL: gather @State into a pure input, let BuildSceneLogic.composeScene do the work (testable), publish it.
     // SCENES V2 (Paul 2026-08-12): capture the current play-grid ARRANGEMENT (not the shared parts/colours) into a snapshot.
-    private func buildCaptureCurrentScene() -> BuildSceneSnapshot {
+    func buildCaptureCurrentScene() -> BuildSceneSnapshot {   // internal: the reel poll (other file) captures per-pass state (#5)
         BuildSceneSnapshot(performCells: buildPerformCells, performChain: buildPerformChain, performRecv: buildPerformRecv,
                            performEmit: buildPerformEmit, performPart: buildPerformPart, performMute: buildPerformMute,
                            performStagingRow: buildPerformStagingRow, performLane: buildPerformLane, row8On: buildRow8On)

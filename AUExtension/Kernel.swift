@@ -598,6 +598,8 @@ final class Kernel {
     func reelStateValue() -> Int { switch reel.state { case .off: return 0; case .armed: return 1; case .replaying: return 2 } }
     // THE PASS BROWSER (Paul 2026-08-19): the pop-up reads the ring + selected roll; taps select+replay / stop (deferred to render).
     func reelPassNumbers() -> [Int] { reel.passNumbers() }
+    func reelPassSignatures() -> [UInt64] { reel.passSignatures() }   // per-pass content hash (aligned with passNumbers) → REMOVE DUPLICATES
+    func reelPassCounter() -> Int { reel.passCounter }                // monotone completed-pass count → per-pass STATE capture (Paul #5)
     func reelSelectedRoll() -> [ReelDeck.Note] { reel.selectedRoll() }   // read-only value copy — safe off the render thread (see BUILD reel note)
     // The config-sheet REPLAY roll (Paul 2026-08-23): the ENGAGED door's captured loop as duration notes + its length,
     // so the piano roll reflects what's playing from the RECORDING. Value copies — safe off the render thread.

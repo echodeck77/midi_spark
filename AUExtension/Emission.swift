@@ -49,8 +49,11 @@ final class ReelDeck {
     // THE PASS-HISTORY RING (Paul 2026-08-19) — the pop-up pass browser keeps the last `histCount` completed passes.
     // A single flat buffer (one allocation, off the render thread) sliced `histCap` events per pass; pass p lives in
     // slot `p % histCount` (so a passNo maps straight to its slot). `loop` remains the SELECTED pass (replay + export).
-    static let histCount = 32                                      // passes kept — fills the pop-up's top 4 rows (8×4)
-    static let histCap = 8192                                      // events stored per pass (dense-pass overflow drops, as `cap` already does)
+    // 64 passes kept, 32 per browser page (top 4 rows, 8×4) → the pass browser PAGINATES (Paul 2026-08-26). histCount×histCap
+    // is MEMORY-NEUTRAL vs the old 32×8192 (both = 262 144 event slots); 4096 events/pass stays above the flood-governor's
+    // worst-case ~3k/bar, so no new truncation. Bump these as a pair to keep memory constant.
+    static let histCount = 64                                      // passes kept (2 browser pages of 32)
+    static let histCap = 4096                                      // events stored per pass (dense-pass overflow drops, as `cap` already does)
     private var hist = [Ev](repeating: Ev(), count: histCount * histCap)
     private var histLen = [Int](repeating: 0, count: histCount)    // events in each slot (0 = empty)
     private var histPassNo = [Int](repeating: -1, count: histCount)// absolute pass number stored in each slot
@@ -97,8 +100,8 @@ final class ReelDeck {
     func clear() { curN = 0; loopN = 0; state = .off; passCounter = 0; selectedPassNo = -1; loopCycle = cycleBeats
         for i in 0..<ReelDeck.histCount { histLen[i] = 0; histPassNo[i] = -1; histCycle[i] = cycleBeats } }
 
-    /// The 32 ring slots as pass numbers, OLDEST→NEWEST (index 31 = the most recent completed pass; −1 = empty).
-    /// The pop-up lays these out in reading order so the newest lands bottom-right of the top 4×8 block.
+    /// The `histCount` ring slots as pass numbers, OLDEST→NEWEST (the last index = the most recent completed pass; −1 =
+    /// empty). The pass browser filters these to non-empty, then paginates 32 per page.
     func passNumbers() -> [Int] {
         var out = [Int](repeating: -1, count: ReelDeck.histCount)
         for k in 0..<ReelDeck.histCount {
@@ -106,6 +109,30 @@ final class ReelDeck {
             guard p >= 0 else { break }
             let slot = p % ReelDeck.histCount
             if histPassNo[slot] == p, histLen[slot] > 0 { out[ReelDeck.histCount - 1 - k] = p }
+        }
+        return out
+    }
+    /// A content SIGNATURE per pass, aligned with `passNumbers()` (oldest→newest; empty slot → 0). Two passes whose
+    /// emitted note-ONs match (rounded timing · cable · pitch · velocity) hash EQUAL — the pass browser's REMOVE
+    /// DUPLICATES toggle collapses runs that share a signature (e.g. a held loop filing the same bar every pass).
+    /// Offs + the colour tag are excluded (musical content = the notes). Read while browsing (tape frozen) — no race.
+    func passSignatures() -> [UInt64] {
+        var out = [UInt64](repeating: 0, count: ReelDeck.histCount)
+        for k in 0..<ReelDeck.histCount {
+            let p = passCounter - 1 - k                            // newest first (mirrors passNumbers)
+            guard p >= 0 else { break }
+            let slot = p % ReelDeck.histCount
+            guard histPassNo[slot] == p, histLen[slot] > 0 else { continue }
+            var h: UInt64 = 0xcbf2_9ce4_8422_2325                  // FNV-1a offset basis
+            let base = slot * ReelDeck.histCap
+            for i in 0..<histLen[slot] {
+                let e = hist[base + i]
+                guard (e.b0 & 0xF0) == 0x90, e.b2 > 0 else { continue }   // note-ONs only
+                let bq = UInt64(bitPattern: Int64((e.beat * 480.0).rounded()))   // quantise beat → float-noise-proof
+                h = (h ^ bq) &* 0x100_0000_01b3
+                h = (h ^ (UInt64(e.cable) << 16 | UInt64(e.b1) << 8 | UInt64(e.b2))) &* 0x100_0000_01b3
+            }
+            out[ReelDeck.histCount - 1 - k] = h
         }
         return out
     }

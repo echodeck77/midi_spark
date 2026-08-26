@@ -152,6 +152,13 @@ struct DiagView: View {
     @State var reelCycle: Double = 4                     // the pass length in beats (piano-roll x-axis)
     @State var reelLastBeat: Double = 0                  // last polled beat + its wall-clock stamp → smooth roll playhead
     @State var reelLastBeatAt = Date()
+    @State var reelPassSigs: [UInt64] = []               // per-pass content hashes (aligned with reelPassNumbers) → REMOVE DUPLICATES
+    @State var reelDedup = false                         // REMOVE DUPLICATES toggle (collapse runs of identical passes)
+    @State var reelPage = 0                              // PASS BROWSER pagination (page of the 4×8 pass block)
+    // #5 (Paul 2026-08-26): the per-pass STATE ring — the deployed play-grid arrangement live during each pass, keyed by
+    // absolute pass number (main-thread; captured at each pass boundary from the 4 Hz poll). Selecting a pass can RESTORE it.
+    @State var reelStateRing: [Int: BuildSceneSnapshot] = [:]
+    @State var reelLastPassCounter = -1
     @State var buildRandomizing = false                  // the grid RANDOMIZE is computing (disable its button)
     @State var buildMutating = false                     // the grid MUTATE is computing (disable its button)
     // PER-ROW I/O (Paul 2026-08-18): each staging row can override the part's default door/emitters; nil = inherit.
@@ -795,10 +802,23 @@ struct DiagView: View {
             let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // THE REEL-TO-REEL glyph state
             if reelShowPopup {                                                    // THE PASS BROWSER: refresh the ring + selected roll while open
                 let pn = au.reelPassNumbers();     if pn != reelPassNumbers { reelPassNumbers = pn }
+                let ps = au.reelPassSignatures();  if ps != reelPassSigs { reelPassSigs = ps }   // REMOVE DUPLICATES
                 let rr = au.reelSelectedRoll();    if rr != reelRoll { reelRoll = rr }
                 let sp = au.reelSelectedPassNo();  if sp != reelSelPassNo { reelSelPassNo = sp }
                 let cy = au.reelCycleBeats();      if cy != reelCycle { reelCycle = cy }
                 if nd.beat != reelLastBeat { reelLastBeat = nd.beat; reelLastBeatAt = Date() }   // stamp for the smooth roll playhead
+            }
+            // #5 PER-PASS STATE CAPTURE (Paul 2026-08-26): when a pass completes (the counter advances), snapshot the
+            // arrangement live during it under that pass's number. Main-thread only, at boundaries only — no render change.
+            let pc = au.reelPassCounter()
+            if pc != reelLastPassCounter {
+                if pc < reelLastPassCounter { reelStateRing.removeAll() }          // reel cleared/reset → drop the state ring
+                else if reelLastPassCounter >= 0, pc > 0 {
+                    reelStateRing[pc - 1] = buildCaptureCurrentScene()             // pass (pc−1) just finished → its live setup
+                    let cutoff = pc - ReelDeck.histCount                           // keep only the passes still in the reel ring
+                    if reelStateRing.count > ReelDeck.histCount { reelStateRing = reelStateRing.filter { $0.key >= cutoff } }
+                }
+                reelLastPassCounter = pc
             }
             let cm = au.uiClaimMask();     if cm != claimMask { claimMask = cm }
             let clk = au.uiClaimLeak();    if clk != claimLeak { claimLeak = clk }
