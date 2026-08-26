@@ -1535,7 +1535,9 @@ extension DiagView {
         .frame(width: castW)
     }
     @ViewBuilder private func buildReceiverSelectChip(_ i: Int) -> some View {
-        let on = buildIORow.map { buildRowReceiverResolved($0) == i } ?? false   // the SELECTED row's door (or the grid-sel AIMED part's); nothing on a row → unselected
+        // In the grid selector the audition door IS buildSelReceiver (what the toggle sets + the audition plays), so the chip
+        // reflects that directly; on the main page it reflects the SELECTED row's resolved door. (Paul 2026-08-26)
+        let on = buildGridSelOpen ? (buildSelReceiver == i) : (buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? false)
         buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
@@ -1543,7 +1545,8 @@ extension DiagView {
     @ViewBuilder private func buildEmitterToggles(castW: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
-                let on = buildIORow.map { buildRowEmittersResolved($0).contains(b) } ?? false   // the SELECTED row's emitters (or the grid-sel AIMED part's); nothing on a row → unselected
+                // Grid selector: the audition emitters ARE buildPartEmitters (what the toggle sets + the audition uses); main page: the selected row's resolved emitters. (Paul 2026-08-26)
+                let on = buildGridSelOpen ? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters).contains(b) : (buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) } ?? false)
                 buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })
             }
         }
@@ -2090,10 +2093,6 @@ extension DiagView {
         guard let id = buildSelID else { return nil }
         return (0..<8).first { buildRowColour($0) == id }
     }
-    // The row whose I/O the MIDI-IN/OUT selectors DISPLAY (Paul 2026-08-26): the staging selection normally, but the AIMED
-    // part while the grid selector is open (there the selection is the transient gsAud, which is on no staging row → the
-    // chips would never light). Fixes "the receivers/emitters respond but don't light up" in the grid selector.
-    private var buildIORow: Int? { (buildGridSelOpen ? buildGridSelArrivalRow : nil) ?? buildSelectedRow }
     // PER-ROW I/O resolution (Paul 2026-08-18): a row's OWN door/emitters, or the part default when unset (nil).
     private func buildRowReceiverResolved(_ r: Int) -> Int {
         ((r >= 0 && r < buildRowReceiver.count) ? buildRowReceiver[r] : nil) ?? buildSelReceiver
@@ -4997,6 +4996,7 @@ extension DiagView {
         buildGridSelPriorStaging = buildStagingPlaying
         buildGridSelPriorSel = buildSelID
         buildGridSelPriorReceiver = buildSelReceiver
+        buildGridSelPriorEmitters = buildPartEmitters
         if let r = buildGridSelArrivalRow { buildSelReceiver = buildRowReceiverResolved(r) }   // audition through the ARRIVAL row's door (faithful preview)
         let saved = au?.libraryCellSummaries() ?? []
         buildGridSelLib = saved + (au?.factoryLibrarySummaries() ?? [])  // v1 folds factory in so first run isn't empty
@@ -5152,7 +5152,8 @@ extension DiagView {
         buildSelID = select; ddColourSel = colourIDs.firstIndex(of: select ?? "") ?? -1
         ddSolo = restoreSolo ? buildGridSelPriorSolo : false             // CANCEL restores the pre-open audition; COMMIT stops it
         buildStagingPlaying = buildGridSelPriorStaging
-        buildSelReceiver = buildGridSelPriorReceiver                      // give back the door we borrowed for the faithful preview
+        buildSelReceiver = buildGridSelPriorReceiver                      // give back the door + emitters we borrowed for the faithful preview
+        buildPartEmitters = buildGridSelPriorEmitters
         au?.clearColourSolo(); buildSyncColours()                        // push the transient removal BEFORE republishing (no dead-transient rebuild)
         buildPublishScene()
         buildGCColours()
@@ -5303,7 +5304,8 @@ extension DiagView {
     }
     private func buildGridSelAimRow(_ n: Int) {
         buildGridSelArrivalRow = n
-        buildSelReceiver = buildRowReceiverResolved(n)                    // the audition plays through the AIMED part's door
+        buildSelReceiver = buildRowReceiverResolved(n)                    // the audition plays through the AIMED part's door + emitters (so the MIDI-IN/OUT chips reflect it)
+        buildPartEmitters = buildRowEmittersResolved(n)
         receivers = au?.uiReceivers() ?? receivers
         // LOAD the pressed part's own chain into the MIDI CHAIN panel + audition it (Paul 2026-08-26). sel = nil → it's a
         // view/hear of what's on the row, not a commit source (re-deal or tap a cell to change it). Empty row → clear.

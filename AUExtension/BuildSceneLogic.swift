@@ -69,12 +69,16 @@ enum BuildSceneLogic {
             for c in 0..<8 {
                 let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
                 guard r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, let cid = i.stagingCells[c][r] else { continue }
+                let chain = r < i.rowChain.count ? i.rowChain[r] : []
+                // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only SELECTED it, they haven't
+                // set it up — no output until a machine is added. (The no-machine live-wire still monitors input when you're
+                // BUILDING a chain — PLAY THIS MIDI CHAIN / the chain branch below — and on the deployed play grid.)
+                guard !chain.isEmpty else { continue }
                 let buses: Set<Bus> = (r < i.rowEmitters.count && !i.rowEmitters[r].isEmpty) ? i.rowEmitters[r] : dfltBuses
                 let recv = max(0, min(3, r < i.rowReceiver.count ? i.rowReceiver[r] : i.selReceiver))
                 var cell = Cell(colourID: cid, buses: buses)
                 cell.inputReceiver = recv
-                let chain = r < i.rowChain.count ? i.rowChain[r] : []
-                cell.processors = chain                             // EXPLICIT (Paul 2026-08-23): rowChain is the RESOLVED machine ([] = no-machine → passthrough wire), never nil-delegated to a stale template
+                cell.processors = chain                             // EXPLICIT (Paul 2026-08-23): rowChain is the RESOLVED machine, never nil-delegated to a stale template
                 s.setCell(c, r, cell)                               // the audition sits in front on a slot collision
             }
         }

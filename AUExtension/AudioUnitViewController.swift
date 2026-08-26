@@ -235,6 +235,7 @@ struct DiagView: View {
     @State var buildGridSelPriorStaging = false
     @State var buildGridSelPriorSel: String? = nil
     @State var buildGridSelPriorReceiver = 0
+    @State var buildGridSelPriorEmitters: Set<Bus> = []   // the part-default emitters borrowed for the grid-sel audition (restored on teardown)
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
     // (the playhead beat anchor moved into `meters` — a @State-held class — so its 4 Hz re-anchor doesn't re-run the body)

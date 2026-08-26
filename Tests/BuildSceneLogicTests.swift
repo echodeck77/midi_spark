@@ -87,22 +87,22 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingPlaying = true
         i.stagingCells = grid([(0, 2, "gold"), (1, 2, "gold"), (2, 2, "gold")])
         i.stagingSel = [2, -1, 2, -1, -1, -1, -1, -1]      // columns 0 and 2 play, column 1 silent
+        i.rowChain = (0..<8).map { $0 == 2 ? [ProcessorSlot(type: .arp)] : [] }   // gold has a machine → it composes (Paul 2026-08-26: a machine-less part cell is silent)
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.colourID, "gold")
         XCTAssertNil(s.cellAt(1, 2), "column 1 was deselected → no cell in the scene")
         XCTAssertEqual(s.cellAt(2, 2)?.colourID, "gold")
     }
 
-    // NO-MACHINE WIRE parity (Paul 2026-08-23): a staging/perform cell whose resolved chain is EMPTY must compose an
-    // EXPLICIT empty chain (→ passthrough / realtime wire), exactly like the chain-audition branch — NOT nil, which
-    // would delegate to the colour's (possibly stale/nil) templateChain and fall back to a gridded A-face.
-    func testNoMachineStagingAndPerformCellsAreExplicitPassthrough() {
+    // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only selected it — no output until a
+    // machine is added. (The deployed PERFORM/play grid keeps the explicit-empty passthrough — the no-machine live-wire.)
+    func testNoMachinePartCellIsSilentButPerformCellIsPassthrough() {
         var i = BuildSceneLogic.Input()
         i.stagingPlaying = true
         i.stagingCells = grid([(0, 2, "gold")]); i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
         i.rowChain = Array(repeating: [], count: 8)          // no per-row variation → resolver passes [] (no-machine)
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.processors, [], "a no-machine staging cell is an explicit-empty passthrough, never nil")
+        XCTAssertNil(s.cellAt(0, 2), "a MACHINE-LESS cell on the part grid is SILENT — the user hasn't set it up")
         var p = BuildSceneLogic.Input()
         p.performPlaying = true
         p.performCells = grid([(0, 0, "gold")]); p.performActiveRung = { c, r in c == 0 && r == 0 }
@@ -117,6 +117,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingPlaying = true
         i.stagingCells = grid([(0, 1, "gold"), (1, 4, "teal")])
         i.stagingSel = [1, 4, -1, -1, -1, -1, -1, -1]
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the cells sound (a machine-less part cell is silent, Paul 2026-08-26)
         i.selReceiver = 0; i.partEmitters = [.a]                        // part DEFAULT: door R1 · emitter A
         i.rowReceiver = [0, 2, 0, 0, 0, 0, 0, 0]                        // row 1 → door R3
         i.rowEmitters = [[.a], [.c], [.a], [.a], [.a], [.a], [.a], [.a]] // row 1 → emitter C
@@ -169,6 +170,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.performPlaying = true; i.stagingPlaying = true; i.chainActive = true
         i.performCells = grid([(0, 0, "gold")])            // piece on row 0
         i.stagingCells = grid([(0, 3, "teal")]); i.stagingSel = [3, -1, -1, -1, -1, -1, -1, -1]   // part on row 3
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the part cell sounds
         i.chainColourID = "cyan"                           // chain finds a free row (not 0 or 3)
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 0)?.colourID, "gold", "piece plays")
@@ -254,6 +256,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.performEmit = Array(repeating: [.a], count: 8)   // piece row 2 → emitter A
         i.stagingCells = grid([(0, 2, "teal")])            // the PART occupies the SAME slot
         i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the part cell sounds
         i.selReceiver = 0; i.partEmitters = [.b]           // part default → emitter B
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.colourID, "teal", "the part/audition wins the shared slot (sits in front)")

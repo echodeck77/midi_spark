@@ -159,6 +159,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EMPTY PART CELL = SILENT + grid-sel chip lighting/toggle (2026-08-26, on `main`; macOS green, iOS builds; DEVICE
+  eye owed). Paul: on the part grid a machine-less cell still played the held chord. ROOT CAUSE: a machine-less colour
+  (empty chain) was composed as a born-audible passthrough → the no-machine LIVE WIRE (reconcileBypass) passed the held
+  chord through. Ruling (Paul): differentiate a chain you're BUILDING (keep the live-wire monitor) from a part-grid cell
+  the user only SELECTED but hasn't set up (silent). FIX: `composeScene` STAGING branch skips a cell whose resolved chain
+  is EMPTY → a machine-less part cell is SILENT until a machine is added; the deployed PLAY grid + PLAY THIS MIDI CHAIN keep
+  the passthrough wire. Updated 4 BuildSceneLogic tests (machined the staging cells that must sound; the no-machine test now
+  asserts the part cell is nil while the perform cell stays a passthrough). **GRID-SEL CHIP FIXES:** the receiver/emitter
+  chips now LIGHT and TRACK toggles in the grid selector — they read the audition's actual source (`buildSelReceiver` /
+  `buildPartEmitters`, what the toggle writes + the audition plays), not `buildSelectedRow` (nil there — the selection is
+  the transient gsAud). Aim sets both to the aimed part's I/O (restored on teardown). Removed the interim `buildIORow`.**
 - **▶ REEL MULTI-PASS EXPORT + selection reworks + grid-sel fixes (2026-08-26, on `main`; macOS green incl. the range test,
   iOS builds; DEVICE eye owed). Paul: MIDI input longer than a pass exports as half a phrase. **MULTI-PASS RANGE:** the
   reel now carries a pass RANGE [lo,hi] (by pass number). ◀/▶ in the sidebar EXTEND the selection's left/right edge to the
