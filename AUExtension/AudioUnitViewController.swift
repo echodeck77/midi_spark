@@ -154,7 +154,13 @@ struct DiagView: View {
     @State var reelLastBeatAt = Date()
     @State var reelPassSigs: [UInt64] = []               // per-pass content hashes (aligned with reelPassNumbers) → REMOVE DUPLICATES
     @State var reelDedup = false                         // REMOVE DUPLICATES toggle (collapse runs of identical passes)
-    @State var reelPage = 0                              // PASS BROWSER pagination (page of the 4×8 pass block)
+    @State var reelPage = Int.max                        // PASS BROWSER page (clamped to the last page = newest → opens on newest, Paul 2026-08-26)
+    // MULTI-PASS EXPORT (Paul 2026-08-26): a pass RANGE [lo,hi] by pass number (◀/▶ extend); the roll shows the whole range
+    // concatenated, and SAVE exports it as ONE phrase. reelExportLanes = the selected emitter lanes (empty ⇒ the master sum).
+    @State var reelSelLoPass = -1
+    @State var reelSelHiPass = -1
+    @State var reelRangeCyc: Double = 0                  // the concatenated range length in beats (0 ⇒ single pass, use reelCycle)
+    @State var reelExportLanes: Set<Int> = []           // selected emitter lanes A–D (0…3); empty ⇒ export the MASTER (A–D sum)
     // #5 (Paul 2026-08-26): the per-pass STATE ring — the deployed play-grid arrangement live during each pass, keyed by
     // absolute pass number (main-thread; captured at each pass boundary from the 4 Hz poll). Selecting a pass can RESTORE it.
     @State var reelStateRing: [Int: BuildSceneSnapshot] = [:]
@@ -804,7 +810,7 @@ struct DiagView: View {
             if reelShowPopup {                                                    // THE PASS BROWSER: refresh the ring + selected roll while open
                 let pn = au.reelPassNumbers();     if pn != reelPassNumbers { reelPassNumbers = pn }
                 let ps = au.reelPassSignatures();  if ps != reelPassSigs { reelPassSigs = ps }   // REMOVE DUPLICATES
-                let rr = au.reelSelectedRoll();    if rr != reelRoll { reelRoll = rr }
+                if reelRangeCyc <= 0 { let rr = au.reelSelectedRoll(); if rr != reelRoll { reelRoll = rr } }   // single pass → live roll; a multi-pass RANGE roll is set on selection (don't overwrite it)
                 let sp = au.reelSelectedPassNo();  if sp != reelSelPassNo { reelSelPassNo = sp }
                 let cy = au.reelCycleBeats();      if cy != reelCycle { reelCycle = cy }
                 if nd.beat != reelLastBeat { reelLastBeat = nd.beat; reelLastBeatAt = Date() }   // stamp for the smooth roll playhead

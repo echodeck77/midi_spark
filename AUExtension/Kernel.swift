@@ -623,6 +623,25 @@ final class Kernel {
         }
         return files
     }
+    /// EXPORT a pass RANGE × an emitter SELECTION (Paul 2026-08-26). emitterMask == 0 ⇒ the MASTER (A–D sum) as one file;
+    /// else one stem per selected emitter (A=bit0 … D=bit3). Each file is the passes [lo,hi] concatenated into one phrase.
+    func reelExportRange(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] {
+        let ppq = 480
+        var files: [(name: String, data: Data)] = []
+        if emitterMask == 0 {   // MASTER — the A–D sum
+            let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: [1, 2, 3, 4])
+            if !evs.isEmpty { files.append((name: "MidiSpark-All.mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
+        } else {                // the SELECTED emitter stems
+            for (i, letter) in ["A", "B", "C", "D"].enumerated() where (emitterMask & (1 << UInt8(i))) != 0 {
+                let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: [UInt8(i + 1)])
+                if !evs.isEmpty { files.append((name: "MidiSpark-\(letter).mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
+            }
+        }
+        return files
+    }
+    func reelRangeRoll(fromPass lo: Int, toPass hi: Int) -> (notes: [ReelDeck.Note], cycle: Double) {
+        let r = reel.rangeRoll(fromPass: lo, toPass: hi); return (r.notes, r.totalBeats)   // read-only value copy — safe off the render thread while browsing freezes the tape
+    }
     private func reelBlanketOff(out: MIDIEmitter?) {                // CC120 + CC123 on every channel × cable — kills the loop's ringing notes on stop
         for cable in UInt8(0)...4 { for ch in UInt8(0)..<16 {
             out?.emit(sampleTime: renderSampleImmediate, cable: cable, 0xB0 | ch, 120, 0)

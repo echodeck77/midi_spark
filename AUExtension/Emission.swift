@@ -176,6 +176,62 @@ final class ReelDeck {
     func exportEvents(cables: Set<UInt8>) -> [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] {
         (0..<loopN).compactMap { cables.contains(loop[$0].cable) ? (loop[$0].beat, loop[$0].b0, loop[$0].b1, loop[$0].b2) : nil }
     }
+    /// EXPORT a RANGE of passes as ONE phrase (Paul 2026-08-26): concatenate every NON-EMPTY pass in [lo, hi] back-to-back,
+    /// each pass's beats offset by the cumulative length of the passes before it — so a phrase longer than one pass
+    /// (input twice a bar → two passes) exports whole, and a note held across a boundary reunites (its ON in pass N,
+    /// its OFF in pass N+1, offset correctly). Returns the combined events on `cables` + the total length in beats.
+    func exportRangeEvents(fromPass lo: Int, toPass hi: Int, cables: Set<UInt8>) -> (events: [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)], totalBeats: Double) {
+        var out: [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] = []
+        var offset = 0.0
+        var p = min(lo, hi); let end = max(lo, hi)
+        while p <= end {
+            if p >= 0 {
+                let slot = ((p % ReelDeck.histCount) + ReelDeck.histCount) % ReelDeck.histCount
+                if histPassNo[slot] == p, histLen[slot] > 0 {
+                    let base = slot * ReelDeck.histCap
+                    for i in 0..<histLen[slot] {
+                        let e = hist[base + i]
+                        if cables.contains(e.cable) { out.append((offset + e.beat, e.b0, e.b1, e.b2)) }
+                    }
+                    offset += histCycle[slot]   // advance the phrase clock by THIS pass's own length
+                }
+            }
+            p += 1
+        }
+        return (out, offset)
+    }
+    /// The drawable notes for a RANGE of passes (Paul 2026-08-26): concatenated + offset like exportRangeEvents, so the
+    /// pop-up roll shows the WHOLE selected phrase (not just one cell). Notes held across a pass boundary reunite. Cables
+    /// 1–4 only. Returns the notes + the total length in beats (the roll's x-axis span).
+    func rangeRoll(fromPass lo: Int, toPass hi: Int) -> (notes: [Note], totalBeats: Double) {
+        var out: [Note] = []
+        var open: [Int: (start: Double, vel: UInt8, colour: UInt32)] = [:]
+        var offset = 0.0
+        var p = min(lo, hi); let end = max(lo, hi)
+        while p <= end {
+            if p >= 0 {
+                let slot = ((p % ReelDeck.histCount) + ReelDeck.histCount) % ReelDeck.histCount
+                if histPassNo[slot] == p, histLen[slot] > 0 {
+                    let base = slot * ReelDeck.histCap
+                    for i in 0..<histLen[slot] {
+                        let e = hist[base + i]
+                        guard e.cable >= 1, e.cable <= 4 else { continue }
+                        let key = Int(e.cable) << 8 | Int(e.b1)
+                        let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
+                        let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
+                        if isOn { open[key] = (offset + e.beat, e.b2, e.colour) }
+                        else if isOff, let o = open.removeValue(forKey: key) {
+                            out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, offset + e.beat), colour: o.colour))
+                        }
+                    }
+                    offset += histCycle[slot]
+                }
+            }
+            p += 1
+        }
+        for (key, o) in open { out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, offset), colour: o.colour)) }
+        return (out, offset)
+    }
     /// Emit every loop event whose NEXT occurrence lands in this render window [beatPos, beatPos+windowBeats). Loops
     /// across the pass boundary per-event, so a window straddling the boundary plays both spans.
     func replay(beatPos: Double, windowBeats: Double, cycleBeats: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {

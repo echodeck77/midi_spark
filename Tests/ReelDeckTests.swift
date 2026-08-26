@@ -155,6 +155,25 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(a?.note, 60); XCTAssertEqual(a?.start, 0.0); XCTAssertEqual(a?.end, 1.0)
         XCTAssertEqual(b?.note, 64); XCTAssertEqual(b?.end, 4.0, "an open note closes at the pass length")
     }
+    // MULTI-PASS EXPORT (Paul 2026-08-26): a phrase longer than one pass exports whole — concatenate the passes, each
+    // offset by the cumulative length; the range roll pairs across the concatenation.
+    func testExportRangeAndRollConcatenatePassesWithOffset() {
+        let deck = ReelDeck()
+        deck.cycleBeats = 4.0
+        deck.record(beat: 0.0, cable: 1, 0x90, 60, 100); deck.record(beat: 1.0, cable: 1, 0x80, 60, 0)
+        deck.promote(); deck.startPass()                     // pass 0: note 60 [0,1], cycle 4
+        deck.record(beat: 0.5, cable: 1, 0x90, 64, 90); deck.record(beat: 1.5, cable: 1, 0x80, 64, 0)
+        deck.promote()                                       // pass 1: note 64 [0.5,1.5], cycle 4
+        let (evs, total) = deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [1])
+        XCTAssertEqual(total, 8.0, "two 4-beat passes → an 8-beat phrase")
+        XCTAssertEqual(evs.count, 4, "both passes' on+off events survive")
+        XCTAssertTrue(evs.contains { abs($0.beat - 0.0) < 1e-9 && $0.b1 == 60 }, "pass 0's note-on at offset 0")
+        XCTAssertTrue(evs.contains { abs($0.beat - 4.5) < 1e-9 && $0.b1 == 64 }, "pass 1's note-on offset by pass 0's cycle (4 + 0.5)")
+        let (notes, rtotal) = deck.rangeRoll(fromPass: 0, toPass: 1)
+        XCTAssertEqual(rtotal, 8.0)
+        XCTAssertEqual(notes.count, 2, "two paired notes across the range")
+        XCTAssertTrue(notes.contains { $0.note == 64 && abs($0.start - 4.5) < 1e-9 && abs($0.end - 5.5) < 1e-9 }, "pass 1's note offset into the phrase")
+    }
 
     // THE DOOR RING (config-sheets REPLAY, Paul 2026-08-20): record input, capture a loop, query sounding notes.
     func testDoorRingCapturesAndQueriesSoundingNotes() {

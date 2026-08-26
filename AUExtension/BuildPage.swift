@@ -825,7 +825,12 @@ extension DiagView {
                 }
             }
         }
-        .onAppear { au?.reelSetBrowsing(true) }                                   // freeze the history tape while browsing
+        .onAppear {
+            au?.reelSetBrowsing(true)                                             // freeze the history tape while browsing
+            reelPage = Int.max                                                    // OPEN ON THE NEWEST PAGE (clamped to the last page) — Paul 2026-08-26
+            reelSelLoPass = -1; reelSelHiPass = -1; reelRangeCyc = 0              // fresh selection (the anchor = the auto-latest pass)
+            reelExportLanes = []                                                  // start exporting the master mix
+        }
         .onDisappear { au?.reelStopReplay(); au?.reelSetBrowsing(false) }         // close → stop any replay + resume normal play, record again next pass
     }
     // PORTRAIT fallback (Paul 2026-08-26): the pass browser is a landscape-only view; in a tall window, prompt to rotate.
@@ -862,16 +867,23 @@ extension DiagView {
                 Text("REEL").font(.system(size: 24, weight: .heavy, design: .monospaced)).tracking(3).foregroundColor(buildCyan)
                 Text("PASS BROWSER").font(.system(size: 11, weight: .bold, design: .monospaced)).tracking(2).foregroundColor(buildDim)
             }
-            Text("The recorded passes fill the top of the grid; the four output lanes run beneath. Tap a pass to hear it — it replaces live output; tap the playing one to stop.")
+            Text("Tap a pass to hear it. ◀ ▶ extend the selection across passes — the roll and SAVE cover the whole range. Tap a lane to export just that emitter (none = the master mix).")
                 .font(.system(size: 11, weight: .medium)).foregroundColor(.white.opacity(0.55)).fixedSize(horizontal: false, vertical: true)
             Rectangle().fill(buildEdge).frame(height: 1)
-            HStack(spacing: 8) {                                               // PAGINATION (Paul 2026-08-26 #4 = pages, not step-select)
-                buildReelStepBtn(back: true, enabled: page > 0) { reelPage = max(0, page - 1) }
-                Text("PAGE \(page + 1)/\(pageCount)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(maxWidth: .infinity)
-                buildReelStepBtn(back: false, enabled: page < pageCount - 1) { reelPage = min(pageCount - 1, page + 1) }
+            let visible = buildReelVisiblePasses()
+            let (rlo, rhi) = buildReelExportRange()
+            let selLabel = rlo < 0 ? "—" : (rlo == rhi ? "PASS \(rlo + 1)" : "PASSES \(rlo + 1)–\(rhi + 1)")
+            let laneLabel = reelExportLanes.isEmpty ? "MASTER" : reelExportLanes.sorted().map { ["A", "B", "C", "D"][$0] }.joined(separator: "·")
+            HStack(spacing: 8) {                                               // ◀ ▶ EXTEND the pass selection (Paul 2026-08-26); the page follows
+                buildReelStepBtn(back: true, enabled: rlo >= 0 && visible.contains { $0 < rlo }) { buildReelExtend(-1) }
+                VStack(spacing: 1) {
+                    Text(selLabel).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.7)
+                    Text("PAGE \(page + 1)/\(pageCount)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                }.frame(maxWidth: .infinity)
+                buildReelStepBtn(back: false, enabled: rhi >= 0 && visible.contains { $0 > rhi }) { buildReelExtend(1) }
             }
-            buildReelToggle(label: "REMOVE DUPLICATES", on: reelDedup) { reelDedup.toggle(); reelPage = 0 }
-            Button { buildReelRestoreState() } label: {                        // #5 — restore the setup that was live during the selected pass
+            buildReelToggle(label: "REMOVE DUPLICATES", on: reelDedup) { reelDedup.toggle(); reelPage = Int.max }
+            Button { buildReelRestoreState() } label: {                        // #5 — restore the setup live during the pass + CLOSE the reel
                 Text(hasState ? "RESTORE SETUP · PASS \(reelSelPassNo + 1)" : "RESTORE SETUP")
                     .font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
                     .foregroundColor(hasState ? .black : buildDim).frame(maxWidth: .infinity).padding(.vertical, 9)
@@ -879,9 +891,9 @@ extension DiagView {
                     .overlay(hasState ? nil : RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
             }.disabled(!hasState)
             Spacer()
-            Button { buildReelExport() } label: {                             // SAVE the selected pass → share sheet
-                Text(reelSelPassNo >= 0 ? "SAVE PASS \(reelSelPassNo + 1)" : "SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
-                    .foregroundColor(reelSelPassNo >= 0 || anyPass ? .black : buildDim).frame(maxWidth: .infinity).padding(.vertical, 10)
+            Button { buildReelExport() } label: {                             // SAVE the pass RANGE × the emitter selection → share sheet
+                Text(rlo >= 0 ? "SAVE \(selLabel) · \(laneLabel)" : "SAVE").font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundColor(rlo >= 0 || anyPass ? .black : buildDim).frame(maxWidth: .infinity).padding(.vertical, 10)
                     .background(RoundedRectangle(cornerRadius: 6).fill(buildCyan.opacity(0.9)))
             }
             Button { reelShowPopup = false } label: {
@@ -914,7 +926,8 @@ extension DiagView {
     // switch (like a scene change); the append-only / undo-integrated "forward event" model is the next increment.
     private func buildReelRestoreState() {
         guard reelSelPassNo >= 0, let snap = reelStateRing[reelSelPassNo] else { return }
-        buildRestoreScene(snap)
+        buildRestoreScene(snap)          // restore the play-grid arrangement that was live during that pass
+        reelShowPopup = false            // CLOSE the reel (Paul 2026-08-26) → .onDisappear stops the replay + unfreezes, so the UI shows the restored state live
     }
     // The 4 piano-roll lanes (bottom 4 rows of the 8×8) + a shared PLAYHEAD that sweeps while a pass replays. Each lane is
     // ONE grid-cell tall and the full grid width, laid out with the SAME gap as the pass rows so the whole page reads as a
@@ -936,7 +949,7 @@ extension DiagView {
     }
     // The playhead position (0…1) NOW, extrapolated from the last beat poll (one-clock rule). Only while replaying.
     private func reelPlayheadPhase(_ now: Date) -> Double? {
-        guard reelState == 2, reelCycle > 0 else { return nil }
+        guard reelState == 2, reelRangeCyc <= 0, reelCycle > 0 else { return nil }   // the sweeping playhead follows single-pass replay only (a range roll is static — no replay yet)
         let beat = d.playing ? reelLastBeat + now.timeIntervalSince(reelLastBeatAt) * d.tempo / 60.0 : reelLastBeat
         var p = beat.truncatingRemainder(dividingBy: reelCycle) / reelCycle
         if p < 0 { p += 1 }
@@ -945,18 +958,22 @@ extension DiagView {
     // One pass cell. Populated → shows its 1-based pass number; the pinned/replaying pass lights cyan. Tap = select+replay,
     // or (if it's already the replaying pass) stop and resume live.
     @ViewBuilder private func buildReelPassCell(_ pass: Int, w: CGFloat, h: CGFloat) -> some View {
-        let sel = pass >= 0 && pass == reelSelPassNo
-        let playing = sel && reelState == 2
+        let lo = min(reelSelLoPass, reelSelHiPass), hi = max(reelSelLoPass, reelSelHiPass)
+        let inRange = pass >= 0 && reelSelLoPass >= 0 && pass >= lo && pass <= hi   // in the export/highlight range (Paul 2026-08-26)
+        let anchor = pass >= 0 && pass == reelSelPassNo                            // the replaying/audition pass
+        let lit = inRange || anchor
+        let playing = anchor && reelState == 2
         RoundedRectangle(cornerRadius: 3)
-            .fill(pass < 0 ? Color.white.opacity(0.03) : (sel ? buildCyan : Color.white.opacity(0.08)))
+            .fill(pass < 0 ? Color.white.opacity(0.03) : (lit ? buildCyan : Color.white.opacity(0.08)))
             .frame(width: w, height: h)
-            .overlay(playing ? RoundedRectangle(cornerRadius: 3).stroke(Color(red: 0.36, green: 0.92, blue: 0.52), lineWidth: 2) : nil)
+            .overlay(playing ? RoundedRectangle(cornerRadius: 3).stroke(Color(red: 0.36, green: 0.92, blue: 0.52), lineWidth: 2)
+                             : (anchor && hi > lo ? RoundedRectangle(cornerRadius: 3).stroke(Color.white, lineWidth: 1.5) : nil))   // the anchor within a multi-pass range
             .overlay(pass >= 0 ? Text("\(pass + 1)").font(.system(size: min(15, min(w, h) * 0.42), weight: .heavy, design: .monospaced))
-                        .foregroundColor(sel ? .black : buildCyan.opacity(0.9)) : nil)
+                        .foregroundColor(lit ? .black : buildCyan.opacity(0.9)) : nil)
             .contentShape(Rectangle())
             .onTapGesture {
                 guard pass >= 0 else { return }
-                if playing { au?.reelStopReplay() } else { au?.reelSelectPass(pass) }
+                if playing { au?.reelStopReplay() } else { buildReelSelectPass(pass) }
             }
     }
     // One emitter piano-roll lane. Draws the selected pass's notes for cable = lane+1 over a reference grid: 8 CELL
@@ -969,7 +986,8 @@ extension DiagView {
         let rawLo = all.min() ?? 48, rawHi = all.max() ?? 72
         let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)   // frame to whole octaves → a C at top + bottom
         let span = CGFloat(hi - lo)
-        let cyc = max(0.0001, reelCycle)
+        let cyc = max(0.0001, reelEffCycle)                                      // the range total (multi-pass) or the single pass length
+        let selected = reelExportLanes.contains(lane)                           // this emitter is in the export selection (Paul 2026-08-26)
         let head = phase.map { $0 * cyc }                                        // the playhead's beat, or nil
         func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (height - 6) + 3 }
         return ZStack(alignment: .leading) {
@@ -1003,13 +1021,22 @@ extension DiagView {
                     ctx.fill(Path(roundedRect: rect, cornerRadius: 1.4), with: .color(nc.opacity(active ? 1.0 : base)))
                 }
             }.frame(width: width, height: height)
-            Text(["A", "B", "C", "D"][lane]).font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(hue.opacity(0.8)).padding(.leading, 4)
+            HStack(spacing: 3) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 8, weight: .bold)).foregroundColor(selected ? hue : hue.opacity(0.4))
+                Text(["A", "B", "C", "D"][lane]).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(selected ? 1 : 0.8))
+            }.padding(.leading, 4)
         }
+        .overlay(selected ? RoundedRectangle(cornerRadius: 3).stroke(hue, lineWidth: 1.5) : nil)   // SELECTED emitter — highlighted for export (Paul 2026-08-26)
+        .contentShape(Rectangle())
+        .onTapGesture { if reelExportLanes.contains(lane) { reelExportLanes.remove(lane) } else { reelExportLanes.insert(lane) } }   // tap a lane → toggle it in the export selection (none ⇒ master)
     }
     // EXPORT the recorded pass to SMF files (the A–D sum + per-emitter stems), then present a share sheet. (Paul 2026-08-18)
+    // EXPORT the selected pass RANGE × the selected emitter LANES (Paul 2026-08-26). No lane selected ⇒ the MASTER (A–D sum).
     private func buildReelExport() {
-        let files = au?.reelExportFiles() ?? []
+        let (lo, hi) = buildReelExportRange()
+        guard lo >= 0, hi >= 0 else { return }
+        var mask: UInt8 = 0; for l in reelExportLanes where l >= 0 && l < 4 { mask |= (1 << UInt8(l)) }
+        let files = au?.reelExportRangeFiles(fromPass: lo, toPass: hi, emitterMask: mask) ?? []
         guard !files.isEmpty else { return }
         let dir = FileManager.default.temporaryDirectory
         var urls: [URL] = []
@@ -1021,6 +1048,42 @@ extension DiagView {
         reelShareURLs = urls
         reelShowShare = true
     }
+    // The pass range to export/highlight: the [lo,hi] set by ◀/▶, else the single selected pass. (pass numbers)
+    private func buildReelExportRange() -> (Int, Int) {
+        if reelSelLoPass >= 0 && reelSelHiPass >= 0 { return (min(reelSelLoPass, reelSelHiPass), max(reelSelLoPass, reelSelHiPass)) }
+        return (reelSelPassNo, reelSelPassNo)
+    }
+    // Tap a pass: collapse the range to that single pass + select/replay it (the anchor drives the live roll + audition).
+    private func buildReelSelectPass(_ pass: Int) {
+        reelSelLoPass = pass; reelSelHiPass = pass; reelRangeCyc = 0
+        au?.reelSelectPass(pass)
+    }
+    // ◀/▶ EXTEND (Paul 2026-08-26): grow the selection's LEFT (dir<0) or RIGHT (dir>0) edge to the next recorded pass; the
+    // page follows so the growing edge stays visible; the roll refreshes to the whole concatenated range.
+    private func buildReelExtend(_ dir: Int) {
+        let visible = buildReelVisiblePasses()
+        guard !visible.isEmpty else { return }
+        if reelSelLoPass < 0 || reelSelHiPass < 0 {   // nothing yet → seed from the anchor / newest
+            let seed = reelSelPassNo >= 0 ? reelSelPassNo : (visible.last ?? -1)
+            reelSelLoPass = seed; reelSelHiPass = seed
+        }
+        if dir < 0 {
+            if let prev = visible.last(where: { $0 < min(reelSelLoPass, reelSelHiPass) }) { reelSelLoPass = prev; buildReelPageFor(prev, visible: visible) }
+        } else {
+            if let next = visible.first(where: { $0 > max(reelSelLoPass, reelSelHiPass) }) { reelSelHiPass = next; buildReelPageFor(next, visible: visible) }
+        }
+        buildReelRefreshRange()
+    }
+    private func buildReelPageFor(_ pass: Int, visible: [Int]) { if let idx = visible.firstIndex(of: pass) { reelPage = idx / 32 } }
+    // Recompute the displayed roll for the current range: multi-pass ⇒ the concatenated range roll (+ its total length);
+    // single ⇒ leave reelRangeCyc 0 so the poll drives reelRoll from the anchor pass.
+    private func buildReelRefreshRange() {
+        guard reelSelLoPass >= 0, reelSelHiPass >= 0 else { reelRangeCyc = 0; return }
+        let lo = min(reelSelLoPass, reelSelHiPass), hi = max(reelSelLoPass, reelSelHiPass)
+        if hi > lo, let r = au?.reelRangeRoll(fromPass: lo, toPass: hi) { reelRoll = r.notes; reelRangeCyc = r.cycle }
+        else { reelRangeCyc = 0 }
+    }
+    private var reelEffCycle: Double { reelRangeCyc > 0 ? reelRangeCyc : reelCycle }   // the roll's x-axis span: the range total, or the single pass length
 
     // The selected colour's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.
     fileprivate var buildSelHue: Color { colourColor(ddSelectedColourID ?? "") ?? buildCyan }
@@ -1472,7 +1535,7 @@ extension DiagView {
         .frame(width: castW)
     }
     @ViewBuilder private func buildReceiverSelectChip(_ i: Int) -> some View {
-        let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? false   // the SELECTED row's door; nothing on a row → unselected (Paul 2026-08-18)
+        let on = buildIORow.map { buildRowReceiverResolved($0) == i } ?? false   // the SELECTED row's door (or the grid-sel AIMED part's); nothing on a row → unselected
         buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
@@ -1480,7 +1543,7 @@ extension DiagView {
     @ViewBuilder private func buildEmitterToggles(castW: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
-                let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) } ?? false   // the SELECTED row's emitters; nothing on a row → unselected
+                let on = buildIORow.map { buildRowEmittersResolved($0).contains(b) } ?? false   // the SELECTED row's emitters (or the grid-sel AIMED part's); nothing on a row → unselected
                 buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })
             }
         }
@@ -2027,6 +2090,10 @@ extension DiagView {
         guard let id = buildSelID else { return nil }
         return (0..<8).first { buildRowColour($0) == id }
     }
+    // The row whose I/O the MIDI-IN/OUT selectors DISPLAY (Paul 2026-08-26): the staging selection normally, but the AIMED
+    // part while the grid selector is open (there the selection is the transient gsAud, which is on no staging row → the
+    // chips would never light). Fixes "the receivers/emitters respond but don't light up" in the grid selector.
+    private var buildIORow: Int? { (buildGridSelOpen ? buildGridSelArrivalRow : nil) ?? buildSelectedRow }
     // PER-ROW I/O resolution (Paul 2026-08-18): a row's OWN door/emitters, or the part default when unset (nil).
     private func buildRowReceiverResolved(_ r: Int) -> Int {
         ((r >= 0 && r < buildRowReceiver.count) ? buildRowReceiver[r] : nil) ?? buildSelReceiver
@@ -5136,7 +5203,7 @@ extension DiagView {
                         }
                     }
                     // §3.2 ROW SELECTORS ON THE GRID EDGE (Paul 2026-08-25): a vertical strip of 8 PART buttons aligned to the
-                    // grid rows (Launchpad-mappable — the scene-launch column). TAP = aim · HOLD = overwrite that part.
+                    // grid rows (Launchpad-mappable — the scene-launch column). TAP = aim + load that part's chain.
                     VStack(spacing: gap) {
                         ForEach(0..<8, id: \.self) { r in buildGridSelRowChip(r, height: cell) }
                     }.frame(width: max(30, cell), height: side)
@@ -5207,9 +5274,9 @@ extension DiagView {
         VStack(alignment: .center, spacing: 10) {
             Text("THE MACHINE  ·  tap a cell or a row").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(buildDim).frame(width: castW, alignment: .leading)
             if loaded {
-                buildReceiverSelector(castW: castW)                      // MIDI IN — reused from the main page
-                buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid,   // a header for the MIDI chain, mirroring the main page (Paul 2026-08-26)
+                buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid,   // ABOVE the receivers (Paul 2026-08-26) — the header for the whole machine
                                   action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }).frame(width: castW)
+                buildReceiverSelector(castW: castW)                      // MIDI IN — reused from the main page
                 buildProcessorBlock(castW: castW, cell: 14)              // the MIDI CHAIN boxes — reused
                 buildEmitterToggles(castW: castW).padding(.top, 8)       // MIDI OUT — reused
                 Text(d.playing ? "playing against your input" : "press ▶ play to hear it sweep")
@@ -5232,8 +5299,7 @@ extension DiagView {
             .overlay { if cid == nil { RoundedRectangle(cornerRadius: 5).stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(buildEdge) } }
             .overlay(Text("\(n + 1)").font(.system(size: min(13, height * 0.4), weight: .heavy, design: .monospaced)).foregroundColor(aimed ? .black.opacity(0.75) : (tint ?? .white.opacity(0.7))))
             .contentShape(Rectangle())
-            .onTapGesture { buildGridSelAimRow(n) }                       // TAP = aim (target + audition through its door)
-            .onLongPressGesture(minimumDuration: 0.35) { buildGridSelCommit(to: n) }   // HOLD = overwrite that part
+            .onTapGesture { buildGridSelAimRow(n) }                       // TAP = aim + load that part's chain (Paul 2026-08-26: hold-to-commit REMOVED — it closed the page unexpectedly; COMMIT button is the explicit commit)
     }
     private func buildGridSelAimRow(_ n: Int) {
         buildGridSelArrivalRow = n

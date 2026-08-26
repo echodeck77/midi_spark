@@ -159,6 +159,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ REEL MULTI-PASS EXPORT + selection reworks + grid-sel fixes (2026-08-26, on `main`; macOS green incl. the range test,
+  iOS builds; DEVICE eye owed). Paul: MIDI input longer than a pass exports as half a phrase. **MULTI-PASS RANGE:** the
+  reel now carries a pass RANGE [lo,hi] (by pass number). ◀/▶ in the sidebar EXTEND the selection's left/right edge to the
+  next recorded pass (a plain tap resets to a single anchor); the page auto-follows the growing edge. **RANGE EXPORT**
+  (engine): `ReelDeck.exportRangeEvents(fromPass:toPass:cables:)` concatenates every non-empty pass in the range back-to-
+  back, each offset by the cumulative pass length — so a 2-bar input exports whole, and a note held across a boundary
+  reunites (its ON in pass N, its OFF in pass N+1). **RANGE ROLL** (Paul's ask): `ReelDeck.rangeRoll` (concatenated,
+  paired-across) so the piano roll shows the WHOLE selected phrase, not just the anchor cell (the poll stops overwriting it
+  for a multi-pass range; the sweeping playhead is single-pass-only for now — range replay is a follow-up). **EMITTER LANE
+  SELECTION** (Paul's ask): the 4 lanes (A/B/C/D) are tap-selectable (checkmark + border); SAVE exports one stem per
+  selected emitter, or the MASTER (A–D sum) when none — `reelExportRange(...emitterMask:)`. SAVE label shows the scope
+  ("SAVE PASSES 5–6 · A·C"). **OPEN ON NEWEST PAGE:** `reelPage` defaults to Int.max (clamped to the last page); reset on
+  each open. **RESTORE SETUP** now CLOSES the reel window (+ .onDisappear stops replay) so the UI shows the restored state
+  live (was: restored under the still-open replaying window → looked dead). +1 ReelDeckTest (range concat + roll offset).
+  **GRID SELECTOR fixes:** (a) HOLD on a row no longer commits+closes the page (jarring) — tap = aim+load, the COMMIT button
+  is the explicit commit; (b) PLAY THIS MIDI CHAIN moved ABOVE the receivers; (c) the receiver/emitter chips now LIGHT in
+  the grid selector — they read a new `buildIORow` (the aimed part while the grid selector is open, since the selection is
+  the transient gsAud which sits on no staging row → `buildSelectedRow` was nil → chips never lit). Kernel/AU/VC/BuildPage
+  UI + Emission engine; all device-eye owed.**
 - **▶ RIFF STAGE 2 — the §5 modifier lanes + POLY + variable length (2026-08-26, on `main`; macOS green + fuzz, iOS builds;
   DEVICE ear owed). Paul ordered stage 2 (the SPEC-riff §5 x0x lanes), then asked "poly? not locked to 8/16?" — both folded
   in. **§5 MODIFIER LANES** (per-step, all additive-Optional → nil = byte-identical): **OCT** (−1·0·+1, already wired stage 1,
