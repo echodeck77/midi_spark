@@ -2973,6 +2973,54 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(notes.isEmpty, "the riff sounds")
         XCTAssertTrue(notes.allSatisfy { $0 == 60 }, "every rank-1 tick plays the LOWEST held note (C=60), never E(64) — got \(notes)")
     }
+    // RIFF STAGE 2 (Paul 2026-08-26): POLY strikes a SET of ranks per step (a chord that follows the held chord).
+    func testRiffPolyStrikesTheRankSet() {
+        var c = Colour(colourID: "gold", type: .riff)
+        c.paramsA.riffPoly = true; c.paramsA.riffSteps = 4; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
+        c.paramsA.riffMask = [5, 5, 5, 5]   // bits 0 and 2 set ⇒ ranks 1 and 3 together
+        let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notes.contains(60) && notes.contains(67), "a POLY step strikes rank 1 (60) AND rank 3 (67) together")
+        XCTAssertFalse(notes.contains(64), "rank 2 (64) is not in the mask → not struck")
+    }
+    // §5 TIE: a tie step suppresses its own attack; the previous note sustains → fewer note-ons than the untied stencil.
+    func testRiffTieSuppressesAttack() {
+        func onCount(tie: Bool) -> Int {
+            var c = Colour(colourID: "gold", type: .riff)
+            c.paramsA.riffSteps = 2; c.paramsA.riffRate = .r1_4; c.paramsA.riffWrap = .fold; c.paramsA.riffRanks = [1, 2]
+            if tie { c.paramsA.riffTie = [false, true] }
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertLessThan(onCount(tie: true), onCount(tie: false), "a TIE step suppresses its own attack — fewer note-ons")
+    }
+    // §5 SLIDE: a slide step arms the synth portamento (CC65=127); the next non-slide step clears it (CC65=0).
+    func testRiffSlideArmsAndClearsPortamento() {
+        var c = Colour(colourID: "gold", type: .riff)
+        c.paramsA.riffSteps = 2; c.paramsA.riffRate = .r1_4; c.paramsA.riffWrap = .fold; c.paramsA.riffRanks = [1, 2]
+        c.paramsA.riffSlide = [true, false]
+        let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 64]), beats: 2, into: e); assertNothingLeftSounding(e)
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 127 }, "SLIDE arms portamento CC65=127")
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 0 }, "the non-slide step after clears CC65=0")
+    }
+    // Variable length (Paul 2026-08-26): a stencil longer than 16 steps is not truncated — step 20 of a 24-step stencil
+    // still fires (the old min(16,...) cap would fold it to step 4). RIFF across the whole row so it ticks continuously.
+    func testRiffVariableLengthBeyond16() {
+        var c = Colour(colourID: "gold", type: .riff)
+        c.paramsA.riffSteps = 24; c.paramsA.riffRate = .r1_16; c.paramsA.riffWrap = .fold
+        var ranks = [Int](repeating: 0, count: 24); ranks[20] = 1   // ONLY step 20 fires
+        c.paramsA.riffRanks = ranks
+        let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+        let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e); assertNothingLeftSounding(e)
+        XCTAssertFalse(e.ons.filter { $0.cable == 1 }.isEmpty, "step 20 of a 24-step stencil fires — not capped at 16")
+    }
     // EUCLID LINES (§10): up to 8 lines from ONE chord — one ALL line = the single euclid (byte-identical); a second line
     // adds its own pulses (polyrhythm); a NOTE-target line strikes only that pool rank. Nothing left sounding.
     func testEuclidLinesPolyrhythmAndNoteTargets() {

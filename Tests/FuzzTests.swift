@@ -95,11 +95,16 @@ final class FuzzTests: XCTestCase {
             if c.type == .muteMatrix && r.chance(0.6) { c.paramsA.muteSlices = (0..<8).map { _ in r.int(16) } }   // MUTE MATRIX §5 — random per-step muted-emitter masks incl. full-mute (all 4) → note fully dropped; no stuck notes
             if c.type == .tap { c.paramsA.tapTo = r.int(5); c.paramsA.tapLevel = Double(r.range(0, 150)) / 100; c.paramsA.tapMute = r.chance(0.2) }   // TAP — random send wire/level/mute; the parallel copy must never strand a note
             if c.type == .riff && r.chance(0.6) {   // RIFF — random rank stencil (incl. ranks past the chord → wrap) + oct + steps/rate/wrap; no stuck notes
-                let n = [8, 16][r.int(2)]; c.paramsA.riffSteps = n
+                let n = 1 + r.int(32)               // VARIABLE length 1…32 (odd ⇒ polymeter — Paul 2026-08-26)
+                c.paramsA.riffSteps = n
                 c.paramsA.riffRanks = (0..<n).map { _ in r.int(9) }        // 0 = rest · 1–8 (some past a small chord → exercise wrap)
                 c.paramsA.riffOct = (0..<n).map { _ in r.int(3) - 1 }
                 c.paramsA.riffRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
                 c.paramsA.riffWrap = RiffWrap.allCases[r.int(RiffWrap.allCases.count)]
+                c.paramsA.riffAccent = (0..<n).map { _ in r.chance(0.3) ? r.int(60) : 0 }   // §5 ACCENT
+                c.paramsA.riffTie = (0..<n).map { _ in r.chance(0.25) }                     // §5 TIE (hold ⌒)
+                c.paramsA.riffSlide = (0..<n).map { _ in r.chance(0.25) }                   // §5 SLIDE (CC65 + overlap)
+                if r.chance(0.5) { c.paramsA.riffPoly = true; c.paramsA.riffMask = (0..<n).map { _ in r.int(256) } }   // POLY: per-step rank mask
             }
             if c.type == .octave || c.type == .transpose || c.type == .channel || c.type == .nudge { applyRandomUtil(&c.paramsA, type: c.type, &r) }   // UTILITY pitch shift — exercise range-clamp/drops
             applyRandomSpan(&c.paramsA, type: c.type, &r)   // SPAN CELL|ROW (2026-08-19): hammer the ROW paths for no-stuck-notes

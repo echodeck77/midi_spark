@@ -1337,40 +1337,66 @@ struct ProcessorBox: View {
                 }
             }
         case .riff:   // RIFF (SPEC-riff-processor) — THE RANK MATRIX: rows = pool ranks 1–8 · cols = steps · empty column = REST.
-            let steps = max(1, min(16, p.riffSteps ?? 16))
+            let steps = max(1, min(32, p.riffSteps ?? 16))
+            let poly = p.riffPoly ?? false   // POLY (Paul 2026-08-26): a step strikes a SET of ranks; MONO = one rank
             let dr = [1, 2, 3, 0, 2, 3, 4, 0, 1, 2, 3, 0, 5, 4, 3, 0]   // the default figure (matches SnapParams)
             let ranks = p.riffRanks ?? dr
-            heroField("THE STENCIL — tap a rank per step (empty column = rest); the held chord fills it") {
+            let mask = p.riffMask ?? []
+            heroField(poly ? "THE STENCIL — POLY: tap ranks per step (a chord that follows the held chord)" : "THE STENCIL — tap a rank per step (empty column = rest); the held chord fills it") {
                 VStack(spacing: 2) {
                     ForEach(Array((1...8).reversed()), id: \.self) { rank in
-                        let allThis = (0..<steps).allSatisfy { ($0 < ranks.count ? ranks[$0] : 0) == rank }   // the whole row is this rank
+                        let bit = 1 << (rank - 1)
+                        let allThis = poly ? (0..<steps).allSatisfy { ((($0 < mask.count ? mask[$0] : 0)) & bit) != 0 }
+                                           : (0..<steps).allSatisfy { ($0 < ranks.count ? ranks[$0] : 0) == rank }
                         HStack(spacing: 2) {
                             Text("\(rank)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).frame(width: 16)
                             ForEach(0..<steps, id: \.self) { s in
-                                let on = (s < ranks.count ? ranks[s] : 0) == rank
+                                let on = poly ? (((s < mask.count ? mask[s] : 0) & bit) != 0) : ((s < ranks.count ? ranks[s] : 0) == rank)
                                 RoundedRectangle(cornerRadius: 3).fill(on ? accent : Color.white.opacity(0.06))
                                     .frame(maxWidth: .infinity).frame(height: 16)
                                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(on ? 0.9 : 0.1), lineWidth: on ? 1.5 : 1))
                                     .contentShape(Rectangle()).onTapGesture {
-                                        setParam { var a = $0.riffRanks ?? dr; while a.count < steps { a.append(0) }; a[s] = (a[s] == rank ? 0 : rank); $0.riffRanks = a }
+                                        setParam {
+                                            if poly { var a = $0.riffMask ?? []; while a.count < steps { a.append(0) }; a[s] ^= bit; $0.riffMask = a }   // POLY: toggle the rank's bit
+                                            else { var a = $0.riffRanks ?? dr; while a.count < steps { a.append(0) }; a[s] = (a[s] == rank ? 0 : rank); $0.riffRanks = a }   // MONO: radio-per-column
+                                        }
                                     }
                             }
-                            // SET-ROW (Paul 2026-08-25): fill EVERY step with this rank (tap again = clear the whole row to rests).
-                            // Rank 1 = the bottom row = the lowest held note. The fast way to make a clean "row of 1".
+                            // SET-ROW (Paul 2026-08-25): fill EVERY step with this rank (tap again = clear). Rank 1 = the lowest held note.
                             RoundedRectangle(cornerRadius: 3).fill(allThis ? accent.opacity(0.55) : Color.white.opacity(0.08))
                                 .frame(width: 30, height: 16)
                                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(allThis ? 0.8 : 0.2), lineWidth: 1))
                                 .overlay(Text("SET").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)))
                                 .contentShape(Rectangle()).onTapGesture {
-                                    setParam { var a = $0.riffRanks ?? dr; while a.count < steps { a.append(0) }; let t = allThis ? 0 : rank; for i in 0..<steps { a[i] = t }; $0.riffRanks = a }
+                                    setParam {
+                                        if poly { var a = $0.riffMask ?? []; while a.count < steps { a.append(0) }; for i in 0..<steps { if allThis { a[i] &= ~bit } else { a[i] |= bit } }; $0.riffMask = a }
+                                        else { var a = $0.riffRanks ?? dr; while a.count < steps { a.append(0) }; let t = allThis ? 0 : rank; for i in 0..<steps { a[i] = t }; $0.riffRanks = a }
+                                    }
                                 }
                         }
                     }
                 }
             }
-            row2({ field("STEPS", \.riffSteps) { seg(["8", "16"], sel: steps == 8 ? "8" : "16") { i in setParam { $0.riffSteps = [8, 16][i] } } } },
-                 { field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } })
-            field("RATE", \.riffRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.riffRate ?? .r1_16).rawValue) { i in setParam { $0.riffRate = ArpRate.allCases[i] } } }
+            // §5 MODIFIER LANES (Paul 2026-08-26): OCT (−·0·+) · ACCENT (louder) · TIE (⌒ hold) · SLIDE (↝ 303 glide).
+            let octA = p.riffOct ?? [], accA = p.riffAccent ?? [], tieA = p.riffTie ?? [], slA = p.riffSlide ?? []
+            field("OCT  −·0·+") {
+                HStack(spacing: 2) { Color.clear.frame(width: 16, height: 14)
+                    ForEach(0..<steps, id: \.self) { s in
+                        let v = s < octA.count ? octA[s] : 0
+                        RoundedRectangle(cornerRadius: 3).fill(v == 0 ? Color.white.opacity(0.06) : accent.opacity(0.5)).frame(maxWidth: .infinity).frame(height: 15)
+                            .overlay(Text(v > 0 ? "+" : (v < 0 ? "−" : "·")).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(v == 0 ? 0.35 : 0.95)))
+                            .contentShape(Rectangle()).onTapGesture { setParam { var a = $0.riffOct ?? []; while a.count < steps { a.append(0) }; a[s] = a[s] >= 1 ? -1 : a[s] + 1; $0.riffOct = a } }
+                    }
+                    Color.clear.frame(width: 30, height: 14)
+                }
+            }
+            riffToggleLane("ACCENT", steps: steps, on: { $0 < accA.count && accA[$0] > 0 }, accent: accent, glyph: "▲") { s in setParam { var a = $0.riffAccent ?? []; while a.count < steps { a.append(0) }; a[s] = a[s] > 0 ? 0 : 40; $0.riffAccent = a } }
+            riffToggleLane("TIE  ⌒", steps: steps, on: { $0 < tieA.count && tieA[$0] }, accent: accent, glyph: "⌒") { s in setParam { var a = $0.riffTie ?? []; while a.count < steps { a.append(false) }; a[s].toggle(); $0.riffTie = a } }
+            riffToggleLane("SLIDE  ↝", steps: steps, on: { $0 < slA.count && slA[$0] }, accent: accent, glyph: "↝") { s in setParam { var a = $0.riffSlide ?? []; while a.count < steps { a.append(false) }; a[s].toggle(); $0.riffSlide = a } }
+            row2({ field("STEPS", \.riffSteps) { numPair(steps, 1...32) { v in setParam { $0.riffSteps = v } } } },
+                 { field("VOICING", \.riffPoly) { seg(["MONO", "POLY"], sel: poly ? "POLY" : "MONO") { i in setParam { $0.riffPoly = (i == 1) } } } })
+            row2({ field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } },
+                 { field("RATE", \.riffRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.riffRate ?? .r1_16).rawValue) { i in setParam { $0.riffRate = ArpRate.allCases[i] } } } })
         case .tap:   // ROUTING (AcceptanceCriteria-tap-processor) — the mid-chain send: LEVEL · TO · MUTE
             let lv = p.tapLevel ?? 1.0
             heroField("LEVEL  \(Int(lv * 100))%  (the send fader)") { slider(bind(lv) { v in setParam { $0.tapLevel = v } }, in: 0...1.5) }
@@ -1554,6 +1580,22 @@ struct ProcessorBox: View {
     @ViewBuilder private func spanLadderField(_ current: Int, _ set: @escaping (Int) -> Void) -> some View {
         field("SPAN — the pattern's loop, in columns  (odd = polymeter)") {
             seg(spanLadderValues.map { spanLadderLabel($0) }, sel: spanLadderLabel(current)) { i in set(spanLadderValues[i]) }
+        }
+    }
+    // RIFF §5 (Paul 2026-08-26): a per-step TOGGLE lane (ACCENT · TIE · SLIDE), aligned under the rank matrix (16pt rank
+    // gutter + 30pt SET gutter). `on(step)` reads the lit state; `tap(step)` flips it.
+    private func riffToggleLane(_ label: String, steps: Int, on: @escaping (Int) -> Bool, accent: Color, glyph: String, _ tap: @escaping (Int) -> Void) -> some View {
+        field(label) {
+            HStack(spacing: 2) {
+                Color.clear.frame(width: 16, height: 14)
+                ForEach(0..<steps, id: \.self) { s in
+                    let isOn = on(s)
+                    RoundedRectangle(cornerRadius: 3).fill(isOn ? accent.opacity(0.6) : Color.white.opacity(0.06)).frame(maxWidth: .infinity).frame(height: 15)
+                        .overlay(isOn ? Text(glyph).font(.system(size: 8, weight: .heavy)).foregroundColor(.white.opacity(0.95)) : nil)
+                        .contentShape(Rectangle()).onTapGesture { tap(s) }
+                }
+                Color.clear.frame(width: 30, height: 14)
+            }
         }
     }
     private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {

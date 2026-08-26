@@ -205,6 +205,8 @@ struct SnapParams {
     var muteSlices: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]      // MUTE MATRIX (Paul 2026-08-25 §5): per-onset-slice MUTED-emitter mask (bit i = emitter i muted); 0 ⇒ nothing muted
     // RIFF (SPEC-riff-processor): the resolved stencil. riffRanks defaults to a musical figure so a fresh RIFF plays.
     var riffSteps: Int = 16
+    var riffPoly: Bool = false                           // POLY: a step strikes the riffMask rank set (chord-following); MONO uses riffRanks
+    var riffMask: [Int] = []                             // POLY per-step 8-bit rank mask (empty ⇒ all rest)
     var riffRateBeats: Double = 0.25                     // resolved from riffRate (1/16 = 0.25 beat)
     var riffRanks: [Int] = [1, 2, 3, 0, 2, 3, 4, 0, 1, 2, 3, 0, 5, 4, 3, 0]   // 0 = REST · 1–8 = pool rank (the default figure)
     var riffOct: [Int] = []                              // per-step −1·0·+1 (empty ⇒ all 0)

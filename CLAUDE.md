@@ -159,6 +159,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RIFF STAGE 2 — the §5 modifier lanes + POLY + variable length (2026-08-26, on `main`; macOS green + fuzz, iOS builds;
+  DEVICE ear owed). Paul ordered stage 2 (the SPEC-riff §5 x0x lanes), then asked "poly? not locked to 8/16?" — both folded
+  in. **§5 MODIFIER LANES** (per-step, all additive-Optional → nil = byte-identical): **OCT** (−1·0·+1, already wired stage 1,
+  now editable) · **ACCENT** (velocity boost, wired stage 1 + editable) · **TIE** (⌒ — a tie step suppresses its own attack;
+  the striking step's off is EXTENDED through the following tie run, a held note) · **SLIDE** (↝ the 303 glide — arms the
+  synth's portamento CC65=127 + overlaps the boundary so the next note opens before this closes; the next non-slide step
+  clears CC65=0; per-step, derived, emitted on the lowest bus — feeds a synth in portamento or a downstream `[RIFF→GLIDE
+  SYNTH]`). **POLY** (Paul's ask): `riffPoly` + `riffMask` (per-step 8-bit rank MASK) — a step strikes a SET of ranks (a
+  chord that FOLLOWS the held chord); MONO (default) keeps the single `riffRanks`. The tick loop factors a `strikeRank`
+  closure called once (MONO) or per-mask-bit (POLY), no render alloc. **VARIABLE LENGTH** (Paul's ask): `riffSteps` cap
+  16→32 (odd lengths ⇒ polymeter; was locked to 8|16). EDITOR: the rank matrix is now mode-aware (radio-per-column MONO ·
+  multi-select POLY), the four §5 lanes below it (OCT 3-state · ACCENT/TIE/SLIDE toggle lanes via a new `riffToggleLane`),
+  STEPS is a 1…32 numPair, a VOICING MONO|POLY seg. +4 RouterTests (POLY rank-set · TIE fewer-attacks · SLIDE CC65 arm/clear
+  · variable-length step-20-fires) + fuzz (poly mask · tie · slide · accent · 1…32 steps — no stuck notes). v1 flags: SLIDE
+  emits CC65 on the lowest bus only (single-emitter, like GLIDE); ACCENT lane is a fixed +40 toggle (a slider is the follow-
+  up — "glass picks" per §5). STILL DEFERRED: CAPTURE (§2, play-the-line-in → ranks — stage 3) + the FOLLOWING frame (§4).**
 - **▶ COMPREHENSIVE CODE REVIEW — 4-lens adversarial sweep + 6 fixes (2026-08-26, on `main`; macOS green + fuzz, iOS builds).
   Four parallel reviewers (Router engine · Kernel/Snapshot boundary · Models/Derivations pure core · BuildPage/GridUI/VC UI),
   each tracing findings against the code + ranking by severity. **FIXED:** ① **CR-8 data-loss (die)** — `EuclidLine.die` was

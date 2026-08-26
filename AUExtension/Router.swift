@@ -3597,7 +3597,7 @@ final class Router {
         let pool = effectivePool(for: cell, live: pool)
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
         let p = colour.a
-        let steps = max(1, min(16, p.riffSteps))
+        let steps = max(1, min(32, p.riffSteps))   // variable length (Paul 2026-08-26): 1…32, so odd lengths give polymeter (was locked to ≤16)
         var riffBeats = p.riffRateBeats; if riffBeats <= 0 { riffBeats = 0.25 }
         let gate = effectiveGate(colour)
         let baseVel = max(1, Int(coinVelFactor(pool) * 127))   // inherit the held chord's peak velocity (accent boosts it)
@@ -3606,30 +3606,64 @@ final class Router {
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded()))) { tick, mTickBeat, onTime, offTime in
             let step = ((Int((mTickBeat / riffBeats).rounded(.down)) % steps) + steps) % steps   // FREE phase (global grid, replay-exact)
-            let rank = step < p.riffRanks.count ? p.riffRanks[step] : 0
-            guard rank >= 1 else { return }   // 0 = REST
-            let oct = step < p.riffOct.count ? p.riffOct[step] : 0
-            let base: Int?
-            if chainDriver >= 0 {   // [X → RIFF]: derive the stencil against the composed upstream set (re-pooled per tick, OMNI)
-                composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
-                base = riffResolve(rank: rank, oct: oct, n: chainScratch.srcCount(filter: 0), wrap: p.riffWrap) { Int(chainScratch.srcAscending($0, filter: 0)) }
-            } else {
-                base = riffNote(rank: rank, oct: oct, pool: pool, for: cell, wrap: p.riffWrap)
-            }
-            guard let b = base else { return }
-            let noteValue = b + transpose
-            guard noteValue >= 0 && noteValue <= 127 else { return }
-            let accent = step < p.riffAccent.count ? p.riffAccent[step] : 0
+            if step < p.riffTie.count && p.riffTie[step] { return }   // §5 TIE — no new attack; the striking step's off was EXTENDED to cover this step (a held ⌒)
+            // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask bits) — a chord that follows the held chord;
+            // MONO strikes the single riffRanks[step]. Both share the per-step §5 modifiers.
+            let polyMask = p.riffPoly ? (step < p.riffMask.count ? p.riffMask[step] : 0) : 0
+            let monoRank = p.riffPoly ? 0 : (step < p.riffRanks.count ? p.riffRanks[step] : 0)
+            if p.riffPoly { if polyMask == 0 { return } } else if monoRank < 1 { return }   // REST
+            let oct = step < p.riffOct.count ? p.riffOct[step] : 0        // §5 OCT lane (−1·0·+1) — per step (all ranks)
+            let accent = step < p.riffAccent.count ? p.riffAccent[step] : 0   // §5 ACCENT lane
             let vel = clampVel(baseVel + accent)
-            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
+            // §5 TIE: extend the off through the following TIE steps (they skip their own strike above).
+            var tieRun = 0
+            while tieRun < steps {
+                let ss = (((step + 1 + tieRun) % steps) + steps) % steps
+                if ss < p.riffTie.count && p.riffTie[ss] { tieRun += 1 } else { break }
+            }
+            var effOff = offTime + Int64((Double(tieRun) * riffBeats / beatsPerSample).rounded())
+            // §5 SLIDE: glide LEGATO into the next → arm the synth's portamento (CC65) + overlap the boundary so the next
+            // note opens before this closes (the 303 slide; feeds a synth in portamento, or a downstream GLIDE SYNTH).
+            // Non-slide AFTER a slide clears CC65. Per-step, derived (replay-safe) — emitted once on the lowest bus.
+            let isSlide = step < p.riffSlide.count && p.riffSlide[step]
+            if isSlide { effOff += Int64((riffBeats * 0.12 / beatsPerSample).rounded()) }
             if emits {
-                if chainDriver >= 0 {
-                    emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
-                                   windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                } else {
-                    emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
-                             velocity: vel, m: mTickBeat, S: S, out: out, diag: &diag)
+                let sbus = bm.trailingZeroBitCount
+                if sbus < 4 {
+                    let sch = (busChannels[sbus] &- 1) & 15
+                    let prevStep = (((step - 1) % steps) + steps) % steps
+                    let prevSlide = prevStep < p.riffSlide.count && p.riffSlide[prevStep]
+                    if isSlide { out?.emit(sampleTime: onTime, cable: UInt8(sbus + 1), 0xB0 | sch, 65, 127) }
+                    else if prevSlide { out?.emit(sampleTime: onTime, cable: UInt8(sbus + 1), 0xB0 | sch, 65, 0) }
                 }
+            }
+            func strikeRank(_ rank: Int) {   // resolve ONE rank against the held/composed chord and emit it (shared by MONO + POLY)
+                guard rank >= 1 else { return }
+                let base: Int?
+                if chainDriver >= 0 {   // [X → RIFF]: derive against the composed upstream set (re-pooled per tick, OMNI)
+                    composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
+                    base = riffResolve(rank: rank, oct: oct, n: chainScratch.srcCount(filter: 0), wrap: p.riffWrap) { Int(chainScratch.srcAscending($0, filter: 0)) }
+                } else {
+                    base = riffNote(rank: rank, oct: oct, pool: pool, for: cell, wrap: p.riffWrap)
+                }
+                guard let b = base else { return }
+                let noteValue = b + transpose
+                guard noteValue >= 0 && noteValue <= 127 else { return }
+                storeArtic(row: r, on: onTime, off: effOff, note: UInt8(noteValue), beat: mTickBeat)
+                if emits {
+                    if chainDriver >= 0 {
+                        emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: effOff,
+                                       windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
+                    } else {
+                        emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: effOff, windowEnd: windowEnd,
+                                 velocity: vel, m: mTickBeat, S: S, out: out, diag: &diag)
+                    }
+                }
+            }
+            if p.riffPoly {
+                for rank in 1...8 where (polyMask & (1 << (rank - 1))) != 0 { strikeRank(rank) }
+            } else {
+                strikeRank(monoRank)
             }
         }
     }

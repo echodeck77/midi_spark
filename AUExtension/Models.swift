@@ -301,9 +301,11 @@ struct ColourParams: Codable, Equatable {
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
     // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
     // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.
-    var riffSteps: Int? = 16                    // 8 | 16 stencil steps
+    var riffSteps: Int? = 16                    // stencil steps 1…32 (odd lengths ⇒ polymeter — Paul 2026-08-26, was 8|16)
+    var riffPoly: Bool? = nil                   // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask) — a chord that follows the held chord; nil/false ⇒ MONO (riffRanks)
+    var riffMask: [Int]? = nil                  // POLY: per-step 8-bit rank MASK (bit r-1 set ⇒ strike rank r); nil ⇒ empty (all rest until authored)
     var riffRate: ArpRate? = .r1_16             // the step rate
-    var riffRanks: [Int]? = nil                 // per-step: 0 = REST · 1–8 = the pool rank to strike (nil ⇒ a default ascending figure)
+    var riffRanks: [Int]? = nil                 // MONO per-step: 0 = REST · 1–8 = the pool rank to strike (nil ⇒ a default ascending figure)
     var riffOct: [Int]? = nil                   // per-step octave nudge −1·0·+1
     var riffAccent: [Int]? = nil                // per-step velocity accent (0 = normal · >0 louder) — v1b
     var riffTie: [Bool]? = nil                  // per-step: extend the previous note (a held ⌒) — v1b
