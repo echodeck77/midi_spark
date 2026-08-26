@@ -470,6 +470,7 @@ extension DiagView {
                     switch m {
                     case .keys:   buildDoorKeyboardInline(i, r)
                     case .scale:  buildDoorScaleInline(i, r)
+                    case .latch, .hold: buildDoorLatchInline(i, r)   // §3: the KEY FILTER — restrict this input's pool to a declared key/chord
                     case .replay: buildDoorReplayInline(i, r)
                     case .file:   buildDoorFileInline(i, r)
                     default:      EmptyView()
@@ -664,14 +665,22 @@ extension DiagView {
             buildDoorExcludeRow(i, width: kbW)
         }
     }
+    // LATCH/HOLD inline (ratified §3): just the KEY FILTER — restrict this latched input to a declared key/chord (ONLY:B),
+    // BLOCK the out-of-key or SNAP it to the nearest legal note. The "always-right lead" when B is a SCALE key-door.
+    @ViewBuilder private func buildDoorLatchInline(_ i: Int, _ r: Receiver) -> some View {
+        buildDoorExcludeRow(i, width: 520)
+    }
     // KEYS/SCALE EXCLUDE (Paul 2026-08-22): the complement — this input plays its pool MINUS another MIDI input's live chord.
     // Shared by the KEYS keyboard and the SCALE picker (SCALE + EXCLUDE = the ratified diatonic-complement combo, §3). Labelled
     // as a MIDI INPUT (not a "door"), the user-facing term (Paul 2026-08-26).
     @ViewBuilder private func buildDoorExcludeRow(_ i: Int, width: CGFloat) -> some View {
-        let exSel = au?.uiExcludeDoor(i) ?? -1
+        let r = i < receivers.count ? receivers[i] : Receiver()
+        let exSel = r.excludeDoorResolved
+        let only = r.excludeModeResolved == .only, snap = r.excludeRejectResolved == .snap
+        let on = exSel >= 0
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text("EXCLUDE MIDI IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                Text(only ? "ONLY MIDI IN" : "EXCLUDE MIDI IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 118, alignment: .leading)
                 ForEach([-1, 0, 1, 2, 3].filter { $0 != i }, id: \.self) { d in
                     Text(d < 0 ? "NONE" : "IN \(["A", "B", "C", "D"][d])").font(.system(size: 10, weight: .heavy, design: .monospaced))
                         .foregroundColor(exSel == d ? .black : .white.opacity(0.7))
@@ -680,8 +689,37 @@ extension DiagView {
                         .contentShape(Rectangle()).onTapGesture { au?.setExcludeDoor(i, d); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
                 }
             }
-            Text("Plays this input's pool MINUS the notes arriving on the excluded MIDI input — the flourish layer.").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim)
+            if on {                                                   // §3: how (INTERSECT vs subtract) · what happens to a rejected note
+                HStack(spacing: 12) {
+                    buildDoorSeg2("MINUS", "ONLY", first: !only,
+                                  a: { au?.setReceiverExcludeMode(i, .minus) }, b: { au?.setReceiverExcludeMode(i, .only) })
+                    buildDoorSeg2("BLOCK", "SNAP", first: !snap,
+                                  a: { au?.setReceiverExcludeReject(i, .block) }, b: { au?.setReceiverExcludeReject(i, .snap) })
+                    Spacer(minLength: 0)
+                }
+            }
+            Text(buildExcludeCopy(on: on, only: only, snap: snap)).font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim).fixedSize(horizontal: false, vertical: true)
         }.frame(width: width, alignment: .leading)
+    }
+    // A 2-option segmented toggle for the key-filter axes; taps re-poll the receivers.
+    @ViewBuilder private func buildDoorSeg2(_ optA: String, _ optB: String, first: Bool, a: @escaping () -> Void, b: @escaping () -> Void) -> some View {
+        HStack(spacing: 0) {
+            ForEach([(optA, true), (optB, false)], id: \.0) { (label, isA) in
+                let sel = isA == first
+                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(sel ? .black : .white.opacity(0.7))
+                    .padding(.horizontal, 11).frame(height: 26).background(sel ? buildCyan : Color.white.opacity(0.08))
+                    .contentShape(Rectangle()).onTapGesture { (isA ? a : b)(); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+            }
+        }.clipShape(RoundedRectangle(cornerRadius: 5))
+    }
+    private func buildExcludeCopy(on: Bool, only: Bool, snap: Bool) -> String {
+        guard on else { return "Filter this input's pool against another MIDI input — the complement (MINUS) or the key/chord lock (ONLY)." }
+        switch (only, snap) {
+        case (false, false): return "Plays this pool MINUS the excluded input's notes (any octave) — the flourish layer."
+        case (false, true):  return "MINUS the excluded notes; a landed-on note nudges to the nearest note that ISN'T excluded."
+        case (true, false):  return "Plays ONLY notes also in the referenced input (any octave) — out-of-key notes are silent."
+        case (true, true):   return "Snaps every note to the nearest note in the referenced input — always in key, never a wrong note."
+        }
     }
     // THE SCALE PICKER (ratified §1): ROOT (C–B) · SCALE (curated list) · the home-octave window (base octave + span). The
     // derived pool feeds the KEYS pipeline (self-arm · EXCLUDE · play-along all reused) — no keyboard, no typing.

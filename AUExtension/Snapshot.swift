@@ -282,7 +282,9 @@ final class SnapshotBox {
     let receiverControllerMask: [UInt8]  // CONTROLLER ROUTING (v1): each door's emitters (A–D) it forwards incoming CC/PB/AT/PC to, re-stamped. Default ALL-LIVE.
     let receiverPianoMask: UInt8         // PIANO LATCH: bit i = receiver i's latch reads its on-screen keyboard selection (not live input)
     let receiverPianoNotes: [[UInt8]]    // PIANO LATCH: per-receiver chosen notes (the frozen chord when armed in PIANO mode)
-    let receiverExcludeDoor: [Int8]      // KEYS EXCLUDE (Paul 2026-08-22): per door, the door (0–3) whose live notes are subtracted by pitch class from this door's KEYS pool (-1 = OFF)
+    let receiverExcludeDoor: [Int8]      // KEY FILTER (Paul 2026-08-22): per door, the reference door (0–3) whose pitch classes filter this door's pool (-1 = OFF)
+    let receiverExcludeOnly: UInt8       // KEY FILTER §3: bit i = door i INTERSECTS (ONLY / in-key) the reference vs subtracts it (MINUS / complement — the default)
+    let receiverExcludeSnap: UInt8       // KEY FILTER §3: bit i = door i SNAPS out-of-set notes to the nearest legal note vs BLOCKs them (silence — the default)
     let receiverReplayMask: UInt8        // REPLAY (config-sheets stage 3): bit i = receiver i is in REPLAY mode (its input ring loops as living input)
     let receiverReplayPasses: [UInt8]    // REPLAY: per-receiver history length in passes (1·2·4·8) that loops
     let receiverFile: [SnapFileClip]     // FILE (config-sheets stage 4): per-door loaded .mid clip that loops as input (empty = none)
@@ -321,7 +323,7 @@ final class SnapshotBox {
          passEmitterMask: [UInt8] = [0, 0, 0, 0],
          receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverPianoMask: UInt8 = 0, receiverPianoNotes: [[UInt8]] = [[], [], [], []],
-         receiverExcludeDoor: [Int8] = [-1, -1, -1, -1],
+         receiverExcludeDoor: [Int8] = [-1, -1, -1, -1], receiverExcludeOnly: UInt8 = 0, receiverExcludeSnap: UInt8 = 0,
          receiverReplayMask: UInt8 = 0, receiverReplayPasses: [UInt8] = [1, 1, 1, 1],
          receiverFile: [SnapFileClip] = [SnapFileClip(), SnapFileClip(), SnapFileClip(), SnapFileClip()],
          macroValues: [Double] = Array(repeating: 0, count: 24),
@@ -377,6 +379,8 @@ final class SnapshotBox {
         self.receiverPianoMask = receiverPianoMask
         self.receiverPianoNotes = receiverPianoNotes
         self.receiverExcludeDoor = receiverExcludeDoor
+        self.receiverExcludeOnly = receiverExcludeOnly
+        self.receiverExcludeSnap = receiverExcludeSnap
         self.receiverReplayMask = receiverReplayMask
         self.receiverReplayPasses = receiverReplayPasses
         self.receiverFile = receiverFile

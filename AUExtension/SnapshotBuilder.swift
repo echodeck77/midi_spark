@@ -228,6 +228,8 @@ enum SnapshotBuilder {
             return notes.map { UInt8(max(0, min(127, $0))) }
         }
         let receiverExcludeDoor = doc.receiversResolved.enumerated().map { (i, r) -> Int8 in let d = r.excludeDoorResolved; return d == i ? -1 : Int8(d) }   // never exclude self
+        let receiverExcludeOnly = packMask(doc.receiversResolved.map { $0.excludeModeResolved == .only })    // §3: INTERSECT vs subtract
+        let receiverExcludeSnap = packMask(doc.receiversResolved.map { $0.excludeRejectResolved == .snap })  // §3: SNAP vs block
         let receiverReplayMask = packMask(doc.receiversResolved.map { $0.doorModeResolved == .replay })   // REPLAY doors
         let receiverFile: [SnapFileClip] = doc.receiversResolved.map { r in   // FILE clips — only for a door in FILE mode with a loaded clip
             guard r.doorModeResolved == .file, let clip = r.fileClip, !clip.isEmpty, let lb = r.fileLoopBeats, lb > 0 else { return SnapFileClip() }
@@ -307,6 +309,7 @@ enum SnapshotBuilder {
                            receiverPianoMask: receiverPianoMask,
                            receiverPianoNotes: receiverPianoNotes,
                            receiverExcludeDoor: receiverExcludeDoor,
+                           receiverExcludeOnly: receiverExcludeOnly, receiverExcludeSnap: receiverExcludeSnap,
                            receiverReplayMask: receiverReplayMask,
                            receiverReplayPasses: receiverReplayPasses,
                            receiverFile: receiverFile,

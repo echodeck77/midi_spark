@@ -158,6 +158,21 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(box.receiverExcludeDoor[2], -1, "self-exclusion resolves to OFF")
         XCTAssertEqual(box.receiverExcludeDoor[0], -1, "default is OFF")
     }
+    func testKeyFilterModeAndRejectFlowToSnapshot() {
+        // §3: MINUS/ONLY + BLOCK/SNAP pack into two masks; default (nil) = MINUS · BLOCK (0 bits), byte-identical for old docs.
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.synthesizeReceiversIfNeeded()
+        st.receivers![1].excludeDoor = 0; st.receivers![1].excludeMode = .only; st.receivers![1].excludeReject = .snap
+        st.receivers![3].excludeDoor = 0; st.receivers![3].excludeMode = .only   // reject stays BLOCK (nil)
+        let box = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(box.receiverExcludeOnly, 0b1010, "doors B and D intersect (ONLY)")
+        XCTAssertEqual(box.receiverExcludeSnap, 0b0010, "only door B snaps")
+        // A doc with no key-filter fields set → both masks zero (MINUS · BLOCK default).
+        var plain = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        plain.synthesizeReceiversIfNeeded()
+        let pbox = SnapshotBuilder.build(from: plain)
+        XCTAssertEqual(pbox.receiverExcludeOnly, 0); XCTAssertEqual(pbox.receiverExcludeSnap, 0)
+    }
     func testThruReceiverFlowsToSnapshot() {
         func thru(_ v: Int?) -> Int8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])

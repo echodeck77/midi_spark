@@ -450,6 +450,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // door's typed KEYS pool. -1 = OFF; never self. UI offers the three doors that aren't this one.
     func uiExcludeDoor(_ i: Int) -> Int { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].excludeDoorResolved : -1 }
     func setExcludeDoor(_ i: Int, _ d: Int) { editReceiver(i) { $0.excludeDoor = (d >= 0 && d <= 3 && d != i) ? d : -1 } }
+    func setReceiverExcludeMode(_ i: Int, _ m: ExcludeMode) { editReceiver(i) { $0.excludeMode = m } }     // §3: MINUS (complement) | ONLY (in-key)
+    func setReceiverExcludeReject(_ i: Int, _ r: ExcludeReject) { editReceiver(i) { $0.excludeReject = r } }  // §3: BLOCK (silence) | SNAP (nearest legal)
     // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE radio. Sets doorMode + syncs the legacy latch fields for the 3
     // existing modes (lossless downgrade). REPLAY/FILE store the mode only (their behaviour lands in stages 3/4).
     func setDoorMode(_ i: Int, _ mode: DoorMode) {

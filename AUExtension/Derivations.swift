@@ -341,7 +341,16 @@ final class NotePool {
 
     /// BYPASS: the held velocity of a note (0 = not held). Public read for the Router's direct-injection pass.
     func heldVelocity(_ note: UInt8) -> UInt8 { vel[Int(note)] }
+    func heldChannel(_ note: UInt8) -> UInt8 { chan[Int(note)] }   // §3 key filter reads these to preserve a remapped note's origin
+    func heldCable(_ note: UInt8) -> UInt8 { cbl[Int(note)] }
 
+    /// ALL sounding notes' pitch classes (no filter) — the reference set when a door's OWN pool IS the key reference (a
+    /// SCALE / KEYS / latched door's frozen pool). Pure; no sort needed (reads vel[] directly). (ratified §3)
+    func pitchClassMaskAll() -> UInt16 {
+        var m: UInt16 = 0
+        for n in 0..<128 where vel[n] != 0 { m |= UInt16(1) << UInt16(n % 12) }
+        return m
+    }
     /// KEYS EXCLUDE (Paul 2026-08-22): the 12-bit PITCH-CLASS mask of the notes currently held on a door's filter —
     /// the complement door subtracts these from its typed set. Pure. Requires rebuildSorted() first (like srcCount).
     func pitchClassMask(chanMask: UInt16, cableMask: Int, noteLo: UInt8, noteHi: UInt8) -> UInt16 {
@@ -567,6 +576,25 @@ func scaleNotes(root: Int, type: ScaleType, baseOct: Int, octaves: Int) -> [Int]
         }
     }
     return out                                                  // already ascending + distinct (intervals rise within an octave; octaves step by 12)
+}
+
+/// THE KEY FILTER (ratified scale-door §3): map an input note through a reference PITCH-CLASS set. `only` = keep only the
+/// set's classes (ONLY / intersection — in-key) vs drop them (MINUS / complement). `snap` = an out-of-set note remaps to the
+/// NEAREST legal note (SNAP — the jam-proof keyboard) vs drops (BLOCK — the strict gate). Returns the note (possibly
+/// remapped), or nil to drop. Pitch-class (mod 12), octave-independent. Pure/testable; no allocation.
+func keyFilterNote(_ note: Int, refMask: UInt16, only: Bool, snap: Bool) -> Int? {
+    if refMask == 0 { return only ? nil : note }                // empty reference: ONLY admits nothing (the tell), MINUS excludes nothing
+    func allowed(_ n: Int) -> Bool {
+        let inSet = (refMask >> UInt16(((n % 12) + 12) % 12)) & 1 != 0
+        return only ? inSet : !inSet
+    }
+    if allowed(note) { return note }
+    guard snap else { return nil }                              // BLOCK
+    for d in 1...12 {                                           // SNAP: the nearest legal note (down ties before up)
+        if note - d >= 0 && allowed(note - d) { return note - d }
+        if note + d <= 127 && allowed(note + d) { return note + d }
+    }
+    return nil
 }
 
 /// MIDI note number → name: pitch class + a NON-NEGATIVE octave (note 0 = C0 … note 127 = G10) — the range

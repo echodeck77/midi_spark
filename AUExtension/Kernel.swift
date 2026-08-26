@@ -293,19 +293,10 @@ final class Kernel {
                 // reading this door still admits the notes (matches captureFiltered's channel-preserving behaviour).
                 let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
                 latchedPools[i].reset()
-                // KEYS EXCLUDE (Paul 2026-08-22): the COMPLEMENT DOOR — subtract the excluded door's live pitch classes
-                // from the typed set (live, re-derived each render). B = the palette minus the chord = the flourish door.
-                var exMask: UInt16 = 0
-                let ex = Int(receiverExcludeDoor[i])
-                if ex >= 0 && ex < 4 {
-                    exMask = pool.pitchClassMask(chanMask: receiverChanMask[ex], cableMask: Int(receiverCables[ex]),
-                                                 noteLo: receiverRangeLo[ex], noteHi: receiverRangeHi[ex])
-                }
-                for n in (i < pianoNotes.count ? pianoNotes[i] : []) {
-                    if exMask != 0 && (exMask >> UInt16(Int(n) % 12)) & 1 != 0 { continue }   // drop the excluded door's pitch classes
-                    latchedPools[i].noteOn(n, velocity: 100, channel: stampCh)
-                }
-                mergeLiveIntoLatched(i)   // KEYS: play ALONG live — the door's enabled channels feed the grid on top of the keyboard pick (Paul 2026-08-23)
+                for n in (i < pianoNotes.count ? pianoNotes[i] : []) { latchedPools[i].noteOn(n, velocity: 100, channel: stampCh) }   // KEYS/SCALE derived pool
+                mergeLiveIntoLatched(i)   // KEYS/SCALE: play ALONG live — the door's enabled channels feed the grid on top of the picked pool (Paul 2026-08-23)
+                // The KEY FILTER (EXCLUDE/ONLY + BLOCK/SNAP) is applied UNIFORMLY in pass 2 below — it references door B's
+                // RESOLVED pool, which needs every door built first (so a SCALE key-door reads correctly, not empty-live).
                 continue
             }
             let rLo = receiverRangeLo[i], rHi = receiverRangeHi[i]   // RANGE (§2): the latch admits only in-window notes
@@ -331,7 +322,53 @@ final class Kernel {
                 holdWasSounding[i] = live
             }
         }
+        // ---- PASS 2: THE KEY FILTER (ratified §3) — every armed door's pool is filtered by a reference door's PITCH CLASSES
+        //      (MINUS = subtract / the complement · ONLY = intersect / in-key), out-of-set notes BLOCKed or SNAPped to the
+        //      nearest legal note. Runs AFTER pass 1 so the reference reads door B's RESOLVED pool (a SCALE key-door's
+        //      derived set, a latched chord, etc.), not just B's live input. nil/-1 reference ⇒ no filter (byte-identical).
+        for i in 0..<4 where (effectiveLatchMask & UInt8(1 << i)) != 0 {
+            let ex = Int(receiverExcludeDoor[i])
+            guard ex >= 0 && ex < 4 else { continue }
+            let refMask = keyReferenceMask(door: ex)
+            applyKeyFilter(door: i, refMask: refMask,
+                           only: (receiverExcludeOnly & UInt8(1 << i)) != 0,
+                           snap: (receiverExcludeSnap & UInt8(1 << i)) != 0)
+        }
         prevLatchArmMask = effectiveLatchMask
+    }
+    /// The reference PITCH-CLASS set of door `ex` for the key filter: its RESOLVED pool — the frozen/derived pool if the
+    /// door is armed (SCALE/KEYS/latched chord/replay/file), else its LIVE input filtered by the door's channel+range.
+    private func keyReferenceMask(door ex: Int) -> UInt16 {
+        let frozen = latchedPools[ex].pitchClassMaskAll()                                              // a built frozen/derived pool
+        if frozen != 0 { return frozen }
+        return pool.pitchClassMask(chanMask: receiverChanMask[ex], cableMask: Int(receiverCables[ex]),
+                                   noteLo: receiverRangeLo[ex], noteHi: receiverRangeHi[ex])           // else live input on that door
+    }
+    /// Apply the key filter to door `i`'s frozen pool IN PLACE (no allocation — fixed scratch): each note is kept, dropped
+    /// (BLOCK / out of set), or remapped (SNAP → nearest legal note). Remapped notes keep their velocity/channel/cable; a
+    /// collision (two notes snapping to one target) folds via noteOn's note-indexing. Closes then re-adds so no note is
+    /// visited twice. rebuildSorted() at the end (the pool's ascending view is read downstream).
+    private func applyKeyFilter(door i: Int, refMask: UInt16, only: Bool, snap: Bool) {
+        var changes = 0                                            // notes that must move (drop or remap)
+        let p = latchedPools[i]
+        for k in 0..<p.count {
+            let note = Int(p.sorted[k])
+            let result = keyFilterNote(note, refMask: refMask, only: only, snap: snap)
+            if result == note { continue }                        // kept as-is
+            let nn = UInt8(note)
+            keyFilterNoteBuf[changes] = nn
+            keyFilterToBuf[changes] = result == nil ? 255 : UInt8(result!)   // 255 = DROP (out of MIDI range → a safe sentinel); else the SNAP target
+            keyFilterVelBuf[changes] = p.heldVelocity(nn)
+            keyFilterChanBuf[changes] = p.heldChannel(nn)
+            keyFilterCblBuf[changes] = p.heldCable(nn)
+            changes += 1
+        }
+        guard changes > 0 else { return }
+        for k in 0..<changes { latchedPools[i].noteOff(keyFilterNoteBuf[k]) }                          // close originals first (no double-visit)
+        for k in 0..<changes where keyFilterToBuf[k] != 255 {                                          // re-add remapped survivors (SNAP)
+            latchedPools[i].noteOn(keyFilterToBuf[k], velocity: keyFilterVelBuf[k], channel: keyFilterChanBuf[k], cable: keyFilterCblBuf[k])
+        }
+        latchedPools[i].rebuildSorted()
     }
 
     /// KEYS/REPLAY/FILE only (Paul 2026-08-23): merge the door's LIVE input — on its enabled channels (OMNI or the
@@ -403,7 +440,14 @@ final class Kernel {
     private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-emitter stamp channels (for the re-stamp forward)
     private var pianoMask: UInt8 = 0                                          // PIANO LATCH: doors whose frozen pool is the on-screen keyboard
     private var pianoNotes: [[UInt8]] = [[], [], [], []]                      // PIANO LATCH: per-door chosen notes
-    private var receiverExcludeDoor: [Int8] = [-1, -1, -1, -1]                // KEYS EXCLUDE: per door, the door whose live pitch classes are subtracted from its KEYS pool (-1 = OFF)
+    private var receiverExcludeDoor: [Int8] = [-1, -1, -1, -1]                // KEY FILTER: per door, the reference door whose pitch classes filter its pool (-1 = OFF)
+    private var receiverExcludeOnly: UInt8 = 0                                // KEY FILTER §3: bit i = door i INTERSECTS (ONLY) vs subtracts (MINUS) the reference
+    private var receiverExcludeSnap: UInt8 = 0                                // KEY FILTER §3: bit i = door i SNAPS out-of-set notes vs BLOCKs them
+    private var keyFilterNoteBuf = [UInt8](repeating: 0, count: 128)          // §3 no-alloc scratch: notes to close then re-add (remap) when applying the key filter
+    private var keyFilterToBuf = [UInt8](repeating: 0, count: 128)
+    private var keyFilterVelBuf = [UInt8](repeating: 0, count: 128)
+    private var keyFilterChanBuf = [UInt8](repeating: 0, count: 128)
+    private var keyFilterCblBuf = [UInt8](repeating: 0, count: 128)
     private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
@@ -695,7 +739,9 @@ final class Kernel {
         busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
         pianoMask = box.receiverPianoMask               // PIANO LATCH: which doors read the keyboard
         pianoNotes = box.receiverPianoNotes
-        receiverExcludeDoor = box.receiverExcludeDoor   // KEYS EXCLUDE: the complement door
+        receiverExcludeDoor = box.receiverExcludeDoor   // KEY FILTER: the reference door
+        receiverExcludeOnly = box.receiverExcludeOnly   // §3: INTERSECT (ONLY) vs subtract (MINUS)
+        receiverExcludeSnap = box.receiverExcludeSnap   // §3: SNAP vs BLOCK
         replayMask = box.receiverReplayMask             // REPLAY: which doors loop their input ring
         replayPasses = box.receiverReplayPasses
         drainControl(box: box)                          // ROW 8 CC-PUNCH / PC-SEND: flush any UI-queued control messages onto the emitter wires

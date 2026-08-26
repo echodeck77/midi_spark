@@ -888,6 +888,27 @@ final class DerivationsTests: XCTestCase {
         // Clamped inputs: octaves 0 → 1, baseOct 99 → 8 (never traps, always ≥ 1 octave).
         XCTAssertFalse(scaleNotes(root: 0, type: .major, baseOct: 99, octaves: 0).isEmpty)
     }
+    // THE KEY FILTER (ratified §3) — MINUS/ONLY × BLOCK/SNAP, pitch-class.
+    func testKeyFilterMinusOnlyBlockSnap() {
+        let cMajor: UInt16 = 0b101010110101   // C D E F G A B = {0,2,4,5,7,9,11}
+        // ONLY + BLOCK: keep in-set, drop out-of-set.
+        XCTAssertEqual(keyFilterNote(60, refMask: cMajor, only: true, snap: false), 60, "C is in C major")
+        XCTAssertNil(keyFilterNote(61, refMask: cMajor, only: true, snap: false), "C# blocked (out of key)")
+        // ONLY + SNAP: out-of-set → nearest in-set (down ties first).
+        XCTAssertEqual(keyFilterNote(61, refMask: cMajor, only: true, snap: true), 60, "C# snaps down to C")
+        XCTAssertEqual(keyFilterNote(66, refMask: cMajor, only: true, snap: true), 65, "F# snaps to F")
+        // MINUS + BLOCK: drop in-set (the complement), keep out-of-set.
+        XCTAssertNil(keyFilterNote(60, refMask: cMajor, only: false, snap: false), "C is excluded")
+        XCTAssertEqual(keyFilterNote(61, refMask: cMajor, only: false, snap: false), 61, "C# survives the complement")
+        // MINUS + SNAP: in-set → nearest NOT-in-set.
+        XCTAssertEqual(keyFilterNote(60, refMask: cMajor, only: false, snap: true), 61, "C nudges to the nearest non-scale note")
+        // OCTAVE-INDEPENDENT: C in any octave behaves identically.
+        XCTAssertEqual(keyFilterNote(72, refMask: cMajor, only: true, snap: false), 72, "C5 in key")
+        XCTAssertNil(keyFilterNote(72, refMask: cMajor, only: false, snap: false), "C5 excluded like C4")
+        // EMPTY reference: ONLY admits nothing, MINUS excludes nothing.
+        XCTAssertNil(keyFilterNote(60, refMask: 0, only: true, snap: true), "ONLY with no reference = silence")
+        XCTAssertEqual(keyFilterNote(60, refMask: 0, only: false, snap: false), 60, "MINUS with no reference = pass")
+    }
     func testSilenceInvariantHoldsWhenTrulySilent() {
         XCTAssertFalse(silenceInvariantViolated(playing: false, heldInput: 0, auditioning: false,
                                                 activeVoices: 0, passthroughHeld: 0), "clean silence")

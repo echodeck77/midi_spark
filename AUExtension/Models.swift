@@ -719,7 +719,20 @@ struct Receiver: Codable, Equatable {
     // palette here, exclude the chord door → this door plays everything the chord isn't (the flourish door).
     var excludeDoor: Int? = nil
     var excludeDoorResolved: Int { let d = excludeDoor ?? -1; return (d >= 0 && d <= 3) ? d : -1 }
+    // THE KEY FILTER (ratified scale-door §3, 2026-08-26): the referenced input (excludeDoor) is either SUBTRACTED (MINUS —
+    // the flourish/complement) or INTERSECTED (ONLY — consonance-locked, in-key). Out-of-set notes are BLOCKed (silence) or
+    // SNAPped (remapped to the nearest legal note — the jam-proof keyboard). Pitch-class, per the CLAIM law. Additive-
+    // Optional — nil ⇒ MINUS · BLOCK (today's ratified nature; byte-identical for old docs).
+    var excludeMode: ExcludeMode? = nil
+    var excludeReject: ExcludeReject? = nil
+    var excludeModeResolved: ExcludeMode { excludeMode ?? .minus }
+    var excludeRejectResolved: ExcludeReject { excludeReject ?? .block }
 }
+
+// §3: the two key-filter axes. MINUS = subtract the reference (the complement door) · ONLY = intersect (the key/chord lock).
+// BLOCK = an out-of-set note is silence · SNAP = it sounds as the nearest legal note (the FOLD/nearest family).
+enum ExcludeMode: String, Codable, CaseIterable { case minus, only }
+enum ExcludeReject: String, Codable, CaseIterable { case block, snap }
 
 // MARK: - Scene & document — §9
 
