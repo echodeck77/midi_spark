@@ -511,6 +511,18 @@ second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE E
 - v1 caveats to revisit: the pass boundary is detected at the render-block START (a few ms of slop); a brief gap on STOP
   (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); doesn't yet snapshot
   tempo/scene changes mid-record.
+- **REEL DEFERRALS — design answers (ferry `REPLY-reel-scope-answers`, 2026-08-26; scope pre-agreed, build when convenient):**
+  - **#3 boundary handoff + roll-follows-reel** — device-paced is right; the switchover is BOUNDARY-deferred and the roll's
+    source flips ATOMICALLY with playback (never half-live/half-reel). Build with Paul on device.
+  - **#5 REVISIT (per-pass state restore)** — the snapshot = the FULL DOCUMENT STATE, captured at each pass boundary into
+    the ring beside the emissions. ⚠ MEASURE the real size first (32 × KB-class); if fullState is heavy on device,
+    delta-chain from the previous snapshot (fallback PRE-APPROVED — no second design pass). RESTORE = load the snapshot as
+    ONE FORWARD EVENT (one undo step; the tape rolls through; history never rewrites). Nothing else restores (transport/host
+    untouched). [increment 1 already landed a live-switch restore of the play-grid arrangement; this is the full-state v2.]
+  - **#6 the acts log (per-pass change badges)** — stamp every UNDOABLE ACT with the pass index current AT COMMIT (acts only —
+    never navigation/selection/view; undo/redo ARE acts). Entry = {passIndex · short label ("ARP RATE" · "BANK→3" · "+RTC") ·
+    the act's machine HUE, or nil for scene-level}. Keep the FULL per-pass bucket (a detail line will want it); the pass CHIP
+    renders the FIRST entry tinted by its hue (neutral ink when nil). Empty bucket = unlabelled chip. Build when convenient.
 
 ## ★★ RANDOMIZE = AN ENSEMBLE (grid-roll rework) — v1 LANDED (2026-08-19; commit in CLAUDE.md status)
 **BUILT:** `Dice.rollEnsemble` → 8 archetypes (pad · bass · stab · arp · groove · texture · sparkle · wild), each
