@@ -1,9 +1,28 @@
 # MidiSpark spec v3.0-delta — routing model + visual language revision
 
-STATUS: AUTHORITATIVE. This delta supersedes the listed sections of
+STATUS: PARTIALLY SUPERSEDED (was AUTHORITATIVE). This delta supersedes the listed sections of
 `midispark-spec-v2.8.md`. Where this document is silent, v2.8 stands unchanged
 (colours/cells/presets, processors, swing, QUANT, performance layers,
 engine snapshot architecture, collision policy, parameters).
+
+> **⚠ TWO HEADLINE SECTIONS OF THIS DELTA ARE THEMSELVES NOW DEAD (2026-08 — code is ground truth):**
+> - **§1/§2/§3 — the reference-GRAPH routing model (row-references, fan-out, cycles-legal-and-silent,
+>   downward-tap unit delay) NEVER SHIPPED and was RETIRED.** Grid-chaining is gone: `resolvedParent` is
+>   hard-wired to −1, and `cell.inputRow` is render-inert (kept only to feed the identity SealKey). The
+>   model that actually shipped is the RECEIVER/DOOR model — a cell subscribes to one of four input DOORS
+>   (A–D), each a `DoorMode` (`thru`/`latch`/`hold`/`keys`/`replay`/`file`). Ironically that model appears
+>   in this delta only as §9 item 11's "design sketch — do not implement ahead"; the sketch became the core.
+>   §8 items 29/30/32 (fan-out · muted-parent reverts-child-to-MIDI-IN · cycles-silent/backward-tap) and
+>   their T9/T11 intents are retired with it.
+> - **§4/§5/§6/§6d — the PERFORM/EDIT two-mode instrument (perform table + tap-to-open CELL EDITOR +
+>   STAGING + drag-and-drop authoring + the six-panel desk) is SUPERSEDED by the single BUILD page.** The
+>   tab era and the PERFORM/EDIT toggle were retired (2026-08-21); `AppTab` has one case, `.build`. Read
+>   §4/§5/§6/§6d (and the perform-specific parts of §5b/§5c/§6a) as HISTORICAL design, not a build target.
+>   §6a's engine half (`busEnabled[4]`, "All = sum of enabled") IS live and correct; its "PERFORM FACE /
+>   channel-strip velocity mixer + CLAIM button" is dead — CLAIM ("OWNS") moved to THE RACK (`RackMatrix`).
+>   §5b's held-column LAP gesture has no host surface; the `laneMask`/`lapColumn` primitive survives,
+>   REPURPOSED as the per-part / per-row clock (not a performer's held-column set).
+
 **NOTE (2026-08): A/B state + MORPH were subsequently REMOVED from the render** — the
 MORPH desk, param 300, and the A→B fader no longer function; `cell.alt` is now only a
 voice-identity bit. This preamble previously listed morph/ALT/MORPH-desk as "unchanged";
@@ -68,9 +87,11 @@ The abandoned alternative (linear chains + module boxes) is preserved as
 ## 2. Schema (supersedes the cell portion of §9)
 
 ```json
-cell: { "presetID": int, "inputRow": int|null, "inputChannel": 0|1..16, "buses": [0..4 of "A".."D"], "alt": bool }
+cell: { "colourID": string, "inputRow": int|null, "inputChannel": 0|1..16, "buses": [0..4 of "A".."D"], "alt": bool }
 document additionally: busChannels[4] (1..16 each) · busEnabled[4] (bool, default true — §6a)
 ```
+(Built code uses `var colourID: String`, not the drafted `presetID: int` — and "preset" is reserved for
+the host document by the §1.0 naming law. `inputRow` is decode/identity-only; see the top-of-file banner.)
 `stack` and `srcMix` are gone. Migration from v2.x documents: fed cell
 (above.stack was true) → inputRow = row−1; srcMix has no equivalent (drop it;
 log a warning). Colour schema: `outChannel` REMOVED (drop with a log — see
@@ -766,10 +787,15 @@ door and STAMPED at each exit; in between, notes have no channel.**
   MIDI IN is selected; the header reads `MIDI CHn` when filtered. This is the
   multi-controller feature: different keyboards on different channels can
   drive different cells/columns.
-- DISCARD: past the filter, origin channel is dropped. INHERIT no longer
-  exists anywhere. Pool entries and sounding sets carry (note, velocity)
-  only — the engine sheds the origin-channel threading entirely; channel
-  survives only inside the raw source pool, where the per-cell filter reads it.
+- IN-POOL: past the filter, INHERIT no longer exists — emission always
+  re-stamps `busChannels`, never the origin channel. But the drafted "notes
+  have no channel in between" overstates what shipped: `NotePool` DOES remember
+  each note's originating channel (`chan[n]`), because two live features read it
+  after the front door — MULTI-CHANNEL doors filter their frozen pool on it, and
+  channel-preserving REPLAY (`DoorRing`) carries the original channel through a
+  captured loop. So: a note carries only its origin channel inside the pool (read
+  by the front-door filter, multi-channel door filters, and replay); emission
+  discards it and stamps `busChannels`.
 - OUT: each bus stamps its own channel: `busChannels[4]`, defaults [1,2,3,4],
   each 1–16 (there is no INHERIT option to offer). Applies in both modes.
 

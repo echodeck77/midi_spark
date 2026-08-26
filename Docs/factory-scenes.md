@@ -4,8 +4,10 @@ PURPOSE: the scene strip's sixteen slots ship with these scenes. They are a
 curriculum disguised as a record: each slot is a PIECE first and a lesson
 second, and routing enters the story progressively — Part I never routes,
 Part II goes vertical, Part III plays the whole graph. They replace the
-test-session buttons in the strip for release builds (TestSessions T1–T17
-remain loadable via the diagnostic panel — these are NOT those; never merge).
+test-session buttons in the strip for release builds (TestSessions T1–T17 are the
+CANNED grids `BuildSelfTest.runAll()` exercises in the DEV — MIDI SELF-TESTS overlay,
+DEBUG builds only — the old one-tap in-strip T-loader + diagnostic panel are gone;
+these scenes are NOT those; never merge).
 
 IMPLEMENTATION: `SceneFactory.swift` returning the sixteen documents. Field
 names per Models.swift; numbering below is 1-based for humans (C1–C8, R1–R8) —

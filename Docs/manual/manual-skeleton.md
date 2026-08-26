@@ -8,6 +8,24 @@ Legend: **[A]** always-present (the header bar tops every tab) · **[BUILD]** th
 Anchor convention: flat kebab-case; `recv-`/`emit-` prefixes disambiguate the twin strip controls.
 Every control entry is: `**Label** {#anchor} — factual what-it-is. _Why: TBD._`
 
+> **⚠ STALE SINCE 2026-08-04 — read before trusting a section (code is ground truth). Anchors are kept
+> for the DOCS-TEST contract; only the prose has drifted:**
+> - **The TAB ROW is gone (2026-08-21). BUILD is the SOLE surface.** `{#tab-bar}`'s "BUILD · GRID · MIDI IN ·
+>   MIDI OUT · MACROS · AUTOMATION" tabs no longer exist; the header carries CONFIG BUTTONS instead —
+>   RATE · MIDI IN · MIDI OUT · RACK · ROW 8 · RECORD — each opening a sheet/overlay, not a page.
+> - **`{#processor-type}` "6 types" is a fossil — there are 27** (see the storefront catalog, grouped
+>   MELODY/HARMONY/RHYTHM/DYNAMICS/CONTROL/TIME/UTILITY/ROUTING).
+> - **The door-level BYPASS toggle was REMOVED.** `{#recv-bypass}` / `{#bypass-dest}` describe a door→emitter
+>   straight wire that no longer exists. A door now has SIX MODES — thru · latch · hold · keys · replay · file —
+>   so `{#keys-chord}`'s "KEYS \| CHORD latch rule" is one narrow slice of the current door-mode radio.
+> - **CLAIM / DUCK / TURNS(ALT) moved off the emitter strip into THE RACK matrix** (open via the RACK config
+>   button). `{#claim}` / `{#emit-duck}` describe strip buttons that were relocated; the emitter strip is now
+>   toggle + channel-readout only.
+> - **The `{#controls-*}` "RANDOMIZE · AUTOMATION · MUTATE · AUTOPLAY" placeholder bank is superseded** by the
+>   BUILD left-column verbs (RANDOMIZE · MUTATE · PLACE · LIBRARY · FILL).
+> - **FREE-RUN CLOCK (2026-08-25, not yet in this manual):** with all three play buttons stopped, an incoming
+>   held chord starts the sequence on its own free clock and stops when the keys lift (latch/hold/keys honoured).
+
 ---
 
 ## Chapter map (mirrors the surfaces)
@@ -45,7 +63,7 @@ as rows · pick where each speaks · flatten weaves the line.**
 ## 1.4 Inside the chain — the processor slots {#build-chain-slots} [BUILD]
 _The CHAIN footer opens the selected colour's stages. Editing a stage edits the colour — one machine, everywhere it's placed._
 - **Processor slot** {#chain-slot} — one stage of the chain, in signal order; up to 8 deep. _Why: One stage of the machine, top to bottom. The chain IS the colour's sound-design surface: what this machine does is the sum of these few decisions._
-- **Type picker** {#processor-type} — choose the stage's machine (6 types). _Why: Choose the stage's species. Six machines cover the ground: pattern, stutter, gate, rake, dice, and bloom — depth comes from combining them, not from a longer menu._
+- **Type picker** {#processor-type} — choose the stage's machine (27 types, grouped in the storefront catalog). _Why: Choose the stage's species. The catalog groups them by intent — MELODY · HARMONY · RHYTHM · DYNAMICS · CONTROL · TIME · UTILITY · ROUTING — and depth comes from combining them, not from a longer flat menu._
 - **Slot BYPASS** {#chain-bypass} — true-bypass this stage (passthrough). _Why: Every stage's true-bypass, and your debugger: eight processors deep, the question "which one is doing that?" is answered by switching suspects off one at a time. It's also a performance socket — a dormant stage left bypassed is a fill waiting for a trigger to punch it in._
 - **Slot remove** {#chain-remove} — delete this stage. _Why: Take the stage out entirely. Bypass first if you're only wondering; remove when you're sure._
 - **+ ADD PROCESSOR** {#chain-add} — append a stage. _Why: Grow the machine, up to eight stages. The invitation is the empty chain's whole face: a new colour is a passthrough waiting for its first idea._
@@ -64,7 +82,7 @@ _The CHAIN footer opens the selected colour's stages. Editing a stage edits the 
 ## 2.1 The header / arrangement bar {#header} [A — tops every tab]
 - **8×8 logotype** {#logo} — the app mark; long-press opens the developer SELF-TEST panel (runs the built-in BuildSelfTest MIDI checks). _Why: The maker's mark, and quietly a handle: it holds the app's identity in hosts that show many plugins at once. The long-press panel is a developer door — it runs the engine's own MIDI self-tests; nothing behind it is needed to play._
 - **PRESETS button** {#presets-open} — opens the preset browser; shows the loaded preset's name. _Why: Whole songs travel as presets: the grid, the scenes, the wiring, everything. Open this to change worlds; the name beside it tells you which world you're in._
-- **Tab row** {#tab-bar} — the row of page tabs under the header. The tabs are **BUILD · GRID · MIDI IN · MIDI OUT · MACROS · AUTOMATION** — each opens a full-page surface (the workshop · the play grid · the input doors · the output wires · the macro bank · the automation lanes). _Why: One permanent address per surface, so a control always lives in the same place — you switch pages, you don't hunt through modes._
+- **Header config buttons** {#tab-bar} — (RETIRED tab row.) There is no page-tab row any more — BUILD is the sole surface. The header instead carries a row of CONFIG BUTTONS — **RATE · MIDI IN · MIDI OUT · RACK · ROW 8 · RECORD** — each opening a sheet or overlay over the workshop. _Why: One workshop, with its rig config a button-press away rather than a page-switch away — you stay in the build and summon the doors, wires, and rack when you need them._
 - **PASS · tempo readout** {#transport-readout} — display-only "P#·bpm" while playing. _Why: The pass counter and tempo, so you know where the lap is without watching the playhead. Display only; the host owns time here, always._
 - **UNDO** {#undo} — step the document back one edit. _Why: Every structural change is one step back, including big ones. Undo covers STRUCTURE, not weather — performance gestures never need undoing because they never leave a mark._
 - **REDO** {#redo} — step forward. _Why: The other direction. Together with undo it makes building a safe place to guess._

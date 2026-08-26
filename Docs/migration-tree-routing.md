@@ -1,9 +1,14 @@
 # Migration: chain routing → graph routing (spec v3.0-delta)
 
-> STATUS: ENGINE COMMITS 1–5 ARE DONE AND TAGGED (`v0.4-graph-routing`,
-> `v0.5-outputs`; engine feature-complete + device-verified at
-> `v0.6-processors`). The GUI RECONCILIATION section below is the LIVE task;
-> everything above it is the historical record of how the engine got here.
+> STATUS: FULLY HISTORICAL (2026-08). The engine commits AND the GUI
+> reconciliation are BOTH done and device-verified — nothing here is "LIVE."
+> Read it for the RATIONALE behind Router/Snapshot/graph-routing shape, not for
+> "what's next" (that's CLAUDE.md → Current status + `Docs/pending-tasks.md`).
+> ⚠ Two things this doc predates: (1) the graph-routing model it plans was later
+> RETIRED — grid-chaining is gone, `inputRow` is inert, cells route from four
+> receiver DOORS (see the v3.0-delta top banner); (2) the "42-test" / "130-test
+> suite" counts below are long stale (the suite is now 800+). The commit/tag
+> history remains accurate.
 
 (Filename says "tree" for historical reasons; the model is a reference GRAPH —
 any-row references, cycles legal-and-silent. Do not rename the file; links

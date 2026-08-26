@@ -784,15 +784,16 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     4-lens adversarial review caught + fixed 7 bugs). **DEFERRED / for Paul:** FACTORY as its own curated 64-bank (the
     content deliverable); §2 EXCLUSIVE-OFF layering (audition BANDS); stopped-transport audition is silent (inherent,
     a hint shows); the working name pending the no-metaphors pass.
-  - [ ] **THE IN/OUT TRUTH STRIPS + THE STAGE EYE** (`AcceptanceCriteria-in-out-truth-strips.md`) — every stage panel
-    gains an IN held-note strip (empty state teaches: "nothing held — LATCH at INPUT A") + an OUT mini-roll; tap = the
-    STAGE EYE (INPUT roll · live MECHANISM widget · OUTPUT roll on one time axis). UI-heavy; not started (device-owed).
-    - [x] **§2 AUDITION FALLBACK — LANDED 2026-08-23** (macOS green, iOS builds; device eye/ear owed). BUILD chain
-      audition feeds a fixed C-major reference chord to its door when nothing's held (Router-level, testable; thread-safe
-      scalar). "no input · reference chord" tell by the button. v1: per-DOOR scope (per-row is a follow-up); the strips +
-      stage eye remain.
-- [ ] **TAP processor** (`AcceptanceCriteria-tap-processor.md`) — mid-chain layered emission (`[ARP→TAP→HARM]` = straight
-  + harmonized). **NOT RATIFIED** ("captured for discussion") — do not build until Paul's word.
+  - [x] **THE IN/OUT TRUTH STRIPS + THE STAGE EYE — LANDED 2026-08-25** (`AcceptanceCriteria-in-out-truth-strips.md`;
+    §1 truth strips `98bec19`, §4 stage eye `ff8a350`, idea-24 touch-to-diff `535cae5`). The track is FEATURE-COMPLETE
+    (all device-eye owed); v2 sweep items remain (§4 column-aligned sweep · bespoke per-type mechanism art · embed the
+    real hero read-only).
+    - [–] **§2 AUDITION FALLBACK — REMOVED 2026-08-23** (NOT landed). The reference-chord fallback was deleted entirely
+      (Paul: "should never be part of the user experience"); no `refPool`/`refChordDoor`/`setChainReference` in the code.
+      The truth strips are now the SOLE cure (the see-it half). Superseded, not shipped.
+- [x] **TAP processor — LANDED 2026-08-25** (`2621dd3`, `AcceptanceCriteria-tap-processor.md`, ratified). The mid-chain
+  SEND: `ProcessorType.tap` mirrors each passing note to a chosen wire (LEVEL · TO THIS/A/B/C/D · MUTE the dry) then
+  passes `cur` through unchanged. +1 test + fuzz. (This was "NOT RATIFIED" — now built; see §3.)
 
 ## D. Parked futures — log only, NO build (re-explain from `design-ferry-completions-phase-cc-2026-07-28.md`)
 - [ ] FEEDBACK EDGES (unit-delay) · THE PIN · MASTER+TEXTURE multi-playhead · **THE CC RAIL** · **THE TWO-LANE INSTRUMENT** (+ cross-lane valves) · MORPH desk (16 faders) · EXTERNAL processor type + standalone-app milestone.

@@ -3,9 +3,10 @@
 > **HISTORICAL — SUPERSEDED.** This guide maps the v56–v61 mockup lineage to the
 > PRE-BUILD desk UI: the retired EDIT/PERFORM toggle and the three-box
 > COLOUR·PROCESSOR·EMITTERS cell desk (+ the cell-edit/PROCESSORS page). That UI
-> is gone. The current shell is the TAB era — BUILD · GRID · MIDI IN · MIDI OUT ·
-> MACROS · AUTOMATION — with the BUILD page as the default landing surface and the
-> primary workshop. For the live reference, use the BUILD mock
+> is gone. The tab era that briefly replaced it (BUILD · GRID · MIDI IN · MIDI OUT ·
+> MACROS · AUTOMATION) was ITSELF retired (2026-08-21): **BUILD is now the sole
+> surface**, with the rig config reached from header buttons (RATE · MIDI IN ·
+> MIDI OUT · RACK · ROW 8 · RECORD). For the live reference, use the BUILD mock
 > (`Docs/mockup-build-three-grids-landscape.html` if present), NOT v59/v60. The
 > body below is kept as historical record of the desk-era mapping.
 

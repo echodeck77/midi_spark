@@ -12,15 +12,19 @@ This is the complete, self-contained specification, consolidating revisions v2.0
 >   bit (forces a re-strike, selects NO parameters); `paramsB` / `typeB` are decode-only legacy keys.
 > - **Param 300 (MORPH MASTER) is reserved-only, not functional** (§8 / §13.5 claim "functional now").
 > - **Five MIDI outputs, not four:** All + Emit A–D (delta §7b). §1.2 / §7 / §8 / §11's "four" is stale.
-> - **Fifteen processor types, not the six in §3:** + ECHO, EUCLID, BURST, CASCADE, DRONE, SHIFT,
->   HUMANIZE, MOD, GLIDE. (§12's predicted future roster — SCALE/RANGE/WINDOW/… — is NOT what shipped.)
+> - **Twenty-seven processor types, not the six in §3** (2026-08-26, see `ProcessorType`): + ECHO, EUCLID,
+>   BURST, CASCADE, DRONE, SHIFT, HUMANIZE, MOD, GLIDE, TUTTI, LENGTH, WEAVE, SPLIT, OCTAVE, TRANSPOSE,
+>   CHANNEL, NUDGE, DEST, MUTEMATRIX, RIFF, TAP. (§12's predicted roster — SCALE/RANGE/WINDOW/… — is NOT
+>   what shipped.)
 > - **CC/LFO generators shipped** (MOD, GLIDE): §12.10's "out of scope, not deferred" was revisited and
 >   reversed (delta §9 item 6).
 > - **Per-receiver LATCH exists** (KEYS/CHORD/PIANO): §2.5's "no latch in this version" is false.
 > - **Channel is filter-in / stamp-out** (inputChannel / busChannels); §2.6's per-Colour OUT CH / INHERIT
 >   is gone. CC/PB/AT pass to All + Emit A (not "bus A only"), plus per-door controller routing.
-> - **The cell face is the SEAL / MOSAIC glyph**; §5's rails / lanes / morph-ring wiring visual is retired
->   (delta §4). QUANT (§6.8) is specced but not implemented.
+> - **The cell face is the PIANO-ROLL** (notes drifting left→right as they sound; `usePianoRollFace = true`).
+>   §5's rails / lanes / morph-ring wiring visual is retired (delta §4); the earlier MOSAIC face was deleted
+>   (2026-08-23) and the SEAL survives only as a decorative fallback. QUANT (§6.8) is specced but not
+>   implemented.
 
 ---
 

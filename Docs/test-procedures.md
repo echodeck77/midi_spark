@@ -124,10 +124,11 @@ live: clean transition.
 ## Perform layer (P-series) — §6.1/6.2, mode + live tap
 
 **HISTORICAL (2026-08-16): the EDIT·PERFORM gating premise below is VOID.** The
-EDIT·PERFORM header toggle is GONE — surfaces are now tabs (BUILD · GRID · MIDI IN ·
-MIDI OUT · MACROS · AUTOMATION), there is no PERFORM mode, and the mode-gating +
-live-ALT-flip-on-tap the P-series exercises no longer exist (the perform feature is
-undecided pending a revised spec). P1–P4 are kept as a historical record only. **P5
+EDIT·PERFORM header toggle is GONE, and the tab shell that briefly replaced it was
+ITSELF retired (2026-08-21) — **BUILD is now the sole surface**. There is no PERFORM
+mode, and the mode-gating + live-ALT-flip-on-tap the P-series exercises no longer
+exist (the perform feature is undecided pending a revised spec). P1–P4 are kept as a
+historical record only. **P5
 (audition) STANDS and is not part of the gating premise** — it is a transport-STOPPED
 press-and-hold, independent of any mode; run it as written.
 
