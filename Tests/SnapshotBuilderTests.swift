@@ -134,6 +134,20 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(box.receiverPianoNotes[1], [60, 64, 67], "the picked notes reach the box (out-of-range dropped)")
         XCTAssertEqual(box.receiverPianoMask & 1, 0, "R1 (default) is not PIANO")
     }
+    func testScaleDoorFlowsToSnapshotAsADerivedPianoPool() {
+        // THE SCALE DOOR (ratified §1): a SCALE door reuses the KEYS pipeline — its pianoMask bit is set and the box's
+        // piano notes are the DERIVED scale set (root+scale+range), not tapped keys.
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.synthesizeReceiversIfNeeded()
+        st.receivers![2].doorMode = .scale
+        st.receivers![2].scaleRoot = 0; st.receivers![2].scaleType = .major
+        st.receivers![2].scaleBaseOct = 3; st.receivers![2].scaleOctaves = 2
+        let box = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(box.receiverPianoMask, 0b0100, "receiver 3 (SCALE) rides the piano pipeline")
+        XCTAssertEqual(box.receiverPianoNotes[2], scaleNotes(root: 0, type: .major, baseOct: 3, octaves: 2).map { UInt8($0) },
+                       "the box carries the derived C-major pool")
+        XCTAssertEqual(box.receiverPianoNotes[2].count, 14)
+    }
     func testExcludeDoorFlowsToSnapshotAndDropsSelf() {
         var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
         st.synthesizeReceiversIfNeeded()

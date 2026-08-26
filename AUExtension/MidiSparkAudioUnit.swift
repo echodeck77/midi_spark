@@ -459,10 +459,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             case .latch: r.latchAdd = true;  r.latchPiano = false
             case .hold:  r.latchAdd = false; r.latchPiano = false
             case .keys:  r.latchPiano = true
+            case .scale: r.latchPiano = false   // SCALE derives its own pool (scaleNotes); the resolver keys off doorMode
             case .thru, .replay, .file: break   // THRU can't arm (the resolvers key off doorMode), so the latch fields are moot
             }
         }
     }
+    // THE SCALE DOOR (ratified §1): the picker sets root · scale · home-octave window; the derived pool feeds the KEYS pipeline.
+    func setReceiverScaleRoot(_ i: Int, _ root: Int) { editReceiver(i) { $0.scaleRoot = (root % 12 + 12) % 12 } }
+    func setReceiverScaleType(_ i: Int, _ type: ScaleType) { editReceiver(i) { $0.scaleType = type } }
+    func setReceiverScaleBaseOct(_ i: Int, _ oct: Int) { editReceiver(i) { $0.scaleBaseOct = max(0, min(8, oct)) } }
+    func setReceiverScaleOctaves(_ i: Int, _ oct: Int) { editReceiver(i) { $0.scaleOctaves = max(1, min(4, oct)) } }
     // REPLAY (stage 3): how much input history loops (1·2·4·8 passes).
     func setReplayPasses(_ i: Int, _ passes: Int) { editReceiver(i) { $0.replayPasses = [1, 2, 4, 8].contains(passes) ? passes : 1 } }
     func toggleReplayCatch(_ i: Int) { kernel.toggleReplayCatch(i) }   // "LAST N" — capture+loop / release (config-sheets, Paul 2026-08-20)

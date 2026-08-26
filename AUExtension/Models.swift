@@ -589,7 +589,40 @@ struct ProcessorSlot: Codable, Equatable {
 // THRU (Paul 2026-08-23) = "play it straight": the door feeds LIVE input to the grid with NO latching (the neutral
 // default). It's the same audible feed as an un-armed latch door, but it CAN'T be armed — its strip button reads "SET"
 // (static) and opens the config, rather than arming. LATCH/HOLD/KEYS/REPLAY/FILE are the armable modes.
-enum DoorMode: String, Codable, CaseIterable { case thru, latch, hold, keys, replay, file }
+enum DoorMode: String, Codable, CaseIterable { case thru, latch, hold, keys, replay, file, scale }
+
+// THE SCALE DOOR (ratified spec AcceptanceCriteria-scale-door §1, 2026-08-26): the sixth door mode's pool = every note of
+// a chosen scale — a standing pitch-class set, no playing or typing. "KEYS with a picker": the engine IS the KEYS pool,
+// derived from ROOT + SCALE + RANGE instead of tapped. `intervals` = semitone degrees from the root (one octave).
+enum ScaleType: String, Codable, CaseIterable {
+    case major, naturalMinor, harmonicMinor, melodicMinor, dorian, mixolydian, lydian, phrygian
+    case majorPentatonic, minorPentatonic, blues, wholeTone, chromatic
+    var intervals: [Int] {
+        switch self {
+        case .major:           return [0, 2, 4, 5, 7, 9, 11]
+        case .naturalMinor:    return [0, 2, 3, 5, 7, 8, 10]
+        case .harmonicMinor:   return [0, 2, 3, 5, 7, 8, 11]
+        case .melodicMinor:    return [0, 2, 3, 5, 7, 9, 11]   // ascending form
+        case .dorian:          return [0, 2, 3, 5, 7, 9, 10]
+        case .mixolydian:      return [0, 2, 4, 5, 7, 9, 10]
+        case .lydian:          return [0, 2, 4, 6, 7, 9, 11]
+        case .phrygian:        return [0, 1, 3, 5, 7, 8, 10]
+        case .majorPentatonic: return [0, 2, 4, 7, 9]
+        case .minorPentatonic: return [0, 3, 5, 7, 10]
+        case .blues:           return [0, 3, 5, 6, 7, 10]
+        case .wholeTone:       return [0, 2, 4, 6, 8, 10]
+        case .chromatic:       return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        }
+    }
+    var label: String {
+        switch self {
+        case .major: return "MAJOR"; case .naturalMinor: return "MINOR"; case .harmonicMinor: return "HARM MIN"
+        case .melodicMinor: return "MEL MIN"; case .dorian: return "DORIAN"; case .mixolydian: return "MIXO"
+        case .lydian: return "LYDIAN"; case .phrygian: return "PHRYGIAN"; case .majorPentatonic: return "MAJ PENT"
+        case .minorPentatonic: return "MIN PENT"; case .blues: return "BLUES"; case .wholeTone: return "WHOLE"; case .chromatic: return "CHROMATIC"
+        }
+    }
+}
 
 struct Receiver: Codable, Equatable {
     var name: String = ""
@@ -649,8 +682,20 @@ struct Receiver: Codable, Equatable {
     // docs decode nil ⇒ off. Persisted rig config. `latchPiano` overrides KEYS|CHORD when true.
     var latchPiano: Bool? = nil
     var pianoNotes: [Int]? = nil
-    /// KEYS (on-screen keyboard) when an explicit `doorMode == .keys`; else the legacy field EXACTLY (byte-identical).
-    var latchPianoResolved: Bool { doorMode.map { $0 == .keys } ?? (latchPiano ?? false) }
+    // THE SCALE DOOR (ratified §1): root (0=C…11=B) · scale · the home-octave window (base octave + how many octaves). The
+    // pool is DERIVED (scaleNotes) and fed through the KEYS pipeline, so SCALE self-arms, honours EXCLUDE, and plays along
+    // exactly like a piano door. Additive-Optional — nil ⇒ sensible defaults (C major, C3, 2 octaves); no effect on old docs.
+    var scaleRoot: Int? = nil
+    var scaleType: ScaleType? = nil
+    var scaleBaseOct: Int? = nil
+    var scaleOctaves: Int? = nil
+    var scaleRootResolved: Int { let r = scaleRoot ?? 0; return (r % 12 + 12) % 12 }
+    var scaleTypeResolved: ScaleType { scaleType ?? .major }
+    var scaleBaseOctResolved: Int { max(0, min(8, scaleBaseOct ?? 3)) }
+    var scaleOctavesResolved: Int { max(1, min(4, scaleOctaves ?? 2)) }
+    /// KEYS-style derived pool: on for an explicit KEYS **or SCALE** door (a scale is a pre-typed pool); else the legacy
+    /// field EXACTLY (byte-identical for old docs). The note SOURCE differs (tapped keys vs the derived scale set).
+    var latchPianoResolved: Bool { doorMode.map { $0 == .keys || $0 == .scale } ?? (latchPiano ?? false) }
     var pianoNotesResolved: [Int] { (pianoNotes ?? []).filter { $0 >= 0 && $0 <= 127 } }
     // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE. Additive-Optional — nil ⇒ derive from the legacy latch fields
     // (LATCH/HOLD/KEYS), so old docs are unchanged. When the door sheet sets it explicitly, it drives the resolvers above.

@@ -127,6 +127,7 @@ extension DiagView {
         case .keys:   return "Pick the held notes on the keyboard below."
         case .replay: return "Records this input and loops the last N passes back in."
         case .file:   return "Plays a loaded MIDI file as this input's live source."
+        case .scale:  return "The pool is a whole scale — pick a key, no playing needed."
         }
     }
     @ViewBuilder private func buildMidiConfigSheet(size: CGSize) -> some View {
@@ -444,7 +445,7 @@ extension DiagView {
         switch m {
         case .replay, .file, .thru:
             if latchMask & bit != 0 { latchMask &= ~bit; au?.setLatchArm(latchMask) }
-        case .latch, .hold, .keys:
+        case .latch, .hold, .keys, .scale:
             if replayEngagedMask & bit != 0 { buildToggleReplay(i) }
         }
         receivers = au?.uiReceivers() ?? receivers
@@ -468,6 +469,7 @@ extension DiagView {
                 Group {
                     switch m {
                     case .keys:   buildDoorKeyboardInline(i, r)
+                    case .scale:  buildDoorScaleInline(i, r)
                     case .replay: buildDoorReplayInline(i, r)
                     case .file:   buildDoorFileInline(i, r)
                     default:      EmptyView()
@@ -659,9 +661,15 @@ extension DiagView {
                     .padding(.horizontal, 10).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
                     .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
             }.frame(width: kbW)
-            // KEYS EXCLUDE (Paul 2026-08-22): the complement — this input plays the typed set MINUS another MIDI input's live
-            // chord. Labelled as a MIDI INPUT (not a "door"), the user-facing term (Paul 2026-08-26).
-            let exSel = au?.uiExcludeDoor(i) ?? -1
+            buildDoorExcludeRow(i, width: kbW)
+        }
+    }
+    // KEYS/SCALE EXCLUDE (Paul 2026-08-22): the complement — this input plays its pool MINUS another MIDI input's live chord.
+    // Shared by the KEYS keyboard and the SCALE picker (SCALE + EXCLUDE = the ratified diatonic-complement combo, §3). Labelled
+    // as a MIDI INPUT (not a "door"), the user-facing term (Paul 2026-08-26).
+    @ViewBuilder private func buildDoorExcludeRow(_ i: Int, width: CGFloat) -> some View {
+        let exSel = au?.uiExcludeDoor(i) ?? -1
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text("EXCLUDE MIDI IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                 ForEach([-1, 0, 1, 2, 3].filter { $0 != i }, id: \.self) { d in
@@ -671,8 +679,57 @@ extension DiagView {
                         .background(RoundedRectangle(cornerRadius: 5).fill(exSel == d ? buildCyan : Color.white.opacity(0.08)))
                         .contentShape(Rectangle()).onTapGesture { au?.setExcludeDoor(i, d); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
                 }
-            }.frame(width: kbW, alignment: .leading)
-            Text("Plays the picked notes MINUS the notes arriving on the excluded MIDI input — the flourish layer.").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim).frame(width: kbW, alignment: .leading)
+            }
+            Text("Plays this input's pool MINUS the notes arriving on the excluded MIDI input — the flourish layer.").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim)
+        }.frame(width: width, alignment: .leading)
+    }
+    // THE SCALE PICKER (ratified §1): ROOT (C–B) · SCALE (curated list) · the home-octave window (base octave + span). The
+    // derived pool feeds the KEYS pipeline (self-arm · EXCLUDE · play-along all reused) — no keyboard, no typing.
+    @ViewBuilder private func buildDoorScaleInline(_ i: Int, _ r: Receiver) -> some View {
+        let w: CGFloat = 520
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        let root = r.scaleRootResolved, type = r.scaleTypeResolved
+        let pool = scaleNotes(root: root, type: type, baseOct: r.scaleBaseOctResolved, octaves: r.scaleOctavesResolved)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 5) {                                       // ROOT — 12 chips
+                Text("ROOT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 40, alignment: .leading)
+                ForEach(0..<12, id: \.self) { k in
+                    Text(names[k]).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(root == k ? .black : .white.opacity(0.7))
+                        .frame(width: 34, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(root == k ? buildCyan : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { au?.setReceiverScaleRoot(i, k); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                }
+            }
+            HStack(alignment: .top, spacing: 5) {                      // SCALE — the curated list, wrapping into an adaptive grid
+                Text("SCALE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 40, alignment: .leading).padding(.top, 4)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 5), spacing: 5) {
+                    ForEach(ScaleType.allCases, id: \.self) { st in
+                        Text(st.label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(type == st ? .black : .white.opacity(0.75)).lineLimit(1).minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(type == st ? buildCyan : Color.white.opacity(0.08)))
+                            .contentShape(Rectangle()).onTapGesture { au?.setReceiverScaleType(i, st); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                    }
+                }.frame(width: w - 46)
+            }
+            HStack(spacing: 10) {                                      // RANGE — base octave + how many octaves
+                Text("RANGE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 40, alignment: .leading)
+                buildScaleStepper("OCT", value: r.scaleBaseOctResolved, lo: 0, hi: 8) { au?.setReceiverScaleBaseOct(i, $0); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                buildScaleStepper("× OCT", value: r.scaleOctavesResolved, lo: 1, hi: 4) { au?.setReceiverScaleOctaves(i, $0); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                Spacer(minLength: 0)
+                Text("\(pool.count) notes · \(names[root]) \(type.label)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            buildDoorExcludeRow(i, width: w)                           // SCALE + EXCLUDE = the diatonic complement (ratified §3)
+        }.frame(width: w, alignment: .leading)
+    }
+    // A tiny ◀ value ▶ stepper for the scale RANGE (clamped [lo,hi]).
+    @ViewBuilder private func buildScaleStepper(_ label: String, value: Int, lo: Int, hi: Int, _ set: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+            Image(systemName: "chevron.left").font(.system(size: 11, weight: .heavy)).foregroundColor(value > lo ? buildCyan : buildDim)
+                .frame(width: 26, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle()).onTapGesture { if value > lo { set(value - 1) } }
+            Text("\(value)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white).frame(minWidth: 16)
+            Image(systemName: "chevron.right").font(.system(size: 11, weight: .heavy)).foregroundColor(value < hi ? buildCyan : buildDim)
+                .frame(width: 26, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle()).onTapGesture { if value < hi { set(value + 1) } }
         }
     }
     // A BRAND-NEW multi-octave piano (C2…B4, 3 octaves): white keys in a row, black keys overlaid; tap = pick/unpick a
@@ -3981,6 +4038,7 @@ extension DiagView {
             case .keys:   return "KEYS"
             case .replay: return "LAST \(rec.replayPassesResolved)"   // Paul: "last 2 for playback"
             case .file:   return ".MID"
+            case .scale:  return "SCALE"
             }
         }()
         // When engaged but the mode was switched to a non-armable one, show what's actually running.

@@ -866,6 +866,28 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - silence invariant (a8 assert-on-silence)
 
+    // THE SCALE DOOR (ratified §1) — the derived KEYS pool from root+scale+range.
+    func testScaleNotesRealizesRootScaleAndRange() {
+        // C major, 2 octaves from C3 (MIDI 48) = 7 degrees × 2 = 14 notes, ascending, starting at C3.
+        let cMaj = scaleNotes(root: 0, type: .major, baseOct: 3, octaves: 2)
+        XCTAssertEqual(cMaj.count, 14)
+        XCTAssertEqual(cMaj.first, 48)                                   // C3
+        XCTAssertEqual(cMaj.prefix(8).map { $0 }, [48, 50, 52, 53, 55, 57, 59, 60])   // C D E F G A B C
+        XCTAssertEqual(cMaj, cMaj.sorted())                             // ascending, distinct
+        // ROOT shifts the whole set: D major starts on D3 (50) and every note is a pitch class of {D,E,F#,G,A,B,C#}.
+        let dMaj = scaleNotes(root: 2, type: .major, baseOct: 3, octaves: 1)
+        XCTAssertEqual(dMaj.first, 50)
+        let dClasses = Set([2, 4, 6, 7, 9, 11, 1])                      // D E F# G A B C#
+        XCTAssertTrue(dMaj.allSatisfy { dClasses.contains($0 % 12) })
+        // Pentatonic = 5 per octave; chromatic = 12; whole-tone = 6.
+        XCTAssertEqual(scaleNotes(root: 0, type: .majorPentatonic, baseOct: 3, octaves: 2).count, 10)
+        XCTAssertEqual(scaleNotes(root: 0, type: .chromatic, baseOct: 3, octaves: 1).count, 12)
+        XCTAssertEqual(scaleNotes(root: 0, type: .wholeTone, baseOct: 3, octaves: 1).count, 6)
+        // Range clamps: an octaves/baseOct that would run past 127 drops the out-of-MIDI notes (never emits > 127).
+        XCTAssertTrue(scaleNotes(root: 0, type: .chromatic, baseOct: 8, octaves: 4).allSatisfy { $0 >= 0 && $0 <= 127 })
+        // Clamped inputs: octaves 0 → 1, baseOct 99 → 8 (never traps, always ≥ 1 octave).
+        XCTAssertFalse(scaleNotes(root: 0, type: .major, baseOct: 99, octaves: 0).isEmpty)
+    }
     func testSilenceInvariantHoldsWhenTrulySilent() {
         XCTAssertFalse(silenceInvariantViolated(playing: false, heldInput: 0, auditioning: false,
                                                 activeVoices: 0, passthroughHeld: 0), "clean silence")

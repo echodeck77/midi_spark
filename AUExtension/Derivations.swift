@@ -551,6 +551,24 @@ final class NotePool {
     }
 }
 
+/// THE SCALE DOOR pool (ratified spec §1): every note of `type` rooted at `root` (0=C…11=B), realized ascending across
+/// `octaves` octaves from the home octave `baseOct` (baseOct 3 → C3 = MIDI 48, the C-1 convention). Out-of-MIDI notes
+/// drop. Pure/testable — the derived KEYS pool for a SCALE door (fed exactly like tapped piano notes). No allocation
+/// concern (called off the render path, in the snapshot build).
+func scaleNotes(root: Int, type: ScaleType, baseOct: Int, octaves: Int) -> [Int] {
+    let r = (root % 12 + 12) % 12
+    let base = max(0, min(8, baseOct)) * 12 + 12                 // C-1 convention: octave 3 → MIDI 48 (C3)
+    let oct = max(1, min(4, octaves))
+    var out: [Int] = []
+    for o in 0..<oct {
+        for i in type.intervals {
+            let n = base + r + o * 12 + i
+            if n >= 0 && n <= 127 { out.append(n) }
+        }
+    }
+    return out                                                  // already ascending + distinct (intervals rise within an octave; octaves step by 12)
+}
+
 /// MIDI note number → name: pitch class + a NON-NEGATIVE octave (note 0 = C0 … note 127 = G10) — the range
 /// display never shows a "-1" octave (user 2026-08-03). Shared by the cog RANGE chips, the strip header's range
 /// summary, and tests — one source so the naming can't drift.
