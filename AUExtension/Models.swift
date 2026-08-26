@@ -76,7 +76,8 @@ struct EuclidLine: Codable, Equatable {
     var rotate: Int = 0
     var invert: Bool = false  // strike the N−K rests
     var pick: EuclidPick? = nil   // v1b (Paul 2026-08-26): per-line PICK for TARGET=ALL lines (nil ⇒ the global euclidPick — byte-identical)
-    var die: Int = 0              // v1b: per-line seed salt so CYCLE/RANDOM picks differ across lines (0 ⇒ unsalted, byte-identical)
+    var die: Int? = nil           // v1b: per-line seed salt so CYCLE/RANDOM picks differ across lines. OPTIONAL (a non-Optional additive field would throw on a pre-v1b euclidLines doc — the CR-8 decode-loss class); nil ⇒ 0 = unsalted, byte-identical
+    var dieResolved: Int { die ?? 0 }
 }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 // SPAN — the timeline a pattern-based processor runs on (Paul 2026-08-18): CELL restarts the pattern each column
@@ -804,6 +805,25 @@ struct Macro: Codable, Equatable {
     /// The RATE multiplier for a lane-rate index: ×8 … ×1 … ÷8 (how many lane steps advance per column).
     static let laneRateMul: [Double] = [8, 4, 2, 1, 0.5, 0.25, 0.125]
     var laneRateMulResolved: Double { let i = max(0, min(Macro.laneRateMul.count - 1, laneRate)); return Macro.laneRateMul[i] }
+}
+extension Macro {
+    // DECODE-TOLERANT (Paul 2026-08-26 review fix): synthesized Decodable throws on a MISSING non-Optional key, so the
+    // additive non-Optional fields (emitterTargets · laneOn · laneRate — added after Macro first persisted) would fail a
+    // pre-field macro → the whole document decode throws → silent reset (the CR-8 data-loss class). decodeIfPresent every
+    // field so an old/partial macro decodes to defaults. In an EXTENSION so the memberwise init + Encodable stay synthesized.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        value = try c.decodeIfPresent(Double.self, forKey: .value) ?? 0
+        fixed = try c.decodeIfPresent(Bool.self, forKey: .fixed) ?? false
+        targets = try c.decodeIfPresent([MacroTarget].self, forKey: .targets) ?? []
+        emitterTargets = try c.decodeIfPresent([MacroEmitterTarget].self, forKey: .emitterTargets) ?? []
+        laneOn = try c.decodeIfPresent(Bool.self, forKey: .laneOn) ?? false
+        lane = try c.decodeIfPresent([Double].self, forKey: .lane)
+        laneModes = try c.decodeIfPresent([Int].self, forKey: .laneModes)
+        laneRate = try c.decodeIfPresent(Int.self, forKey: .laneRate) ?? 3
+    }
 }
 
 // MARK: - ROW 8 — the action strip (Paul 2026-08-22, Docs/row8-spec.md)

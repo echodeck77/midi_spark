@@ -311,8 +311,8 @@ extension DiagView {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 buildReceiverControl(i).frame(width: 96)           // the receiver strip at its OWN width, floating over the radios (not squeezing the column)
                     .padding(6)                                    // ABOVE the mode-row highlight (Paul 2026-08-26): an opaque backing + zIndex so the selected LATCH/HOLD row's cyan tint can't bleed through the strip's gaps
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(red: 0.10, green: 0.115, blue: 0.145)))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(red: 0.10, green: 0.115, blue: 0.145)).allowsHitTesting(false))   // DECORATIVE only — must not swallow taps meant for the mode rows behind it (review fix 2026-08-26)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1).allowsHitTesting(false))
                     .zIndex(1)
             }
         }
@@ -1223,8 +1223,8 @@ extension DiagView {
     // engine already responds to the setRow8On edge (CC-PUNCH sends the value on / 0 off), so this only changes the gesture.
     private func buildRow8Press(_ i: Int) {
         guard i >= 0, i < 8, i < buildRow8Cells.count, buildRow8Cells[i].type != .empty else { return }
-        if buildRow8HeldSlot == i { return }                        // onChanged fires repeatedly — engage once
-        buildRow8HeldSlot = i
+        if buildRow8HeldSlots.contains(i) { return }                // onChanged fires repeatedly — engage once per slot (a SET → two fingers can't strand one)
+        buildRow8HeldSlots.insert(i)
         if buildRow8Cells[i].type == .ccPunch {                     // CC-PUNCH: punch the value on press
             let c = buildRow8Cells[i]
             au?.punchCC(max(0, min(127, c.ccNum ?? 74)), max(0, min(127, c.ccVal ?? 127)))
@@ -1233,8 +1233,8 @@ extension DiagView {
         au?.setRow8On(i, true)
     }
     private func buildRow8Release(_ i: Int) {
-        guard buildRow8HeldSlot == i else { return }
-        buildRow8HeldSlot = nil
+        guard buildRow8HeldSlots.contains(i) else { return }        // release exactly THIS slot (never the last-pressed one)
+        buildRow8HeldSlots.remove(i)
         if i < buildRow8Cells.count, buildRow8Cells[i].type == .ccPunch { au?.punchCC(max(0, min(127, buildRow8Cells[i].ccNum ?? 74)), 0) }   // restore CC to 0
         if i < buildRow8On.count { buildRow8On[i] = false }
         au?.setRow8On(i, false)
@@ -1406,8 +1406,8 @@ extension DiagView {
                 row8Chip("HARD", on: c.killHard ?? false) { buildRow8Edit(slot) { $0.killHard = true } } } }
         case .broadcast:
             row8Row("CHANNELS") { HStack(spacing: 6) {
-                row8Chip("WIRES", on: !(c.broadcastAllChannels ?? true)) { buildRow8Edit(slot) { $0.broadcastAllChannels = false } }
-                row8Chip("+ ALL CH", on: c.broadcastAllChannels ?? true) { buildRow8Edit(slot) { $0.broadcastAllChannels = true } } } }
+                row8Chip("WIRES", on: !(c.broadcastAllChannels ?? false)) { buildRow8Edit(slot) { $0.broadcastAllChannels = false } }   // nil ⇒ 4-wire, matching the engine's `?? false` (review fix 2026-08-26 — was `?? true`, a display lie for old docs)
+                row8Chip("+ ALL CH", on: c.broadcastAllChannels ?? false) { buildRow8Edit(slot) { $0.broadcastAllChannels = true } } } }
         case .setup:
             row8Row("SETUP") { row8Stepper(value: (c.setupN ?? 0) + 1, lo: 1, hi: 4) { v in buildRow8Edit(slot) { $0.setupN = v - 1 } } }
         case .macro:

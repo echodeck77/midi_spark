@@ -1065,7 +1065,7 @@ struct ProcessorBox: View {
                                             .contentShape(Rectangle())
                                             .onTapGesture { euclidLineEdit(idx) { let all = EuclidPick.allCases; let c = $0.pick ?? (p.euclidPick ?? .all); $0.pick = all[(((all.firstIndex(of: c) ?? 0) + 1) % all.count)] } }
                                         Text("DIE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                                        numPair(L.die, 0...8, format: { "⚄\($0)" }) { v in euclidLineEdit(idx) { $0.die = v } }
+                                        numPair(L.dieResolved, 0...8, format: { "⚄\($0)" }) { v in euclidLineEdit(idx) { $0.die = v } }
                                         Spacer(minLength: 0)
                                     }.padding(.leading, 8)
                                 }

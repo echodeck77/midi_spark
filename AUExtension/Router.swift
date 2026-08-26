@@ -2094,7 +2094,7 @@ final class Router {
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // MOD: reset the CC on transport edges
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on transport edges
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
@@ -2103,7 +2103,7 @@ final class Router {
             prevEffColumn = -1
             diag.panics &+= 1
             clearEchoTails()                             // ECHO: panic drops every pending tail
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // MOD: reset the CC on panic
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on panic
         }
         // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
         // new snapshot generation) starts clean — a generation change alone doesn't flush. NOT hang-logged.
@@ -2111,7 +2111,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // MOD: the old scene's CC state resets on the switch
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: the old scene's CC state resets on the switch
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
@@ -2120,7 +2120,7 @@ final class Router {
             prevEffColumn = -1
             prevLatchMask = latchMask
             clearEchoTails()                             // ECHO: the pool swapped — drop tails from the old chord
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
         }
 
         pool.rebuildSorted()
@@ -2137,7 +2137,7 @@ final class Router {
                 for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
                 for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 }
                 clearEchoTails()
-                flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()
+                flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)
             }
             prevFreezeActive = frozen
         }
@@ -2161,7 +2161,7 @@ final class Router {
             for i in lastTick.indices { lastTick[i] = -1; lastGenStep[i] = Int64.min }      // free the solo row's tick-dedup
             previewPrevColumn = -1; strumProgress[0] = 0        // fresh column edge for the virtual cell
             clearEchoTails()                                    // parity with the other flush edges
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // review 2026-08-23 [4]: allNotesOff closed the immortal MOD/GLIDE anchors — forget their stale bookkeeping (else a reused slot later emits a spurious off + the glide/CC goes silent)
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // review 2026-08-23 [4]: allNotesOff closed the immortal MOD/GLIDE anchors — forget their stale bookkeeping (else a reused slot later emits a spurious off + the glide/CC goes silent)
             prevPreviewActive = preview.active
         }
 
@@ -2190,7 +2190,7 @@ final class Router {
             prevEffColumn = -1
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             clearEchoTails()                             // ECHO: a pass restart drops the old pass's tails
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
         }
         let beatPos = beatPos - passAnchor
 
@@ -2494,6 +2494,7 @@ final class Router {
         if gv.anchor >= 0 {
             if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: atSample, out: out) }
             if gv.mode == .bend && gv.bus >= 0 { emitBend(cable: UInt8(gv.bus + 1), ch: (busChannels[Int(gv.bus)] &- 1) & 15, value: 8192, atSample: atSample, out: out) }   // SYNTH/STEP emit no bend (Paul 2026-08-26)
+            if gv.mode == .synth && gv.bus >= 0 { out?.emit(sampleTime: atSample, cable: UInt8(gv.bus + 1), 0xB0 | ((busChannels[Int(gv.bus)] &- 1) & 15), 65, 0) }   // SYNTH: portamento CC65 OFF at phrase end — else it stays armed and pollutes every later note on the channel (review fix 2026-08-26)
         }
         glideVoices[cellIdx] = GlideVoice()
     }
@@ -2502,7 +2503,16 @@ final class Router {
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r { glidePhraseEnd(column * Snap.rows + r, atSample: atSample, out: out) }
     }
     /// Transport/scene/panic flush: the immortal glide notes are closed by allNotesOff — just forget the state.
-    private func flushGlide() { for i in glideVoices.indices { glideVoices[i] = GlideVoice() }; for i in glideLastColumn.indices { glideLastColumn[i] = -1 } }
+    private func flushGlide(atSample: Int64 = renderSampleImmediate, out: MIDIEmitter? = nil) {
+        for i in glideVoices.indices {
+            let gv = glideVoices[i]
+            if gv.mode == .synth && gv.anchor >= 0 && gv.bus >= 0 {   // SYNTH: clear portamento CC65 on the edge (else it stays armed on the channel)
+                out?.emit(sampleTime: atSample, cable: UInt8(gv.bus + 1), 0xB0 | ((busChannels[Int(gv.bus)] &- 1) & 15), 65, 0)
+            }
+            glideVoices[i] = GlideVoice()
+        }
+        for i in glideLastColumn.indices { glideLastColumn[i] = -1 }
+    }
     /// The mono input note (+velocity) a GLIDE cell tracks — by PRIORITY over its filtered source pool.
     private func glidePickPool(_ pool: NotePool, cell: SnapCell, priority: GlidePriority) -> (note: Int, vel: UInt8) {
         let n = pool.srcCount(for: cell)
@@ -2607,8 +2617,10 @@ final class Router {
                     gv.anchor = Int16(inNote); gv.slot = Int16(newSlot); gv.lastInput = Int16(inNote)
                 }
             case .step:
-                // STEP: a fast chromatic run source→target — each semitone a short note, the target held. Note-hungry
-                // (the flood governor applies). The run is scheduled across windows (idempotent via stepsDone).
+                // STEP: a fast chromatic run source→target — each semitone a short note, the target held. Note-hungry:
+                // the zipper opens voices via openVoice (the glide-voice mechanism), so the PER-BEAT flood governor does
+                // NOT gate it — it's bounded only by |Δ| ≤ 127 steps and the 128-voice cap. The run is scheduled across
+                // windows (idempotent via stepsDone). (review 2026-08-26: corrected — governor doesn't apply here.)
                 if gv.anchor < 0 {
                     let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
                     gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote)
@@ -2925,7 +2937,7 @@ final class Router {
             if p.euclidLines.isEmpty {
                 runEuclidLine(pulses: p.euclidPulses, steps: p.euclidSteps, rotate: p.euclidRot, target: 0, invert: p.euclidInvert)
             } else {
-                for L in p.euclidLines { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, target: L.target, invert: L.invert, pick: L.pick, die: L.die) }
+                for L in p.euclidLines { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, target: L.target, invert: L.invert, pick: L.pick, die: L.dieResolved) }
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))

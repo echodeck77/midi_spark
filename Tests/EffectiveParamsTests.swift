@@ -62,6 +62,38 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(old.macrosResolved.count, 24)
     }
 
+    // REVIEW FIX 2026-08-26 (CR-8 class): a macro persisted BEFORE emitterTargets/laneOn/laneRate existed lacks those
+    // keys; those fields are NON-Optional, so synthesized Decodable would throw → the WHOLE document decode throws →
+    // silent reset (total data loss). Macro's decode-tolerant init must default the missing keys instead of throwing.
+    func testMacroDecodesWithMissingNonOptionalKeys() throws {
+        var doc = self.doc()
+        doc.macros = doc.macrosResolved
+        doc.macros?[2] = Macro(name: "OLD", value: 0.5, fixed: false, targets: [])
+        let data = try JSONEncoder().encode(doc)
+        var obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        var macros = obj["macros"] as! [[String: Any]]
+        for i in macros.indices {   // strip the fields added after Macro first persisted
+            macros[i].removeValue(forKey: "emitterTargets"); macros[i].removeValue(forKey: "laneOn"); macros[i].removeValue(forKey: "laneRate")
+        }
+        obj["macros"] = macros
+        let stripped = try JSONSerialization.data(withJSONObject: obj)
+        let back = try JSONDecoder().decode(PluginState.self, from: stripped)   // MUST NOT throw
+        XCTAssertEqual(back.macrosResolved[2].name, "OLD")
+        XCTAssertEqual(back.macrosResolved[2].laneRate, 3, "laneRate defaults to 3 when the key is absent")
+        XCTAssertFalse(back.macrosResolved[2].laneOn)
+        XCTAssertTrue(back.macrosResolved[2].emitterTargets.isEmpty)
+    }
+
+    // REVIEW FIX 2026-08-26: EuclidLine.die was added NON-Optional; a euclidLines doc saved before it lacks the key and
+    // would throw on decode. die is now Optional → a pre-die line decodes with die defaulting to 0.
+    func testEuclidLineDecodesWithoutDieKey() throws {
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
+        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertEqual(line.dieResolved, 0)
+        XCTAssertNil(line.pick)
+        XCTAssertEqual(line.pulses, 5)
+    }
+
     /// The builder mirrors the 24 macro values into the snapshot (clamped 0…1); a clean doc yields 24 zeros.
     func testBuilderMirrorsMacroValuesClamped() {
         var doc = self.doc()

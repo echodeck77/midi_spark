@@ -2841,6 +2841,7 @@ final class RouterTests: XCTestCase {
         let offIdx = e.events.firstIndex { $0.status == 0x80 && $0.note == 60 }!
         XCTAssertLessThan(onIdx, offIdx, "the new note opens before the old closes (legato → the synth portamentos)")
         render(NotePool(), playing: false)
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 0 }, "SYNTH clears portamento (CC65=0) on teardown — else it pollutes every later note on the channel (review fix)")
         assertNothingLeftSounding(e)
     }
     // GLIDE STEP mode (Paul 2026-08-22): a fast chromatic run source→target — one short note per semitone, target held.

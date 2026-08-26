@@ -159,6 +159,29 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ COMPREHENSIVE CODE REVIEW — 4-lens adversarial sweep + 6 fixes (2026-08-26, on `main`; macOS green + fuzz, iOS builds).
+  Four parallel reviewers (Router engine · Kernel/Snapshot boundary · Models/Derivations pure core · BuildPage/GridUI/VC UI),
+  each tracing findings against the code + ranking by severity. **FIXED:** ① **CR-8 data-loss (die)** — `EuclidLine.die` was
+  added NON-Optional this session; synthesized Decodable throws on a missing key, so a euclidLines doc saved before `die`
+  existed fails to decode → the WHOLE document silently resets. Made `die: Int?` + `dieResolved` (two reviewers flagged it).
+  ② **CR-8 data-loss (Macro)** — pre-existing: `Macro.emitterTargets`/`laneOn`/`laneRate` are NON-Optional additive fields
+  (its own comment falsely claimed "old docs decode nil"); a macro persisted before them throws the whole doc. Added a
+  decode-tolerant `init(from:)` in an EXTENSION (decodeIfPresent every field; keeps the memberwise init + synthesized
+  Encodable). ③ **GLIDE SYNTH CC65 never OFF** — SYNTH sent portamento CC65=127 at anchor but never 0, so after a phrase
+  every later note on that channel portamento'd; now `glidePhraseEnd` + `flushGlide` (threaded `out`) send CC65=0 for SYNTH
+  voices. ④ **ROW 8 held-mover multi-touch strand** — the held slot was a single `Int?`; two fingers → releasing the first
+  left it lit + engine engaged + CC latched. Now a `Set<Int>` (per-slot engage/release). ⑤ **MIDI-IN door-strip ate taps** —
+  the opaque backing I added (the z-order fix) was hit-testable, swallowing taps meant for the mode rows; made it
+  `.allowsHitTesting(false)` (decorative only). ⑥ **BROADCAST all-16 display lie** — the ROW 8 editor showed `?? true` while
+  the engine uses `?? false`; aligned to `?? false`. Also corrected a false "flood governor applies" comment on the GLIDE STEP
+  zipper (openVoice bypasses the per-beat governor; bounded by |Δ|≤127 + the 128-voice cap). **+3 regression tests** (Macro
+  missing-key decode · EuclidLine missing-die decode · SYNTH CC65-off on teardown). **FLAGGED, NOT fixed** (pre-existing /
+  needs a careful pass): reel `selectPass()` can race `selectedRoll()` (the browse "freeze" gates promote/recording but not
+  selectPass — the SIGTRAP class; MEDIUM); BROADCAST is incompatible with a LEGATO drone (the fan collapses to one wire after
+  the first column — adoptLegatoBus tracks one own+one all voice, not the broadcast set; not a stuck note; broadcastAll16
+  inherits it); `[driver→GLIDE]` silently drops driver notes past glideDrivenCap=8/window; MOD chain-target revert emits a
+  spurious CC; #5 per-pass STATE misses passes shorter than the 4 Hz poll (documented v1). No CRITICAL stuck-note/crash/race
+  was introduced by the session's changes — every new emission path pairs its offs.**
 - **▶ SIX ENGINE FEATURES — EUCLID LINES v1b · TAP hold-path · GLIDE driven mode-awareness · ECHO hold-tail FREE/MUTE ·
   BURST rate axis · ROW 8 BROADCAST-16 + held-mover (2026-08-26, on `main`; iOS builds, macOS 905 green + fuzz; DEVICE ear
   owed on all). Paul ordered the batch. All additive-Optional, nil ⇒ byte-identical (fuzz + the pre-existing suite confirm).
