@@ -445,7 +445,7 @@ extension DiagView {
         case .replay, .file, .thru:
             if latchMask & bit != 0 { latchMask &= ~bit; au?.setLatchArm(latchMask) }
         case .latch, .hold, .keys:
-            if replayEngagedMask & bit != 0 { au?.toggleReplayCatch(i) }
+            if replayEngagedMask & bit != 0 { buildToggleReplay(i) }
         }
         receivers = au?.uiReceivers() ?? receivers
         refreshFromDocument()
@@ -498,7 +498,7 @@ extension DiagView {
                     .foregroundColor(engaged ? .black : buildCyan)
                     .padding(.horizontal, 12).frame(height: 28)
                     .background(RoundedRectangle(cornerRadius: 6).fill(engaged ? Color(red: 0.36, green: 0.92, blue: 0.52) : buildCyan.opacity(0.18)))
-                    .contentShape(Rectangle()).onTapGesture { au?.toggleReplayCatch(i) }
+                    .contentShape(Rectangle()).onTapGesture { buildToggleReplay(i) }
             }
             buildReplayInputRoll(door: i, passes: cur, width: 360, height: 84)
         }
@@ -894,18 +894,28 @@ extension DiagView {
                 Text("REEL").font(.system(size: 24, weight: .heavy, design: .monospaced)).tracking(3).foregroundColor(buildCyan)
                 Text("PASS BROWSER").font(.system(size: 11, weight: .bold, design: .monospaced)).tracking(2).foregroundColor(buildDim)
             }
-            Text("Tap a pass to hear it. ◀ ▶ extend the selection across passes — the roll and SAVE cover the whole range. Tap a lane to export just that emitter (none = the master mix).")
+            Text("Tap a pass to hear it. PAGE steps through the whole history; EXTEND grows the selection across passes (the roll and SAVE cover the range). Tap a lane to export just that emitter (none = the master mix).")
                 .font(.system(size: 11, weight: .medium)).foregroundColor(.white.opacity(0.55)).fixedSize(horizontal: false, vertical: true)
             Rectangle().fill(buildEdge).frame(height: 1)
             let visible = buildReelVisiblePasses()
             let (rlo, rhi) = buildReelExportRange()
             let selLabel = rlo < 0 ? "—" : (rlo == rhi ? "PASS \(rlo + 1)" : "PASSES \(rlo + 1)–\(rhi + 1)")
             let laneLabel = reelExportLanes.isEmpty ? "MASTER" : reelExportLanes.sorted().map { ["A", "B", "C", "D"][$0] }.joined(separator: "·")
-            HStack(spacing: 8) {                                               // ◀ ▶ EXTEND the pass selection (Paul 2026-08-26); the page follows
+            // PAGINATION — page the whole history (32 passes at a time), independent of the selection (Paul 2026-08-26).
+            HStack(spacing: 8) {
+                buildReelStepBtn(back: true, enabled: page > 0) { reelPage = max(0, page - 1) }
+                VStack(spacing: 1) {
+                    Text("PAGE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                    Text("\(page + 1)/\(pageCount)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
+                }.frame(maxWidth: .infinity)
+                buildReelStepBtn(back: false, enabled: page < pageCount - 1) { reelPage = min(pageCount - 1, page + 1) }
+            }
+            // EXTEND — grow the SELECTION to the neighbouring recorded pass; the page follows so the new edge stays visible.
+            HStack(spacing: 8) {
                 buildReelStepBtn(back: true, enabled: rlo >= 0 && visible.contains { $0 < rlo }) { buildReelExtend(-1) }
                 VStack(spacing: 1) {
+                    Text("EXTEND").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
                     Text(selLabel).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.7)
-                    Text("PAGE \(page + 1)/\(pageCount)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                 }.frame(maxWidth: .infinity)
                 buildReelStepBtn(back: false, enabled: rhi >= 0 && visible.contains { $0 > rhi }) { buildReelExtend(1) }
             }
@@ -941,7 +951,7 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? buildCyan.opacity(0.5) : buildEdge, lineWidth: 1))
         }
     }
-    // PREV / NEXT = PAGINATION (Paul 2026-08-26 #4): the action pages the pass block; disabled at the ends.
+    // A generic ◀/▶ chevron step button — shared by PAGINATION (page the history) and EXTEND (grow the selection); disabled at the ends.
     @ViewBuilder private func buildReelStepBtn(back: Bool, enabled: Bool, _ act: @escaping () -> Void) -> some View {
         Button(action: act) {
             Image(systemName: back ? "chevron.left" : "chevron.right").font(.system(size: 14, weight: .heavy))
@@ -3993,6 +4003,19 @@ extension DiagView {
         }
     }
     // The door's MODE-ACT — engage/clear per its mode (shared by the strip's LATCH button + ROW 8's INPUT cell, Paul 2026-08-24).
+    // Engage/release a REPLAY loop, and while it PLAYS, DISABLE OMNI so live input doesn't bleed alongside the loop (Paul
+    // 2026-08-26). Engaging an OMNI input → set its channel filter to NONE; releasing → restore OMNI ONLY if we still hold
+    // the NONE we set (a manual channel pick made while looping is left alone). The loop itself always plays (omniRead).
+    func buildToggleReplay(_ i: Int) {
+        guard i >= 0, i < 4 else { return }
+        let bit = UInt8(1 << i)
+        let engaging = (replayEngagedMask & bit) == 0
+        let cur = i < receivers.count ? receivers[i].channelMaskResolved : 0xFFFF
+        if engaging { if cur == 0xFFFF { au?.setReceiverChannelMask(i, 0) } }   // disable OMNI (re-enablable — tap ALL / a channel to play along)
+        else { if cur == 0 { au?.setReceiverChannelMask(i, 0xFFFF) } }          // restore OMNI on release if untouched
+        au?.toggleReplayCatch(i)
+        receivers = au?.uiReceivers() ?? receivers
+    }
     // A running arm (REPLAY loop or latch) always stops regardless of the current mode; else arm per the chosen mode.
     func buildEngageDoor(_ i: Int) {
         guard i >= 0, i < 4 else { return }
@@ -4000,9 +4023,9 @@ extension DiagView {
         let replayOn = (replayEngagedMask & bit) != 0
         let latchOn  = (latchMask & bit) != 0
         let mode = i < receivers.count ? receivers[i].doorModeResolved : .latch
-        if replayOn { au?.toggleReplayCatch(i) }
+        if replayOn { buildToggleReplay(i) }
         else if latchOn { toggleReceiverLatch(i) }
-        else if mode == .replay { au?.toggleReplayCatch(i) } else { toggleReceiverLatch(i) }
+        else if mode == .replay { buildToggleReplay(i) } else { toggleReceiverLatch(i) }
         receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
     }
     // A shared OCTAVE nudge row: −  OCT ±n  + (±3 octaves). Used by both the receiver and emitter controls. (Paul 2026-08-18)
