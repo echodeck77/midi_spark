@@ -469,6 +469,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func replayEngaged() -> UInt8 { kernel.replayEngaged() }           // which REPLAY doors are actively looping
     func replayLoopRoll(door i: Int) -> [DoorRing.Note] { kernel.replayLoopRoll(door: i) }   // the engaged door's captured loop as duration notes
     func replayLoopLen(door i: Int) -> Double { kernel.replayLoopLen(door: i) }
+    func replayLoopAnchor(door i: Int) -> Double { kernel.replayLoopAnchor(door: i) }   // the engaged loop's anchor beat (config-roll playhead sync, Paul 2026-08-26)
     // FILE (config-sheets stage 4): decode a loaded .mid into the door's clip (stored on the document, copy-in). Sets the
     // door to FILE mode. Returns false if the file didn't parse into notes. Large files are capped (doc-size guard).
     @discardableResult func setDoorFile(_ i: Int, data: Data, name: String) -> Bool {

@@ -434,6 +434,22 @@ extension DiagView {
         }.frame(width: width, height: height, alignment: .topLeading)
     }
     // One INPUT MODE row: the radio + description, and — when SELECTED — its own controls INLINE beneath (Paul 2026-08-20).
+    // Pick a MIDI-input mode + reconcile the arm/engage state so the modes are mutually exclusive in FACT, not just on the
+    // radio (Paul 2026-08-26: "when REPLAY is selected, turn off KEYS/HOLD/LATCH"). Leaving a latch-type mode drops this
+    // input's KEYS/HOLD/LATCH arm (else a stale arm makes a not-yet-engaged REPLAY input behave as HOLD); entering one
+    // releases any running REPLAY loop, so an input is never both looping and latching.
+    private func buildSelectDoorMode(_ i: Int, _ m: DoorMode) {
+        au?.setDoorMode(i, m)
+        let bit = UInt8(1 << i)
+        switch m {
+        case .replay, .file, .thru:
+            if latchMask & bit != 0 { latchMask &= ~bit; au?.setLatchArm(latchMask) }
+        case .latch, .hold, .keys:
+            if replayEngagedMask & bit != 0 { au?.toggleReplayCatch(i) }
+        }
+        receivers = au?.uiReceivers() ?? receivers
+        refreshFromDocument()
+    }
     @ViewBuilder private func buildDoorModeOption(_ i: Int, _ m: DoorMode, r: Receiver) -> some View {
         let on = r.doorMode == m                              // EXPLICIT choice — nil ⇒ nothing highlighted (the "no mode / SET" state, Paul 2026-08-23)
         VStack(alignment: .leading, spacing: 10) {
@@ -447,7 +463,7 @@ extension DiagView {
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
-            .onTapGesture { au?.setDoorMode(i, m); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+            .onTapGesture { buildSelectDoorMode(i, m) }
             if on {                                                 // the SELECTED mode's controls, inline (§ "controls next to the item")
                 Group {
                     switch m {
@@ -500,12 +516,13 @@ extension DiagView {
             buildReplayLiveRoll(door: i, passes: passes, width: width, height: height)
         }
     }
-    // ARMED: the captured loop as DURATION bars, x = beat within [0, loopLen], bars lit while sounding NOW (recvHeldNotes,
-    // which during playback is the loop at the current phase). Duration-aware; reflects the recording, not live input.
+    // ARMED: the captured loop as DURATION bars, x = beat within [0, loopLen]. A PLAYHEAD sweeps across in sync with playback
+    // and LIGHTS each note as it passes over it (Paul 2026-08-26) — not "every bar of a sounding pitch lights at once". The
+    // cursor phase = (currentBeat − loopAnchor) mod loopLen, extrapolated between polls; frozen when stopped.
     @ViewBuilder private func buildReplayLoopRoll(door i: Int, width: CGFloat, height: CGFloat) -> some View {
         let notes = i < recvReplayRoll.count ? recvReplayRoll[i] : []
         let len = max(0.0625, i < recvReplayLen.count ? recvReplayLen[i] : 0)
-        let sounding = Set((i < recvHeldNotes.count ? recvHeldNotes[i] : []).map { Int($0) })   // what's playing RIGHT NOW
+        let anchor = i < recvReplayAnchor.count ? recvReplayAnchor[i] : 0
         let ns = notes.map { Int($0.note) }
         let rawLo = ns.min() ?? 48, rawHi = ns.max() ?? 72
         let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)
@@ -514,21 +531,30 @@ extension DiagView {
         let passBeats = max(0.0625, Double(Snap.cols) * stepBeats)
         return RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
             .overlay(
-                Canvas { ctx, sz in
-                    func xOf(_ beat: Double) -> CGFloat { sz.width * CGFloat(min(len, max(0, beat)) / len) }
-                    func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (sz.height - 6) + 3 }
-                    var b = passBeats                                        // PASS boundary lines (each = one grid pass)
-                    while b < len - 1e-6 { let x = xOf(b); ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) }, with: .color(.white.opacity(0.18)), lineWidth: 1); b += passBeats }
-                    for n in stride(from: lo, through: hi, by: 12) {         // octave (C) lines
-                        let y = yOf(n); ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
-                    }
-                    for nt in notes {                                       // NOTE BARS — real duration; lit while sounding now
-                        let x0 = xOf(nt.start), x1 = xOf(nt.end), w = max(2, x1 - x0)
-                        let on = sounding.contains(Int(nt.note))
-                        let col = on ? green : buildCyan.opacity(0.3 + 0.55 * Double(nt.vel) / 127.0)
-                        ctx.fill(Path(roundedRect: CGRect(x: x0, y: yOf(Int(nt.note)) - 2.5, width: w, height: 5), cornerRadius: 2.5), with: .color(col))
-                    }
-                }.frame(width: width, height: height)
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !d.playing)) { tl in
+                    Canvas { ctx, sz in
+                        func xOf(_ beat: Double) -> CGFloat { sz.width * CGFloat(min(len, max(0, beat)) / len) }
+                        func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (sz.height - 6) + 3 }
+                        // ONE CLOCK: the current beat, extrapolated from the last poll while playing; frozen when stopped.
+                        let cb = d.playing ? meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0 : meters.beatAnchor
+                        let phase = d.playing ? (((cb - anchor).truncatingRemainder(dividingBy: len) + len).truncatingRemainder(dividingBy: len)) : -1   // -1 = not playing → no cursor
+                        var b = passBeats                                        // PASS boundary lines (each = one grid pass)
+                        while b < len - 1e-6 { let x = xOf(b); ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) }, with: .color(.white.opacity(0.18)), lineWidth: 1); b += passBeats }
+                        for n in stride(from: lo, through: hi, by: 12) {         // octave (C) lines
+                            let y = yOf(n); ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
+                        }
+                        for nt in notes {                                       // NOTE BARS — real duration; lit ONLY while the playhead is over this bar
+                            let x0 = xOf(nt.start), x1 = xOf(nt.end), w = max(2, x1 - x0)
+                            let on = phase >= 0 && phase >= nt.start && phase < nt.end
+                            let col = on ? green : buildCyan.opacity(0.28 + 0.5 * Double(nt.vel) / 127.0)
+                            ctx.fill(Path(roundedRect: CGRect(x: x0, y: yOf(Int(nt.note)) - (on ? 3 : 2.5), width: w, height: on ? 6 : 5), cornerRadius: 2.5), with: .color(col))
+                        }
+                        if phase >= 0 {                                         // THE PLAYHEAD — a bright cursor sweeping the loop
+                            let px = xOf(phase)
+                            ctx.fill(Path(CGRect(x: px - 0.75, y: 0, width: 1.5, height: sz.height)), with: .color(green.opacity(0.9)))
+                        }
+                    }.frame(width: width, height: height)
+                }
             )
     }
     // NOT armed: the realtime INPUT ROLL — BEAT-driven (Paul 2026-08-23): notes onset at the RIGHT and drift LEFT by BEAT,
@@ -633,19 +659,20 @@ extension DiagView {
                     .padding(.horizontal, 10).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
                     .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
             }.frame(width: kbW)
-            // KEYS EXCLUDE (Paul 2026-08-22): the complement door — this door plays the typed set MINUS another door's chord.
+            // KEYS EXCLUDE (Paul 2026-08-22): the complement — this input plays the typed set MINUS another MIDI input's live
+            // chord. Labelled as a MIDI INPUT (not a "door"), the user-facing term (Paul 2026-08-26).
             let exSel = au?.uiExcludeDoor(i) ?? -1
             HStack(spacing: 6) {
-                Text("EXCLUDE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                Text("EXCLUDE MIDI IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                 ForEach([-1, 0, 1, 2, 3].filter { $0 != i }, id: \.self) { d in
-                    Text(d < 0 ? "OFF" : ["A", "B", "C", "D"][d]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    Text(d < 0 ? "NONE" : "IN \(["A", "B", "C", "D"][d])").font(.system(size: 10, weight: .heavy, design: .monospaced))
                         .foregroundColor(exSel == d ? .black : .white.opacity(0.7))
                         .padding(.horizontal, 9).padding(.vertical, 4)
                         .background(RoundedRectangle(cornerRadius: 5).fill(exSel == d ? buildCyan : Color.white.opacity(0.08)))
                         .contentShape(Rectangle()).onTapGesture { au?.setExcludeDoor(i, d); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
                 }
             }.frame(width: kbW, alignment: .leading)
-            Text("Plays the picked notes MINUS the excluded door's chord — the flourish door.").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim).frame(width: kbW, alignment: .leading)
+            Text("Plays the picked notes MINUS the notes arriving on the excluded MIDI input — the flourish layer.").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim).frame(width: kbW, alignment: .leading)
         }
     }
     // A BRAND-NEW multi-octave piano (C2…B4, 3 octaves): white keys in a row, black keys overlaid; tap = pick/unpick a

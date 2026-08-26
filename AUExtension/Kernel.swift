@@ -168,6 +168,9 @@ final class Kernel {
     private var replayCatchToggle: UInt8 = 0        // UI request: toggle door i's catch this render (bit i)
     func toggleReplayCatch(_ i: Int) { if i >= 0 && i < 4 { replayCatchToggle |= UInt8(1 << i) } }
     func replayEngaged() -> UInt8 { replayEngagedMask }
+    // The engaged loop's ANCHOR beat (a pass boundary) — the config roll extrapolates the playhead phase = (beat − anchor)
+    // mod loopLen from it, so the sweeping cursor stays in sync with playback between the 4 Hz polls (Paul 2026-08-26).
+    func replayLoopAnchor(door i: Int) -> Double { (i >= 0 && i < 4) ? replayAnchor[i] : 0 }
     private var renderBeatPos = 0.0                 // this render's beat — read by updateLatchedPools for the REPLAY phase
     private var renderWindowBeats = 0.0             // this render block's beat span — the REPLAY look-ahead (block-latency compensation)
     private var prevRenderBeatPos = 0.0             // last render's beat — to spot a transport stop→start / seek / loop discontinuity
@@ -245,6 +248,7 @@ final class Kernel {
     // TWO LATCH MODES: per-receiver ADD flag (from the box) + preallocated rising-edge state (ADD only).
     private var latchAddMask: UInt8 = 0
     private var latchPrevHeld = [[Bool]](repeating: [Bool](repeating: false, count: 128), count: 4)
+    private var holdWasSounding = [Bool](repeating: false, count: 4)   // HOLD (chord) mode: was a finger down last render, per door — so a NEW chord (from silence) REPLACES, a held gesture ACCUMULATES
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
     private func updateLatchedPools() {
         guard effectiveLatchMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed (incl. PIANO) now or before
@@ -255,6 +259,7 @@ final class Kernel {
             if isArmed && !wasArmed {
                 latchedPools[i].reset()                                   // fresh arm → start empty (no stale chord)
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
+                holdWasSounding[i] = false                               // ...and the HOLD gesture edge (first press captures fresh)
             }
             guard isArmed else { continue }
             if (replayMask & bit != 0 && replayEngagedMask & bit != 0) || (fileMask & bit != 0) {
@@ -308,11 +313,22 @@ final class Kernel {
                 // KEYS (was ADD): note-toggle accumulation — each new note-on flips its membership in the frozen pool.
                 latchedPools[i].latchAddStep(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                              noteLo: rLo, noteHi: rHi, prevHeld: &latchPrevHeld[i])
-            } else if pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
-                                    velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi) > 0 {
-                // CHORD: detect-and-replace while fingers are down; freeze the last chord when they lift.
-                latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
-                                                noteLo: rLo, noteHi: rHi)
+            } else {
+                // HOLD (CHORD): a NEW chord (fingers down from silence) REPLACES; while the gesture continues the frozen
+                // pool ACCUMULATES newly-added notes (UNION) so a rolled/arpeggiated chord builds up and a RELEASE never
+                // shrinks it — the fix for "press three, only two hold" (Paul 2026-08-26). Fingers up → keep the frozen set.
+                let live = pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
+                                         velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi) > 0
+                if live {
+                    if !holdWasSounding[i] {                              // new gesture from silence → replace with the fresh chord
+                        latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
+                                                        noteLo: rLo, noteHi: rHi)
+                    } else {                                             // gesture continues → union in any newly-pressed notes (never shrink on release)
+                        latchedPools[i].mergeFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
+                                                      noteLo: rLo, noteHi: rHi)
+                    }
+                }
+                holdWasSounding[i] = live
             }
         }
         prevLatchArmMask = effectiveLatchMask
