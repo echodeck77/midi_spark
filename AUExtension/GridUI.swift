@@ -942,7 +942,7 @@ struct ProcessorBox: View {
                     setParam { $0.rtcRate = ArpRate.allCases[i] } } }
                 field("ROTATE — walk the pattern", \.rtcRotate) { numPair(p.rtcRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.rtcRotate = v } } }
                 // SPAN LADDER (RATE×ladder): GRID (above) = slice width; this dial = the pattern's loop period in columns.
-                spanLadderField(p.rtcSpanN ?? ((p.rtcSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.rtcSpanN = v } }
+                spanLadderFreeField(p.rtcSpanN ?? 0) { v in setParam { $0.rtcSpanN = v } }   // SPAN re-anchor (Paul 2026-08-27): FREE (0) = the free-running count walk (legacy CELL) · N = re-sync every N columns
             }
             field("BURST FADE — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%", \.ramp) {
                 slider(bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1)
@@ -1246,7 +1246,7 @@ struct ProcessorBox: View {
                     setParam { $0.tuttiRate = ArpRate.allCases[i] } } }
                 field("ROTATE — slide the figure", \.tuttiRotate) { numPair(p.tuttiRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.tuttiRotate = v } } }
                 // SPAN LADDER (RATE×ladder): RATE (above) = slice width; this dial = the pattern's loop period in columns.
-                spanLadderField(p.tuttiSpanN ?? ((p.tuttiSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.tuttiSpanN = v } }
+                spanLadderFreeField(p.tuttiSpanN ?? 0) { v in setParam { $0.tuttiSpanN = v } }   // SPAN re-anchor (Paul 2026-08-27): FREE (0) = the free-running slice walk (legacy CELL) · N = re-sync every N columns
             }
         })
         case .length: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // per-slice GATE override — PASS/MUTE/SHORT/LONG as a STATE MATRIX (rows = states, cols = steps)

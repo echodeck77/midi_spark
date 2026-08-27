@@ -287,6 +287,27 @@ final class RouterTests: XCTestCase {
         XCTAssertNotEqual(n3, n8, "period 3 (polymeter) differs from period 8 (bar-locked)")
         XCTAssertEqual(n3, notes(spanN: 3), "the ladder is replay-safe (deterministic)")
     }
+    // SPAN FREE (Paul 2026-08-27): FREE (spanN==0, the legacy CELL free-run) walks the slice figure ACROSS columns;
+    // SPAN=1 re-anchors it every column. At a sub-column RATE (0.5 beat = 4 slices per 2-beat column here), FREE
+    // reaches slices 4–7 (the .high half) while SPAN=1 never leaves slices 0–3 (the .low half) — so they diverge.
+    func testTuttiFreeSpanFreeRunsDistinctFromSpanOne() {
+        func notes(spanN: Int) -> [Int] {
+            var c = Colour(colourID: "gold", type: .tutti)
+            c.paramsA.tuttiMode = .pattern
+            c.paramsA.tuttiRate = .r1_8                // 0.5 beat → 4 slices per 2-beat column
+            c.paramsA.tuttiSlices = [.low, .low, .low, .low, .high, .high, .high, .high]
+            c.paramsA.tuttiSpanN = spanN
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        }
+        let free = notes(spanN: 0), span1 = notes(spanN: 1)
+        XCTAssertFalse(free.isEmpty, "FREE sounds")
+        XCTAssertNotEqual(free, span1, "FREE free-runs the figure across columns; SPAN=1 re-anchors every column")
+        XCTAssertEqual(free, notes(spanN: 0), "FREE is replay-safe")
+    }
     // SPAN LADDER stage 2b — RATCHET PATTERN (RATE×ladder): RATE = slice width, SPAN N = the loop period in columns.
     func testRatchetSpanLadderReAnchorsThePatternByPeriod() {
         func onCount(spanN: Int?) -> Int {
