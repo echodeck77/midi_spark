@@ -1148,6 +1148,12 @@ struct PluginState: Codable, Equatable {
     // rung). While on, at most one cell speaks per column. Optional → old docs decode nil (off). Mirrors masterMute.
     var ladderMode: Bool? = nil
     var ladderModeResolved: Bool { ladderMode ?? false }
+    // LATCH ARM — which input doors are ARMED (the KEYS/HOLD/LATCH/SCALE engage, a 4-bit mask). PERSISTED (Paul 2026-08-27,
+    // "save the latch/keys section with the document") so a saved session reopens with the same doors engaged, and re-derived
+    // on the render side (the kernel's live latchArmMask is seeded from this on every rebuild/load). Optional → old docs
+    // decode nil (nothing armed). NOTE: the captured HOLD chord / REPLAY loop are inherently ephemeral — this restores the
+    // ARM INTENT (KEYS/SCALE self-play from their persisted notes; HOLD/LATCH re-capture on the next input).
+    var latchArmMask: UInt8? = nil
     // BUILD: the single UNASSIGNED workshop part, saved with the document (Paul 2026-08-16). Additive-Optional →
     // old saves decode as nil. Populated at save time from the live workshop; restored into BUILD @State on load.
     var buildUnassigned: BuildUnassignedData? = nil

@@ -168,6 +168,7 @@ final class Kernel {
     private var replayCatchToggle: UInt8 = 0        // UI request: toggle door i's catch this render (bit i)
     func toggleReplayCatch(_ i: Int) { if i >= 0 && i < 4 { replayCatchToggle |= UInt8(1 << i) } }
     func replayEngaged() -> UInt8 { replayEngagedMask }
+    func latchArm() -> UInt8 { latchArmMask }   // the live explicit-arm mask, so the UI can RE-DERIVE it (survives a view rebuild) — Paul 2026-08-27
     // The engaged loop's ANCHOR beat (a pass boundary) — the config roll extrapolates the playhead phase = (beat − anchor)
     // mod loopLen from it, so the sweeping cursor stays in sync with playback between the 4 Hz polls (Paul 2026-08-26).
     func replayLoopAnchor(door i: Int) -> Double { (i >= 0 && i < 4) ? replayAnchor[i] : 0 }

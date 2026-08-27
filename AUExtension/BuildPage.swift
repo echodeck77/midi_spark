@@ -464,9 +464,13 @@ extension DiagView {
         let bit = UInt8(1 << i)
         switch m {
         case .replay, .file, .thru:
+            // These DON'T auto-engage: REPLAY needs an explicit capture-N arm, FILE plays its loaded clip, THRU is passive.
+            // Drop any running latch so the door isn't left in a stale armed state from the previous mode.
             if latchMask & bit != 0 { latchMask &= ~bit; au?.setLatchArm(latchMask) }
         case .latch, .hold, .keys, .scale:
-            if replayEngagedMask & bit != 0 { buildToggleReplay(i) }
+            // AUTO-ENGAGE (Paul 2026-08-27): selecting an armable mode ARMS it on the receiver at once — no separate SET tap.
+            if replayEngagedMask & bit != 0 { buildToggleReplay(i) }        // release a running loop first
+            if latchMask & bit == 0 { latchMask |= bit; au?.setLatchArm(latchMask) }
         }
         receivers = au?.uiReceivers() ?? receivers
         refreshFromDocument()

@@ -603,12 +603,13 @@ struct DiagView: View {
         au?.setLatchArm(latchMask)
     }
     func clearReceiverLatch() { if latchMask != 0 { latchMask = 0; au?.setLatchArm(0) } }
-    /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge.
+    /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge. The LATCH/KEYS arm is
+    /// NO LONGER cleared here (Paul 2026-08-27): the latch section is durable CONFIG (saved with the document, restored on
+    /// reload), so it survives a transport stop like the mode itself. Only the true weather (solo · octave · vel) resets.
     func clearReceiverPerform() {
         soloReceiverMask = 0; au?.setSoloReceiverMask(0)
         receiverOctave = [0, 0, 0, 0]
         for i in 0..<4 { au?.setInputOctave(i, 0); au?.setInputSemitone(i, 0); au?.setInputVelOverride(i, nil) }   // setInputSemitone still resets the live ENGINE nudge
-        clearReceiverLatch()
     }
 
     // §6a CLAIM v2: tap an emitter's CLAIM button → toggle it in/out of the claim set (multi-claim, no longer
@@ -882,6 +883,7 @@ struct DiagView: View {
                     }
                     recvInputRoll = roll
                     let eng = au.replayEngaged(); if eng != replayEngagedMask { replayEngagedMask = eng }   // the LAST-N toggle state
+                    let la = au.latchArm();       if la != latchMask { latchMask = la }   // RE-DERIVE the KEYS/HOLD/LATCH arm from the engine so it survives a view rebuild / navigation (Paul 2026-08-27)
                     // REPLAY loop roll (Paul 2026-08-23): while a door is ENGAGED, poll its captured loop as DURATION notes so
                     // the piano roll shows exactly what's playing from the RECORDING (held chords, note lengths) — not live input.
                     var lroll = recvReplayRoll, llen = recvReplayLen, lanc = recvReplayAnchor
@@ -1005,6 +1007,8 @@ struct DiagView: View {
             // now GATED on an active BUILD play mode and synced from buildPublishScene() — the .chain request above
             // already published + synced it. Seed false so a non-BUILD entry (defensive; BUILD is the sole surface) stays silent.
             if activeTab != .build { au?.setFreeRunEnabled(false) }
+            latchMask = au?.latchArm() ?? latchMask            // re-light the door-arm state at once on a view rebuild (the poll would else take a tick) — Paul 2026-08-27
+            replayEngagedMask = au?.replayEngaged() ?? replayEngagedMask
         }
         .onDisappear { uiAppeared = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }

@@ -261,10 +261,17 @@ final class MigrationTests: XCTestCase {
         d.busEnabled = [true, false, true, false]
         d.colours[0].transposeByType = [1, 2, 3, 4, 5, 6]
         d.claimEmitter = 2                          // §6a CLAIM (a7) — persisted
+        d.latchArmMask = 0b0101                      // doors A + C armed (Paul 2026-08-27) — the latch section is durable config
         let reloaded = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
         XCTAssertEqual(reloaded.busEnabled, [true, false, true, false])
         XCTAssertEqual(reloaded.colours[0].transposeByType, [1, 2, 3, 4, 5, 6])
         XCTAssertEqual(reloaded.claimEmitter, 2, "CLAIM survives save/reload")
+        XCTAssertEqual(reloaded.latchArmMask, 0b0101, "the door-arm mask survives save/reload")
+        // A pre-field document (no latchArmMask key) decodes to nil (nothing armed) — no migration break.
+        var dict = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(d)) as! [String: Any]
+        dict.removeValue(forKey: "latchArmMask")
+        let old = try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: dict))
+        XCTAssertNil(old.latchArmMask, "missing latchArmMask ⇒ nil (nothing armed)")
     }
 
     // BUILD's single UNASSIGNED part is saved with the document (Paul 2026-08-16) — the part + its ephemeral colours

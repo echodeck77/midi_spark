@@ -273,7 +273,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // the document (document-colour chain / receiver / rack edits also happen there). These let a BUILD snapshot round-trip
     // the document without touching the transactional undoStack above. `restoreDocumentFromUndo` sets it WITHOUT recording.
     func documentSnapshot() -> PluginState { document }
-    func restoreDocumentFromUndo(_ d: PluginState) { document = d; scheduleRebuild() }
+    func restoreDocumentFromUndo(_ d: PluginState) { document = d; seedLatchArm(); scheduleRebuild() }
     /// The live document — for the EDIT page's SELECTION undo (which snapshots (selection, document) per select/
     /// deselect and restores both). Separate from the transactional undo stack above (which it never touches).
 
@@ -405,7 +405,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setInputOctave(_ recv: Int, _ oct: Int) { kernel.setInputOctave(recv, oct) }   // receiver strip: ±octave nudge
     func setInputSemitone(_ recv: Int, _ n: Int) { kernel.setInputSemitone(recv, n) }   // receiver strip: ±semitone NOTE nudge
     func setInputVelOverride(_ recv: Int, _ value: Int?) { kernel.setInputVelOverride(recv, value) }   // receiver strip: slider
-    func setLatchArm(_ mask: UInt8) { kernel.setLatchArm(mask) }   // receiver strip: per-receiver chord LATCH arm mask
+    func setLatchArm(_ mask: UInt8) { kernel.setLatchArm(mask); document.latchArmMask = mask }   // live arm + PERSIST the intent so a saved session reopens engaged (Paul 2026-08-27). Direct doc write (no rebuild/undo) — the render reads the arm via the live kernel path, this field is for fullState only.
+    func latchArm() -> UInt8 { kernel.latchArm() }                 // the UI polls this to RE-DERIVE the arm after a view rebuild (else it's lost)
+    private func seedLatchArm() { kernel.setLatchArm(document.latchArmMask ?? 0) }   // on a document LOAD/restore, seed the kernel's live arm from the persisted mask
     func setEmitterOctave(_ bus: Int, _ oct: Int) { kernel.setEmitterOctave(bus, oct) }   // emitter strip: output ±octave
 
     /// §6a PERFORM velocity override: force emitter `bus` (0…3 = A…D) to `value` (1–127) for every new
@@ -1200,6 +1202,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         kernel.flushVoices()
         editDocument { $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded() }   // migrate is a no-op for v4 builders
         currentPresetName = name
+        seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree (else host automation snaps a fresh note back to the OLD morph/transpose/macros)
     }
     /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
@@ -1220,6 +1223,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         kernel.flushVoices()                 // a session act — no arm ceremony
         editDocument { $0 = doc }            // one undoable step
         currentPresetName = PresetStore.sanitize(name)
+        seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree
     }
     private func presetNumber(for name: String) -> Int {
@@ -1360,6 +1364,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 pendingBuildScenes = nil; pendingBuildScenesActive = nil   // …and its OWN scenes (consumeBuildScenes) — same reason
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
                                                      // session restore must not strand the outgoing document's voices
+                seedLatchArm()                       // restore the persisted door-arm intent (Paul 2026-08-27)
                 suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false   // CR-7: mirror the restored doc into the param tree
                 scheduleRebuild()
             }
