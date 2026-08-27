@@ -126,7 +126,7 @@ extension DiagView {
         case .hold:   return "A new chord replaces the held pool."
         case .keys:   return "Pick the held notes on the keyboard below."
         case .replay: return "Records this input and loops the last N passes back in."
-        case .file:   return "Plays a loaded MIDI file as this input's live source."
+        case .file:   return "Loops a loaded .mid into this input — a machine reading this input plays it."
         case .scale:  return "The pool is a whole scale — pick a key, no playing needed."
         }
     }
@@ -614,26 +614,37 @@ extension DiagView {
                 }.frame(width: width, height: height)
             )
     }
-    // FILE (inline): load a .mid → it loops as this door's input. Shows the loaded name + REMOVE, or a LOAD button.
+    // FILE (inline): load a .mid → it loops into THIS input. Shows the loaded name + REPLACE/REMOVE, or a LOAD button.
+    // The clip feeds this MIDI INPUT (like live keys on it) — a machine must READ this input to play it, and (v1) the
+    // host transport must be RUNNING for the loop to advance. (Paul 2026-08-27: the copy was misleading — clarified.)
     @ViewBuilder private func buildDoorFileInline(_ i: Int, _ r: Receiver) -> some View {
-        HStack(spacing: 10) {
-            if let name = r.fileName {
-                Image(systemName: "music.note").font(.system(size: 12)).foregroundColor(buildCyan)
-                Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 0)
-                Text("REPLACE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
-                    .padding(.horizontal, 10).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(buildCyan.opacity(0.16)))
-                    .contentShape(Rectangle()).onTapGesture { buildFileImportDoor = i }
-                Text("REMOVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-                    .padding(.horizontal, 10).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-                    .contentShape(Rectangle()).onTapGesture { au?.clearDoorFile(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
-            } else {
-                Text("LOAD .MID").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                    .padding(.horizontal, 14).frame(height: 30).background(RoundedRectangle(cornerRadius: 6).fill(buildCyan))
-                    .contentShape(Rectangle()).onTapGesture { buildFileImportDoor = i }
-                Text("plays the file as this input's live source").font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
-                Spacer(minLength: 0)
+        let letter = ["A", "B", "C", "D"][i]
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                if let name = r.fileName {
+                    Image(systemName: "music.note").font(.system(size: 12)).foregroundColor(buildCyan)
+                    Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                    Text("REPLACE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                        .padding(.horizontal, 10).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(buildCyan.opacity(0.16)))
+                        .contentShape(Rectangle()).onTapGesture { buildFileImportDoor = i }
+                    Text("REMOVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                        .padding(.horizontal, 10).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { au?.clearDoorFile(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                } else {
+                    Text("LOAD .MID").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                        .padding(.horizontal, 14).frame(height: 30).background(RoundedRectangle(cornerRadius: 6).fill(buildCyan))
+                        .contentShape(Rectangle()).onTapGesture { buildFileImportDoor = i }
+                    Text("loops a .mid into this input").font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                    Spacer(minLength: 0)
+                }
             }
+            // The routing/transport contract — the two things a user must do or they hear nothing (the reported confusion).
+            Text(r.fileName != nil
+                 ? "▶ The clip feeds MIDI IN \(letter). A machine must READ input \(letter) to play it, and the host transport must be RUNNING."
+                 : "The clip becomes this input's notes — point a machine's INPUT at MIDI IN \(letter) to hear it (transport running).")
+                .font(.system(size: 9, design: .monospaced)).foregroundColor(r.fileName != nil ? buildCyan.opacity(0.85) : buildDim)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
     // Handle the Files-picker result: read the .mid bytes (security-scoped) and decode onto the picking door.
@@ -689,11 +700,16 @@ extension DiagView {
                         .contentShape(Rectangle()).onTapGesture { au?.setExcludeDoor(i, d); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
                 }
             }
-            if on {                                                   // §3: how (INTERSECT vs subtract) · what happens to a rejected note
-                HStack(spacing: 12) {
-                    buildDoorSeg2("MINUS", "ONLY", first: !only,
+            if on {                                                   // §3: MODE = subtract vs intersect · REJECT = what happens to a note that doesn't pass. Labelled + plain-worded (Paul 2026-08-27).
+                HStack(spacing: 8) {
+                    Text("MODE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 64, alignment: .leading)
+                    buildDoorSeg2("MINUS · remove these", "ONLY · keep only these", first: !only,
                                   a: { au?.setReceiverExcludeMode(i, .minus) }, b: { au?.setReceiverExcludeMode(i, .only) })
-                    buildDoorSeg2("BLOCK", "SNAP", first: !snap,
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 8) {
+                    Text("REJECTED").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 64, alignment: .leading)
+                    buildDoorSeg2("BLOCK · silence it", "SNAP · nudge to nearest", first: !snap,
                                   a: { au?.setReceiverExcludeReject(i, .block) }, b: { au?.setReceiverExcludeReject(i, .snap) })
                     Spacer(minLength: 0)
                 }

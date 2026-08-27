@@ -272,6 +272,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         guard let restored = undoStack.redo(current: document) else { return false }
         document = restored; scheduleRebuild(); return true
     }
+    // BUILD UNDO (Paul 2026-08-27): the BUILD page authors in VC @State, so its undo captures that @State PLUS a copy of
+    // the document (document-colour chain / receiver / rack edits also happen there). These let a BUILD snapshot round-trip
+    // the document without touching the transactional undoStack above. `restoreDocumentFromUndo` sets it WITHOUT recording.
+    func documentSnapshot() -> PluginState { document }
+    func restoreDocumentFromUndo(_ d: PluginState) { document = d; scheduleRebuild() }
     /// The live document — for the EDIT page's SELECTION undo (which snapshots (selection, document) per select/
     /// deselect and restores both). Separate from the transactional undo stack above (which it never touches).
 
