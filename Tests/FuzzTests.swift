@@ -89,6 +89,7 @@ final class FuzzTests: XCTestCase {
                 c.paramsA.euclidLines = (0..<(1 + r.int(8))).map { _ in EuclidLine(target: r.int(9), pulses: r.int(17), steps: 2 + r.int(15), rotate: r.int(16), invert: r.chance(0.3), pick: r.chance(0.5) ? EuclidPick.allCases[r.int(EuclidPick.allCases.count)] : nil, die: r.int(8)) }   // v1b: per-line PICK + DIE
             }
             if c.type == .glide && r.chance(0.7) { c.paramsA.glideMode = [.bend, .synth, .step][r.int(3)]; c.paramsA.glideTime = [0.0, 0.1, 0.3, 0.6, 1.2][r.int(5)] }   // BEND|SYNTH|STEP — STEP is note-hungry, must never stuck
+            if c.type == .harmonize && r.chance(0.6) { c.paramsA.harmIntervals = [r.int(25) - 12, r.int(25) - 12, 0]; c.paramsA.harmUnits = r.chance(0.5) ? .pool : .semitones }   // §2 POOL-STEP harmonize hammered
             if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)
             if c.type == .dest && r.chance(0.6) { c.paramsA.destSlices = (0..<8).map { _ in r.int(4) } }   // DEST MATRIX §5 — per-slice emitter override (routing-class); hammer the re-route for no stuck notes
@@ -127,6 +128,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .ratchet && r.chance(0.5) { applyRandomRtc(&s.params, &r) }
                     if s.type == .burst && r.chance(0.5) { applyRandomBurst(&s.params, &r) }
                     if s.type == .echo && r.chance(0.6) { applyRandomEcho(&s.params, &r) }   // §7② CHAIN route hammered where echo sits mid-chain
+                    if s.type == .harmonize && r.chance(0.6) { s.params.harmIntervals = [r.int(25) - 12, r.int(25) - 12, 0]; s.params.harmUnits = r.chance(0.5) ? .pool : .semitones }   // §2 POOL-STEP mid-chain
                     if s.type == .octave || s.type == .transpose || s.type == .channel || s.type == .nudge { applyRandomUtil(&s.params, type: s.type, &r) }
                     applyRandomSpan(&s.params, type: s.type, &r)
                     return s
@@ -193,7 +195,7 @@ final class FuzzTests: XCTestCase {
     }
     private func applyRandomUtil(_ p: inout ColourParams, type: ProcessorType, _ r: inout FuzzRNG) {   // UTILITY pitch shift (Paul 2026-08-22)
         if type == .octave { p.utilOctave = r.int(7) - 3 }             // −3…+3 (extremes drop notes off the top/bottom)
-        else if type == .transpose { p.utilTranspose = r.int(49) - 24 } // −24…+24
+        else if type == .transpose { p.utilTranspose = r.int(49) - 24; p.utilTransposeUnits = r.chance(0.5) ? .pool : .semitones } // −24…+24, §2 pool-step hammered
         else if type == .channel { p.utilChannel = r.int(17) }          // 0 (WIRE) … 16
         else if type == .nudge { p.utilNudge = r.int(17) - 8 }          // −8…+8 sixteenths (clamped at the window)
     }

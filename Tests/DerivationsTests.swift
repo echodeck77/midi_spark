@@ -888,6 +888,27 @@ final class DerivationsTests: XCTestCase {
         // Clamped inputs: octaves 0 → 1, baseOct 99 → 8 (never traps, always ≥ 1 octave).
         XCTAssertFalse(scaleNotes(root: 0, type: .major, baseOct: 99, octaves: 0).isEmpty)
     }
+    // POOL-STEP UNITS (ratified §2) — degree arithmetic against the chain's pool.
+    func testPoolStepWalksDegreesNotSemitones() {
+        let cMajor = [60, 62, 64, 65, 67, 69, 71, 72]   // C major (pitch classes C D E F G A B)
+        XCTAssertEqual(poolStep(60, steps: 0, pool: cMajor), 60, "0 steps = identity")
+        XCTAssertEqual(poolStep(60, steps: 2, pool: cMajor), 64, "C +2 degrees = E (the diatonic third)")
+        XCTAssertEqual(poolStep(67, steps: 2, pool: cMajor), 71, "G +2 degrees = B")
+        XCTAssertEqual(poolStep(60, steps: 7, pool: cMajor), 72, "C +7 degrees = C an octave up")
+        XCTAssertEqual(poolStep(64, steps: -2, pool: cMajor), 60, "E −2 degrees = C (down a third)")
+        // The third is KEY-DEPENDENT: in C minor, C +2 degrees = Eb (minor third), no inference.
+        let cMinor = [60, 62, 63, 65, 67, 68, 70]       // C D Eb F G Ab Bb
+        XCTAssertEqual(poolStep(60, steps: 2, pool: cMinor), 63, "C +2 in C minor = Eb")
+        // FOLD edge pin: an out-of-pool note anchors at the nearest degree first.
+        XCTAssertEqual(poolStep(61, steps: 0, pool: cMajor), 60, "C# folds to the nearest pool note (C)")
+        XCTAssertEqual(poolStep(61, steps: 2, pool: cMajor), 64, "C# anchors at C then steps +2 = E")
+        // A chord pool → chord-tone stacking: C-E-G, +1 degree from C = E, +2 = G.
+        let triad = [60, 64, 67]
+        XCTAssertEqual(poolStep(60, steps: 1, pool: triad), 64, "chord-tone stack: C +1 = E")
+        XCTAssertEqual(poolStep(60, steps: 3, pool: triad), 72, "C +3 in a triad = C an octave up")
+        // Empty pool → semitone fallback (defensive).
+        XCTAssertEqual(poolStep(60, steps: 4, pool: []), 64)
+    }
     // THE KEY FILTER (ratified §3) — MINUS/ONLY × BLOCK/SNAP, pitch-class.
     func testKeyFilterMinusOnlyBlockSnap() {
         let cMajor: UInt16 = 0b101010110101   // C D E F G A B = {0,2,4,5,7,9,11}

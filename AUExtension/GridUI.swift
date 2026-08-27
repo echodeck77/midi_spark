@@ -981,11 +981,15 @@ struct ProcessorBox: View {
             optionsCluster([("CONSTANT N", p.chanceDensity ?? false, { setParam { $0.chanceDensity = !($0.chanceDensity ?? false) } })])
         case .harmonize:
             let iv = p.harmIntervals ?? [0,0,0]
+            let hu = p.harmUnits ?? .semitones
             ForEach(0..<3, id: \.self) { k in
                 field("VOICE \(k+1) \(iv[k] == 0 ? "off" : (iv[k] > 0 ? "+\(iv[k])" : "\(iv[k])"))") {
                     stepper(iv[k], -24, 24) { v in setParam { var a = $0.harmIntervals ?? [0,0,0]; a[k] = v; $0.harmIntervals = a } }
                 }
             }
+            field("UNITS", \.harmUnits) { seg(PitchUnits.allCases.map { $0.rawValue }, sel: hu.rawValue) { i in setParam { $0.harmUnits = PitchUnits.allCases[i] } } }   // §2 POOL-STEP
+            Text(hu == .pool ? "POOL — intervals count in DEGREES of the pool feeding the chain (a scale ⇒ the diatonic third, in key; a chord ⇒ chord-tone stacking)" : "SEMITONES — fixed chromatic intervals")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         case .echo:   // the DELAY-ECHO controls (user 2026-08-08)
             let reps = p.echoRepeats ?? 3, sync = p.echoSync ?? true, div = p.echoDelayDiv ?? 4
             let ms = p.echoDelayMs ?? 250, off = p.echoOffset ?? 0, fd = p.echoFeedDelay ?? 0.7
@@ -1284,9 +1288,13 @@ struct ProcessorBox: View {
         case .octave:   // UTILITY — shift ±3 octaves (pitch-class preserved)
             let oct = p.utilOctave ?? 0
             field("OCTAVE  \(oct > 0 ? "+" : "")\(oct)", \.utilOctave) { stepper(oct, -3, 3) { v in setParam { $0.utilOctave = v } } }
-        case .transpose:   // UTILITY — shift ±24 semitones
+        case .transpose:   // UTILITY — shift ±24 semitones OR ±24 pool degrees (§2)
             let st = p.utilTranspose ?? 0
-            field("SEMITONES  \(st > 0 ? "+" : "")\(st)", \.utilTranspose) { stepper(st, -24, 24) { v in setParam { $0.utilTranspose = v } } }
+            let tu = p.utilTransposeUnits ?? .semitones
+            field("\(tu == .pool ? "DEGREES" : "SEMITONES")  \(st > 0 ? "+" : "")\(st)", \.utilTranspose) { stepper(st, -24, 24) { v in setParam { $0.utilTranspose = v } } }
+            field("UNITS", \.utilTransposeUnits) { seg(PitchUnits.allCases.map { $0.rawValue }, sel: tu.rawValue) { i in setParam { $0.utilTransposeUnits = PitchUnits.allCases[i] } } }
+            Text(tu == .pool ? "POOL — “up a third in key”: steps DEGREES through the pool feeding the chain" : "SEMITONES — a fixed chromatic shift")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         case .channel:   // UTILITY — output channel override (WIRE = the bus stamp)
             let ch = p.utilChannel ?? 0
             field("CHANNEL", \.utilChannel) { numPair(ch, 0...16, wrap: true, format: { $0 == 0 ? "WIRE" : "\($0)" }) { v in setParam { $0.utilChannel = v } } }

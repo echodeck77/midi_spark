@@ -184,6 +184,13 @@ struct ColourParams: Codable, Equatable {
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]
     var harmVelScale: Double? = 0.8
+    // POOL-STEP UNITS (ratified scale-door §2, 2026-08-27): the offset-bearing processors count in SEMITONES (today) or
+    // POOL DEGREES (against the pool feeding the chain — a SCALE door ⇒ diatonic, a chord ⇒ chord-tone stacking). Additive-
+    // Optional — nil ⇒ semitones (byte-identical for old docs). HARMONIZE intervals · TRANSPOSE · ECHO pitch · GLIDE step.
+    var harmUnits: PitchUnits? = nil
+    var utilTransposeUnits: PitchUnits? = nil
+    var echoPitchUnits: PitchUnits? = nil
+    var glideStepUnits: PitchUnits? = nil
     // ECHO (the TAIL era, user 2026-08-08): the delay-echo controls. Append-only Optional (old docs decode nil →
     // defaults). SUPERSEDES echo's earlier reuse of rate/count/ramp; those keys are ignored for echo now.
     var echoSync: Bool? = true          // ON = beat divisions · OFF = milliseconds
@@ -733,6 +740,9 @@ struct Receiver: Codable, Equatable {
 // BLOCK = an out-of-set note is silence · SNAP = it sounds as the nearest legal note (the FOLD/nearest family).
 enum ExcludeMode: String, Codable, CaseIterable { case minus, only }
 enum ExcludeReject: String, Codable, CaseIterable { case block, snap }
+
+// POOL-STEP UNITS (ratified §2): an offset counts in SEMITONES (chromatic) or POOL degrees (against the chain's pool).
+enum PitchUnits: String, Codable, CaseIterable { case semitones, pool }
 
 // MARK: - Scene & document — §9
 

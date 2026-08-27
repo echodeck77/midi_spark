@@ -420,6 +420,10 @@ enum SnapshotBuilder {
                                  clampInt(v.count > 2 ? v[2] : 0))
         }
         if let v = p.harmVelScale { out.harmVelScale = clamp(v, 0.1, 1) }
+        if let v = p.harmUnits { out.harmUnits = v }                       // §2 POOL-STEP UNITS
+        if let v = p.utilTransposeUnits { out.utilTransposeUnits = v }
+        if let v = p.echoPitchUnits { out.echoPitchUnits = v }
+        if let v = p.glideStepUnits { out.glideStepUnits = v }
         // ECHO (user 2026-08-08)
         if let v = p.echoSync { out.echoSync = v }
         if let v = p.echoDelayDiv { out.echoDelayDiv = clamp(v, 1, 16) }

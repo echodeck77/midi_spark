@@ -1304,14 +1304,14 @@ final class Router {
     private func emitHarmony(base: Int, colour: SnapColour, baseVel: UInt8, row: Int,
                              storeArtics: Bool, busMask: UInt8,
                              on: Int64, off: Int64, beat: Double,
-                             windowEnd: Int64, sustain: Bool = false, out: MIDIEmitter?,
+                             windowEnd: Int64, sustain: Bool = false, poolMask: UInt16 = 0, out: MIDIEmitter?,
                              diag: inout KernelDiag) {
         let iv = (Int8(effectiveHarmInterval(colour, voice: 0)),
                   Int8(effectiveHarmInterval(colour, voice: 1)),
                   Int8(effectiveHarmInterval(colour, voice: 2)))
         let scale = effectiveHarmVelScale(colour)
         let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
-                                  vel: baseVel, velScale: scale, vels: &harmVels)
+                                  vel: baseVel, velScale: scale, vels: &harmVels, poolMask: poolMask)
         for i in 0..<cnt {
             if storeArtics { storeArtic(row: row, on: on, off: off, note: UInt8(harmNotes[i]), beat: beat) }
             guard busMask != 0 else { continue }
@@ -1566,6 +1566,13 @@ final class Router {
             let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
             if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
             let srcN = holdChain ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter
+            // §2 POOL-STEP UNITS (standalone/hold): TRANSPOSE steps the note by pool DEGREES; HARMONIZE voices in degrees.
+            // The pool mask = the SOURCE set's pitch classes (the scale/chord feeding the cell). procShift = the processor's
+            // own shift (register offsets stay semitone). Mask computed once per hold (no render alloc).
+            let poolTrans = mode == .transpose && treat.a.utilTransposeUnits == .pool
+            let poolHarm = mode == .harmonize && treat.a.harmUnits == .pool
+            let holdPoolMask: UInt16 = (poolTrans || poolHarm) ? (holdChain ? chainScratch.pitchClassMaskAll() : cellPool.pitchClassMaskAll()) : 0
+            let procShift = holdShift(treatP, mode: mode), regShift = transpose - procShift
             // TUTTI: one seeded roll per STEP decides the whole set — TUTTI (−1 = every rank passes) or SOLO (only the
             // PICK-chosen rank). The step index is derived from musical position (colStart/S) so it's loop-consistent.
             let tuttiSolo: Int = {
@@ -1580,7 +1587,7 @@ final class Router {
                 : (0, srcN)
             for k in 0..<srcN where !holdEchoMute {                  // ECHO MUTE: the dry is suppressed (echoes-only); tails still register below
                 let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
-                let n = base + transpose
+                let n = poolTrans ? poolStepMask(base, steps: procShift, pcMask: holdPoolMask) + regShift : base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 let vel0 = max(1, holdChain ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
                 let vel = droneScale < 1.0 ? clampVel(Int((Double(vel0) * droneScale).rounded())) : vel0   // DRONE scales by GATE
@@ -1590,7 +1597,7 @@ final class Router {
                 if mode == .harmonize {
                     emitHarmony(base: n, colour: treat, baseVel: vel, row: r, storeArtics: false,
                                 busMask: hbm, on: onSample, off: offSample, beat: colStart,
-                                windowEnd: windowEnd, sustain: soloSustain, out: out, diag: &diag)   // PLAY: THIS CELL — harmonize holds sustain + adopt too
+                                windowEnd: windowEnd, sustain: soloSustain, poolMask: poolHarm ? holdPoolMask : 0, out: out, diag: &diag)   // PLAY: THIS CELL — harmonize holds sustain + adopt too
                 } else if legato {
                     // §2 per-bus reconcile: ADOPT the buses a matching drone already sounds (no off/on);
                     // STRIKE only the buses that are new — each opened IMMORTAL (offSample .max) so drainDue
@@ -3360,13 +3367,18 @@ final class Router {
             }
         case .harmonize:
             let iv0 = p.harmIntervals.0, iv1 = p.harmIntervals.1, iv2 = p.harmIntervals.2   // unrolled — no per-stage array alloc (render path)
+            // §2 POOL-STEP: an interval is either semitones (base+iv) or pool DEGREES against the source pool (base stepped
+            // iv places up the scale/chord — the diatonic third, no inference). The pitch-class mask is computed ONCE (no alloc).
+            let harmPool = p.harmUnits == .pool
+            let harmMask: UInt16 = harmPool ? src.pitchClassMaskAll() : 0
+            @inline(__always) func harmVoice(_ base: Int, _ iv: Int8) -> Int { harmPool ? poolStepMask(base, steps: Int(iv), pcMask: harmMask) : base + Int(iv) }
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
                 let base = Int(src.srcAscending(k, filter: 0, cableMask: 0b1111))
                 let bv = max(1, src.velocity(UInt8(base)))                // the added voices inherit the base note's velocity
                 dst.noteOn(UInt8(base), velocity: bv, channel: 0)
-                if iv0 != 0 { let v = base + Int(iv0); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
-                if iv1 != 0 { let v = base + Int(iv1); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
-                if iv2 != 0 { let v = base + Int(iv2); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
+                if iv0 != 0 { let v = harmVoice(base, iv0); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
+                if iv1 != 0 { let v = harmVoice(base, iv1); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
+                if iv2 != 0 { let v = harmVoice(base, iv2); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
             }
         case .split:                                           // set-membership filter — RE-POOL when upstream of a driver
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
@@ -3378,10 +3390,14 @@ final class Router {
                 if v >= vf && v <= vc { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .octave, .transpose:                              // UTILITY — pitch shift (pitch-class preserved for OCTAVE); out-of-range notes drop
+            // §2 POOL-STEP: TRANSPOSE in POOL units steps each note by utilTranspose DEGREES up the source pool ("up a
+            // third in key"); OCTAVE stays ×12 semitones (an octave has no pool meaning). Mask computed once (no alloc).
+            let transPool = (mode == .transpose) && p.utilTransposeUnits == .pool
+            let transMask: UInt16 = transPool ? src.pitchClassMaskAll() : 0
             let sh = (mode == .octave) ? 12 * Int(p.utilOctave) : Int(p.utilTranspose)
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
                 let sn = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                let n = Int(sn) + sh
+                let n = transPool ? poolStepMask(Int(sn), steps: Int(p.utilTranspose), pcMask: transMask) : Int(sn) + sh
                 if n >= 0 && n <= 127 { dst.noteOn(UInt8(n), velocity: max(1, src.velocity(sn)), channel: 0) }
             }
         default:                                               // identity / open passgate / ratchet / strum → pass through
@@ -4081,7 +4097,8 @@ final class Router {
             let vel = max(1, pool.velocity(sn))   // inherit the source velocity
             if isHarmonize {
                 emitHarmony(base: n, colour: colour, baseVel: vel, row: 0, storeArtics: false,
-                            busMask: busMask, on: onSample, off: offSample, beat: colStart, windowEnd: windowEnd, out: out, diag: &diag)
+                            busMask: busMask, on: onSample, off: offSample, beat: colStart, windowEnd: windowEnd,
+                            poolMask: colour.a.harmUnits == .pool ? pool.pitchClassMaskAll() : 0, out: out, diag: &diag)   // §2 audition parity
             } else {
                 emitArtic(note: UInt8(n), busMask: busMask, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
             }

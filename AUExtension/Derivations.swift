@@ -578,6 +578,42 @@ func scaleNotes(root: Int, type: ScaleType, baseOct: Int, octaves: Int) -> [Int]
     return out                                                  // already ascending + distinct (intervals rise within an octave; octaves step by 12)
 }
 
+/// POOL-STEP UNITS (ratified scale-door §2): move `note` by `steps` DEGREES through the pool that feeds the chain, rather
+/// than by semitones. The pool is reduced to its sorted distinct PITCH CLASSES (the ladder), so +1 = the next scale/chord
+/// tone up, wrapping by octave past the ends. An input note whose pitch class is NOT in the pool anchors at the NEAREST
+/// pool degree first (the FOLD edge pin), then steps. `steps` may be negative (down). Result clamped 0…127. Pure/testable.
+/// Empty pool ⇒ falls back to a plain semitone shift (defensive; a chain with no pool never reaches here in practice).
+func poolStep(_ note: Int, steps: Int, pool: [Int]) -> Int {
+    var mask: UInt16 = 0
+    for n in pool { mask |= UInt16(1) << UInt16(((n % 12) + 12) % 12) }
+    return poolStepMask(note, steps: steps, pcMask: mask)
+}
+/// The allocation-free core of POOL-STEP (§2): the pool as a 12-bit PITCH-CLASS mask (`pitchClassMaskAll`). Degree
+/// arithmetic over the set bits; O(12), no allocation — safe on the render path. Empty mask ⇒ semitone fallback.
+func poolStepMask(_ note: Int, steps: Int, pcMask: UInt16) -> Int {
+    let k = pcMask.nonzeroBitCount
+    guard k > 0 else { return max(0, min(127, note + steps)) }
+    let pc = ((note % 12) + 12) % 12
+    let baseOct = (note - pc) / 12                                  // note = baseOct*12 + pc
+    var i = -1, rank = 0                                            // pc's DEGREE index among the set bits
+    for b in 0..<12 where (pcMask >> UInt16(b)) & 1 != 0 { if b == pc { i = rank }; rank += 1 }
+    if i < 0 {                                                      // FOLD: anchor at the nearest set pitch class (down ties before up)
+        var best = 0, bestDist = 99, r = 0
+        for b in 0..<12 where (pcMask >> UInt16(b)) & 1 != 0 {
+            let d = min((((b - pc) % 12) + 12) % 12, (((pc - b) % 12) + 12) % 12)
+            if d < bestDist { bestDist = d; best = r }
+            r += 1
+        }
+        i = best
+    }
+    let target = i + steps
+    let deg = ((target % k) + k) % k
+    let octShift = Int((Double(target) / Double(k)).rounded(.down))
+    var pcOut = 0, r = 0                                            // the deg-th set pitch class
+    for b in 0..<12 where (pcMask >> UInt16(b)) & 1 != 0 { if r == deg { pcOut = b; break }; r += 1 }
+    return max(0, min(127, baseOct * 12 + pcOut + octShift * 12))
+}
+
 /// THE KEY FILTER (ratified scale-door §3): map an input note through a reference PITCH-CLASS set. `only` = keep only the
 /// set's classes (ONLY / intersection — in-key) vs drop them (MINUS / complement). `snap` = an out-of-set note remaps to the
 /// NEAREST legal note (SNAP — the jam-proof keyboard) vs drops (BLOCK — the strict gate). Returns the note (possibly
@@ -1373,7 +1409,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
 @inline(__always)
 func harmonizeVoices(base: Int, intervals: (Int8, Int8, Int8),
                      into out: inout [Int], vel baseVel: UInt8, velScale: Double,
-                     vels: inout [UInt8]) -> Int {
+                     vels: inout [UInt8], poolMask: UInt16 = 0) -> Int {
     var n = 0
     func add(_ note: Int, _ v: UInt8) {
         guard note >= 0 && note <= 127 else { return }
@@ -1382,7 +1418,8 @@ func harmonizeVoices(base: Int, intervals: (Int8, Int8, Int8),
     }
     add(base, baseVel)                                     // root at full velocity
     let addedVel = clampVel(Int((Double(baseVel) * velScale).rounded()))
-    for iv in [intervals.0, intervals.1, intervals.2] where iv != 0 { add(base + Int(iv), addedVel) }
+    // §2 POOL-STEP: a non-zero poolMask makes each interval a DEGREE step up the pool (the diatonic third, in key), else semitones.
+    for iv in [intervals.0, intervals.1, intervals.2] where iv != 0 { add(poolMask != 0 ? poolStepMask(base, steps: Int(iv), pcMask: poolMask) : base + Int(iv), addedVel) }
     return n
 }
 

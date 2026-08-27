@@ -98,6 +98,10 @@ struct SnapParams {
     var arpMaskWalk: ArpMaskWalk = .march // march (through rests) | wait (advance on hits)
     var arpMaskRotate: Int = 0       // rotate the Bjorklund figure
     var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
+    var harmUnits: PitchUnits = .semitones              // §2: harmonize intervals in semitones or pool degrees
+    var utilTransposeUnits: PitchUnits = .semitones     // §2: TRANSPOSE in semitones or pool degrees
+    var echoPitchUnits: PitchUnits = .semitones         // §2: ECHO pitch-per-repeat in semitones or pool degrees
+    var glideStepUnits: PitchUnits = .semitones         // §2: GLIDE STEP zipper in semitones or pool degrees
     var harmVelScale: Double = 0.8   // harmonize: velocity scale on added voices
     // ECHO (user 2026-08-08)
     var echoSync: Bool = true

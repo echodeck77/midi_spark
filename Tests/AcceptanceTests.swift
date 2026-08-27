@@ -67,6 +67,25 @@ final class AcceptanceHarmonizeTests: XCTestCase {
                            expected(chord: chord, intervals: ivs), "HARMONIZE intervals \(ivs)")
         }
     }
+    // §2 POOL-STEP UNITS: with harmUnits = .pool, an interval is a DEGREE step up the pool (the held set), not semitones —
+    // the diatonic third when the pool is a scale. Oracle uses the same poolStep the engine does (degree arithmetic).
+    func testHarmonizePoolUnitsWalksScaleDegrees() {
+        let scale = [60, 62, 64, 65, 67, 69, 71]   // C major realized (C D E F G A B) — the source pool
+        var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [2, 0, 0]; h.params.harmUnits = .pool
+        var expect = Set(scale)
+        for b in scale { expect.insert(poolStep(b, steps: 2, pool: scale)) }   // +2 degrees = the diatonic third of each note
+        XCTAssertEqual(Accept.notesA([h], chord: scale.map { (UInt8($0), UInt8(100)) }), expect)
+        // The SAME +2 in SEMITONES is a different (chromatic) set — proves the mode actually changes the output.
+        var hs = ProcessorSlot(type: .harmonize); hs.params.harmIntervals = [2, 0, 0]   // default = semitones
+        XCTAssertNotEqual(Accept.notesA([hs], chord: scale.map { (UInt8($0), UInt8(100)) }),
+                          Accept.notesA([h], chord: scale.map { (UInt8($0), UInt8(100)) }))
+    }
+    func testTransposePoolUnitsStepsDegrees() {
+        let scale = [60, 62, 64, 65, 67, 69, 71]
+        var t = ProcessorSlot(type: .transpose); t.params.utilTranspose = 2; t.params.utilTransposeUnits = .pool
+        let expect = Set(scale.map { poolStep($0, steps: 2, pool: scale) })   // every note up two scale degrees
+        XCTAssertEqual(Accept.notesA([t], chord: scale.map { (UInt8($0), UInt8(100)) }), expect)
+    }
 }
 
 // MARK: - SPLIT — an exact SUBSET × VELOCITY-WINDOW oracle (varies pitches AND velocities)
