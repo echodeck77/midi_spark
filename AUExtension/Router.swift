@@ -384,6 +384,7 @@ final class Router {
     private var burstBuf = [Double](repeating: 0, count: 16)
     private var tuttiRankBufA = [Int](repeating: 0, count: 128)
     private var tuttiRankBufB = [Int](repeating: 0, count: 128)
+    private var stageOctBuf = [(note: UInt8, vel: UInt8)](repeating: (0, 0), count: 128)   // §1 ANATOMY stageOct: reused no-alloc scratch for a folded stage's per-slot octave shift (invariant 3)
     private func fillSrcFromScratch() {
         srcNoteCount = 0
         let c = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
@@ -1371,7 +1372,7 @@ final class Router {
             if !onSceneAudible(colour.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
             // §9 item 1 ON HOLD (3a): while THIS cell is press-held, its ALT/OCT treatment overlays momentarily.
             let held = heldCell >= 0 && heldCell == effColumn * Snap.rows + r
-            let transpose = colourTranspose(ci, colour)
+            var transpose = colourTranspose(ci, colour)
                           + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             // CELL MACHINE: the per-cell HEAD treatment (cell.proc) drives the render (morph + grid-chaining retired).
@@ -1387,6 +1388,7 @@ final class Router {
             // CELL MACHINE stage-2: a covered chain (arp/ratchet/strum TAIL) runs the tail over the composed
             // upstream set; only the tail emits, and emitColumnHolds skips it.
             let driver = chainDriverIndex(cell)
+            transpose += (driver >= 0 ? cell.procs[driver] : cell.proc).stageOct * 12   // §1 ANATOMY (Paul 2026-08-27): the tick DRIVER/HEAD slot's own OCT (header standard); folded slots shift in applyStage
             if driver >= 0 {
                 let driveP = cell.procs[driver]                // the tick DRIVER (last tick-gen); slots before it compose, after it fold
                 var treatDrive = colour; treatDrive.a = driveP
@@ -1561,6 +1563,7 @@ final class Router {
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
                           + holdShift(treatP, mode: mode)                // UTILITY: OCTAVE (±12·n) / TRANSPOSE (±semitones) shift the held (composed) set
+                          + treatP.stageOct * 12                         // §1 ANATOMY (Paul 2026-08-27): this hold stage's own OCT (header standard), ±3 octaves
             let prob = (mode == .chance) ? effectiveProbability(treat.a, step: Int((colStart / S).rounded())) : 1   // CHANCE PATTERN: per-step odds (Paul 2026-08-22)
             let droneScale = mode == .drone ? max(0.05, min(1.0, treatP.gate)) : 1.0   // DRONE: GATE = the pad's velocity level (relative to the source)
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
@@ -3479,6 +3482,17 @@ final class Router {
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) { let n = src.srcAscending(k, filter: 0, cableMask: 0b1111); dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
         }
         dst.rebuildSorted()   // srcAscending reads `sorted`; noteOn doesn't maintain it
+        // §1 ANATOMY (Paul 2026-08-27): this FOLDED stage's per-slot OCT shifts its OWN output (what it feeds downstream).
+        // Zero-cost when 0 (the common case). Reads the just-sorted dst, drops out-of-range, rebuilds. Reused buffer, no alloc.
+        if p.stageOct != 0 {
+            let sh = p.stageOct * 12
+            let cnt = min(128, dst.srcCount(filter: 0, cableMask: 0b1111))
+            var m2 = 0
+            for k in 0..<cnt { let n = dst.srcAscending(k, filter: 0, cableMask: 0b1111); let sn = Int(n) + sh; if sn >= 0 && sn <= 127 { stageOctBuf[m2] = (UInt8(sn), dst.velocity(n)); m2 += 1 } }
+            dst.reset()
+            for k in 0..<m2 { dst.noteOn(stageOctBuf[k].note, velocity: max(1, stageOctBuf[k].vel), channel: 0) }
+            dst.rebuildSorted()
+        }
     }
 
     /// Compose stages [0…upto] of the chain into `chainScratch` at beat m — the TAIL reads this each tick. Seeds

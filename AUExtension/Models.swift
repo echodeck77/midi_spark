@@ -306,6 +306,10 @@ struct ColourParams: Codable, Equatable {
     // UTILITY SET (Paul 2026-08-22) — simple per-chain transforms. Append-only Optionals.
     var utilOctave: Int? = 0                    // OCTAVE: shift ±3 octaves (×12 semitones), pitch-class preserved
     var utilTranspose: Int? = 0                 // TRANSPOSE: shift ±24 semitones
+    // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — a per-STAGE header standard: stageOct = THIS stage's own voice
+    // shifted ±3 octaves. Distinct from the OCTAVE utility card (a positional stream transform) — both coexist, ruled.
+    // nil/0 ⇒ no shift (byte-identical). Applies to the slot's own output (folded stages shift what they feed downstream).
+    var stageOct: Int? = nil
     var utilChannel: Int? = 0                   // CHANNEL: output channel — 0 = WIRE (the bus stamp) · 1–16 = override
     var utilNudge: Int? = 0                     // NUDGE: time offset in sixteenths of a beat (−8…+8)
     var utilNudgeMode: NudgeMode? = nil         // TIMING LANE (Paul 2026-08-22 §5): FIXED (one offset, default) | LANE (8 per-column offsets — the pocket drawn). nil ⇒ FIXED

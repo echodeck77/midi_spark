@@ -4660,6 +4660,26 @@ extension DiagView {
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             .background(hue.opacity(0.22))
+            // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — the per-STAGE header standard: OCT ◀n▶ (this stage's own
+            // voice, ±3 octaves, dimmed at 0). Distinct from the OCTAVE utility card (a positional stream transform).
+            HStack(spacing: 10) {
+                Text("OCT").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                let oct = proc.params.stageOct ?? 0
+                Button { buildChainEditSlot(slot) { $0.params.stageOct = max(-3, ($0.params.stageOct ?? 0) - 1) } } label: {
+                    Image(systemName: "chevron.left").font(.system(size: 12, weight: .bold)).foregroundColor(.white).frame(width: 30, height: 28)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+                }.buttonStyle(.plain)
+                Text(oct == 0 ? "0" : (oct > 0 ? "+\(oct)" : "\(oct)")).font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    .foregroundColor(oct == 0 ? buildDim : .white).frame(minWidth: 28)
+                Button { buildChainEditSlot(slot) { $0.params.stageOct = min(3, ($0.params.stageOct ?? 0) + 1) } } label: {
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white).frame(width: 30, height: 28)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+                }.buttonStyle(.plain)
+                Text("this stage's own voice").font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(hue.opacity(0.10))
             Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
             VStack(alignment: .leading, spacing: 5) {          // ROW SELECTOR — a tab OVERWRITES that row with the current edits
                 Text("Long press to copy").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
