@@ -203,6 +203,7 @@ struct SnapParams {
     var utilOctave: Int = 0                           // OCTAVE: ±3 octave shift (UTILITY, Paul 2026-08-22)
     var utilTranspose: Int = 0                        // TRANSPOSE: ±24 semitone shift
     var stageOct: Int = 0                             // §1 ANATOMY (Paul 2026-08-27): this STAGE's own voice shifted ±3 octaves (the header OCT standard)
+    var stageSource: StageSource = .chain             // §1 ANATOMY: this STAGE's input — CHAIN (upstream) · MIDI IN (the door) · BOTH (merge)
     var utilChannel: Int = 0                          // CHANNEL: 0 = WIRE (bus stamp) · 1–16 = output-channel override
     var utilNudge: Int = 0                            // NUDGE: time offset in sixteenths (−8…+8)
     var utilNudgeMode: NudgeMode = .fixed            // TIMING LANE (Paul 2026-08-22 §5): FIXED = one offset · LANE = a per-column pocket

@@ -370,6 +370,7 @@ enum SnapshotBuilder {
         if let v = p.utilOctave { out.utilOctave = clamp(v, -3, 3) }         // UTILITY (Paul 2026-08-22)
         if let v = p.utilTranspose { out.utilTranspose = clamp(v, -24, 24) }
         if let v = p.stageOct { out.stageOct = clamp(v, -3, 3) }   // §1 ANATOMY (Paul 2026-08-27): per-stage octave (header OCT), ±3
+        if let v = p.stageSource { out.stageSource = v }           // §1 ANATOMY: per-stage input SOURCE (header SOURCE)
         if let v = p.utilChannel { out.utilChannel = clamp(v, 0, 16) }       // 0 = WIRE · 1–16 override
         if let v = p.utilNudge { out.utilNudge = clamp(v, -8, 8) }           // ± sixteenths
         if let v = p.utilNudgeMode { out.utilNudgeMode = v }                 // TIMING LANE (Paul 2026-08-22 §5)

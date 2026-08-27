@@ -4663,6 +4663,17 @@ extension DiagView {
             // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — the per-STAGE header standard: OCT ◀n▶ (this stage's own
             // voice, ±3 octaves, dimmed at 0). Distinct from the OCTAVE utility card (a positional stream transform).
             HStack(spacing: 10) {
+                // SOURCE: CHAIN | MIDI IN | BOTH — this stage reads the upstream chain, the row's own door, or both.
+                Text("SOURCE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                let ssrc = proc.params.stageSource ?? .chain
+                ForEach([StageSource.chain, .midiIn, .both], id: \.self) { s in
+                    let on = ssrc == s
+                    Text(s == .chain ? "CHAIN" : (s == .midiIn ? "MIDI IN" : "BOTH")).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : .white.opacity(0.6)).padding(.horizontal, 10).frame(height: 28)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { buildChainEditSlot(slot) { $0.params.stageSource = s } }
+                }
+                Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1, height: 22)
                 Text("OCT").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
                 let oct = proc.params.stageOct ?? 0
                 Button { buildChainEditSlot(slot) { $0.params.stageOct = max(-3, ($0.params.stageOct ?? 0) - 1) } } label: {

@@ -3509,6 +3509,15 @@ final class Router {
             if !cell.slotBypass[j] && cell.procs[j].type != .mod && cell.procs[j].type != .glide {   // true-bypass + MOD/GLIDE (their output is separate) pass untouched
                 let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                 nxt.reset()
+                // §1 ANATOMY SOURCE (Paul 2026-08-27): MIDI IN replaces cur with the row's DOOR (raw held chord); BOTH
+                // merges the door into cur. cur is swapped away after this stage, so mutating it here is safe. CHAIN
+                // (default) leaves cur = the upstream set. Stage 0 already seeds from the door, so MIDI IN there is a no-op.
+                let ssrc = cell.procs[j].stageSource
+                if ssrc != .chain {
+                    if ssrc == .midiIn { cur.reset() }
+                    for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); cur.noteOn(n, velocity: max(1, pool.velocity(n)), channel: 0) }
+                    cur.rebuildSorted()
+                }
                 applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
                 swap(&cur, &nxt)
             }

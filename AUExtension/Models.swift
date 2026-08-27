@@ -310,6 +310,10 @@ struct ColourParams: Codable, Equatable {
     // shifted ±3 octaves. Distinct from the OCTAVE utility card (a positional stream transform) — both coexist, ruled.
     // nil/0 ⇒ no shift (byte-identical). Applies to the slot's own output (folded stages shift what they feed downstream).
     var stageOct: Int? = nil
+    // §1 ANATOMY — the SOURCE header standard: a stage reads the CHAIN output (default), the ROW'S OWN DOOR (MIDI IN =
+    // the raw held chord), or BOTH (merge). nil ⇒ .chain (byte-identical). v1 acts on stages folded in composeChainSet
+    // (upstream of a driver / a hold chain's inner stages); the driver-downstream fold is a flagged follow-up.
+    var stageSource: StageSource? = nil
     var utilChannel: Int? = 0                   // CHANNEL: output channel — 0 = WIRE (the bus stamp) · 1–16 = override
     var utilNudge: Int? = 0                     // NUDGE: time offset in sixteenths of a beat (−8…+8)
     var utilNudgeMode: NudgeMode? = nil         // TIMING LANE (Paul 2026-08-22 §5): FIXED (one offset, default) | LANE (8 per-column offsets — the pocket drawn). nil ⇒ FIXED
@@ -769,6 +773,9 @@ enum ExcludeReject: String, Codable, CaseIterable { case block, snap }
 
 // POOL-STEP UNITS (ratified §2): an offset counts in SEMITONES (chromatic) or POOL degrees (against the chain's pool).
 enum PitchUnits: String, Codable, CaseIterable { case semitones, pool }
+// §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — a stage's input SOURCE: the upstream CHAIN output (default), the row's
+// own DOOR (MIDI IN = the raw held chord), or BOTH (the upstream set merged with the door).
+enum StageSource: String, Codable, CaseIterable { case chain, midiIn, both }
 
 // MARK: - Scene & document — §9
 

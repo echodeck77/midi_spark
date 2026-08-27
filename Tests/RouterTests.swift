@@ -367,6 +367,24 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(n0.isEmpty, "the [ARP→HARMONIZE] chain sounds")
         XCTAssertEqual(Set(n1.map { $0 - 12 }), n0, "the folded HARMONIZE stage's stageOct +1 shifts its whole output up an octave")
     }
+    // §1 ANATOMY SOURCE (Paul 2026-08-27): a stage's SOURCE — CHAIN reads the upstream output · MIDI IN reads the row's raw
+    // DOOR · BOTH merges. v1 acts in composeChainSet (folded/upstream stages). [OCTAVE(+1) → TRANSPOSE(0, SOURCE) → ARP]:
+    // CHAIN sees the octave-shifted set (+12), MIDI IN sees the raw door (+0), BOTH sees both — distinguishable by pitch.
+    func testStageSourceReadsTheDoorInChainCompose() {
+        func notes(_ src: StageSource) -> Set<Int> {
+            var oct = ProcessorSlot(type: .octave); oct.params.utilOctave = 1
+            var mid = ProcessorSlot(type: .transpose); mid.params.utilTranspose = 0; mid.params.stageSource = src
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16; arp.params.octaves = 1
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [oct, mid, arp]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        }
+        XCTAssertEqual(notes(.chain), [72, 76, 79], "CHAIN reads the OCTAVE-shifted upstream set")
+        XCTAssertEqual(notes(.midiIn), [60, 64, 67], "MIDI IN reads the raw door chord (ignores the upstream octave)")
+        XCTAssertEqual(notes(.both), [60, 64, 67, 72, 76, 79], "BOTH merges the door with the upstream set")
+    }
     // SPAN LADDER stage 2b — RATCHET PATTERN (RATE×ladder): RATE = slice width, SPAN N = the loop period in columns.
     func testRatchetSpanLadderReAnchorsThePatternByPeriod() {
         func onCount(spanN: Int?) -> Int {
