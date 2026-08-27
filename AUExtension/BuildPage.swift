@@ -59,6 +59,24 @@ private let buildRed   = Color(red: 0.91, green: 0.36, blue: 0.44)   // ROW 8 CL
 private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
 // BUILD grid PIANO-ROLL (Paul 2026-08-19): one scrolling note mark on a cell face; `lane` = pitch (0…1), born = when it sounded.
 struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Double }
+
+// BUILD UNDO (Paul 2026-08-27): one complete snapshot of the BUILD page's authoring @State + the document — every field a
+// user action can change, so a restore is whole (never partial). Value types only (cheap COW copies).
+struct BuildSnapshot {
+    var stagingCells: [[String?]]; var stagingSel: [Int]; var stagingLane: UInt8
+    var parts: [BuildPart]; var currentPart: Int; var returnPart: Int?
+    var partEmitters: Set<Bus>; var partRate: StepRate?; var partLen: Int?
+    var partCast: [String]; var castSlots: [Int: String]; var rowUnder: [String?]
+    var rowReceiver: [Int?]; var rowEmitters: [Set<Bus>?]
+    var performCells: [[String?]]; var performChain: [[[ProcessorSlot]]]; var performRecv: [Int]
+    var performEmit: [Set<Bus>]; var performPart: [Int]; var performMute: Set<Int>
+    var performStagingRow: [Int]; var performLane: UInt8
+    var scenes: [BuildSceneSnapshot]; var activeScene: Int; var row8Cells: [Row8Cell]; var row8On: [Bool]
+    var selID: String?; var selReceiver: Int
+    var colourReg: [String: [ProcessorSlot]]; var colourTranspose: [String: Int]; var hueOverride: [String: UInt32]
+    var idCounter: Int
+    var doc: PluginState
+}
 private let buildRollLife = 1.6   // seconds a note takes to cross the cell
 private let buildPartInk = Color(white: 1).opacity(0.9)  // §2 BRIGHTNESS = WHICH PART: a NEUTRAL bright accent (no second hue) — the part's presence across bench + stage
 
@@ -333,9 +351,9 @@ extension DiagView {
             ForEach(0..<2, id: \.self) { row in
                 HStack(spacing: 4) {
                     if row == 0 {                                   // ALL — left of channel 1
-                        buildChanSideButton("ALL", active: enabled && mask == 0xFFFF) { au?.setReceiverChannelMask(i, 0xFFFF); refresh() }
+                        buildChanSideButton("ALL", active: enabled && mask == 0xFFFF) { buildRecordUndo("recv"); au?.setReceiverChannelMask(i, 0xFFFF); refresh() }
                     } else {                                        // NONE — left of channel 9
-                        buildChanSideButton("NONE", active: !enabled || mask == 0) { au?.setReceiverChannelMask(i, 0); refresh() }
+                        buildChanSideButton("NONE", active: !enabled || mask == 0) { buildRecordUndo("recv"); au?.setReceiverChannelMask(i, 0); refresh() }
                     }
                     ForEach(0..<8, id: \.self) { coln in
                         let ch = row * 8 + coln + 1
@@ -343,7 +361,7 @@ extension DiagView {
                         Text("\(ch)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : buildCyan.opacity(0.85))
                             .frame(maxWidth: .infinity).frame(height: 30)
                             .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : buildCyan.opacity(0.13)))
-                            .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverChannel(i, ch); refresh() }
+                            .contentShape(Rectangle()).onTapGesture { buildRecordUndo("recv"); au?.toggleReceiverChannel(i, ch); refresh() }
                     }
                 }
             }
@@ -379,7 +397,7 @@ extension DiagView {
                 Spacer(minLength: 0)
                 Text("FULL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                     .padding(.horizontal, 10).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-                    .contentShape(Rectangle()).onTapGesture { au?.setReceiverRange(i, lo: 0, hi: 127); refresh() }
+                    .contentShape(Rectangle()).onTapGesture { buildRecordUndo("recv"); au?.setReceiverRange(i, lo: 0, hi: 127); refresh() }
                 Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                     .padding(.horizontal, 14).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(buildCyan))
                     .contentShape(Rectangle()).onTapGesture { buildRangeKbdDoor = nil }
@@ -408,6 +426,7 @@ extension DiagView {
         let height: CGFloat = 76, bw = ww * 0.62, bh = height * 0.6
         let refresh = { self.receivers = self.au?.uiReceivers() ?? self.receivers; self.refreshFromDocument() }
         func setBound(_ note: Int) {
+            buildRecordUndo("recv")   // BUILD UNDO: a range-bound edit
             if buildRangeSetHi { au?.setReceiverRange(i, lo: min(lo, note), hi: note) }
             else { au?.setReceiverRange(i, lo: note, hi: max(hi, note)) }
             refresh(); buildRangeSetHi.toggle()                     // after MIN → set MAX next
@@ -440,6 +459,7 @@ extension DiagView {
     // input's KEYS/HOLD/LATCH arm (else a stale arm makes a not-yet-engaged REPLAY input behave as HOLD); entering one
     // releases any running REPLAY loop, so an input is never both looping and latching.
     private func buildSelectDoorMode(_ i: Int, _ m: DoorMode) {
+        buildRecordUndo()   // BUILD UNDO: change an input's mode
         au?.setDoorMode(i, m)
         let bit = UInt8(1 << i)
         switch m {
@@ -492,7 +512,7 @@ extension DiagView {
                 ForEach([1, 2, 4, 8], id: \.self) { n in
                     Text("\(n)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(cur == n ? .black : buildCyan)
                         .frame(width: 38, height: 28).background(RoundedRectangle(cornerRadius: 6).fill(cur == n ? buildCyan : buildCyan.opacity(0.14)))
-                        .contentShape(Rectangle()).onTapGesture { au?.setReplayPasses(i, n); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                        .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReplayPasses(i, n) } }
                 }
                 Text("passes").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
                 Spacer(minLength: 0)
@@ -671,7 +691,7 @@ extension DiagView {
                 Spacer()
                 Text("CLEAR").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                     .padding(.horizontal, 10).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-                    .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                    .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.clearReceiverPianoNotes(i) } }
             }.frame(width: kbW)
             buildDoorExcludeRow(i, width: kbW)
         }
@@ -697,7 +717,7 @@ extension DiagView {
                         .foregroundColor(exSel == d ? .black : .white.opacity(0.7))
                         .padding(.horizontal, 9).padding(.vertical, 4)
                         .background(RoundedRectangle(cornerRadius: 5).fill(exSel == d ? buildCyan : Color.white.opacity(0.08)))
-                        .contentShape(Rectangle()).onTapGesture { au?.setExcludeDoor(i, d); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                        .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setExcludeDoor(i, d) } }
                 }
             }
             if on {                                                   // §3: MODE = subtract vs intersect · REJECT = what happens to a note that doesn't pass. Labelled + plain-worded (Paul 2026-08-27).
@@ -724,7 +744,7 @@ extension DiagView {
                 let sel = isA == first
                 Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(sel ? .black : .white.opacity(0.7))
                     .padding(.horizontal, 11).frame(height: 26).background(sel ? buildCyan : Color.white.opacity(0.08))
-                    .contentShape(Rectangle()).onTapGesture { (isA ? a : b)(); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                    .contentShape(Rectangle()).onTapGesture { buildRecvEdit { (isA ? a : b)() } }
             }
         }.clipShape(RoundedRectangle(cornerRadius: 5))
     }
@@ -750,7 +770,7 @@ extension DiagView {
                 ForEach(0..<12, id: \.self) { k in
                     Text(names[k]).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(root == k ? .black : .white.opacity(0.7))
                         .frame(width: 34, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(root == k ? buildCyan : Color.white.opacity(0.08)))
-                        .contentShape(Rectangle()).onTapGesture { au?.setReceiverScaleRoot(i, k); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                        .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReceiverScaleRoot(i, k) } }
                 }
             }
             HStack(alignment: .top, spacing: 5) {                      // SCALE — the curated list, wrapping into an adaptive grid
@@ -759,14 +779,14 @@ extension DiagView {
                     ForEach(ScaleType.allCases, id: \.self) { st in
                         Text(st.label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(type == st ? .black : .white.opacity(0.75)).lineLimit(1).minimumScaleFactor(0.7)
                             .frame(maxWidth: .infinity).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(type == st ? buildCyan : Color.white.opacity(0.08)))
-                            .contentShape(Rectangle()).onTapGesture { au?.setReceiverScaleType(i, st); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                            .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReceiverScaleType(i, st) } }
                     }
                 }.frame(width: w - 46)
             }
             HStack(spacing: 10) {                                      // RANGE — base octave + how many octaves
                 Text("RANGE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 40, alignment: .leading)
-                buildScaleStepper("OCT", value: r.scaleBaseOctResolved, lo: 0, hi: 8) { au?.setReceiverScaleBaseOct(i, $0); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
-                buildScaleStepper("× OCT", value: r.scaleOctavesResolved, lo: 1, hi: 4) { au?.setReceiverScaleOctaves(i, $0); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                buildScaleStepper("OCT", value: r.scaleBaseOctResolved, lo: 0, hi: 8) { v in buildRecvEdit { au?.setReceiverScaleBaseOct(i, v) } }
+                buildScaleStepper("× OCT", value: r.scaleOctavesResolved, lo: 1, hi: 4) { v in buildRecvEdit { au?.setReceiverScaleOctaves(i, v) } }
                 Spacer(minLength: 0)
                 Text("\(pool.count) notes · \(names[root]) \(type.label)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.7)
             }
@@ -797,7 +817,7 @@ extension DiagView {
         let gap: CGFloat = 1
         let ww = (width - CGFloat(whiteCount - 1) * gap) / CGFloat(whiteCount)
         let bw = ww * 0.64, bh = height * 0.6
-        func pick(_ note: Int) { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+        func pick(_ note: Int) { buildRecvEdit { au?.toggleReceiverPianoNote(i, note) } }
         return ZStack(alignment: .topLeading) {
             HStack(spacing: gap) {                                  // WHITE keys
                 ForEach(0..<whiteCount, id: \.self) { wi in
@@ -1517,6 +1537,7 @@ extension DiagView {
     }
     private func buildRow8Edit(_ slot: Int, _ mutate: (inout Row8Cell) -> Void) {
         guard slot >= 0, slot < 8, slot < buildRow8Cells.count else { return }
+        buildRecordUndo("row8")   // BUILD UNDO: authoring a ROW 8 action cell (coalesced within a config burst)
         var c = buildRow8Cells[slot]; mutate(&c)
         buildRow8Cells[slot] = c                     // optimistic
         au?.setRow8Cell(slot, c); refreshFromDocument()
@@ -1989,6 +2010,7 @@ extension DiagView {
     // §2: the INPUT door is PART-owned — one door for the whole part (every colour follows). Applied uniformly at
     // scene-build + audition; no per-colour cell fanning.
     private func buildSelectDoor(_ i: Int) {
+        buildRecordUndo()   // BUILD UNDO: pick the input door (receiver)
         buildClearPendingOnEdit()                                // a RECEIVER change ends the fresh-row flash (Paul 2026-08-25)
         if let r = buildSelectedRow, r < buildRowReceiver.count { buildRowReceiver[r] = i }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
         else { buildSelReceiver = i }                            // nothing on a row → set the part DEFAULT
@@ -2029,6 +2051,7 @@ extension DiagView {
     private func ddSelectedColourBuses() -> Set<Bus> { buildPartEmitters }
 
     private func buildToggleBus(_ bus: Bus) {
+        buildRecordUndo()   // BUILD UNDO: toggle an output emitter
         buildClearPendingOnEdit()                                // an EMITTER change ends the fresh-row flash (Paul 2026-08-25)
         let selR = buildSelectedRow
         var buses = selR.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
@@ -2183,6 +2206,67 @@ extension DiagView {
         buildActiveScene = max(0, min(scenes.count - 1, active))
         buildRestoreScene(scenes[buildActiveScene])                  // restore the live arrangement (the deployed grid) + republish
     }
+
+    // ── BUILD UNDO (Paul 2026-08-27) — snapshot the WHOLE authoring @State + the document, so a restore is complete ────
+    func buildCaptureSnapshot() -> BuildSnapshot {
+        BuildSnapshot(stagingCells: buildStagingCells, stagingSel: buildStagingSel, stagingLane: buildStagingLane,
+                      parts: buildParts, currentPart: buildCurrentPart, returnPart: buildReturnPart,
+                      partEmitters: buildPartEmitters, partRate: buildPartRate, partLen: buildPartLen,
+                      partCast: buildPartCast, castSlots: buildCastSlots, rowUnder: buildRowUnder,
+                      rowReceiver: buildRowReceiver, rowEmitters: buildRowEmitters,
+                      performCells: buildPerformCells, performChain: buildPerformChain, performRecv: buildPerformRecv,
+                      performEmit: buildPerformEmit, performPart: buildPerformPart, performMute: buildPerformMute,
+                      performStagingRow: buildPerformStagingRow, performLane: buildPerformLane,
+                      scenes: buildScenes, activeScene: buildActiveScene, row8Cells: buildRow8Cells, row8On: buildRow8On,
+                      selID: buildSelID, selReceiver: buildSelReceiver, colourReg: buildColourReg,
+                      colourTranspose: buildColourTranspose, hueOverride: colourHueOverride, idCounter: buildIDCounter,
+                      doc: au?.documentSnapshot() ?? PluginState.makeInit())
+    }
+    /// Record the pre-action state. Call at the START of any authoring action. `coalesce` collapses a continuous gesture
+    /// (a scrub/drag) into ONE step. A missed call just leaves that action non-undoable — never corrupts (restore is whole).
+    func buildRecordUndo(_ coalesce: String? = nil) {
+        if buildApplyingSnapshot { return }   // an onChange fired mid-restore — never record while applying an undo/redo
+        if let k = coalesce, k == buildUndoKey, !buildUndoStack.isEmpty { return }
+        buildUndoStack.append(buildCaptureSnapshot())
+        if buildUndoStack.count > 64 { buildUndoStack.removeFirst(buildUndoStack.count - 64) }   // bounded depth
+        buildRedoStack.removeAll()
+        buildUndoKey = coalesce
+    }
+    private func buildApplySnapshot(_ s: BuildSnapshot) {
+        buildApplyingSnapshot = true
+        defer { buildApplyingSnapshot = false }
+        buildStagingCells = s.stagingCells; buildStagingSel = s.stagingSel; buildStagingLane = s.stagingLane
+        buildParts = s.parts; buildCurrentPart = s.currentPart; buildReturnPart = s.returnPart
+        buildPartEmitters = s.partEmitters; buildPartRate = s.partRate; buildPartLen = s.partLen
+        buildPartCast = s.partCast; buildCastSlots = s.castSlots; buildRowUnder = s.rowUnder
+        buildRowReceiver = s.rowReceiver; buildRowEmitters = s.rowEmitters
+        buildPerformCells = s.performCells; buildPerformChain = s.performChain; buildPerformRecv = s.performRecv
+        buildPerformEmit = s.performEmit; buildPerformPart = s.performPart; buildPerformMute = s.performMute
+        buildPerformStagingRow = s.performStagingRow; buildPerformLane = s.performLane
+        buildScenes = s.scenes; buildActiveScene = s.activeScene; buildRow8Cells = s.row8Cells; buildRow8On = s.row8On
+        buildSelID = s.selID; buildSelReceiver = s.selReceiver
+        buildColourReg = s.colourReg; buildColourTranspose = s.colourTranspose; colourHueOverride = s.hueOverride
+        buildIDCounter = s.idCounter
+        au?.restoreDocumentFromUndo(s.doc)          // the document (document-colour chains / receivers / rack) restored WITHOUT recording
+        buildSyncColours()                          // push the ephemeral registry to the render
+        buildPublishScene()                         // re-publish the composed scene
+        receivers = au?.uiReceivers() ?? receivers
+        refreshFromDocument()                       // reload document-derived state (docColours, receivers, rack, ROW 8…)
+        buildUndoKey = nil                          // a fresh coalesce run after any undo/redo
+    }
+    /// A door-sheet receiver-config edit (channel · range · scale · exclude · …): record a BUILD-undo step (coalesced into
+    /// one "recv" burst so a run of config tweaks is a single undo), run the AU mutation, then re-poll + refresh. Keeps the
+    /// config edits inside the BUILD undo stack (the header no longer reaches the AU stack).
+    func buildRecvEdit(_ body: () -> Void) {
+        buildRecordUndo("recv")
+        body()
+        receivers = au?.uiReceivers() ?? receivers
+        refreshFromDocument()
+    }
+    func buildDoUndo() { guard let prev = buildUndoStack.popLast() else { return }; buildRedoStack.append(buildCaptureSnapshot()); buildApplySnapshot(prev) }
+    func buildDoRedo() { guard let next = buildRedoStack.popLast() else { return }; buildUndoStack.append(buildCaptureSnapshot()); buildApplySnapshot(next) }
+    var buildCanUndo: Bool { !buildUndoStack.isEmpty }
+    var buildCanRedo: Bool { !buildRedoStack.isEmpty }
 
     private func buildPublishScene() {
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
@@ -2395,6 +2479,7 @@ extension DiagView {
     }
 
     private func buildStageTheGrid() {
+        buildRecordUndo()   // BUILD UNDO: stage the grid (the variation ladder)
         for c in 0..<8 { for r in 0..<8 { if let id = buildStagingCells[c][r], !buildPartCast.contains(id) { buildStagingCells[c][r] = nil } } }   // strip prior (un-adopted) variations → back to the originals
         buildGCColours()                                                       // free the reclaimed variation colours
         var order: [String] = (0..<8).compactMap { buildRowColour($0) }        // the ORIGINAL populated rows, top→bottom (one colour each)
@@ -2469,6 +2554,7 @@ extension DiagView {
     }
     // <<< CLEAR — empty the SELECTED colour's midi chain (every processor box → "+"). (Paul 2026-08-18)
     private func buildClearChain() {
+        buildRecordUndo()   // BUILD UNDO: clear the selected colour's chain
         guard let cid = ddSelectedColourID else { return }
         buildWriteColourMachine(cid, [])
         refreshFromDocument()
@@ -2482,6 +2568,7 @@ extension DiagView {
         buildChainClipboard = chain
     }
     private func buildPasteChain() {
+        buildRecordUndo()   // BUILD UNDO: paste a chain onto a new colour
         guard let chain = buildChainClipboard, !chain.isEmpty else { return }
         guard let row = (0..<8).first(where: { buildRowColour($0) == nil }) else { return }   // the first EMPTY row (a new position)
         let newID = buildNewColour(hex: buildDistinctHue(), machine: chain)
@@ -2502,6 +2589,7 @@ extension DiagView {
         DispatchQueue.main.async { self.buildRunRandomizeGrid(); self.buildRandomizing = false }   // render the DISABLED state before the blocking compute
     }
     private func buildRunRandomizeGrid() {
+        buildRecordUndo()   // BUILD UNDO: randomize the grid (an ensemble)
         var rng = SystemRandomNumberGenerator()
         // AN ENSEMBLE, not 8 rolls (design-ratified 2026-08-19): 8 CONTRASTING archetypes (pad · bass · stab · arp ·
         // groove · texture · sparkle · wild), each register-separated (transpose) with an inherent density. Sparse-biased
@@ -2547,6 +2635,7 @@ extension DiagView {
         DispatchQueue.main.async { self.buildRunMutateGrid(); self.buildMutating = false }   // render the DISABLED state before the blocking compute
     }
     private func buildRunMutateGrid() {
+        buildRecordUndo()   // BUILD UNDO: mutate the placed rows
         guard let selID = ddSelectedColourID else { return }
         let base = buildColourChain(selID)
         guard !base.isEmpty else { return }
@@ -2738,6 +2827,7 @@ extension DiagView {
     // REUSE an existing unused part instead of appending, so flatten→restore stops accumulating stray "UNASSIGNED PART"
     // entries. Reuse touches only an empty, un-deployed slot, so no deployed part's stored index shifts. (Paul 2026-08-15)
     private func buildAddPart() {
+        buildRecordUndo()   // BUILD UNDO: add a part
         buildSavePart()
         // QoL: if a restore left an undefined bench pending, RETURN to it (the part the user was building) instead of a
         // fresh one — so restore→promote drops them back on their in-progress work. (Paul 2026-08-15)
@@ -2817,6 +2907,7 @@ extension DiagView {
     // into the tapped row (selected cell regardless of staging row · blank where unselected), carrying the part's I/O.
     func buildDeployCurrentPart(toRow R: Int) {
         guard buildCurrentPart >= 0, buildCurrentPart < buildParts.count, R >= 0, R < 8 else { return }   // CR-18[extra]: >= 0 guard for symmetry with the siblings — a -1 part would trap on buildParts[-1]
+        buildRecordUndo("deploy")   // BUILD UNDO: promote/deploy a part to the play grid
         buildParts[buildCurrentPart].deployed = true
         let len = buildDeployLength()                           // PROMOTE = LOOPED COLUMNS: the loop span sets the length
         buildApplyDeployLength(len)
@@ -2833,6 +2924,7 @@ extension DiagView {
     //   • SINGLE-ROW band (rows == 1): the selected cell per column (regardless of row), blank where unselected.
     func buildDeployBand(base: Int, rows: Int) {
         guard buildCurrentPart >= 0, buildCurrentPart < buildParts.count else { return }   // CR-18[extra]: >= 0 guard for symmetry
+        buildRecordUndo("deploy")   // BUILD UNDO: deploy a part across a band
         buildParts[buildCurrentPart].deployed = true
         let len = buildDeployLength()                           // PROMOTE = LOOPED COLUMNS: the loop span sets the length
         buildApplyDeployLength(len)
@@ -3014,8 +3106,8 @@ extension DiagView {
     // The selected door's MIDI-IN CHANNEL box (keyboard-sized) — tap opens a channel selector (OMNI · CH 1–16).
     @ViewBuilder private func buildChannelBox(receiver i: Int, channel: Int) -> some View {
         Menu {
-            Button("OMNI") { au?.setReceiverChannel(i, 0); refreshFromDocument() }
-            ForEach(1..<17, id: \.self) { ch in Button("CH \(ch)") { au?.setReceiverChannel(i, ch); refreshFromDocument() } }
+            Button("OMNI") { buildRecordUndo("recv"); au?.setReceiverChannel(i, 0); refreshFromDocument() }
+            ForEach(1..<17, id: \.self) { ch in Button("CH \(ch)") { buildRecordUndo("recv"); au?.setReceiverChannel(i, ch); refreshFromDocument() } }
         } label: {
             VStack(spacing: 2) {
                 Text("MIDI IN ▾").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
@@ -3045,7 +3137,7 @@ extension DiagView {
                         .overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
                         .frame(width: max(1, ww - 1), height: 52)
                         .contentShape(Rectangle())
-                        .onTapGesture { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                        .onTapGesture { buildRecvEdit { au?.toggleReceiverPianoNote(i, note) } }
                 }
             }
             // BLACK keys straddle white-key boundaries → positioned in an overlay HStack of per-white slots (still
@@ -3059,7 +3151,7 @@ extension DiagView {
                                 RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : buildPanel)
                                     .frame(width: bw, height: 31)
                                     .contentShape(Rectangle())
-                                    .onTapGesture { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                                    .onTapGesture { buildRecvEdit { au?.toggleReceiverPianoNote(i, note) } }
                             }
                         }
                 }
@@ -3242,6 +3334,7 @@ extension DiagView {
     }
     // Assign a NON-default colour its cast slot: the requested one if it's a free extras cell, else the first free.
     private func buildPlaceCastSlot(_ id: String, _ requested: Int?) {
+        buildRecordUndo()   // BUILD UNDO: place a colour on a cast slot
         buildCastSlots = buildCastSlots.filter { $0.value != id }                             // this colour claims exactly one slot
         if let s = requested, !buildIsDefaultSlot(s), buildCastSlots[s] == nil { buildCastSlots[s] = id }
         else if let s = buildFirstFreeCastSlot() { buildCastSlots[s] = id }
@@ -3395,6 +3488,7 @@ extension DiagView {
     //  • a column with NO current selection then selects the placed cell (so a fresh stamp plays; it never steals an
     //    existing pick — the existing population survives).
     private func buildStampRow(_ row: Int) {
+        buildRecordUndo()   // BUILD UNDO: place/relocate a colour on a row
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
         if buildRowColour(row) == cid { return }                 // already this colour → nothing to do
         for r in 0..<8 where r != row && buildRowColour(r) == cid {   // the colour's PRIOR row → REVERT it to what it displaced
@@ -4885,6 +4979,7 @@ extension DiagView {
     // BUILD chain edits — colour-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
     // whole with setColourChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
     private func buildApplyChain(_ chain: [ProcessorSlot]) {
+        buildRecordUndo("chain")   // BUILD UNDO: chain edit (add/remove/move/param) — coalesced so a param scrub is one step
         guard let cid = ddSelectedColourID else { return }
         // idea 24 TOUCH-TO-DIFF: every chain edit funnels here — stamp the edit clock so the OUT read-out glows and the
         // notes the NEW settings produce (born after the gesture started) stand out from the old ones, as you drag.
@@ -5294,6 +5389,7 @@ extension DiagView {
     private func buildGridSelCommit() { buildGridSelCommit(to: buildGridSelArrivalRow ?? (0..<8).first { buildRowColour($0) == nil }) }
     private func buildGridSelCommit(to r: Int?) {
         guard let row = r, let i = buildGridSelSel, let hit = buildGridSelChainAt(i) else { buildGridSelCancel(); return }   // no target/selection → restore, don't discard the selection
+        buildRecordUndo()   // BUILD UNDO: commit a browsed chain to a row
         let targetID: String
         if let tgt = buildRowColour(row) {                               // populated → overwrite its chain (keeps its hue/register; v1 doesn't move the register home onto an existing colour)
             buildWriteColourMachine(tgt, hit.chain); targetID = tgt
@@ -5317,6 +5413,7 @@ extension DiagView {
     private var buildGridSelCanStamp: Bool { buildGridSelSel != nil }
     private func buildGridSelStampCommit(_ row: Int) {
         guard let i = buildGridSelSel, let hit = buildGridSelChainAt(i) else { return }
+        buildRecordUndo()   // BUILD UNDO: stamp the auditioning chain onto a part
         if let tgt = buildRowColour(row) {                               // populated → overwrite its chain, KEEP its colour
             buildWriteColourMachine(tgt, hit.chain)
         } else {                                                         // empty → mint a colour carrying the chain + its register home

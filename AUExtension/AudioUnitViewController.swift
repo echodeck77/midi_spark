@@ -215,6 +215,14 @@ struct DiagView: View {
     @State var buildColourReg: [String: [ProcessorSlot]] = [:]   // BUILD: ephemeral colours' machines (id → chain), beyond the 16 document slots
     @State var buildColourTranspose: [String: Int] = [:]        // BUILD: ephemeral colours' REGISTER HOME (id → transpose), for the ensemble roll
     @State var buildIDCounter: Int = 0        // BUILD: monotonic source for ephemeral colour IDs ("b0", "b1", …)
+    // BUILD UNDO (Paul 2026-08-27): the BUILD page authors in @State, invisible to the AU document undo stack — so it gets
+    // its OWN undo. Each snapshot captures the WHOLE authoring @State + the document, so a restore is always complete (never
+    // partial/corrupting); an action that forgets to record is simply not undoable, never corrupt. `buildUndoKey` coalesces
+    // a continuous gesture (a scrub / drag) into one step.
+    @State var buildUndoStack: [BuildSnapshot] = []
+    @State var buildRedoStack: [BuildSnapshot] = []
+    @State var buildUndoKey: String? = nil
+    @State var buildApplyingSnapshot = false   // true while an undo/redo restores state — suppresses any re-entrant record from an onChange
     // THE GRID SELECTOR (AcceptanceCriteria-grid-selector.md, 2026-08-23): the full-page 8×8 chain browser — each cell a
     // complete MIDI chain, tap = audition it live (mutually-exclusive, quantized, piece plays on), COMMIT overwrites the
     // arrival row's chain (one undo), CANCEL restores. Banks v1: DEALT (generated) + MY LIBRARY. All ephemeral/@State.
@@ -508,8 +516,11 @@ struct DiagView: View {
     // delta §5 / a6: undo/redo restore the WHOLE document, so refresh every document-derived @State.
     // SELECTION undo takes precedence while it has history (the recent select/deselect actions); once exhausted,
     // undo falls through to the transactional document undo.
-    func undo() { if au?.uiUndo() == true { refreshFromDocument() } }   // sel-level undo retired with the EDIT grid; the AU document undo remains
-    func redo() { if au?.uiRedo() == true { refreshFromDocument() } }
+    // BUILD is the sole surface (Paul 2026-08-27): its authoring lives in @State, so route UNDO/REDO to the BUILD stack
+    // (whose snapshot also carries the document, so document-colour/receiver/rack edits ride along). Fall back to the AU
+    // document undo only if the BUILD stack is empty (defensive — nothing else drives the header now).
+    func undo() { if buildCanUndo { buildDoUndo() } else if au?.uiUndo() == true { refreshFromDocument() } }
+    func redo() { if buildCanRedo { buildDoRedo() } else if au?.uiRedo() == true { refreshFromDocument() } }
     func refreshFromDocument() {
         guard let au else { return }
         scene = au.uiScene()
@@ -1109,8 +1120,8 @@ struct DiagView: View {
                        onSecretTap: secretDevTap, onOpenSettings: { showSettings = true },
                        onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes,
                        currentPreset: currentPreset, onOpenPresets: openPresets,
-                       canUndo: sel.canUndo || (au?.uiCanUndo ?? false),   // incl. SELECTION undo
-                       canRedo: sel.canRedo || (au?.uiCanRedo ?? false),
+                       canUndo: buildCanUndo || (au?.uiCanUndo ?? false),   // BUILD undo (the sole surface) + the AU document fallback
+                       canRedo: buildCanRedo || (au?.uiCanRedo ?? false),
                        onUndo: undo, onRedo: redo,
                        showScenes: showScenes,                                  // scene row visibility (cog toggle)
                        onOpenManual: { showManual = true },                     // "?" → the in-app manual
