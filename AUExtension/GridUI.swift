@@ -1250,12 +1250,14 @@ struct ProcessorBox: View {
                         selected: { i in tuttiSliceAt(p.tuttiSlices, i) },
                         set: { i, st in setParam { var s = $0.tuttiSlices ?? Array(repeating: .all, count: 8); while s.count < 8 { s.append(.all) }; s[i] = st; $0.tuttiSlices = s } })
                 }
-                field("GRID — how many slices per bar", \.tuttiRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in
-                    setParam { $0.tuttiRate = ArpRate.allCases[i] } } }
-                field("ROTATE — slide the figure", \.tuttiRotate) { numPair(p.tuttiRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.tuttiRotate = v } } }
-                // SPAN LADDER (RATE×ladder): RATE (above) = slice width; this dial = the pattern's loop period in columns.
-                spanLadderFreeField(p.tuttiSpanN ?? 0) { v in setParam { $0.tuttiSpanN = v } }   // SPAN re-anchor (Paul 2026-08-27): FREE (0) = the free-running slice walk (legacy CELL) · N = re-sync every N columns
             }
+            // §1 STANDARD PANEL ANATOMY — THE FOOTER: the frame row (GRID · ROTATE · SPAN, PATTERN mode only), then pairs-well.
+            if (p.tuttiMode ?? .coin) == .pattern {
+                frameRow(grid:  { field("GRID — how many slices per bar", \.tuttiRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in setParam { $0.tuttiRate = ArpRate.allCases[i] } } } },
+                         rotate: { field("ROTATE — slide the figure", \.tuttiRotate) { numPair(p.tuttiRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.tuttiRotate = v } } } },
+                         span:   { spanLadderFreeField(p.tuttiSpanN ?? 0) { v in setParam { $0.tuttiSpanN = v } } })
+            }
+            pairsWell(.tutti)
         })
         case .length: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // per-slice GATE override — PASS/MUTE/SHORT/LONG as a STATE MATRIX (rows = states, cols = steps)
             heroField("LENGTH PER STEP — tap a cell: that step takes that length") {
@@ -1759,7 +1761,8 @@ struct ProcessorBox: View {
     }
     static func pairsWellText(_ ft: ProcessorType) -> String? {
         switch ft {
-        case .ratchet: return "→ LENGTH · ← SPLIT"   // catalog §3: downstream LENGTH chokes/rings the rolls; upstream SPLIT rolls a register
+        case .ratchet: return "→ LENGTH · ← SPLIT"     // catalog §3: downstream LENGTH chokes/rings the rolls; upstream SPLIT rolls a register
+        case .tutti:   return "→ ARP · ← HARMONIZE"     // catalog §2: downstream ARP comps the voicings; upstream HARMONIZE enriches the set
         default: return nil
         }
     }
