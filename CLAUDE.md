@@ -159,6 +159,44 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ HOCKET v1 — the wire-listening driver (2026-08-27, on `main`, `fc3c15b`; iOS builds, macOS 922 green + fuzz; DEVICE
+  ear + Paul's RATIFICATION owed — spec `AcceptanceCriteria-hocket-processor.md` is CAPTURED, not ratified; built per
+  Paul's "implement as much as you can" unattended). A new DRIVER `ProcessorType.hocket`: plays its pool (WHAT) timed by
+  LISTENING to another emitter wire (WHEN). MODE GAPS (speak in the wire's silences — call/response) | TRADE (answer just
+  after it strikes — hit-for-hit); SOURCE = wire A–D; RATE = the decision grid; walks its pool ascending (a line).
+  **MECHANISM (safe v1, no row-loop reorder):** reuses the proven CONVERSATION primitive — a LIVE query of the listened
+  emitter's voices. GAPS reads `emitterSounding(bus)`; TRADE reads a NEW `emitterLastOnsetSample[4]` feed (updated in
+  openVoice, cleared on every flush edge). Inherits CONVERSATION's L1 order caveat (the wire's output SO FAR this render is
+  visible → put the listener on a LATER row). **CYCLE LAW:** a HOCKET that outputs on the wire it listens to falls SILENT
+  (guarded); cross-cell cycles ping-pong at one block latency (not detected v1). Full driver surface (isDriverType + both
+  generator dispatch switches → emitGeneratorRow `.hocket` case · CellMode · builder · emblem/desc/typeParams · storefront
+  cards HOCKET GAPS/TRADE in RHYTHM · label · macro list). +2 RouterTests + fuzz. **DEFERRED (the ambitious half):** the TRUE
+  wire-as-source class (topological cell ordering + per-tick emitted-events buffer → exact listening + any cross-cell cycle
+  silent); DOOR sources; the GAPS fractional-beat threshold; LENGTH TO-NEXT; FOLLOW/PEDAL/TRIGGER + the listening set.**
+- **▶ SCALE DOOR §1–§4 + §2 POOL-STEP — the ratified scale-door thread, feature-complete (2026-08-27, on `main`; iOS builds,
+  macOS 920→922 green + fuzz; DEVICE ear owed — Paul has no iPad, so device-test steps are in `_dear_paul/scale-door-device-
+  tests-2026-08-27.md`, Tests A–K). Spec `AcceptanceCriteria-scale-door.md` (ratified). **§1 SCALE DOOR (`be6a0be`):** a
+  sixth input mode — the door's pool = a chosen scale (ROOT · SCALE from a 13-scale list · RANGE base-oct + span). "Engine =
+  KEYS with a picker" — reuses the ENTIRE KEYS pipeline (self-arm · EXCLUDE · play-along); only the note SOURCE differs (pure
+  `scaleNotes` vs tapped). `DoorMode.scale` + `ScaleType` + Receiver scale fields; `latchPianoResolved` true for scale;
+  SnapshotBuilder feeds `receiverPianoNotes` from scaleNotes. **§3 KEY FILTER (`7db5cf9`):** the EXCLUDE generalised — MODE
+  MINUS|ONLY (subtract/intersect) + REJECTS BLOCK|SNAP (silence / nearest-legal remap). Two-pass updateLatchedPools so the
+  reference reads door B's RESOLVED pool (a SCALE key-door works). Pure `keyFilterNote` + no-alloc in-place `applyKeyFilter`;
+  box `receiverExcludeOnly/Snap`; shown on LATCH/HOLD/KEYS/SCALE sheets. **§4 DYNAMIC REFERENCE (`d1dc0fc`):** emergent from
+  §3 (keyReferenceMask reads B live → chord-lock via a moving B) + the CARRY PIN (`lastReferenceMask[4]` persists across B's
+  silences, the PEDAL law; reset on transport start). No new control — the "dial" is B's mode. **§2 POOL-STEP UNITS
+  (`960b7fc`+`7e20dfe`):** a `UNITS: SEMITONES|POOL` chip — offsets count in pool DEGREES (diatonic third, in-key). Pure
+  allocation-free `poolStepMask` (FOLD edge pin, octave wrap). Wired on HARMONIZE + TRANSPOSE (chain + hold + audition) +
+  ECHO PITCH (in-key trails; EchoTail.poolMask). RIFF already walks degrees. +8 tests + fuzz. **DEFERRED:** truly-live THRU
+  key filter · the "waiting for INPUT B" tell · GLIDE STEP + driver-path ECHO pool-units.**
+- **▶ SESSION UI/ENGINE BATCH — grid-sel animation · HOLD-full-chord · REPLAY playhead/OMNI · free-run crash · reel/EXCLUDE
+  (2026-08-26/27, on `main`; iOS builds, macOS green). Grid selector: cells + row selectors animate notes drifting R→L
+  (`eb32c9b`) + HOLD-a-row stamps the auditioning chain with a white-sweep (`ba77739`). HOLD chord door now freezes the FULL
+  chord (union-on-continuation, was "press 3 hold 2"); REPLAY radio disarms KEYS/HOLD/LATCH; REPLAY roll playhead sweeps +
+  lights notes as it passes; EXCLUDE relabelled "MIDI IN" (`de5c5cb`). REPLAY disables OMNI while looping (re-enablable) +
+  reel PAGINATION split from EXTEND (`4ebd125`). **CRASH FIX (`91b6cfd`):** the a8 silence-invariant hard-trapped on the
+  FREE-RUN clock (drives voices while the host is stopped from a latched chord) — now checks the EFFECTIVE playing flag
+  (rPlaying ∨ reel.replaying), not the host flag. The HOLD fix made it reproducible.**
 - **▶ EMPTY PART CELL = SILENT + grid-sel chip lighting/toggle (2026-08-26, on `main`; macOS green, iOS builds; DEVICE
   eye owed). Paul: on the part grid a machine-less cell still played the held chord. ROOT CAUSE: a machine-less colour
   (empty chain) was composed as a born-audible passthrough → the no-machine LIVE WIRE (reconcileBypass) passed the held
