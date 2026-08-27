@@ -1013,7 +1013,10 @@ struct DiagView: View {
             // 2026-08-23, so an engaged chain voice is SILENT until the user holds a note. Engaging on start-up just
             // arms the chain as the workshop voice so a held chord sounds the selected machine straight away.
             if activeTab == .build { buildSeedCastIfNeeded(); buildRequestWorkshopVoice(.chain) }
-            au?.setFreeRunEnabled(true)   // FREE-RUN (Paul 2026-08-25): the plugin drives its own clock on a held note when the host is stopped
+            // FREE-RUN is no longer a blanket enable (Paul 2026-08-27, FERRY-strike-anchor ①: stopped = silent). It is
+            // now GATED on an active BUILD play mode and synced from buildPublishScene() — the .chain request above
+            // already published + synced it. Seed false so a non-BUILD entry (defensive; BUILD is the sole surface) stays silent.
+            if activeTab != .build { au?.setFreeRunEnabled(false) }
         }
         .onDisappear { uiAppeared = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }

@@ -2319,6 +2319,14 @@ extension DiagView {
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
         // (The reference-chord fallback was REMOVED 2026-08-23, Paul: PLAY THIS MIDI CHAIN now sounds ONLY real input —
         // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
+        // FREE-RUN GATE (Paul 2026-08-27, FERRY-strike-anchor ①: REVERTS the 2026-08-25 held-note internal transport).
+        // "Stopped = silent." The plugin drives its OWN clock while the host is STOPPED only when an explicit BUILD play
+        // mode is running: PLAY THIS MIDI CHAIN (ddSolo) · PLAY THIS PART (buildStagingPlaying) · START THE PLAY GRID
+        // (buildPerformPlaying). All three off ⇒ free-run OFF ⇒ a bare held note produces NO throughput. Host-playing is
+        // unchanged (the Kernel free-run guard is `!playing`). Synced HERE — the one choke point every voice toggle and
+        // scene restore routes through. (The no-machine passthrough live-wire monitors independently, governed by the
+        // pending FERRY-passage-law, not this gate.)
+        au?.setFreeRunEnabled(ddSolo || buildStagingPlaying || buildPerformPlaying)
     }
     // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
     private var buildSelectedRow: Int? {

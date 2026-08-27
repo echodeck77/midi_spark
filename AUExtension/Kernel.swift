@@ -926,6 +926,9 @@ final class Kernel {
         // FREE-RUN CLOCK: host stopped + an effective note held (live OR latched — latch/hold/keys honoured) ⇒ advance the
         // plugin's own beat and drive the scene as if playing; stop + FLUSH when the pool empties (no stuck notes). The
         // router sees a start-edge (scene reset) on begin. Byte-identical while the host plays (the guard is `!playing`).
+        // GATED (Paul 2026-08-27, FERRY-strike-anchor ①): `freeRunEnabled` is now driven by BuildPage.buildPublishScene()
+        // from the active play mode (PLAY THIS MIDI CHAIN / PLAY THIS PART / START THE PLAY GRID) — all off ⇒ this whole
+        // block is inert ⇒ stopped is silent. It was a blanket-true-on-BUILD (the reverted held-note internal transport).
         var rPlaying = playing, rBeat = beatPos
         if freeRunEnabled && !playing {
             let effHeld = pool.count > 0 || (0..<4).contains { (effectiveLatchMask & (1 << UInt8($0))) != 0 && $0 < latchedPools.count && latchedPools[$0].count > 0 }
