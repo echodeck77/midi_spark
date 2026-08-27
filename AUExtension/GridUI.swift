@@ -945,9 +945,9 @@ struct ProcessorBox: View {
             // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — THE FOOTER: the frame row (GRID · ROTATE · SPAN, PATTERN mode
             // only) in fixed order + place, then the pairs-well line. GRID = slice width · SPAN = the pattern's loop period.
             if rmode == .pattern {
-                frameRow(grid:  { field("GRID — slices per bar", \.rtcRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rtcRate ?? .r1_8).rawValue) { i in setParam { $0.rtcRate = ArpRate.allCases[i] } } } },
-                         rotate: { field("ROTATE — walk the pattern", \.rtcRotate) { numPair(p.rtcRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.rtcRotate = v } } } },
-                         span:   { spanLadderFreeField(p.rtcSpanN ?? 0) { v in setParam { $0.rtcSpanN = v } } })
+                frameRow(grid:  { frameGrid(p.rtcRate ?? .r1_8) { r in setParam { $0.rtcRate = r } } },
+                         rotate: { frameRotate(p.rtcRotate ?? 0, 0...7) { v in setParam { $0.rtcRotate = v } } },
+                         span:   { frameSpan(p.rtcSpanN ?? 0, free: true) { v in setParam { $0.rtcSpanN = v } } })
             }
             pairsWell(.ratchet)
         })
@@ -1253,9 +1253,9 @@ struct ProcessorBox: View {
             }
             // §1 STANDARD PANEL ANATOMY — THE FOOTER: the frame row (GRID · ROTATE · SPAN, PATTERN mode only), then pairs-well.
             if (p.tuttiMode ?? .coin) == .pattern {
-                frameRow(grid:  { field("GRID — how many slices per bar", \.tuttiRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in setParam { $0.tuttiRate = ArpRate.allCases[i] } } } },
-                         rotate: { field("ROTATE — slide the figure", \.tuttiRotate) { numPair(p.tuttiRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.tuttiRotate = v } } } },
-                         span:   { spanLadderFreeField(p.tuttiSpanN ?? 0) { v in setParam { $0.tuttiSpanN = v } } })
+                frameRow(grid:  { frameGrid(p.tuttiRate ?? .r1_8) { r in setParam { $0.tuttiRate = r } } },
+                         rotate: { frameRotate(p.tuttiRotate ?? 0, 0...7) { v in setParam { $0.tuttiRotate = v } } },
+                         span:   { frameSpan(p.tuttiSpanN ?? 0, free: true) { v in setParam { $0.tuttiSpanN = v } } })
             }
             pairsWell(.tutti)
         })
@@ -1745,14 +1745,43 @@ struct ProcessorBox: View {
     // this FIXED ORDER under one "FRAME" label, so hands learn ONE location across every pattern card. The card passes its
     // own three controls (each already a labelled field); this fixes their order + place (the footer). Pure re-layout.
     @ViewBuilder private func frameRow<G: View, R: View, S: View>(@ViewBuilder grid: () -> G, @ViewBuilder rotate: () -> R, @ViewBuilder span: () -> S) -> some View {
-        // GRID · ROTATE · SPAN in FIXED ORDER under one FRAME label (Paul 2026-08-27). ALWAYS-VISIBLE controls — segs + the
-        // ◀n▶ nudge, every option on screen, no popups (Paul's call: prefer visible options over the dropdown). The footer's
-        // fixed place; hands learn one location across every pattern card. Stacked because the rate/span segs are full-width.
-        VStack(alignment: .leading, spacing: rowSpacing) {
+        // GRID · ROTATE · SPAN in FIXED ORDER under one FRAME label. COMPACT + always-visible (Paul 2026-08-28: small +
+        // stylish, all options on screen — no popups, no oversized seg). Each control = a narrow prefix + a tight small-chip
+        // row (frameGrid/frameSpan/frameRotate). The footer's fixed place; hands learn one location across every pattern card.
+        VStack(alignment: .leading, spacing: 5) {
             Text("FRAME").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35)).tracking(1.5)
             Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
             grid(); rotate(); span()
         }.padding(.top, 5)
+    }
+    // §1 ANATOMY — the COMPACT frame controls (Paul 2026-08-28): small chips in a tight row, ALL options visible (no popup,
+    // no finger-sized seg). frameSeg = the small-chip selector; frameGrid/frameSpan wrap it with a narrow prefix; ROTATE
+    // stays the ◀n▶ nudge. The midway between the old full-size fields and the dropdowns.
+    private func frameSeg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 3) {
+            ForEach(Array(options.enumerated()), id: \.offset) { i, o in
+                let on = o == sel
+                Text(o).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.5))
+                    .padding(.horizontal, 6).frame(height: 24)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.07)))
+                    .contentShape(Rectangle()).onTapGesture { onPick(i) }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+    private func framePrefix(_ s: String) -> some View {
+        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).frame(width: 50, alignment: .leading)
+    }
+    private func frameGrid(_ current: ArpRate, _ set: @escaping (ArpRate) -> Void) -> some View {
+        HStack(spacing: 6) { framePrefix("GRID"); frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }
+    }
+    private func frameSpan(_ current: Int, free: Bool, _ set: @escaping (Int) -> Void) -> some View {
+        let vals = (free ? [0] : []) + spanLadderValues
+        return HStack(spacing: 6) { framePrefix("SPAN"); frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }
+    }
+    private func frameRotate(_ current: Int, _ range: ClosedRange<Int>, _ set: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 6) { framePrefix("ROTATE"); numPair(current, range, wrap: true, set); Spacer(minLength: 0) }
     }
     // §1 ANATOMY — the "pairs well" line (footer item 3): one dim row from the pairing catalog (processor-pairings.md),
     // teaching at the moment of choice. → = a good DOWNSTREAM stage · ← = a good UPSTREAM stage. nil = no line drawn.
