@@ -16,9 +16,16 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-2
 - **OPEN — STRIKE PER SPAN on the span-ladder DRIVER cards** (euclid/riff/ratchet/tutti-pattern/burst/cascade): each is
   tick-driven, not a hold, so each needs its own adopt/reconcile bolted on (bigger, riskier). Spec calls them "legal but not
   the point." HARMONIZE/TUTTI-COIN holds are the easy same-path follow-ups. Flagged in `_dear_paul/strike-per-span-drone-*`.
-- **NEXT (Paul's original goal) — STANDARD PANEL ANATOMY:** the uniform processor-panel frame (header SOURCE+OCT · IN strip ·
-  body · footer GRID·ROTATE·SPAN · OPTIONS · pairs-well · OUT roll) across all editors — now that the SPAN footer is uniform.
-  Spec `AcceptanceCriteria-standard-panel-anatomy.md`. Large blind UI change → build ONE reference card first for Paul's eye.
+- **STANDARD PANEL ANATOMY §1 (spec `AcceptanceCriteria-standard-panel-anatomy.md`) — IN PROGRESS:**
+  - ✅ **FOOTER** (`c01e966`+`5aedb06`+`e3ed45f`): `frameRow` = compact horizontal GRID·ROTATE·SPAN (Paul chose horizontal;
+    gridMenu/spanMenu tap-menus + ◀n▶ rotate) + `pairsWell` line. On RATCHET + TUTTI PATTERN (the reference pair).
+  - ✅ **HEADER OCT** (`ce0954d`): per-slot `stageOct` ±3 (stage's own voice); engine on all paths + `applyStage` post-shift; +2 tests.
+  - ✅ **HEADER SOURCE** (`c5fffce`): per-slot `stageSource` CHAIN|MIDI IN|BOTH; v1 = the composeChainSet fold; +1 test.
+  - ⏳ **FOOTER SWEEP** — the frame row + pairs-well on euclid (single/LINES split — care) · burst (conditional GRID) ·
+    cascade (no ROTATE) · riff; + OPTIONS chips in the footer; + full per-card pairs-well data.
+  - ⏳ **CHROME** — reposition the IN truth-strip UNDER the header + the OUT roll to the FLOOR (currently one IN|OUT band below the body).
+  - ⏳ **SOURCE downstream** (the [ARP→HARMONIZE(MIDI IN)] headline) — needs the door threaded into emitDriverNote (cascades
+    through emit helpers) + the hold-tail source + **a FEEL ruling from Paul** (per-tick door read vs a sustained parallel voice).
 
 ## ★★ DESIGN INBOX 2026-08-22 BATCH — 8 RATIFIED SPECS, filed to `Docs/` 2026-08-24 (sequencing = Paul's word). NONE built yet.
 Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euclid-variations.md`, `SPEC-exclude-complement.md`,

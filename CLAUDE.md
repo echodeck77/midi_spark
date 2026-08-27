@@ -159,6 +159,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ STANDARD PANEL ANATOMY §1 — the FOOTER (reference cards) + the HEADER standards OCT + SOURCE (2026-08-27, on
+  `main`; iOS builds, macOS green; DEVICE eye/ear owed). Paul's flagship UI goal (spec `AcceptanceCriteria-standard-panel-
+  anatomy.md`, ratified). Built increment-by-increment with his steer. **THE FOOTER (`c01e966`+`5aedb06`+`e3ed45f`, UI-only):**
+  a reusable `frameRow` — the compact horizontal **GRID · ROTATE · SPAN** row (Paul chose horizontal over stacked; GRID/SPAN
+  are tap-menus `gridMenu`/`spanMenu`, ROTATE the ◀n▶ nudge) under a FRAME label, so hands learn one location — + a
+  `pairsWell` line from the pairing catalog (→ downstream · ← upstream). Applied to RATCHET + TUTTI PATTERN as the reference
+  pair. **THE HEADER STANDARDS (a row under the crown, SOURCE · OCT):** **OCT `ce0954d`** — a per-SLOT `stageOct` (±3
+  octaves) on the stage's OWN voice (distinct from the OCTAVE utility card, both coexist); engine applies it once per slot
+  (hold + tick transpose sums + a guarded zero-cost `applyStage` post-shift for folded stages); +2 tests. **SOURCE `c5fffce`**
+  — a per-SLOT `stageSource` CHAIN|MIDI IN|BOTH (read the upstream chain / the row's DOOR / merge); v1 engine = the
+  `composeChainSet` fold (a stage upstream of a driver reads the door); +1 test. Both additive-Optional (nil ⇒ byte-identical).
+  **DEFERRED (flagged `_dear_paul`):** the footer SWEEP to euclid/burst/cascade/riff + OPTIONS chips; the IN-strip/OUT-roll
+  chrome repositioning; the SOURCE **downstream** driver-fold ([ARP→HARMONIZE(MIDI IN)] — emitDriverNote has no door pool +
+  a FEEL ruling owed: per-tick door read vs a sustained parallel voice) + the hold-tail source. NEXT: Paul's steer on the
+  sweep vs chrome vs the SOURCE feel-ruling.**
 - **▶ THE UNIVERSAL SPAN MODEL — riff+euclid RATE×ladder · FREE on tutti/ratchet · STRIKE PER SPAN on the drone
   (2026-08-27, on `main`; iOS builds, macOS green + fuzz; DEVICE ear owed). Paul: "standard panel anatomy" — first the SPAN
   model. **SPAN = re-anchor the pattern's phase every N columns; DECOUPLED from an ABSOLUTE RATE (grain).** Density lives in
