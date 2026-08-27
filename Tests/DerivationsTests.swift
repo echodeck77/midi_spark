@@ -1202,59 +1202,9 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(placeHoldDecision(placedColumns: placed, retoggle: false, col: 4), .blockedColumnUsed)
     }
 
-    // MARK: multi-cell route foci (per-column, exactly-one)
-
-    func testRouteFociEmpty() {
-        XCTAssertTrue(routeFociByColumn([]).isEmpty)
-    }
-    func testRouteFociOnePerColumn() {
-        let foci = routeFociByColumn([(col: 1, row: 3), (col: 4, row: 0), (col: 4 - 4, row: 7)])   // cols 1,4,0
-        XCTAssertEqual(foci, [1: 3, 4: 0, 0: 7])
-    }
-    func testRouteFociTwoInAColumnExcludesThatColumn() {
-        // col 2 has two selected → no focus there; cols 1 and 5 each have one → foci.
-        let foci = routeFociByColumn([(2, 1), (2, 5), (1, 0), (5, 6)])
-        XCTAssertNil(foci[2], "a column with 2+ selected cells is ambiguous — no focus")
-        XCTAssertEqual(foci[1], 0)
-        XCTAssertEqual(foci[5], 6)
-        XCTAssertEqual(foci.count, 2)
-    }
-
-    // (Removed 2026-07-30: sticky-routing tests — freshly placed cells no longer inherit or nudge routing;
-    //  a new cell is created with the plain model defaults, so there is no derivation left to test here.)
-
-    // MARK: routing visualisation graph
-
-    private func grid8() -> [[Cell?]] { [[Cell?]](repeating: [Cell?](repeating: nil, count: 8), count: 8) }
-
-    // Grid-chaining retired: every input edge is receiver→cell (no cell→cell edges); only the selected cell's own edges light.
-    func testRoutingEdgesReceiverAndEmitterOnly() {
-        var cells = grid8()
-        cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 1; return c }()   // MIDI-IN ⇐ R2 (not selected)
-        cells[0][2] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()         // inputRow now INERT → no input edge
-        cells[3][0] = { var c = Cell(colourID: "teal", buses: [.c]); c.inputReceiver = 0; return c }()    // unrelated column
-        let e = routingEdges(cells: cells, selected: [RouteCell(col: 0, row: 2)])
-        XCTAssertFalse(e.contains { if case .cell = $0.from, case .cell = $0.to { return true }; return false }, "no cell→cell edges")
-        XCTAssertTrue(e.contains(RouteEdge(from: .receiver(1), to: .cell(RouteCell(col: 0, row: 0)), lit: false)), "receiver→cell for the receiver-fed cell, dim (not selected)")
-        XCTAssertTrue(e.contains(RouteEdge(from: .cell(RouteCell(col: 0, row: 2)), to: .emitter(1), lit: true)), "the SELECTED cell's emitter edge lights")
-        XCTAssertFalse(e.contains { if case .cell(let rc) = $0.to, rc.col == 0, rc.row == 2, case .receiver = $0.from { return true }; return false }, "a row-fed cell with no receiver has no input edge")
-        XCTAssertTrue(e.contains(RouteEdge(from: .receiver(0), to: .cell(RouteCell(col: 3, row: 0)), lit: false)))
-    }
-    func testRoutingEdgesNoSelectionAllDim() {
-        var cells = grid8()
-        cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        let e = routingEdges(cells: cells, selected: [])
-        XCTAssertFalse(e.isEmpty)
-        XCTAssertTrue(e.allSatisfy { !$0.lit })
-    }
-    func testRoutingEdgesNullCellHasNoReceiverOrEmitterEdge() {
-        // A freshly placed, fully-unrouted cell (nil receiver, nil row, EMPTY buses) draws NO edges at all —
-        // no receiver→cell entry (it must not default to R1) and no cell→emitter exit.
-        var cells = grid8()
-        cells[0][0] = Cell(colourID: "gold", buses: [])   // inputRow nil, inputReceiver nil, no emitters
-        let e = routingEdges(cells: cells, selected: [])
-        XCTAssertTrue(e.isEmpty, "a null cell should contribute no routing edges, got \(e)")
-    }
+    // (Removed 2026-08-27 housekeeping: the multi-cell ROUTE-FOCI and ROUTING-VISUALISATION-GRAPH tests
+    //  (routeFociByColumn / routingEdges / RouteEdge / RouteCell) — the routing-viz overlay was retired with the
+    //  tab era and grid-chaining, so those pure helpers have no engine or UI consumer. Tests removed as dead-feature.)
 
     // MARK: emblems (cells & colour desk)
 
@@ -1265,9 +1215,8 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: trigger glyph (deviation-shown)
 
-    func testTriggerMarkDefaultIsNil() {
-        XCTAssertNil(triggerMark(OnConfig()))                                   // both default → no mark
-    }
+    // (testTriggerMarkDefaultIsNil + testTriggerMarkTapPlusHoldRings removed 2026-08-27: redundant — both branches are
+    //  re-asserted by the newer combined testTriggerMarkTapRingAndHoldOnly + testTriggerGlyphTotality below.)
     func testTriggerMarkTapSetsGlyphNoRing() {
         var on = OnConfig(); on.tap = .replay
         let m = triggerMark(on)
@@ -1278,19 +1227,8 @@ final class DerivationsTests: XCTestCase {
         let m = triggerMark(on)
         XCTAssertEqual(m?.glyph, "snowflake"); XCTAssertEqual(m?.ring, true)
     }
-    func testTriggerMarkTapPlusHoldRings() {
-        var on = OnConfig(); on.tap = .alt; on.hold = .oct
-        XCTAssertEqual(triggerMark(on)?.ring, true, "a hold rings the tap glyph")
-    }
-
-    // MARK: colour census (D3 delete protection)
-
-    func testColourCensusCountsAcrossScenes() {
-        var s1 = SceneState.empty(); s1.cells[0][0] = Cell(colourID: "gold"); s1.cells[1][0] = Cell(colourID: "gold")
-        var s2 = SceneState.empty(); s2.cells[0][0] = Cell(colourID: "cyan")
-        let c = colourCensus([s1, s2])
-        XCTAssertEqual(c["gold"], 2); XCTAssertEqual(c["cyan"], 1); XCTAssertNil(c["teal"], "unpainted ⇒ absent (census 0)")
-    }
+    // (colour census tests removed 2026-08-27: `colourCensus` (the D3 delete-protection helper) has zero non-test
+    //  callers — the delete-protection UI was dropped — so the tests guard a dead pure function.)
 
     // MARK: - THE SEAL (derived cell face)
 
@@ -1519,16 +1457,7 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(tapOverlayMasks([], now: 0, footSolo: 0b0101).solo, 0b0101)
     }
 
-    // MARK: - colourCensus — empty / all-nil edge (D3 deletion-protection boundary)
-
-    /// A census over empty/all-nil scenes is EMPTY (every Colour has count 0 → deletable) — the boundary the
-    /// scenes-are-precious deletion guard rides on.
-    func testColourCensusEmptyWhenNoPaintedCells() {
-        XCTAssertTrue(colourCensus([]).isEmpty)
-        XCTAssertTrue(colourCensus([SceneState.empty()]).isEmpty, "all-nil cells → no Colour is in use")
-        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold"); s.cells[1][1] = Cell(colourID: "gold")
-        XCTAssertEqual(colourCensus([s])["gold"], 2)
-    }
+    // (colourCensus empty-edge test removed 2026-08-27: dead helper, zero non-test callers.)
 
     // MARK: - trigger glyphs — per-case totality + hold-only ring
 

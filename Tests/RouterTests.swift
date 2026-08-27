@@ -2247,24 +2247,9 @@ final class RouterTests: XCTestCase {
         }
     }
 
-    func testFanOutTreeEmitsThreeDerivedStreams() {
-        // Device T9 (multi-level fan-out), previously unit-untested: one arp PARENT (MIDI IN, no bus →
-        // silent source), two CHILDREN ⇐row0 on B and C, and a GRANDCHILD ⇐row1 on D. All three derived
-        // streams sound simultaneously; the parent itself is silent (no bus).
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [])                 // parent — silent source (no bus)
-            $0.cells[0][1] = Cell(colourID: "gold", buses: [.b], inputRow: 0)  // child1 ⇐ row 0 → B
-            $0.cells[0][2] = Cell(colourID: "gold", buses: [.c], inputRow: 0)  // child2 ⇐ row 0 → C
-            $0.cells[0][3] = Cell(colourID: "gold", buses: [.d], inputRow: 1)  // grandchild ⇐ row 1 → D
-        }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "the bus-less parent is silent")
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "child1 derives onto B")
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 3 }.count, 0, "child2 derives onto C")
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 4 }.count, 0, "grandchild (⇐child) derives onto D")
-        assertNothingLeftSounding(e)
-    }
+    // (testFanOutTreeEmitsThreeDerivedStreams removed 2026-08-27: GRID-CHAINING retired — `inputRow` is render-inert
+    //  (resolvedParent is hardcoded −1), so the "derived fan-out streams" never existed; the children sound only because
+    //  they read the source pool. The test passed for the wrong reason.)
 
     func testMutedReceiverSilencesItsSubscribers() {
         // delta §9 item 11: a MIDI-IN cell subscribed to a MUTED receiver reads an empty pool → silence.
@@ -2299,51 +2284,11 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    func testBackwardTapDownwardReferenceEmits() {
-        // Device T11b (backward tap), previously unit-untested at the Router level: a cell references a
-        // row BELOW itself (legal in v3.0 — any-row refs). Row 0 ⇐ row 2 → A; row 2 ⇐ MIDI IN → B. Both
-        // sound: the downward ref resolves (unit-delay sampling) and row 0 emits a processed row-2 stream.
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a], inputRow: 2)  // row 0 ⇐ row 2 (below) → A
-            $0.cells[0][2] = Cell(colourID: "gold", buses: [.b])               // row 2 ⇐ MIDI IN → B
-        }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "row 2 (the source) sounds on B")
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "row 0 emits a processed downward-ref stream on A")
-        assertNothingLeftSounding(e)
-    }
-
-    func testProcBFullMorphsToBFaceUnderAlt() {
-        // CELL MACHINE (feat/EditPageSpike): A/B morph is DROPPED — the render uses the HEAD (A face) only, so
-        // ALT no longer flips to procB's 3-oct arp. procB stays dormant in the model; NEITHER state reaches 72.
-        var cs = arpColours()
-        let gi = colourIDs.firstIndex(of: "gold")!
-        cs[gi].paramsA.octaves = 1
-        cs[gi].typeB = .arp; cs[gi].paramsB.octaves = 3
-        func emitted(_ alt: Bool) -> Set<UInt8> {
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.alt = alt; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
-            return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
-        }
-        XCTAssertFalse(emitted(false).contains(72), "the head 1-oct arp never reaches 72")
-        XCTAssertFalse(emitted(true).contains(72), "morph DROPPED: ALT stays on the head (A face) — never reaches procB's 72")
-    }
-
-    func testProcBSwapFlipsTypeUnderAlt() {
-        // CELL MACHINE: A/B morph DROPPED — ALT no longer swaps type. The head (arp) sounds in BOTH states;
-        // procB's closed passgate is dormant.
-        var cs = arpColours()
-        let gi = colourIDs.firstIndex(of: "gold")!
-        cs[gi].typeB = .passgate; cs[gi].paramsB.passes = [false, false, false, false]
-        func sounds(_ alt: Bool) -> Bool {
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.alt = alt; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-            return !e.ons.isEmpty
-        }
-        XCTAssertTrue(sounds(false), "the head gold arp sounds")
-        XCTAssertTrue(sounds(true), "morph DROPPED: ALT no longer swaps to the closed passgate — the head arp still sounds")
-    }
+    // (testBackwardTapDownwardReferenceEmits + testProcBFullMorphsToBFaceUnderAlt + testProcBSwapFlipsTypeUnderAlt removed
+    //  2026-08-27: all three guard RETIRED features that pass for the wrong reason. Backward-tap = grid-chaining (`inputRow`
+    //  render-inert). The two procB tests = A/B MORPH (dropped from the render — paramsB/typeB are decode-only), so they
+    //  only assert "ALT does NOT reach the inert B-face", which can never fail. The alt-bit's live role (voice identity)
+    //  is covered elsewhere.)
 
     // CELL MACHINE (feat/EditPageSpike): a cell's explicit 1-slot chain drives the render identically to the
     // Colour it references (the head == the Colour's A face). Proves the per-cell head-treatment override.
@@ -3635,37 +3580,10 @@ final class RouterTests: XCTestCase {
 
     // MARK: - graph routing (delta §1) — reference derivation, reroute, cycles
 
-    func testFedArpArpeggiatesTheParentsSoundingNote() {
-        // Parent ARP (row 0 →A); child ARP references row 0 (row 1 →B). The child arpeggiates the
-        // parent's CURRENT sounding note by derivation (window-independent) — with a single held note
-        // and 1 octave, that note IS the parent's note.
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = Cell(colourID: "gold")                              // parent, MIDI IN →A
-            $0.cells[0][1] = Cell(colourID: "azure", buses: [.b], inputRow: 0)   // child ⇐R0 →B
-        }
-        let e = RecordingEmitter()
-        run(b, chord([60]), beats: 16, into: e)
-        let childNotes = Set(e.ons.filter { $0.cable == 2 }.map { $0.note })     // bus B = cable 2
-        XCTAssertFalse(childNotes.isEmpty, "the fed child should sound")
-        XCTAssertEqual(childNotes, [60], "child mirrors the parent's sounding note")
-        assertNothingLeftSounding(e)
-    }
-
-    func testMutedParentReroutesChildToSource() {
-        // Muted parent → child reverts to MIDI IN (delta §1 reroute), so it arps the WHOLE source
-        // chord — not a silent mirror. Proven with a chord: the rerouted child sounds all three notes.
-        var parent = Cell(colourID: "gold"); parent.muted = true
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = parent
-            $0.cells[0][1] = Cell(colourID: "azure", buses: [.b], inputRow: 0)
-        }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "muted parent emits nothing on A")
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67],
-                       "child rerouted to MIDI IN arps the full source chord (not a nil mirror)")
-        assertNothingLeftSounding(e)
-    }
+    // (testFedArpArpeggiatesTheParentsSoundingNote + testMutedParentReroutesChildToSource removed 2026-08-27:
+    //  GRID-CHAINING retired — `inputRow` is render-inert, so the "child mirrors/reroutes-from the parent" behaviour is
+    //  dead. Both children read the SOURCE pool regardless of the ref; the muted-parent-is-silent residual is covered by
+    //  testMutedReceiverSilencesItsSubscribers / testMutedCellEmitsNothing.)
 
     // (grid-chaining retired: the reference-cycle test was removed — no cell-to-cell references exist.)
 
@@ -4107,23 +4025,9 @@ final class RouterTests: XCTestCase {
 
     // ROW-FEED (1b): input = ⇐ROW 0. The virtual cell reads row 0's sounding note by derivation, so it
     // emits on its own bus (B) while row 0's real cell is soloed out.
-    func testPreviewRowFeedReadsParentRow() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // row 0 sounds
-        let e = RecordingEmitter()
-        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, 0), beats: 8, into: e)   // preview → bus B, input ROW 0
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "row-feed: the virtual cell reads row 0")
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "row 0's own cell is soloed out")
-    }
-
-    // ROW-FEED with an EMPTY parent row → falls back to the source pool (still sounds).
-    func testPreviewRowFeedEmptyParentFallsBackToSource() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        let b = box(colours: arpColours()) { _ in }                          // empty grid
-        let e = RecordingEmitter()
-        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, 3), beats: 8, into: e)   // input ROW 3 (empty)
-        XCTAssertGreaterThan(e.ons.count, 0, "empty parent → source-pool fallback still arps")
-    }
+    // (testPreviewRowFeedReadsParentRow + testPreviewRowFeedEmptyParentFallsBackToSource removed 2026-08-27: the preview
+    //  `inputRow` is never read (grid-chaining retired → always source-fed), so the first duplicates
+    //  testPreviewSolosOnlyTheVirtualCell and the second's "empty-parent fallback" is the only path — both vacuous.)
 
     // 1c: a STRUM colour previews (source chord strummed) and releases clean.
     func testPreviewStrumSoundsAndReleasesClean() {
@@ -4195,15 +4099,8 @@ final class RouterTests: XCTestCase {
 
     // PLAYING preview, RATCHET with ROW-FEED: the virtual ratchet cell reads row 0's sounding note (an arp cell),
     // repeating it on bus B while row 0's own cell is soloed out.
-    func testPreviewRatchetRowFeedReadsParentRow() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .ratchet)   // "orange" stays arp
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "orange", buses: [.a]) }
-        let e = RecordingEmitter()
-        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, 0), beats: 8, into: e)   // ratchet virtual fed from row 0
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "ratchet row-feed reads row 0 and repeats it on bus B")
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "row 0's own cell is soloed out")
-    }
+    // (testPreviewRatchetRowFeedReadsParentRow removed 2026-08-27: preview `inputRow` is inert (grid-chaining retired), so
+    //  it duplicates testPreviewRatchetSoundsAndReleasesClean — a source-fed ratchet preview.)
 
     // 1c: CHANCE chord-hold preview gates by probability — p=1 sounds the held chord, p=0 is silent.
     func testPreviewChanceChordHoldGatesAndReleasesClean() {
@@ -4268,35 +4165,8 @@ final class RouterTests: XCTestCase {
     // §9 item 1 ON ARRIVE (integration): ALT-ALTERNATE on a swap pair (A = open passgate → sounds,
     // B = closed passgate → silent) flips the cell's sounding every pass. Proves the derivation is wired
     // into the render (pass 0 = base A, pass 1 = flipped B).
-    func testArriveAltAlternateFlipsSoundingAcrossPasses() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours()
-        cs[gold] = Colour(colourID: "gold", type: .passgate)
-        cs[gold].paramsA.passes = [true, true, true, true]         // A: open → holds the chord
-        cs[gold].typeB = .passgate
-        cs[gold].paramsB.passes = [false, false, false, false]     // procB: closed → silent
-        var on = OnConfig(); on.arrive = .altAlternate; on.arriveEvery = 1; cs[gold].on = on
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
-
-        let router = Router(); var diag = KernelDiag()
-        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr
-        let cycle = Double(Snap.cols) * b.stepBeats
-        let pool = chord([60, 64, 67])
-        func runRange(_ lo: Double, _ hi: Double, into e: RecordingEmitter) {
-            var beat = lo, ts = (lo / wb) * Double(frames)
-            while beat < hi {
-                router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                               timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-                beat += wb; ts += Double(frames)
-            }
-        }
-        let e0 = RecordingEmitter(); runRange(0, cycle, into: e0)             // pass 0 → head (A open)
-        let e1 = RecordingEmitter(); runRange(cycle, 2 * cycle, into: e1)     // pass 1 → ALT-ALTERNATE (no face flip now)
-        XCTAssertGreaterThan(e0.ons.count, 0, "pass 0 (head: open passgate) sounds the held chord")
-        // CELL MACHINE: A/B morph DROPPED — ALT-ALTERNATE no longer flips to procB, so the head (open) keeps sounding.
-        XCTAssertGreaterThan(e1.ons.count, 0, "pass 1: morph dropped → ALT-ALTERNATE stays on the head, still sounds")
-    }
+    // (testArriveAltAlternateFlipsSoundingAcrossPasses removed 2026-08-27: A/B MORPH dropped → ON.arrive=.altAlternate no
+    //  longer flips the sounding face, so both passes only assert `ons > 0` (the head always sounds) — vacuous.)
 
     // §9 item 1 ON ARRIVE (integration): EMITTER-ROTATE walks the firing cable each pass — a cell on
     // emitter A (cable 1) rotates to B (cable 2) on the next pass.
@@ -4373,28 +4243,9 @@ final class RouterTests: XCTestCase {
 
     // §9 item 1 ON TAP (4a, integration): the ephemeral tapAltMask flips a cell's effective ALT (unified model)
     // — a swap pair (A = open passgate, B = closed) goes silent when its tap bit is set.
-    func testTapAltMaskFlipsCellEphemerally() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours()
-        cs[gold] = Colour(colourID: "gold", type: .passgate); cs[gold].paramsA.passes = [true, true, true, true]
-        cs[gold].typeB = .passgate; cs[gold].paramsB.passes = [false, false, false, false]   // procB: closed → silent
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // grid (0,0) = bit 0, base A
-        func ons(tapMask: UInt64) -> Int {
-            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-            let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-            while beat < 2.0 {
-                router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                               timestampSample: ts, frameCount: frames, tapAltMask: tapMask, out: e, diag: &diag)
-                beat += wb; ts += Double(frames)
-            }
-            return e.ons.count
-        }
-        XCTAssertGreaterThan(ons(tapMask: 0), 0, "no tap flip → head (open passgate) sounds")
-        // CELL MACHINE: A/B morph DROPPED — the tap flip still sets the cell's ALT bit but no longer swaps the
-        // processor face, so the head (open passgate) keeps sounding. (The tap-mute path is tested separately.)
-        XCTAssertGreaterThan(ons(tapMask: 1 << 0), 0, "morph dropped: tap flip no longer swaps to procB — head still sounds")
-    }
+    // (testTapAltMaskFlipsCellEphemerally removed 2026-08-27: A/B MORPH dropped → the tap-ALT flip no longer swaps the
+    //  processor face, so both assertions are `ons > 0` (the head always sounds) — vacuous. The real tap-mute path is
+    //  covered by testTapMuteSilencesCell below.)
 
     // §9 item 1 ON TAP = MUTE (4b): a cell whose tapMuteMask bit is set falls silent (momentary).
     func testTapMuteSilencesCell() {
