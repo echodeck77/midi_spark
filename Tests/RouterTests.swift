@@ -2927,6 +2927,29 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(f, Set([65, 69, 72]), "the SAME stencil plays F's notes — chord-following, no pitches stored")
         XCTAssertNotEqual(cm, f, "a different chord → different pitches")
     }
+    // SPAN RE-ANCHOR (Paul 2026-08-27, the universal re-sync model — riff is the first card): a 3-step stencil [1,2,3]
+    // FREE-runs and cycles all three chord notes across the row; SPAN=1 re-syncs the stencil to step 0 EVERY column, so
+    // only step 0 (rank 1 = the lowest note) ever plays. One step per column (riffRate == stepRate == 1/8 = 0.5 beat).
+    func testRiffSpanReAnchorsTheStencil() {
+        func played(spanN: Int?) -> [Int] {
+            var c = Colour(colourID: "gold", type: .riff)
+            c.paramsA.riffRanks = [1, 2, 3]; c.paramsA.riffSteps = 3; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
+            c.paramsA.riffSpanN = spanN
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { s in
+                s.stepRate = .r1_8                                       // 0.5-beat columns == the riff rate → one step per column
+                for col in 0..<8 { s.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }   // the whole row → the stencil plays continuously
+            }
+            let e = RecordingEmitter(); run(b, chord([60, 62, 64]), beats: 4, into: e)   // 8 columns
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        }
+        let free = played(spanN: nil)     // FREE (default — free-run, byte-identical to before the feature)
+        let span1 = played(spanN: 1)      // re-anchor every column
+        XCTAssertEqual(Set(free), Set([60, 62, 64]), "FREE: the 3-step stencil cycles all three notes across the row — got \(free)")
+        XCTAssertEqual(Set(span1), Set([60]), "SPAN=1: re-anchored EVERY column → only step 0 (the lowest, 60) ever plays — got \(span1)")
+        XCTAssertNotEqual(free, span1, "the re-anchor demonstrably changes the sequenced output")
+    }
     // Paul 2026-08-25 bug repro: a stencil of ALL rank-1, holding C+E, must be a STREAM of C (the lowest held note) —
     // not an alternation between C and E. Every step resolves rank 1 → asc(0) → the lowest note.
     func testRiffAllRankOnePlaysOnlyTheLowestNote() {

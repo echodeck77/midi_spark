@@ -3678,7 +3678,12 @@ final class Router {
         iterateTicks(row: r, effColumn: effColumn, sub: riffBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded()))) { tick, mTickBeat, onTime, offTime in
-            let step = ((Int((mTickBeat / riffBeats).rounded(.down)) % steps) + steps) % steps   // FREE phase (global grid, replay-exact)
+            // SPAN RE-ANCHOR (Paul 2026-08-27, the universal re-sync model — riff is the first card): FREE (spanN 0) runs
+            // the global grid (today, byte-identical); spanN > 0 re-syncs the stencil to step 0 every N columns, so an odd
+            // `steps` against an aligning span DRIFTS then SNAPS BACK (polymeter). Pure (derived from the absolute beat +
+            // the span constant — no accumulated phase), so replay-exact.
+            let phaseBeat = p.riffSpanN > 0 ? (mTickBeat - columnStart(mTickBeat, spanLadderBeats(p.riffSpanN, S: S, row: cycleBeats))) : mTickBeat
+            let step = ((Int((phaseBeat / riffBeats).rounded(.down)) % steps) + steps) % steps
             if step < p.riffTie.count && p.riffTie[step] { return }   // §5 TIE — no new attack; the striking step's off was EXTENDED to cover this step (a held ⌒)
             // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask bits) — a chord that follows the held chord;
             // MONO strikes the single riffRanks[step]. Both share the per-step §5 modifiers.

@@ -323,6 +323,11 @@ struct ColourParams: Codable, Equatable {
     var riffTie: [Bool]? = nil                  // per-step: extend the previous note (a held ⌒) — v1b
     var riffSlide: [Bool]? = nil                // per-step: legato → GLIDE SYNTH slide (§5 interlock) — v2
     var riffWrap: RiffWrap? = nil               // rank > held count → FOLD (default) | CLAMP | WRAP
+    // SPAN RE-ANCHOR (Paul 2026-08-27, the universal re-sync model): how often the free-running stencil snaps back to
+    // step 0 — nil/0 ⇒ FREE (the today behaviour: the stencil runs on the global grid, an odd length phases forever) ·
+    // 1·2·3·4·6·8 cols · 16=×2 · 32=×4 ⇒ re-anchor every N columns. An odd length against an aligning span = drift then
+    // resync (polymeter). RATE (grain) and SPAN (loop) are now independent — the first card of the standardised model.
+    var riffSpanN: Int? = nil
     // HOCKET (AcceptanceCriteria-hocket-processor, v1): a driver that plays its pool timed by LISTENING to a wire.
     // Additive-Optional (a new type — no old-doc effect). SOURCE = the listened emitter (0…3 = wire A–D); MODE = GAPS
     // (answer in its silences) | TRADE (hit-for-hit); RATE = the tick grid it decides on.

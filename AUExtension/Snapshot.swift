@@ -218,6 +218,7 @@ struct SnapParams {
     var riffTie: [Bool] = []                             // per-step tie (empty ⇒ none)
     var riffSlide: [Bool] = []                           // per-step slide (empty ⇒ none)
     var riffWrap: RiffWrap = .fold
+    var riffSpanN: Int = 0                               // SPAN re-anchor: 0 = FREE (free-run, today) · >0 = re-sync the stencil every N columns
     // HOCKET (AcceptanceCriteria-hocket-processor, v1): the wire-listening driver.
     var hocketSource: Int = 0                             // 0…3 = the listened emitter (wire A–D)
     var hocketMode: HocketMode = .gaps

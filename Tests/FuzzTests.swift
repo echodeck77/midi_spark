@@ -104,6 +104,7 @@ final class FuzzTests: XCTestCase {
                 c.paramsA.riffOct = (0..<n).map { _ in r.int(3) - 1 }
                 c.paramsA.riffRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
                 c.paramsA.riffWrap = RiffWrap.allCases[r.int(RiffWrap.allCases.count)]
+                if r.chance(0.5) { c.paramsA.riffSpanN = [1, 2, 3, 4, 6, 8, 16, 32][r.int(8)] }   // SPAN re-anchor (Paul 2026-08-27): re-sync every N cols — nil ⇒ FREE; hammer the resync path for no-stuck-notes
                 c.paramsA.riffAccent = (0..<n).map { _ in r.chance(0.3) ? r.int(60) : 0 }   // §5 ACCENT
                 c.paramsA.riffTie = (0..<n).map { _ in r.chance(0.25) }                     // §5 TIE (hold ⌒)
                 c.paramsA.riffSlide = (0..<n).map { _ in r.chance(0.25) }                   // §5 SLIDE (CC65 + overlap)

@@ -1438,6 +1438,7 @@ struct ProcessorBox: View {
                  { field("VOICING", \.riffPoly) { seg(["MONO", "POLY"], sel: poly ? "POLY" : "MONO") { i in setParam { $0.riffPoly = (i == 1) } } } })
             row2({ field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } },
                  { field("RATE", \.riffRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.riffRate ?? .r1_16).rawValue) { i in setParam { $0.riffRate = ArpRate.allCases[i] } } } })
+            spanLadderFreeField(p.riffSpanN ?? 0) { v in setParam { $0.riffSpanN = v } }   // SPAN re-anchor (Paul 2026-08-27): FREE = phase forever · N = re-sync every N columns
         })
         case .tap: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // ROUTING (AcceptanceCriteria-tap-processor) — the mid-chain send: LEVEL · TO · MUTE
             let lv = p.tapLevel ?? 1.0
@@ -1633,6 +1634,15 @@ struct ProcessorBox: View {
     @ViewBuilder private func spanLadderField(_ current: Int, _ set: @escaping (Int) -> Void) -> some View {
         field("SPAN — the pattern's loop, in columns  (odd = polymeter)") {
             seg(spanLadderValues.map { spanLadderLabel($0) }, sel: spanLadderLabel(current)) { i in set(spanLadderValues[i]) }
+        }
+    }
+    // SPAN with a FREE end (Paul 2026-08-27, the universal re-sync model): 0 = FREE (free-run, no re-anchor — the
+    // pattern phases against the grid forever) · 1·2·3·4·6·8·×2·×4 = re-sync the pattern to phase 0 every N columns.
+    // An odd pattern length against an aligning span = drift then snap back. RIFF is the first card to adopt it.
+    @ViewBuilder private func spanLadderFreeField(_ current: Int, _ set: @escaping (Int) -> Void) -> some View {
+        let vals = [0] + spanLadderValues
+        field("SPAN — re-sync the stencil every N columns  (FREE = phase forever · odd = drift then resync)") {
+            seg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { i in set(vals[i]) }
         }
     }
     // RIFF §5 (Paul 2026-08-26): a per-step TOGGLE lane (ACCENT · TIE · SLIDE), aligned under the rank matrix (16pt rank
