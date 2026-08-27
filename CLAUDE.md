@@ -159,6 +159,37 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FREE-RUN REVERT + 5-AGENT BUG HUNT + DEAD-CODE PASS (2026-08-27, on `main`; iOS builds, macOS green + the +7 new
+  tests; DEVICE ear/eye owed). **① FREE-RUN GATE (`aab4f57`, FERRY-strike-anchor ① — ferried in, ratified):** "stopped =
+  silent." The internal free-run clock (drives the plugin's own beat while the host is stopped) was a blanket-true-on-BUILD
+  → fired on ANY held note. Now GATED on an active BUILD play mode (`ddSolo || buildStagingPlaying || buildPerformPlaying`),
+  synced at the `buildPublishScene()` choke point (every voice toggle + scene restore routes through it). All three off ⇒
+  host-stopped is silent. Host-playing unchanged (Kernel guard `!playing`). The no-machine passthrough live-wire
+  (reconcileBypass) still monitors stopped — LEFT per the standing constraint (pending FERRY-passage-law). Ferry ② (RETRIG
+  strike-anchoring) + euclid-display-law + arp-phrase + strike-per-span persisted to `Docs/AcceptanceCriteria/`, CAPTURED
+  not built (out of scope). **② BUG HUNT (`c5aa69f`) — 5 parallel read-only surveys (dead-code · refactor · engine/UI/pure
+  bugs), every finding re-verified before acting; only RISK-FREE fixes applied.** DATA-LOSS (live): `BuildPart`/`BuildSceneSnapshot`/
+  `BuildUnassignedData` gain decode-tolerant `init(from:)` (the Macro pattern) — `BuildPart.castSlots` (added 2026-08-17, a
+  day after buildUnassigned first persisted 2026-08-16) made saves in that window un-loadable → whole-doc factory reset;
+  +5 tests. ENGINE (Router): `flushGlide` re-centres BEND on flush edges (was left off-centre → next note detuned) via a
+  shared `resetGlideControllers` (flushGlide + glidePhraseEnd + emitter-disable edge) +1 test; `colourTranspose` guards
+  ci<16 (ephemeral colour aliased the MORPH override slots); `drainEchoTails` sets `currentCellIndex` per tail (stale cell
+  mis-keyed close-except-legato/SEAL/note-sweep); corrected the false "128-cap never trips" comment. BOUNDS:
+  `reconcileStagingSel` guards the ROW bound (ragged decode) +1 test; `AU.withChainCells` uses cellAt/setCell. UNDO (8 gaps
+  closed, serving the "every action undoable" ask): buildPopulateTab/buildMutateRow/cast add·clone·commit (recorded BEFORE
+  the mint)/buildSelectDoorAll·buildToggleBusAll/buildClearGrid/buildSetSource; moved buildApplyChain + buildRunMutateGrid
+  records past their bail guards (no phantom no-op step). DEFERRED as RISKY (flagged in `_dear_paul`): RIFF SLIDE CC65
+  teardown, broadcast legato collapse, glide LAST-priority filter, Cell.inputChannel v2-compat decode. **③ DEAD CODE
+  (`7a2dbe6`) — CONSERVATIVE:** removed only grep-verified ISOLATED leaves (DesignKit UI.ink/PillToggle, reelExportFiles/
+  Kernel.reelExport, sessionActive/sessionDirty, ladderDim, brushIndex); LEFT entangled/reserved/held-for-rebuild clusters
+  (reelTouch/reelToggle render-block, AU colour-chain API, retired-LADDER @State, GridMacroBand, EditSelection undo,
+  Artic/preview subsystems) — flagged for a dedicated verified pass.**
+- **▶ PROCESSOR-EDITOR CRASH FIX (2026-08-27, on `main`, `fb60376`; iOS builds). Paul's two identical .ips (adding an ARP
+  to an empty chain on a new instance) = a STACK OVERFLOW in the Swift generic-metadata demangler: `ProcessorBox.typeParams`
+  is a 28-case @ViewBuilder switch whose opaque type is a 28-deep `_ConditionalContent` nest of giant TupleViews; the FIRST
+  render of ANY type instantiates that whole concrete type → demangler overflow. Fix: wrap every case body in
+  `AnyView(VStack(spacing: rowSpacing){…})` so the switch's type collapses to a shallow chain of trivial AnyView leaves,
+  each case's real tree instantiated lazily one at a time. rowSpacing = the body's spacing so layout is byte-identical.**
 - **▶ HOCKET v1 — the wire-listening driver (2026-08-27, on `main`, `fc3c15b`; iOS builds, macOS 922 green + fuzz; DEVICE
   ear + Paul's RATIFICATION owed — spec `AcceptanceCriteria-hocket-processor.md` is CAPTURED, not ratified; built per
   Paul's "implement as much as you can" unattended). A new DRIVER `ProcessorType.hocket`: plays its pool (WHAT) timed by
