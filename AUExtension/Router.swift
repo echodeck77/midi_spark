@@ -1574,6 +1574,15 @@ final class Router {
             let soloSustain = forceColumnHold && (bm & altMask) == 0
             let legato = (bm & altMask) == 0 && ((mode == .identity && treat.a.phase == .legato) || mode == .drone || soloSustain)   // a DRONE is ALWAYS legato (sustains + adopts across drone columns; closes where no drone re-holds it)
             if reconcileOnly && !legato { continue }   // frozen-column re-run: only the immortal holds reconcile
+            // STRIKE PER SPAN (Paul 2026-08-27, the span ladder's other half): a legato hold (v1: DRONE) fires ONCE at
+            // each span origin and HOLDS (adopts) through the rest — the multi-column pad. Off the same span-ladder
+            // re-anchor: at a span origin we DISABLE adoption below, so the old immortal stays a holdCandidate (closed at
+            // the loop end, refcount-safe → NO wire off) while the fresh strike restrikes the same wire (openVoice off→on)
+            // — a clean re-attack. Between origins we adopt (no re-strike). Key-up (empty pool) closes as usual. Skipped
+            // under reconcileOnly (PLAY: THIS CELL freezes the column → would re-articulate every window). nil ⇒ off ⇒ today's drone.
+            let spsSpanBeats = (legato && treat.a.strikePerSpan && !reconcileOnly)
+                ? spanLadderBeats(treat.a.strikeSpanN, S: S, row: Double(Snap.cols) * S) : 0
+            let spsReArticulate = spsSpanBeats > 0 && abs(colStart - columnStart(colStart, spsSpanBeats)) < 1e-9
             // §cell-edit F CHOP: a hold is ONE articulation (at colStart = slice 0), so route it by that slice's
             // chop — MAIN adds the cell's own emitters, ALT adds altDest, MUTE silences. `chopMask` returns `bm`
             // unchanged when the cell has no chop, so this is a no-op for ordinary holds. (Tick cells chop per-tick.)
@@ -1622,7 +1631,9 @@ final class Router {
                         let sw = n + emitterOctaveShift(Int(b)) + masterKey  // the octave/key-shifted pitch…
                         guard sw >= 0 && sw <= 127 else { continue }         // out of range → emitOneBus would drop it
                         guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }  // …then FENCE — the exact wire pitch emitOneBus will open (DROP → no bus)
-                        if !adoptLegatoBus(wire: w, bus: b, ci: Int16(ci), alt: altFlag) { emitMask |= (1 << b) }
+                        // STRIKE PER SPAN: at a span origin, skip adoption (|| short-circuits adoptLegatoBus away) so the
+                        // old immortal is NOT un-marked — it closes at the loop end (refcount-safe) while the fresh strike re-attacks.
+                        if spsReArticulate || !adoptLegatoBus(wire: w, bus: b, ci: Int16(ci), alt: altFlag) { emitMask |= (1 << b) }
                     }
                     if emitMask != 0 {
                         emitArtic(note: UInt8(n), busMask: emitMask,

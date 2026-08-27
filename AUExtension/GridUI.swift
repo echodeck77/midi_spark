@@ -1133,6 +1133,11 @@ struct ProcessorBox: View {
         case .drone: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // GENERATOR — flat sustained pad (gate = pad level)
             heroField("LEVEL  \(Int((p.gate ?? 0.6) * 127))") {
                 slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) }
+            // STRIKE PER SPAN (Paul 2026-08-27): HOLD = one continuous pad (today) · PER SPAN = re-articulate the pad every N columns.
+            field("STRIKE", \.strikePerSpan) { seg(["HOLD", "PER SPAN"], sel: (p.strikePerSpan ?? false) ? "PER SPAN" : "HOLD") { i in setParam { $0.strikePerSpan = (i == 1) } } }
+            if p.strikePerSpan ?? false {
+                field("RE-STRIKE EVERY") { spanLadderField(p.strikeSpanN ?? 8) { v in setParam { $0.strikeSpanN = v } } }   // finite period (1…×4); 8 = once per row lap
+            }
         })
         case .shift: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // GENERATOR — groove nudge (spread = push late)
             heroField("PUSH  \(Int((p.spread ?? 0.1) * 100))% late") {

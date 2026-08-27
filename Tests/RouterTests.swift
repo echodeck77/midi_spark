@@ -308,6 +308,25 @@ final class RouterTests: XCTestCase {
         XCTAssertNotEqual(free, span1, "FREE free-runs the figure across columns; SPAN=1 re-anchors every column")
         XCTAssertEqual(free, notes(spanN: 0), "FREE is replay-safe")
     }
+    // STRIKE PER SPAN (Paul 2026-08-27, the span ladder's other half): a DRONE with strikePerSpan re-articulates its pad
+    // at each SPAN origin and HOLDS (adopts) through the columns between; off (default) it strikes ONCE and holds the whole
+    // run (today's continuous drone). Off the same span ladder: SPAN=1 → every column, SPAN=4 → cols 0 and 4. No stuck notes.
+    func testDroneStrikePerSpanReArticulatesAtSpanOrigins() {
+        func onCount(sps: Bool, spanN: Int) -> Int {
+            var c = Colour(colourID: "gold", type: .drone)
+            c.paramsA.strikePerSpan = sps
+            c.paramsA.strikeSpanN = spanN
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 15.9, into: e)   // columns 0…7 of one bar (S=2), no col-8 wrap
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 && $0.note == 60 }.count
+        }
+        XCTAssertEqual(onCount(sps: false, spanN: 8), 1, "a plain drone strikes once and holds the whole run (today's pad)")
+        XCTAssertEqual(onCount(sps: true, spanN: 1), 8, "PER SPAN=1 re-articulates every column")
+        XCTAssertEqual(onCount(sps: true, spanN: 4), 2, "PER SPAN=4 re-articulates at the span origins (cols 0, 4)")
+        XCTAssertEqual(onCount(sps: true, spanN: 4), 2, "replay-safe (deterministic)")
+    }
     // SPAN LADDER stage 2b — RATCHET PATTERN (RATE×ladder): RATE = slice width, SPAN N = the loop period in columns.
     func testRatchetSpanLadderReAnchorsThePatternByPeriod() {
         func onCount(spanN: Int?) -> Int {

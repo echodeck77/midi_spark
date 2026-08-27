@@ -329,6 +329,11 @@ struct ColourParams: Codable, Equatable {
     // 1·2·3·4·6·8 cols · 16=×2 · 32=×4 ⇒ re-anchor every N columns. An odd length against an aligning span = drift then
     // resync (polymeter). RATE (grain) and SPAN (loop) are now independent — the first card of the standardised model.
     var riffSpanN: Int? = nil
+    // STRIKE PER SPAN (Paul 2026-08-27, the span ladder's missing half): a legato hold (v1: DRONE) re-articulates
+    // ONLY at each span origin and HOLDS (adopts) through the rest — the multi-column pad. nil ⇒ off ⇒ today's
+    // continuous drone (byte-identical). strikeSpanN = the re-articulation cadence in columns (spanLadder, ≥1).
+    var strikePerSpan: Bool? = nil
+    var strikeSpanN: Int? = nil
     // HOCKET (AcceptanceCriteria-hocket-processor, v1): a driver that plays its pool timed by LISTENING to a wire.
     // Additive-Optional (a new type — no old-doc effect). SOURCE = the listened emitter (0…3 = wire A–D); MODE = GAPS
     // (answer in its silences) | TRADE (hit-for-hit); RATE = the tick grid it decides on.
