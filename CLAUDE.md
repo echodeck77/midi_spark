@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE UNIVERSAL SPAN MODEL — riff+euclid RATE×ladder · FREE on tutti/ratchet · STRIKE PER SPAN on the drone
+  (2026-08-27, on `main`; iOS builds, macOS green + fuzz; DEVICE ear owed). Paul: "standard panel anatomy" — first the SPAN
+  model. **SPAN = re-anchor the pattern's phase every N columns; DECOUPLED from an ABSOLUTE RATE (grain).** Density lives in
+  GRID/RATE + K/N, not SPAN. **RIFF (`riffSpanN`) + EUCLID (`euclidRate` + `euclidSpanN`, `a94f4a8`)** converted to
+  FREE·1·2·3·4·6·8·×2·×4 re-anchor with an absolute GRID grain (Paul: "go absolute" — a euclid no longer plays faster on a
+  faster per-part row; density = GRID+HITS). Rewrote the euclid density/oracle tests (one cycle = N×grain), moved the
+  per-part-clock test onto a CHANCE striker. **FREE on TUTTI + RATCHET (`5fa2451`, UI-only):** their span chip gains a FREE
+  end, matching riff/euclid — fixes a display/reality mismatch (the fresh card free-ran but the chip showed "1"); engine
+  untouched (spanN==0 was always the legacy-CELL free-run). Cascade/burst/length KEEP CELL|ROW (their ROW = a real windowed
+  reveal / bar roll / bar gate). **STRIKE PER SPAN v1 on the DRONE (`1c029ac`, spec ratified):** a STRIKE HOLD|PER SPAN chip
+  + RE-STRIKE EVERY ladder — PER SPAN re-articulates the pad at each span origin, legato-holds between (the multi-column pad;
+  odd spans = sustained polymeter). ONE gate on the emitColumnHolds adopt decision (skip adoption at a span origin → old
+  immortal closes refcount-safe while the fresh strike re-attacks off→on; adopt between). Additive `strikePerSpan`/
+  `strikeSpanN` (nil ⇒ today's continuous drone). Key-up + PLAY-THIS-CELL guarded. +2 RouterTests + fuzz. DEFERRED (flagged
+  `_dear_paul`): STRIKE PER SPAN on the span-ladder DRIVER cards (euclid/riff/ratchet/tutti-pattern/burst/cascade — each
+  needs its own reconcile; spec calls them "legal but not the point") + HARMONIZE/TUTTI-COIN holds. NEXT: the actual STANDARD
+  PANEL ANATOMY (the uniform processor-panel frame — Paul's original goal, now that the SPAN footer is uniform).**
 - **▶ FREE-RUN REVERT + 5-AGENT BUG HUNT + DEAD-CODE PASS (2026-08-27, on `main`; iOS builds, macOS green + the +7 new
   tests; DEVICE ear/eye owed). **① FREE-RUN GATE (`aab4f57`, FERRY-strike-anchor ① — ferried in, ratified):** "stopped =
   silent." The internal free-run clock (drives the plugin's own beat while the host is stopped) was a blanket-true-on-BUILD

@@ -5,6 +5,21 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-24._
 
+## ★★★ ACTIVE THREAD — THE UNIVERSAL SPAN MODEL + STANDARD PANEL ANATOMY (2026-08-27)
+- **✅ SPAN = re-anchor period, decoupled from an ABSOLUTE RATE (grain). DONE for the free-running generators:**
+  - **RIFF + EUCLID** → FREE·1·2·3·4·6·8·×2·×4 re-anchor with an absolute GRID grain (`a94f4a8`; Paul "go absolute").
+  - **FREE on TUTTI + RATCHET** (`5fa2451`, UI-only) — fixes the "shows 1 but free-runs" mislabel; adds a FREE chip.
+  - **Cascade/burst/length LEFT on CELL|ROW** — their ROW is a real windowed reveal / bar roll / bar gate (not "just slower").
+- **✅ STRIKE PER SPAN v1 — DONE on the DRONE** (`1c029ac`, spec `AcceptanceCriteria-strike-per-span.md` ratified): STRIKE
+  HOLD|PER SPAN chip + RE-STRIKE EVERY ladder; re-articulate at each span origin, legato-hold between. One gate on the
+  emitColumnHolds adopt decision. +2 tests + fuzz. DEVICE ear owed.
+- **OPEN — STRIKE PER SPAN on the span-ladder DRIVER cards** (euclid/riff/ratchet/tutti-pattern/burst/cascade): each is
+  tick-driven, not a hold, so each needs its own adopt/reconcile bolted on (bigger, riskier). Spec calls them "legal but not
+  the point." HARMONIZE/TUTTI-COIN holds are the easy same-path follow-ups. Flagged in `_dear_paul/strike-per-span-drone-*`.
+- **NEXT (Paul's original goal) — STANDARD PANEL ANATOMY:** the uniform processor-panel frame (header SOURCE+OCT · IN strip ·
+  body · footer GRID·ROTATE·SPAN · OPTIONS · pairs-well · OUT roll) across all editors — now that the SPAN footer is uniform.
+  Spec `AcceptanceCriteria-standard-panel-anatomy.md`. Large blind UI change → build ONE reference card first for Paul's eye.
+
 ## ★★ DESIGN INBOX 2026-08-22 BATCH — 8 RATIFIED SPECS, filed to `Docs/` 2026-08-24 (sequencing = Paul's word). NONE built yet.
 Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euclid-variations.md`, `SPEC-exclude-complement.md`,
 `SPEC-glide-modes.md`, `SPEC-grid-selector.md`, `SPEC-motif-processor.md`, `SPEC-riff-processor.md` (all in `Docs/`). Reply in
