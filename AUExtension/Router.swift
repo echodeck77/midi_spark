@@ -2937,14 +2937,21 @@ final class Router {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
-                let sub = spanLadderBeats(p.euclidSpanN, S: S, row: cyc) / Double(n)   // SPAN LADDER: n steps across the span; odd N = polymeter
+                // RATE×ladder (Paul 2026-08-27): GRID = the fixed step grain (density lives here + K/N); SPAN re-syncs the
+                // pattern every N columns (FREE = 0 = free-run). Rate and loop decoupled — an odd N against an aligning
+                // span drifts then snaps back. (Was the WIDTH model `sub = spanWidth/n`, where SPAN just scaled the speed.)
+                let sub = p.euclidRateBeats
+                let spanBeats = p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0
                 let pick = pickIn ?? p.euclidPick   // v1b: per-line PICK (nil ⇒ the global) for TARGET=ALL lines
                 var cycleHits = 0; for s in 0..<n where (invert ? !euclidBuf[s] : euclidBuf[s]) { cycleHits += 1 }
                 let effHits = Int64(max(1, cycleHits))
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { tick, mTickBeat, _, _ in
-                    let step = Int(((tick % Int64(n)) + Int64(n)) % Int64(n))
+                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { _, mTickBeat, _, _ in
+                    // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/replay-exact.
+                    let phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
+                    let localT = Int64((phaseBeat / sub).rounded(.down))
+                    let step = Int(((localT % Int64(n)) + Int64(n)) % Int64(n))
                     let isHit = invert ? !euclidBuf[step] : euclidBuf[step]
                     guard isHit else { return }
                     var pickIndex: Int? = nil
@@ -2955,7 +2962,7 @@ final class Router {
                         case .low: pickIndex = 0
                         case .high: pickIndex = srcCount - 1
                         case .cycle, .random:
-                            let cy = (tick - Int64(step)) / Int64(n)                 // floored cycle (tick = cy·n + step)
+                            let cy = (localT - Int64(step)) / Int64(n)               // floored cycle within the span (localT = cy·n + step)
                             var hitsUpTo = 0; for s in 0...step where (invert ? !euclidBuf[s] : euclidBuf[s]) { hitsUpTo += 1 }
                             let ord = (cy * effHits + Int64(hitsUpTo - 1)) &+ Int64(die)   // v1b: per-line die salts CYCLE (rotates the sequence) / RANDOM (reseeds the scatter)
                             if srcCount > 0 {

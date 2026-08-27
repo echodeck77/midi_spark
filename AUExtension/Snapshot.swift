@@ -120,8 +120,9 @@ struct SnapParams {
     var euclidSteps: Int = 8
     var euclidRot: Int = 0
     var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
-    var euclidSpan: PatternSpan = .cell      // CELL = per-column pattern (default) · ROW = the N steps span the whole bar
-    var euclidSpanN: Int = 1                  // SPAN LADDER (Paul 2026-08-22): span width in columns (1·2·3·4·6·8 · 16=×2 · 32=×4)
+    var euclidSpan: PatternSpan = .cell      // DEAD (WIDTH model) — decode-only legacy
+    var euclidRateBeats: Double = 0.25       // GRID: the step grain (resolved from euclidRate; 1/16 = 0.25 beat)
+    var euclidSpanN: Int = 0                  // SPAN re-anchor: 0 = FREE (free-run) · >0 = re-sync the pattern every N columns
     var euclidPick: EuclidPick = .all        // what each hit strikes: ALL | CYCLE (walk) | LOW | HIGH | RANDOM (Paul 2026-08-22)
     var euclidInvert: Bool = false           // play the N−K rests instead (the anti-pattern) — Paul 2026-08-22
     var euclidLines: [EuclidLine] = []       // EUCLID LINES (§10): up to 8 lines; EMPTY ⇒ the single euclid above (byte-identical)

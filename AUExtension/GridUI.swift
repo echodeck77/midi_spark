@@ -1094,7 +1094,8 @@ struct ProcessorBox: View {
                     }
                 }
             }
-            spanLadderField(p.euclidSpanN ?? ((p.euclidSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.euclidSpanN = v } }
+            field("GRID — the step rate (density lives here + K of N)", \.euclidRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.euclidRate ?? .r1_16).rawValue) { i in setParam { $0.euclidRate = ArpRate.allCases[i] } } }   // RATE×ladder (Paul 2026-08-27): the grain, decoupled from SPAN
+            spanLadderFreeField(p.euclidSpanN ?? 0) { v in setParam { $0.euclidSpanN = v } }   // SPAN re-anchor: FREE = phase forever · N = re-sync every N columns
             field("PICK — for ALL-target lines", \.euclidPick) { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
         })
         case .burst: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)

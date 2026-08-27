@@ -214,8 +214,9 @@ struct ColourParams: Codable, Equatable {
     var euclidSteps: Int? = 8           // N — steps in the cycle (2…16); K hits spread evenly across N
     var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
-    var euclidSpan: PatternSpan? = nil        // CELL (per-column, default) | ROW (the N steps span the whole bar) — Paul 2026-08-18
-    var euclidSpanN: Int? = nil               // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from euclidSpan: cell→1, row→8)
+    var euclidSpan: PatternSpan? = nil        // DEAD (the WIDTH model) — decode-only. Superseded by euclidRate + euclidSpanN (RATE×ladder, 2026-08-27).
+    var euclidRate: ArpRate? = .r1_16         // GRID: the step grain (Paul 2026-08-27) — density lives HERE (+ K of N). Absolute, decoupled from SPAN (like riff/arp).
+    var euclidSpanN: Int? = nil               // SPAN RE-ANCHOR (Paul 2026-08-27, RATE×ladder): nil/0 ⇒ FREE (phase forever) · 1·2·3·4·6·8·16(×2)·32(×4) ⇒ re-sync the pattern to step 0 every N columns. Was the WIDTH-span (n steps across the span, which just scaled the speed).
     var euclidPick: EuclidPick? = nil         // PICK: ALL (today) | CYCLE | LOW | HIGH | RANDOM — what each hit strikes (Paul 2026-08-22)
     var euclidLines: [EuclidLine]? = nil      // EUCLID LINES (§10, ratified): up to 8 lines (each K·N·ROTATE·INVERT·TARGET). nil ⇒ the single euclid above (byte-identical)
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)

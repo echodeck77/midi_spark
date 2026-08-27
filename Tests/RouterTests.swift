@@ -133,23 +133,28 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "the column-1 downbeat must not be dropped (was 9 = K−1 per cycle)")
         assertNothingLeftSounding(e)
     }
-    // SPAN LADDER (Paul 2026-08-22): SPAN sets how many columns the euclid pattern spans — so how much of it lands in
-    // one column. A 4-of-8 euclid = hits at steps 0,2,4,6. In column 0's [0,S) window: SPAN 1 fits all 8 steps (4 hits ×
-    // 3 = 12); SPAN 2 fits 4 steps (2 hits × 3 = 6); SPAN 8 (ROW) fits 1 step (1 hit × 3 = 3). Also proves the legacy
-    // euclidSpan migrates byte-identically (nil→SPAN 1, .row→SPAN 8).
-    func testEuclidSpanLadderControlsPatternDensityPerColumn() {
-        func ons(spanN: Int? = nil, legacy: PatternSpan? = nil) -> Int {
-            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-                c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidSpanN = spanN; c.paramsA.euclidSpan = legacy; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+    // SPAN RE-ANCHOR (Paul 2026-08-27, RATE×ladder — replaces the old WIDTH model): GRID = the grain, SPAN re-syncs the
+    // pattern to step 0 every N columns. A 4-of-8 euclid (hits at steps 0·2·4·6) at ONE step per column (rate == stepRate
+    // == 1/8): FREE walks the pattern across the row → columns 0·2·4·6 fire = 4 × 3 notes = 12 onsets; SPAN=1 re-anchors
+    // EVERY column to step 0 (always a hit) → all 8 columns fire = 8 × 3 = 24. Proves SPAN re-syncs, not scales speed.
+    func testEuclidSpanReAnchorsThePattern() {
+        func ons(spanN: Int?) -> Int {
+            let b = box(colours: colourIDs.map { id -> Colour in
+                guard id == "gold" else { return Colour(colourID: id, type: .arp) }
+                var c = Colour(colourID: "gold", type: .euclid)
+                c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidRate = .r1_8; c.paramsA.euclidSpanN = spanN
+                return c
+            }) { s in
+                s.stepRate = .r1_8                                       // 0.5-beat columns == the euclid rate → one step per column
+                for col in 0..<8 { s.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }   // the whole row → the pattern plays continuously
+            }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e)   // exactly 8 columns (no pass-2 edge)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        XCTAssertEqual(ons(spanN: 1), 12, "SPAN 1 (CELL): the whole 8-step euclid fits in the column")
-        XCTAssertEqual(ons(spanN: 2), 6, "SPAN 2: half the pattern per column")
-        XCTAssertEqual(ons(spanN: 8), 3, "SPAN 8 (ROW): one step per column")
-        XCTAssertEqual(ons(legacy: .row), 3, "legacy euclidSpan=.row migrates to SPAN 8 (byte-identical)")
-        XCTAssertEqual(ons(), 12, "no span set = CELL (SPAN 1, byte-identical)")
+        XCTAssertEqual(ons(spanN: nil), 12, "FREE: the 4-of-8 pattern walks the row — hits at steps 0·2·4·6 = 4 columns × 3 notes")
+        XCTAssertEqual(ons(spanN: 1), 24, "SPAN=1: re-anchored EVERY column to step 0 (always a hit) → all 8 columns fire × 3 notes")
+        XCTAssertGreaterThan(ons(spanN: 1), ons(spanN: nil), "the re-anchor changes the sequenced pattern")
     }
     // DEST MATRIX (Paul 2026-08-22 §5): [ARP→DEST] hockets the walk across emitters — each onset-slice routes to its
     // chosen emitter (the routing override wins over the cell's fan-out).
@@ -378,13 +383,15 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(a.isEmpty, "it strikes")
         XCTAssertTrue(a.allSatisfy { [60, 64, 67].contains(Int($0)) }, "every struck note is one of the held pool")
     }
-    // PER-PART CLOCK (Paul 2026-08-19): two rows on DIFFERENT step rates play at different tempos in ONE grid —
-    // the multi-clock render path. Both rows are fully populated with the SAME 4-of-8 euclid; row 0 runs SLOW
-    // (2/1 = 8 beats/step) on bus A, row 1 runs FAST (1/8 = 0.5 beats/step) on bus B. Over a fixed span the fast
-    // row completes many more column cycles, so it strikes far more often. Proves the rate is per-row, not global.
+    // PER-PART CLOCK (Paul 2026-08-19): two rows on DIFFERENT step rates play at different tempos in ONE grid — the
+    // multi-clock render path. Both rows are filled with a per-COLUMN striker (CHANCE prob 1 re-speaks the chord at each
+    // column boundary), so its onset density scales with the ROW's step rate; row 0 runs SLOW (2/1) on bus A, row 1 runs
+    // FAST (1/8) on bus B → the fast row strikes far more. (Euclid used to demo this, but its grain is now ABSOLUTE — the
+    // 2026-08-27 RATE×ladder — so it no longer speeds up on a faster row; the per-part clock shapes the column sweep +
+    // SPAN re-anchor, not the grain. A per-column striker is the honest demo of a per-row tempo.)
     func testPerRowStepRatePlaysDifferentTemposInOneGrid() {
-        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }
+        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .chance)
+            c.paramsA.probability = 1; return c }
         let b = box(colours: cs) { s in
             for col in 0..<8 {                                    // fully populate both rows so a column is always sounding
                 s.cells[col][0] = Cell(colourID: "gold", buses: [.a])
@@ -988,22 +995,8 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "the column-1 burst downbeat must not be dropped")
         assertNothingLeftSounding(e)
     }
-    func testEuclidSpanRowSpreadsPulsesAcrossTheBar() {
-        // SPAN ROW (Paul 2026-08-18): E(4,8) stretches its 4 pulses across the whole 8-column bar (columns 0,2,4,6),
-        // not 4 pulses PER column. With the euclid colour filling a row, one bar sounds exactly K × chord = 12 note-ons;
-        // SPAN CELL repeats the pattern in every column → 4 × 3 × 8 = 96. Same pattern, different timeline.
-        func rowBox(_ span: PatternSpan) -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-                c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidSpan = span; return c }) {
-                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }   // the euclid fills the whole row
-            }
-        }
-        let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
-        XCTAssertEqual(eRow.ons.filter { $0.cable == 1 }.count, 12, "SPAN ROW: 4 euclid pulses × 3 notes across the WHOLE bar")
-        let eCell = RecordingEmitter(); run(rowBox(.cell), chord([60, 64, 67]), beats: 16, into: eCell, releaseAtEnd: false)
-        XCTAssertEqual(eCell.ons.filter { $0.cable == 1 }.count, 96, "SPAN CELL: 4 × 3 × 8 columns — the pattern repeats each column")
-        assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
-    }
+    // (testEuclidSpanRowSpreadsPulsesAcrossTheBar removed 2026-08-27 — it tested the retired WIDTH model, where SPAN
+    // scaled the euclid speed. The RATE×ladder re-anchor is now covered by testEuclidSpanReAnchorsThePattern.)
     func testLengthSpanRowGatesAcrossTheBar() {
         // SPAN ROW (Paul 2026-08-19): the 8 LENGTH slices span the whole bar (slice i = column i), so a SHORT/MUTE
         // alternation strikes only the even columns → 4 columns × 3 notes = 12 ons/bar. SPAN CELL fits all 8 slices in

@@ -210,7 +210,7 @@ final class FuzzTests: XCTestCase {
         // polymeter anchors + shorter cycles are the new edge). The rate procs still take the legacy CELL|ROW here.
         let ladder = [1, 2, 3, 4, 6, 8, 16, 32]
         switch type {
-        case .euclid:  if r.chance(0.6) { p.euclidSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.euclidSpan = .row }
+        case .euclid:  if r.chance(0.6) { p.euclidSpanN = ([0] + ladder)[r.int(ladder.count + 1)] };  if r.chance(0.5) { p.euclidRate = ArpRate.allCases[r.int(ArpRate.allCases.count)] }   // RATE×ladder (2026-08-27): re-anchor period (0 = FREE) + the grain
         case .burst:   if r.chance(0.6) { p.burstSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.burstSpan = .row }
         case .length:  if r.chance(0.6) { p.lenSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.lenSpan = .row }
         case .cascade: if r.chance(0.5) { p.cascadeSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.cascadeSpan = .row }   // RATE×ladder stage 2b

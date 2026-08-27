@@ -445,8 +445,9 @@ enum SnapshotBuilder {
         if let v = p.euclidPulses { out.euclidPulses = clamp(v, 1, 16) }
         if let v = p.euclidRot { out.euclidRot = clamp(v, 0, 15) }
         if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
-        if let v = p.euclidSpan { out.euclidSpan = v }
-        out.euclidSpanN = p.euclidSpanN ?? (out.euclidSpan == .row ? 8 : 1)
+        if let v = p.euclidSpan { out.euclidSpan = v }                       // decode-only legacy (round-trip)
+        if let v = p.euclidRate { out.euclidRateBeats = max(0.03125, v.beats) }   // GRID: the step grain (RATE×ladder, 2026-08-27)
+        out.euclidSpanN = max(0, min(32, p.euclidSpanN ?? 0))                // SPAN re-anchor: nil ⇒ FREE (0), else re-sync every N cols
         if let v = p.euclidPick { out.euclidPick = v }
         if let v = p.euclidInvert { out.euclidInvert = v }
         if let v = p.euclidLines {   // EUCLID LINES (§10): clamp each line + cap at 8; empty ⇒ single-euclid fallback

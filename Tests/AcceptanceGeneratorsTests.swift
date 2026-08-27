@@ -36,6 +36,12 @@ private let chordSet: Set<Int> = [60, 64, 67]
 /// Events landing in the FIRST FULL cycle [0, cycleBuckets).
 private func firstCycle(_ events: [AcceptEvent]) -> [AcceptEvent] { events.filter { $0.onset >= 0 && $0.onset < cycleBuckets } }
 
+/// EUCLID cycle (RATE×ladder, 2026-08-27): the pattern now runs at a fixed grain (default 1/16 = 4 buckets) independent
+/// of the column, so ONE full cycle = N steps × the grain, NOT one column. (Was column-length under the old WIDTH model.)
+private let euclidStepBuckets: Int = Int((ArpRate.r1_32.beats * 16.0).rounded())   // the oracle euclid grain in buckets (1/32 = 2) — matches euclidSlot
+private func euclidCycleBuckets(_ steps: Int) -> Int { steps * euclidStepBuckets }
+private func firstEuclidCycle(_ events: [AcceptEvent], _ steps: Int) -> [AcceptEvent] { events.filter { $0.onset >= 0 && $0.onset < euclidCycleBuckets(steps) } }
+
 /// Distinct onset buckets among `events`.
 private func onsetSet(_ events: [AcceptEvent]) -> Set<Int> { Set(events.map { $0.onset }) }
 
@@ -91,6 +97,7 @@ private func euclidSlot(pulses: Int, steps: Int, rot: Int = 0, fromPool: Bool = 
     var s = ProcessorSlot(type: .euclid)
     s.params.euclidPulses = pulses; s.params.euclidSteps = steps; s.params.euclidRot = rot
     s.params.euclidPulsesFromPool = fromPool
+    s.params.euclidRate = .r1_32   // RATE×ladder (2026-08-27): the grain. 1/32 so even N=16's cycle (32 buckets = 2 beats) completes within the oracle's 3-beat probe (1/16 would need 4 beats). FREE (default span) = one continuous cycle.
     return s
 }
 
@@ -132,7 +139,7 @@ final class AcceptanceEuclidTests: XCTestCase {
     func testEuclidDistinctOnsetsPerCycleEqualsK() {
         for n in [4, 8, 16] {
             for k in Set([1, 2, 3, n / 2, n - 1, n].filter { $0 >= 1 && $0 <= n }) {
-                let onsets = onsetSet(firstCycle(Accept.onsA([euclidSlot(pulses: k, steps: n)])))
+                let onsets = onsetSet(firstEuclidCycle(Accept.onsA([euclidSlot(pulses: k, steps: n)]), n))
                 XCTAssertEqual(onsets.count, k, "EUCLID(\(k),\(n)) should pulse K=\(k) times per cycle, got \(onsets.sorted())")
             }
         }
@@ -141,7 +148,7 @@ final class AcceptanceEuclidTests: XCTestCase {
     // Each of those per-cycle onsets carries the FULL chord (not a subset).
     func testEuclidEachPulseIsTheWholeChord() {
         for (k, n) in [(3, 8), (5, 8), (2, 5)] {
-            let byOnset = notesByOnset(firstCycle(Accept.onsA([euclidSlot(pulses: k, steps: n)])))
+            let byOnset = notesByOnset(firstEuclidCycle(Accept.onsA([euclidSlot(pulses: k, steps: n)]), n))
             XCTAssertEqual(byOnset.count, k, "EUCLID(\(k),\(n)) onset count")
             for (onset, notes) in byOnset { XCTAssertEqual(notes, chordSet, "EUCLID(\(k),\(n)) pulse @\(onset) whole chord") }
         }
@@ -150,14 +157,14 @@ final class AcceptanceEuclidTests: XCTestCase {
     // CONCEPT (c): pulses=5 gives MORE onsets than pulses=3 over the same window, ratio ≈ 5:3 (relative, S-independent).
     func testEuclidOnsetCountScalesWithPulses() {
         let n = 8
-        let five = onsetSet(firstCycle(Accept.onsA([euclidSlot(pulses: 5, steps: n)]))).count
-        let three = onsetSet(firstCycle(Accept.onsA([euclidSlot(pulses: 3, steps: n)]))).count
+        let five = onsetSet(firstEuclidCycle(Accept.onsA([euclidSlot(pulses: 5, steps: n)]), n)).count
+        let three = onsetSet(firstEuclidCycle(Accept.onsA([euclidSlot(pulses: 3, steps: n)]), n)).count
         XCTAssertGreaterThan(five, three, "5-of-8 has more onsets than 3-of-8")
         XCTAssertEqual(Double(five) / Double(three), 5.0 / 3.0, accuracy: 0.01, "ratio ≈ 5:3")
         // Monotone across the whole K sweep.
         var prev = 0
         for k in 1...n {
-            let c = onsetSet(firstCycle(Accept.onsA([euclidSlot(pulses: k, steps: n)]))).count
+            let c = onsetSet(firstEuclidCycle(Accept.onsA([euclidSlot(pulses: k, steps: n)]), n)).count
             XCTAssertGreaterThanOrEqual(c, prev, "onset count is non-decreasing in K (K=\(k))")
             prev = c
         }
@@ -167,7 +174,7 @@ final class AcceptanceEuclidTests: XCTestCase {
     func testEuclidRotationPreservesOnsetCount() {
         for (k, n) in [(3, 8), (5, 8), (5, 16)] {
             for rot in [0, 1, 2, n - 1] {
-                let onsets = onsetSet(firstCycle(Accept.onsA([euclidSlot(pulses: k, steps: n, rot: rot)])))
+                let onsets = onsetSet(firstEuclidCycle(Accept.onsA([euclidSlot(pulses: k, steps: n, rot: rot)]), n))
                 XCTAssertEqual(onsets.count, k, "EUCLID(\(k),\(n)) rot \(rot) still \(k) pulses/cycle")
             }
         }
@@ -177,9 +184,9 @@ final class AcceptanceEuclidTests: XCTestCase {
     // the gaps between consecutive pulses differ by at most one grid step. (Assumes cycle == step; see file header.)
     func testEuclidOnsetsAreMaximallyEvenInTime() {
         for (k, n) in [(3, 8), (5, 8), (4, 8), (2, 5), (5, 16)] {
-            let onsets = onsetSet(firstCycle(Accept.onsA([euclidSlot(pulses: k, steps: n)]))).sorted()
+            let onsets = onsetSet(firstEuclidCycle(Accept.onsA([euclidSlot(pulses: k, steps: n)]), n)).sorted()
             guard onsets.count == k, k >= 2 else { XCTFail("EUCLID(\(k),\(n)) expected \(k) onsets, got \(onsets)"); continue }
-            let sub = Double(cycleBuckets) / Double(n)   // buckets per N-grid step
+            let sub = Double(euclidCycleBuckets(n)) / Double(n)   // buckets per N-grid step (= the euclid grain, 4)
             let grid = onsets.map { Int((Double($0) / sub).rounded()) }
             var gaps: [Int] = []
             for i in 0..<grid.count { gaps.append((grid[(i + 1) % grid.count] - grid[i] + n) % n) }
@@ -189,7 +196,7 @@ final class AcceptanceEuclidTests: XCTestCase {
 
     // POOL mode: K tracks the held-note count. A 3-note chord ⇒ 3 pulses/cycle.
     func testEuclidPulsesFromPoolTracksChordSize() {
-        let onsets = onsetSet(firstCycle(Accept.onsA([euclidSlot(pulses: 5, steps: 8, fromPool: true)])))
+        let onsets = onsetSet(firstEuclidCycle(Accept.onsA([euclidSlot(pulses: 5, steps: 8, fromPool: true)]), 8))
         XCTAssertEqual(onsets.count, 3, "POOL pulses follow the 3-note chord, got \(onsets.sorted())")
     }
 }
