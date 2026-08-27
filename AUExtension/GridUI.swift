@@ -938,15 +938,18 @@ struct ProcessorBox: View {
                         selected: { i in rtcSliceAt(p.rtcSlices, i) },
                         set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 0, count: 8); while s.count < 8 { s.append(0) }; s[i] = v; $0.rtcSlices = s } })
                 }
-                field("GRID — slices per bar", \.rtcRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rtcRate ?? .r1_8).rawValue) { i in
-                    setParam { $0.rtcRate = ArpRate.allCases[i] } } }
-                field("ROTATE — walk the pattern", \.rtcRotate) { numPair(p.rtcRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.rtcRotate = v } } }
-                // SPAN LADDER (RATE×ladder): GRID (above) = slice width; this dial = the pattern's loop period in columns.
-                spanLadderFreeField(p.rtcSpanN ?? 0) { v in setParam { $0.rtcSpanN = v } }   // SPAN re-anchor (Paul 2026-08-27): FREE (0) = the free-running count walk (legacy CELL) · N = re-sync every N columns
             }
             field("BURST FADE — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%", \.ramp) {
                 slider(bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1)
             }
+            // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — THE FOOTER: the frame row (GRID · ROTATE · SPAN, PATTERN mode
+            // only) in fixed order + place, then the pairs-well line. GRID = slice width · SPAN = the pattern's loop period.
+            if rmode == .pattern {
+                frameRow(grid:  { field("GRID — slices per bar", \.rtcRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rtcRate ?? .r1_8).rawValue) { i in setParam { $0.rtcRate = ArpRate.allCases[i] } } } },
+                         rotate: { field("ROTATE — walk the pattern", \.rtcRotate) { numPair(p.rtcRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.rtcRotate = v } } } },
+                         span:   { spanLadderFreeField(p.rtcSpanN ?? 0) { v in setParam { $0.rtcSpanN = v } } })
+            }
+            pairsWell(.ratchet)
         })
         case .passgate: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
             field("PLAY ON PASS") { HStack(spacing: 6) {
@@ -1734,6 +1737,30 @@ struct ProcessorBox: View {
                 }
                 Spacer(minLength: 0)
             }
+        }
+    }
+    // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27): THE FRAME ROW — every pattern card ends with GRID · ROTATE · SPAN in
+    // this FIXED ORDER under one "FRAME" label, so hands learn ONE location across every pattern card. The card passes its
+    // own three controls (each already a labelled field); this fixes their order + place (the footer). Pure re-layout.
+    @ViewBuilder private func frameRow<G: View, R: View, S: View>(@ViewBuilder grid: () -> G, @ViewBuilder rotate: () -> R, @ViewBuilder span: () -> S) -> some View {
+        VStack(alignment: .leading, spacing: rowSpacing) {
+            Text("FRAME").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35)).tracking(1.5)
+            Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
+            grid(); rotate(); span()
+        }.padding(.top, 5)
+    }
+    // §1 ANATOMY — the "pairs well" line (footer item 3): one dim row from the pairing catalog (processor-pairings.md),
+    // teaching at the moment of choice. → = a good DOWNSTREAM stage · ← = a good UPSTREAM stage. nil = no line drawn.
+    @ViewBuilder private func pairsWell(_ ft: ProcessorType) -> some View {
+        if let s = Self.pairsWellText(ft) {
+            Text("pairs well:  \(s)").font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.32)).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 3)
+        }
+    }
+    static func pairsWellText(_ ft: ProcessorType) -> String? {
+        switch ft {
+        case .ratchet: return "→ LENGTH · ← SPLIT"   // catalog §3: downstream LENGTH chokes/rings the rolls; upstream SPLIT rolls a register
+        default: return nil
         }
     }
     // MODE ROW (device round 2): an enum field is an ALWAYS-VISIBLE RADIO ROW — every option shown, the selected
