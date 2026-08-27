@@ -1009,7 +1009,9 @@ struct ProcessorBox: View {
                 slider(bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1) } },
                  { field("FADE  \(Int(dec * 100))%", \.echoDecay) {
                 slider(bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1) } })
-            field("PITCH STEP  \(pit > 0 ? "+" : "")\(pit) st / echo", \.echoPitch) { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
+            let epu = p.echoPitchUnits ?? .semitones
+            field("PITCH STEP  \(pit > 0 ? "+" : "")\(pit) \(epu == .pool ? "deg" : "st") / echo", \.echoPitch) { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
+            if pit != 0 { field("UNITS", \.echoPitchUnits) { seg(PitchUnits.allCases.map { $0.rawValue }, sel: epu.rawValue) { i in setParam { $0.echoPitchUnits = PitchUnits.allCases[i] } } } }   // §2: POOL = the trail WALKS THE SCALE (in-key), not chromatic
             sectionLabel("TAIL")
             // ROUTE (§7②, ratified 2026-08-22): DIRECT echoes the cell's final set (v1). CHAIN runs each repeat back
             // through the stages AFTER this ECHO slot — [ECHO→LENGTH] chokes/ties repeats, [ECHO→SPLIT] thins the trail.

@@ -86,6 +86,24 @@ final class AcceptanceHarmonizeTests: XCTestCase {
         let expect = Set(scale.map { poolStep($0, steps: 2, pool: scale) })   // every note up two scale degrees
         XCTAssertEqual(Accept.notesA([t], chord: scale.map { (UInt8($0), UInt8(100)) }), expect)
     }
+    // §2: an ECHO trail in POOL units WALKS THE SCALE (in-key), where semitone steps go chromatic. Timing-independent
+    // assertions: every pool-echo note is a scale pitch class, and the pool trail differs from the chromatic one.
+    func testEchoPitchPoolUnitsWalksScaleInKey() {
+        let scale = [60, 62, 64, 65, 67, 69, 71]
+        let scalePCs: Set<Int> = [0, 2, 4, 5, 7, 9, 11]
+        func echo(_ pool: Bool) -> ProcessorSlot {
+            var e = ProcessorSlot(type: .echo)
+            e.params.echoPitch = 1; e.params.echoPitchUnits = pool ? .pool : .semitones
+            e.params.echoRepeats = 3; e.params.echoSync = true; e.params.echoDelayDiv = 2
+            e.params.echoDecay = 0.95; e.params.echoFeedDelay = 1.0; e.params.echoThru = true
+            return e
+        }
+        let poolNotes = Accept.notesA([echo(true)], chord: scale.map { (UInt8($0), UInt8(100)) })
+        let semiNotes = Accept.notesA([echo(false)], chord: scale.map { (UInt8($0), UInt8(100)) })
+        XCTAssertTrue(poolNotes.allSatisfy { scalePCs.contains($0 % 12) }, "the pool trail stays in key")
+        XCTAssertFalse(semiNotes.allSatisfy { scalePCs.contains($0 % 12) }, "the chromatic trail leaves the key")
+        XCTAssertNotEqual(poolNotes, semiNotes, "pool ≠ semitone")
+    }
 }
 
 // MARK: - SPLIT — an exact SUBSET × VELOCITY-WINDOW oracle (varies pitches AND velocities)

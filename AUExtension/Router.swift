@@ -564,7 +564,8 @@ final class Router {
         var feedDelay: Double = 0.7  // input send — first echo level
         var decay: Double = 0.5   // regeneration — decay ratio between echoes
         var offset: Double = 0       // ±0.33 nudge off the grid
-        var pitch: Int = 0           // semitones per successive echo
+        var pitch: Int = 0           // semitones (or POOL DEGREES if poolMask != 0) per successive echo
+        var poolMask: UInt16 = 0     // §2 POOL-STEP: the source pool's pitch classes, captured at registration — echo k walks `k·pitch` DEGREES (in-key trails). 0 = semitones.
         var gateBeats: Double = 0.25
         var spill: EchoSpill = .ring // RING = tail spills past the column · CUT = pending repeats die at column exit
         // §7② ROUTE = CHAIN: re-fold each repeat through the chain stages AFTER the ECHO slot, at the repeat's own beat.
@@ -594,7 +595,8 @@ final class Router {
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
     private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, timeBeats: Double, repeats: Int,
                               feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double,
-                              spill: EchoSpill = .ring, route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1) {
+                              spill: EchoSpill = .ring, route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1,
+                              poolMask: UInt16 = 0) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
         for i in echoTails.indices where !echoTails[i].active { slot = i; break }
@@ -605,7 +607,7 @@ final class Router {
         }
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
-                                   decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats, spill: spill,
+                                   decay: decay, offset: offset, pitch: pitch, poolMask: poolMask, gateBeats: gateBeats, spill: spill,
                                    route: route, cellIdx: cellIdx, echoSlot: echoSlot,
                                    chan: Int8(max(-1, min(15, Int(chanOverride)))), nudge: nudgeSamples)   // repeats inherit the registering cell's CHANNEL/NUDGE (set at every push site)
     }
@@ -1748,6 +1750,7 @@ final class Router {
         let multi = cell.procs.count >= 2
         if multi { composeChainSet(cell: cell, pool: cellPool, upto: cell.procs.count - 2, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
         let srcN = multi ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)
+        let echoPoolMask: UInt16 = p.echoPitchUnits == .pool ? (multi ? chainScratch.pitchClassMaskAll() : cellPool.pitchClassMaskAll()) : 0   // §2: in-key echo trails
         for k in 0..<srcN {
             let srcNote = multi ? chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111) : cellPool.srcAscending(k, for: cell)
             let n = Int(srcNote) + transpose
@@ -1762,7 +1765,7 @@ final class Router {
             }
             pushEchoTail(onset: colStart, note: UInt8(n), vel: vel, busMask: chopped, timeBeats: timeBeats, repeats: repeats,
                          feedDelay: p.echoFeedDelay, decay: p.echoDecay, offset: p.echoOffset, pitch: p.echoPitch,
-                         gateBeats: gateBeats, spill: p.echoSpill)
+                         gateBeats: gateBeats, spill: p.echoSpill, poolMask: echoPoolMask)
         }
     }
 
@@ -1789,7 +1792,7 @@ final class Router {
                 // FEED DELAY = the first echo's send level · FEEDBACK = the per-echo decay ratio (tail length)
                 let v = Int((Double(e.vel) * e.feedDelay * pow(e.decay, Double(k - 1))).rounded())
                 if v < 1 { continue }                                       // level floor kills the tail
-                let n = Int(e.note) + k * e.pitch                           // PITCH: climb/descend each successive echo
+                let n = e.poolMask != 0 ? poolStepMask(Int(e.note), steps: k * e.pitch, pcMask: e.poolMask) : Int(e.note) + k * e.pitch   // PITCH: climb/descend each echo — §2 POOL = walk the scale (in-key trails)
                 guard n >= 0 && n <= 127 else { continue }
                 let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)
