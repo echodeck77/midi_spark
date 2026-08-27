@@ -64,10 +64,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// The document as it stood when the current session opened. Non-nil ⇒ a live session is staging.
     private var sessionBaseline: PluginState? = nil
 
-    /// True while a transactional session is open (the selection/marks are pending APPLY/CANCEL).
-    var sessionActive: Bool { sessionBaseline != nil }
-    /// True when the live document diverges from the session baseline (drives APPLY/CANCEL enabled state).
-    var sessionDirty: Bool { if let b = sessionBaseline { return b != document }; return false }
+    // (sessionActive / sessionDirty — the transactional-session status reads — were removed 2026-08-27, zero references.)
 
     /// Open a session (idempotent — the FIRST selecting tap calls this; later taps are no-ops).
     func beginEditSession() { if sessionBaseline == nil { sessionBaseline = document } }
@@ -296,7 +293,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setLaneMask(_ mask: UInt8) { kernel.setLaneMask(mask) }
     func reelTouch() { kernel.reelTouch() }                 // THE REEL-TO-REEL: toggle record→replay / resume (Paul 2026-08-18)
     func uiReelState() -> Int { kernel.reelStateValue() }   // 0 off · 1 armed · 2 replaying
-    func reelExportFiles() -> [(name: String, data: Data)] { kernel.reelExport() }   // EXPORT (step 2): the recorded pass as SMF (sum + per-emitter)
     func reelExportRangeFiles(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] { kernel.reelExportRange(fromPass: lo, toPass: hi, emitterMask: emitterMask) }   // pass RANGE × emitter selection
     func reelRangeRoll(fromPass lo: Int, toPass hi: Int) -> (notes: [ReelDeck.Note], cycle: Double) { kernel.reelRangeRoll(fromPass: lo, toPass: hi) }   // the concatenated roll for a multi-pass selection
     // THE PASS BROWSER (Paul 2026-08-19): the pop-up's 8×8 grid + piano roll.

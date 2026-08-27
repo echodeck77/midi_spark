@@ -476,16 +476,7 @@ struct DiagView: View {
         ladderPending[col] = armed ? row : nil
         refreshFromDocument()
     }
-    /// The dormant rungs (dimmed) while LADDER is on: every occupied cell that is NOT its column's active rung.
-    var ladderDim: Set<GridView.GridPos> {
-        guard ladderMode else { return [] }
-        var s = Set<GridView.GridPos>()
-        for c in 0..<8 {
-            let active = scene.ladderActiveRow(c)
-            for r in 0..<8 where scene.cellAt(c, r) != nil && r != active { s.insert(GridView.GridPos(col: c, row: r)) }
-        }
-        return s
-    }
+    // (ladderDim — the retired in-grid LADDER's dimmed-rung set — was removed 2026-08-27, zero references.)
     /// The blinking cells while a SINGLE switch/mute is pending (commits at the column's next entry). The CURRENTLY
     /// ACTIVE cell flashes to show it's about to DEACTIVATE (user 2026-08-07 — whether the touched cell is populated
     /// or empty); an incoming POPULATED rung also flashes to show where the column is going (an empty rung shows nothing).
@@ -566,10 +557,7 @@ struct DiagView: View {
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
     // Kernel-only (no @State / re-render). (Stopped-audition retired with the editing UI — it returns via PLACE.)
 
-    // ---- PROCESSOR box: edit the selected (brush) Colour ----
-    var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
-
-    // (setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Colour desk.)
+    // (brushIndex + setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Colour desk.)
     func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
     var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
 

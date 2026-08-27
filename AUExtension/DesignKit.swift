@@ -14,27 +14,5 @@ enum UI {
     static let red     = Color(red: 0.98, green: 0.35, blue: 0.30)   // destructive / confirm / alarm
     static let green   = Color(red: 0.35, green: 0.92, blue: 0.50)   // affirmative (mint) — used by the cog + receivers
     static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — the EDIT face accent
-    static let ink     = Color.white                                 // primary foreground
 }
-
-/// A filled-when-on rounded-pill toggle — the shape the desk re-implements as `busToggle`/`modeChip`/`onOffToggle`/
-/// `modeSeg`/`transactChip`/etc. New chrome should use this; existing pills adopt it incrementally (they vary in
-/// font size and padding, hence the knobs). `on` → filled with `hue` + black text; off → faint fill + `hue` text.
-struct PillToggle: View {
-    let label: String
-    var on: Bool
-    var hue: Color = UI.cyan
-    var fontSize: CGFloat = 11
-    var hPad: CGFloat = 10
-    var vPad: CGFloat = 5
-    let action: () -> Void
-    var body: some View {
-        Text(label)
-            .font(.system(size: fontSize, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : hue)
-            .padding(.horizontal, hPad).padding(.vertical, vPad)
-            .background(RoundedRectangle(cornerRadius: 4).fill(on ? hue : Color.white.opacity(0.08)))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: action)
-    }
-}
+// (UI.ink and the reusable PillToggle primitive were removed 2026-08-27 — never adopted, zero references.)

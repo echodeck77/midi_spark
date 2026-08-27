@@ -676,19 +676,7 @@ final class Kernel {
     func reelStopReplay() { reelStopRequest = true }
     func reelCycleValue() -> Double { reel.loopCycle }              // the SELECTED pass's length in beats (piano-roll x-axis + export) — not the live rate
     /// EXPORT (step 2): the recorded pass as SMF files — the A–D "sum" plus a per-emitter stem for each that has events.
-    func reelExport() -> [(name: String, data: Data)] {
-        guard reel.hasLoop else { return [] }
-        let ppq = 480
-        let loopBeats = reel.loopCycle                              // the SELECTED pass's OWN length (the rate may have changed since it was recorded)
-        var files: [(name: String, data: Data)] = []
-        let sum = reel.exportEvents(cables: [1, 2, 3, 4])
-        if !sum.isEmpty { files.append((name: "MidiSpark-All.mid", data: MidiFile.encode(events: sum, bpm: reelTempoStored, ppq: ppq, loopBeats: loopBeats))) }
-        for (i, letter) in ["A", "B", "C", "D"].enumerated() {
-            let ev = reel.exportEvents(cables: [UInt8(i + 1)])
-            if !ev.isEmpty { files.append((name: "MidiSpark-\(letter).mid", data: MidiFile.encode(events: ev, bpm: reelTempoStored, ppq: ppq, loopBeats: loopBeats))) }
-        }
-        return files
-    }
+    // (reelExport() — the whole-pass SMF export — was removed 2026-08-27; superseded by reelExportRange, its only path.)
     /// EXPORT a pass RANGE × an emitter SELECTION (Paul 2026-08-26). emitterMask == 0 ⇒ the MASTER (A–D sum) as one file;
     /// else one stem per selected emitter (A=bit0 … D=bit3). Each file is the passes [lo,hi] concatenated into one phrase.
     func reelExportRange(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] {
