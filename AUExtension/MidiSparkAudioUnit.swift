@@ -101,11 +101,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         var writes: [(col: Int, row: Int, chain: [ProcessorSlot])] = []
         let scene = document.scenes[document.activeSceneResolved]
         for t in targets {
-            guard let cell = scene.cells[t.col][t.row] else { continue }
+            guard let cell = scene.cellAt(t.col, t.row) else { continue }   // bounds-safe (stale/ragged positions) — was a raw subscript that trapped, unlike editCells (U1 fix 2026-08-27)
             var chain = materializedChain(cell); mutate(&chain)
             writes.append((t.col, t.row, chain))
         }
-        editScene { s in for w in writes { s.cells[w.col][w.row]?.processors = w.chain } }
+        editScene { s in for w in writes { if var c = s.cellAt(w.col, w.row) { c.processors = w.chain; s.setCell(w.col, w.row, c) } } }
     }
     func editSlotCells(_ targets: [(col: Int, row: Int)], slot: Int, _ mutate: (inout ProcessorSlot) -> Void) {
         withChainCells(targets) { if slot < $0.count { mutate(&$0[slot]) } }

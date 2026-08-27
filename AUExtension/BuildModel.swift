@@ -54,3 +54,55 @@ struct BuildSceneSnapshot: Codable, Equatable {
     var row8On: [Bool]                 // the scene's lit ROW 8 toggles (FREEZE/HALFTIME/… state)
     var name: String = ""
 }
+
+// DECODE-TOLERANT INITS (Paul 2026-08-27 housekeeping — the `Macro` pattern, Models.swift:890). These three BUILD
+// persistence types are the newest, fastest-churning SAVED types; synthesized Decodable THROWS on a MISSING non-Optional
+// key, so a field added AFTER a save shipped makes an older document fail to decode → the WHOLE PluginState decode throws
+// → the session silently resets to factory (the CR-8 data-loss class). This ALREADY bit `BuildPart.castSlots` (added
+// 2026-08-17, ONE DAY after buildUnassigned first persisted 2026-08-16 → every save in that window is currently un-loadable).
+// decodeIfPresent every field so a missing key falls back to its default instead of throwing. In EXTENSIONS so the
+// memberwise init + synthesized Encodable are preserved. Guards this whole class of type forever, not just castSlots.
+extension BuildPart {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        stagingCells = try c.decodeIfPresent([[String?]].self, forKey: .stagingCells) ?? Array(repeating: Array(repeating: nil, count: 8), count: 8)
+        stagingSel   = try c.decodeIfPresent([Int].self, forKey: .stagingSel) ?? Array(repeating: -1, count: 8)
+        rowChain     = try c.decodeIfPresent([[ProcessorSlot]].self, forKey: .rowChain) ?? Array(repeating: [], count: 8)
+        rowShade     = try c.decodeIfPresent([Double].self, forKey: .rowShade) ?? Array(repeating: 0, count: 8)
+        rowUnder     = try c.decodeIfPresent([String?].self, forKey: .rowUnder) ?? Array(repeating: nil, count: 8)
+        selID        = try c.decodeIfPresent(String.self, forKey: .selID)
+        cast         = try c.decodeIfPresent([String].self, forKey: .cast) ?? []
+        castSlots    = try c.decodeIfPresent([Int: String].self, forKey: .castSlots) ?? [:]
+        receiver     = try c.decodeIfPresent(Int.self, forKey: .receiver) ?? 0
+        emitters     = try c.decodeIfPresent(Set<Bus>.self, forKey: .emitters) ?? [.a]
+        rowReceiver  = try c.decodeIfPresent([Int?].self, forKey: .rowReceiver)
+        rowEmitters  = try c.decodeIfPresent([Set<Bus>?].self, forKey: .rowEmitters)
+        deployed     = try c.decodeIfPresent(Bool.self, forKey: .deployed) ?? false
+        rate         = try c.decodeIfPresent(StepRate.self, forKey: .rate)
+        length       = try c.decodeIfPresent(Int.self, forKey: .length)
+    }
+}
+extension BuildUnassignedData {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        part      = try c.decodeIfPresent(BuildPart.self, forKey: .part) ?? BuildPart()
+        colours   = try c.decodeIfPresent([Colour].self, forKey: .colours) ?? []
+        hues      = try c.decodeIfPresent([String: UInt32].self, forKey: .hues) ?? [:]
+        idCounter = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
+    }
+}
+extension BuildSceneSnapshot {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        performCells      = try c.decodeIfPresent([[String?]].self, forKey: .performCells) ?? Array(repeating: Array(repeating: nil, count: 8), count: 8)
+        performChain      = try c.decodeIfPresent([[[ProcessorSlot]]].self, forKey: .performChain) ?? Array(repeating: Array(repeating: [], count: 8), count: 8)
+        performRecv       = try c.decodeIfPresent([Int].self, forKey: .performRecv) ?? Array(repeating: 0, count: 8)
+        performEmit       = try c.decodeIfPresent([Set<Bus>].self, forKey: .performEmit) ?? Array(repeating: [.a], count: 8)
+        performPart       = try c.decodeIfPresent([Int].self, forKey: .performPart) ?? Array(repeating: -1, count: 8)
+        performMute       = try c.decodeIfPresent(Set<Int>.self, forKey: .performMute) ?? []
+        performStagingRow = try c.decodeIfPresent([Int].self, forKey: .performStagingRow) ?? Array(repeating: -1, count: 8)
+        performLane       = try c.decodeIfPresent(UInt8.self, forKey: .performLane) ?? 0
+        row8On            = try c.decodeIfPresent([Bool].self, forKey: .row8On) ?? Array(repeating: false, count: 8)
+        name              = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+    }
+}

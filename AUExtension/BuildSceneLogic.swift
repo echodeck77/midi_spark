@@ -200,8 +200,9 @@ enum BuildSceneLogic {
             let r = c < sel.count ? sel[c] : -1
             if r < 0 { return -1 }                                  // explicit deselect → keep it silent
             guard c < cells.count else { return -1 }
-            if r >= 8 || cells[c][r] == nil {                       // a positive pick at an empty cell → gentle fallback
-                return (0..<8).first { cells[c][$0] != nil } ?? -1
+            let col = cells[c]                                       // guard the ROW bound too: a ragged (< 8) decoded column must not trap (C5 fix 2026-08-27)
+            if r >= col.count || col[r] == nil {                    // a positive pick at a missing/empty cell → gentle fallback
+                return (0..<col.count).first { col[$0] != nil } ?? -1
             }
             return r
         }

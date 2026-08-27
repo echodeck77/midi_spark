@@ -2746,6 +2746,28 @@ final class RouterTests: XCTestCase {
         render(NotePool(), playing: false)   // stop → flush
         assertNothingLeftSounding(e)
     }
+    // E1 FIX (Paul 2026-08-27): a BEND-mode glide left the pitch wheel OFF-CENTRE on a flush edge (transport stop /
+    // scene flush / panic / latch) — flushGlide cleared SYNTH's CC65 but never re-centred BEND, so the NEXT note on
+    // that channel played detuned. flushGlide must re-centre the wheel (bend 8192) on the edge.
+    func testGlideBendReCentresOnTransportStop() {
+        let cs = arpColours()
+        var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideTime = 0
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func render(_ pool: NotePool, playing: Bool = true) { router.process(box: b, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        render(chord([60]))                   // ANCHOR 60
+        render(chord([64]))                   // +4 st, in range → BEND the wheel off-centre
+        XCTAssertTrue(e.events.contains { ($0.status & 0xF0) == 0xE0 && $0.vel != 64 }, "the glide bent the wheel off-centre")
+        let before = e.events.count
+        render(NotePool(), playing: false)    // STOP → flush
+        let flushed = e.events.suffix(from: before)
+        XCTAssertTrue(flushed.contains { ($0.status & 0xF0) == 0xE0 && $0.note == 0 && $0.vel == 64 },
+                      "the flush re-centres the pitch wheel (bend 8192 → data 0,64) — was left bent before the E1 fix")
+        assertNothingLeftSounding(e)
+    }
     // METER-TRUTH (Paul 2026-08-25): GLIDE emits its note-on via a direct openVoice (it bypasses emitArtic/emitOneBus),
     // so before the `meter` opt-in it sounded WITHOUT lighting the emitter strip. Prove the note-on now meters on its bus.
     func testGlideLightsTheEmitterMeter() {

@@ -36,6 +36,18 @@ final class BuildSceneLogicTests: XCTestCase {
         let out = BuildSceneLogic.reconcileStagingSel([4, 4, 4, 4, 4, 4, 4, 4], cells: grid([]))
         XCTAssertEqual(out, Array(repeating: -1, count: 8), "no stocked cell anywhere → every column resolves to silent")
     }
+    // C5 FIX (Paul 2026-08-27): a RAGGED column (< 8 rows, from a malformed/older decode) must not trap — the row
+    // subscript + the fallback scan were bounded to 8, not the column's actual length.
+    func testReconcileToleratesRaggedColumns() {
+        var cells: [[String?]] = [["gold", nil, nil], [], ["x", "y"]]                 // columns of length 3, 0, 2
+        while cells.count < 8 { cells.append([]) }                                   // the rest empty (length 0)
+        let out = BuildSceneLogic.reconcileStagingSel([5, 0, 1, -1, 0, 0, 0, 0], cells: cells)   // picks past several columns' lengths
+        XCTAssertEqual(out.count, 8)
+        XCTAssertEqual(out[0], 0, "col 0 pick at row 5 (> len 3) falls back to the stocked row 0")
+        XCTAssertEqual(out[1], -1, "col 1 is empty → silent, no trap")
+        XCTAssertEqual(out[2], 1, "col 2 pick at row 1 is valid")
+        XCTAssertEqual(out[4], -1, "col 4 (empty) pick falls back to silent, no trap")
+    }
 
     // MARK: mutateChain (the MUTATE row action — value-only, guaranteed distinct + audible)
 

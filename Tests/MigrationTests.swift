@@ -1043,4 +1043,48 @@ final class OnConfigTests: XCTestCase {
         c.sceneResetMorph = true; c.sceneAutoArm = true
         XCTAssertEqual(c.sceneSummary, "ENTER 3 · EXIT 7 · RESET MORPH · AUTO-ARM")
     }
+
+    // DATA-LOSS REGRESSION (Paul 2026-08-27): BuildPart.castSlots was added 2026-08-17, a day after `buildUnassigned`
+    // first persisted (2026-08-16) — a save in that window has NO `castSlots` key. Synthesized Decodable would THROW on
+    // the missing non-Optional key → the whole PluginState decode fails → silent factory reset. The decode-tolerant
+    // init(from:) makes a missing key fall back to its default instead of throwing.
+    func testBuildPartDecodesWithMissingCastSlots() throws {
+        var p = BuildPart(); p.cast = ["gold", "b0"]; p.receiver = 2; p.rate = .r1_4
+        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(p)) as! [String: Any]
+        dict.removeValue(forKey: "castSlots")                                  // simulate a 2026-08-16→17 save
+        let back = try JSONDecoder().decode(BuildPart.self, from: JSONSerialization.data(withJSONObject: dict))
+        XCTAssertEqual(back.castSlots, [:], "missing castSlots ⇒ empty, not a throw")
+        XCTAssertEqual(back.cast, ["gold", "b0"], "the rest of the part still decodes")
+        XCTAssertEqual(back.receiver, 2)
+    }
+    // The nested path that actually loses the document: buildUnassigned → part missing castSlots must not throw.
+    func testBuildUnassignedDataSurvivesAPartMissingCastSlots() throws {
+        var u = BuildUnassignedData(part: BuildPart()); u.idCounter = 5
+        var top = try JSONSerialization.jsonObject(with: JSONEncoder().encode(u)) as! [String: Any]
+        var part = top["part"] as! [String: Any]; part.removeValue(forKey: "castSlots"); top["part"] = part
+        let back = try JSONDecoder().decode(BuildUnassignedData.self, from: JSONSerialization.data(withJSONObject: top))
+        XCTAssertEqual(back.idCounter, 5)
+        XCTAssertEqual(back.part.castSlots, [:])
+    }
+    // The systemic guard: BuildSceneSnapshot had no decode-tolerant init — a future field going missing must not throw.
+    func testBuildSceneSnapshotDecodesWithAMissingField() throws {
+        let s = BuildSceneSnapshot(performCells: Array(repeating: Array(repeating: nil, count: 8), count: 8),
+                                   performChain: Array(repeating: Array(repeating: [], count: 8), count: 8),
+                                   performRecv: Array(repeating: 0, count: 8), performEmit: Array(repeating: [.a], count: 8),
+                                   performPart: Array(repeating: -1, count: 8), performMute: [],
+                                   performStagingRow: Array(repeating: -1, count: 8), performLane: 0,
+                                   row8On: Array(repeating: false, count: 8))
+        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(s)) as! [String: Any]
+        dict.removeValue(forKey: "row8On")                                     // simulate a pre-row8 snapshot
+        let back = try JSONDecoder().decode(BuildSceneSnapshot.self, from: JSONSerialization.data(withJSONObject: dict))
+        XCTAssertEqual(back.row8On.count, 8, "missing row8On ⇒ 8 defaults, not a throw")
+        XCTAssertEqual(back.performPart.count, 8)
+    }
+    // Full round-trips stay lossless (the decode-tolerant init didn't change the happy path).
+    func testBuildTypesRoundTripLosslessly() throws {
+        var p = BuildPart(); p.castSlots = [3: "b1"]; p.cast = ["gold"]; p.length = 6
+        XCTAssertEqual(try JSONDecoder().decode(BuildPart.self, from: JSONEncoder().encode(p)), p)
+        let u = BuildUnassignedData(part: p, colours: [Colour(colourID: "b1", type: .arp)], hues: ["b1": 0x112233], idCounter: 9)
+        XCTAssertEqual(try JSONDecoder().decode(BuildUnassignedData.self, from: JSONEncoder().encode(u)), u)
+    }
 }

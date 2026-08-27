@@ -672,7 +672,12 @@ final class Router {
     /// Callers ADD the receiver/hold octave addends themselves — those differ per site (the preview/
     /// audition sites deliberately omit the receiver octave), so they must NOT be folded in here.
     private func colourTranspose(_ ci: Int, _ colour: SnapColour) -> Int {
-        Int(over(2 + ci, Double(colour.transpose)).rounded())
+        // Only colours 0..15 have a TRANSPOSE param address (slot 2+ci ∈ 2..17). For an EPHEMERAL colour (ci ≥ 16)
+        // slot 2+ci ∈ 18..33 = the MORPH override slots — host automation of a (render-dead) morph param would then
+        // silently rewrite this colour's transpose EVERY render. An ephemeral colour has no param address, so it uses
+        // its own value (as the `over` comment above already intends but did not enforce). (Paul 2026-08-27)
+        guard ci < 16 else { return Int(colour.transpose) }
+        return Int(over(2 + ci, Double(colour.transpose)).rounded())
     }
 
     /// A real document edit publishes a fresh snapshot generation → it is the new truth, so drop
@@ -718,8 +723,10 @@ final class Router {
                            bypassRecv: Int8 = -1, meter: Bool = false) -> Int {
         guard let out else { return -1 }
         // Claim a slot BEFORE emitting: at capacity we DROP the note (return −1 without emitting) rather
-        // than emit an on we can't schedule an off for — an untrackable note would hang. At 128-voice
-        // capacity this never trips for the real topologies (incl. claim ghosts, which are finite-lived).
+        // than emit an on we can't schedule an off for — an untrackable note would hang. The drop is CLEAN
+        // (no off owed → no stuck note). 128 slots covers the normal topologies (incl. finite-lived claim
+        // ghosts), but ROW-8 BROADCAST-ALL-16 CAN exceed it (a chord × up to 20 voices/note) → some notes
+        // drop silently — the note-hungry all-16 fan is the one path that trips this cap. (corrected 2026-08-27)
         var slot = -1
         for i in voices.indices where !voices[i].active { slot = i; break }
         guard slot >= 0 else { return -1 }
@@ -1788,6 +1795,7 @@ final class Router {
         for i in echoTails.indices where echoTails[i].active {
             let e = echoTails[i]
             chanOverride = Int16(e.chan); nudgeSamples = e.nudge   // repeats sound on the source cell's CHANNEL/NUDGE (captured at registration) — emitOneBus reads these
+            currentCellIndex = e.cellIdx >= 0 ? e.cellIdx : -1   // E6 fix 2026-08-27: attribute the repeat to its SOURCE cell (was a stale value from the prior loop → mis-keyed close-except-legato / SEAL / note-sweep)
             // TAIL SPILL = CUT: once the playhead has crossed this tail's COLUMN boundary, stop scheduling repeats —
             // the last one already emitted keeps its scheduled off, so the sounding note finishes its gate (no lurch).
             if e.spill == .cut && mStart >= columnStart(e.onset, S) + S { echoTails[i].active = false; continue }
@@ -1815,7 +1823,7 @@ final class Router {
                 }
             }
         }
-        chanOverride = -1; nudgeSamples = 0   // clear the per-tail override so the MOD/GLIDE block + tick loop start clean
+        chanOverride = -1; nudgeSamples = 0; currentCellIndex = -1   // clear the per-tail override so the MOD/GLIDE block + tick loop start clean
     }
     /// §7② Emit ONE echo repeat (note `n`, vel `v`, beat `tau`) through the chain stages AFTER the ECHO slot, looked up
     /// on the LIVE cell — LENGTH gates/ties it by the slice it lands in, SPLIT/CHANCE/HARMONIZE re-shape it, etc. Falls
@@ -2071,7 +2079,10 @@ final class Router {
             // GLIDE (review 2026-08-23 [4]): closeBus closed any immortal glide ANCHOR on a disabled bus — forget its stale
             // bookkeeping (else the freed voice slot is later reused and wrongly closed → a spurious off on an unrelated note,
             // and the glide goes silent). Targeted to the disabled buses so glides on still-live emitters survive.
-            for i in glideVoices.indices where glideVoices[i].bus >= 0 && (turnedOff & (1 << UInt8(glideVoices[i].bus))) != 0 { glideVoices[i] = GlideVoice() }
+            for i in glideVoices.indices where glideVoices[i].bus >= 0 && (turnedOff & (1 << UInt8(glideVoices[i].bus))) != 0 {
+                resetGlideControllers(glideVoices[i], atSample: windowStart, out: out)   // E5 fix 2026-08-27: re-centre bend / clear CC65 on the disabled bus (was blanked without a controller reset)
+                glideVoices[i] = GlideVoice()
+            }
             prevBusEnabledMask = busEnabledMask
         }
         let beatsPerSample = tempo / 60.0 / sampleRate
@@ -2504,13 +2515,23 @@ final class Router {
         let v = max(0, min(16383, value))
         out.emit(sampleTime: atSample, cable: cable, 0xE0 | ch, UInt8(v & 0x7F), UInt8((v >> 7) & 0x7F))
     }
-    /// End a GLIDE cell's phrase: close its anchor voice + centre the bend, and forget the voice.
+    /// Reset the CONTROLLERS a glide voice armed on its bus channel — the pitch wheel (BEND) back to centre, and the
+    /// portamento CC65 (SYNTH) OFF. The immortal glide NOTE is closed separately (closeVoice / allNotesOff), but its
+    /// controllers are NOT, so any edge that abandons a glide voice MUST call this or later notes on that channel play
+    /// detuned (bend left off-centre) or glued (CC65 left armed). One source of truth for glidePhraseEnd + every flush
+    /// edge (transport/scene/panic/latch via flushGlide, and the emitter enable→disable edge). (Paul 2026-08-27 E1/E5)
+    private func resetGlideControllers(_ gv: GlideVoice, atSample: Int64, out: MIDIEmitter?) {
+        guard gv.anchor >= 0, gv.bus >= 0 else { return }
+        let ch = (busChannels[Int(gv.bus)] &- 1) & 15
+        if gv.mode == .bend  { emitBend(cable: UInt8(gv.bus + 1), ch: ch, value: 8192, atSample: atSample, out: out) }   // SYNTH/STEP emit no bend (Paul 2026-08-26)
+        if gv.mode == .synth { out?.emit(sampleTime: atSample, cable: UInt8(gv.bus + 1), 0xB0 | ch, 65, 0) }
+    }
+    /// End a GLIDE cell's phrase: close its anchor voice + reset its controllers, and forget the voice.
     private func glidePhraseEnd(_ cellIdx: Int, atSample: Int64, out: MIDIEmitter?) {
         let gv = glideVoices[cellIdx]
         if gv.anchor >= 0 {
             if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: atSample, out: out) }
-            if gv.mode == .bend && gv.bus >= 0 { emitBend(cable: UInt8(gv.bus + 1), ch: (busChannels[Int(gv.bus)] &- 1) & 15, value: 8192, atSample: atSample, out: out) }   // SYNTH/STEP emit no bend (Paul 2026-08-26)
-            if gv.mode == .synth && gv.bus >= 0 { out?.emit(sampleTime: atSample, cable: UInt8(gv.bus + 1), 0xB0 | ((busChannels[Int(gv.bus)] &- 1) & 15), 65, 0) }   // SYNTH: portamento CC65 OFF at phrase end — else it stays armed and pollutes every later note on the channel (review fix 2026-08-26)
+            resetGlideControllers(gv, atSample: atSample, out: out)
         }
         glideVoices[cellIdx] = GlideVoice()
     }
@@ -2521,10 +2542,7 @@ final class Router {
     /// Transport/scene/panic flush: the immortal glide notes are closed by allNotesOff — just forget the state.
     private func flushGlide(atSample: Int64 = renderSampleImmediate, out: MIDIEmitter? = nil) {
         for i in glideVoices.indices {
-            let gv = glideVoices[i]
-            if gv.mode == .synth && gv.anchor >= 0 && gv.bus >= 0 {   // SYNTH: clear portamento CC65 on the edge (else it stays armed on the channel)
-                out?.emit(sampleTime: atSample, cable: UInt8(gv.bus + 1), 0xB0 | ((busChannels[Int(gv.bus)] &- 1) & 15), 65, 0)
-            }
+            resetGlideControllers(glideVoices[i], atSample: atSample, out: out)   // BEND re-centre + SYNTH CC65 off (E1 fix 2026-08-27: bend was left off-centre → later notes detuned)
             glideVoices[i] = GlideVoice()
         }
         for i in glideLastColumn.indices { glideLastColumn[i] = -1 }

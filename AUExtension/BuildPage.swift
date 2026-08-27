@@ -1849,6 +1849,7 @@ extension DiagView {
     // PENDING (flashing). The flash stays until a change is made to the processors, emitters, or receivers (see
     // buildApplyChain + buildClearPendingOnEdit). Only one pending → revert the previous unedited candidate first.
     private func buildPopulateTab(_ n: Int) {
+        buildRecordUndo()   // BUILD UNDO: tapping an empty row-tab mints a colour + places it on a row (U4 fix 2026-08-27)
         let sourceChain: [ProcessorSlot] = []                    // a fresh EMPTY row (was: a copy of the last-selected chain)
         if let p = buildPendingTab, p != n {                     // ONE pending → discard the previous unedited candidate
             if let old = buildRowColour(p) { buildPartCast.removeAll { $0 == old } }
@@ -2023,9 +2024,9 @@ extension DiagView {
     // Flip the SELECTED door between MIDI-in and the in-app piano. Mirroring `receivers` guarantees SwiftUI
     // invalidates this row immediately (buildInputSection reads uiReceivers live, but the mirror forces the update).
     private func buildSetSource(_ i: Int, piano: Bool) {
-        au?.setDoorMode(i, piano ? .keys : .latch)   // route through the door mode (ONE source of truth): piano ⇒ KEYS, DIN ⇒ LATCH (preserves BUILD's live-input behaviour) — Paul 2026-08-20
-        receivers = au?.uiReceivers() ?? receivers
-        refreshFromDocument()
+        // route through the door mode (ONE source of truth): piano ⇒ KEYS, DIN ⇒ LATCH (preserves BUILD's live-input behaviour).
+        // buildRecvEdit records a BUILD-undo step + re-polls/refreshes (U9 fix 2026-08-27 — was recording to the AU stack the header can't reach).
+        buildRecvEdit { au?.setDoorMode(i, piano ? .keys : .latch) }
     }
 
     @ViewBuilder private func buildCastSection(castW: CGFloat, cell: CGFloat) -> some View {
@@ -2064,6 +2065,7 @@ extension DiagView {
     }
     // LONG-PRESS → apply the door to EVERY row (Paul 2026-08-19).
     private func buildSelectDoorAll(_ i: Int) {
+        buildRecordUndo()   // BUILD UNDO: blanket-apply the door to every row (U7 fix 2026-08-27 — the single-row sibling records; this didn't)
         buildClearPendingOnEdit()                                // a RECEIVER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
         for r in 0..<min(8, buildRowReceiver.count) { buildRowReceiver[r] = i }
         buildSelReceiver = i; ddStickyReceiver = i
@@ -2072,6 +2074,7 @@ extension DiagView {
     }
     // LONG-PRESS → toggle the emitter on EVERY row (all rows take the reference row's toggled set). (Paul 2026-08-19)
     private func buildToggleBusAll(_ bus: Bus) {
+        buildRecordUndo()   // BUILD UNDO: blanket-apply the emitter to every row (U7 fix 2026-08-27)
         buildClearPendingOnEdit()                                // an EMITTER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
         var buses = buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
@@ -2643,7 +2646,6 @@ extension DiagView {
         DispatchQueue.main.async { self.buildRunMutateGrid(); self.buildMutating = false }   // render the DISABLED state before the blocking compute
     }
     private func buildRunMutateGrid() {
-        buildRecordUndo()   // BUILD UNDO: mutate the placed rows
         guard let selID = ddSelectedColourID else { return }
         let base = buildColourChain(selID)
         guard !base.isEmpty else { return }
@@ -2667,6 +2669,7 @@ extension DiagView {
             variations.append(v)
         }
         guard variations.count == existing.count else { return }
+        buildRecordUndo()   // BUILD UNDO: recorded HERE — after every bail guard — so a failed generation never pushes a no-op step (U11 fix 2026-08-27)
         variations.sort { buildComplexity($0) < buildComplexity($1) }        // ORDER BY complexity of output
         for (i, cid) in existing.enumerated() { buildWriteColourMachine(cid, variations[i]) }   // allocate to EXISTING colours only
         refreshFromDocument()
@@ -2675,6 +2678,7 @@ extension DiagView {
     // CLEAR >>> — clear the PART grid's active selection (every column deselected → the grid plays nothing). The placed
     // colours + tabs are KEPT (non-destructive). (Paul 2026-08-18)
     private func buildClearGrid() {
+        buildRecordUndo()   // BUILD UNDO: CLEAR deselects every column — undoable (U8 fix 2026-08-27)
         for c in 0..<8 { buildStagingSel[c] = -1 }
         buildStagingSyncIfPlaying()
     }
@@ -3320,6 +3324,7 @@ extension DiagView {
     // fresh unique hue. Falls back to a blank colour when nothing is selected yet. (Paul 2026-08-17)
     private func buildCloneLastColour(atSlot slot: Int? = nil) {
         guard let src = buildSelID else { buildAddCastColour(atSlot: slot); return }
+        buildRecordUndo()   // BUILD UNDO: record BEFORE minting so undo reverts the whole clone, not just the slot placement (U6 fix 2026-08-27)
         let id = buildNewColour(hex: buildDistinctHue(), machine: buildColourMachine(src))   // SAME settings, a genuinely DIFFERENT colour (never reuse the source hue)
         if !buildPartCast.contains(id) { buildPartCast.append(id) }
         buildPlaceCastSlot(id, slot)                                                          // land it on the LONG-PRESSED cell (else first-free)
@@ -3328,6 +3333,7 @@ extension DiagView {
         buildSelectID(id)
     }
     private func buildAddCastColour(atSlot slot: Int? = nil) {
+        buildRecordUndo()   // BUILD UNDO: record BEFORE minting so undo reverts the new colour + its placement (U6 fix 2026-08-27)
         let id: String
         if let j = buildFirstUndefinedGlobal() {
             buildCreateColour(j); id = colourIDs[j]
@@ -3341,8 +3347,9 @@ extension DiagView {
         buildSelectID(id)
     }
     // Assign a NON-default colour its cast slot: the requested one if it's a free extras cell, else the first free.
+    // The undo step is recorded by each CALLER (before it mints the colour) so undo reverts the whole action — not
+    // just this placement (U6 fix 2026-08-27; the three callers are buildCloneLastColour/buildAddCastColour/buildCommitPulse).
     private func buildPlaceCastSlot(_ id: String, _ requested: Int?) {
-        buildRecordUndo()   // BUILD UNDO: place a colour on a cast slot
         buildCastSlots = buildCastSlots.filter { $0.value != id }                             // this colour claims exactly one slot
         if let s = requested, !buildIsDefaultSlot(s), buildCastSlots[s] == nil { buildCastSlots[s] = id }
         else if let s = buildFirstFreeCastSlot() { buildCastSlots[s] = id }
@@ -3352,6 +3359,7 @@ extension DiagView {
     // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
     private func buildCommitPulse() {
         guard let pid = buildPulseColourID else { buildPulseColourID = nil; return }
+        buildRecordUndo()   // BUILD UNDO: committing the pulsing candidate into the cast (U6 fix 2026-08-27 — buildPlaceCastSlot no longer self-records)
         if !buildPartCast.contains(pid) { buildPartCast.append(pid); buildPlaceCastSlot(pid, nil); buildEnforceCastHues() }   // LAST TOUCHED promotes the colour INTO the cast (first-free slot)
         if pid == buildAuditionID { buildAuditionID = nil }           // it graduated from candidate to a real cast colour
         buildSelectID(pid)                                             // select it (loads its machine into the footer)
@@ -3537,6 +3545,7 @@ extension DiagView {
         if let rid = buildRowColour(row) { relaxed.append(Dice.fingerprint(buildColourChain(rid))) }
         guard let mutated = BuildSceneLogic.mutateChain(base, avoid: avoid, &rng)
                 ?? BuildSceneLogic.mutateChain(base, avoid: relaxed, &rng) else { return }   // no audible variant at all
+        buildRecordUndo()   // BUILD UNDO: recorded after the bail guards so a failed mutate never pushes a no-op step (U5 fix 2026-08-27)
         let newC = buildComplexity(mutated)
         let hue = buildSimilarHue(of: cid, lighter: newC < srcC, srcC: srcC, newC: newC)
         let newID = buildNewColour(hex: hue, machine: mutated)   // a NEW colour (never already placed) → no relocation
@@ -4987,8 +4996,8 @@ extension DiagView {
     // BUILD chain edits — colour-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
     // whole with setColourChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
     private func buildApplyChain(_ chain: [ProcessorSlot]) {
+        guard let cid = ddSelectedColourID else { return }   // guard ABOVE the record so a nil selection never pushes a no-op undo step (U10 fix 2026-08-27)
         buildRecordUndo("chain")   // BUILD UNDO: chain edit (add/remove/move/param) — coalesced so a param scrub is one step
-        guard let cid = ddSelectedColourID else { return }
         // idea 24 TOUCH-TO-DIFF: every chain edit funnels here — stamp the edit clock so the OUT read-out glows and the
         // notes the NEW settings produce (born after the gesture started) stand out from the old ones, as you drag.
         let now = Date(); if buildEditStartedAt == nil { buildEditStartedAt = now }; buildLastEditAt = now
