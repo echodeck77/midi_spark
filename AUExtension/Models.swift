@@ -30,8 +30,13 @@ enum ProcessorType: String, Codable, CaseIterable {
     case muteMatrix = "MUTEMATRIX" // ROUTING (Paul 2026-08-25 §5): per-step PART-MUTING — an A/B/C/D × 8 checkbox grid; each onset-slice removes the muted emitters (note-transparent)
     case riff = "RIFF"         // DRIVER (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices derived against the held chord — the chord-following 303. Zero pitches stored.
     case tap = "TAP"           // ROUTING (AcceptanceCriteria-tap-processor, ratified): emits the stream AS-IT-STANDS at its chain position (LEVEL-scaled, to THIS wire | A–D) AND passes it onward unchanged — layered parallel outputs
+    case hocket = "HOCKET"     // DRIVER (AcceptanceCriteria-hocket-processor, v1): plays its pool (WHAT) timed by LISTENING to another emitter wire (WHEN) — GAPS answers in its silences, TRADE hit-for-hit. The chains converse.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
+
+// HOCKET (spec §MODE): GAPS = speak only in the listened wire's SILENCES (call-and-response) · TRADE = hit-for-hit
+// alternation with it (one line split across two synths, by listening). §12 append-only.
+enum HocketMode: String, Codable, CaseIterable { case gaps = "GAPS", trade = "TRADE" }
 
 // THE MOD PROCESSOR (delta · CC-stage §1 WAVE): the shape of the generated CC. SINE smooth · TRI symmetric ramp ·
 // SQR on/off · RAMP rising saw · S&H stepped seeded-per-cycle random (replay-safe). §12: append-only (never reorder).
@@ -318,6 +323,12 @@ struct ColourParams: Codable, Equatable {
     var riffTie: [Bool]? = nil                  // per-step: extend the previous note (a held ⌒) — v1b
     var riffSlide: [Bool]? = nil                // per-step: legato → GLIDE SYNTH slide (§5 interlock) — v2
     var riffWrap: RiffWrap? = nil               // rank > held count → FOLD (default) | CLAMP | WRAP
+    // HOCKET (AcceptanceCriteria-hocket-processor, v1): a driver that plays its pool timed by LISTENING to a wire.
+    // Additive-Optional (a new type — no old-doc effect). SOURCE = the listened emitter (0…3 = wire A–D); MODE = GAPS
+    // (answer in its silences) | TRADE (hit-for-hit); RATE = the tick grid it decides on.
+    var hocketSource: Int? = nil                // 0…3 = the wire (emitter A–D) this hocket listens to
+    var hocketMode: HocketMode? = nil           // GAPS | TRADE
+    var hocketRate: ArpRate? = nil              // the decision tick rate (nil ⇒ 1/8)
     // TAP (AcceptanceCriteria-tap-processor, ratified): a mid-chain SEND — emits the stream as it stands at this slot AND passes it on.
     var tapLevel: Double? = 1.0                 // velocity scale on the tapped copy (the send fader; 0…1+)
     var tapTo: Int? = 0                         // 0 = THIS WIRE (layer on the cell's output) · 1–4 = emitter A–D (a parallel out)

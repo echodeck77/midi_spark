@@ -218,6 +218,10 @@ struct SnapParams {
     var riffTie: [Bool] = []                             // per-step tie (empty ⇒ none)
     var riffSlide: [Bool] = []                           // per-step slide (empty ⇒ none)
     var riffWrap: RiffWrap = .fold
+    // HOCKET (AcceptanceCriteria-hocket-processor, v1): the wire-listening driver.
+    var hocketSource: Int = 0                             // 0…3 = the listened emitter (wire A–D)
+    var hocketMode: HocketMode = .gaps
+    var hocketRateBeats: Double = 0.5                     // resolved from hocketRate (1/8 = 0.5 beat) — the decision tick grid
     // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
     var tapLevel: Double = 1.0
     var tapTo: Int = 0                                    // 0 = THIS WIRE · 1–4 = emitter A–D

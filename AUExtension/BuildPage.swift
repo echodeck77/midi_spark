@@ -4957,6 +4957,8 @@ extension DiagView {
                 C("WEAVE EUCLID", "Each note gets its own euclidean rhythm, denser on top.", .weave) { $0.weaveMode = .euclid },
                 C("PASSES", "Plays only on the laps you choose (1–4).", .passgate),
                 C("CHANCE", "Lets notes through by dice roll — the same roll every loop.", .chance),
+                C("HOCKET GAPS", "Plays your notes in another synth's silences — call and response.", .hocket) { $0.hocketMode = .gaps },
+                C("HOCKET TRADE", "Trades hits with another synth — one line split across two.", .hocket) { $0.hocketMode = .trade },
             ]),
             BuildCardGroup(title: "DYNAMICS", note: nil, cards: [
                 C("HUMANIZE", "Loosens the timing and softens the hits: a human touch.", .humanize),
@@ -4996,6 +4998,7 @@ extension DiagView {
         case .tutti:   switch s.params.tuttiMode ?? .coin { case .coin: m = "COIN"; case .pattern: m = "PAT" }
         case .weave:   switch s.params.weaveMode ?? .ladder { case .ladder: m = "LAD"; case .harmonic: m = "HARM"; case .drawn: m = "DRAWN"; case .euclid: m = "EUC" }
         case .mod:     switch s.params.modSource ?? .shape { case .shape: m = "LFO"; case .follow: m = "FOLLOW"; case .steps: m = "STEP"; case .strike: m = "ENV"; case .extern: m = "CC IN" }
+        case .hocket:  switch s.params.hocketMode ?? .gaps { case .gaps: m = "GAPS"; case .trade: m = "TRADE" }
         default:       m = ""
         }
         return m.isEmpty ? base : "\(base) \(m)"

@@ -386,6 +386,10 @@ enum SnapshotBuilder {
         if let v = p.riffTie { out.riffTie = v }
         if let v = p.riffSlide { out.riffSlide = v }
         if let v = p.riffWrap { out.riffWrap = v }
+        // HOCKET (AcceptanceCriteria-hocket-processor, v1): the wire-listening driver.
+        if let v = p.hocketSource { out.hocketSource = clamp(v, 0, 3) }
+        if let v = p.hocketMode { out.hocketMode = v }
+        if let v = p.hocketRate { out.hocketRateBeats = max(0.03125, v.beats) }
         // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
         if let v = p.tapLevel { out.tapLevel = max(0, min(2, v)) }
         if let v = p.tapTo { out.tapTo = clamp(v, 0, 4) }

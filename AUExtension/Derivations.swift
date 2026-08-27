@@ -1169,7 +1169,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, riff, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, riff, hocket, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -1390,6 +1390,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .length:    return .length                           // per-slice GATE override — re-articulates a hold; overrides a driver's gates downstream
     case .weave:     return .weave                            // DRIVER — each held note ticks on its own rank-derived clock (polyrhythm)
     case .riff:      return .riff                             // DRIVER — a stored RANK stencil derived against the held chord (the chord-following 303)
+    case .hocket:    return .hocket                           // DRIVER — plays its pool timed by listening to another wire (GAPS/TRADE)
     case .split:     return .split                            // set-membership filter — keep a subset of the chord (a HOLD transform / set filter)
     case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
@@ -1592,6 +1593,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .muteMatrix: return "speaker.slash"               // ROUTING — per-step part-muting (the gate grid)
     case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
     case .tap:       return "arrow.turn.up.right"          // ROUTING — the mid-chain send (the stream turns off to a parallel wire)
+    case .hocket:    return "ear"                           // DRIVER — listens to a wire; plays in its gaps / trades with it
     }
 }
 

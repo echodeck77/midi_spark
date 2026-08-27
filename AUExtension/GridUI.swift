@@ -844,6 +844,7 @@ struct ProcessorBox: View {
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
         case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
+        case .hocket:    return "play your notes in another synth's gaps — or trade hits with it (listen to a wire)"
         }
     }
 
@@ -1412,6 +1413,15 @@ struct ProcessorBox: View {
             heroField("LEVEL  \(Int(lv * 100))%  (the send fader)") { slider(bind(lv) { v in setParam { $0.tapLevel = v } }, in: 0...1.5) }
             field("TO — where the copy exits", \.tapTo) { seg(["THIS", "A", "B", "C", "D"], sel: ["THIS", "A", "B", "C", "D"][max(0, min(4, p.tapTo ?? 0))]) { i in setParam { $0.tapTo = i } } }
             optionsCluster([("MUTE", p.tapMute ?? false, { setParam { $0.tapMute = !($0.tapMute ?? false) } })])
+        case .hocket:   // DRIVER (AcceptanceCriteria-hocket-processor) — listen to a wire; play in its GAPS or TRADE its hits
+            let hm = p.hocketMode ?? .gaps
+            heroField("LISTEN TO — the wire") { seg(["A", "B", "C", "D"], sel: ["A", "B", "C", "D"][max(0, min(3, p.hocketSource ?? 0))]) { i in setParam { $0.hocketSource = i } } }
+            field("MODE", \.hocketMode) { seg(HocketMode.allCases.map(\.rawValue), sel: hm.rawValue) { i in setParam { $0.hocketMode = HocketMode.allCases[i] } } }
+            Text(hm == .trade ? "TRADE — answer each of the wire's hits, hit-for-hit" : "GAPS — play only in the wire's silences (call-and-response)")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            field("RATE — its decision grid", \.hocketRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.hocketRate ?? .r1_8).rawValue) { i in setParam { $0.hocketRate = ArpRate.allCases[i] } } }
+            Text("Plays YOUR held notes (WHAT) timed by the wire (WHEN). Put it on a later row than what it listens to.")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 

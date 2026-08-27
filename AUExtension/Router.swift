@@ -154,6 +154,10 @@ final class Router {
         for v in voices where v.active && !v.silent && v.bus == b { return true }
         return false
     }
+    // HOCKET (wire-as-source v1): the sample of the most recent REAL note-on on each emitter (A–D) — the "when the wire
+    // struck" edge that TRADE reads. Updated in openVoice; reset to a far-past sentinel on transport/flush edges so a
+    // stale onset can't false-trigger. Read-only from HOCKET's tick (same live-query model as CONVERSATION's L1 caveat).
+    private var emitterLastOnsetSample = [Int64](repeating: .min, count: 4)
     // emitter role family: ALT / TURNS — turn-taking IN TIME. `altSequence` is the expanded turn order (each group
     // member, position order, repeated its COUNT/dwell). The turn advances once per ARTICULATION MOMENT (a new
     // onset SAMPLE), and ALL notes at the same moment route to the SAME holder. So a single fan-out cell whose notes
@@ -738,6 +742,7 @@ final class Router {
             out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
             if refcount[idx] == 0 { distinctSounding += 1 }
             refcount[idx] += 1
+            if bus < 4 && onSample > emitterLastOnsetSample[Int(bus)] { emitterLastOnsetSample[Int(bus)] = onSample }   // HOCKET: the wire's latest onset (TRADE reads it)
             // METER-TRUTH (Paul 2026-08-25): a direct-injection note-on (GLIDE) bypasses emitArtic/emitOneBus, so it
             // must light the emitter strip HERE or it sounds invisibly. Opt-in (`meter`) so the normal path — which
             // already meters in emitOneBus — never double-counts. Bus-keyed, same accumulators as §6a metering.
@@ -910,6 +915,7 @@ final class Router {
         for i in voices.indices where voices[i].active && (includeBypass || voices[i].bypassRecv < 0) {
             closeVoice(i, atSample: time, out: out)
         }
+        for i in 0..<4 { emitterLastOnsetSample[i] = .min }   // HOCKET: clear the wire-onset feed on any flush edge (no stale TRADE trigger)
     }
     /// PANIC belt-and-braces (incident 2026-08-08 §3): beyond our own tracked note-offs, blast CC120 (all-sound-off)
     /// + CC123 (all-notes-off) on every channel and every cable, so a wedged synth we can't fully account for gets a
@@ -1410,7 +1416,7 @@ final class Router {
                     emitStrumRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
                                  pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                                  beatsPerSample: beatsPerSample, S: S, a: a, chainDriver: driver, out: out, diag: &diag)
-                case .euclid, .burst, .cascade, .drone, .shift, .humanize:   // GENERATORS as chain drivers (user 2026-08-09)
+                case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:   // GENERATORS as chain drivers (user 2026-08-09; HOCKET 2026-08-27)
                     let dm = cellMode(type: driveP.type, bypassed: false, passMask: driveP.passMask, pass: diag.pass)
                     emitGeneratorRow(mode: dm, cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
                                      pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
@@ -1454,7 +1460,7 @@ final class Router {
                 emitStrumRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                              beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
-            case .euclid, .burst, .cascade, .drone, .shift, .humanize:
+            case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:
                 emitGeneratorRow(mode: mode, cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
@@ -3041,6 +3047,36 @@ final class Router {
                 let velScale = max(0.05, (100.0 - vFrac * amt * 45.0) / 100.0)
                 if inWindow(tau) { strikeChord(tau: tau, velScale: velScale, gateBeats: max(0.05, colStart + S - tau), onlyIndex: k) }
             }
+        case .hocket:
+            // HOCKET (v1, AcceptanceCriteria-hocket-processor): play the pool (WHAT) timed by LISTENING to another wire
+            // (WHEN). Each decision tick queries the listened emitter — GAPS strikes only in its SILENCES (call-and-
+            // response), TRADE answers just AFTER it strikes (hit-for-hit). The pool is walked ascending, one note per
+            // strike → a line split across two synths by listening. Live query of the wire's voices/onset (the
+            // CONVERSATION L1 caveat: what it has emitted SO FAR this render is visible — put the listener downstream).
+            let srcCount = srcNotes.count
+            let listenBus = max(0, min(3, p.hocketSource))
+            // THE CYCLE LAW (wire-grain): a HOCKET that OUTPUTS on the wire it LISTENS to is a loop — it falls SILENT
+            // (the standing "loops fall silent" rule). Cross-cell cycles aren't detected in v1 (they ping-pong at one
+            // block's latency); the direct self-cycle is the footgun this guards.
+            if srcCount > 0 && (bm & (UInt8(1) << UInt8(listenBus))) == 0 {
+                let sub = max(0.03125, p.hocketRateBeats)
+                iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
+                             beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { tick, mTickBeat, onTime, _ in
+                    let pass: Bool
+                    switch p.hocketMode {
+                    case .gaps:
+                        pass = !emitterSounding(listenBus)                               // speak only in the wire's silence
+                    case .trade:
+                        let last = emitterLastOnsetSample[listenBus]                     // the wire's most recent onset
+                        let subSamples = Int64((sub / max(1e-9, beatsPerSample)).rounded())
+                        pass = last != .min && last < onTime && last >= onTime - subSamples   // it struck within the last tick → answer now
+                    }
+                    guard pass else { return }
+                    let idx = Int(((tick % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))   // walk the pool ascending (a line)
+                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: idx)
+                }
+            }
         default:
             break
         }
@@ -3078,7 +3114,7 @@ final class Router {
     }
     private func isDriverType(_ t: ProcessorType) -> Bool {
         switch t {
-        case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave, .riff: return true
+        case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave, .riff, .hocket: return true
         default: return false
         }
     }

@@ -5783,4 +5783,44 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertEqual(strikeCount(2048), strikeCount(256), "echo is block-size invariant")
     }
+
+    // HOCKET (v1): a wire-listening driver. Two cells in column 0 — a sustained DRONE on emitter A (row 0, the wire),
+    // and a HOCKET on emitter B (row 1) reading its pool but timed by LISTENING to wire A in GAPS. When A is held it is
+    // (near-)continuously sounding → HOCKET is suppressed; remove A and HOCKET fills the silence with its pool line.
+    private func hocketScene(wireOnA: Bool) -> SnapshotBox {
+        let cs = colourIDs.map { id -> Colour in
+            if id == "gold" { return Colour(colourID: id, type: .drone) }
+            if id == "orange" { var c = Colour(colourID: id, type: .hocket)
+                c.paramsA.hocketSource = 0; c.paramsA.hocketMode = .gaps; c.paramsA.hocketRate = .r1_8; return c }
+            return Colour(colourID: id, type: .arp)
+        }
+        return box(colours: cs) {
+            if wireOnA { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // the DRONE wire on emitter A
+            $0.cells[0][1] = Cell(colourID: "orange", buses: [.b])                // HOCKET on emitter B, listening to A
+        }
+    }
+    func testHocketGapsPlaysInTheWiresSilences() {
+        let noWire = RecordingEmitter()
+        run(hocketScene(wireOnA: false), chord([60, 64, 67]), beats: 8, into: noWire)
+        let withWire = RecordingEmitter()
+        run(hocketScene(wireOnA: true), chord([60, 64, 67]), beats: 8, into: withWire)
+        // HOCKET emits on cable 2 (emitter B). A silent → it fills the gaps; A sounding → it's suppressed.
+        XCTAssertGreaterThan(noWire.ons.filter { $0.cable == 2 }.count, 0, "A silent → HOCKET fills the silence")
+        XCTAssertLessThan(withWire.ons.filter { $0.cable == 2 }.count, noWire.ons.filter { $0.cable == 2 }.count,
+                          "A sounding → HOCKET GAPS is suppressed")
+        assertNothingLeftSounding(noWire); assertNothingLeftSounding(withWire)
+    }
+    func testHocketSelfCycleFallsSilent() {
+        // THE CYCLE LAW: a HOCKET that OUTPUTS on the wire it LISTENS to is a loop → silent.
+        let cs = colourIDs.map { id -> Colour in
+            if id == "gold" { var c = Colour(colourID: id, type: .hocket)
+                c.paramsA.hocketSource = 0; c.paramsA.hocketMode = .gaps; c.paramsA.hocketRate = .r1_8; return c }
+            return Colour(colourID: id, type: .arp)
+        }
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // listens to A, emits on A
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 8, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "a self-listening loop falls silent")
+        assertNothingLeftSounding(e)
+    }
 }
