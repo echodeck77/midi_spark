@@ -1426,7 +1426,7 @@ extension DiagView {
                     buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w).frame(width: w).frame(minHeight: h, alignment: .top)
                 }
                 .frame(width: w, height: h)
-                .clipShape(RoundedRectangle(cornerRadius: 16))                // clip the scroll to the panel's own rounded box
+                .clipShape(RoundedRectangle(cornerRadius: 8))                 // clip the scroll to the panel's own (less-rounded) box
                 .shadow(color: .black.opacity(0.5), radius: 14, y: 6)         // depth so it reads as a floating overlay
                 .offset(x: x, y: y)
                 .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
@@ -1452,6 +1452,21 @@ extension DiagView {
             .overlay(Text(chevron).font(.system(size: min(13, width * 0.7), weight: .heavy)).foregroundColor(.black))
             .contentShape(Rectangle()).onTapGesture { roomsRoom = room }
     }
+    // THE SEAM COLUMN (Paul 2026-08-28) — the part↔select nav, relocated to the FAR side of the page (opposite the MIDI
+    // chain): a PARTIALLY-INVISIBLE single-column control that takes the grid's height into account so the visible seam
+    // aligns EXACTLY with the grid's interior rows (same ch + offset as the grid: below the ▲PLAY sliver + track row).
+    // The column width is set by the caller (50% of a grid cell) so it looks identical to the old in-grid seam.
+    @ViewBuilder func roomsSeamColumn(to room: Room, chevron: String) -> some View {
+        GeometryReader { g in
+            let gap: CGFloat = 3, nf: CGFloat = 0.5, pad: CGFloat = 3
+            let ch = max(6, (g.size.height - 2 * pad - 9 * gap) / (9 + nf))   // SAME formula as the grid → identical row height
+            let navH = ch * nf
+            let interiorTop = pad + navH + gap + ch + gap                    // below the ▲PLAY sliver + the track/col-select row
+            let interiorH = ch * 8 + gap * 7
+            roomsSeamSliver(to: room, chevron: chevron, width: g.size.width, height: interiorH)
+                .offset(y: interiorTop)                                      // the rest of the column is empty → partially invisible
+        }
+    }
     // A SELECT track-head (top-row selector) — tap toggles the track (play/stop grammar); shows the slot's hue if occupied.
     @ViewBuilder func roomsTrackHead(_ t: Int) -> some View {
         let on = t >= 0 && t < roomsTrackOn.count && roomsTrackOn[t]
@@ -1460,35 +1475,28 @@ extension DiagView {
             .contentShape(Rectangle())
             .onTapGesture { if t >= 0 && t < roomsTrackOn.count { roomsTrackOn[t].toggle() } }
     }
-    // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the nav slivers, ALL in ONE box, no padding
-    // between them (Paul 2026-08-28). Top: ▲PLAY sliver over cols 1–8. Then the col-select (track) row + corner. Then 8
-    // interior rows, each ending in a right-edge side button. A right SEAM sliver (→ PART) runs beside the side buttons.
+    // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
+    // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)
     @ViewBuilder func roomsSelectGridUnit() -> some View {
         GeometryReader { g in
-            let gap: CGFloat = 3, nf: CGFloat = 0.5, pad: CGFloat = 3          // direction sliver = 50% of a cell (Paul 2026-08-28)
-            let cw = max(6, (g.size.width  - 2 * pad - 9 * gap) / (9 + nf))    // 9 cells + seam(50% cw) + 9 gaps → FILLS the width
-            let ch = max(6, (g.size.height - 2 * pad - 9 * gap) / (9 + nf))    // playNav(50% ch) + 9 cells + 9 gaps → FILLS the height
-            let navH = ch * nf, seamW = cw * nf
+            let gap: CGFloat = 3, nf: CGFloat = 0.5, pad: CGFloat = 3          // ▲PLAY sliver = 50% of a cell
+            let cw = max(6, (g.size.width  - 2 * pad - 8 * gap) / 9)           // 9 cols (8 interior + side button) → FILLS the width
+            let ch = max(6, (g.size.height - 2 * pad - 9 * gap) / (9 + nf))    // playNav(50% ch) + track + 8 interior → FILLS the height
+            let navH = ch * nf
             let interiorW = cw * 8 + gap * 7
             let interiorH = ch * 8 + gap * 7
             VStack(alignment: .leading, spacing: gap) {
                 roomsPlayNavSliver(width: interiorW, height: navH)          // ▲PLAY directly above the track row, over cols 1–8
-                HStack(alignment: .top, spacing: gap) {
-                    VStack(spacing: gap) {
-                        HStack(spacing: gap) {                               // track (col-select) row + corner
-                            ForEach(0..<8, id: \.self) { c in roomsTrackHead(c).frame(width: cw, height: ch) }
-                            Color.clear.frame(width: cw, height: ch)
-                        }
-                        ForEach(0..<8, id: \.self) { r in                    // interior rows + right side buttons
-                            HStack(spacing: gap) {
-                                ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: ch) }
-                                roomsSideButton(r).frame(width: cw, height: ch)
-                            }
-                        }
+                VStack(spacing: gap) {
+                    HStack(spacing: gap) {                                   // track (col-select) row + corner
+                        ForEach(0..<8, id: \.self) { c in roomsTrackHead(c).frame(width: cw, height: ch) }
+                        Color.clear.frame(width: cw, height: ch)
                     }
-                    VStack(spacing: gap) {                                   // right SEAM sliver, beside the side buttons (interior rows)
-                        Color.clear.frame(width: seamW, height: ch)
-                        roomsSeamSliver(to: .part, chevron: "▸", width: seamW, height: interiorH)
+                    ForEach(0..<8, id: \.self) { r in                        // interior rows + right side buttons
+                        HStack(spacing: gap) {
+                            ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: ch) }
+                            roomsSideButton(r).frame(width: cw, height: ch)
+                        }
                     }
                 }
                 .overlay(alignment: .topLeading) {                          // the processor card over the interior 8×8
@@ -1500,6 +1508,9 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))
         }
     }
+    // The grid's cell WIDTH for a given box width — so the caller can size the far-edge seam column to 50% of a cell,
+    // matching the old in-grid seam. SELECT = 9 cols, PART = 10 cols. (Paul 2026-08-28)
+    func roomsGridCellW(_ boxW: CGFloat, cols: Int) -> CGFloat { max(6, (boxW - 2 * 3 - CGFloat(cols - 1) * 3) / CGFloat(cols)) }
     // The empty-box PROCESSOR SELECTOR window (the catalog) — the existing modal picker, rendered in the rooms shell. (Paul 2026-08-28)
     @ViewBuilder func roomsProcessorPicker(size: CGSize) -> some View {
         if let slot = buildAddSlot { buildProcessorPicker(slot: slot, size: size) }
@@ -1550,25 +1561,24 @@ extension DiagView {
     // interior cols). NO loop keys, no padding between the nav slivers and the grid.
     @ViewBuilder func roomsPartGrid() -> some View {
         GeometryReader { g in
-            let gap: CGFloat = 3, nf: CGFloat = 0.5, pad: CGFloat = 3         // direction sliver = 50% of a cell (Paul 2026-08-28)
-            let cw = max(6, (g.size.width  - 2 * pad - 10 * gap) / (10 + nf)) // seam(50% cw) + leftRail + 8 interior + rightRail → FILLS the width
+            let gap: CGFloat = 3, nf: CGFloat = 0.5, pad: CGFloat = 3         // ▲PLAY sliver = 50% of a cell
+            let cw = max(6, (g.size.width  - 2 * pad - 9 * gap) / 10)         // 10 cols (leftRail + 8 interior + rightRail) → FILLS the width (seam moved out)
             let ch = max(6, (g.size.height - 2 * pad - 9 * gap) / (9 + nf))   // playNav(50% ch) + trackHead + 8 interior → FILLS the height
-            let navH = ch * nf, seamW = cw * nf
+            let navH = ch * nf
             let interiorW = cw * 8 + gap * 7
             let interiorH = ch * 8 + gap * 7
-            let leftInset = seamW + gap + cw + gap                          // seam + leftRail → the interior's left edge
+            let leftInset = cw + gap                                        // leftRail → the interior's left edge
             VStack(alignment: .leading, spacing: gap) {
-                HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past seam + left rail)
+                HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
                     Color.clear.frame(width: leftInset)
                     roomsPlayNavSliver(width: interiorW, height: navH)
                 }
                 HStack(spacing: gap) {                                      // track-head row over the interior
-                    Color.clear.frame(width: seamW); Color.clear.frame(width: cw)
+                    Color.clear.frame(width: cw)
                     ForEach(0..<8, id: \.self) { c in colSelCellPart(c).frame(width: cw, height: ch) }
                     Color.clear.frame(width: cw)
                 }
-                HStack(alignment: .top, spacing: gap) {                     // body: seam | left rail | interior+playhead | right rail
-                    roomsSeamSliver(to: .select, chevron: "◂", width: seamW, height: interiorH)
+                HStack(alignment: .top, spacing: gap) {                     // body: left rail | interior+playhead | right rail
                     VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(width: cw, height: ch) } }
                     ZStack(alignment: .topLeading) {
                         VStack(spacing: gap) { ForEach(0..<8, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPartCell(c, r, w: cw, h: ch) } } } }
@@ -5018,8 +5028,8 @@ extension DiagView {
             ScrollView { buildSlotBox(slot, proc, cid: cid).padding(16) }   // CONTROLS — reuse ProcessorBox (our chrome hidden)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 16).fill(buildPanel))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(hue, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(hue, lineWidth: 4))   // THICKER + LESS ROUNDED (Paul 2026-08-28)
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
         .contentShape(Rectangle()).onTapGesture { }            // swallow taps inside the panel so they don't reach the backdrop (close)
     }

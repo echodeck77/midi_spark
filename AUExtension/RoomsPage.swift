@@ -170,26 +170,34 @@ extension DiagView {
     // ── THE ROOMS ─────────────────────────────────────────────────────────────────────────────────
     @ViewBuilder private func roomsSelect(_ size: CGSize) -> some View {
         GeometryReader { g in
-            let avail = g.size.width - 16, gridW = avail * 2 / 3, chainW = avail - gridW
+            let avail = g.size.width - 16 - 12                             // page padding (16) + 2 HStack gaps (12)
+            let gridW = avail * 2 / 3
+            let seamW = roomsGridCellW(gridW, cols: 9) * 0.5              // 50% of a grid cell — matches the old in-grid seam
+            let chainW = avail - gridW - seamW
             HStack(spacing: 6) {
-                roomsSelectGridUnit().frame(width: gridW)                  // the GRID + its edge selectors + nav slivers, one box (2/3, left)
-                VStack(spacing: 6) {                                       // CHAIN SECTION — the PLAY header + the machine (1/3, right)
+                roomsSelectGridUnit().frame(width: gridW)                  // the GRID + its edge selectors (2/3, left)
+                VStack(spacing: 6) {                                       // CHAIN SECTION — the PLAY header + the machine (1/3, middle)
                     roomsPlayHeader(.select)
                     chainPanel(.select)
                 }.frame(width: chainW)
+                roomsSeamColumn(to: .part, chevron: "▸").frame(width: seamW)   // the SEAM → PART, FAR RIGHT (opposite the chain)
             }.padding(8)
         }
         .onAppear { roomsSelectSetup() }                                  // open the library-backed grid selector on SELECT (idempotent)
     }
     @ViewBuilder private func roomsPart(_ size: CGSize) -> some View {
         GeometryReader { g in
-            let avail = g.size.width - 16, gridW = avail * 2 / 3, chainW = avail - gridW
+            let avail = g.size.width - 16 - 12
+            let gridW = avail * 2 / 3
+            let seamW = roomsGridCellW(gridW, cols: 10) * 0.5
+            let chainW = avail - gridW - seamW
             HStack(spacing: 6) {
-                VStack(spacing: 6) {                                       // CHAIN SECTION — the PLAY header + the machine (1/3, left)
+                roomsSeamColumn(to: .select, chevron: "◂").frame(width: seamW)   // the SEAM → SELECT, FAR LEFT (opposite the chain)
+                VStack(spacing: 6) {                                       // CHAIN SECTION — the PLAY header + the machine (1/3, middle)
                     roomsPlayHeader(.part)
                     chainPanel(.part)
                 }.frame(width: chainW)
-                roomsPartGrid().frame(width: gridW)                        // the GRID + its edge selectors + nav slivers, one box (2/3, right)
+                roomsPartGrid().frame(width: gridW)                        // the GRID + its edge selectors (2/3, right)
             }.padding(8)
         }
         .onAppear { roomsPartSetup() }                                    // source the MIDI from the part grid + refresh the side-button faces
