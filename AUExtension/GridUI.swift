@@ -1770,9 +1770,10 @@ struct ProcessorBox: View {
     // stays the ◀n▶ nudge. The midway between the old full-size fields and the dropdowns.
     // The rate/span chips wrap into TWO rows (Paul 2026-08-28) — narrower + taller, so all three controls line up at
     // one height (`frameCtlH`, matched to the ROTATE nudge). Row 1 holds the first ceil(n/2) chips, row 2 the rest.
-    // A control = its LABEL above a single row of chips (Paul 2026-08-28), aligned leading / centre / trailing by its place.
-    private func frameCtl<C: View>(_ label: String, _ align: HorizontalAlignment, @ViewBuilder _ content: () -> C) -> some View {
-        VStack(alignment: align, spacing: FS.labelGap) {
+    // A control = its LABEL above its chips. The label is ALWAYS left-aligned (Paul 2026-08-28) even though the control
+    // groups sit left / centre / right in the row — so the VStack is always .leading; frameRow's Spacers do the spread.
+    private func frameCtl<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: FS.labelGap) {
             Text(label).font(.system(size: FS.labelText, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
             content()
         }
@@ -1784,19 +1785,32 @@ struct ProcessorBox: View {
             .background(RoundedRectangle(cornerRadius: FS.chipRadius).fill(on ? accent : Color.white.opacity(0.07)))
             .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
-    private func frameSeg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: FS.chipGap) { ForEach(Array(options.enumerated()), id: \.offset) { i, o in frameChip(o, on: o == sel) { onPick(i) } } }
+    private func chipRow<T: Hashable>(_ values: [T], _ label: @escaping (T) -> String, _ on: @escaping (T) -> Bool, _ tap: @escaping (T) -> Void) -> some View {
+        HStack(spacing: FS.chipGap) { ForEach(values, id: \.self) { v in frameChip(label(v), on: on(v)) { tap(v) } } }
     }
     private func frameGrid(_ current: ArpRate, _ set: @escaping (ArpRate) -> Void) -> some View {
-        frameCtl("GRID", .leading) { frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }
+        let rates = ArpRate.allCases, top = (rates.count + 1) / 2   // GRID over two rows (Paul 2026-08-28): 3 + 3
+        return frameCtl("GRID") {
+            VStack(alignment: .leading, spacing: FS.chipGap) {
+                chipRow(Array(rates[0..<top]), { $0.rawValue }, { $0 == current }, { set($0) })
+                chipRow(Array(rates[top...]), { $0.rawValue }, { $0 == current }, { set($0) })
+            }
+        }
     }
     private func frameSpan(_ current: Int, free: Bool, _ set: @escaping (Int) -> Void) -> some View {
-        let vals = (free ? [0] : []) + spanLadderValues
-        return frameCtl("SPAN", .trailing) { frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }
+        let topVals = (free ? [0] : []) + [16, 32]   // Paul 2026-08-28: FREE · ×2 · ×4 on top …
+        let botVals = [1, 2, 3, 4, 6, 8]             // … 1 · 2 · 3 · 4 · 6 · 8 below
+        let lbl: (Int) -> String = { $0 == 0 ? "FREE" : spanLadderLabel($0) }
+        return frameCtl("SPAN") {
+            VStack(alignment: .leading, spacing: FS.chipGap) {
+                chipRow(topVals, lbl, { $0 == current }, { set($0) })
+                chipRow(botVals, lbl, { $0 == current }, { set($0) })
+            }
+        }
     }
     private func frameRotate(_ current: Int, _ range: ClosedRange<Int>, _ set: @escaping (Int) -> Void) -> some View {
         let lo = range.lowerBound, hi = range.upperBound, n = max(1, hi - lo + 1)   // wrap the ◀▶ nudge within [lo, hi]
-        return frameCtl("ROTATE", .center) {
+        return frameCtl("ROTATE") {
             HStack(spacing: FS.chipGap) {
                 frameChip("◀", on: false) { set(lo + ((current - lo - 1 + n) % n)) }
                 Text("\(current)").font(.system(size: FS.chipText, weight: .heavy, design: .monospaced)).foregroundColor(accent).frame(minWidth: 18).frame(height: FS.chipH)
