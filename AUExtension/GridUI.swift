@@ -1751,7 +1751,7 @@ struct ProcessorBox: View {
         VStack(alignment: .leading, spacing: 5) {
             Text("FRAME").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35)).tracking(1.5)
             Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
-            grid(); rotate(); span()
+            HStack(spacing: 14) { grid(); rotate(); span(); Spacer(minLength: 0) }   // Paul 2026-08-28: GRID · ROTATE · SPAN on ONE horizontal line
         }.padding(.top, 5)
     }
     // §1 ANATOMY — the COMPACT frame controls (Paul 2026-08-28): small chips in a tight row, ALL options visible (no popup,
@@ -1767,11 +1767,10 @@ struct ProcessorBox: View {
                     .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.07)))
                     .contentShape(Rectangle()).onTapGesture { onPick(i) }
             }
-            Spacer(minLength: 0)
         }
     }
     private func framePrefix(_ s: String) -> some View {
-        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).frame(width: 50, alignment: .leading)
+        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
     }
     private func frameGrid(_ current: ArpRate, _ set: @escaping (ArpRate) -> Void) -> some View {
         HStack(spacing: 6) { framePrefix("GRID"); frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }
@@ -1781,7 +1780,7 @@ struct ProcessorBox: View {
         return HStack(spacing: 6) { framePrefix("SPAN"); frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }
     }
     private func frameRotate(_ current: Int, _ range: ClosedRange<Int>, _ set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 6) { framePrefix("ROTATE"); numPair(current, range, wrap: true, set); Spacer(minLength: 0) }
+        HStack(spacing: 6) { framePrefix("ROTATE"); numPair(current, range, wrap: true, set) }
     }
     // §1 ANATOMY — the "pairs well" line (footer item 3): one dim row from the pairing catalog (processor-pairings.md),
     // teaching at the moment of choice. → = a good DOWNSTREAM stage · ← = a good UPSTREAM stage. nil = no line drawn.
