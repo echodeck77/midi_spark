@@ -1354,14 +1354,17 @@ extension DiagView {
     // its side-button stack · MIDI-OUT emitter toggles — reusing the private left-column helpers VERBATIM (no
     // recreation). Only THIS assembler is internal so RoomsPage.swift can call it; the pieces stay private to this
     // file. Functionality (which colour/row it edits) may be un-wired in the new shell — that's wired in later. (Paul 2026-08-28)
-    @ViewBuilder func roomsMachineStrip(width: CGFloat) -> some View {
+    @ViewBuilder func roomsMachineStrip(width: CGFloat, room: Room) -> some View {
         let castW = max(160, width - 20)                                     // the box's inner content width (outer .padding(10) = 20)
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                                       // the chain boxes sit on the same 8-column grain as the cast
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))        // square-ish 2×2 boxes derived from the panel width
+        // ROOM-AWARE PLAY: SELECT plays the CHAIN audition, PART plays the PART (mutually exclusive voices). (Paul 2026-08-28)
+        let partRoom = room == .part
+        let voice: BuildWorkshopVoice = partRoom ? .part : .chain
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid,
-                                      action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))
+            AnyView(buildColumnButton(partRoom ? "PLAY THIS PART" : "PLAY THIS MIDI CHAIN", active: buildDisplayVoice == voice, fill: .grid,
+                                      action: { buildRequestWorkshopVoice(buildDisplayVoice == voice ? .none : voice) }))
             AnyView(VStack(spacing: 8) {
                 AnyView(buildReceiverSelector(castW: castW))                  // MIDI-IN receiver toggles (real)
                 AnyView(HStack(alignment: .top, spacing: gap) {              // side buttons (LEFT) + the MIDI chain (RIGHT) — the old left-column layout
@@ -1388,10 +1391,15 @@ extension DiagView {
             buildGridSelTab = 1
             buildGridSelComputeCellRolls()                                    // the library cells' drifting faces
         }
+        roomsSyncVoice(.select)                                              // part→chain (nothing from PART plays here)
     }
-    // One SELECT-grid interior cell (0…63), filling the space it's given — the real library face + audition. (Paul 2026-08-28)
+    // One SELECT-grid interior cell (0…63): the real library face + tap-audition, plus a LONG-PRESS to copy the active
+    // source onto it as a new instance (cell-to-cell). buildGridSelCell itself is untouched (old BUILD unaffected). (Paul 2026-08-28)
     @ViewBuilder func roomsSelectGridCell(_ i: Int) -> some View {
-        GeometryReader { cg in buildGridSelCell(i, w: cg.size.width, h: cg.size.height) }
+        GeometryReader { cg in
+            buildGridSelCell(i, w: cg.size.width, h: cg.size.height)
+                .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44, perform: { roomsCopyToSelectCell(i) })
+        }
     }
     // A SELECT-grid SIDE BUTTON (the row-select column) = a PART slot that holds a chain (the §4 shared exclusive column).
     // Reuses the grid selector's visual pieces (drift face + rising-white STAMP SWEEP) with NEW-INTERFACE gestures:
@@ -1425,53 +1433,109 @@ extension DiagView {
         buildGridSelAimRow(n)                                            // load + audition the part's chain (reflect its door/emitters in the panel)
         buildRoomsSetActiveSide(n)                                      // this side button is now THE active selection (white border) + the copy source when populated
     }
+    // ── THE PART GRID (rooms) — the old-gui part/staging grid re-housed: LEFT row-slots (the selection) · an 8×8
+    // DISPLAY interior (NOT selectable — display + playhead only) · a RIGHT row-selector rail (chevrons, like the old
+    // gui) · a top track-head row. NO loop keys. The selected LEFT row is the part; the playhead sweeps and the MIDI is
+    // the active cells under it. (Paul 2026-08-28)
+    @ViewBuilder func roomsPartGrid() -> some View {
+        GeometryReader { g in
+            let gap: CGFloat = 3, pad: CGFloat = 6
+            let colW = max(1, (g.size.width - pad * 2 - gap * 9) / 10)     // 10 columns: left rail + 8 interior + right rail
+            let rowH = max(1, (g.size.height - pad * 2 - gap * 8) / 9)     // 9 rows: track heads + 8
+            VStack(spacing: gap) {
+                HStack(spacing: gap) {                                     // TOP — track heads over the 8 interior columns
+                    Color.clear.frame(width: colW)
+                    ForEach(0..<8, id: \.self) { c in colSelCellPart(c).frame(width: colW) }
+                    Color.clear.frame(width: colW)
+                }.frame(height: rowH)
+                HStack(alignment: .top, spacing: gap) {
+                    VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(height: rowH) } }.frame(width: colW)   // LEFT rail = the row slots (the selection)
+                    ZStack(alignment: .topLeading) {                      // INTERIOR — display only + sweeping playhead
+                        VStack(spacing: gap) {
+                            ForEach(0..<8, id: \.self) { r in
+                                HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPartDisplayCell(c, r, w: colW, h: rowH) } }
+                            }
+                        }
+                        roomsPartPlayhead(colW: colW, gap: gap, height: rowH * 8 + gap * 7)
+                    }
+                    VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: colW, height: rowH) } }   // RIGHT rail = row selectors (old gui)
+                }
+            }
+            .padding(pad)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))
+        }
+    }
+    // A PART interior cell — DISPLAY ONLY (not selectable): shows its colour, the selected row brighter, notes sweeping.
+    @ViewBuilder private func roomsPartDisplayCell(_ c: Int, _ r: Int, w: CGFloat, h: CGFloat) -> some View {
+        let id = buildStagingCells[c][r]
+        let selected = buildStagingSel[c] == r                            // the selected row (one row across all columns)
+        RoundedRectangle(cornerRadius: 5)
+            .fill((id.flatMap { colourColor($0) } ?? buildCell).opacity(selected ? 1.0 : 0.5))
+            .overlay { buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying && selected, id: id) }
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? .white.opacity(0.75) : buildEdge, lineWidth: selected ? 2 : 1))
+            .frame(width: w, height: h)                                   // fixed size so the playhead pitch is exact
+    }
+    // The RIGHT row-selector rail (like the old gui's static chevrons) — selects the row + reflects its chain.
+    @ViewBuilder private func roomsPartRightRail(_ n: Int) -> some View {
+        RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.11))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
+            .overlay(Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.7)))   // same as the old gui's right rail
+            .contentShape(Rectangle())
+            .onTapGesture { roomsTapPartSide(n) }
+    }
+    // THE PART PLAYHEAD — a 2pt line sweeping the 8 interior columns, phase-locked to the beat (reuses the buildPlayhead
+    // math: extrapolated beat → musical/swung column progress → x). Flexible-cell variant for the rooms grid.
+    @ViewBuilder private func roomsPartPlayhead(colW: CGFloat, gap: CGFloat, height: CGFloat) -> some View {
+        if d.playing && buildStagingPlaying {
+            let sb = buildPartRate?.beats ?? stepBeats
+            let cols = buildPartLen ?? Snap.cols
+            let width = colW * 8 + gap * 7
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
+                let colF = sb > 0 ? musical / sb : 0
+                let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
+                let p = wrapped < 0 ? wrapped + Double(cols) : wrapped
+                let x = min(width, CGFloat(p) * (colW + gap))
+                Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: height).offset(x: x).allowsHitTesting(false)
+            }
+        }
+    }
+    // A PART track-head (top row) — placeholder track play/stop, matching the launchpad col-select style. (§2 header)
+    private func colSelCellPart(_ t: Int) -> some View {
+        let on = t >= 0 && t < 8 && buildRowColour(t) != nil
+        return RoundedRectangle(cornerRadius: 4).fill(on ? (buildRowColour(t).flatMap { colourColor($0) } ?? buildCyan).opacity(0.5) : Color.white.opacity(0.11))
+            .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55)))
+    }
     // TAP a PART side button — select the part row (the MIDI is sourced from the part grid), reflect its chain in the
-    // panel, and arm it as the active source. Plays the part if a workshop voice is live. (Paul 2026-08-28)
+    // panel, and arm it as the active source. (Paul 2026-08-28)
     private func roomsTapPartSide(_ n: Int) {
         buildSelectRow(n)                                               // pick this row's rung across all columns (the part plays this row)
         if buildRowColour(n) != nil { buildTapColourTab(n) }           // reflect the row's colour + chain in the MIDI CHAIN panel
         buildRoomsSetActiveSide(n)
     }
-    // A PART-grid interior cell (c, r) — the REAL staging cell re-housed in the launchpad, filling its space. TAP =
-    // select the rung + arm the cell as the active source; LONG-PRESS = copy the active source onto this cell (it
-    // becomes the selected cell with its chain). Reuses buildStagingCells + buildStagingTap + buildNoteSweep. (Paul 2026-08-28)
-    @ViewBuilder func roomsPartCell(_ c: Int, _ r: Int) -> some View {
-        let id = buildStagingCells[c][r]
-        let selected = buildStagingSel[c] == r
-        let activeSrc = buildRoomsCellSource == c * 8 + r
-        RoundedRectangle(cornerRadius: 5)
-            .fill((id.flatMap { colourColor($0) } ?? buildCell).opacity(selected ? 1.0 : 0.62))
-            .overlay { buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying && selected, id: id) }
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(activeSrc ? Color.white : (selected ? .white.opacity(0.7) : buildEdge), lineWidth: activeSrc ? 2.5 : (selected ? 2 : 1)))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .onTapGesture { roomsTapPartCell(c, r) }
-            .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44, perform: { roomsCopyToPartCell(c, r) })
-    }
-    private func roomsTapPartCell(_ c: Int, _ r: Int) {
-        buildStagingTap(c, r)                                           // select/deselect the rung (existing part-grid behaviour)
-        if let id = buildStagingCells[c][r] { buildSelectID(id); buildRoomsSetActiveCell(c, r) }   // populated → reflect its chain + arm as source
-        else { buildRoomsCellSource = nil }                            // empty cell → nothing to source
-    }
-    // Copy the active source (a library cell / a part cell / a side button) onto part cell (c, r): mint a colour carrying
-    // the source chain in the cell's PRE-ALLOCATED row hue, place it, and SELECT it (it becomes the selected cell). (Paul 2026-08-28)
-    private func roomsCopyToPartCell(_ c: Int, _ r: Int) {
-        guard let src = buildGridSelStampSource() else { return }
-        buildRecordUndo()                                              // BUILD UNDO: copy a chain onto a part cell
-        let y = buildNewTabColour(r, machine: src.chain, transpose: src.transpose)   // the cell's row hue = colourHexes[r] (pre-allocated colour) + register home
-        buildPartCast.append(y)
-        buildStagingCells[c][r] = y
-        buildStagingSel[c] = r                                         // the TARGET becomes the selected cell
-        buildSelectID(y)                                              // …with its midi chain shown in the panel
-        buildRoomsSetActiveCell(c, r)
-        buildStagingSyncIfPlaying()
-    }
-    // Entering PART: source the MIDI from the part grid (switch a live workshop voice to the part) + refresh the side
-    // buttons' drifting faces. (Paul 2026-08-28)
+    // Entering PART: hand a running chain audition to the part voice (mutual-exclusive voices), ensure ONE row is
+    // selected, and refresh the side buttons' drifting faces. (Paul 2026-08-28)
     func roomsPartSetup() {
         buildGridSelComputeRowRolls()                                  // the side buttons' part-chain fingerprints
-        if buildDisplayVoice == .chain { buildRequestWorkshopVoice(.part) }   // a running chain audition → hand the voice to the part grid
+        let r0 = buildStagingSel.first ?? -1                          // ONE row selected at any time (all columns the same row)
+        let row = (r0 >= 0 && buildStagingSel.allSatisfy { $0 == r0 }) ? r0 : ((0..<8).first { buildRowColour($0) != nil } ?? 0)
+        buildSelectRow(row)                                           // enforce the single-row selection
+        if buildRowColour(row) != nil { buildTapColourTab(row) }      // reflect the selected row's chain in the MIDI CHAIN panel
+        roomsSyncVoice(.part)                                          // chain→part (nothing from SELECT plays here)
+    }
+    // Carry the PLAYING state across a room switch onto the room's OWN voice, keeping the two mutually exclusive: if
+    // something was playing, the room's voice plays (SELECT→chain / PART→part); if nothing, nothing plays. (Paul 2026-08-28)
+    func roomsSyncVoice(_ room: Room) {
+        let playing = buildWorkshopVoice != .none                     // was a workshop voice live before the switch?
+        buildPendingWorkshopVoice = nil; buildPendingReengage = false
+        switch room {
+        case .select: buildApplyWorkshopVoice(playing ? .chain : .none)   // part→chain (chain off ⇒ part silent here)
+        case .part:   buildApplyWorkshopVoice(playing ? .part : .none)    // chain→part (part off ⇒ chain silent here)
+        default: break
+        }
     }
 
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
@@ -5493,12 +5557,24 @@ extension DiagView {
     private func buildGridSelReDeal() {
         guard !buildGridSelGenerating else { return }
         buildGridSelStopAudition()                                       // a live audition points at a chain about to vanish — stop it first
+        buildGridSelOverride = [:]                                       // re-deal replaces the bank → drop the cell-to-cell copy instances
         buildGridSelDealSeed &+= 1; buildGridSelDeal()
+    }
+    // NEW INTERFACE — SELECT cell-to-cell COPY: stamp the active source onto grid cell i as a NEW in-memory INSTANCE
+    // (a fresh hue), never overwriting the saved library; the copied cell then becomes the active/selected cell. (Paul 2026-08-28)
+    func roomsCopyToSelectCell(_ i: Int) {
+        guard let src = buildGridSelStampSource(), i >= 0, i < 64 else { return }
+        var chain = src.chain
+        if src.transpose != 0 { var t = ProcessorSlot(type: .transpose); t.params.utilTranspose = max(-24, min(24, src.transpose)); chain.insert(t, at: 0) }   // bake the register home
+        buildGridSelOverride[i] = (chain, colourHexes[i % 16])          // the NEW instance (in-memory; disk library untouched)
+        buildGridSelComputeCellRolls()                                  // recompute the faces (picks up the override)
+        buildGridSelAudition(i)                                         // the copied cell becomes the active/selected cell + auditions
     }
 
     // Resolve a cell's chain + register + hue. DEALT reads memory; MY LIBRARY loads the cell from disk (TAP/COMMIT only,
     // never per render — the cell FACE uses the cheap in-memory key hash instead).
     private func buildGridSelChainAt(_ i: Int) -> (chain: [ProcessorSlot], transpose: Int, hex: UInt32)? {
+        if let ov = buildGridSelOverride[i] { return (ov.chain, 0, ov.hex) }   // NEW INTERFACE: a cell-to-cell COPY instance wins over the bank (Paul 2026-08-28)
         if buildGridSelTab == 0 {
             guard i >= 0 && i < buildGridSelDealt.count else { return nil }
             let e = buildGridSelDealt[i]
@@ -5511,8 +5587,8 @@ extension DiagView {
             return (cell?.processors ?? [], 0, colourHexes[i % 16])
         }
     }
-    private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelTab == 0 ? i < buildGridSelDealt.count : i < buildGridSelLib.count }
-    private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelTab == 0 ? colourHexes[((i % 8) * 2) % 16] : colourHexes[i % 16] }
+    private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelOverride[i] != nil || (buildGridSelTab == 0 ? i < buildGridSelDealt.count : i < buildGridSelLib.count) }   // a cell-to-cell COPY makes an empty position present too (Paul 2026-08-28)
+    private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelOverride[i]?.hex ?? (buildGridSelTab == 0 ? colourHexes[((i % 8) * 2) % 16] : colourHexes[i % 16]) }
     private func buildGridSelSummary(_ i: Int) -> String {
         if buildGridSelTab == 0 {
             guard i < buildGridSelDealt.count else { return "—" }
@@ -5528,7 +5604,7 @@ extension DiagView {
     // path: turn the chain voice ON (quantized) if not already, else swap which chain (quantized). Piece plays on.
     private func buildGridSelAudition(_ i: Int) {
         guard let hit = buildGridSelChainAt(i) else { return }
-        buildGridSelStampSourceRow = nil; buildRoomsCellSource = nil     // a library CELL is now the active source → clear the other two (mutual exclusivity; no-op in old BUILD)
+        buildGridSelStampSourceRow = nil                                 // a library CELL is now the active source → clear the active side button (mutual exclusivity; no-op in old BUILD)
         buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i)   // a DEALT/LIBRARY cell — its index is the commit source
     }
     // Load a chain onto the ONE transient audition colour, select it, and drive the chain voice (quantized). Shared by a
@@ -5594,19 +5670,16 @@ extension DiagView {
     // parts). A populated row keeps its hue + register (chain overwritten); an empty row mints a colour carrying the chain.
     // Fires a white→fade FLASH on the row. Requires a browse cell to be the source (buildGridSelSel != nil).
     private var buildGridSelCanStamp: Bool { buildGridSelStampSource() != nil }
-    // The active STAMP SOURCE — one of three (mutually exclusive, "one thing is active"): a browse CELL
-    // (buildGridSelSel, SELECT library) · an active PART CELL (buildRoomsCellSource, PART grid) · an active SIDE
-    // BUTTON's populated part row (buildGridSelStampSourceRow). This is what a long-press copy stamps. (Paul 2026-08-28)
+    // The active STAMP SOURCE — one of two (mutually exclusive, "one thing is active"): a browse CELL
+    // (buildGridSelSel, SELECT library) or an active SIDE BUTTON's populated part row (buildGridSelStampSourceRow).
+    // This is what a long-press copy stamps. (Paul 2026-08-28)
     private func buildGridSelStampSource() -> (chain: [ProcessorSlot], transpose: Int)? {
         if let i = buildGridSelSel, let hit = buildGridSelChainAt(i) { return (hit.chain, hit.transpose) }
-        if let cr = buildRoomsCellSource, let cid = buildStagingCells[cr / 8][cr % 8] { return (buildColourChain(cid), buildColourTranspose[cid] ?? 0) }
         if let s = buildGridSelStampSourceRow, let cid = buildRowColour(s) { return (buildColourChain(cid), buildColourTranspose[cid] ?? 0) }
         return nil
     }
-    // Make exactly ONE of the three active sources live (clear the other two) — enforces "one cell or one side button
-    // is active" across the SELECT library cells, the PART cells, and the shared side buttons. (Paul 2026-08-28)
-    private func buildRoomsSetActiveCell(_ c: Int, _ r: Int) { buildRoomsCellSource = c * 8 + r; buildGridSelStampSourceRow = nil; buildGridSelSel = nil }
-    private func buildRoomsSetActiveSide(_ n: Int) { buildGridSelStampSourceRow = n; buildRoomsCellSource = nil; buildGridSelSel = nil }
+    // Make the side button the ONE active source (clear the library-cell source) — "one thing is active". (Paul 2026-08-28)
+    private func buildRoomsSetActiveSide(_ n: Int) { buildGridSelStampSourceRow = n; buildGridSelSel = nil }
     private func buildGridSelStampCommit(_ row: Int) {
         guard let hit = buildGridSelStampSource() else { return }
         buildRecordUndo()   // BUILD UNDO: stamp the auditioning chain onto a part
@@ -5708,7 +5781,7 @@ extension DiagView {
             .foregroundColor(on ? .black : .white.opacity(0.7))
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan.opacity(0.9) : buildCell))
-            .contentShape(Rectangle()).onTapGesture { if buildGridSelTab != tab { buildGridSelStopAudition(); buildGridSelTab = tab; buildGridSelComputeCellRolls() } }   // stop the transient before switching banks (no stranded voice); recompute the tab's drifting faces
+            .contentShape(Rectangle()).onTapGesture { if buildGridSelTab != tab { buildGridSelStopAudition(); buildGridSelOverride = [:]; buildGridSelTab = tab; buildGridSelComputeCellRolls() } }   // stop the transient before switching banks (no stranded voice); drop copy instances; recompute the tab's drifting faces
     }
     @ViewBuilder private func buildGridSelSmallChip(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)

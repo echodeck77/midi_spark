@@ -100,13 +100,13 @@ extension DiagView {
     }
 
     // ── THE UNIFORM 9×9 GRID UNIT ──
-    @ViewBuilder private func launchUnit(colSelectBottom: Bool, rowSelectLeft: Bool, libraryGrid: Bool = false, partGrid: Bool = false) -> some View {
+    @ViewBuilder private func launchUnit(colSelectBottom: Bool, rowSelectLeft: Bool, libraryGrid: Bool = false) -> some View {
         let gap: CGFloat = 3
         let selRow = colSelectBottom ? 8 : 0
         let selCol = rowSelectLeft ? 0 : 8
         VStack(spacing: gap) {
             ForEach(0..<9, id: \.self) { r in
-                HStack(spacing: gap) { ForEach(0..<9, id: \.self) { c in launchCell9(r, c, selRow: selRow, selCol: selCol, libraryGrid: libraryGrid, partGrid: partGrid) } }
+                HStack(spacing: gap) { ForEach(0..<9, id: \.self) { c in launchCell9(r, c, selRow: selRow, selCol: selCol, libraryGrid: libraryGrid) } }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -115,7 +115,7 @@ extension DiagView {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsAccent.opacity(0.35), lineWidth: 1.5))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    @ViewBuilder private func launchCell9(_ r: Int, _ c: Int, selRow: Int, selCol: Int, libraryGrid: Bool, partGrid: Bool) -> some View {
+    @ViewBuilder private func launchCell9(_ r: Int, _ c: Int, selRow: Int, selCol: Int, libraryGrid: Bool) -> some View {
         let gridRow = r > selRow ? r - 1 : r
         let gridCol = c > selCol ? c - 1 : c
         if r == selRow && c == selCol {
@@ -123,17 +123,12 @@ extension DiagView {
         } else if r == selRow {
             colSelCell(selCol == 0 ? c - 1 : c)
         } else if c == selCol {
-            // THE SIDE BUTTONS = part slots that hold chains — the §4 shared exclusive column. Reuse the row chip on
-            // SELECT (audition source) and PART (part row); placeholder elsewhere. (Paul 2026-08-28)
+            // THE SIDE BUTTONS = part slots that hold chains — the §4 shared exclusive column (SELECT audition source). (Paul 2026-08-28)
             if libraryGrid { roomsSideButton(gridRow).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else if partGrid { roomsSideButton(gridRow, part: true).frame(maxWidth: .infinity, maxHeight: .infinity) }
             else { rowSelCell() }
         } else if libraryGrid {
             // THE SELECT GRID = the LIBRARY-backed chain browser — each interior cell is a real chain face (§6 reuse).
             roomsSelectGridCell(gridRow * 8 + gridCol).frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if partGrid {
-            // THE PART GRID = the real staging cells re-housed (no loop keys) — tap = select rung, long-press = copy. (§6 reuse)
-            roomsPartCell(gridCol, gridRow).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05)).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -174,10 +169,10 @@ extension DiagView {
     }
     // THE MIDI CHAIN panel — the REAL machine strip (play button · receiver toggles · chain + side buttons · emitter
     // toggles) reused verbatim from the old BUILD left column via buildPage's internal roomsMachineStrip. (Paul 2026-08-28)
-    @ViewBuilder private func chainPanel() -> some View {
+    @ViewBuilder private func chainPanel(_ room: Room) -> some View {
         GeometryReader { g in
             ScrollView(.vertical, showsIndicators: false) {
-                roomsMachineStrip(width: g.size.width).padding(.top, 2)
+                roomsMachineStrip(width: g.size.width, room: room).padding(.top, 2)
             }
         }
     }
@@ -190,7 +185,7 @@ extension DiagView {
                 navPlayDoor()                                             // full-width header (over grid + chain)
                 HStack(spacing: 6) {
                     launchUnit(colSelectBottom: false, rowSelectLeft: false, libraryGrid: true).frame(width: gridW)   // THE SELECT GRID — library chains (2/3, left)
-                    chainPanel().frame(width: avail - gridW)              // chain (right)
+                    chainPanel(.select).frame(width: avail - gridW)              // chain (right)
                     verticalSeam("▸", to: .part).frame(width: navW)       // seam far right → PART
                 }
             }.padding(8)
@@ -204,8 +199,8 @@ extension DiagView {
                 navPlayDoor()                                             // full-width header (over chain + grid)
                 HStack(spacing: 6) {
                     verticalSeam("◂", to: .select).frame(width: navW)     // seam far left → SELECT
-                    chainPanel().frame(width: avail - gridW)              // chain (left)
-                    launchUnit(colSelectBottom: false, rowSelectLeft: true, partGrid: true).frame(width: gridW)   // THE PART GRID — real staging cells + side buttons (2/3, right)
+                    chainPanel(.part).frame(width: avail - gridW)              // chain (left)
+                    roomsPartGrid().frame(width: gridW)                        // THE PART GRID — left row-slots · display interior + playhead · right rail (2/3, right)
                 }
             }.padding(8)
         }
