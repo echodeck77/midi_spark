@@ -1745,27 +1745,24 @@ struct ProcessorBox: View {
     // this FIXED ORDER under one "FRAME" label, so hands learn ONE location across every pattern card. The card passes its
     // own three controls (each already a labelled field); this fixes their order + place (the footer). Pure re-layout.
     // ═══════════ FRAME FOOTER — ALL THE STYLING KNOBS IN ONE PLACE (Paul 2026-08-28: tweak here) ═══════════
-    // GRID · ROTATE · SPAN sit on one line at a shared height; the rate/span chips wrap into two rows. Change any
-    // number below to retune the whole footer — bigger chipText/chipH = larger controls; ctlH derives from them.
+    // GRID (left) · ROTATE (centre) · SPAN (right) spread across the footer, each with its LABEL ABOVE a single row of
+    // chips; every button is chipH tall. Change any number to retune the whole footer — bigger chipText/chipH = larger.
     private enum FS {
         static let chipText:   CGFloat = 13    // chip label size
-        static let chipH:      CGFloat = 28    // height of ONE chip (each of the 2 rows)
+        static let chipH:      CGFloat = 30    // chip / rotate-button height (all uniform)
         static let chipPadH:   CGFloat = 11    // chip left/right padding (→ chip width)
         static let chipRadius: CGFloat = 5
-        static let chipGap:    CGFloat = 5     // gap between chips within a row
-        static let rowGap:     CGFloat = 5     // gap between the two chip rows
-        static let prefixText: CGFloat = 11    // the GRID / ROTATE / SPAN labels
-        static let prefixGap:  CGFloat = 8     // gap between a prefix and its chips
-        static let ctlGap:     CGFloat = 22    // gap between GRID · ROTATE · SPAN
-        static let labelText:  CGFloat = 11    // the "FRAME" heading
-        static var ctlH: CGFloat { chipH * 2 + rowGap }   // shared control height = two chip rows (derived — don't set directly)
+        static let chipGap:    CGFloat = 5     // gap between chips in the row (and ◀ n ▶)
+        static let labelText:  CGFloat = 11    // the GRID/ROTATE/SPAN labels + the FRAME heading
+        static let labelGap:   CGFloat = 5     // gap between a control's label and its chips
+        static let groupGap:   CGFloat = 16    // MIN gap between the three controls (they spread left · centre · right)
     }
     @ViewBuilder private func frameRow<G: View, R: View, S: View>(@ViewBuilder grid: () -> G, @ViewBuilder rotate: () -> R, @ViewBuilder span: () -> S) -> some View {
-        // GRID · ROTATE · SPAN in FIXED ORDER under one FRAME label — always-visible chips (no popups), sized by `FS` above.
+        // GRID left · ROTATE centre · SPAN right (Spacers spread them across the width); each = label ABOVE a single chip row.
         VStack(alignment: .leading, spacing: 6) {
             Text("FRAME").font(.system(size: FS.labelText, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35)).tracking(1.5)
             Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
-            HStack(spacing: FS.ctlGap) { grid(); rotate(); span(); Spacer(minLength: 0) }
+            HStack(alignment: .top, spacing: 0) { grid(); Spacer(minLength: FS.groupGap); rotate(); Spacer(minLength: FS.groupGap); span() }
         }.padding(.top, 5)
     }
     // §1 ANATOMY — the COMPACT frame controls (Paul 2026-08-28): small chips in a tight row, ALL options visible (no popup,
@@ -1773,34 +1770,39 @@ struct ProcessorBox: View {
     // stays the ◀n▶ nudge. The midway between the old full-size fields and the dropdowns.
     // The rate/span chips wrap into TWO rows (Paul 2026-08-28) — narrower + taller, so all three controls line up at
     // one height (`frameCtlH`, matched to the ROTATE nudge). Row 1 holds the first ceil(n/2) chips, row 2 the rest.
-    // The rate/span chips wrap into TWO rows so each control stays narrow + lines up at FS.ctlH. Row 1 = first ceil(n/2).
-    private func frameSeg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
-        let n = options.count, top = (n + 1) / 2
-        func chip(_ i: Int) -> some View {
-            let on = options[i] == sel
-            return Text(options[i]).font(.system(size: FS.chipText, weight: .heavy, design: .monospaced))
-                .foregroundColor(on ? .black : .white.opacity(0.5))
-                .padding(.horizontal, FS.chipPadH).frame(height: FS.chipH)
-                .background(RoundedRectangle(cornerRadius: FS.chipRadius).fill(on ? accent : Color.white.opacity(0.07)))
-                .contentShape(Rectangle()).onTapGesture { onPick(i) }
-        }
-        return VStack(alignment: .leading, spacing: FS.rowGap) {
-            HStack(spacing: FS.chipGap) { ForEach(Array(0..<top), id: \.self) { chip($0) } }
-            HStack(spacing: FS.chipGap) { ForEach(Array(top..<n), id: \.self) { chip($0) } }
+    // A control = its LABEL above a single row of chips (Paul 2026-08-28), aligned leading / centre / trailing by its place.
+    private func frameCtl<C: View>(_ label: String, _ align: HorizontalAlignment, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: align, spacing: FS.labelGap) {
+            Text(label).font(.system(size: FS.labelText, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            content()
         }
     }
-    private func framePrefix(_ s: String) -> some View {
-        Text(s).font(.system(size: FS.prefixText, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+    private func frameChip(_ text: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        Text(text).font(.system(size: FS.chipText, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.5))
+            .padding(.horizontal, FS.chipPadH).frame(height: FS.chipH)
+            .background(RoundedRectangle(cornerRadius: FS.chipRadius).fill(on ? accent : Color.white.opacity(0.07)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+    private func frameSeg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: FS.chipGap) { ForEach(Array(options.enumerated()), id: \.offset) { i, o in frameChip(o, on: o == sel) { onPick(i) } } }
     }
     private func frameGrid(_ current: ArpRate, _ set: @escaping (ArpRate) -> Void) -> some View {
-        HStack(spacing: FS.prefixGap) { framePrefix("GRID"); frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }.frame(height: FS.ctlH)
+        frameCtl("GRID", .leading) { frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }
     }
     private func frameSpan(_ current: Int, free: Bool, _ set: @escaping (Int) -> Void) -> some View {
         let vals = (free ? [0] : []) + spanLadderValues
-        return HStack(spacing: FS.prefixGap) { framePrefix("SPAN"); frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }.frame(height: FS.ctlH)
+        return frameCtl("SPAN", .trailing) { frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }
     }
     private func frameRotate(_ current: Int, _ range: ClosedRange<Int>, _ set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: FS.prefixGap) { framePrefix("ROTATE"); numPair(current, range, wrap: true, set) }.frame(height: FS.ctlH)
+        let lo = range.lowerBound, hi = range.upperBound, n = max(1, hi - lo + 1)   // wrap the ◀▶ nudge within [lo, hi]
+        return frameCtl("ROTATE", .center) {
+            HStack(spacing: FS.chipGap) {
+                frameChip("◀", on: false) { set(lo + ((current - lo - 1 + n) % n)) }
+                Text("\(current)").font(.system(size: FS.chipText, weight: .heavy, design: .monospaced)).foregroundColor(accent).frame(minWidth: 18).frame(height: FS.chipH)
+                frameChip("▶", on: false) { set(lo + ((current - lo + 1) % n)) }
+            }
+        }
     }
     // §1 ANATOMY — the "pairs well" line (footer item 3): one dim row from the pairing catalog (processor-pairings.md),
     // teaching at the moment of choice. → = a good DOWNSTREAM stage · ← = a good UPSTREAM stage. nil = no line drawn.
