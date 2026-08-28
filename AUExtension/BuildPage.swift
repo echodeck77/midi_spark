@@ -1416,17 +1416,18 @@ extension DiagView {
     // it stays reachable. Attached as an .overlay on the grid, so it's automatically clipped to the grid's frame; the
     // fractional insets carve out the side-button column(s) + the top selector row. (Paul 2026-08-28)
     // The card positioned at an EXPLICIT rect (the grid units compute the interior 8×8 rect + place it there). Non-modal.
+    // NO outer box (buildProcessorPanel already draws its OWN selected-colour box + background) + NO padding, so that box
+    // fills the whole card (Paul 2026-08-28) — only the panel's hue border shows, occupying the full space.
     @ViewBuilder func roomsProcessorCardAt(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> some View {
         if let slot = buildEditSlot {
             let chain = selectedColourChain()
             if slot < chain.count, let cid = ddSelectedColourID {
                 ScrollView(.vertical, showsIndicators: false) {
-                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w - 24).frame(width: w - 24).padding(12)
+                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w).frame(width: w).frame(minHeight: h, alignment: .top)
                 }
                 .frame(width: w, height: h)
-                .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan, lineWidth: 2))
-                .shadow(color: .black.opacity(0.5), radius: 16, y: 6)
+                .clipShape(RoundedRectangle(cornerRadius: 16))                // clip the scroll to the panel's own rounded box
+                .shadow(color: .black.opacity(0.5), radius: 14, y: 6)         // depth so it reads as a floating overlay
                 .offset(x: x, y: y)
                 .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
                 .onChange(of: ddSelectedColourID) { newID in
