@@ -239,10 +239,7 @@ extension DiagView {
             let chainW = avail - gridW - seamW
             HStack(spacing: 6) {
                 roomsSelectGridUnit().frame(width: gridW)                  // the GRID + its edge selectors (2/3, left)
-                VStack(spacing: 6) {                                       // CHAIN SECTION — the PLAY header + the machine (1/3, middle)
-                    roomsPlayHeader(.select)
-                    chainPanel(.select)
-                }.frame(width: chainW)
+                chainPanel(.select).frame(width: chainW)                   // the MACHINE box (play + toggles + chain + record), a grid element parallel to the grid (1/3, middle)
                 roomsSeamColumn(to: .part, chevron: "▸").frame(width: seamW)   // the SEAM → PART, FAR RIGHT (opposite the chain)
             }.padding(8)
         }
@@ -256,10 +253,7 @@ extension DiagView {
             let chainW = avail - gridW - seamW
             HStack(spacing: 6) {
                 roomsSeamColumn(to: .select, chevron: "◂").frame(width: seamW)   // the SEAM → SELECT, FAR LEFT (opposite the chain)
-                VStack(spacing: 6) {                                       // CHAIN SECTION — the PLAY header + the machine (1/3, middle)
-                    roomsPlayHeader(.part)
-                    chainPanel(.part)
-                }.frame(width: chainW)
+                chainPanel(.part).frame(width: chainW)                     // the MACHINE box (play + toggles + chain + record), a grid element parallel to the grid (1/3, middle)
                 roomsPartGrid().frame(width: gridW)                        // the GRID + its edge selectors (2/3, right)
             }.padding(8)
         }

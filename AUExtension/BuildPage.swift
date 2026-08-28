@@ -1359,7 +1359,8 @@ extension DiagView {
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                                       // the chain boxes sit on the same 8-column grain as the cast
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))        // square-ish 2×2 boxes derived from the panel width
-        VStack(spacing: 8) {                                                  // the MACHINE box — a GRID ELEMENT that FILLS the column height + lines up with the grid box (Paul 2026-08-28)
+        VStack(spacing: 8) {                                                  // the MACHINE box — a GRID ELEMENT that FILLS the column height + runs PARALLEL to the grid box + seam (Paul 2026-08-29)
+            AnyView(roomsPlayHeader(room))                                    // the PLAY button lives INSIDE the box at the top (like the grid's ▲PLAY sliver) so the box tops line up
             AnyView(buildReceiverSelector(castW: castW))                      // MIDI-IN receiver toggles (real)
             AnyView(HStack(alignment: .top, spacing: gap) {                  // side buttons (LEFT) + the MIDI chain (RIGHT)
                 AnyView(buildChainButtonStack(width: (castW / 2 - gap / 2) * 0.75,
