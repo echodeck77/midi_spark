@@ -1449,11 +1449,11 @@ extension DiagView {
                     Color.clear.frame(width: colW)
                 }.frame(height: rowH)
                 HStack(alignment: .top, spacing: gap) {
-                    VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(height: rowH) } }.frame(width: colW)   // LEFT rail = the row slots (the selection)
-                    ZStack(alignment: .topLeading) {                      // INTERIOR — display only + sweeping playhead
+                    VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(height: rowH) } }.frame(width: colW)   // LEFT rail = the part slots (one always selected; picks the slot/colour, NOT a grid row) + copy
+                    ZStack(alignment: .topLeading) {                      // INTERIOR — one rung selectable per column + sweeping playhead
                         VStack(spacing: gap) {
                             ForEach(0..<8, id: \.self) { r in
-                                HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPartDisplayCell(c, r, w: colW, h: rowH) } }
+                                HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPartCell(c, r, w: colW, h: rowH) } }
                             }
                         }
                         roomsPartPlayhead(colW: colW, gap: gap, height: rowH * 8 + gap * 7)
@@ -1466,24 +1466,29 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))
         }
     }
-    // A PART interior cell — DISPLAY ONLY (not selectable): shows its colour, the selected row brighter, notes sweeping.
-    @ViewBuilder private func roomsPartDisplayCell(_ c: Int, _ r: Int, w: CGFloat, h: CGFloat) -> some View {
+    // A PART interior cell — ONE RUNG PER COLUMN (old-gui buildStagingTap): tap selects that rung for its column; tap the
+    // selected rung to UNSELECT it (that column falls silent). Display shows its colour, the selected rung brighter.
+    @ViewBuilder private func roomsPartCell(_ c: Int, _ r: Int, w: CGFloat, h: CGFloat) -> some View {
         let id = buildStagingCells[c][r]
-        let selected = buildStagingSel[c] == r                            // the selected row (one row across all columns)
+        let selected = buildStagingSel[c] == r                            // the ONE selected rung for column c
         RoundedRectangle(cornerRadius: 5)
             .fill((id.flatMap { colourColor($0) } ?? buildCell).opacity(selected ? 1.0 : 0.5))
             .overlay { buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying && selected, id: id) }
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? .white.opacity(0.75) : buildEdge, lineWidth: selected ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? .white.opacity(0.85) : buildEdge, lineWidth: selected ? 2 : 1))
             .frame(width: w, height: h)                                   // fixed size so the playhead pitch is exact
+            .contentShape(Rectangle())
+            .onTapGesture { buildStagingTap(c, r) }                       // one rung per column, toggle (the old-gui logic)
     }
-    // The RIGHT row-selector rail (like the old gui's static chevrons) — selects the row + reflects its chain.
+    // The RIGHT rail — selects the ENTIRE row (every column → this row), like the old gui's row-select. Lights when the
+    // whole row is the current per-column selection. (Paul 2026-08-28)
     @ViewBuilder private func roomsPartRightRail(_ n: Int) -> some View {
-        RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.11))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
+        let rowSel = buildStagingSel.allSatisfy { $0 == n }
+        RoundedRectangle(cornerRadius: 5).fill(rowSel ? buildCyan.opacity(0.5) : Color.white.opacity(0.11))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(rowSel ? Color.white.opacity(0.6) : buildEdge, lineWidth: 1))
             .overlay(Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.7)))   // same as the old gui's right rail
             .contentShape(Rectangle())
-            .onTapGesture { roomsTapPartSide(n) }
+            .onTapGesture { buildSelectRow(n) }                          // select the WHOLE row for playback
     }
     // THE PART PLAYHEAD — a 2pt line sweeping the 8 interior columns, phase-locked to the beat (reuses the buildPlayhead
     // math: extrapolated beat → musical/swung column progress → x). Flexible-cell variant for the rooms grid.
@@ -1509,21 +1514,24 @@ extension DiagView {
         return RoundedRectangle(cornerRadius: 4).fill(on ? (buildRowColour(t).flatMap { colourColor($0) } ?? buildCyan).opacity(0.5) : Color.white.opacity(0.11))
             .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55)))
     }
-    // TAP a PART side button — select the part row (the MIDI is sourced from the part grid), reflect its chain in the
-    // panel, and arm it as the active source. (Paul 2026-08-28)
+    // TAP a PART LEFT side button — it becomes the SELECTED slot (the always-one selection, shared with SELECT) + the
+    // copy source, and reflects its chain in the panel. It does NOT select a grid row — the RIGHT rail does that. (Paul 2026-08-28)
     private func roomsTapPartSide(_ n: Int) {
-        buildSelectRow(n)                                               // pick this row's rung across all columns (the part plays this row)
-        if buildRowColour(n) != nil { buildTapColourTab(n) }           // reflect the row's colour + chain in the MIDI CHAIN panel
-        buildRoomsSetActiveSide(n)
+        buildRoomsSetActiveSide(n)                                      // this left button is THE selected slot (+ copy source); clears any library-cell source
+        if buildRowColour(n) != nil { buildTapColourTab(n) }           // reflect its chain in the MIDI CHAIN panel (does NOT touch the grid rung selection)
     }
-    // Entering PART: hand a running chain audition to the part voice (mutual-exclusive voices), ensure ONE row is
-    // selected, and refresh the side buttons' drifting faces. (Paul 2026-08-28)
+    // Entering PART: hand a running chain audition to the part voice; keep ONE left button selected (default: the
+    // last-selected SELECT side button, else the first) + reflect its chain; if NO rung is selected anywhere, seed one
+    // rung per column from a populated row; refresh the side faces. (Paul 2026-08-28)
     func roomsPartSetup() {
         buildGridSelComputeRowRolls()                                  // the side buttons' part-chain fingerprints
-        let r0 = buildStagingSel.first ?? -1                          // ONE row selected at any time (all columns the same row)
-        let row = (r0 >= 0 && buildStagingSel.allSatisfy { $0 == r0 }) ? r0 : ((0..<8).first { buildRowColour($0) != nil } ?? 0)
-        buildSelectRow(row)                                           // enforce the single-row selection
-        if buildRowColour(row) != nil { buildTapColourTab(row) }      // reflect the selected row's chain in the MIDI CHAIN panel
+        let focus = buildGridSelStampSourceRow ?? 0                    // the always-one selected LEFT button (from SELECT, else first)
+        buildRoomsSetActiveSide(focus)
+        if buildRowColour(focus) != nil { buildTapColourTab(focus) }   // reflect the focused slot's chain
+        if buildStagingSel.allSatisfy({ $0 < 0 }) {                    // no rung selected anywhere → seed one-per-column with a default row
+            let row = buildRowColour(focus) != nil ? focus : ((0..<8).first { buildRowColour($0) != nil } ?? focus)
+            buildSelectRow(row)
+        }
         roomsSyncVoice(.part)                                          // chain→part (nothing from SELECT plays here)
     }
     // Carry the PLAYING state across a room switch onto the room's OWN voice, keeping the two mutually exclusive: if
