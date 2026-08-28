@@ -30,6 +30,18 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-2
   - ⏳ **SOURCE downstream** (the [ARP→HARMONIZE(MIDI IN)] headline) — needs the door threaded into emitDriverNote (cascades
     through emit helpers) + the hold-tail source + **a FEEL ruling from Paul** (per-tick door read vs a sustained parallel voice).
 
+## ★★★ THE INTERFACE REDESIGN — captured 2026-08-28 (`Docs/INSTRUCTIONS-interface-redesign.md`, ferry). BIG, build with Paul.
+The whole surface geography, to be built INCREMENTALLY under Paul's guidance (door-loop pattern; device steps outrank prose).
+Headline shape: **three rooms + the tape, one grid in view** — SELECT (shop) · PART (workshop) · PLAY (stage) · REEL (tape);
+navigation = TAPS on thin door-buttons (no pane drags). **★ STANDING ORDER (§6): reuse REAL existing components, never
+approximations** — docked chain editor → summoned overlay; I/O console → footer mixer layer; MIDI/RACK sheets → footer config
+layer; pass-browser selection → reel assign payload; multi-row/stack machinery → the tracks; stateMatrix/slider-lane/nudge-pair
+unchanged. **Anything that would be approximated: STOP + ask Paul.** Key laws: shared 8-cell HEADER (tap=play/stop track ·
+long-press=assign) · PLAY grid = 8 equal vertical TRACKS, NO chain panels (§3b) · bottom band = 10 provenance doors
+(SELECT · 8 per-track · PART; corners=general, middle=specific, doors follow the LIT slot §4c) · slot-column model (tap=take,
+hold=FLIP LIVE|UNPACK §3c) · room-scoped audition silence (§5). Composes with `design-play-grid-lanes-OPEN.md` (the tracks/
+stack model) + the just-landed panel-anatomy footer/header (the chain editor is the re-housed overlay). NOTHING built yet.
+
 ## ★★ DESIGN INBOX 2026-08-22 BATCH — 8 RATIFIED SPECS, filed to `Docs/` 2026-08-24 (sequencing = Paul's word). NONE built yet.
 Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euclid-variations.md`, `SPEC-exclude-complement.md`,
 `SPEC-glide-modes.md`, `SPEC-grid-selector.md`, `SPEC-motif-processor.md`, `SPEC-riff-processor.md` (all in `Docs/`). Reply in
