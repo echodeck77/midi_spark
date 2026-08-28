@@ -262,7 +262,8 @@ struct DiagView: View {
     // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — a parallel NEW-interface shell behind a preview toggle
     // (old BUILD stays the default + fully working). Off ⇒ the current BUILD page; on ⇒ the room shell (roomsPage).
     @AppStorage("midispark.newInterfaceV2") var useNewInterface = true   // NEW interface is the DEFAULT now (Paul 2026-08-28); toggle to old BUILD in the cog. (Fresh key so the new default-on isn't shadowed by a stored value from increment 1.)
-    @State var roomsRoom: Room = .play         // which room is in view in the new shell (one grid at a time)
+    @State var roomsRoom: Room = .select       // which room is in view in the new shell (one grid at a time)
+    @State var roomsTrackOn: [Bool] = Array(repeating: false, count: 8)   // §2 shared header: per-track play/stop (placeholder state until the real tracks land)
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
