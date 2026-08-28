@@ -1,151 +1,135 @@
 import SwiftUI
 
 // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — the NEW room-based shell (default; cog → DISPLAY → NEW UI
-// toggles old BUILD). Restructured 2026-08-28 to a PERSISTENT FRAME (Paul's confirmed shape):
-//   ┌ §2 SHARED HEADER — 8 track-heads, SAME on every room (tap = play/stop · long-press = assign) ┐
-//   │  THE ROOM (one grid in view): SELECT/PART = grid + panels + ▲PLAY door · PLAY = tracks + band  │
-//   └ §1 FOOTER STACK — footer › MIXER (I/O console) › CONFIG (sheets), persistent ─────────────────┘
-// BUILD ORDER (Paul): header → footer → panels. THIS pass = the frame + the SHARED HEADER. The FOOTER is a placeholder
-// bar (real mixer/config layer next); the SELECT↔PART side seam is still a plain door (the exclusive side-column next);
-// PART/PLAY/REEL bodies stay honest placeholders (housed room-by-room, reusing their real components per §6).
-// RECORD is intentionally OUT for now (Paul) — returns with the footer; the REEL room is temporarily unreachable.
+// toggles old BUILD). Framing per Paul 2026-08-28:
+//   • The GRID + its edge SELECT buttons are ONE integrated component (a hardware Launchpad is one unit — grid + the
+//     column/row launch buttons — and must feel one-and-the-same for a future Launchpad mapping). Placeholder grids for now.
+//   • The COLUMN-SELECT row is the TOP row on SELECT/PART, the BOTTOM row on PLAY. A ROW-SELECT column sits on the right.
+//   • The thin NAVIGATION doors live OUTSIDE the grid unit — never between the select buttons and the grid.
+//   • Persistent FOOTER below (placeholder this pass → mixer/config next). RECORD is out for now (Paul); REEL is a placeholder.
 extension DiagView {
     enum Room: String, CaseIterable { case select = "SELECT", part = "PART", play = "PLAY", reel = "REEL" }
 
     private var roomsAccent: Color { Color(red: 0.19, green: 0.83, blue: 0.91) }
 
-    // ── THE PERSISTENT FRAME ──────────────────────────────────────────────────────────────────────
+    // ── THE FRAME: the room in view + the persistent footer (no separate header strip — the header IS the grid's edge) ──
     @ViewBuilder func roomsPage(_ size: CGSize) -> some View {
         VStack(spacing: 0) {
-            roomsHeader()                                    // §2 shared header — top row of every room
-            roomsMiddle(size).frame(maxWidth: .infinity, maxHeight: .infinity)   // the room in view
-            roomsFooter()                                    // §1 footer stack (placeholder this pass)
+            roomsMiddle(size).frame(maxWidth: .infinity, maxHeight: .infinity)
+            roomsFooter()
         }.frame(width: size.width, height: size.height, alignment: .top)
     }
 
-    // §2 THE SHARED HEADER — one component, four surfaces: the 8 track-heads. TAP = play/stop that track; LONG-PRESS =
-    // assign (stub until the real tracks land — this pass builds the component + grammar, not the track wiring).
-    @ViewBuilder func roomsHeader() -> some View {
-        HStack(spacing: 4) {
-            ForEach(0..<8, id: \.self) { t in
-                let on = t < roomsTrackOn.count && roomsTrackOn[t]
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(on ? roomsAccent.opacity(0.9) : Color.white.opacity(0.06))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.12)))
-                    VStack(spacing: 1) {
-                        Text("\(t + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.55))
-                        Image(systemName: on ? "play.fill" : "pause").font(.system(size: 8)).foregroundColor(on ? .black.opacity(0.7) : .white.opacity(0.28))
-                    }
-                }
-                .frame(maxWidth: .infinity).frame(height: 42)
-                .contentShape(Rectangle())
-                .onTapGesture { if t < roomsTrackOn.count { roomsTrackOn[t].toggle() } }        // TAP = play/stop
-                .onLongPressGesture(minimumDuration: 0.4) { /* LONG-PRESS = assign — wired when tracks are real */ }
-            }
-        }.padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
+    @ViewBuilder private func roomsMiddle(_ size: CGSize) -> some View {
+        switch roomsRoom {
+        case .select: roomsSelect()
+        case .part:   roomsPart()
+        case .play:   roomsPlay()
+        case .reel:   roomsReel()
+        }
     }
 
-    // §1 THE FOOTER STACK — persistent; taps outward footer → MIXER (I/O console) → CONFIG (sheets). Placeholder bar this
-    // pass; the real mixer/config layers (reusing the existing components) are the NEXT increment.
+    // §1 the persistent FOOTER STACK (footer → MIXER → CONFIG). Placeholder bar this pass; real layers reuse the I/O
+    // console + MIDI/RACK sheets next.
     @ViewBuilder func roomsFooter() -> some View {
         HStack(spacing: 8) {
             Text("FOOTER").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.45))
             Text("›  MIXER  ›  CONFIG").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.28))
-            Spacer()
-            Text("built next").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.22))
+            Spacer(); Text("built next").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.22))
         }.padding(.horizontal, 14).padding(.vertical, 9).background(Color.white.opacity(0.04))
     }
 
-    // ── THE ROOM IN VIEW (the middle; header + footer are the frame) ───────────────────────────────
-    @ViewBuilder private func roomsMiddle(_ size: CGSize) -> some View {
-        switch roomsRoom {
-        case .select: roomsSelect(size)
-        case .part:   roomsPart(size)
-        case .play:   roomsPlay(size)
-        case .reel:   roomsReel(size)
+    // ── THE INTEGRATED GRID UNIT (grid + edge select buttons = ONE component) ──────────────────────
+    @ViewBuilder private func roomsLaunchGrid(bottomSelector: Bool) -> some View {
+        let rowSelW: CGFloat = 34
+        let columnSelectRow = HStack(spacing: 3) {
+            ForEach(0..<8, id: \.self) { t in colSelCell(t) }
+            Color.clear.frame(width: rowSelW)                    // corner — aligns the 8 selectors with the 8 grid columns
         }
-    }
-
-    // §1 the thin TOP door sweeping UP to the PLAY grid (on SELECT and PART).
-    private func topDoorToPlay() -> some View {
-        Button { roomsRoom = .play } label: {
-            HStack(spacing: 6) { Image(systemName: "chevron.up"); Text("PLAY") }
-                .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                .frame(maxWidth: .infinity).frame(height: 24)
-                .background(RoundedRectangle(cornerRadius: 6).fill(roomsAccent))
-        }.buttonStyle(.plain)
-    }
-    // §4 SELECT↔PART seam — v1 stand-in for the shared exclusive side column (the real one is the next-but-one increment).
-    private func sideDoor(_ label: String, to room: Room) -> some View {
-        Button { roomsRoom = room } label: {
-            Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
-                .padding(.horizontal, 14).frame(height: 40)
-                .background(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.25)))
-        }.buttonStyle(.plain)
-    }
-    private func provDoor(_ label: String, dim: Bool = false, _ tap: @escaping () -> Void) -> some View {
-        Button(action: tap) {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(dim ? 0.3 : 0.7))
-                .frame(maxWidth: .infinity).frame(height: 40)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(dim ? 0.04 : 0.09)))
-        }.buttonStyle(.plain)
-    }
-    @ViewBuilder private func roomPlaceholder(_ name: String, _ blurb: String) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.03))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(roomsAccent.opacity(0.40), lineWidth: 2))
-            VStack(spacing: 8) {
-                Text(name).font(.system(size: 32, weight: .black, design: .monospaced)).foregroundColor(roomsAccent)
-                Text(blurb).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+        VStack(spacing: 3) {
+            if !bottomSelector { columnSelectRow }               // SELECT / PART: column-select on TOP
+            HStack(spacing: 3) {
+                VStack(spacing: 3) {                             // the 8×8 grid (placeholder while we settle the framing)
+                    ForEach(0..<8, id: \.self) { _ in
+                        HStack(spacing: 3) {
+                            ForEach(0..<8, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05)).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                        }
+                    }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 3) { ForEach(0..<8, id: \.self) { r in rowSelCell(r) } }.frame(width: rowSelW)   // ROW-select column (right)
             }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 12)
+            if bottomSelector { columnSelectRow }                // PLAY: column-select on the BOTTOM
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))            // ONE component: unified panel
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsAccent.opacity(0.35), lineWidth: 1.5))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    // §2 the shared column-select button — the SAME 8 cells everywhere (one-and-the-same for a Launchpad). TAP = play/stop
+    // (lights); long-press = assign (stub until tracks are real).
+    private func colSelCell(_ t: Int) -> some View {
+        let on = t < roomsTrackOn.count && roomsTrackOn[t]
+        return RoundedRectangle(cornerRadius: 4).fill(on ? roomsAccent.opacity(0.9) : Color.white.opacity(0.11))
+            .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.55)))
+            .frame(maxWidth: .infinity).frame(height: 30)
+            .contentShape(Rectangle())
+            .onTapGesture { if t < roomsTrackOn.count { roomsTrackOn[t].toggle() } }
+            .onLongPressGesture(minimumDuration: 0.4) { /* assign — wired when tracks are real */ }
+    }
+    private func rowSelCell(_ r: Int) -> some View {
+        RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.11)).frame(maxHeight: .infinity)
+            .overlay(Image(systemName: "arrow.right").font(.system(size: 8)).foregroundColor(.white.opacity(0.4)))
     }
 
-    // SELECT (the shop) — the REAL grid selector re-housed (§6). ▲PLAY door; a side door to PART. Its right-hand column
-    // IS the chain PANEL; the full left/right panel wiring comes with the "panels" increment.
-    @ViewBuilder private func roomsSelect(_ size: CGSize) -> some View {
-        VStack(spacing: 6) {
-            topDoorToPlay().padding(.horizontal, 12)
-            buildGridSelectorBody(size: CGSize(width: size.width, height: max(160, size.height - 190)))
-                .frame(maxHeight: .infinity)
-                .onAppear { buildEnsureGridSelOpen() }
-                .onDisappear { buildCloseGridSel() }
-            HStack { Spacer(); sideDoor("PART ▸", to: .part) }.padding(.horizontal, 12).padding(.bottom, 10)
+    // ── NAVIGATION (thin doors, OUTSIDE the grid unit — never between the selectors and the grid) ───
+    private func navPlayDoor() -> some View {
+        Button { roomsRoom = .play } label: {
+            HStack(spacing: 5) { Image(systemName: "chevron.up"); Text("PLAY") }
+                .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .padding(.horizontal, 12).frame(height: 22).background(Capsule().fill(roomsAccent))
+        }.buttonStyle(.plain)
+    }
+    private func navDoor(_ label: String, to room: Room) -> some View {
+        Button { roomsRoom = room } label: {
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                .padding(.horizontal, 12).frame(height: 22).background(Capsule().fill(Color.white.opacity(0.10)))
+        }.buttonStyle(.plain)
+    }
+
+    // ── THE ROOMS ─────────────────────────────────────────────────────────────────────────────────
+    @ViewBuilder private func roomsSelect() -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) { navPlayDoor(); navDoor("PART ▸", to: .part); Spacer() }   // nav ABOVE the unit
+                .padding(.horizontal, 12).padding(.top, 8)
+            roomsLaunchGrid(bottomSelector: false).padding(.horizontal, 12).padding(.bottom, 8)   // column-select TOP
         }
     }
-
-    // PART (the workshop) — placeholder body; ▲PLAY door; side door to SELECT. (Chain panels arrive with the panels increment.)
-    @ViewBuilder private func roomsPart(_ size: CGSize) -> some View {
-        VStack(spacing: 6) {
-            topDoorToPlay().padding(.horizontal, 12)
-            roomPlaceholder("PART", "the workshop — build a part  ·  housed next")
-            HStack { sideDoor("◂ SELECT", to: .select); Spacer() }.padding(.horizontal, 12).padding(.bottom, 10)
+    @ViewBuilder private func roomsPart() -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) { navPlayDoor(); navDoor("◂ SELECT", to: .select); Spacer() }
+                .padding(.horizontal, 12).padding(.top, 8)
+            roomsLaunchGrid(bottomSelector: false).padding(.horizontal, 12).padding(.bottom, 8)   // column-select TOP
         }
     }
-
-    // PLAY (the stage) — 8 vertical tracks (their HEADS are the shared header above); the bottom 10-door PROVENANCE band.
-    // No chain panels (§3b). Track interiors reserved (§3).
-    @ViewBuilder private func roomsPlay(_ size: CGSize) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                ForEach(0..<8, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(roomsAccent.opacity(0.22)))
+    @ViewBuilder private func roomsPlay() -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) { navDoor("◂ SELECT", to: .select); navDoor("PART ▸", to: .part); Spacer() }   // nav ABOVE the unit
+                .padding(.horizontal, 12).padding(.top, 8)
+            roomsLaunchGrid(bottomSelector: true).padding(.horizontal, 12).padding(.bottom, 8)    // column-select BOTTOM
+        }
+    }
+    @ViewBuilder private func roomsReel() -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) { navDoor("◂ PLAY", to: .play); Spacer() }.padding(.horizontal, 12).padding(.top, 8)
+            ZStack {
+                RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03)).overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsAccent.opacity(0.35), lineWidth: 1.5))
+                VStack(spacing: 8) {
+                    Text("REEL").font(.system(size: 30, weight: .black, design: .monospaced)).foregroundColor(roomsAccent)
+                    Text("the tape — recorded passes  ·  housed next").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.5))
                 }
-            }.frame(maxHeight: .infinity).padding(.horizontal, 12).padding(.top, 4)
-            HStack(spacing: 4) {   // §4b THE BOTTOM BAND — 10 provenance doors
-                provDoor("SELECT") { roomsRoom = .select }                                   // general (bottom-left corner)
-                ForEach(0..<8, id: \.self) { _ in provDoor("·", dim: true) { } }             // per-track (dim; hue/mark/travel wired later)
-                provDoor("PART") { roomsRoom = .part }                                       // general (bottom-right corner)
-            }.padding(.horizontal, 12).padding(.bottom, 10)
-        }
-    }
-
-    // REEL (the tape) — placeholder; a door back to PLAY (its RECORD entrance returns with the footer).
-    @ViewBuilder private func roomsReel(_ size: CGSize) -> some View {
-        VStack(spacing: 6) {
-            roomPlaceholder("REEL", "the tape — recorded passes  ·  housed next").padding(.top, 4)
-            HStack { sideDoor("◂ PLAY", to: .play); Spacer() }.padding(.horizontal, 12).padding(.bottom, 10)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 12).padding(.bottom, 8)
         }
     }
 }
