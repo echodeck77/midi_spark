@@ -245,6 +245,7 @@ struct DiagView: View {
     @State var buildGridSelStampAt: Date? = nil          // when the hold began (drives the rising white-fill fraction)
     @State var buildGridSelStampFlashRow: Int? = nil     // a just-stamped row — flashes fully white then fades to its colour
     @State var buildGridSelStampFlashAt: Date? = nil
+    @State var buildGridSelStampSourceRow: Int? = nil    // NEW INTERFACE (Paul 2026-08-28): the ACTIVE SIDE BUTTON on the SELECT grid — the white-bordered part slot, and (if populated) the STAMP SOURCE for a long-press copy onto another side button. Mutually exclusive with buildGridSelSel (a cell source).
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
     @State var buildGridSelPriorSolo = false             // pre-open workshop-voice snapshot — restored on CANCEL (never silence a voice we didn't own)
     @State var buildGridSelPriorStaging = false

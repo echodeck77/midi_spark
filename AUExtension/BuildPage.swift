@@ -1393,12 +1393,37 @@ extension DiagView {
     @ViewBuilder func roomsSelectGridCell(_ i: Int) -> some View {
         GeometryReader { cg in buildGridSelCell(i, w: cg.size.width, h: cg.size.height) }
     }
-    // A SELECT-grid SIDE BUTTON (the row-select column) = a PART slot that holds a chain. Reuses the grid selector's row
-    // chip VERBATIM: TAP = play/load that part; LONG-PRESS = stamp the currently-selected cell onto it (the rising white
-    // fill → white-fade CONFIRM revealing the part's pre-allocated colour colourHexes[n]); the stamp populates the shared
-    // part row, so the PART grid's side button + row light up too (one model, two rooms — §4). (Paul 2026-08-28)
+    // A SELECT-grid SIDE BUTTON (the row-select column) = a PART slot that holds a chain (the §4 shared exclusive column).
+    // Reuses the grid selector's visual pieces (drift face + rising-white STAMP SWEEP) with NEW-INTERFACE gestures:
+    //   TAP        = make this the ACTIVE selection (white border) + play/load its chain (reflected in the chain/IN/OUT
+    //                panel) + arm it as a STAMP SOURCE when populated (buildGridSelStampSourceRow).
+    //   LONG-PRESS = copy the active source (a browse CELL *or* another SIDE BUTTON) onto this slot — the rising white
+    //                fill → white-fade CONFIRM revealing the part's pre-allocated colour (colourHexes[n]).
+    // The stamp writes the shared part row, so the PART grid's slot + row light up too (one model, two rooms). (Paul 2026-08-28)
     @ViewBuilder func roomsSideButton(_ n: Int) -> some View {
-        GeometryReader { g in buildGridSelRowChip(n, height: g.size.height) }
+        GeometryReader { g in roomsSideChip(n, height: g.size.height) }
+    }
+    @ViewBuilder private func roomsSideChip(_ n: Int, height: CGFloat) -> some View {
+        let cid = buildRowColour(n)
+        let tint = cid.flatMap { colourColor($0) }
+        let active = buildGridSelStampSourceRow == n                      // THE active side button — white border (§ "one cell or one side button is active")
+        RoundedRectangle(cornerRadius: 5).fill(active ? (tint ?? buildCyan) : (cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
+            .frame(height: height)
+            .overlay { if cid != nil { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: true).padding(2).opacity(0.65) } }   // the slot drifts its part's notes
+            .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(active ? Color.white : (tint ?? buildEdge), lineWidth: active ? 2 : 1))
+            .overlay { if cid == nil { RoundedRectangle(cornerRadius: 5).stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(buildEdge) } }
+            .overlay(Text("\(n + 1)").font(.system(size: min(13, height * 0.4), weight: .heavy, design: .monospaced)).foregroundColor(active ? .black.opacity(0.75) : (tint ?? .white.opacity(0.7))))
+            .contentShape(Rectangle())
+            .onTapGesture { roomsTapSide(n) }
+            .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
+                                pressing: { p in buildGridSelStampPressing(n, p) }, perform: { buildGridSelStampFire(n) })
+    }
+    // TAP a side button — it becomes the active selection + stamp source (if populated), and plays/loads its chain.
+    private func roomsTapSide(_ n: Int) {
+        buildGridSelAimRow(n)                                            // load + audition the part's chain (clears buildGridSelSel → no cell active) + reflect its door/emitters
+        buildGridSelStampSourceRow = n                                  // this side button is now THE active selection (white border) + the copy source when populated
     }
 
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
@@ -5455,6 +5480,7 @@ extension DiagView {
     // path: turn the chain voice ON (quantized) if not already, else swap which chain (quantized). Piece plays on.
     private func buildGridSelAudition(_ i: Int) {
         guard let hit = buildGridSelChainAt(i) else { return }
+        buildGridSelStampSourceRow = nil                                 // a CELL is now the active source → clear the active SIDE BUTTON (mutual exclusivity; no-op in old BUILD)
         buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i)   // a DEALT/LIBRARY cell — its index is the commit source
     }
     // Load a chain onto the ONE transient audition colour, select it, and drive the chain voice (quantized). Shared by a
@@ -5519,9 +5545,16 @@ extension DiagView {
     // that row — KEEPING the row's own colour — WITHOUT closing the browser (so you can stamp one machine onto several
     // parts). A populated row keeps its hue + register (chain overwritten); an empty row mints a colour carrying the chain.
     // Fires a white→fade FLASH on the row. Requires a browse cell to be the source (buildGridSelSel != nil).
-    private var buildGridSelCanStamp: Bool { buildGridSelSel != nil }
+    private var buildGridSelCanStamp: Bool { buildGridSelStampSource() != nil }
+    // The active STAMP SOURCE — a browse CELL (buildGridSelSel) OR an active SIDE BUTTON's populated part row
+    // (buildGridSelStampSourceRow, NEW INTERFACE). Cell wins if both somehow set. (Paul 2026-08-28)
+    private func buildGridSelStampSource() -> (chain: [ProcessorSlot], transpose: Int)? {
+        if let i = buildGridSelSel, let hit = buildGridSelChainAt(i) { return (hit.chain, hit.transpose) }
+        if let s = buildGridSelStampSourceRow, let cid = buildRowColour(s) { return (buildColourChain(cid), buildColourTranspose[cid] ?? 0) }
+        return nil
+    }
     private func buildGridSelStampCommit(_ row: Int) {
-        guard let i = buildGridSelSel, let hit = buildGridSelChainAt(i) else { return }
+        guard let hit = buildGridSelStampSource() else { return }
         buildRecordUndo()   // BUILD UNDO: stamp the auditioning chain onto a part
         if let tgt = buildRowColour(row) {                               // populated → overwrite its chain, KEEP its colour
             buildWriteColourMachine(tgt, hit.chain)
