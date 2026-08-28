@@ -1348,6 +1348,35 @@ extension DiagView {
         .frame(height: height, alignment: .center)                           // the stack is EXACTLY this tall (matches the 4-row processor block); the buttons share it
         .frame(maxWidth: .infinity, alignment: .center)                      // centre HORIZONTALLY in the space beside the chain
     }
+
+    // ── NEW INTERFACE (rooms) reuse — THE REAL MACHINE STRIP for the SELECT/PART chain panel. Composes the EXACT
+    // components Paul named — PLAY THIS MIDI CHAIN button · MIDI-IN receiver toggles · the MIDI chain (2×4 boxes) +
+    // its side-button stack · MIDI-OUT emitter toggles — reusing the private left-column helpers VERBATIM (no
+    // recreation). Only THIS assembler is internal so RoomsPage.swift can call it; the pieces stay private to this
+    // file. Functionality (which colour/row it edits) may be un-wired in the new shell — that's wired in later. (Paul 2026-08-28)
+    @ViewBuilder func roomsMachineStrip(width: CGFloat) -> some View {
+        let castW = max(160, width - 20)                                     // the box's inner content width (outer .padding(10) = 20)
+        let gap = BuildGeom.castGap
+        let swW = (castW - gap * 7) / 8                                       // the chain boxes sit on the same 8-column grain as the cast
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))        // square-ish 2×2 boxes derived from the panel width
+        VStack(alignment: .center, spacing: 8) {
+            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid,
+                                      action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))
+            AnyView(VStack(spacing: 8) {
+                AnyView(buildReceiverSelector(castW: castW))                  // MIDI-IN receiver toggles (real)
+                AnyView(HStack(alignment: .top, spacing: gap) {              // side buttons (LEFT) + the MIDI chain (RIGHT) — the old left-column layout
+                    AnyView(buildChainButtonStack(width: (castW / 2 - gap / 2) * 0.75,
+                                                  height: 4 * (cell * 2 + gap) + 3 * gap))
+                    AnyView(buildProcessorBlock(castW: castW, cell: cell))
+                })
+                AnyView(buildEmitterToggles(castW: castW)).padding(.top, 8)   // MIDI-OUT emitter toggles (real)
+            }
+            .padding(10)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildEdge, lineWidth: 1)))
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
     @ViewBuilder private func buildGridVerbButtons() -> some View {
         HStack(spacing: 6) {

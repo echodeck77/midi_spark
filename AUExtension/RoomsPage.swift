@@ -160,11 +160,14 @@ extension DiagView {
                 .padding(.horizontal, 12).frame(height: 22).background(Capsule().fill(Color.white.opacity(0.10)))
         }.buttonStyle(.plain)
     }
+    // THE MIDI CHAIN panel — the REAL machine strip (play button · receiver toggles · chain + side buttons · emitter
+    // toggles) reused verbatim from the old BUILD left column via buildPage's internal roomsMachineStrip. (Paul 2026-08-28)
     @ViewBuilder private func chainPanel() -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.14), lineWidth: 1.5))
-            Text("MIDI CHAIN").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.4))
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { g in
+            ScrollView(.vertical, showsIndicators: false) {
+                roomsMachineStrip(width: g.size.width).padding(.top, 2)
+            }
+        }
     }
 
     // ── THE ROOMS ─────────────────────────────────────────────────────────────────────────────────
