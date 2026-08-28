@@ -1744,14 +1744,28 @@ struct ProcessorBox: View {
     // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27): THE FRAME ROW — every pattern card ends with GRID · ROTATE · SPAN in
     // this FIXED ORDER under one "FRAME" label, so hands learn ONE location across every pattern card. The card passes its
     // own three controls (each already a labelled field); this fixes their order + place (the footer). Pure re-layout.
+    // ═══════════ FRAME FOOTER — ALL THE STYLING KNOBS IN ONE PLACE (Paul 2026-08-28: tweak here) ═══════════
+    // GRID · ROTATE · SPAN sit on one line at a shared height; the rate/span chips wrap into two rows. Change any
+    // number below to retune the whole footer — bigger chipText/chipH = larger controls; ctlH derives from them.
+    private enum FS {
+        static let chipText:   CGFloat = 13    // chip label size
+        static let chipH:      CGFloat = 28    // height of ONE chip (each of the 2 rows)
+        static let chipPadH:   CGFloat = 11    // chip left/right padding (→ chip width)
+        static let chipRadius: CGFloat = 5
+        static let chipGap:    CGFloat = 5     // gap between chips within a row
+        static let rowGap:     CGFloat = 5     // gap between the two chip rows
+        static let prefixText: CGFloat = 11    // the GRID / ROTATE / SPAN labels
+        static let prefixGap:  CGFloat = 8     // gap between a prefix and its chips
+        static let ctlGap:     CGFloat = 22    // gap between GRID · ROTATE · SPAN
+        static let labelText:  CGFloat = 11    // the "FRAME" heading
+        static var ctlH: CGFloat { chipH * 2 + rowGap }   // shared control height = two chip rows (derived — don't set directly)
+    }
     @ViewBuilder private func frameRow<G: View, R: View, S: View>(@ViewBuilder grid: () -> G, @ViewBuilder rotate: () -> R, @ViewBuilder span: () -> S) -> some View {
-        // GRID · ROTATE · SPAN in FIXED ORDER under one FRAME label. COMPACT + always-visible (Paul 2026-08-28: small +
-        // stylish, all options on screen — no popups, no oversized seg). Each control = a narrow prefix + a tight small-chip
-        // row (frameGrid/frameSpan/frameRotate). The footer's fixed place; hands learn one location across every pattern card.
-        VStack(alignment: .leading, spacing: 5) {
-            Text("FRAME").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35)).tracking(1.5)
+        // GRID · ROTATE · SPAN in FIXED ORDER under one FRAME label — always-visible chips (no popups), sized by `FS` above.
+        VStack(alignment: .leading, spacing: 6) {
+            Text("FRAME").font(.system(size: FS.labelText, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35)).tracking(1.5)
             Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
-            HStack(spacing: 14) { grid(); rotate(); span(); Spacer(minLength: 0) }   // Paul 2026-08-28: GRID · ROTATE · SPAN on ONE horizontal line
+            HStack(spacing: FS.ctlGap) { grid(); rotate(); span(); Spacer(minLength: 0) }
         }.padding(.top, 5)
     }
     // §1 ANATOMY — the COMPACT frame controls (Paul 2026-08-28): small chips in a tight row, ALL options visible (no popup,
@@ -1759,34 +1773,34 @@ struct ProcessorBox: View {
     // stays the ◀n▶ nudge. The midway between the old full-size fields and the dropdowns.
     // The rate/span chips wrap into TWO rows (Paul 2026-08-28) — narrower + taller, so all three controls line up at
     // one height (`frameCtlH`, matched to the ROTATE nudge). Row 1 holds the first ceil(n/2) chips, row 2 the rest.
+    // The rate/span chips wrap into TWO rows so each control stays narrow + lines up at FS.ctlH. Row 1 = first ceil(n/2).
     private func frameSeg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
         let n = options.count, top = (n + 1) / 2
         func chip(_ i: Int) -> some View {
             let on = options[i] == sel
-            return Text(options[i]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+            return Text(options[i]).font(.system(size: FS.chipText, weight: .heavy, design: .monospaced))
                 .foregroundColor(on ? .black : .white.opacity(0.5))
-                .padding(.horizontal, 6).frame(height: 19)
-                .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.07)))
+                .padding(.horizontal, FS.chipPadH).frame(height: FS.chipH)
+                .background(RoundedRectangle(cornerRadius: FS.chipRadius).fill(on ? accent : Color.white.opacity(0.07)))
                 .contentShape(Rectangle()).onTapGesture { onPick(i) }
         }
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 3) { ForEach(Array(0..<top), id: \.self) { chip($0) } }
-            HStack(spacing: 3) { ForEach(Array(top..<n), id: \.self) { chip($0) } }
+        return VStack(alignment: .leading, spacing: FS.rowGap) {
+            HStack(spacing: FS.chipGap) { ForEach(Array(0..<top), id: \.self) { chip($0) } }
+            HStack(spacing: FS.chipGap) { ForEach(Array(top..<n), id: \.self) { chip($0) } }
         }
     }
-    private let frameCtlH: CGFloat = 42   // shared control height: the 2-row chip grids match the ROTATE nudge
     private func framePrefix(_ s: String) -> some View {
-        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+        Text(s).font(.system(size: FS.prefixText, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
     }
     private func frameGrid(_ current: ArpRate, _ set: @escaping (ArpRate) -> Void) -> some View {
-        HStack(spacing: 6) { framePrefix("GRID"); frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }.frame(height: frameCtlH)
+        HStack(spacing: FS.prefixGap) { framePrefix("GRID"); frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }.frame(height: FS.ctlH)
     }
     private func frameSpan(_ current: Int, free: Bool, _ set: @escaping (Int) -> Void) -> some View {
         let vals = (free ? [0] : []) + spanLadderValues
-        return HStack(spacing: 6) { framePrefix("SPAN"); frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }.frame(height: frameCtlH)
+        return HStack(spacing: FS.prefixGap) { framePrefix("SPAN"); frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }.frame(height: FS.ctlH)
     }
     private func frameRotate(_ current: Int, _ range: ClosedRange<Int>, _ set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 6) { framePrefix("ROTATE"); numPair(current, range, wrap: true, set) }.frame(height: frameCtlH)
+        HStack(spacing: FS.prefixGap) { framePrefix("ROTATE"); numPair(current, range, wrap: true, set) }.frame(height: FS.ctlH)
     }
     // §1 ANATOMY — the "pairs well" line (footer item 3): one dim row from the pairing catalog (processor-pairings.md),
     // teaching at the moment of choice. → = a good DOWNSTREAM stage · ← = a good UPSTREAM stage. nil = no line drawn.
