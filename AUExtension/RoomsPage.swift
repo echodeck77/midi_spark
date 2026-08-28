@@ -106,21 +106,25 @@ extension DiagView {
             Color.black.opacity(expanded ? 0.6 : 0.4).ignoresSafeArea().contentShape(Rectangle())
                 .onTapGesture { roomsMixerOpen = false; roomsMixerSel = nil }
             VStack(spacing: 10) {
-                HStack {
-                    Text(expanded ? "MIDI SETTINGS" : "MIDI IN / OUT").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(roomsAccent)
-                    Spacer()
-                    if expanded {   // collapse back to the strip band (stage 1)
-                        Button { roomsMixerSel = nil } label: { Image(systemName: "chevron.compact.down").font(.system(size: 18, weight: .bold)).foregroundColor(.white.opacity(0.6)).padding(.horizontal, 8) }
-                    }
-                    Button { roomsMixerOpen = false; roomsMixerSel = nil } label: { Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.5)).padding(6) }
+                HStack(spacing: 6) {                                     // group labels: MIDI IN over the receivers · MIDI OUT over the emitters (both stages, Paul 2026-08-28)
+                    Text("MIDI IN").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(roomsAccent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 6) {
+                        Text("MIDI OUT").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(roomsAccent)
+                        Spacer(minLength: 0)
+                        if expanded {   // collapse back to the strip band (stage 1)
+                            Button { roomsMixerSel = nil } label: { Image(systemName: "chevron.compact.down").font(.system(size: 18, weight: .bold)).foregroundColor(.white.opacity(0.6)).padding(.horizontal, 8) }
+                        }
+                        Button { roomsMixerOpen = false; roomsMixerSel = nil } label: { Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.5)).padding(6) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack(alignment: .top, spacing: 6) {                    // the 8 strips, no IN/OUT divider (Paul 2026-08-28)
                     ForEach(0..<4, id: \.self) { i in mixerStrip(i, isIn: true, expanded: expanded) }
                     ForEach(0..<4, id: \.self) { i in mixerStrip(i, isIn: false, expanded: expanded) }
                 }
-                if let k = roomsMixerSel {   // STAGE 2 — the selected control's config, restyled inline, fills the rest
-                    roomsMixerConfigHeader(k)                            // a hue-matched title so it's clear WHICH control the form is for
-                    ScrollView(.vertical, showsIndicators: false) { roomsMixerConfig(k).padding(.top, 2) }
+                if let k = roomsMixerSel {   // STAGE 2 — the selected control's config, restyled inline, fills the rest (the per-control label is dropped — the highlighted strip identifies it, Paul 2026-08-28)
+                    Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+                    ScrollView(.vertical, showsIndicators: false) { roomsMixerConfig(k).padding(.top, 4) }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -135,14 +139,6 @@ extension DiagView {
     // highlight AND the config header, so the two clearly read as the SAME control. (Paul 2026-08-28)
     private func roomsMixerHue(_ k: Int) -> Color {
         k < 4 ? [Color(red: 0.36, green: 0.92, blue: 0.52), Color(red: 0.29, green: 0.49, blue: 1.0), Color(red: 0.91, green: 0.36, blue: 0.44), Color(red: 0.69, green: 0.42, blue: 0.91)][k] : roomsAccent
-    }
-    private func roomsMixerConfigHeader(_ k: Int) -> some View {
-        let hue = roomsMixerHue(k)
-        return HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 2).fill(hue).frame(width: 4, height: 18)   // the connecting accent bar (matches the selected strip)
-            Text("\(k < 4 ? "MIDI IN" : "MIDI OUT") · \(roomsABCD[k % 4])").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(hue)
-            Spacer()
-        }.padding(.top, 4).padding(.bottom, 2)
     }
     // One mixer strip = the REAL console control + a SPANNER tab button below it. STAGE 1: spanner → expand to stage 2
     // selecting this control. STAGE 2: spanner → switch the selected control; the selected strip is HIGHLIGHTED in its
