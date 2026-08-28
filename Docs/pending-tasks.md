@@ -21,8 +21,11 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-2
     gridMenu/spanMenu tap-menus + ◀n▶ rotate) + `pairsWell` line. On RATCHET + TUTTI PATTERN (the reference pair).
   - ✅ **HEADER OCT** (`ce0954d`): per-slot `stageOct` ±3 (stage's own voice); engine on all paths + `applyStage` post-shift; +2 tests.
   - ✅ **HEADER SOURCE** (`c5fffce`): per-slot `stageSource` CHAIN|MIDI IN|BOTH; v1 = the composeChainSet fold; +1 test.
-  - ⏳ **FOOTER SWEEP** — the frame row + pairs-well on euclid (single/LINES split — care) · burst (conditional GRID) ·
-    cascade (no ROTATE) · riff; + OPTIONS chips in the footer; + full per-card pairs-well data.
+  - ✅ **FOOTER SWEEP** (`b273afb`): the frame row + pairs-well now on RATCHET · TUTTI · EUCLID · RIFF · BURST(PATTERN).
+    Footer redesigned per Paul's device iterations (`e3054e7`…`b273afb`): compact chips in one `FS` knobs block; GRID left /
+    ROTATE centre / SPAN right; left-aligned labels above; GRID 2-row, SPAN 2-row (FREE·×2·×4 / 1–8); pairs-well under
+    ROTATE; no "FRAME" word (rule kept). CASCADE excluded (a reveal). Per-card: EUCLID hides ROTATE in LINES; RIFF no ROTATE;
+    BURST GRID gated by SLICES=RATE. Still open: OPTIONS chips in the footer (deferred).
   - ⏳ **CHROME** — reposition the IN truth-strip UNDER the header + the OUT roll to the FLOOR (currently one IN|OUT band below the body).
   - ⏳ **SOURCE downstream** (the [ARP→HARMONIZE(MIDI IN)] headline) — needs the door threaded into emitDriverNote (cascades
     through emit helpers) + the hold-tail source + **a FEEL ruling from Paul** (per-tick door read vs a sustained parallel voice).
