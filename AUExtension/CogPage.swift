@@ -11,6 +11,7 @@ struct CogPage: View {
     let d: KernelDiag                 // health readout (voices / held / panics)
     let aboutLine: String
     @Binding var showScenes: Bool     // DISPLAY: the arrangement bar's 16-scene row (hidden by default)
+    @Binding var useNewInterface: Bool   // DISPLAY: preview the NEW room-based interface (Docs/INSTRUCTIONS-interface-redesign.md)
     let onClose: () -> Void
 
     private let ink = Color.white
@@ -31,6 +32,12 @@ struct CogPage: View {
                             Text("show the arrangement's 16-scene row").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
                             Spacer()
                             onOffToggle(on: showScenes) { showScenes = $0 }
+                        }
+                        HStack(spacing: 8) {
+                            Text("NEW UI").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).frame(width: 60, alignment: .leading)
+                            Text("preview the room-based interface (in progress)").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+                            Spacer()
+                            onOffToggle(on: useNewInterface) { useNewInterface = $0 }
                         }
                         divider
                         section("HEALTH")

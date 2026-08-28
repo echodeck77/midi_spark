@@ -259,6 +259,10 @@ struct DiagView: View {
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
+    // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — a parallel NEW-interface shell behind a preview toggle
+    // (old BUILD stays the default + fully working). Off ⇒ the current BUILD page; on ⇒ the room shell (roomsPage).
+    @AppStorage("midispark.useNewInterface") var useNewInterface = false
+    @State var roomsRoom: Room = .play         // which room is in view in the new shell (one grid at a time)
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
@@ -737,6 +741,7 @@ struct DiagView: View {
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, d: d, aboutLine: aboutLine,
                             showScenes: $showScenes,
+                            useNewInterface: $useNewInterface,
                             onClose: { showSettings = false })
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
@@ -1065,7 +1070,9 @@ struct DiagView: View {
     // small controls (the piano/MIDI toggle + keys). The GeometryReader fills exactly the remaining height → no
     // overflow → no scroll → touches land. (user 2026-08-12) The deep RackMatrix lives in a BUILD overlay now.
     @ViewBuilder func tabBody(_ geo: GeometryProxy) -> some View {
-        GeometryReader { g in buildPage(g.size) }
+        GeometryReader { g in
+            if useNewInterface { roomsPage(g.size) } else { buildPage(g.size) }   // INTERFACE REDESIGN: the parallel shell (preview toggle)
+        }
     }
 
 
