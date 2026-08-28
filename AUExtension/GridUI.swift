@@ -947,9 +947,9 @@ struct ProcessorBox: View {
             if rmode == .pattern {
                 frameRow(grid:  { frameGrid(p.rtcRate ?? .r1_8) { r in setParam { $0.rtcRate = r } } },
                          rotate: { frameRotate(p.rtcRotate ?? 0, 0...7) { v in setParam { $0.rtcRotate = v } } },
-                         span:   { frameSpan(p.rtcSpanN ?? 0, free: true) { v in setParam { $0.rtcSpanN = v } } })
+                         span:   { frameSpan(p.rtcSpanN ?? 0, free: true) { v in setParam { $0.rtcSpanN = v } } },
+                         pairs: .ratchet)
             }
-            pairsWell(.ratchet)
         })
         case .passgate: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
             field("PLAY ON PASS") { HStack(spacing: 6) {
@@ -1255,9 +1255,9 @@ struct ProcessorBox: View {
             if (p.tuttiMode ?? .coin) == .pattern {
                 frameRow(grid:  { frameGrid(p.tuttiRate ?? .r1_8) { r in setParam { $0.tuttiRate = r } } },
                          rotate: { frameRotate(p.tuttiRotate ?? 0, 0...7) { v in setParam { $0.tuttiRotate = v } } },
-                         span:   { frameSpan(p.tuttiSpanN ?? 0, free: true) { v in setParam { $0.tuttiSpanN = v } } })
+                         span:   { frameSpan(p.tuttiSpanN ?? 0, free: true) { v in setParam { $0.tuttiSpanN = v } } },
+                         pairs: .tutti)
             }
-            pairsWell(.tutti)
         })
         case .length: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // per-slice GATE override — PASS/MUTE/SHORT/LONG as a STATE MATRIX (rows = states, cols = steps)
             heroField("LENGTH PER STEP — tap a cell: that step takes that length") {
@@ -1757,12 +1757,23 @@ struct ProcessorBox: View {
         static let labelGap:   CGFloat = 5     // gap between a control's label and its chips
         static let groupGap:   CGFloat = 16    // MIN gap between the three controls (they spread left · centre · right)
     }
-    @ViewBuilder private func frameRow<G: View, R: View, S: View>(@ViewBuilder grid: () -> G, @ViewBuilder rotate: () -> R, @ViewBuilder span: () -> S) -> some View {
-        // GRID left · ROTATE centre · SPAN right (Spacers spread them across the width); each = label ABOVE a single chip row.
+    @ViewBuilder private func frameRow<G: View, R: View, S: View>(@ViewBuilder grid: () -> G, @ViewBuilder rotate: () -> R, @ViewBuilder span: () -> S, pairs: ProcessorType? = nil) -> some View {
+        // GRID left · ROTATE centre · SPAN right (Spacers spread them). No "FRAME" heading — just the rule (Paul 2026-08-28).
+        // The "pairs well" line sits UNDER the rotate, in the centre column.
         VStack(alignment: .leading, spacing: 6) {
-            Text("FRAME").font(.system(size: FS.labelText, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35)).tracking(1.5)
             Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
-            HStack(alignment: .top, spacing: 0) { grid(); Spacer(minLength: FS.groupGap); rotate(); Spacer(minLength: FS.groupGap); span() }
+            HStack(alignment: .top, spacing: 0) {
+                grid()
+                Spacer(minLength: FS.groupGap)
+                VStack(alignment: .leading, spacing: 6) {
+                    rotate()
+                    if let t = pairs, let s = Self.pairsWellText(t) {
+                        Text("pairs well:  \(s)").font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(.white.opacity(0.32))
+                    }
+                }
+                Spacer(minLength: FS.groupGap)
+                span()
+            }
         }.padding(.top, 5)
     }
     // §1 ANATOMY — the COMPACT frame controls (Paul 2026-08-28): small chips in a tight row, ALL options visible (no popup,
@@ -1819,13 +1830,8 @@ struct ProcessorBox: View {
         }
     }
     // §1 ANATOMY — the "pairs well" line (footer item 3): one dim row from the pairing catalog (processor-pairings.md),
-    // teaching at the moment of choice. → = a good DOWNSTREAM stage · ← = a good UPSTREAM stage. nil = no line drawn.
-    @ViewBuilder private func pairsWell(_ ft: ProcessorType) -> some View {
-        if let s = Self.pairsWellText(ft) {
-            Text("pairs well:  \(s)").font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(0.32)).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 3)
-        }
-    }
+    // teaching at the moment of choice. → = a good DOWNSTREAM stage · ← = a good UPSTREAM stage. Rendered under ROTATE
+    // inside frameRow; this returns the text (nil = no line).
     static func pairsWellText(_ ft: ProcessorType) -> String? {
         switch ft {
         case .ratchet: return "→ LENGTH · ← SPLIT"     // catalog §3: downstream LENGTH chokes/rings the rolls; upstream SPLIT rolls a register
