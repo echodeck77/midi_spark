@@ -94,47 +94,31 @@ extension DiagView {
         }
     }
 
-    // ── THE STRIP-CONTROLS OVERLAY (§1 footer → MIXER). Pops over the grid; tap the dimmed backdrop → recede. ──
+    // ── THE MIXER SLIDEOVER (§1 footer → MIXER) — the REAL MIDI-IN / MIDI-OUT console strips reused from the old UI
+    // (buildReceiverControl / buildEmitterControl). A bottom slideover, HALF the canvas height; tap the dim backdrop
+    // above it → recede. (Paul 2026-08-28) ──
     @ViewBuilder func roomsMixerOverlay(_ size: CGSize) -> some View {
-        ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { roomsMixerOpen = false }
-            VStack(spacing: 12) {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.4).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { roomsMixerOpen = false }
+            VStack(spacing: 10) {
                 HStack {
-                    Text("IN / OUT STRIPS").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(roomsAccent)
+                    Text("MIDI IN / OUT").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(roomsAccent)
                     Spacer()
-                    Text("tap outside to close").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                    Button { roomsMixerOpen = false } label: { Image(systemName: "chevron.down").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.6)).padding(6) }
+                    Button { roomsMixerOpen = false } label: { Image(systemName: "chevron.down").font(.system(size: 16, weight: .bold)).foregroundColor(.white.opacity(0.6)).padding(6) }
                 }
-                HStack(spacing: 8) {
-                    ForEach(0..<4, id: \.self) { i in mixerStrip("IN \(roomsABCD[i])", isIn: true) }
-                    Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1).padding(.horizontal, 4)
-                    ForEach(0..<4, id: \.self) { i in mixerStrip("OUT \(roomsABCD[i])", isIn: false) }
-                }.frame(maxHeight: .infinity)
+                HStack(alignment: .top, spacing: 6) {
+                    ForEach(0..<4, id: \.self) { i in roomsMixerReceiver(i).frame(maxWidth: .infinity) }   // the REAL receiver console strips
+                    Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1).padding(.horizontal, 2)
+                    ForEach(0..<4, id: \.self) { i in roomsMixerEmitter(i).frame(maxWidth: .infinity) }    // the REAL emitter console strips
+                }
+                Spacer(minLength: 0)
             }
             .padding(16)
-            .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.08, green: 0.09, blue: 0.11)))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(roomsAccent.opacity(0.4), lineWidth: 1.5))
-            .padding(.horizontal, 24).padding(.top, 40).padding(.bottom, 20)
-            .contentShape(Rectangle()).onTapGesture { }   // swallow taps inside the panel
+            .frame(width: size.width, height: size.height / 2)          // HALF the canvas height — a bottom slideover
+            .background(Color(red: 0.08, green: 0.09, blue: 0.11))
+            .overlay(alignment: .top) { Rectangle().fill(roomsAccent.opacity(0.4)).frame(height: 2) }
+            .contentShape(Rectangle()).onTapGesture { }                 // swallow taps inside the panel
         }
-    }
-    // A placeholder in/out strip control (vertical): label · channel · velocity meter · latch (IN only).
-    private func mixerStrip(_ label: String, isIn: Bool) -> some View {
-        VStack(spacing: 8) {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-            Text("CH 1").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(roomsAccent)
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))
-                RoundedRectangle(cornerRadius: 4).fill(Color.green.opacity(0.5)).frame(height: 44)   // placeholder velocity level
-            }.frame(width: 26).frame(maxHeight: .infinity)
-            if isIn {
-                Text("LATCH").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-                    .padding(.horizontal, 6).padding(.vertical, 3).background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.10)))
-            } else {
-                Text("OUT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-            }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
     }
 
     // ── THE UNIFORM 9×9 GRID UNIT ──

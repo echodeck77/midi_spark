@@ -1332,10 +1332,10 @@ extension DiagView {
     }
     // The verb button stack, right of the MIDI chain. LEFT chevrons (<<<) act on the SELECTED colour's midi chain;
     // RIGHT chevrons (>>>) act on the PART grid. LIBRARY opens the cell library. (Paul 2026-08-18)
-    @ViewBuilder private func buildChainButtonStack(width: CGFloat, height: CGFloat) -> some View {
+    @ViewBuilder private func buildChainButtonStack(width: CGFloat, height: CGFloat, showGrid: Bool = true) -> some View {
         VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs — SHARE the fixed height (fill:true) so adding GRID never overflows/resizes the chain grid (Paul 2026-08-23)
             buildChainBtn("LIBRARY", fill: true)   { buildOpenLibrary() }
-            buildChainBtn("GRID", fill: true)      { buildOpenGridSel() }     // THE GRID SELECTOR — browse chains by ear on an 8×8
+            if showGrid { buildChainBtn("GRID", fill: true) { buildOpenGridSel() } }   // THE GRID SELECTOR — hidden in the new interface (the SELECT room IS the grid, Paul 2026-08-28)
             buildChainBtn("RANDOMIZE", fill: true) { buildRandomizeSimple() } // reroll the chain
             buildChainBtn("MUTATE", fill: true)    { buildMutateChain() }     // nudge the chain
             buildChainBtn("CLEAR", fill: true)     { buildClearChain() }      // empty the chain
@@ -1363,7 +1363,7 @@ extension DiagView {
             AnyView(buildReceiverSelector(castW: castW))                      // MIDI-IN receiver toggles (real)
             AnyView(HStack(alignment: .top, spacing: gap) {                  // side buttons (LEFT) + the MIDI chain (RIGHT)
                 AnyView(buildChainButtonStack(width: (castW / 2 - gap / 2) * 0.75,
-                                              height: 4 * (cell * 2 + gap) + 3 * gap))
+                                              height: 4 * (cell * 2 + gap) + 3 * gap, showGrid: false))
                 AnyView(buildProcessorBlock(castW: castW, cell: cell))
             })
             AnyView(buildEmitterToggles(castW: castW)).padding(.top, 8)       // MIDI-OUT emitter toggles (real)
@@ -4722,6 +4722,12 @@ extension DiagView {
             }.frame(height: h)
         }
     }
+    // NEW INTERFACE (Paul 2026-08-28): the real MIXER strips reused verbatim in the slideover mixer overlay — the full
+    // MIDI-IN receiver console (fader · ENABLE/CH · LATCH · OCT · S/M) and MIDI-OUT emitter console (fader · CH · RACK ·
+    // OCT · SOLO). Internal wrappers so RoomsPage can call the private controls.
+    @ViewBuilder func roomsMixerReceiver(_ i: Int) -> some View { buildReceiverControl(i) }
+    @ViewBuilder func roomsMixerEmitter(_ i: Int) -> some View { buildEmitterControl(i) }
+
     // The colour currently PLAYING the cell (the active rung in the playing column) → the emitter velocity-strip tint. (Paul 2026-08-19)
     private var buildPlayingColourHue: Color? {
         guard d.playing, d.effColumn >= 0, d.effColumn < buildStagingSel.count else { return nil }
