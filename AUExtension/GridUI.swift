@@ -1054,7 +1054,6 @@ struct ProcessorBox: View {
                 } else {
                     heroField("STEPS") { numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
                 }
-                field("ROTATE", \.euclidRot) { numPair(p.euclidRot ?? 0, 0...15, wrap: true) { v in setParam { $0.euclidRot = v } } }
                 optionsCluster([("INVERT", p.euclidInvert ?? false, { setParam { $0.euclidInvert = !($0.euclidInvert ?? false) } })])
                 pill("+ ADD LINE") { setParam {   // convert to LINES: line 1 = the current euclid, + a second line to author
                     let l1 = EuclidLine(target: 0, pulses: $0.euclidPulses ?? 5, steps: $0.euclidSteps ?? 8, rotate: $0.euclidRot ?? 0, invert: $0.euclidInvert ?? false)
@@ -1097,9 +1096,11 @@ struct ProcessorBox: View {
                     }
                 }
             }
-            field("GRID — the step rate (density lives here + K of N)", \.euclidRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.euclidRate ?? .r1_16).rawValue) { i in setParam { $0.euclidRate = ArpRate.allCases[i] } } }   // RATE×ladder (Paul 2026-08-27): the grain, decoupled from SPAN
-            spanLadderFreeField(p.euclidSpanN ?? 0) { v in setParam { $0.euclidSpanN = v } }   // SPAN re-anchor: FREE = phase forever · N = re-sync every N columns
             field("PICK — for ALL-target lines", \.euclidPick) { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
+            frameRow(grid:  { frameGrid(p.euclidRate ?? .r1_16) { r in setParam { $0.euclidRate = r } } },   // §1 ANATOMY FOOTER — GRID = the step rate (density)
+                     rotate: { if lines.isEmpty { frameRotate(p.euclidRot ?? 0, 0...15) { v in setParam { $0.euclidRot = v } } } },   // single euclid only (LINES rotate per-line)
+                     span:   { frameSpan(p.euclidSpanN ?? 0, free: true) { v in setParam { $0.euclidSpanN = v } } },
+                     pairs: .euclid)
         })
         case .burst: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)
             let bmode = p.burstMode ?? .once   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
@@ -1119,13 +1120,18 @@ struct ProcessorBox: View {
                         selected: { i in let s = p.burstSlices ?? defBurst; return i < s.count ? s[i] : .rest },
                         set: { i, st in setParam { var s2 = $0.burstSlices ?? defBurst; while s2.count < 8 { s2.append(.rest) }; s2[i] = st; $0.burstSlices = s2 } })
                 }
-                field("ROTATE", \.burstRotate) { numPair(p.burstRotate ?? 0, 0...7, wrap: true) { v in setParam { $0.burstRotate = v } } }
-                // RATE AXIS (Paul 2026-08-26): FIXED 8 = the span split into 8 slices; RATE = the 8-figure WALKS the span at a chosen rate (fine = dense, coarse = sparse).
+                // RATE AXIS (Paul 2026-08-26): FIXED 8 = the span split into 8 slices; RATE = the 8-figure WALKS the span at the footer GRID rate.
                 let rateOn = p.burstRateOn ?? false
                 field("SLICES  \(rateOn ? "AT RATE" : "FIXED 8")") { seg(["FIXED 8", "RATE"], sel: rateOn ? "RATE" : "FIXED 8") { i in setParam { $0.burstRateOn = (i == 1) } } }
-                if rateOn { field("RATE") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.burstRate ?? .r1_8).rawValue) { i in setParam { $0.burstRate = ArpRate.allCases[i] } } } }
             }
-            spanLadderField(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.burstSpanN = v } }
+            if bmode == .pattern {   // §1 ANATOMY FOOTER — GRID = the walk rate (active when SLICES = RATE)
+                frameRow(grid:  { frameGrid(p.burstRate ?? .r1_8) { r in setParam { $0.burstRate = r } } },
+                         rotate: { frameRotate(p.burstRotate ?? 0, 0...7) { v in setParam { $0.burstRotate = v } } },
+                         span:   { frameSpan(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1), free: false) { v in setParam { $0.burstSpanN = v } } },
+                         pairs: .burst)
+            } else {
+                spanLadderField(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.burstSpanN = v } }   // ONCE/COIN keep the inline SPAN
+            }
         })
         case .cascade: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {  // GENERATOR — incremental chord reveal
             heroField("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
@@ -1447,9 +1453,11 @@ struct ProcessorBox: View {
             riffToggleLane("SLIDE  ↝", steps: steps, on: { $0 < slA.count && slA[$0] }, accent: accent, glyph: "↝") { s in setParam { var a = $0.riffSlide ?? []; while a.count < steps { a.append(false) }; a[s].toggle(); $0.riffSlide = a } }
             row2({ field("STEPS", \.riffSteps) { numPair(steps, 1...32) { v in setParam { $0.riffSteps = v } } } },
                  { field("VOICING", \.riffPoly) { seg(["MONO", "POLY"], sel: poly ? "POLY" : "MONO") { i in setParam { $0.riffPoly = (i == 1) } } } })
-            row2({ field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } },
-                 { field("RATE", \.riffRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.riffRate ?? .r1_16).rawValue) { i in setParam { $0.riffRate = ArpRate.allCases[i] } } } })
-            spanLadderFreeField(p.riffSpanN ?? 0) { v in setParam { $0.riffSpanN = v } }   // SPAN re-anchor (Paul 2026-08-27): FREE = phase forever · N = re-sync every N columns
+            field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } }
+            frameRow(grid:  { frameGrid(p.riffRate ?? .r1_16) { r in setParam { $0.riffRate = r } } },   // §1 ANATOMY FOOTER (riff has no ROTATE)
+                     rotate: { EmptyView() },
+                     span:   { frameSpan(p.riffSpanN ?? 0, free: true) { v in setParam { $0.riffSpanN = v } } },
+                     pairs: .riff)
         })
         case .tap: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // ROUTING (AcceptanceCriteria-tap-processor) — the mid-chain send: LEVEL · TO · MUTE
             let lv = p.tapLevel ?? 1.0
@@ -1836,6 +1844,9 @@ struct ProcessorBox: View {
         switch ft {
         case .ratchet: return "→ LENGTH · ← SPLIT"     // catalog §3: downstream LENGTH chokes/rings the rolls; upstream SPLIT rolls a register
         case .tutti:   return "→ ARP · ← HARMONIZE"     // catalog §2: downstream ARP comps the voicings; upstream HARMONIZE enriches the set
+        case .euclid:  return "→ LENGTH · ← SPLIT"     // catalog §3: LENGTH gates the pulses; SPLIT euclids a register (kick-and-hat)
+        case .burst:   return "→ LENGTH · ← SPLIT"     // catalog §3: LENGTH shapes the roll's ring; SPLIT rolls a register
+        case .riff:    return "→ GLIDE · ← SPLIT"      // riff's SLIDE lane feeds a glide synth; SPLIT riffs a register (not in catalog — my call)
         default: return nil
         }
     }
