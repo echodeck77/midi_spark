@@ -1393,6 +1393,13 @@ extension DiagView {
     @ViewBuilder func roomsSelectGridCell(_ i: Int) -> some View {
         GeometryReader { cg in buildGridSelCell(i, w: cg.size.width, h: cg.size.height) }
     }
+    // A SELECT-grid SIDE BUTTON (the row-select column) = a PART slot that holds a chain. Reuses the grid selector's row
+    // chip VERBATIM: TAP = play/load that part; LONG-PRESS = stamp the currently-selected cell onto it (the rising white
+    // fill → white-fade CONFIRM revealing the part's pre-allocated colour colourHexes[n]); the stamp populates the shared
+    // part row, so the PART grid's side button + row light up too (one model, two rooms — §4). (Paul 2026-08-28)
+    @ViewBuilder func roomsSideButton(_ n: Int) -> some View {
+        GeometryReader { g in buildGridSelRowChip(n, height: g.size.height) }
+    }
 
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
     @ViewBuilder private func buildGridVerbButtons() -> some View {

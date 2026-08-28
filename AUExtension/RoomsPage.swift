@@ -121,7 +121,10 @@ extension DiagView {
         } else if r == selRow {
             colSelCell(selCol == 0 ? c - 1 : c)
         } else if c == selCol {
-            rowSelCell()
+            // THE SIDE BUTTONS = part slots that hold chains (tap = play, long-press = assign the selected cell). Reuse
+            // the grid selector's row chip on SELECT; placeholder elsewhere (§4 shared exclusive column). (Paul 2026-08-28)
+            if libraryGrid { roomsSideButton(r > selRow ? r - 1 : r).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { rowSelCell() }
         } else if libraryGrid {
             // THE SELECT GRID = the LIBRARY-backed chain browser — each interior cell is a real chain face (§6 reuse).
             let gridRow = r > selRow ? r - 1 : r
