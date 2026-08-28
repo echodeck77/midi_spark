@@ -1119,7 +1119,7 @@ struct DiagView: View {
     // Palette tap selects the desk brush (delta item 8 retired the ALT-targeting pairing gesture — a second
     // processor is now made on the B panel, not by pairing to another Colour).
 
-    // §2 THE ARRANGEMENT BAR (extracted → ArrangementBar.swift). The VC keeps the poll + the grid's scene/
+        // §2 THE ARRANGEMENT BAR (extracted → ArrangementBar.swift). The VC keeps the poll + the grid's scene/
     // colours: it feeds the bar the polled sceneEmpty/activeSceneIdx and refreshes on `onSceneOpDone`.
     var arrangementBar: some View {
         ArrangementBar(au: au, d: d, stepBeats: stepBeats,

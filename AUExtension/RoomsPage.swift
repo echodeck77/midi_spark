@@ -1,5 +1,26 @@
 import SwiftUI
 
+// THE ROOM LATTICE (design ferry INSTRUCTIONS-layout-lattice, 2026-08-29) — the ONE source of truth for the grid's
+// vertical bands, computed once per room from the shared column height and threaded to the grid, the seam, and the
+// left panel so all three rhyme (kills the duplicated gap/nf/pad/(9+nf) literals). Height-derived only; each view
+// still computes its own cell WIDTH. gap 3 · pad 3 · nf 0.5 (the ▲PLAY door bar = 50% of a cell). Rows top→bottom:
+// ▲PLAY door (navH) · header row (ch) · 8 interior rows (ch each).
+struct RoomsMetrics {
+    static let gap: CGFloat = 3
+    static let pad: CGFloat = 3
+    let ch: CGFloat            // one grid row height
+    let navH: CGFloat          // the ▲PLAY door-bar band height (= ch·0.5)
+    let interiorTop: CGFloat   // y where the 8 interior rows begin (below the ▲PLAY door + header row)
+    let interiorH: CGFloat     // total height of the 8 interior rows
+    init(height: CGFloat) {
+        let g = RoomsMetrics.gap, p = RoomsMetrics.pad, nf: CGFloat = 0.5
+        let c = max(6, (height - 2 * p - 9 * g) / (9 + nf))
+        ch = c; navH = c * nf
+        interiorTop = p + c * nf + g + c + g
+        interiorH = c * 8 + g * 7
+    }
+}
+
 // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — the NEW room-based shell (default; cog → DISPLAY → NEW UI
 // toggles old BUILD). Framing per Paul 2026-08-28:
 //   • GRID + edge buttons = ONE uniform 9×9 component (every cell the same size, filling the box). Column-select TOP on
@@ -222,11 +243,9 @@ extension DiagView {
     }
     // THE MIDI CHAIN panel — the REAL machine strip (play button · receiver toggles · chain + side buttons · emitter
     // toggles) reused verbatim from the old BUILD left column via buildPage's internal roomsMachineStrip. (Paul 2026-08-28)
-    @ViewBuilder private func chainPanel(_ room: Room) -> some View {
+    @ViewBuilder private func chainPanel(_ room: Room, _ m: RoomsMetrics) -> some View {
         GeometryReader { g in
-            ScrollView(.vertical, showsIndicators: false) {
-                roomsMachineStrip(width: g.size.width, room: room).frame(minHeight: g.size.height, alignment: .top)   // FILL the column so the box occupies the space + lines up with the grid
-            }
+            roomsMachineStrip(width: g.size.width, room: room, m: m)        // metric-driven bands → exact height, no scroll needed (lines up with the grid)
         }
     }
 
@@ -237,10 +256,11 @@ extension DiagView {
             let gridW = avail * 2 / 3
             let seamW = roomsGridCellW(gridW, cols: 9) * 0.5              // 50% of a grid cell — matches the old in-grid seam
             let chainW = avail - gridW - seamW
+            let m = RoomsMetrics(height: g.size.height - 16)              // the ONE lattice for this room (HStack content height = page − padding 8·2)
             HStack(spacing: 6) {
-                roomsSelectGridUnit().frame(width: gridW)                  // the GRID + its edge selectors (2/3, left)
-                chainPanel(.select).frame(width: chainW)                   // the MACHINE box (play + toggles + chain + record), a grid element parallel to the grid (1/3, middle)
-                roomsSeamColumn(to: .part, chevron: "▸").frame(width: seamW)   // the SEAM → PART, FAR RIGHT (opposite the chain)
+                roomsSelectGridUnit(m: m).frame(width: gridW)             // the GRID + its edge selectors (2/3, left)
+                chainPanel(.select, m).frame(width: chainW)               // the MACHINE box — its bands rhyme with the grid (1/3, middle)
+                roomsSeamColumn(to: .part, chevron: "▸", m: m).frame(width: seamW)   // the SEAM → PART, FAR RIGHT (opposite the chain)
             }.padding(8)
         }
         .onAppear { roomsSelectSetup() }                                  // open the library-backed grid selector on SELECT (idempotent)
@@ -251,10 +271,11 @@ extension DiagView {
             let gridW = avail * 2 / 3
             let seamW = roomsGridCellW(gridW, cols: 10) * 0.5
             let chainW = avail - gridW - seamW
+            let m = RoomsMetrics(height: g.size.height - 16)              // the ONE lattice for this room
             HStack(spacing: 6) {
-                roomsSeamColumn(to: .select, chevron: "◂").frame(width: seamW)   // the SEAM → SELECT, FAR LEFT (opposite the chain)
-                chainPanel(.part).frame(width: chainW)                     // the MACHINE box (play + toggles + chain + record), a grid element parallel to the grid (1/3, middle)
-                roomsPartGrid().frame(width: gridW)                        // the GRID + its edge selectors (2/3, right)
+                roomsSeamColumn(to: .select, chevron: "◂", m: m).frame(width: seamW)   // the SEAM → SELECT, FAR LEFT (opposite the chain)
+                chainPanel(.part, m).frame(width: chainW)                  // the MACHINE box — its bands rhyme with the grid (1/3, middle)
+                roomsPartGrid(m: m).frame(width: gridW)                    // the GRID + its edge selectors (2/3, right)
             }.padding(8)
         }
         .onAppear { roomsPartSetup() }                                    // source the MIDI from the part grid + refresh the side-button faces

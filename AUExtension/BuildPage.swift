@@ -1354,25 +1354,32 @@ extension DiagView {
     // its side-button stack · MIDI-OUT emitter toggles — reusing the private left-column helpers VERBATIM (no
     // recreation). Only THIS assembler is internal so RoomsPage.swift can call it; the pieces stay private to this
     // file. Functionality (which colour/row it edits) may be un-wired in the new shell — that's wired in later. (Paul 2026-08-28)
-    @ViewBuilder func roomsMachineStrip(width: CGFloat, room: Room) -> some View {
-        let castW = max(160, width - 20)                                     // the box's inner content width (outer .padding(10) = 20)
-        let gap = BuildGeom.castGap
-        let swW = (castW - gap * 7) / 8                                       // the chain boxes sit on the same 8-column grain as the cast
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))        // square-ish 2×2 boxes derived from the panel width
-        VStack(spacing: 8) {                                                  // the MACHINE box — a GRID ELEMENT that FILLS the column height + runs PARALLEL to the grid box + seam (Paul 2026-08-29)
-            AnyView(roomsPlayHeader(room))                                    // the PLAY button lives INSIDE the box at the top (like the grid's ▲PLAY sliver) so the box tops line up
-            AnyView(buildReceiverSelector(castW: castW))                      // MIDI-IN receiver toggles (real)
-            AnyView(HStack(alignment: .top, spacing: gap) {                  // side buttons (LEFT) + the MIDI chain (RIGHT)
-                AnyView(buildChainButtonStack(width: (castW / 2 - gap / 2) * 0.75,
-                                              height: 4 * (cell * 2 + gap) + 3 * gap, showGrid: false))
-                AnyView(buildProcessorBlock(castW: castW, cell: cell))
-            })
-            Spacer(minLength: 8)                                             // push the emitter toggles + RECORD DOWN to occupy the space below
-            AnyView(buildEmitterToggles(castW: castW))                        // MIDI-OUT emitter toggles (real)
-            AnyView(roomsRecorderRow(castW: castW)).padding(.top, 8)          // RECORD — below the emitter toggles (Paul 2026-08-28)
+    // THE LEFT PANEL — mapped onto the grid's LATTICE (design ferry INSTRUCTIONS-layout-lattice, 2026-08-29). The panel
+    // mirrors the grid's band structure EXACTLY — VStack(spacing: gap){ PLAY(navH) · RECORD(ch) · interior(interiorH) }
+    // .padding(pad) — so BAND 1 (PLAY) rhymes with the ▲PLAY door, BAND 2 (RECORD) rhymes with the header row, and the
+    // interior column runs from the grid's interiorTop to its bottom (receiver pinned TOP · chain · Spacer · emitter
+    // pinned BOTTOM). The reused I/O widgets keep their fixed heights — the lattice insets do the aligning (option a).
+    @ViewBuilder func roomsMachineStrip(width: CGFloat, room: Room, m: RoomsMetrics) -> some View {
+        let pad = RoomsMetrics.pad, gap = RoomsMetrics.gap
+        let castW = max(160, width - 2 * pad)                                // content width inside the box's pad
+        let cgap = BuildGeom.castGap                                         // the chain block keeps its own 8-column grain (4)
+        let swW = (castW - cgap * 7) / 8
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))
+        VStack(spacing: gap) {
+            AnyView(roomsPlayHeader(room)).frame(height: m.navH)             // BAND 1 — PLAY, parallel with the ▲PLAY door
+            AnyView(roomsRecorderRow(castW: castW, h: m.ch))                 // BAND 2 — RECORD, parallel with the header row (moved up per Paul's stacking, ferry §2)
+            VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
+                AnyView(buildReceiverSelector(castW: castW))                 // MIDI IN A–D — pinned at the interior TOP
+                AnyView(HStack(alignment: .top, spacing: cgap) {           // verbs + the 2×4 MIDI chain
+                    AnyView(buildChainButtonStack(width: (castW / 2 - cgap / 2) * 0.75, height: 4 * (cell * 2 + cgap) + 3 * cgap, showGrid: false))
+                    AnyView(buildProcessorBlock(castW: castW, cell: cell))
+                })
+                Spacer(minLength: 8)
+                AnyView(buildEmitterToggles(castW: castW))                   // MIDI OUT A–D — pinned at the interior BOTTOM (the grid's last row line)
+            }.frame(height: m.interiorH)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // FILL the height so the box occupies the space + aligns with the grid
+        .padding(pad)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))   // matches the grid box + seam styling
     }
@@ -1387,7 +1394,7 @@ extension DiagView {
     }
     // THE RECORDER ROW — the reel/RECORD button below the emitter toggles (Paul 2026-08-28). Reuses buildReelButton (the
     // breathing tape glyph → opens the pass browser).
-    @ViewBuilder private func roomsRecorderRow(castW: CGFloat) -> some View {
+    @ViewBuilder private func roomsRecorderRow(castW: CGFloat, h: CGFloat = 34) -> some View {
         HStack(spacing: 8) {
             Spacer()
             buildReelButton()
@@ -1395,7 +1402,7 @@ extension DiagView {
                 .contentShape(Rectangle()).onTapGesture { reelShowPopup = true }
             Spacer()
         }
-        .frame(width: castW, height: 34)
+        .frame(width: castW, height: h)                                     // fills the RECORD band (the grid's header-row height ch → ≥44pt target)
         .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
     }
@@ -1462,15 +1469,10 @@ extension DiagView {
     // chain): a PARTIALLY-INVISIBLE single-column control that takes the grid's height into account so the visible seam
     // aligns EXACTLY with the grid's interior rows (same ch + offset as the grid: below the ▲PLAY sliver + track row).
     // The column width is set by the caller (50% of a grid cell) so it looks identical to the old in-grid seam.
-    @ViewBuilder func roomsSeamColumn(to room: Room, chevron: String) -> some View {
-        GeometryReader { g in
-            let gap: CGFloat = 3, nf: CGFloat = 0.5, pad: CGFloat = 3
-            let ch = max(6, (g.size.height - 2 * pad - 9 * gap) / (9 + nf))   // SAME formula as the grid → identical row height
-            let navH = ch * nf
-            let interiorTop = pad + navH + gap + ch + gap                    // below the ▲PLAY sliver + the track/col-select row
-            let interiorH = ch * 8 + gap * 7
-            roomsSeamSliver(to: room, chevron: chevron, width: g.size.width, height: interiorH)
-                .offset(y: interiorTop)                                      // the rest of the column is empty → partially invisible
+    @ViewBuilder func roomsSeamColumn(to room: Room, chevron: String, m: RoomsMetrics) -> some View {
+        GeometryReader { g in                                               // the shared lattice (m) places the seam over the grid's interior rows
+            roomsSeamSliver(to: room, chevron: chevron, width: g.size.width, height: m.interiorH)
+                .offset(y: m.interiorTop)                                    // the rest of the column is empty → partially invisible
         }
     }
     // A SELECT track-head (top-row selector) — tap toggles the track (play/stop grammar); shows the slot's hue if occupied.
@@ -1483,14 +1485,13 @@ extension DiagView {
     }
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
     // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)
-    @ViewBuilder func roomsSelectGridUnit() -> some View {
+    @ViewBuilder func roomsSelectGridUnit(m: RoomsMetrics) -> some View {
         GeometryReader { g in
-            let gap: CGFloat = 3, nf: CGFloat = 0.5, pad: CGFloat = 3          // ▲PLAY sliver = 50% of a cell
-            let cw = max(6, (g.size.width  - 2 * pad - 8 * gap) / 9)           // 9 cols (8 interior + side button) → FILLS the width
-            let ch = max(6, (g.size.height - 2 * pad - 9 * gap) / (9 + nf))    // playNav(50% ch) + track + 8 interior → FILLS the height
-            let navH = ch * nf
+            let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad                 // heights from the shared lattice (m); width per-view
+            let cw = max(6, (g.size.width - 2 * pad - 8 * gap) / 9)            // 9 cols (8 interior + side button) → FILLS the width
+            let ch = m.ch, navH = m.navH
             let interiorW = cw * 8 + gap * 7
-            let interiorH = ch * 8 + gap * 7
+            let interiorH = m.interiorH
             VStack(alignment: .leading, spacing: gap) {
                 roomsPlayNavSliver(width: interiorW, height: navH)          // ▲PLAY directly above the track row, over cols 1–8
                 VStack(spacing: gap) {
@@ -1586,14 +1587,13 @@ extension DiagView {
     // a LEFT seam sliver (◂ → SELECT, beside the left side buttons) · LEFT row-slots (the selection) · an 8×8 interior
     // (one rung/col + playhead) · a RIGHT row-selector rail · a top track-head row · a ▲PLAY sliver above it (over the
     // interior cols). NO loop keys, no padding between the nav slivers and the grid.
-    @ViewBuilder func roomsPartGrid() -> some View {
+    @ViewBuilder func roomsPartGrid(m: RoomsMetrics) -> some View {
         GeometryReader { g in
-            let gap: CGFloat = 3, nf: CGFloat = 0.5, pad: CGFloat = 3         // ▲PLAY sliver = 50% of a cell
-            let cw = max(6, (g.size.width  - 2 * pad - 9 * gap) / 10)         // 10 cols (leftRail + 8 interior + rightRail) → FILLS the width (seam moved out)
-            let ch = max(6, (g.size.height - 2 * pad - 9 * gap) / (9 + nf))   // playNav(50% ch) + trackHead + 8 interior → FILLS the height
-            let navH = ch * nf
+            let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad               // heights come from the shared lattice (m); width stays per-view
+            let cw = max(6, (g.size.width - 2 * pad - 9 * gap) / 10)          // 10 cols (leftRail + 8 interior + rightRail) → FILLS the width (seam moved out)
+            let ch = m.ch, navH = m.navH
             let interiorW = cw * 8 + gap * 7
-            let interiorH = ch * 8 + gap * 7
+            let interiorH = m.interiorH
             let leftInset = cw + gap                                        // leftRail → the interior's left edge
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
