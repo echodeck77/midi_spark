@@ -25,13 +25,8 @@ extension DiagView {
 
     private var roomsAccent: Color { Color(red: 0.19, green: 0.83, blue: 0.91) }
 
-    // RECORD — cornered in every room; its corner IS the reel's entrance (§4b). Tap → the REEL room.
-    private func recordDoor() -> some View {
-        Button { roomsRoom = .reel } label: {
-            Circle().fill(Color.red.opacity(0.85)).frame(width: 42, height: 42)
-                .overlay(Text("REC").font(.system(size: 8, weight: .black, design: .monospaced)).foregroundColor(.white))
-        }.buttonStyle(.plain)
-    }
+    // RECORD (the reel's entrance, §4b) is LEFT OUT for now (Paul 2026-08-28) until the headers/footers/panels are right.
+    // Consequence: the REEL room is temporarily unreachable — that's fine, it's a placeholder; RECORD returns with the footer.
     // §1 the thin TOP door sweeping UP to the PLAY grid (on SELECT and PART).
     private func topDoorToPlay() -> some View {
         Button { roomsRoom = .play } label: {
@@ -76,7 +71,7 @@ extension DiagView {
                 .frame(maxHeight: .infinity)
                 .onAppear { buildEnsureGridSelOpen() }
                 .onDisappear { buildCloseGridSel() }
-            HStack { recordDoor(); Spacer(); sideDoor("PART ▸", to: .part) }.padding(.horizontal, 12).padding(.bottom, 12)
+            HStack { Spacer(); sideDoor("PART ▸", to: .part) }.padding(.horizontal, 12).padding(.bottom, 12)
         }.frame(width: size.width, height: size.height, alignment: .top)
     }
 
@@ -85,7 +80,7 @@ extension DiagView {
         VStack(spacing: 6) {
             topDoorToPlay().padding(.horizontal, 12).padding(.top, 8)
             roomPlaceholder("PART", "the workshop — build a part  ·  housed next")
-            HStack { recordDoor(); Spacer(); sideDoor("◂ SELECT", to: .select) }.padding(.horizontal, 12).padding(.bottom, 12)
+            HStack { sideDoor("◂ SELECT", to: .select); Spacer() }.padding(.horizontal, 12).padding(.bottom, 12)
         }.frame(width: size.width, height: size.height, alignment: .top)
     }
 
@@ -94,7 +89,6 @@ extension DiagView {
     @ViewBuilder private func roomsPlay(_ size: CGSize) -> some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
-                recordDoor()   // §4b: re-cornered TOP-LEFT on the stage to clear the bottom band
                 ForEach(0..<8, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06)).frame(height: 34)
                         .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.10)))   // §2 track-head placeholder
@@ -118,7 +112,7 @@ extension DiagView {
     @ViewBuilder private func roomsReel(_ size: CGSize) -> some View {
         VStack(spacing: 6) {
             roomPlaceholder("REEL", "the tape — recorded passes  ·  housed next").padding(.top, 8)
-            HStack { recordDoor(); Spacer(); sideDoor("◂ PLAY", to: .play) }.padding(.horizontal, 12).padding(.bottom, 12)
+            HStack { sideDoor("◂ PLAY", to: .play); Spacer() }.padding(.horizontal, 12).padding(.bottom, 12)
         }.frame(width: size.width, height: size.height, alignment: .top)
     }
 }
