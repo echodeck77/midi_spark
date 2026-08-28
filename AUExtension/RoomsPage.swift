@@ -34,27 +34,64 @@ extension DiagView {
         }
     }
 
-    // ── THE FOOTER — placeholder MIDI strips (4 IN + 4 OUT). TAP → the strip-controls overlay. ──
+    // ── THE FOOTER — the 4 IN (receiver) + 4 OUT (emitter) MIDI strips, reflecting the REAL settings (channel · latch
+    // mode) with a live activity indicator that flashes by velocity + density. TAP → the strip-controls overlay. ──
     @ViewBuilder func roomsFooter() -> some View {
         HStack(spacing: 6) {
-            ForEach(0..<4, id: \.self) { i in footerStrip("IN \(roomsABCD[i])", latch: true) }
+            ForEach(0..<4, id: \.self) { i in footerStrip(i, isIn: true) }
             Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1, height: 30).padding(.horizontal, 2)
-            ForEach(0..<4, id: \.self) { i in footerStrip("OUT \(roomsABCD[i])", latch: false) }
+            ForEach(0..<4, id: \.self) { i in footerStrip(i, isIn: false) }
             Spacer(minLength: 0)
             Image(systemName: "chevron.up").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.4))   // tap to expand
         }.padding(.horizontal, 10).padding(.vertical, 7).frame(maxWidth: .infinity).background(Color.white.opacity(0.05))
         .contentShape(Rectangle()).onTapGesture { roomsMixerOpen = true }
     }
-    private func footerStrip(_ label: String, latch: Bool) -> some View {
-        HStack(spacing: 5) {
-            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
-            Text("CH1").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(roomsAccent)
-            Circle().fill(Color.green.opacity(0.55)).frame(width: 7, height: 7)
-            if latch {
-                Text("LATCH").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                    .padding(.horizontal, 4).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.10)))
+    private func footerStrip(_ i: Int, isIn: Bool) -> some View {
+        let door = (isIn && i < receivers.count) ? receivers[i].doorModeResolved : .thru
+        let latched = isIn && door != .thru                                   // some capture/latch mode is set on this door
+        return HStack(spacing: 5) {
+            Text((isIn ? "IN " : "OUT ") + roomsABCD[i]).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
+            Text(footerChannel(i, isIn: isIn)).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(roomsAccent)
+            roomsMidiIndicator(i, isIn: isIn)                                 // flashes by velocity + density (real feed)
+            if isIn {
+                Text(door == .thru ? "LATCH" : door.rawValue.uppercased()).font(.system(size: 7, weight: .heavy, design: .monospaced))
+                    .foregroundColor(latched ? .black : .white.opacity(0.5))
+                    .padding(.horizontal, 4).padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(latched ? roomsAccent.opacity(0.8) : Color.white.opacity(0.10)))
             }
         }.padding(.horizontal, 8).frame(height: 34).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)))
+    }
+    // The real channel label — IN: the receiver's channel mask (OMNI / CH n / CH ×k / OFF); OUT: the emitter's stamp channel.
+    private func footerChannel(_ i: Int, isIn: Bool) -> String {
+        if isIn {
+            guard i < receivers.count else { return "OMNI" }
+            let mask = receivers[i].channelMaskResolved
+            if mask == 0xFFFF { return "OMNI" }
+            if mask == 0 { return "OFF" }
+            let n = (0..<16).filter { mask & (UInt16(1) << UInt16($0)) != 0 }
+            return n.count == 1 ? "CH\(n[0] + 1)" : "CH×\(n.count)"
+        } else {
+            let chans = au?.uiBusChannels() ?? []
+            return "CH\(i < chans.count ? chans[i] : i + 1)"
+        }
+    }
+    // THE MIDI ACTIVITY INDICATOR — flashes by VELOCITY (bright = high vel, dim = low) AND DENSITY (more held notes =
+    // brighter). IN reads recvHeld[i] (held velocities → count = density) + meters.receiverPeak (attack flash); OUT reads
+    // meters.emitPeak (velocity only — no per-emitter held count). (Paul 2026-08-28)
+    private func roomsMidiIndicator(_ i: Int, isIn: Bool) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+            let held: Double = isIn && i < recvHeld.count ? (recvHeld[i].max() ?? 0) : 0
+            let count = isIn && i < recvHeld.count ? recvHeld[i].count : 0
+            let peak = isIn ? (i < meters.receiverPeak.count ? meters.receiverPeak[i] : 0) : (i < meters.emitPeak.count ? meters.emitPeak[i] : 0)
+            let peakAt = isIn ? (i < meters.receiverPeakAt.count ? meters.receiverPeakAt[i] : .distantPast) : (i < meters.emitPeakAt.count ? meters.emitPeakAt[i] : .distantPast)
+            let flash = peak * max(0, 1 - tl.date.timeIntervalSince(peakAt) / 0.3)   // brief attack flash on note-on
+            let vel = max(0, min(1, max(held, flash)))                               // velocity 0…1
+            let dens = min(1.0, Double(count) / 6.0)                                 // density 0…1 (IN only)
+            let bright = min(1.0, vel * (0.65 + 0.5 * dens))                         // brightness ∝ velocity AND density
+            Circle().fill(Color.green.opacity(0.12 + 0.88 * bright))
+                .frame(width: 8, height: 8)
+                .shadow(color: Color.green.opacity(bright * 0.9), radius: 4 * bright)   // a glow that grows with the flash
+        }
     }
 
     // ── THE STRIP-CONTROLS OVERLAY (§1 footer → MIXER). Pops over the grid; tap the dimmed backdrop → recede. ──
