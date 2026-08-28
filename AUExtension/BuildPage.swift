@@ -5320,6 +5320,10 @@ extension DiagView {
         buildGridSelComputeRowRolls()                                    // the row selectors' drifting faces
         buildGridSelOpen = true
     }
+    // INTERFACE REDESIGN (§6): close the grid selector — stop the audition voice + restore — when leaving the SELECT room.
+    func buildCloseGridSel() { if buildGridSelOpen { buildGridSelTeardown(select: buildGridSelPriorSel, restoreSolo: true) } }
+    // Open it for the SELECT room only if it isn't already live (roomsPage drives this on room entry).
+    func buildEnsureGridSelOpen() { if !buildGridSelOpen { buildOpenGridSel() } }
     // DEALT — 64 seeded, replay-safe chains (8 archetypes × 8 re-rolls). rollEnsemble runs the offline Router many times,
     // so generate OFF the main thread with a spinner (64 = 8× the grid-RANDOMIZE cost, too much to block on).
     private func buildGridSelDeal() {
@@ -5497,16 +5501,23 @@ extension DiagView {
         buildGCColours()
     }
 
+    // INTERFACE REDESIGN (§6 reuse): the grid selector = a full-screen modal overlay (its backdrop + the inner body). The
+    // BODY alone (backdrop-free) re-houses as the SELECT room in the new shell, with the room's doors around it.
     private func buildGridSelectorOverlay(size: CGSize) -> some View {
+        ZStack {
+            Color(red: 0.055, green: 0.065, blue: 0.085).ignoresSafeArea()
+            buildGridSelectorBody(size: size)
+        }
+        .onDisappear { }   // teardown is explicit (COMMIT/CANCEL) so a stray dismiss can't strand the transient voice
+    }
+    @ViewBuilder func buildGridSelectorBody(size: CGSize) -> some View {
         let outerPad: CGFloat = 16, headerH: CGFloat = 46, gap: CGFloat = 3
         let bodyH = max(80, size.height - 2 * outerPad - headerH - 14)
         let rightW = min(300, size.width * 0.30)
         let gridAvail = size.width - 2 * outerPad - rightW - 32 - 44   // reserve the row-selector strip (~44) + two HStack gaps
         let side = max(80, min(gridAvail, bodyH))
         let cell = (side - 7 * gap) / 8
-        return ZStack {
-            Color(red: 0.055, green: 0.065, blue: 0.085).ignoresSafeArea()
-            VStack(spacing: 12) {
+        VStack(spacing: 12) {
                 HStack(spacing: 10) {
                     Text("GRID SELECTOR").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
                     buildGridSelTabChip("DEALT", 0)
@@ -5550,8 +5561,6 @@ extension DiagView {
                     Spacer(minLength: 0)
                 }
             }.padding(outerPad)
-        }
-        .onDisappear { }   // teardown is explicit (COMMIT/CANCEL) so a stray dismiss can't strand the transient voice
     }
     @ViewBuilder private func buildGridSelTabChip(_ label: String, _ tab: Int) -> some View {
         let on = buildGridSelTab == tab
