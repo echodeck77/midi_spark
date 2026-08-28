@@ -1359,25 +1359,42 @@ extension DiagView {
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                                       // the chain boxes sit on the same 8-column grain as the cast
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))        // square-ish 2×2 boxes derived from the panel width
-        // ROOM-AWARE PLAY: SELECT plays the CHAIN audition, PART plays the PART (mutually exclusive voices). (Paul 2026-08-28)
+        VStack(spacing: 8) {                                                  // the outlined MACHINE box (the PLAY button moved up to the section header)
+            AnyView(buildReceiverSelector(castW: castW))                      // MIDI-IN receiver toggles (real)
+            AnyView(HStack(alignment: .top, spacing: gap) {                  // side buttons (LEFT) + the MIDI chain (RIGHT)
+                AnyView(buildChainButtonStack(width: (castW / 2 - gap / 2) * 0.75,
+                                              height: 4 * (cell * 2 + gap) + 3 * gap))
+                AnyView(buildProcessorBlock(castW: castW, cell: cell))
+            })
+            AnyView(buildEmitterToggles(castW: castW)).padding(.top, 8)       // MIDI-OUT emitter toggles (real)
+            AnyView(roomsRecorderRow(castW: castW)).padding(.top, 8)          // RECORD — below the emitter toggles (Paul 2026-08-28)
+        }
+        .padding(10)
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildEdge, lineWidth: 1))
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+    // THE PLAY SECTION HEADER — the room-aware play/stop button, styled as a section header (equal height to the ▲PLAY
+    // nav door). SELECT plays the CHAIN audition, PART plays the PART (mutually exclusive voices). (Paul 2026-08-28)
+    @ViewBuilder func roomsPlayHeader(_ room: Room) -> some View {
         let partRoom = room == .part
         let voice: BuildWorkshopVoice = partRoom ? .part : .chain
-        VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton(partRoom ? "PLAY THIS PART" : "PLAY THIS MIDI CHAIN", active: buildDisplayVoice == voice, fill: .grid,
-                                      action: { buildRequestWorkshopVoice(buildDisplayVoice == voice ? .none : voice) }))
-            AnyView(VStack(spacing: 8) {
-                AnyView(buildReceiverSelector(castW: castW))                  // MIDI-IN receiver toggles (real)
-                AnyView(HStack(alignment: .top, spacing: gap) {              // side buttons (LEFT) + the MIDI chain (RIGHT) — the old left-column layout
-                    AnyView(buildChainButtonStack(width: (castW / 2 - gap / 2) * 0.75,
-                                                  height: 4 * (cell * 2 + gap) + 3 * gap))
-                    AnyView(buildProcessorBlock(castW: castW, cell: cell))
-                })
-                AnyView(buildEmitterToggles(castW: castW)).padding(.top, 8)   // MIDI-OUT emitter toggles (real)
-            }
-            .padding(10)
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildEdge, lineWidth: 1)))
+        buildColumnButton(partRoom ? "PLAY THIS PART" : "PLAY THIS MIDI CHAIN", active: buildDisplayVoice == voice, fill: .grid,
+                          action: { buildRequestWorkshopVoice(buildDisplayVoice == voice ? .none : voice) })
+            .frame(height: 40)
+    }
+    // THE RECORDER ROW — the reel/RECORD button below the emitter toggles (Paul 2026-08-28). Reuses buildReelButton (the
+    // breathing tape glyph → opens the pass browser).
+    @ViewBuilder private func roomsRecorderRow(castW: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            Spacer()
+            buildReelButton()
+            Text("RECORD").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                .contentShape(Rectangle()).onTapGesture { reelShowPopup = true }
+            Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(width: castW, height: 34)
+        .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
     }
 
     // ── NEW INTERFACE (rooms) reuse — THE SELECT GRID = the LIBRARY-backed chain browser. Populate the SELECT room's
