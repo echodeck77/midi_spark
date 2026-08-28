@@ -121,7 +121,7 @@ enum CellLibraryStore {
         }
         // A curated set of MUSICAL CHAINS (each is a colour's machine you STAMP onto the selected colour, then wire
         // your own I/O). Rebuilt for the current 19-processor model (2026-08-17). Ordered light → dense.
-        return [
+        var list: [(name: String, cell: Cell)] = [
             // — melodic / arpeggiated —
             ("Shimmer",    cell("gold",    [slot(.harmonize) { $0.harmIntervals = [7, 12, 19] },        // add 5th + octave + 12th
                                             slot(.arp) { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 2 }])),
@@ -206,5 +206,16 @@ enum CellLibraryStore {
             ("Rhythm Voice", cell("mint",      [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.low, .all, .high, .all, .low, .all, .high, .all] },
                                                 slot(.length) { $0.lenSlices = [.short, .short, .pass, .short, .short, .short, .pass, .short]; $0.lenShort = 0.4 }], 4)),
         ]
+        // — THE 200 FACTORY CHAINS (design commission REQUEST-200-chains, 2026-08-28) — generated DETERMINISTICALLY by
+        //   Dice.factorySet (seeded · audible/density-gated · fingerprint-deduped · categorized by musical intent). The
+        //   register home is baked as a leading TRANSPOSE utility; colours cycle the canonical palette. Names are the
+        //   plain-recipe register; Paul auditions + renames + prunes keepers via the pick grid. —
+        let palette = ["gold", "cyan", "vermilion", "teal", "magenta", "indigo", "violet", "chartreuse", "orange", "wine", "blush", "purple", "mint", "azure", "green", "slate"]
+        for (i, fc) in Dice.factorySet.enumerated() {
+            var ch = fc.chain
+            if fc.transpose != 0 { var tr = ProcessorSlot(type: .transpose); tr.params.utilTranspose = fc.transpose; ch.insert(tr, at: 0) }
+            list.append((fc.name, cell(palette[i % palette.count], ch)))
+        }
+        return list
     }
 }

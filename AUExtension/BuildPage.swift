@@ -1548,7 +1548,17 @@ extension DiagView {
             .contentShape(Rectangle())
             .onTapGesture { part ? roomsTapPartSide(n) : roomsTapSide(n) }
             .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
-                                pressing: { p in buildGridSelStampPressing(n, p) }, perform: { buildGridSelStampFire(n) })
+                                pressing: { p in buildGridSelStampPressing(n, p) }, perform: { roomsStampFire(n, part: part) })
+    }
+    // ROOMS long-press stamp: copy the active source onto side button n, then make the TARGET the active selection
+    // (Paul 2026-08-28) — the copied slot becomes the currently-selected cell + reflects its chain. (Old BUILD's row
+    // chips keep buildGridSelStampFire directly, so their multi-stamp source is untouched.)
+    private func roomsStampFire(_ n: Int, part: Bool) {
+        let did = buildGridSelCanStamp
+        buildGridSelStampFire(n)
+        guard did else { return }
+        buildRoomsSetActiveSide(n)                                       // the TARGET side button is now the active selection
+        if buildRowColour(n) != nil { part ? buildSelectRow(n) : buildGridSelAimRow(n); buildTapColourTab(n) }   // reflect its chain (+ on PART, play that row)
     }
     // TAP a SELECT side button — it becomes the active selection + stamp source (if populated), and auditions its chain.
     private func roomsTapSide(_ n: Int) {

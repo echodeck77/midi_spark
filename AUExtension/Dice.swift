@@ -481,3 +481,162 @@ enum Dice {
         }
     }
 }
+
+// ── THE 200 FACTORY CHAINS (design commission REQUEST-200-chains, 2026-08-28) ──────────────────────────────────────
+// A DETERMINISTIC, seeded, categorized library set generated from the corpus machinery (rollArchetype — audible +
+// density-gated + flood-capped) plus targeted makers for the intents the 8 archetypes miss (ACID/303 · TEACHING
+// SINGLES · RELATIONSHIP · DYNAMICS). Deduped by a cheap STRUCTURAL key (no extra renders). Names in the plain-recipe
+// register; tagged by the picker's musical-intent groups. Paul auditions + renames + prunes keepers via the pick grid.
+extension Dice {
+    struct FactoryChain { let name: String; let chain: [ProcessorSlot]; let transpose: Int; let tag: String }
+
+    private static func fSlot(_ t: ProcessorType, _ f: (inout ColourParams) -> Void = { _ in }) -> ProcessorSlot {
+        var p = ColourParams(); f(&p); return ProcessorSlot(type: t, params: p)
+    }
+    private static func fWord(_ t: ProcessorType) -> String {
+        switch t {
+        case .arp: return "ARP"; case .euclid: return "EUCLID"; case .ratchet: return "RATCHET"; case .strum: return "STRUM"
+        case .chance: return "CHANCE"; case .harmonize: return "HARMONY"; case .echo: return "ECHO"; case .burst: return "BURST"
+        case .cascade: return "CASCADE"; case .drone: return "DRONE"; case .shift: return "SHIFT"; case .humanize: return "HUMANIZE"
+        case .tutti: return "TUTTI"; case .length: return "GATE"; case .weave: return "WEAVE"; case .split: return "SPLIT"
+        case .glide: return "GLIDE"; case .riff: return "RIFF"; case .hocket: return "HOCKET"; case .tap: return "TAP"
+        case .mod: return "MOD"; case .passgate: return "PASS"; default: return "CHAIN"
+        }
+    }
+    private static func fRole(_ tag: String) -> String {
+        switch tag {
+        case "RHYTHM": return "BED"; case "MELODIC": return "LEAD"; case "PADS": return "PAD"; case "ACID": return "ACID"
+        case "COMPING": return "STAB"; case "DYNAMICS": return "FEEL"; case "TEACHING": return "SOLO"; case "TEXTURE": return "MOTION"
+        case "RELATIONSHIP": return "DUET"; case "WILDCARDS": return "WILD"; default: return "CHAIN"
+        }
+    }
+    // The characteristic processor = the first generator/driver in the chain, else the head.
+    private static func fCharacteristic(_ chain: [ProcessorSlot]) -> ProcessorType {
+        let drivers: Set<ProcessorType> = [.arp, .euclid, .ratchet, .riff, .tutti, .burst, .cascade, .weave, .strum, .drone, .hocket, .glide]
+        return chain.first(where: { drivers.contains($0.type) })?.type ?? chain.first?.type ?? .arp
+    }
+
+    /// The 200 factory chains (cached — generation runs ONCE). Deterministic: same output every launch.
+    static let factorySet: [FactoryChain] = buildFactorySet()
+
+    private static func buildFactorySet() -> [FactoryChain] {
+        var out: [FactoryChain] = []
+        var seen = Set<String>()
+        func fresh(_ c: [ProcessorSlot]) -> Bool { !c.isEmpty && seen.insert(String(describing: c)).inserted }
+        func name(_ c: [ProcessorSlot], _ tag: String, _ i: Int) -> String {
+            "\(fWord(fCharacteristic(c))) \(fRole(tag)) \(String(format: "%02d", i))"
+        }
+        // Generate `count` fresh chains from `make`, tagged, with bounded retries so a run of structural dups can't hang.
+        func gen(_ tag: String, _ count: Int, _ seed: UInt64, _ make: (inout DiceRNG) -> ([ProcessorSlot], Int)) {
+            var rng = DiceRNG(seed: seed); var got = 0, tries = 0
+            while got < count && tries < count * 40 {
+                tries += 1
+                let (c, tr) = make(&rng)
+                guard fresh(c) else { continue }
+                got += 1; out.append(FactoryChain(name: name(c, tag, got), chain: c, transpose: tr, tag: tag))
+            }
+        }
+        let rates: [ArpRate] = [.r1_4, .r1_8, .r1_8t, .r1_16, .r1_16t, .r1_32]
+        func arch(_ a: Archetype, _ rng: inout DiceRNG) -> ([ProcessorSlot], Int) { let r = rollArchetype(a, using: &rng); return (r.chain, r.transpose) }
+
+        // 1. RHYTHM BEDS (40) — euclid/ratchet/weave/burst + groove/bass archetypes
+        gen("RHYTHM", 40, 0xB0_0001) { rng in
+            switch Int.random(in: 0...5, using: &rng) {
+            case 0: return arch(.groove, &rng)
+            case 1: return arch(.bass, &rng)
+            case 2: return ([fSlot(.euclid) { $0.euclidSteps = [8, 16].randomElement(using: &rng)!; $0.euclidPulses = Int.random(in: 3...7, using: &rng); $0.euclidRot = Int.random(in: 0...5, using: &rng); $0.rate = .r1_16; $0.octaves = 1 }], 0)
+            case 3: return ([fSlot(.ratchet) { $0.rtcMode = .pattern; $0.rtcSlices = (0..<8).map { _ in [0, 0, 0, 2, 3, 4].randomElement(using: &rng)! }; $0.rtcRate = [.r1_16, .r1_8].randomElement(using: &rng) }], 0)
+            case 4: return ([fSlot(.weave) { $0.weaveMode = WeaveMode.allCases.randomElement(using: &rng); $0.weaveSpan = Int.random(in: 3...6, using: &rng); $0.weaveEuclidSteps = 8 }], Int.random(in: -1...0, using: &rng) * 12)
+            default: return ([fSlot(.burst) { $0.count = Int.random(in: 4...8, using: &rng); $0.curve = Double.random(in: -0.7...0.4, using: &rng) }], 0)
+            }
+        }
+        // 2. MELODIC (30) — arp/sparkle + riff + cascade
+        gen("MELODIC", 30, 0xB0_0002) { rng in
+            switch Int.random(in: 0...4, using: &rng) {
+            case 0: return arch(.arp, &rng)
+            case 1: return arch(.sparkle, &rng)
+            case 2: return ([fSlot(.riff) { $0.riffSteps = [8, 16].randomElement(using: &rng)!; $0.riffRate = [.r1_16, .r1_8].randomElement(using: &rng) }], 12)
+            case 3: return ([fSlot(.cascade) { $0.rate = [.r1_8, .r1_16].randomElement(using: &rng); $0.strumDir = [.up, .down].randomElement(using: &rng) }], Int.random(in: 0...1, using: &rng) * 12)
+            default: return ([fSlot(.arp) { $0.pattern = [.up, .down, .upDown, .random].randomElement(using: &rng)!; $0.rate = [.r1_16, .r1_16t].randomElement(using: &rng); $0.octaves = Int.random(in: 1...3, using: &rng); $0.arpFit = Bool.random(using: &rng) }], 12)
+            }
+        }
+        // 3. PADS & SUSTAINS (25) — drone + strum-ring + cascade-into-hold
+        gen("PADS", 25, 0xB0_0003) { rng in
+            switch Int.random(in: 0...3, using: &rng) {
+            case 0: return arch(.pad, &rng)
+            case 1: return ([fSlot(.drone) { $0.gate = Double.random(in: 0.8...1, using: &rng) }, fSlot(.harmonize) { $0.harmIntervals = [[7, 12, 19], [12, 16, 19], [7, 12, 0]].randomElement(using: &rng)! }], Int.random(in: -1...0, using: &rng) * 12)
+            case 2: return ([fSlot(.strum) { $0.strumDir = [.up, .down].randomElement(using: &rng); $0.spread = Double.random(in: 0.25...0.45, using: &rng); $0.velTilt = Double.random(in: 0...0.5, using: &rng) }], 0)
+            default: return ([fSlot(.cascade) { $0.rate = .r1_4; $0.strumDir = .up }, fSlot(.length) { $0.lenSlices = [.long, .pass, .long, .pass, .long, .pass, .long, .pass] }], 0)
+            }
+        }
+        // 4. ACID / 303 (20) — split(bottom) → riff → GLIDE SYNTH
+        gen("ACID", 20, 0xB0_0004) { rng in
+            let split = fSlot(.split) { $0.splitSet = ChordSplit(mode: .bottom, n: Int.random(in: 1...2, using: &rng)) }
+            var riff = fSlot(.riff) { $0.riffSteps = [8, 16].randomElement(using: &rng)!; $0.riffRate = [.r1_16, .r1_16t].randomElement(using: &rng) }
+            riff.params.riffSlide = (0..<(riff.params.riffSteps ?? 16)).map { _ in Int.random(in: 0...2, using: &rng) == 0 }   // ~1/3 slide steps
+            let glide = fSlot(.glide) { $0.glideMode = .synth; $0.glideTime = Double.random(in: 0.06...0.2, using: &rng); $0.glideRange = 12 }
+            return Int.random(in: 0...2, using: &rng) == 0 ? ([split, riff], -12) : ([split, riff, glide], -12)
+        }
+        // 5. COMPING (20) — tutti coin/pattern + stab archetype
+        gen("COMPING", 20, 0xB0_0005) { rng in
+            switch Int.random(in: 0...2, using: &rng) {
+            case 0: return arch(.stab, &rng)
+            case 1: return ([fSlot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = Double.random(in: 0.3...0.7, using: &rng); $0.tuttiPick = TuttiPick.allCases.randomElement(using: &rng) }], 0)
+            default: return ([fSlot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = { var sl = (0..<8).map { _ in [TuttiSlice.all, .all, .low, .high, .top2, .bot2, .rest].randomElement(using: &rng)! }; if sl.allSatisfy({ $0 == .all }) { sl[0] = .rest }; return sl }(); $0.tuttiRate = [.r1_8, .r1_16].randomElement(using: &rng); $0.tuttiRotate = Int.random(in: 0...7, using: &rng) }], 0)
+            }
+        }
+        // 6. DYNAMICS & FEEL (15) — a driver + humanize/shift/echo/mod
+        gen("DYNAMICS", 15, 0xB0_0006) { rng in
+            let drv = fSlot(.arp) { $0.pattern = [.up, .upDown].randomElement(using: &rng)!; $0.rate = [.r1_8, .r1_16].randomElement(using: &rng); $0.octaves = Int.random(in: 1...2, using: &rng) }
+            switch Int.random(in: 0...3, using: &rng) {
+            case 0: return ([drv, fSlot(.humanize) { $0.spread = Double.random(in: 0.2...0.45, using: &rng) }], 0)
+            case 1: return ([fSlot(.shift) { $0.spread = Double.random(in: 0.1...0.25, using: &rng) }, drv], 0)
+            case 2: return ([drv, fSlot(.echo) { $0.echoRepeats = Int.random(in: 3...6, using: &rng); $0.echoDelayDiv = [3, 4, 6].randomElement(using: &rng)!; $0.echoDecay = Double.random(in: 0.5...0.75, using: &rng) }], 0)
+            default: return ([drv, fSlot(.mod) { $0.modSource = .shape; $0.modShape = ModShape.allCases.randomElement(using: &rng); $0.modCC = [74, 71, 1].randomElement(using: &rng) }], 0)
+            }
+        }
+        // 7. TEACHING SINGLES (15) — ONE processor, near default (the learn-by-ear set) — hand-authored, deterministic
+        let singles: [(ProcessorType, (inout ColourParams) -> Void)] = [
+            (.arp, { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 1 }),
+            (.euclid, { $0.euclidSteps = 8; $0.euclidPulses = 5 }),
+            (.ratchet, { $0.rtcMode = .all; $0.count = 3; $0.rate = .r1_16 }),
+            (.strum, { $0.strumDir = .up; $0.spread = 0.25 }),
+            (.harmonize, { $0.harmIntervals = [7, 12, 0] }),
+            (.chance, { $0.probability = 0.6 }),
+            (.echo, { $0.echoRepeats = 4; $0.echoDelayDiv = 4; $0.echoDecay = 0.65 }),
+            (.drone, { $0.gate = 1.0 }),
+            (.tutti, { $0.tuttiMode = .coin; $0.tuttiBalance = 0.5; $0.tuttiPick = .high }),
+            (.cascade, { $0.rate = .r1_8; $0.strumDir = .up }),
+            (.burst, { $0.count = 5; $0.curve = -0.5 }),
+            (.weave, { $0.weaveMode = .ladder; $0.weaveSpan = 4 }),
+            (.glide, { $0.glideTime = 0.15; $0.glideRange = 12 }),
+            (.split, { $0.splitSet = ChordSplit(mode: .top, n: 2) }),
+            (.length, { $0.lenSlices = [.pass, .mute, .pass, .mute, .pass, .mute, .pass, .mute] }),
+        ]
+        for (i, (t, f)) in singles.enumerated() {
+            let c = [fSlot(t, f)]
+            if fresh(c) { out.append(FactoryChain(name: "\(fWord(t)) SOLO \(String(format: "%02d", i + 1))", chain: c, transpose: 0, tag: "TEACHING")) }
+        }
+        // 8. TEXTURE & MOTION (15) — a NOTE-MAKER + MOD movement (bounded ≤3 stages; buildByRole would exceed 4)
+        gen("TEXTURE", 15, 0xB0_0008) { rng in
+            let mod = fSlot(.mod) { $0.modSource = [.shape, .steps].randomElement(using: &rng); $0.modShape = ModShape.allCases.randomElement(using: &rng); $0.modCC = [74, 71, 1].randomElement(using: &rng) }
+            switch Int.random(in: 0...2, using: &rng) {
+            case 0: return ([fSlot(.arp) { $0.pattern = .upDown; $0.rate = [.r1_16, .r1_8].randomElement(using: &rng); $0.octaves = Int.random(in: 1...2, using: &rng) }, mod], 0)
+            case 1: return ([fSlot(.euclid) { $0.euclidSteps = 16; $0.euclidPulses = Int.random(in: 4...8, using: &rng); $0.rate = .r1_16 }, mod], 0)
+            default: return ([fSlot(.cascade) { $0.rate = [.r1_8, .r1_16].randomElement(using: &rng); $0.strumDir = .up }, mod], 0)
+            }
+        }
+        // 9. RELATIONSHIP DEMOS (10) — a driver + a TAP send layer. (Bare HOCKET/TURNS need a companion voice on the
+        //    listened wire, so they can't stand alone as a single-cell library chain — TAP is the standalone demo.)
+        gen("RELATIONSHIP", 10, 0xB0_0009) { rng in
+            let drv: ProcessorSlot = Bool.random(using: &rng)
+                ? fSlot(.arp) { $0.pattern = [.up, .upDown].randomElement(using: &rng)!; $0.rate = [.r1_8, .r1_16].randomElement(using: &rng); $0.octaves = Int.random(in: 1...2, using: &rng) }
+                : fSlot(.euclid) { $0.euclidSteps = [8, 16].randomElement(using: &rng)!; $0.euclidPulses = Int.random(in: 3...6, using: &rng); $0.rate = .r1_16 }
+            return ([drv, fSlot(.tap) { $0.tapLevel = Double.random(in: 0.6...1, using: &rng) }], 0)
+        }
+        // 10. WILDCARDS (10) — the strangest survivors
+        gen("WILDCARDS", 10, 0xB0_000A) { rng in arch(.wild, &rng) }
+
+        return out
+    }
+}
