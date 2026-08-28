@@ -20,9 +20,8 @@ extension DiagView {
                 roomsMiddle(size).frame(maxWidth: .infinity, maxHeight: .infinity)
                 roomsFooter()
             }
-            if roomsMixerOpen { roomsMixerOverlay(size) }   // §1 the strip-controls overlay
+            if roomsMixerOpen { roomsMixerOverlay(size) }   // §1 the strip-controls overlay (two-stage: strips → full config)
             roomsProcessorPicker(size: size)                // empty chain-box → the processor selector window
-            roomsMidiConfigSheets(size: size)               // the spanner buttons → the MIDI IN/OUT config sheets
         }.frame(width: size.width, height: size.height, alignment: .top)
     }
 
@@ -98,42 +97,58 @@ extension DiagView {
     // ── THE MIXER SLIDEOVER (§1 footer → MIXER) — the REAL MIDI-IN / MIDI-OUT console strips reused from the old UI
     // (buildReceiverControl / buildEmitterControl). A bottom slideover, HALF the canvas height; tap the dim backdrop
     // above it → recede. (Paul 2026-08-28) ──
+    // TWO-STAGE MIXER (Paul 2026-08-28): STAGE 1 = the strip row (bottom band). Tapping a SPANNER → STAGE 2 = full page,
+    // the same strips (selected highlighted, others act as tabs) + the selected control's MIDI config restyled below.
     @ViewBuilder func roomsMixerOverlay(_ size: CGSize) -> some View {
+        let expanded = roomsMixerSel != nil
         ZStack(alignment: .bottom) {
-            Color.black.opacity(0.4).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { roomsMixerOpen = false }
+            Color.black.opacity(expanded ? 0.6 : 0.4).ignoresSafeArea().contentShape(Rectangle())
+                .onTapGesture { roomsMixerOpen = false; roomsMixerSel = nil }
             VStack(spacing: 10) {
                 HStack {
-                    Text("MIDI IN / OUT").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(roomsAccent)
+                    Text(expanded ? "MIDI SETTINGS" : "MIDI IN / OUT").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(roomsAccent)
                     Spacer()
-                    Button { roomsMixerOpen = false } label: { Image(systemName: "chevron.down").font(.system(size: 16, weight: .bold)).foregroundColor(.white.opacity(0.6)).padding(6) }
+                    if expanded {   // collapse back to the strip row (stage 1)
+                        Button { roomsMixerSel = nil } label: { Image(systemName: "chevron.compact.down").font(.system(size: 18, weight: .bold)).foregroundColor(.white.opacity(0.6)).padding(.horizontal, 8) }
+                    }
+                    Button { roomsMixerOpen = false; roomsMixerSel = nil } label: { Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.5)).padding(6) }
                 }
                 HStack(alignment: .top, spacing: 6) {
                     ForEach(0..<4, id: \.self) { i in mixerStrip(i, isIn: true) }
                     Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1).padding(.horizontal, 2)
                     ForEach(0..<4, id: \.self) { i in mixerStrip(i, isIn: false) }
                 }
+                if let k = roomsMixerSel {   // STAGE 2 — the selected control's config, restyled inline, fills the rest
+                    Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
+                    ScrollView(.vertical, showsIndicators: false) { roomsMixerConfig(k).padding(.top, 4) }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
             .padding(16)
-            .frame(width: size.width)                                   // CONTENT HEIGHT — sizes to the strips + spanner (~a third of the page, Paul 2026-08-28)
+            .frame(width: size.width)
+            .frame(height: expanded ? size.height : nil, alignment: .top)   // STAGE 2 = full page; STAGE 1 = content (the strip band)
             .background(Color(red: 0.08, green: 0.09, blue: 0.11))
             .overlay(alignment: .top) { Rectangle().fill(roomsAccent.opacity(0.4)).frame(height: 2) }
             .contentShape(Rectangle()).onTapGesture { }                 // swallow taps inside the panel
         }
     }
-    // One mixer strip = the REAL console control + a SPANNER tool button below it (opens the MIDI IN/OUT config sheet
-    // for that door/emitter — the deeper options). (Paul 2026-08-28)
+    // One mixer strip = the REAL console control + a SPANNER tool button below it. STAGE 1: spanner → expand to stage 2
+    // selecting this control. STAGE 2: spanner → switch the selected control (its config shows below); the selected
+    // control's spanner is highlighted (the "tab"). (Paul 2026-08-28)
     private func mixerStrip(_ i: Int, isIn: Bool) -> some View {
-        VStack(spacing: 6) {
+        let k = isIn ? i : 4 + i
+        let selected = roomsMixerSel == k
+        return VStack(spacing: 6) {
             if isIn { roomsMixerReceiver(i) } else { roomsMixerEmitter(i) }
-            Button {
-                if isIn { buildMidiConfigTab = i; buildMidiConfigOpen = true } else { buildMidiOutConfigOpen = true }
-            } label: {
-                Image(systemName: "wrench.and.screwdriver").font(.system(size: 13, weight: .bold)).foregroundColor(roomsAccent)
+            Button { roomsMixerSel = k } label: {
+                Image(systemName: "wrench.and.screwdriver").font(.system(size: 13, weight: .bold)).foregroundColor(selected ? .black : roomsAccent)
                     .frame(maxWidth: .infinity).frame(height: 28)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(roomsAccent.opacity(0.3), lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: 6).fill(selected ? roomsAccent : Color.white.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(roomsAccent.opacity(selected ? 0 : 0.3), lineWidth: 1))
             }.buttonStyle(.plain)
-        }.frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity)
+        .overlay(selected ? RoundedRectangle(cornerRadius: 8).stroke(roomsAccent, lineWidth: 2).padding(-3) : nil)   // highlight the selected tab
     }
 
     // ── THE UNIFORM 9×9 GRID UNIT ──

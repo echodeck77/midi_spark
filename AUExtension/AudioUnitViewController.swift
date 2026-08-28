@@ -267,6 +267,7 @@ struct DiagView: View {
     @State var roomsRoom: Room = .select       // which room is in view in the new shell (one grid at a time)
     @State var roomsTrackOn: [Bool] = Array(repeating: false, count: 8)   // §2 shared header: per-track play/stop (placeholder state until the real tracks land)
     @State var roomsMixerOpen: Bool = false   // §1 footer stack: the in/out STRIP-CONTROLS overlay (tap footer → open · tap outside → recede)
+    @State var roomsMixerSel: Int? = nil      // MIXER stage 2 (Paul 2026-08-28): nil = the quarter-height strip row (stage 1); 0–3 = IN A–D · 4–7 = OUT A–D selected → full-page with that control's config below
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
