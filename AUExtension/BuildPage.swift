@@ -1359,19 +1359,21 @@ extension DiagView {
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                                       // the chain boxes sit on the same 8-column grain as the cast
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))        // square-ish 2×2 boxes derived from the panel width
-        VStack(spacing: 8) {                                                  // the outlined MACHINE box (the PLAY button moved up to the section header)
+        VStack(spacing: 8) {                                                  // the MACHINE box — a GRID ELEMENT that FILLS the column height + lines up with the grid box (Paul 2026-08-28)
             AnyView(buildReceiverSelector(castW: castW))                      // MIDI-IN receiver toggles (real)
             AnyView(HStack(alignment: .top, spacing: gap) {                  // side buttons (LEFT) + the MIDI chain (RIGHT)
                 AnyView(buildChainButtonStack(width: (castW / 2 - gap / 2) * 0.75,
                                               height: 4 * (cell * 2 + gap) + 3 * gap, showGrid: false))
                 AnyView(buildProcessorBlock(castW: castW, cell: cell))
             })
-            AnyView(buildEmitterToggles(castW: castW)).padding(.top, 8)       // MIDI-OUT emitter toggles (real)
+            Spacer(minLength: 8)                                             // push the emitter toggles + RECORD DOWN to occupy the space below
+            AnyView(buildEmitterToggles(castW: castW))                        // MIDI-OUT emitter toggles (real)
             AnyView(roomsRecorderRow(castW: castW)).padding(.top, 8)          // RECORD — below the emitter toggles (Paul 2026-08-28)
         }
         .padding(10)
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildEdge, lineWidth: 1))
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // FILL the height so the box occupies the space + aligns with the grid
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))   // matches the grid box + seam styling
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button, styled as a section header (equal height to the ▲PLAY
     // nav door). SELECT plays the CHAIN audition, PART plays the PART (mutually exclusive voices). (Paul 2026-08-28)

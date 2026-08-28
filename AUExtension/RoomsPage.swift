@@ -225,7 +225,7 @@ extension DiagView {
     @ViewBuilder private func chainPanel(_ room: Room) -> some View {
         GeometryReader { g in
             ScrollView(.vertical, showsIndicators: false) {
-                roomsMachineStrip(width: g.size.width, room: room).padding(.top, 2)
+                roomsMachineStrip(width: g.size.width, room: room).frame(minHeight: g.size.height, alignment: .top)   // FILL the column so the box occupies the space + lines up with the grid
             }
         }
     }
