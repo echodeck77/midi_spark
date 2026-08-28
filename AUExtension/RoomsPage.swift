@@ -21,6 +21,7 @@ extension DiagView {
                 roomsFooter()
             }
             if roomsMixerOpen { roomsMixerOverlay(size) }   // §1 the strip-controls overlay
+            roomsProcessorPicker(size: size)                // empty chain-box → the processor selector window
         }.frame(width: size.width, height: size.height, alignment: .top)
     }
 
@@ -184,7 +185,9 @@ extension DiagView {
             VStack(spacing: 6) {
                 navPlayDoor()                                             // full-width header (over grid + chain)
                 HStack(spacing: 6) {
-                    launchUnit(colSelectBottom: false, rowSelectLeft: false, libraryGrid: true).frame(width: gridW)   // THE SELECT GRID — library chains (2/3, left)
+                    launchUnit(colSelectBottom: false, rowSelectLeft: false, libraryGrid: true)
+                        .overlay { roomsProcessorCard(leadCols: 0, trailCols: 1, totalCols: 9) }   // the card sits in the grid interior (right col = side buttons, excluded)
+                        .frame(width: gridW)   // THE SELECT GRID — library chains (2/3, left)
                     chainPanel(.select).frame(width: avail - gridW)              // chain (right)
                     verticalSeam("▸", to: .part).frame(width: navW)       // seam far right → PART
                 }
@@ -200,7 +203,9 @@ extension DiagView {
                 HStack(spacing: 6) {
                     verticalSeam("◂", to: .select).frame(width: navW)     // seam far left → SELECT
                     chainPanel(.part).frame(width: avail - gridW)              // chain (left)
-                    roomsPartGrid().frame(width: gridW)                        // THE PART GRID — left row-slots · display interior + playhead · right rail (2/3, right)
+                    roomsPartGrid()
+                        .overlay { roomsProcessorCard(leadCols: 1, trailCols: 1, totalCols: 10) }   // the card sits in the grid interior (both rails excluded)
+                        .frame(width: gridW)   // THE PART GRID — left row-slots · display interior + playhead · right rail (2/3, right)
                 }
             }.padding(8)
         }

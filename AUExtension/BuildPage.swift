@@ -1393,6 +1393,43 @@ extension DiagView {
         }
         roomsSyncVoice(.select)                                              // part→chain (nothing from PART plays here)
     }
+
+    // ── NEW INTERFACE — the PROCESSOR CARD overlay. A populated chain box opens its editor (buildProcessorPanel) as a
+    // NON-MODAL card bounded to the GRID INTERIOR (inset from the header row + the side buttons), so everything outside
+    // it stays reachable. Attached as an .overlay on the grid, so it's automatically clipped to the grid's frame; the
+    // fractional insets carve out the side-button column(s) + the top selector row. (Paul 2026-08-28)
+    @ViewBuilder func roomsProcessorCard(leadCols: CGFloat, trailCols: CGFloat, totalCols: CGFloat) -> some View {
+        if let slot = buildEditSlot {
+            let chain = selectedColourChain()
+            if slot < chain.count, let cid = ddSelectedColourID {
+                GeometryReader { g in
+                    let colW = g.size.width / totalCols
+                    let rowH = g.size.height / 9                              // 9 rows: the top selector row + 8
+                    let x = colW * leadCols + 3
+                    let topY = rowH + 3
+                    let w = max(120, g.size.width - colW * (leadCols + trailCols) - 6)
+                    let h = max(120, g.size.height - topY - 3)
+                    ScrollView(.vertical, showsIndicators: false) {
+                        buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w - 24).frame(width: w - 24).padding(12)
+                    }
+                    .frame(width: w, height: h)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan, lineWidth: 2))
+                    .shadow(color: .black.opacity(0.5), radius: 16, y: 6)
+                    .offset(x: x, y: topY)
+                    .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
+                    .onChange(of: ddSelectedColourID) { newID in
+                        guard let newID, newID != buildEditorSnapCid else { return }
+                        buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = newID
+                    }
+                }
+            }
+        }
+    }
+    // The empty-box PROCESSOR SELECTOR window (the catalog) — the existing modal picker, rendered in the rooms shell. (Paul 2026-08-28)
+    @ViewBuilder func roomsProcessorPicker(size: CGSize) -> some View {
+        if let slot = buildAddSlot { buildProcessorPicker(slot: slot, size: size) }
+    }
     // One SELECT-grid interior cell (0…63): the real library face + tap-audition, plus a LONG-PRESS to copy the active
     // source onto it as a new instance (cell-to-cell). buildGridSelCell itself is untouched (old BUILD unaffected). (Paul 2026-08-28)
     @ViewBuilder func roomsSelectGridCell(_ i: Int) -> some View {
