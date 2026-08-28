@@ -100,13 +100,13 @@ extension DiagView {
     }
 
     // ── THE UNIFORM 9×9 GRID UNIT ──
-    @ViewBuilder private func launchUnit(colSelectBottom: Bool, rowSelectLeft: Bool) -> some View {
+    @ViewBuilder private func launchUnit(colSelectBottom: Bool, rowSelectLeft: Bool, libraryGrid: Bool = false) -> some View {
         let gap: CGFloat = 3
         let selRow = colSelectBottom ? 8 : 0
         let selCol = rowSelectLeft ? 0 : 8
         VStack(spacing: gap) {
             ForEach(0..<9, id: \.self) { r in
-                HStack(spacing: gap) { ForEach(0..<9, id: \.self) { c in launchCell9(r, c, selRow: selRow, selCol: selCol) } }
+                HStack(spacing: gap) { ForEach(0..<9, id: \.self) { c in launchCell9(r, c, selRow: selRow, selCol: selCol, libraryGrid: libraryGrid) } }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -115,13 +115,18 @@ extension DiagView {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsAccent.opacity(0.35), lineWidth: 1.5))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    @ViewBuilder private func launchCell9(_ r: Int, _ c: Int, selRow: Int, selCol: Int) -> some View {
+    @ViewBuilder private func launchCell9(_ r: Int, _ c: Int, selRow: Int, selCol: Int, libraryGrid: Bool) -> some View {
         if r == selRow && c == selCol {
             Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if r == selRow {
             colSelCell(selCol == 0 ? c - 1 : c)
         } else if c == selCol {
             rowSelCell()
+        } else if libraryGrid {
+            // THE SELECT GRID = the LIBRARY-backed chain browser — each interior cell is a real chain face (§6 reuse).
+            let gridRow = r > selRow ? r - 1 : r
+            let gridCol = c > selCol ? c - 1 : c
+            roomsSelectGridCell(gridRow * 8 + gridCol).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05)).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -177,12 +182,13 @@ extension DiagView {
             VStack(spacing: 6) {
                 navPlayDoor()                                             // full-width header (over grid + chain)
                 HStack(spacing: 6) {
-                    launchUnit(colSelectBottom: false, rowSelectLeft: false).frame(width: gridW)   // grid (2/3, left)
+                    launchUnit(colSelectBottom: false, rowSelectLeft: false, libraryGrid: true).frame(width: gridW)   // THE SELECT GRID — library chains (2/3, left)
                     chainPanel().frame(width: avail - gridW)              // chain (right)
                     verticalSeam("▸", to: .part).frame(width: navW)       // seam far right → PART
                 }
             }.padding(8)
         }
+        .onAppear { roomsSelectSetup() }                                  // open the library-backed grid selector on SELECT (idempotent)
     }
     @ViewBuilder private func roomsPart(_ size: CGSize) -> some View {
         GeometryReader { g in

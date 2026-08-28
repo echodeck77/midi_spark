@@ -1377,6 +1377,23 @@ extension DiagView {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
+    // ── NEW INTERFACE (rooms) reuse — THE SELECT GRID = the LIBRARY-backed chain browser. Populate the SELECT room's
+    // 8×8 with real chains from MY LIBRARY (saved + factory cells) by opening the existing grid selector on its LIBRARY
+    // tab; each interior cell reuses buildGridSelCell (the drifting-note fingerprint face + tap-to-audition), verbatim.
+    // Idempotent — safe to call on every SELECT-room appear. (Paul 2026-08-28)
+    func roomsSelectSetup() {
+        buildEnsureGridSelOpen()                                              // opens the selector (loads library summaries + deals), guarded — no-op if already open
+        if buildGridSelTab != 1 {                                            // SELECT shows MY LIBRARY, not the DEALT bank
+            buildGridSelStopAudition()
+            buildGridSelTab = 1
+            buildGridSelComputeCellRolls()                                    // the library cells' drifting faces
+        }
+    }
+    // One SELECT-grid interior cell (0…63), filling the space it's given — the real library face + audition. (Paul 2026-08-28)
+    @ViewBuilder func roomsSelectGridCell(_ i: Int) -> some View {
+        GeometryReader { cg in buildGridSelCell(i, w: cg.size.width, h: cg.size.height) }
+    }
+
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
     @ViewBuilder private func buildGridVerbButtons() -> some View {
         HStack(spacing: 6) {
