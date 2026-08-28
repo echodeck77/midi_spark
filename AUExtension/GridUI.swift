@@ -1757,30 +1757,36 @@ struct ProcessorBox: View {
     // §1 ANATOMY — the COMPACT frame controls (Paul 2026-08-28): small chips in a tight row, ALL options visible (no popup,
     // no finger-sized seg). frameSeg = the small-chip selector; frameGrid/frameSpan wrap it with a narrow prefix; ROTATE
     // stays the ◀n▶ nudge. The midway between the old full-size fields and the dropdowns.
+    // The rate/span chips wrap into TWO rows (Paul 2026-08-28) — narrower + taller, so all three controls line up at
+    // one height (`frameCtlH`, matched to the ROTATE nudge). Row 1 holds the first ceil(n/2) chips, row 2 the rest.
     private func frameSeg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 3) {
-            ForEach(Array(options.enumerated()), id: \.offset) { i, o in
-                let on = o == sel
-                Text(o).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : .white.opacity(0.5))
-                    .padding(.horizontal, 6).frame(height: 24)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.07)))
-                    .contentShape(Rectangle()).onTapGesture { onPick(i) }
-            }
+        let n = options.count, top = (n + 1) / 2
+        func chip(_ i: Int) -> some View {
+            let on = options[i] == sel
+            return Text(options[i]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(on ? .black : .white.opacity(0.5))
+                .padding(.horizontal, 6).frame(height: 19)
+                .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.07)))
+                .contentShape(Rectangle()).onTapGesture { onPick(i) }
+        }
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 3) { ForEach(Array(0..<top), id: \.self) { chip($0) } }
+            HStack(spacing: 3) { ForEach(Array(top..<n), id: \.self) { chip($0) } }
         }
     }
+    private let frameCtlH: CGFloat = 42   // shared control height: the 2-row chip grids match the ROTATE nudge
     private func framePrefix(_ s: String) -> some View {
         Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
     }
     private func frameGrid(_ current: ArpRate, _ set: @escaping (ArpRate) -> Void) -> some View {
-        HStack(spacing: 6) { framePrefix("GRID"); frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }
+        HStack(spacing: 6) { framePrefix("GRID"); frameSeg(ArpRate.allCases.map(\.rawValue), sel: current.rawValue) { set(ArpRate.allCases[$0]) } }.frame(height: frameCtlH)
     }
     private func frameSpan(_ current: Int, free: Bool, _ set: @escaping (Int) -> Void) -> some View {
         let vals = (free ? [0] : []) + spanLadderValues
-        return HStack(spacing: 6) { framePrefix("SPAN"); frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }
+        return HStack(spacing: 6) { framePrefix("SPAN"); frameSeg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { set(vals[$0]) } }.frame(height: frameCtlH)
     }
     private func frameRotate(_ current: Int, _ range: ClosedRange<Int>, _ set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 6) { framePrefix("ROTATE"); numPair(current, range, wrap: true, set) }
+        HStack(spacing: 6) { framePrefix("ROTATE"); numPair(current, range, wrap: true, set) }.frame(height: frameCtlH)
     }
     // §1 ANATOMY — the "pairs well" line (footer item 3): one dim row from the pairing catalog (processor-pairings.md),
     // teaching at the moment of choice. → = a good DOWNSTREAM stage · ← = a good UPSTREAM stage. nil = no line drawn.
