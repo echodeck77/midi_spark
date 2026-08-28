@@ -22,6 +22,7 @@ extension DiagView {
             }
             if roomsMixerOpen { roomsMixerOverlay(size) }   // §1 the strip-controls overlay
             roomsProcessorPicker(size: size)                // empty chain-box → the processor selector window
+            roomsMidiConfigSheets(size: size)               // the spanner buttons → the MIDI IN/OUT config sheets
         }.frame(width: size.width, height: size.height, alignment: .top)
     }
 
@@ -107,18 +108,32 @@ extension DiagView {
                     Button { roomsMixerOpen = false } label: { Image(systemName: "chevron.down").font(.system(size: 16, weight: .bold)).foregroundColor(.white.opacity(0.6)).padding(6) }
                 }
                 HStack(alignment: .top, spacing: 6) {
-                    ForEach(0..<4, id: \.self) { i in roomsMixerReceiver(i).frame(maxWidth: .infinity) }   // the REAL receiver console strips
+                    ForEach(0..<4, id: \.self) { i in mixerStrip(i, isIn: true) }
                     Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1).padding(.horizontal, 2)
-                    ForEach(0..<4, id: \.self) { i in roomsMixerEmitter(i).frame(maxWidth: .infinity) }    // the REAL emitter console strips
+                    ForEach(0..<4, id: \.self) { i in mixerStrip(i, isIn: false) }
                 }
-                Spacer(minLength: 0)
             }
             .padding(16)
-            .frame(width: size.width, height: size.height / 2)          // HALF the canvas height — a bottom slideover
+            .frame(width: size.width)                                   // CONTENT HEIGHT — sizes to the strips + spanner (~a third of the page, Paul 2026-08-28)
             .background(Color(red: 0.08, green: 0.09, blue: 0.11))
             .overlay(alignment: .top) { Rectangle().fill(roomsAccent.opacity(0.4)).frame(height: 2) }
             .contentShape(Rectangle()).onTapGesture { }                 // swallow taps inside the panel
         }
+    }
+    // One mixer strip = the REAL console control + a SPANNER tool button below it (opens the MIDI IN/OUT config sheet
+    // for that door/emitter — the deeper options). (Paul 2026-08-28)
+    private func mixerStrip(_ i: Int, isIn: Bool) -> some View {
+        VStack(spacing: 6) {
+            if isIn { roomsMixerReceiver(i) } else { roomsMixerEmitter(i) }
+            Button {
+                if isIn { buildMidiConfigTab = i; buildMidiConfigOpen = true } else { buildMidiOutConfigOpen = true }
+            } label: {
+                Image(systemName: "wrench.and.screwdriver").font(.system(size: 13, weight: .bold)).foregroundColor(roomsAccent)
+                    .frame(maxWidth: .infinity).frame(height: 28)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(roomsAccent.opacity(0.3), lineWidth: 1))
+            }.buttonStyle(.plain)
+        }.frame(maxWidth: .infinity)
     }
 
     // ── THE UNIFORM 9×9 GRID UNIT ──

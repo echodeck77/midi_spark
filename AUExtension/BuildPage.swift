@@ -1518,6 +1518,12 @@ extension DiagView {
     @ViewBuilder func roomsProcessorPicker(size: CGSize) -> some View {
         if let slot = buildAddSlot { buildProcessorPicker(slot: slot, size: size) }
     }
+    // The MIDI IN / OUT config sheets, rendered in the rooms shell (the spanner buttons under the mixer strips open
+    // them). The existing sheets, reused. (Paul 2026-08-28)
+    @ViewBuilder func roomsMidiConfigSheets(size: CGSize) -> some View {
+        if buildMidiConfigOpen { buildMidiConfigSheet(size: size) }
+        if buildMidiOutConfigOpen { buildMidiOutConfigSheet(size: size) }
+    }
     // One SELECT-grid interior cell (0…63): the real library face + tap-audition, plus a LONG-PRESS to copy the active
     // source onto it as a new instance (cell-to-cell). buildGridSelCell itself is untouched (old BUILD unaffected). (Paul 2026-08-28)
     @ViewBuilder func roomsSelectGridCell(_ i: Int) -> some View {
