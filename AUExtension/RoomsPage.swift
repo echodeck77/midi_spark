@@ -149,21 +149,8 @@ extension DiagView {
     }
 
     // ── NAVIGATION ──
-    // The GRID section header — navigates up to the PLAY grid. Shares the top level with the chain's PLAY button at
-    // equal height (both are section headers). (Paul 2026-08-28)
-    private func navPlayDoor() -> some View {
-        Button { roomsRoom = .play } label: {
-            HStack(spacing: 6) { Image(systemName: "chevron.up"); Text("PLAY") }
-                .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                .frame(maxWidth: .infinity).frame(height: 40).background(RoundedRectangle(cornerRadius: 10).fill(roomsAccent))
-        }.buttonStyle(.plain)
-    }
-    private func verticalSeam(_ chevron: String, to room: Room) -> some View {
-        Button { roomsRoom = room } label: {
-            Text(chevron).font(.system(size: 14, weight: .heavy)).foregroundColor(.black)
-                .frame(maxWidth: .infinity, maxHeight: .infinity).background(Capsule().fill(roomsAccent))
-        }.buttonStyle(.plain)
-    }
+    // (The ▲PLAY and part↔select nav are now SLIVERS inside the grid box — roomsPlayNavSliver / roomsSeamSliver in
+    // BuildPage. The PLAY grid still uses the capsule navDoor below. Paul 2026-08-28.)
     private func navDoor(_ label: String, to room: Room) -> some View {
         Button { roomsRoom = room } label: {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
@@ -183,36 +170,26 @@ extension DiagView {
     // ── THE ROOMS ─────────────────────────────────────────────────────────────────────────────────
     @ViewBuilder private func roomsSelect(_ size: CGSize) -> some View {
         GeometryReader { g in
-            let navW: CGFloat = 40, avail = g.size.width - 16 - navW - 12, gridW = avail * 2 / 3, chainW = avail - gridW
+            let avail = g.size.width - 16, gridW = avail * 2 / 3, chainW = avail - gridW
             HStack(spacing: 6) {
-                VStack(spacing: 6) {                                       // GRID SECTION — its header (▲PLAY) + the grid
-                    navPlayDoor()
-                    launchUnit(colSelectBottom: false, rowSelectLeft: false, libraryGrid: true)
-                        .overlay { roomsProcessorCard(leadCols: 0, trailCols: 1, totalCols: 9) }   // card sits in the grid interior (right col = side buttons, excluded)
-                }.frame(width: gridW)
-                VStack(spacing: 6) {                                       // CHAIN SECTION — its header (PLAY THIS MIDI CHAIN) + the machine
+                roomsSelectGridUnit().frame(width: gridW)                  // the GRID + its edge selectors + nav slivers, one box (2/3, left)
+                VStack(spacing: 6) {                                       // CHAIN SECTION — the PLAY header + the machine (1/3, right)
                     roomsPlayHeader(.select)
                     chainPanel(.select)
                 }.frame(width: chainW)
-                verticalSeam("▸", to: .part).frame(width: navW)           // full-height seam far right → PART
             }.padding(8)
         }
         .onAppear { roomsSelectSetup() }                                  // open the library-backed grid selector on SELECT (idempotent)
     }
     @ViewBuilder private func roomsPart(_ size: CGSize) -> some View {
         GeometryReader { g in
-            let navW: CGFloat = 40, avail = g.size.width - 16 - navW - 12, gridW = avail * 2 / 3, chainW = avail - gridW
+            let avail = g.size.width - 16, gridW = avail * 2 / 3, chainW = avail - gridW
             HStack(spacing: 6) {
-                verticalSeam("◂", to: .select).frame(width: navW)         // full-height seam far left → SELECT
-                VStack(spacing: 6) {                                       // CHAIN SECTION — its header + the machine
+                VStack(spacing: 6) {                                       // CHAIN SECTION — the PLAY header + the machine (1/3, left)
                     roomsPlayHeader(.part)
                     chainPanel(.part)
                 }.frame(width: chainW)
-                VStack(spacing: 6) {                                       // GRID SECTION — its header (▲PLAY) + the grid
-                    navPlayDoor()
-                    roomsPartGrid()
-                        .overlay { roomsProcessorCard(leadCols: 1, trailCols: 1, totalCols: 10) }   // card sits in the grid interior (both rails excluded)
-                }.frame(width: gridW)
+                roomsPartGrid().frame(width: gridW)                        // the GRID + its edge selectors + nav slivers, one box (2/3, right)
             }.padding(8)
         }
         .onAppear { roomsPartSetup() }                                    // source the MIDI from the part grid + refresh the side-button faces
