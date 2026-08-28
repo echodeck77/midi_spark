@@ -1408,6 +1408,9 @@ extension DiagView {
             buildGridSelTab = 1
             buildGridSelComputeCellRolls()                                    // the library cells' drifting faces
         }
+        if buildGridSelSel == nil && buildGridSelStampSourceRow == nil {      // RANDOMIZE THE INITIAL SELECTION (Paul 2026-08-28): nothing chosen yet → audition a random library cell
+            if let i = (0..<64).filter({ buildGridSelPresent($0) }).randomElement() { buildGridSelAudition(i) }
+        }
         roomsSyncVoice(.select)                                              // part→chain (nothing from PART plays here)
     }
 

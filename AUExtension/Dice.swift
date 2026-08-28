@@ -538,6 +538,17 @@ extension Dice {
         }
         let rates: [ArpRate] = [.r1_4, .r1_8, .r1_8t, .r1_16, .r1_16t, .r1_32]
         func arch(_ a: Archetype, _ rng: inout DiceRNG) -> ([ProcessorSlot], Int) { let r = rollArchetype(a, using: &rng); return (r.chain, r.transpose) }
+        // A VARIED riff line (Paul wants more riff): a random RANK figure (0 = rest · 1–5 = pool degree) over random
+        // steps/rate, ~half with slide steps — one stencil that plays the held chord's notes in any key.
+        func riffMake(_ rng: inout DiceRNG) -> ProcessorSlot {
+            var s = fSlot(.riff)
+            let steps = [8, 12, 16].randomElement(using: &rng)!
+            s.params.riffSteps = steps
+            s.params.riffRate = [.r1_16, .r1_8, .r1_16t].randomElement(using: &rng)
+            s.params.riffRanks = (0..<steps).map { _ in [0, 1, 1, 2, 3, 2, 4, 5].randomElement(using: &rng)! }
+            if Bool.random(using: &rng) { s.params.riffSlide = (0..<steps).map { _ in Int.random(in: 0...2, using: &rng) == 0 } }
+            return s
+        }
 
         // 1. RHYTHM BEDS (40) — euclid/ratchet/weave/burst + groove/bass archetypes
         gen("RHYTHM", 40, 0xB0_0001) { rng in
@@ -550,13 +561,14 @@ extension Dice {
             default: return ([fSlot(.burst) { $0.count = Int.random(in: 4...8, using: &rng); $0.curve = Double.random(in: -0.7...0.4, using: &rng) }], 0)
             }
         }
-        // 2. MELODIC (30) — arp/sparkle + riff + cascade
+        // 2. MELODIC (30) — arp/sparkle + RIFF (2 of 6 cases → ~10 riff lines) + cascade
         gen("MELODIC", 30, 0xB0_0002) { rng in
-            switch Int.random(in: 0...4, using: &rng) {
+            switch Int.random(in: 0...5, using: &rng) {
             case 0: return arch(.arp, &rng)
             case 1: return arch(.sparkle, &rng)
-            case 2: return ([fSlot(.riff) { $0.riffSteps = [8, 16].randomElement(using: &rng)!; $0.riffRate = [.r1_16, .r1_8].randomElement(using: &rng) }], 12)
-            case 3: return ([fSlot(.cascade) { $0.rate = [.r1_8, .r1_16].randomElement(using: &rng); $0.strumDir = [.up, .down].randomElement(using: &rng) }], Int.random(in: 0...1, using: &rng) * 12)
+            case 2: return ([riffMake(&rng)], 12)                          // a RIFF line, up a register
+            case 3: return ([riffMake(&rng)], 0)                           // a RIFF line, mid register
+            case 4: return ([fSlot(.cascade) { $0.rate = [.r1_8, .r1_16].randomElement(using: &rng); $0.strumDir = [.up, .down].randomElement(using: &rng) }], Int.random(in: 0...1, using: &rng) * 12)
             default: return ([fSlot(.arp) { $0.pattern = [.up, .down, .upDown, .random].randomElement(using: &rng)!; $0.rate = [.r1_16, .r1_16t].randomElement(using: &rng); $0.octaves = Int.random(in: 1...3, using: &rng); $0.arpFit = Bool.random(using: &rng) }], 12)
             }
         }
@@ -572,8 +584,8 @@ extension Dice {
         // 4. ACID / 303 (20) — split(bottom) → riff → GLIDE SYNTH
         gen("ACID", 20, 0xB0_0004) { rng in
             let split = fSlot(.split) { $0.splitSet = ChordSplit(mode: .bottom, n: Int.random(in: 1...2, using: &rng)) }
-            var riff = fSlot(.riff) { $0.riffSteps = [8, 16].randomElement(using: &rng)!; $0.riffRate = [.r1_16, .r1_16t].randomElement(using: &rng) }
-            riff.params.riffSlide = (0..<(riff.params.riffSteps ?? 16)).map { _ in Int.random(in: 0...2, using: &rng) == 0 }   // ~1/3 slide steps
+            var riff = riffMake(&rng)                                       // a varied RIFF figure (the 303 line)
+            if riff.params.riffSlide == nil { riff.params.riffSlide = (0..<(riff.params.riffSteps ?? 16)).map { _ in Int.random(in: 0...2, using: &rng) == 0 } }   // acid wants slides
             let glide = fSlot(.glide) { $0.glideMode = .synth; $0.glideTime = Double.random(in: 0.06...0.2, using: &rng); $0.glideRange = 12 }
             return Int.random(in: 0...2, using: &rng) == 0 ? ([split, riff], -12) : ([split, riff, glide], -12)
         }
@@ -598,6 +610,7 @@ extension Dice {
         // 7. TEACHING SINGLES (15) — ONE processor, near default (the learn-by-ear set) — hand-authored, deterministic
         let singles: [(ProcessorType, (inout ColourParams) -> Void)] = [
             (.arp, { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 1 }),
+            (.riff, { $0.riffSteps = 16; $0.riffRate = .r1_16; $0.riffRanks = [1, 0, 2, 0, 3, 0, 2, 0, 1, 0, 4, 0, 3, 0, 5, 0] }),
             (.euclid, { $0.euclidSteps = 8; $0.euclidPulses = 5 }),
             (.ratchet, { $0.rtcMode = .all; $0.count = 3; $0.rate = .r1_16 }),
             (.strum, { $0.strumDir = .up; $0.spread = 0.25 }),
