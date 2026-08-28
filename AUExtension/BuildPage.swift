@@ -1471,7 +1471,7 @@ extension DiagView {
         let active = buildGridSelStampSourceRow == n                      // THE active side button — white border (§ "one cell or one side button is active")
         RoundedRectangle(cornerRadius: 5).fill(active ? (tint ?? buildCyan) : (cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
             .frame(height: height)
-            .overlay { if cid != nil { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: true).padding(2).opacity(0.65) } }   // the slot drifts its part's notes
+            .overlay { if cid != nil { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: false).padding(2).opacity(0.65) } }   // DSP: static fingerprint (no per-slot animation)
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(active ? Color.white : (tint ?? buildEdge), lineWidth: active ? 2 : 1))
@@ -5859,7 +5859,7 @@ extension DiagView {
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(present ? hue.opacity(sel ? 0.85 : 0.42) : Color.white.opacity(0.03))
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
-                buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: true).padding(3).opacity(sel ? 1.0 : 0.7)
+                buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: sel).padding(3).opacity(sel ? 1.0 : 0.7)   // DSP: only the SELECTED cell drifts; the other 63 draw static (no 64× animation) (2026-08-28)
             }
             if sel {       // THE ACTIVE CELL — a breathing live frame
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
@@ -5952,7 +5952,7 @@ extension DiagView {
         let aimed = buildGridSelArrivalRow == n
         RoundedRectangle(cornerRadius: 5).fill(aimed ? (tint ?? buildCyan) : (cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
             .frame(height: height)
-            .overlay { if cid != nil { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: true).padding(2).opacity(0.65) } }   // the row selector drifts its part's notes too (Paul 2026-08-26)
+            .overlay { if cid != nil { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: false).padding(2).opacity(0.65) } }   // DSP: static fingerprint (no per-slot animation)
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // HOLD-TO-STAMP: the rising white fill + post-commit flash
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(aimed ? Color.white : (tint ?? buildEdge), lineWidth: aimed ? 2 : 1))
