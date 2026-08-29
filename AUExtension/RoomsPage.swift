@@ -207,7 +207,7 @@ extension DiagView {
         GeometryReader { g in
             let avail = g.size.width - 16 - 12                             // page padding (16) + 2 HStack gaps (12)
             let gridW = avail * 2 / 3
-            let seamW = roomsGridCellW(gridW, cols: 9) * 0.5              // 50% of a grid cell — matches the old in-grid seam
+            let seamW = roomsGridCellW(gridW, cols: 10) * 0.5             // 50% of a grid cell (SELECT is now 10 cols: left page rail + 8 + right side)
             let chainW = avail - gridW - seamW
             let m = RoomsMetrics(height: g.size.height - 16)              // the ONE lattice for this room (HStack content height = page − padding 8·2)
             HStack(spacing: 6) {

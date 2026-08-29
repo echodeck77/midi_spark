@@ -239,6 +239,7 @@ struct DiagView: View {
     @State var buildGridSelCorpus: [Dice.EnsembleRow] = [] // §3.1 THE PREGEN CORPUS: the big pool DEAL samples 64 from (built once, background)
     @State var buildGridSelCorpusBuilding = false        // the corpus is generating (background)
     @State var buildGridSelLib: [LibEntry] = []          // MY LIBRARY summaries (chains loaded lazily on tap)
+    @State var buildGridSelPage = 0                      // SELECT grid PAGINATION (Paul 2026-08-29): the library is split into pages of 64; page p shows buildGridSelLib[p*64 ..< p*64+64]. Left-rail buttons pick the page; one always selected, default 0 (row 1).
     @State var buildGridSelSel: Int? = nil               // the index of the auditioning cell (nil = none)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
     @State var buildGridSelQuantStep = false             // §2 QUANTIZE: INSTANT (default — snappy switching) | STEP

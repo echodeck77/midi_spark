@@ -1421,9 +1421,8 @@ extension DiagView {
             buildGridSelTab = 1
             buildGridSelComputeCellRolls()                                    // the library cells' drifting faces
         }
-        if buildGridSelSel == nil && buildGridSelStampSourceRow == nil {      // RANDOMIZE THE INITIAL SELECTION (Paul 2026-08-28): nothing chosen yet → audition a random library cell
-            if let i = (0..<64).filter({ buildGridSelPresent($0) }).randomElement() { buildGridSelAudition(i) }
-        }
+        // No startup randomization (Paul 2026-08-29): the corpus is split into deterministic PAGES via the left rail
+        // (page 0 = row 1 default). A cell auditions only when the user taps it.
         roomsSyncVoice(.select)                                              // part→chain (nothing from PART plays here)
     }
 
@@ -1518,26 +1517,32 @@ extension DiagView {
     @ViewBuilder func roomsSelectGridUnit(m: RoomsMetrics) -> some View {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad                 // heights from the shared lattice (m); width per-view
-            let cw = max(6, (g.size.width - 2 * pad - 8 * gap) / 9)            // 9 cols (8 interior + side button) → FILLS the width
+            let cw = max(6, (g.size.width - 2 * pad - 9 * gap) / 10)           // 10 cols (LEFT page rail + 8 interior + right side button)
             let ch = m.ch, navH = m.navH
             let interiorW = cw * 8 + gap * 7
             let interiorH = m.interiorH
+            let leftInset = cw + gap                                        // the left page rail → the interior's left edge
             VStack(alignment: .leading, spacing: gap) {
-                roomsPlayNavSliver(width: interiorW, height: navH)          // ▲PLAY directly above the track row, over cols 1–8
+                HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
+                    Color.clear.frame(width: leftInset)
+                    roomsPlayNavSliver(width: interiorW, height: navH)
+                }
                 VStack(spacing: gap) {
-                    HStack(spacing: gap) {                                   // track (col-select) row + corner
+                    HStack(spacing: gap) {                                   // left corner + PLAY-ferry row + right corner
+                        Color.clear.frame(width: cw, height: ch)
                         ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
                         Color.clear.frame(width: cw, height: ch)
                     }
-                    ForEach(0..<8, id: \.self) { r in                        // interior rows + right side buttons
+                    ForEach(0..<8, id: \.self) { r in                        // LEFT page rail + interior cells + right side buttons
                         HStack(spacing: gap) {
+                            roomsSelectPage(r).frame(width: cw, height: ch)  // the PAGE selector (loads a page of presets)
                             ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: ch) }
                             roomsSideButton(r).frame(width: cw, height: ch)
                         }
                     }
                 }
-                .overlay(alignment: .topLeading) {                          // the processor card over the interior 8×8
-                    roomsProcessorCardAt(x: 0, y: ch + gap, w: interiorW, h: interiorH)
+                .overlay(alignment: .topLeading) {                          // the processor card over the interior 8×8 (past the left rail)
+                    roomsProcessorCardAt(x: leftInset, y: ch + gap, w: interiorW, h: interiorH)
                 }
             }
             .padding(pad)
@@ -1545,8 +1550,28 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))
         }
     }
+    // THE PAGE RAIL (Paul 2026-08-29) — the SELECT grid's LEFT buttons. Each loads a PAGE of the preset library (page r =
+    // buildGridSelLib[r*64 ..< r*64+64]); ONE is always selected (default page 0 = row 1). A page with no presets is
+    // dimmed + inert. Replaces the old randomize-on-startup — the same corpus is now split into deterministic pages.
+    @ViewBuilder private func roomsSelectPage(_ r: Int) -> some View {
+        let hasContent = r * 64 < buildGridSelLib.count
+        let selected = buildGridSelPage == r
+        RoundedRectangle(cornerRadius: 5).fill(selected ? buildCyan.opacity(0.9) : (hasContent ? Color.white.opacity(0.14) : Color.white.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? Color.white.opacity(0.8) : buildEdge, lineWidth: selected ? 2 : 1))
+            .overlay(Text("\(r + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(selected ? .black : (hasContent ? .white.opacity(0.7) : .white.opacity(0.28))))
+            .contentShape(Rectangle())
+            .onTapGesture { if hasContent && buildGridSelPage != r { buildGridSelSetPage(r) } }
+    }
+    // Switch the SELECT grid to a new preset page: stop the transient audition, drop cell-copy overrides + the selection
+    // (they were positions on the OLD page), set the page, recompute the drifting faces for the new slice.
+    private func buildGridSelSetPage(_ r: Int) {
+        buildGridSelStopAudition()
+        buildGridSelOverride = [:]; buildGridSelSel = nil
+        buildGridSelPage = r
+        buildGridSelComputeCellRolls()
+    }
     // The grid's cell WIDTH for a given box width — so the caller can size the far-edge seam column to 50% of a cell,
-    // matching the old in-grid seam. SELECT = 9 cols, PART = 10 cols. (Paul 2026-08-28)
+    // matching the old in-grid seam. SELECT = 10 cols (left page rail + 8 + right side), PART = 10 cols. (Paul 2026-08-29)
     func roomsGridCellW(_ boxW: CGFloat, cols: Int) -> CGFloat { max(6, (boxW - 2 * 3 - CGFloat(cols - 1) * 3) / CGFloat(cols)) }
     // The empty-box PROCESSOR SELECTOR window (the catalog) — the existing modal picker, rendered in the rooms shell. (Paul 2026-08-28)
     @ViewBuilder func roomsProcessorPicker(size: CGSize) -> some View {
@@ -5823,14 +5848,15 @@ extension DiagView {
             let e = buildGridSelDealt[i]
             return (e.chain, e.transpose, colourHexes[((i % 8) * 2) % 16])
         } else {
-            guard i >= 0 && i < buildGridSelLib.count else { return nil }
-            let name = buildGridSelLib[i].name
+            let L = buildGridSelPage * 64 + i                             // PAGINATION: grid position i → library index on the current page
+            guard L >= 0 && L < buildGridSelLib.count else { return nil }
+            let name = buildGridSelLib[L].name
             // Resolve by SECTION, not by name — a saved cell may share a factory cell's name (saved rows are [0, factoryFrom)).
-            let cell = i >= buildGridSelLibFactoryFrom ? au?.factoryLibraryCell(name: name) : au?.loadLibraryCell(name: name)
-            return (cell?.processors ?? [], 0, colourHexes[i % 16])
+            let cell = L >= buildGridSelLibFactoryFrom ? au?.factoryLibraryCell(name: name) : au?.loadLibraryCell(name: name)
+            return (cell?.processors ?? [], 0, colourHexes[i % 16])       // hue is position-based (i%16 == L%16, since 64%16==0) — stable across pages
         }
     }
-    private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelOverride[i] != nil || (buildGridSelTab == 0 ? i < buildGridSelDealt.count : i < buildGridSelLib.count) }   // a cell-to-cell COPY makes an empty position present too (Paul 2026-08-28)
+    private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelOverride[i] != nil || (buildGridSelTab == 0 ? i < buildGridSelDealt.count : (buildGridSelPage * 64 + i) < buildGridSelLib.count) }   // a cell-to-cell COPY makes an empty position present too (Paul 2026-08-28); library indexed by page (2026-08-29)
     private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelOverride[i]?.hex ?? (buildGridSelTab == 0 ? colourHexes[((i % 8) * 2) % 16] : colourHexes[i % 16]) }
     private func buildGridSelSummary(_ i: Int) -> String {
         if buildGridSelTab == 0 {
@@ -5838,8 +5864,9 @@ extension DiagView {
             let c = buildGridSelDealt[i].chain
             return c.isEmpty ? "PASS" : c.map { $0.type.rawValue.uppercased() }.joined(separator: " → ")
         } else {
-            guard i < buildGridSelLib.count else { return "—" }
-            return buildGridSelLib[i].chainSummary.uppercased()
+            let L = buildGridSelPage * 64 + i                             // PAGINATION
+            guard L < buildGridSelLib.count else { return "—" }
+            return buildGridSelLib[L].chainSummary.uppercased()
         }
     }
 
