@@ -2819,6 +2819,32 @@ final class RouterTests: XCTestCase {
                              "a tight RANGE forces re-articulation on every leap; a wide RANGE keeps a single gliding voice")
         assertNothingLeftSounding(tight); assertNothingLeftSounding(wide)
     }
+    // BUG FIX 2026-08-29 — the GLIDE-ANCHOR WRONG-CLOSE (stale-slot class). A glide anchor is opened IMMORTAL
+    // (offSample .max, bypassRecv < 0), so before the fix emitColumnHolds' hold-continuity pass (which runs BEFORE the
+    // tick loop + emitColumnGlide) marked it a holdCandidate and closed it at every column boundary — freeing its voice
+    // slot. The tick loop could then REUSE that slot for another note, after which emitColumnGlide's phrase-end closed
+    // the reused slot → a spurious early note-off on an unrelated voice. Fix: glide voices carry a `glideAnchor` tag
+    // (like BYPASS) and are excluded from the hold-continuity close — the glide subsystem is their sole owner, so the
+    // slot stays alive through the tick loop (no reuse window). Guard: a glide spanning ALL columns crossing every
+    // boundary, alongside a LEGATO DRONE (so the hold-continuity path is genuinely doing work each boundary) — the
+    // glide stays alive (bends after the first boundary, proving the anchor was never orphaned) and nothing sticks.
+    func testGlideSpanningColumnsIsNotClosedByHoldContinuity() {
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!].type = .glide       // gold = a single-slot GLIDE
+        let b = box(colours: cs) {
+            for c in 0..<8 {                                       // glide row 0 spans every column (crosses every boundary)
+                $0.cells[c][0] = { var x = Cell(colourID: "gold", buses: [.a]); var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideTime = 0.1; x.processors = [g]; return x }()
+                $0.cells[c][1] = { var x = Cell(colourID: "orange", buses: [.b]); x.processors = []; return x }()   // a LEGATO drone (empty chain = born-audible passthrough) — keeps the hold-continuity path busy each boundary
+            }
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 62, 64, 65]), beats: 12, into: e)       // many boundaries; the pool changes register the glide walks
+        let bends = e.events.filter { ($0.status & 0xF0) == 0xE0 && $0.cable == 1 }
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "the glide anchors on emitter A")
+        XCTAssertGreaterThan(bends.count, 0, "the glide keeps bending across boundaries — its anchor was never wrongly closed/orphaned by hold-continuity")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "the legato drone sounds on emitter B (the hold-continuity path is live)")
+        assertNothingLeftSounding(e)                              // no stuck notes on either wire across every boundary + the stop flush
+    }
     func testGlideAnchorsBendsAndReAnchors() {
         let cs = arpColours()
         var g = ProcessorSlot(type: .glide); g.params.glideRange = 2; g.params.glidePriority = .last; g.params.glideReanchor = true; g.params.glideTime = 0

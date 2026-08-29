@@ -55,6 +55,11 @@ final class Router {
                                      // SOUNDING gate — the spark travels for exactly as long as the note is held.
         var bypassRecv: Int8 = -1    // BYPASS: ≥0 = a direct-injection voice for that receiver (IMMORTAL, managed by
                                      // reconcileBypass) — the grid's continuity + transport flushes leave it alone.
+        var glideAnchor = false      // GLIDE: a direct-injection glide voice (IMMORTAL, managed by the glide subsystem —
+                                     // emitColumnGlide/emitGlideDriven + flushGlide). Like bypassRecv, the hold-continuity
+                                     // boundary-close must SKIP it, else a glide note sustained across a column boundary
+                                     // is wrongly cut (marked a holdCandidate, no hold cell adopts it → closed). BUG fix
+                                     // 2026-08-29. Set from `meter` in openVoice (the two flag the identical voice set).
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -776,6 +781,10 @@ final class Router {
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
         voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < 64) ? Int8(currentCellIndex) : -1   // SEAL sounding gate
         voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
+        voices[slot].glideAnchor = meter       // GLIDE: `meter` marks glide direct-injection voices (its sole users — see
+                                               // the comment above + the Voice.glideAnchor note); tag them so the
+                                               // hold-continuity boundary-close skips them. A reused slot always resets
+                                               // this (openVoice rewrites every field), so a later non-glide voice is clean.
         return slot
     }
 
@@ -1520,8 +1529,8 @@ final class Router {
         // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
         // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+colour+face), so
         // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
-        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0
-            && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) }   // BYPASS voices are immortal but NOT grid holds — never adopt/close them here; per-part clock scopes to the row
+        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 && !voices[i].glideAnchor
+            && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) }   // BYPASS + GLIDE voices are immortal but NOT grid holds — never adopt/close them here; per-part clock scopes to the row
         // Proceed while the LIVE pool has notes OR any receiver is latch-armed: an armed receiver's FROZEN pool
         // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
         // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
