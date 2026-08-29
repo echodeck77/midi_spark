@@ -182,53 +182,8 @@ extension DiagView {
         .opacity(expanded && !selected ? 0.4 : 1)                                                  // non-selected DIM in stage 2 (the tabs recede)
     }
 
-    // ── THE UNIFORM 9×9 GRID UNIT ──
-    @ViewBuilder private func launchUnit(colSelectBottom: Bool, rowSelectLeft: Bool, libraryGrid: Bool = false) -> some View {
-        let gap: CGFloat = 3
-        let selRow = colSelectBottom ? 8 : 0
-        let selCol = rowSelectLeft ? 0 : 8
-        VStack(spacing: gap) {
-            ForEach(0..<9, id: \.self) { r in
-                HStack(spacing: gap) { ForEach(0..<9, id: \.self) { c in launchCell9(r, c, selRow: selRow, selCol: selCol, libraryGrid: libraryGrid) } }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsAccent.opacity(0.35), lineWidth: 1.5))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    @ViewBuilder private func launchCell9(_ r: Int, _ c: Int, selRow: Int, selCol: Int, libraryGrid: Bool) -> some View {
-        let gridRow = r > selRow ? r - 1 : r
-        let gridCol = c > selCol ? c - 1 : c
-        if r == selRow && c == selCol {
-            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if r == selRow {
-            colSelCell(selCol == 0 ? c - 1 : c)
-        } else if c == selCol {
-            // THE SIDE BUTTONS = part slots that hold chains — the §4 shared exclusive column (SELECT audition source). (Paul 2026-08-28)
-            if libraryGrid { roomsSideButton(gridRow).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { rowSelCell() }
-        } else if libraryGrid {
-            // THE SELECT GRID = the LIBRARY-backed chain browser — each interior cell is a real chain face (§6 reuse).
-            roomsSelectGridCell(gridRow * 8 + gridCol).frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05)).frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-    private func colSelCell(_ t: Int) -> some View {
-        let on = t >= 0 && t < roomsTrackOn.count && roomsTrackOn[t]
-        return RoundedRectangle(cornerRadius: 4).fill(on ? roomsAccent.opacity(0.9) : Color.white.opacity(0.11))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.55)))
-            .contentShape(Rectangle())
-            .onTapGesture { if t >= 0 && t < roomsTrackOn.count { roomsTrackOn[t].toggle() } }
-            .onLongPressGesture(minimumDuration: 0.4) { /* assign — wired when tracks are real */ }
-    }
-    private func rowSelCell() -> some View {
-        RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.11)).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(Image(systemName: "arrow.right").font(.system(size: 8)).foregroundColor(.white.opacity(0.4)))
-    }
+    // (The old uniform 9×9 launchUnit/launchCell9/colSelCell/rowSelCell were the PLACEHOLDER play grid — retired
+    // 2026-08-29 when the PLAY room became a real 2/3-width grid, roomsPlayGrid in BuildPage. See roomsPlay below.)
 
     // ── NAVIGATION ──
     // (The ▲PLAY and part↔select nav are now SLIVERS inside the grid box — roomsPlayNavSliver / roomsSeamSliver in
@@ -279,10 +234,22 @@ extension DiagView {
         .onAppear { roomsPartSetup() }                                    // source the MIDI from the part grid + refresh the side-button faces
     }
     @ViewBuilder private func roomsPlay(_ size: CGSize) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 8) { navDoor("◂ SELECT", to: .select); navDoor("PART ▸", to: .part); Spacer() }.padding(.horizontal, 10).padding(.top, 8)
-            launchUnit(colSelectBottom: true, rowSelectLeft: false).padding(.horizontal, 10).padding(.bottom, 8)
+        GeometryReader { g in
+            let navH: CGFloat = 30
+            let avail = g.size.width - 16 - 6                              // page padding (16) + 1 HStack gap (6)
+            let gridW = avail * 2 / 3                                      // THE GRID = 2/3 of the width (Paul 2026-08-29)
+            let chainW = avail - gridW                                     // the machine strip fills the remaining 1/3
+            let bodyH = g.size.height - 16 - navH - 6                      // content height below the nav bar
+            let m = RoomsMetrics(height: bodyH)                            // lattice for the chain panel's bands
+            VStack(spacing: 6) {
+                HStack(spacing: 8) { navDoor("◂ SELECT", to: .select); navDoor("PART ▸", to: .part); Spacer() }.frame(height: navH)
+                HStack(spacing: 6) {
+                    roomsPlayGrid().frame(width: gridW, height: bodyH)     // the clean 8×8 (rung-per-column + bottom readout)
+                    chainPanel(.play, m).frame(width: chainW, height: bodyH)   // the selected cell's machine — ⚠ device-flag: keep here or drop?
+                }
+            }.padding(8)
         }
+        .onAppear { roomsPlaySetup() }                                     // default the per-column selection to row 1
     }
     @ViewBuilder private func roomsReel(_ size: CGSize) -> some View {
         VStack(spacing: 8) {
