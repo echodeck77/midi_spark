@@ -1381,14 +1381,26 @@ extension DiagView {
         let cgap = BuildGeom.castGap                                         // the chain block keeps its own 8-column grain (4)
         let swW = (castW - cgap * 7) / 8
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))
+        let blockH = 4 * (cell * 2 + cgap) + 3 * cgap                       // the 2×4 MIDI-chain block height (the verb buttons share it)
+        let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
+        let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
         VStack(spacing: gap) {
             Color.clear.frame(height: m.navH)                               // BAND 1 — INVISIBLE, aligns with the grid's ▲PLAY nav door (Paul 2026-08-29)
             AnyView(roomsPlayHeader(room)).frame(height: m.ch)              // BAND 2 — the PLAY button, parallel with the grid's FERRY row (was the wide RECORD button)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 AnyView(buildReceiverSelector(castW: castW))                 // MIDI IN A–D — pinned at the interior TOP
-                AnyView(HStack(alignment: .top, spacing: cgap) {           // verbs + the 2×4 MIDI chain
-                    AnyView(buildChainButtonStack(width: (castW / 2 - cgap / 2) * 0.75, height: 4 * (cell * 2 + cgap) + 3 * cgap, showGrid: false))
-                    AnyView(buildProcessorBlock(castW: castW, cell: cell))
+                AnyView(HStack(alignment: .top, spacing: 0) {              // MIDI CHAIN CENTRED · verb buttons to ONE side — LEFT on PART, RIGHT on SELECT (Paul 2026-08-29)
+                    if room == .part {                                     // PART → buttons LEFT of the chain
+                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                    } else {
+                        Color.clear.frame(width: sideW)                    // SELECT → empty flank (mirrors the buttons' width, keeps the chain centred)
+                    }
+                    AnyView(buildProcessorBlock(castW: castW, cell: cell)).frame(width: blockW)   // the chain, its intrinsic width, CENTRED between the equal flanks
+                    if room == .part {
+                        Color.clear.frame(width: sideW)
+                    } else {                                               // SELECT → buttons RIGHT of the chain (flex to the mirror flank)
+                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                    }
                 })
                 Spacer(minLength: 8)
                 AnyView(buildEmitterToggles(castW: castW))                   // MIDI OUT A–D — pinned at the interior BOTTOM (the grid's last row line)
@@ -1615,7 +1627,7 @@ extension DiagView {
     // source onto it as a new instance (cell-to-cell). buildGridSelCell itself is untouched (old BUILD unaffected). (Paul 2026-08-28)
     @ViewBuilder func roomsSelectGridCell(_ i: Int) -> some View {
         GeometryReader { cg in
-            buildGridSelCell(i, w: cg.size.width, h: cg.size.height)
+            buildGridSelCell(i, w: cg.size.width, h: cg.size.height, greyUnlessSel: true, vPad: cg.size.height * 0.15)   // SELECT grid: grey-unless-selected + 15% roll padding (Paul 2026-08-29)
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44, perform: { roomsCopyToSelectCell(i) })
         }
     }
@@ -6096,14 +6108,20 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan.opacity(0.9) : buildCell))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
-    @ViewBuilder private func buildGridSelCell(_ i: Int, w: CGFloat, h: CGFloat) -> some View {
+    @ViewBuilder private func buildGridSelCell(_ i: Int, w: CGFloat, h: CGFloat, greyUnlessSel: Bool = false, vPad: CGFloat = 3) -> some View {
         let present = buildGridSelPresent(i)
         let hue = Color(hex: buildGridSelCellHex(i))
         let sel = buildGridSelSel == i
+        // greyUnlessSel (SELECT grid, Paul 2026-08-29): an unselected present cell is a DARK-GREY button with a LIGHT-GREY
+        // piano roll; only the SELECTED cell wears its chain's colour + white roll. Else (old grid selector) = coloured.
+        let unselGrey = greyUnlessSel && !sel
+        let fill = present ? (sel ? hue.opacity(0.85) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)
+        let rollTint: Color = unselGrey ? Color(white: 0.78) : .white
         ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(present ? hue.opacity(sel ? 0.85 : 0.42) : Color.white.opacity(0.03))
+            RoundedRectangle(cornerRadius: 6).fill(fill)
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
-                buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: sel).padding(3).opacity(sel ? 1.0 : 0.7)   // DSP: only the SELECTED cell drifts; the other 63 draw static (no 64× animation) (2026-08-28)
+                buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: sel, tint: rollTint)
+                    .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // DSP: only the SELECTED cell drifts; SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
             }
             if sel {       // THE ACTIVE CELL — a breathing live frame
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
@@ -6119,7 +6137,7 @@ extension DiagView {
     // THE DRIFTING NOTE FACE (Paul 2026-08-26): notes scroll RIGHT→LEFT, looping — the same aesthetic as the part/play grid
     // cells (buildNoteSweep). Every present cell + row selector wears its chain's fingerprint drifting across it (a browse
     // preview: you can't run 64 live voices, so each cell loops its chain's note pattern). Opacity by velocity.
-    @ViewBuilder private func buildGridSelDriftFace(_ bars: [GridSelBar], animated: Bool, period: Double = 2.4) -> some View {
+    @ViewBuilder private func buildGridSelDriftFace(_ bars: [GridSelBar], animated: Bool, period: Double = 2.4, tint: Color = .white) -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: animationsPaused || !animated || bars.isEmpty)) { tl in
             Canvas { ctx, size in
                 let barH = max(1.5, size.height * 0.09)
@@ -6130,7 +6148,7 @@ extension DiagView {
                     let base = ((b.x0 - phase).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // frac(x0 - phase)
                     for k in [0.0, -1.0] {                                  // draw the note + its wrap-around copy so the flow is seamless at the right edge
                         let rect = CGRect(x: (base + k) * size.width, y: y - barH / 2, width: w, height: barH)
-                        ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(.white.opacity(0.3 + 0.5 * b.vel)))
+                        ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(tint.opacity(0.3 + 0.5 * b.vel)))
                     }
                 }
             }
