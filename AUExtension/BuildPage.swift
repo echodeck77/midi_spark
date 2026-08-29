@@ -1585,24 +1585,35 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
-    // THE PAGE RAIL (Paul 2026-08-29) — the SELECT grid's LEFT buttons. Each loads a PAGE of the preset library (page r =
-    // buildGridSelLib[r*64 ..< r*64+64]); ONE is always selected (default page 0 = row 1). A page with no presets is
-    // dimmed + inert. Replaces the old randomize-on-startup — the same corpus is now split into deterministic pages.
-    @ViewBuilder private func roomsSelectPage(_ r: Int) -> some View {
-        let hasContent = r * 64 < buildGridSelLib.count
-        let selected = buildGridSelPage == r
-        RoundedRectangle(cornerRadius: 5).fill(selected ? buildCyan.opacity(0.9) : (hasContent ? Color.white.opacity(0.14) : Color.white.opacity(0.04)))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? Color.white.opacity(0.8) : buildEdge, lineWidth: selected ? 2 : 1))
-            .overlay(Text("\(r + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(selected ? .black : (hasContent ? .white.opacity(0.7) : .white.opacity(0.28))))
-            .contentShape(Rectangle())
-            .onTapGesture { if hasContent && buildGridSelPage != r { buildGridSelSetPage(r) } }
+    // THE CATEGORY RAIL (Paul 2026-08-29) — the SELECT grid's LEFT buttons are FIXED processor-type categories; tapping one
+    // filters the library grid to presets containing that processor. ONE is always selected (default 0 = ARP).
+    var roomsSelectCategories: [(label: String, type: ProcessorType)] {
+        [("ARP", .arp), ("RIFF", .riff), ("EUCLID", .euclid), ("RATCHET", .ratchet),
+         ("CHANCE", .chance), ("HARMONY", .harmonize), ("MOD/CC", .mod), ("GATE", .passgate)]
     }
-    // Switch the SELECT grid to a new preset page: stop the transient audition, drop cell-copy overrides + the selection
-    // (they were positions on the OLD page), set the page, recompute the drifting faces for the new slice.
-    private func buildGridSelSetPage(_ r: Int) {
+    private func buildGridSelCategoryType(_ c: Int) -> ProcessorType { roomsSelectCategories[max(0, min(roomsSelectCategories.count - 1, c))].type }
+    // Recompute the CURRENT category's matching library indices (an entry matches if its chain contains the category's
+    // processor). Called on a category change + when the library loads. Cheap O(lib) scan, cached in buildGridSelCatIndices.
+    func buildGridSelRecomputeCategory() {
+        let ty = buildGridSelCategoryType(buildGridSelPage)
+        buildGridSelCatIndices = buildGridSelLib.indices.filter { buildGridSelLib[$0].types.contains(ty) }
+    }
+    @ViewBuilder private func roomsSelectPage(_ r: Int) -> some View {
+        let cat = r < roomsSelectCategories.count ? roomsSelectCategories[r].label : ""
+        let selected = buildGridSelPage == r
+        RoundedRectangle(cornerRadius: 5).fill(selected ? buildCyan.opacity(0.9) : Color.white.opacity(0.10))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? Color.white.opacity(0.8) : buildEdge, lineWidth: selected ? 2 : 1))
+            .overlay(Text(cat).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(selected ? .black : .white.opacity(0.75)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 1))
+            .contentShape(Rectangle())
+            .onTapGesture { if buildGridSelPage != r && r < roomsSelectCategories.count { buildGridSelSetPage(r) } }
+    }
+    // Switch the SELECT grid to a new CATEGORY: stop the transient audition, drop cell-copy overrides + the selection,
+    // set the category, recompute its matching library slice + the drifting faces.
+    private func buildGridSelSetPage(_ c: Int) {
         buildGridSelStopAudition()
         buildGridSelOverride = [:]; buildGridSelSel = nil
-        buildGridSelPage = r
+        buildGridSelPage = c
+        buildGridSelRecomputeCategory()
         buildGridSelComputeCellRolls()
     }
     // The grid's cell WIDTH for a given box width — so the caller can size the far-edge seam column to 50% of a cell,
@@ -1642,17 +1653,22 @@ extension DiagView {
         GeometryReader { g in roomsSideChip(n, height: g.size.height, part: part) }
     }
     @ViewBuilder private func roomsSideChip(_ n: Int, height: CGFloat, part: Bool) -> some View {
-        let cid = buildRowColour(n)
-        let tint = cid.flatMap { colourColor($0) }
+        let populated = buildRowColour(n) != nil                          // this slot/row holds a chain
         let active = buildGridSelStampSourceRow == n                      // THE active side button — white border (§ "one cell or one side button is active")
-        RoundedRectangle(cornerRadius: 5).fill(active ? (tint ?? buildCyan) : (cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
+        let predet = Color(hex: colourHexes[n % 16])                      // the slot's PREDETERMINED colour (a range across the 8)
+        let sounding = buildStagingPlaying && buildStagingSel.contains(n) // this row is a currently-sounding rung (per-slot status proxy)
+        RoundedRectangle(cornerRadius: 5).fill(active ? Color.white.opacity(0.16) : (populated ? Color.white.opacity(0.10) : buildRowButtonFill))
             .frame(height: height)
-            .overlay { if cid != nil { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: false).padding(2).opacity(0.65) } }   // DSP: static fingerprint (no per-slot animation)
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(active ? Color.white : (tint ?? buildEdge), lineWidth: active ? 2 : 1))
-            .overlay { if cid == nil { RoundedRectangle(cornerRadius: 5).stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(buildEdge) } }
-            .overlay(Text("\(n + 1)").font(.system(size: min(13, height * 0.4), weight: .heavy, design: .monospaced)).foregroundColor(active ? .black.opacity(0.75) : (tint ?? .white.opacity(0.7))))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(active ? Color.white : (populated ? predet.opacity(0.5) : buildEdge), lineWidth: active ? 2 : 1))
+            .overlay {
+                if part {                                                // PART LEFT rail → the slot NUMBER in its predetermined colour
+                    Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced)).foregroundColor(predet.opacity(populated ? 1.0 : 0.5))
+                } else {                                                 // SELECT RIGHT rail → a PLAY/STOP transport icon in its predetermined colour (populated = bright, empty = dim, sounding = stop)
+                    Image(systemName: sounding ? "stop.fill" : "play.fill").font(.system(size: min(13, height * 0.5), weight: .black)).foregroundColor(predet.opacity(populated ? 1.0 : 0.4))
+                }
+            }
             .contentShape(Rectangle())
             .onTapGesture { part ? roomsTapPartSide(n) : roomsTapSide(n) }
             .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
@@ -1754,9 +1770,11 @@ extension DiagView {
     }
     // A PART track-head (top row) — placeholder track play/stop, matching the launchpad col-select style. (§2 header)
     private func colSelCellPart(_ t: Int) -> some View {
-        let on = t >= 0 && t < 8 && buildRowColour(t) != nil
-        return RoundedRectangle(cornerRadius: 4).fill(on ? (buildRowColour(t).flatMap { colourColor($0) } ?? buildCyan).opacity(0.5) : Color.white.opacity(0.11))
-            .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55)))
+        let populated = t >= 0 && t < 8 && buildRowColour(t) != nil
+        let predet = Color(hex: colourHexes[t % 16])                      // predetermined colour (a range across the 8)
+        let sounding = buildStagingPlaying && buildStagingSel.contains(t) // this row currently sounding (per-slot status proxy)
+        return RoundedRectangle(cornerRadius: 4).fill(populated ? Color.white.opacity(0.10) : Color.white.opacity(0.05))
+            .overlay(Image(systemName: sounding ? "stop.fill" : "play.fill").font(.system(size: 11, weight: .black)).foregroundColor(predet.opacity(populated ? 1.0 : 0.4)))   // PLAY/STOP transport icon in its predetermined colour (Paul 2026-08-29)
     }
     // TAP a PART LEFT side button — it becomes the SELECTED slot (the always-one selection, shared with SELECT) + the
     // copy source, and reflects its chain in the panel. It does NOT select a grid row — the RIGHT rail does that. (Paul 2026-08-28)
@@ -5814,6 +5832,7 @@ extension DiagView {
         let saved = au?.libraryCellSummaries() ?? []
         buildGridSelLib = saved + (au?.factoryLibrarySummaries() ?? [])  // v1 folds factory in so first run isn't empty
         buildGridSelLibFactoryFrom = saved.count                         // entries at/after this index are FACTORY (resolve by section, not by name)
+        buildGridSelRecomputeCategory()                                  // the current category's matching library slice (SELECT rail filter)
         buildGridSelSel = nil
         buildGridSelBuildCorpus()                                        // §3.1 kick the pregen corpus (background, once) — DEAL upgrades to it when ready
         if buildGridSelDealt.isEmpty || !buildGridSelCorpus.isEmpty { buildGridSelDeal() }   // corpus ready ⇒ instant draw; else a fresh 64
@@ -5891,15 +5910,16 @@ extension DiagView {
             let e = buildGridSelDealt[i]
             return (e.chain, e.transpose, colourHexes[((i % 8) * 2) % 16])
         } else {
-            let L = buildGridSelPage * 64 + i                             // PAGINATION: grid position i → library index on the current page
+            guard i >= 0 && i < buildGridSelCatIndices.count else { return nil }   // CATEGORY: grid position i → the i-th library entry in the current category
+            let L = buildGridSelCatIndices[i]
             guard L >= 0 && L < buildGridSelLib.count else { return nil }
             let name = buildGridSelLib[L].name
             // Resolve by SECTION, not by name — a saved cell may share a factory cell's name (saved rows are [0, factoryFrom)).
             let cell = L >= buildGridSelLibFactoryFrom ? au?.factoryLibraryCell(name: name) : au?.loadLibraryCell(name: name)
-            return (cell?.processors ?? [], 0, colourHexes[i % 16])       // hue is position-based (i%16 == L%16, since 64%16==0) — stable across pages
+            return (cell?.processors ?? [], 0, colourHexes[i % 16])       // hue position-based
         }
     }
-    private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelOverride[i] != nil || (buildGridSelTab == 0 ? i < buildGridSelDealt.count : (buildGridSelPage * 64 + i) < buildGridSelLib.count) }   // a cell-to-cell COPY makes an empty position present too (Paul 2026-08-28); library indexed by page (2026-08-29)
+    private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelOverride[i] != nil || (buildGridSelTab == 0 ? i < buildGridSelDealt.count : i < buildGridSelCatIndices.count) }   // a cell-to-cell COPY makes an empty position present too (Paul 2026-08-28); library filtered by CATEGORY (2026-08-29)
     private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelOverride[i]?.hex ?? (buildGridSelTab == 0 ? colourHexes[((i % 8) * 2) % 16] : colourHexes[i % 16]) }
     private func buildGridSelSummary(_ i: Int) -> String {
         if buildGridSelTab == 0 {
@@ -5907,9 +5927,8 @@ extension DiagView {
             let c = buildGridSelDealt[i].chain
             return c.isEmpty ? "PASS" : c.map { $0.type.rawValue.uppercased() }.joined(separator: " → ")
         } else {
-            let L = buildGridSelPage * 64 + i                             // PAGINATION
-            guard L < buildGridSelLib.count else { return "—" }
-            return buildGridSelLib[L].chainSummary.uppercased()
+            guard i < buildGridSelCatIndices.count else { return "—" }    // CATEGORY
+            return buildGridSelLib[buildGridSelCatIndices[i]].chainSummary.uppercased()
         }
     }
 
