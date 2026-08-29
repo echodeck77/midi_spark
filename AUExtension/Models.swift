@@ -1443,6 +1443,9 @@ struct PluginState: Codable, Equatable {
         // Every door defaults to THRU (Paul 2026-08-23): a fresh instance plays STRAIGHT — live input feeds the grid,
         // nothing latches. The user opts into latching by choosing LATCH/HOLD/KEYS/REPLAY/FILE.
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1; state.receivers![i].doorMode = .thru }
+        if state.receivers!.count > 3 {   // DEFAULT: receiver D → A MIXOLYDIAN scale door (Paul 2026-08-29) — fresh instances only
+            state.receivers![3].doorMode = .scale; state.receivers![3].scaleRoot = 9; state.receivers![3].scaleType = .mixolydian
+        }
         // Start with ONE colour on the grid (user 2026-08-09): so the palette shows a single colour and there's a piece
         // to drag/fork. GOLD, a DRONE across the WHOLE top row (Paul 2026-08-23): a held note sounds STRAIGHT THROUGH —
         // a drone is a legato sustained hold (struck once, adopted across all 8 columns with NO per-step re-strike), so a

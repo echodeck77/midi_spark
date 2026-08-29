@@ -253,6 +253,7 @@ struct DiagView: View {
     @State var buildGridSelStampFlashRow: Int? = nil     // a just-stamped row — flashes fully white then fades to its colour
     @State var buildGridSelStampFlashAt: Date? = nil
     @State var buildGridSelStampSourceRow: Int? = nil    // NEW INTERFACE (Paul 2026-08-28): the ACTIVE SIDE BUTTON — the white-bordered part slot, and (if populated) the STAMP SOURCE for a long-press copy onto another side button/cell. Mutually exclusive with buildGridSelSel (a library-cell source).
+    @State var buildFerryHeld = false                    // a ferry button was HELD (deliberate copy hold) then released BEFORE committing → suppress the follow-up tap so it doesn't steal focus / re-audition the playing cell (Paul 2026-08-29)
     @State var buildGridSelOverride: [Int: (chain: [ProcessorSlot], hex: UInt32)] = [:]   // NEW INTERFACE (Paul 2026-08-28): SELECT cell-to-cell copies land here as NEW in-memory INSTANCES (position → chain+hue) — the saved library on disk is never overwritten. Cleared on re-deal / tab switch.
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
     @State var buildGridSelPriorSolo = false             // pre-open workshop-voice snapshot — restored on CANCEL (never silence a voice we didn't own)

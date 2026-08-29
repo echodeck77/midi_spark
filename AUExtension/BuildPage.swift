@@ -1690,6 +1690,7 @@ extension DiagView {
     // TAP a SELECT side button — a POPULATED one becomes the active selection + stamp source (and auditions its chain); an
     // EMPTY one only AIMS (targets a future stamp) — it must not read as selected when the user hasn't committed. (Paul 2026-08-29)
     private func roomsTapSide(_ n: Int) {
+        if buildFerryHeld { buildFerryHeld = false; return }            // released-early hold → don't steal focus / re-audition the playing cell
         buildGridSelAimRow(n)                                            // aim this row as the stamp/commit target (+ audition if populated)
         if buildRowColour(n) != nil { buildRoomsSetActiveSide(n) }      // only a POPULATED button becomes THE active selection + copy source
     }
@@ -1783,6 +1784,7 @@ extension DiagView {
     // TAP a PART LEFT side button — it becomes the SELECTED slot (the always-one selection, shared with SELECT) + the
     // copy source, and reflects its chain in the panel. It does NOT select a grid row — the RIGHT rail does that. (Paul 2026-08-28)
     private func roomsTapPartSide(_ n: Int) {
+        if buildFerryHeld { buildFerryHeld = false; return }            // released-early hold → don't steal focus / re-audition the playing cell
         buildRoomsSetActiveSide(n)                                      // this left button is THE selected slot (+ copy source); clears any library-cell source
         if buildRowColour(n) != nil { buildTapColourTab(n) }           // reflect its chain in the MIDI CHAIN panel (does NOT touch the grid rung selection)
     }
@@ -6264,8 +6266,12 @@ extension DiagView {
     private var buildGridSelStampDur: Double { 0.65 }
     private func buildGridSelStampPressing(_ n: Int, _ pressing: Bool) {
         if pressing {
+            buildFerryHeld = false                                       // fresh gesture
             if buildGridSelCanStamp { buildGridSelStampRow = n; buildGridSelStampAt = Date() }
         } else if buildGridSelStampRow == n {                            // released before completion → cancel the rising fill
+            // A DELIBERATE hold (fill was running > ~0.2s) released before the copy committed → suppress the follow-up TAP
+            // so it doesn't steal focus / re-audition the playing cell. A quick tap (< 0.2s) still selects normally. (Paul 2026-08-29)
+            if let at = buildGridSelStampAt, Date().timeIntervalSince(at) > 0.2 { buildFerryHeld = true }
             buildGridSelStampRow = nil; buildGridSelStampAt = nil
         }
     }
