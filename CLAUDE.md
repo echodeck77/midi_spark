@@ -159,6 +159,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
+  iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
+  **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2
+  flagged for device in `_dear_paul/bug-hunt-2026-08-29.md`). **GLIDE-anchor wrong-close** (`9e4c4a3`, engine): a glide
+  voice sustained across a column boundary could get a spurious early note-off — its immortal anchor slot was freed by
+  the hold-continuity pass, reused by the tick loop, then wrongly closed by glide's phrase-end (the stale-slot class).
+  Fix: a `Voice.glideAnchor` tag (parallel to `bypassRecv`, set from `meter` in openVoice) excludes glide voices from
+  the hold-continuity close — the glide subsystem is their sole owner; +1 RouterTest. **PERSISTENCE/UI** (`d64d3d5` +
+  the pre-existing `6d78788`): fullState GET encoded `pendingBuildUnassigned/Scenes` UNCONDITIONALLY → a load→save with
+  the BUILD editor never opened dropped the restored part + scenes (now falls back to `document.*`); `buildCaptureUnassigned`
+  never carried the ephemeral colours' register-home (now rides `Colour.transpose`); the SELECT stamp + COMMIT read the
+  ORIGINAL library chain, dropping live card EDITS (both now prefer the gsAud audition); dropped a dead `.frame(height:40)`
+  that fought the lattice. **② ROOMS TEST-COVERAGE** (`48dbef0`, +11 tests): extracted the pure `roomsLattice(height:)`
+  geometry (RoomsMetrics wraps it) + the `roomsStampSource(...)` stamp/COMMIT PRIORITY (the edit-not-carried bug locus)
+  into Foundation-only unit-tested functions in Derivations; BuildPage delegates (behaviour-identical); +extended the
+  BuildUnassignedData round-trip to assert the register-home travels. **③ CR-8 DATA-LOSS on `Cell.inputChannel`**
+  (`e37ab6b`, +3 tests): the v3.0 non-Optional field made a formatVersion-2 doc's cells THROW at decode BEFORE migration
+  could run → whole-session factory-reset. Closed with a decode-tolerant `Cell` init(from:) (the Macro/BuildPart pattern;
+  fields stay non-Optional → encode byte-identical, only a MISSING key now defaults). PluginState's CR-8 was already done;
+  pending-tasks refreshed. **④ HOUSEKEEPING** (`02c8fb7`; 3 verified surveys): `ArpPattern.allCases` (a computed →
+  per-tick heap alloc) cached as `arpPatternCases`/`arpPatternAt` at the 2 arp render sites (invariant 3, byte-identical);
+  removed grep-verified dead `SceneState.tapAction`/`enum TapAction` + `SceneState.quant`/`enum Quant` (superseded by
+  OnConfig, decode-safe); +3 coverage tests for the defensive resolver clamps. Everything DEVICE-owed (the rooms UI + the
+  glide ear-check are off-device-only). The render-path #2–#4 clarity extractions + the RISKY glide/riff items were left.**
 - **▶ STANDARD PANEL ANATOMY §1 — the FOOTER (reference cards) + the HEADER standards OCT + SOURCE (2026-08-27, on
   `main`; iOS builds, macOS green; DEVICE eye/ear owed). Paul's flagship UI goal (spec `AcceptanceCriteria-standard-panel-
   anatomy.md`, ratified). Built increment-by-increment with his steer. **THE FOOTER (`c01e966`+`5aedb06`+`e3ed45f`, UI-only):**
