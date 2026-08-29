@@ -1389,7 +1389,8 @@ extension DiagView {
             AnyView(roomsPlayHeader(room)).frame(height: m.ch)              // BAND 2 — the PLAY button, parallel with the grid's FERRY row (was the wide RECORD button)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 AnyView(buildReceiverSelector(castW: castW))                 // MIDI IN A–D — pinned at the interior TOP
-                AnyView(HStack(alignment: .top, spacing: 0) {              // MIDI CHAIN CENTRED · verb buttons to ONE side — LEFT on PART, RIGHT on SELECT (Paul 2026-08-29)
+                Spacer(minLength: 8)                                         // centre the chain row VERTICALLY between the receiver + emitters (Paul 2026-08-29)
+                AnyView(HStack(alignment: .center, spacing: 0) {           // MIDI CHAIN CENTRED · verb buttons to ONE side — LEFT on PART, RIGHT on SELECT (Paul 2026-08-29)
                     if room == .part {                                     // PART → buttons LEFT of the chain
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
                     } else {
@@ -5662,6 +5663,13 @@ extension DiagView {
 
     // ADD a catalog CARD at box `i`: populate the box with the card's type, pre-set its mode, open its editor.
     private func buildChainAddCard(_ i: Int, _ card: BuildCard) {
+        if ddSelectedColourID == nil {                                    // no colour holds the chain (SELECT grid, nothing auditioned since the auto-audition was retired) →
+            buildColourReg[buildGridSelAudID] = []                        // start a FRESH transient so buildApplyChain has a target + the card can open (BUG fix 2026-08-29)
+            colourHueOverride[buildGridSelAudID] = colourHexes.first ?? 0x808080
+            buildColourTranspose[buildGridSelAudID] = 0
+            buildSyncColours()
+            buildSelID = buildGridSelAudID
+        }
         var c = selectedColourChain()
         while c.count <= i { c.append(buildPassthroughSlot()) }
         var slot = ProcessorSlot(type: card.type)
