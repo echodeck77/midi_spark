@@ -1343,19 +1343,25 @@ extension DiagView {
     // The verb button stack, right of the MIDI chain. LEFT chevrons (<<<) act on the SELECTED colour's midi chain;
     // RIGHT chevrons (>>>) act on the PART grid. LIBRARY opens the cell library. (Paul 2026-08-18)
     @ViewBuilder private func buildChainButtonStack(width: CGFloat, height: CGFloat, showGrid: Bool = true) -> some View {
-        VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs — SHARE the fixed height (fill:true) so adding GRID never overflows/resizes the chain grid (Paul 2026-08-23)
-            buildChainBtn("LIBRARY", fill: true)   { buildOpenLibrary() }
-            if showGrid { buildChainBtn("GRID", fill: true) { buildOpenGridSel() } }   // THE GRID SELECTOR — hidden in the new interface (the SELECT room IS the grid, Paul 2026-08-28)
-            buildChainBtn("RANDOMIZE", fill: true) { buildRandomizeSimple() } // reroll the chain
-            buildChainBtn("MUTATE", fill: true)    { buildMutateChain() }     // nudge the chain
-            buildChainBtn("CLEAR", fill: true)     { buildClearChain() }      // empty the chain
-            HStack(spacing: BuildGeom.castGap) {                              // COPY | PASTE — copy this chain into a new row position (Paul 2026-08-25)
-                buildChainBtn("COPY", fill: true) { buildCopyChain() }
-                buildChainBtn("PASTE", enabled: !(buildChainClipboard ?? []).isEmpty, fill: true) { buildPasteChain() }   // disabled until the buffer holds a chain
+        VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs
+            if showGrid {                                                     // OLD build page — the full verb set, filling the stack (unchanged)
+                buildChainBtn("LIBRARY", fill: true)   { buildOpenLibrary() }
+                buildChainBtn("GRID", fill: true)      { buildOpenGridSel() }
+                buildChainBtn("RANDOMIZE", fill: true) { buildRandomizeSimple() } // reroll the chain
+                buildChainBtn("MUTATE", fill: true)    { buildMutateChain() }     // nudge the chain
+                buildChainBtn("CLEAR", fill: true)     { buildClearChain() }      // empty the chain
+                HStack(spacing: BuildGeom.castGap) {                              // COPY | PASTE — copy this chain into a new row position
+                    buildChainBtn("COPY", fill: true) { buildCopyChain() }
+                    buildChainBtn("PASTE", enabled: !(buildChainClipboard ?? []).isEmpty, fill: true) { buildPasteChain() }
+                }
+            } else {                                                         // ROOMS machine section — SMALLER buttons (text unchanged); RANDOMIZE + COPY/PASTE dropped (Paul 2026-08-29)
+                buildChainBtn("LIBRARY", h: 26) { buildOpenLibrary() }
+                buildChainBtn("MUTATE", h: 26)  { buildMutateChain() }
+                buildChainBtn("CLEAR", h: 26)   { buildClearChain() }
             }
         }
         .frame(width: width)
-        .frame(height: height, alignment: .center)                           // the stack is EXACTLY this tall (matches the 4-row processor block); the buttons share it
+        .frame(height: height, alignment: .center)                           // the stack matches the 4-row processor block height; the compact buttons centre within it
         .frame(maxWidth: .infinity, alignment: .center)                      // centre HORIZONTALLY in the space beside the chain
     }
 
@@ -2154,12 +2160,13 @@ extension DiagView {
         }
     }
 
-    @ViewBuilder private func buildChainBtn(_ label: String, enabled: Bool = true, fill: Bool = false, action: @escaping () -> Void) -> some View {
+    @ViewBuilder private func buildChainBtn(_ label: String, enabled: Bool = true, fill: Bool = false, h: CGFloat? = nil, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.2)
             .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
             // fill = SHARE the stack's fixed height (so N buttons never overflow it → the chain grid keeps its size,
-            // Paul 2026-08-23); else a compact fixed 33 (the GRID-verb HStack row).
-            .frame(maxWidth: .infinity).frame(maxHeight: fill ? .infinity : nil).frame(height: fill ? nil : 33)
+            // Paul 2026-08-23); else a compact fixed height (`h`, default 33 = the GRID-verb HStack row). Text size is
+            // unchanged (8pt) regardless of the button height.
+            .frame(maxWidth: .infinity).frame(maxHeight: fill ? .infinity : nil).frame(height: fill ? nil : (h ?? 33))
             .background(RoundedRectangle(cornerRadius: 6).fill(buildCell))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
             .opacity(enabled ? 1 : 0.35)                                      // DISABLED → dimmed + inert (Paul 2026-08-18)
