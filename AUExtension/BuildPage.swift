@@ -1478,13 +1478,40 @@ extension DiagView {
                 .offset(y: m.interiorTop)                                    // the rest of the column is empty → partially invisible
         }
     }
-    // A SELECT track-head (top-row selector) — tap toggles the track (play/stop grammar); shows the slot's hue if occupied.
+    // A SELECT track-head (top-row selector) — the PLAY-GRID ASSIGN button (Paul 2026-08-29). LONG-PRESS copies the
+    // currently-selected cell onto the play grid at THIS column's selected rung (→ its grid position + the bottom
+    // readout), with the SAME rising-white overwrite warning the side buttons use (buildGridSelStampSweep, offset by +8
+    // so the top-button fill never collides with the side buttons that share the select grid). Tap = the placeholder
+    // track toggle (unchanged for now).
     @ViewBuilder func roomsTrackHead(_ t: Int) -> some View {
-        let on = t >= 0 && t < roomsTrackOn.count && roomsTrackOn[t]
-        RoundedRectangle(cornerRadius: 4).fill(on ? buildCyan.opacity(0.9) : Color.white.opacity(0.11))
-            .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.55)))
-            .contentShape(Rectangle())
-            .onTapGesture { if t >= 0 && t < roomsTrackOn.count { roomsTrackOn[t].toggle() } }
+        GeometryReader { g in
+            let on = t >= 0 && t < roomsTrackOn.count && roomsTrackOn[t]
+            RoundedRectangle(cornerRadius: 4).fill(on ? buildCyan.opacity(0.9) : Color.white.opacity(0.11))
+                .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-copy confirm (overwrite warning)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.55)))
+                .contentShape(Rectangle())
+                .onTapGesture { if t >= 0 && t < roomsTrackOn.count { roomsTrackOn[t].toggle() } }
+                .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
+                                    pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })
+        }
+    }
+    // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
+    // (default row 1). Writes ONE cell of the shared buildStagingCells, so it appears at the grid's selected position +
+    // column t's bottom readout. Mints a colour carrying the source chain + register home; undoable + a confirm flash.
+    private func roomsAssignPlayColumn(_ t: Int) {
+        guard t >= 0 && t < 8, let hit = buildGridSelStampSource() else { return }
+        buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
+        let r = (t < buildStagingSel.count && buildStagingSel[t] >= 0) ? buildStagingSel[t] : 0   // the selected rung (default row 1)
+        buildRecordUndo()                                                    // BUILD UNDO: assign a cell to the play grid
+        let y = buildNewTabColour(r, machine: hit.chain, transpose: hit.transpose)   // a colour carrying the chain + its register home (hue from the row)
+        buildStagingCells[t][r] = y
+        buildPlacedOrig.removeValue(forKey: t * 8 + r)
+        if t < buildStagingSel.count { buildStagingSel[t] = r }              // make the assigned rung the selected one (so it shows on play)
+        buildStagingSyncIfPlaying()
+        buildGridSelComputeRowRolls()
+        buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
     }
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
     // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)

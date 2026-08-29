@@ -238,14 +238,13 @@ extension DiagView {
             let navH: CGFloat = 30
             let avail = g.size.width - 16 - 6                              // page padding (16) + 1 HStack gap (6)
             let gridW = avail * 2 / 3                                      // THE GRID = 2/3 of the width (Paul 2026-08-29)
-            let chainW = avail - gridW                                     // the machine strip fills the remaining 1/3
+            let chainW = avail - gridW                                     // the remaining 1/3 (reserved)
             let bodyH = g.size.height - 16 - navH - 6                      // content height below the nav bar
-            let m = RoomsMetrics(height: bodyH)                            // lattice for the chain panel's bands
             VStack(spacing: 6) {
                 HStack(spacing: 8) { navDoor("◂ SELECT", to: .select); navDoor("PART ▸", to: .part); Spacer() }.frame(height: navH)
                 HStack(spacing: 6) {
                     roomsPlayGrid().frame(width: gridW, height: bodyH)     // the clean 8×8 (rung-per-column + bottom readout)
-                    chainPanel(.play, m).frame(width: chainW, height: bodyH)   // the selected cell's machine — ⚠ device-flag: keep here or drop?
+                    Color.clear.frame(width: chainW, height: bodyH)       // the remaining 1/3 is RESERVED — machine strip dropped (Paul 2026-08-29), something new lands here later
                 }
             }.padding(8)
         }
