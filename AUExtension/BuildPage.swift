@@ -1366,8 +1366,8 @@ extension DiagView {
         let swW = (castW - cgap * 7) / 8
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))
         VStack(spacing: gap) {
-            AnyView(roomsPlayHeader(room)).frame(height: m.navH)             // BAND 1 — PLAY, parallel with the ▲PLAY door
-            AnyView(roomsRecorderRow(castW: castW, h: m.ch))                 // BAND 2 — RECORD, parallel with the header row (moved up per Paul's stacking, ferry §2)
+            Color.clear.frame(height: m.navH)                               // BAND 1 — INVISIBLE, aligns with the grid's ▲PLAY nav door (Paul 2026-08-29)
+            AnyView(roomsPlayHeader(room)).frame(height: m.ch)              // BAND 2 — the PLAY button, parallel with the grid's FERRY row (was the wide RECORD button)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 AnyView(buildReceiverSelector(castW: castW))                 // MIDI IN A–D — pinned at the interior TOP
                 AnyView(HStack(alignment: .top, spacing: cgap) {           // verbs + the 2×4 MIDI chain
@@ -1383,32 +1383,17 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))   // matches the grid box + seam styling
     }
-    // THE PLAY SECTION HEADER — the room-aware play/stop button, styled as a section header (equal height to the ▲PLAY
-    // nav door). SELECT plays the CHAIN audition, PART plays the PART (mutually exclusive voices). (Paul 2026-08-28)
+    // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
+    // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
+    // bottom line up exactly with the ferry buttons. SELECT plays the CHAIN audition, PART plays the PART. (Paul 2026-08-29)
     @ViewBuilder func roomsPlayHeader(_ room: Room) -> some View {
         let partRoom = room == .part
         let voice: BuildWorkshopVoice = partRoom ? .part : .chain
-        // The caller frames this to the lattice's PLAY band (m.navH); buildColumnButton carries its own intrinsic
-        // height (38pt icons+label), so no redundant frame here (a hardcoded 40 fought the lattice and did nothing —
-        // the internal 38 clamps it). ⚠ device-flag: navH (half a cell) may be shorter than the button's content — if
-        // it reads cramped, raise the PLAY band metric in RoomsMetrics rather than clipping the button. (2026-08-29)
-        buildColumnButton(partRoom ? "PLAY THIS PART" : "PLAY THIS MIDI CHAIN", active: buildDisplayVoice == voice, fill: .grid,
+        buildColumnButton(partRoom ? "PLAY THIS PART" : "PLAY THIS MIDI CHAIN", active: buildDisplayVoice == voice, fill: .grid, fillHeight: true,
                           action: { buildRequestWorkshopVoice(buildDisplayVoice == voice ? .none : voice) })
     }
-    // THE RECORDER ROW — the reel/RECORD button below the emitter toggles (Paul 2026-08-28). Reuses buildReelButton (the
-    // breathing tape glyph → opens the pass browser).
-    @ViewBuilder private func roomsRecorderRow(castW: CGFloat, h: CGFloat = 34) -> some View {
-        HStack(spacing: 8) {
-            Spacer()
-            buildReelButton()
-            Text("RECORD").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
-                .contentShape(Rectangle()).onTapGesture { reelShowPopup = true }
-            Spacer()
-        }
-        .frame(width: castW, height: h)                                     // fills the RECORD band (the grid's header-row height ch → ≥44pt target)
-        .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
-    }
+    // (The wide RECORD row was RETIRED 2026-08-29 — the PLAY button took its band. The reel is still reached via the
+    // REEL room. buildReelButton remains for that room / a future RECORD home.)
 
     // ── NEW INTERFACE (rooms) reuse — THE SELECT GRID = the LIBRARY-backed chain browser. Populate the SELECT room's
     // 8×8 with real chains from MY LIBRARY (saved + factory cells) by opening the existing grid selector on its LIBRARY
@@ -4927,7 +4912,7 @@ extension DiagView {
     // The identical audition button at the top of each column (transport glyph + label, cyan-bordered). `active` marks
     // it the playing voice; when active AND the transport plays, it becomes a PLAYHEAD — filling cyan L→R over `fill`'s
     // period (.cell = one step · .grid = the whole 8-column loop), looping. Inactive buttons never animate. (user 2026-08-13)
-    @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, enabled: Bool = true, action: (() -> Void)? = nil) -> some View {
+    @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, enabled: Bool = true, fillHeight: Bool = false, action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 5) {                                    // BOTH transport signs, the CURRENT state boldly lit (Paul 2026-08-15)
                 Image(systemName: "play.fill").font(.system(size: 15, weight: .black))
@@ -4938,7 +4923,7 @@ extension DiagView {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .white : buildCyan).tracking(1)
                 .lineLimit(1).minimumScaleFactor(0.6)
         }
-        .frame(maxWidth: .infinity).frame(height: 38)
+        .frame(maxWidth: .infinity, minHeight: fillHeight ? 0 : 38, maxHeight: fillHeight ? .infinity : 38)   // fillHeight ⇒ fill the caller's band (exact grid alignment); else the intrinsic 38
         .background(
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 10).fill(active ? buildCyan.opacity(0.28) : buildCell)   // active = dim cyan base (empty)
