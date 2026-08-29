@@ -2221,7 +2221,12 @@ extension DiagView {
         // In the grid selector the audition door IS buildSelReceiver (what the toggle sets + the audition plays), so the chip
         // reflects that directly; on the main page it reflects the SELECTED row's resolved door. (Paul 2026-08-26)
         let on = buildGridSelOpen ? (buildSelReceiver == i) : (buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? false)
-        buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
+        // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
+        // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
+        let letter = ["A", "B", "C", "D"][i]
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        let key: String? = (i < receivers.count && receivers[i].doorModeResolved == .scale) ? names[receivers[i].scaleRootResolved] : nil
+        buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every colour follows). (Paul 2026-08-18)
