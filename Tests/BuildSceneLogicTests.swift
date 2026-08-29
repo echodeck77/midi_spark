@@ -106,6 +106,28 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s.cellAt(2, 2)?.colourID, "gold")
     }
 
+    // THE PLAY GRID (Paul 2026-08-29): the independent 8×8 plays like the part — the selected rung per column, each cell's
+    // own machine, the play grid's emitters. A machine-less play cell composes as a passthrough (unlike a part cell).
+    func testPlayGridComposesSelectedRungPerColumn() {
+        var i = BuildSceneLogic.Input()
+        i.playPlaying = true
+        i.playCells = grid([(0, 1, "b1"), (1, 3, "b2")])
+        i.playSel = [1, 3, -1, -1, -1, -1, -1, -1]
+        i.playColChain = (0..<8).map { c in c == 0 ? [ProcessorSlot(type: .arp)] : [] }
+        i.playEmitters = [.b]
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 1)?.colourID, "b1", "col 0 rung 1 plays")
+        XCTAssertEqual(s.cellAt(0, 1)?.processors?.first?.type, .arp, "with its own machine")
+        XCTAssertEqual(s.cellAt(0, 1)?.buses, [.b], "the play grid's emitters")
+        XCTAssertEqual(s.cellAt(1, 3)?.colourID, "b2", "col 1 rung 3 plays even with an empty chain (passthrough wire)")
+        XCTAssertNil(s.cellAt(2, 0), "an unselected column is silent")
+    }
+    func testPlayGridAloneProducesAScene() {
+        var i = BuildSceneLogic.Input()
+        i.playPlaying = true; i.playCells = grid([(0, 0, "b1")]); i.playSel = [0, -1, -1, -1, -1, -1, -1, -1]
+        XCTAssertNotNil(BuildSceneLogic.composeScene(i), "the play grid alone (no staging/perform/chain) produces a scene")
+    }
+
     // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only selected it — no output until a
     // machine is added. (The deployed PERFORM/play grid keeps the explicit-empty passthrough — the no-machine live-wire.)
     func testNoMachinePartCellIsSilentButPerformCellIsPassthrough() {

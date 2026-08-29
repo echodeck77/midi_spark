@@ -41,6 +41,15 @@ enum BuildSceneLogic {
         // lap `stagingLane`, piece rows lap `performLane`, so looping one grid never loops the other.
         var stagingLane: UInt8 = 0                     // the CURRENT part's column-loop mask (staging grid)
         var performLane: UInt8 = 0                     // the PIECE's column-loop mask (play grid)
+        // THE PLAY GRID (Paul 2026-08-29, "treat as new") — the independent 8×8 (buildPlayCells) with ONE rung per column
+        // (playSel); plays exactly like the part, on its OWN voice. Cells arrive via the SELECT top-button ferry.
+        var playPlaying = false
+        var playCells: [[String?]] = []                // [col][row] → colourID
+        var playSel: [Int] = []                        // the ONE selected rung per column (-1 = silent)
+        var playColChain: [[ProcessorSlot]] = []       // per-column RESOLVED chain (the selected cell's machine; [] = passthrough wire)
+        var playEmitters: Set<Bus> = []                // the play grid's output emitters (empty → [.a])
+        var playReceiver = 0                           // the play grid's input door
+        var playLane: UInt8 = 0                        // the play grid's column-loop mask
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -48,8 +57,21 @@ enum BuildSceneLogic {
     /// LEAST-occupied free row (every free column active), so it sounds alongside the piece with none of the part
     /// grid's per-column rules; it only goes gappy when all 8 rows are full.
     static func composeScene(_ i: Input) -> SceneState? {
-        guard i.stagingPlaying || i.performPlaying || i.chainActive else { return nil }
+        guard i.stagingPlaying || i.performPlaying || i.chainActive || i.playPlaying else { return nil }
         var s = SceneState.empty()
+
+        if i.playPlaying {                                          // THE PLAY GRID — the independent 8×8, one rung per column, plays like the part
+            let buses: Set<Bus> = i.playEmitters.isEmpty ? [.a] : i.playEmitters
+            let recv = max(0, min(3, i.playReceiver))
+            for c in 0..<8 {
+                let r = c < i.playSel.count ? i.playSel[c] : -1
+                guard r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, let cid = i.playCells[c][r] else { continue }
+                var cell = Cell(colourID: cid, buses: buses)
+                cell.inputReceiver = recv
+                cell.processors = c < i.playColChain.count ? i.playColChain[c] : []   // EXPLICIT resolved machine ([] = passthrough wire)
+                s.setCell(c, r, cell)
+            }
+        }
 
         if i.performPlaying {                                        // THE PIECE — deployed cells, mute + active-rung honoured
             for c in 0..<8 { for r in 0..<8 {
@@ -122,7 +144,7 @@ enum BuildSceneLogic {
 
         // PER-ROW LAP (Paul 2026-08-19): each row takes the loop mask of whichever voice's cell landed on it — mirroring
         // the placement precedence above (piece first, staging overwrites), so the two grids' loops stay independent.
-        if i.stagingLane != 0 || i.performLane != 0 {
+        if i.stagingLane != 0 || i.performLane != 0 || i.playLane != 0 {
             var rowLane = [UInt8](repeating: 0, count: 8)
             if i.performPlaying {
                 for c in 0..<8 { for r in 0..<8 {
@@ -130,6 +152,12 @@ enum BuildSceneLogic {
                           !i.performMute.contains(c * 8 + r), i.performActiveRung(c, r) else { continue }
                     rowLane[r] = i.performLane
                 } }
+            }
+            if i.playPlaying {                              // the PLAY grid's loop mask
+                for c in 0..<8 {
+                    let r = c < i.playSel.count ? i.playSel[c] : -1
+                    if r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, i.playCells[c][r] != nil { rowLane[r] = i.playLane }
+                }
             }
             if i.stagingPlaying {
                 for c in 0..<8 {

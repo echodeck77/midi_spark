@@ -208,6 +208,7 @@ struct DiagView: View {
     // [column][row]; one selected rung per column (buildPlaySel, default ROW 1 = 0). Populated by the top-button ferry.
     @State var buildPlayCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
     @State var buildPlaySel: [Int] = Array(repeating: 0, count: 8)   // per-column selected rung; 0 = ROW 1 default, −1 = none
+    @State var buildPlayPlaying = false                             // THE PLAY GRID is running (its own voice; composes into the scene like the part) (Paul 2026-08-29)
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildStagingPlaying = false
     // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.

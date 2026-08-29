@@ -247,7 +247,11 @@ extension DiagView {
             let chainW = avail - gridW                                     // the remaining 1/3 (reserved)
             let bodyH = g.size.height - 16 - navH - 6                      // content height below the nav bar
             VStack(spacing: 6) {
-                HStack(spacing: 8) { navDoor("◂ SELECT", to: .select); navDoor("PART ▸", to: .part); Spacer() }.frame(height: navH)
+                HStack(spacing: 8) {
+                    navDoor("◂ SELECT", to: .select); navDoor("PART ▸", to: .part)
+                    Spacer()
+                    roomsPlayStartStop().frame(width: max(120, gridW * 0.4))   // START/STOP the play grid (Paul 2026-08-29)
+                }.frame(height: navH)
                 HStack(spacing: 6) {
                     roomsPlayGrid().frame(width: gridW, height: bodyH)     // the clean 8×8 (rung-per-column + bottom readout)
                     Color.clear.frame(width: chainW, height: bodyH)       // the remaining 1/3 is RESERVED — machine strip dropped (Paul 2026-08-29), something new lands here later
