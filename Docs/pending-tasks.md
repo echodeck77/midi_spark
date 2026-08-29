@@ -212,13 +212,14 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
   explodes (no host needed), XCUITest becomes possible, the standalone IS the store page. Recommendation: schedule the
   spike AFTER the current queue settles; phase ① driver+transport+OUT (playable alone) → ② IN → ③ Link → ④ chrome.
 
-## ★ CODE-REVIEW FINDINGS 2026-08-23 — ✅ 17 of 18 FIXED + committed 2026-08-24 (overnight autonomous batch; see CLAUDE.md
-## status). ALL findings below (numbered [1]–[18] in the sub-sections + the 7 EXTRAS) are DONE except **[9]/CR-8 (the
-## non-Optional post-v2 decode fields)** — DEFERRED: its Optional-conversion ripple + round-trip verification wants the
-## macOS suite WATCHED, not done blind overnight (low real-world exposure — fresh installs + every factory/preset builder
-## sets busChannels/activeScene/morphMaster). Commits: e1f6925 (CR-1/12/16/17) · 67bd53c (CR-2/3/4/5/6/7/9/10/11/13) ·
-## 9e72626 (CR-14/15 + the 7 EXTRAS). +CR-3/4/6/9 regression tests + the fuzz. macOS 855 green. The historical finding
-## text is kept below for the record. NEXT (attended): CR-8 (make the 3 fields Optional+resolved OR a decodeIfPresent init).
+## ★ CODE-REVIEW FINDINGS 2026-08-23 — ✅ ALL 18 FIXED (overnight autonomous batch + CR-8 closed later; see CLAUDE.md
+## status). **[9]/CR-8 (PluginState non-Optional post-v2 fields) is DONE** — `activeScene`/`morphMaster`/`busChannels`
+## are now additive-Optional with `*Resolved` helpers (Models.swift ~1029; test testPreV2DocMissingBusChannelsActiveScene
+## MorphDecodes). **2026-08-29:** the SAME class on `Cell.inputChannel` (v3.0 non-Optional → a formatVersion-2 doc's
+## cells threw at decode, BEFORE migration could run → whole-session data-loss) is closed with a decode-tolerant Cell
+## init(from:) (the Macro/BuildPart pattern; fields stay non-Optional so encode is byte-identical; +3 tests). Commits:
+## e1f6925 (CR-1/12/16/17) · 67bd53c (CR-2/3/4/5/6/7/9/10/11/13) · 9e72626 (CR-14/15 + the 7 EXTRAS). The historical
+## finding text is kept below for the record.
 ##
 ## (original sweep header:) 6-reviewer adversarial sweep — Router · Kernel · Derivations/Builder · Models/Emission · BuildPage · VC/AU; each finding VERIFIED against the code. Fix in small individually-verifiable commits (macOS suite + iOS build after each); the render-engine ones are byte-identical-sensitive — lean on RouterTests + fuzz.
 
@@ -272,10 +273,11 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
   block trips `clearHistory()` every block → "LAST N" captures nothing. FIX: `> max(1.0, k * renderWindowBeats)`.
 
 ### Persistence / data-loss
-- **[12] Non-Optional post-v2 fields break decode of old documents → whole session silently lost.** `Models.swift:726–729`
-  (`activeScene`, `morphMaster`, `busChannels` are non-Optional; Swift ignores their `=` default on decode). A pre-`busChannels`
-  (pre-v0.5) saved session throws `keyNotFound`, swallowed by `try?` → the doc silently reverts, and the `formatVersion < 3`
-  migration can never run. FIX: make them Optional + `*Resolved` (or `decodeIfPresent` for these keys).
+- **[12] ✅ DONE (PluginState + Cell).** Non-Optional post-v1 fields broke decode of old documents → whole session silently
+  lost (Swift ignores the `=` default on decode → `keyNotFound`, swallowed by `try?`, so the doc reverts and the migration
+  never runs). PluginState's `activeScene`/`morphMaster`/`busChannels` are now additive-Optional with `*Resolved`. **2026-08-29:**
+  `Cell.inputChannel` (added at v3.0) was the same trap for a formatVersion-2 doc — closed with a decode-tolerant `Cell`
+  init(from:) (decodeIfPresent every field; fields stay non-Optional so encode is byte-identical). +tests both.
 - **[13] `rackConfigsResolved` discards saved rack setups unless length == 4.** `Models.swift:833` — siblings PAD; this drops
   a length-3/5 array to the legacy default → all four user rack configs lost. FIX: pad/truncate to 4.
 - **[14] `fullState.set` never resets `pendingBuildUnassigned`.** `MidiSparkAudioUnit.swift:1305/1311` — a host that saves right

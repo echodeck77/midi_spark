@@ -598,6 +598,35 @@ struct Cell: Codable, Equatable {
     }
 }
 
+// DECODE-TOLERANCE (CR-8 class, 2026-08-29): the synthesized Decodable THROWS on any missing key EVEN for a
+// field with a `= default` (Swift ignores the default on decode). `inputChannel` was added at v3.0 (non-Optional),
+// so a genuine formatVersion-2 document lacking it would throw at Cell decode — BEFORE migrateLegacyRoutingIfNeeded()
+// can run — and the WHOLE session silently factory-resets (the exact data-loss class as PluginState's CR-8). This
+// decodeIfPresent-every-field init (the proven Macro/BuildPart pattern, in an EXTENSION so the memberwise init +
+// synthesized Encodable stay) tolerates any missing key. Fields stay non-Optional and encode IDENTICALLY (a present
+// key round-trips byte-for-byte, seal/twin/Equatable unchanged) — only a MISSING key now falls back to its default
+// instead of throwing. colourID is genuinely required (a cell must name its colour) → a hard decode.
+extension Cell {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        colourID      = try c.decode(String.self, forKey: .colourID)                          // required — a cell must have a colour
+        stack         = try c.decodeIfPresent(Bool.self, forKey: .stack) ?? false
+        buses         = try c.decodeIfPresent(Set<Bus>.self, forKey: .buses) ?? [.a]
+        srcMix        = try c.decodeIfPresent(Bool.self, forKey: .srcMix) ?? false
+        alt           = try c.decodeIfPresent(Bool.self, forKey: .alt) ?? false
+        bypassed      = try c.decodeIfPresent(Bool.self, forKey: .bypassed) ?? false
+        muted         = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false
+        inputRow      = try c.decodeIfPresent(Int.self, forKey: .inputRow)
+        inputChannel  = try c.decodeIfPresent(Int.self, forKey: .inputChannel) ?? 0            // the v3.0 field that made a v2 doc throw
+        inputReceiver = try c.decodeIfPresent(Int.self, forKey: .inputReceiver)
+        chordSplit    = try c.decodeIfPresent(ChordSplit.self, forKey: .chordSplit)
+        velWindow     = try c.decodeIfPresent(VelWindow.self, forKey: .velWindow)
+        chop          = try c.decodeIfPresent(Chop.self, forKey: .chop)
+        processors    = try c.decodeIfPresent([ProcessorSlot].self, forKey: .processors)
+        stars         = try c.decodeIfPresent(Int.self, forKey: .stars)
+    }
+}
+
 // CELL MACHINE — one stage of a cell's processor chain: a processor type + its params + a true-bypass toggle.
 // Reuses ColourParams verbatim as the per-slot param bag (append-only §12.0). Codable/Equatable so the chain
 // round-trips like every other cell field.

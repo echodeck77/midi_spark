@@ -1096,4 +1096,41 @@ final class OnConfigTests: XCTestCase {
         let u = BuildUnassignedData(part: p, colours: [Colour(colourID: "b1", type: .arp)], hues: ["b1": 0x112233], idCounter: 9)
         XCTAssertEqual(try JSONDecoder().decode(BuildUnassignedData.self, from: JSONEncoder().encode(u)), u)
     }
+
+    // CR-8 CLASS on Cell (2026-08-29): `Cell.inputChannel` (non-Optional) was added at v3.0, so a genuine
+    // formatVersion-2 document's cells LACK the key → synthesized Decodable would throw at Cell decode, BEFORE
+    // migrateLegacyRoutingIfNeeded() runs → the whole session silently factory-resets. The decode-tolerant Cell
+    // init(from:) makes a missing key fall back to its default instead of throwing.
+    func testCellDecodesWithMissingInputChannel() throws {
+        var cell = Cell(colourID: "gold"); cell.buses = [.a, .c]; cell.inputChannel = 3; cell.muted = true
+        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(cell)) as! [String: Any]
+        dict.removeValue(forKey: "inputChannel")                                // simulate a pre-v3.0 (formatVersion 2) cell
+        let back = try JSONDecoder().decode(Cell.self, from: JSONSerialization.data(withJSONObject: dict))
+        XCTAssertEqual(back.inputChannel, 0, "missing inputChannel ⇒ OMNI(0), not a throw")
+        XCTAssertEqual(back.buses, [.a, .c], "the rest of the cell still decodes")
+        XCTAssertTrue(back.muted)
+    }
+    // The whole-document scenario: a formatVersion-2 PluginState whose cells have NO inputChannel key must load
+    // (so migration can then run) rather than throwing and losing the session.
+    func testFormatV2DocWithCellsMissingInputChannelDecodes() throws {
+        var s = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        s.formatVersion = 2
+        s.scenes[0].cells[0][0] = Cell(colourID: "gold")
+        var top = try JSONSerialization.jsonObject(with: JSONEncoder().encode(s)) as! [String: Any]
+        var scenes = top["scenes"] as! [[String: Any]]
+        var rows = scenes[0]["cells"] as! [[Any]]                              // [col][row]; strip inputChannel from every present cell
+        for ci in rows.indices { for ri in rows[ci].indices {
+            if var cellDict = rows[ci][ri] as? [String: Any] { cellDict.removeValue(forKey: "inputChannel"); rows[ci][ri] = cellDict }
+        } }
+        scenes[0]["cells"] = rows; top["scenes"] = scenes
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: top))
+        XCTAssertEqual(back.scenes[0].cells[0][0]?.colourID, "gold", "the v2 document loads instead of throwing → migration can run")
+    }
+    // The happy path is untouched: a complete cell round-trips byte-identically (the decode-tolerant init didn't
+    // change the encoded form — fields stay non-Optional, seal/twin/Equatable identity preserved).
+    func testCellRoundTripsLosslessly() throws {
+        var cell = Cell(colourID: "azure"); cell.inputChannel = 5; cell.inputReceiver = 2; cell.buses = [.b]
+        cell.processors = [ProcessorSlot(type: .harmonize)]; cell.stars = 4; cell.alt = true
+        XCTAssertEqual(try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(cell)), cell)
+    }
 }
