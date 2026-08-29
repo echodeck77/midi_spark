@@ -5819,12 +5819,12 @@ extension DiagView {
     private func buildGridSelCommit() { buildGridSelCommit(to: buildGridSelArrivalRow ?? (0..<8).first { buildRowColour($0) == nil }) }
     private func buildGridSelCommit(to r: Int?) {
         guard let row = r, let i = buildGridSelSel else { buildGridSelCancel(); return }   // no target/selection → restore, don't discard the selection
-        // Prefer the live audition (gsAud, with card EDITS + baked register home) over the on-disk/dealt cell, so COMMIT
-        // carries edits too (same class as the stamp bug). (Bug 2026-08-29)
-        let hit: (chain: [ProcessorSlot], transpose: Int)
-        if buildSelID == buildGridSelAudID, let ch = buildColourReg[buildGridSelAudID], !ch.isEmpty { hit = (ch, 0) }
-        else if let h = buildGridSelChainAt(i) { hit = (h.chain, h.transpose) }
-        else { buildGridSelCancel(); return }
+        // Same priority as the stamp (roomsStampSource): the live audition (gsAud, with card EDITS + baked register home)
+        // wins over the on-disk/dealt cell, so COMMIT carries edits too. (Bug 2026-08-29)
+        guard let hit = roomsStampSource(
+            auditionEdited: buildSelID == buildGridSelAudID ? buildColourReg[buildGridSelAudID] : nil,
+            libraryCell: buildGridSelChainAt(i).map { ($0.chain, $0.transpose) },
+            sideRow: nil) else { buildGridSelCancel(); return }
         buildRecordUndo()   // BUILD UNDO: commit a browsed chain to a row
         let targetID: String
         if let tgt = buildRowColour(row) {                               // populated → overwrite its chain (keeps its hue/register; v1 doesn't move the register home onto an existing colour)
@@ -5851,15 +5851,15 @@ extension DiagView {
     // (buildGridSelSel, SELECT library) or an active SIDE BUTTON's populated part row (buildGridSelStampSourceRow).
     // This is what a long-press copy stamps. (Paul 2026-08-28)
     private func buildGridSelStampSource() -> (chain: [ProcessorSlot], transpose: Int)? {
-        // The active audition (gsAud) holds card EDITS — on SELECT BOTH a browse cell AND an aimed side button load +
-        // edit it (buildSelID == gsAud), so prefer it (register home already baked → transpose 0). PART edits the REAL
-        // colour instead (buildSelID != gsAud there → falls through to the row's colour, which already reflects the edit).
-        // (BUG 2026-08-29: the stamp was reading buildGridSelChainAt/buildColourChain = the ORIGINAL, dropping edits — the
-        // cell case was fixed narrowly first; this covers the SIDE-BUTTON source too.)
-        if buildSelID == buildGridSelAudID, let ch = buildColourReg[buildGridSelAudID], !ch.isEmpty { return (ch, 0) }
-        if let i = buildGridSelSel, let hit = buildGridSelChainAt(i) { return (hit.chain, hit.transpose) }
-        if let s = buildGridSelStampSourceRow, let cid = buildRowColour(s) { return (buildColourChain(cid), buildColourTranspose[cid] ?? 0) }
-        return nil
+        // Resolve the three candidates from @State, then defer to the pure, unit-tested priority (roomsStampSource):
+        // the live audition (gsAud) holds card EDITS — on SELECT BOTH a browse cell AND an aimed side button load + edit
+        // it (buildSelID == gsAud), so it wins (register home baked → transpose 0). PART edits the REAL colour instead
+        // (buildSelID != gsAud there → falls through to the browse cell / side row, which already reflects the edit).
+        // (BUG 2026-08-29: the old code read buildGridSelChainAt/buildColourChain = the ORIGINAL, dropping edits.)
+        roomsStampSource(
+            auditionEdited: buildSelID == buildGridSelAudID ? buildColourReg[buildGridSelAudID] : nil,
+            libraryCell: buildGridSelSel.flatMap { buildGridSelChainAt($0) }.map { ($0.chain, $0.transpose) },
+            sideRow: buildGridSelStampSourceRow.flatMap { s in buildRowColour(s).map { (buildColourChain($0), buildColourTranspose[$0] ?? 0) } })
     }
     // Make the side button the ONE active source (clear the library-cell source) — "one thing is active". (Paul 2026-08-28)
     private func buildRoomsSetActiveSide(_ n: Int) { buildGridSelStampSourceRow = n; buildGridSelSel = nil }

@@ -1856,3 +1856,40 @@ func routingEdges(cells: [[Cell?]], selected: Set<RouteCell>) -> [RouteEdge] {
     }
     return edges
 }
+
+// MARK: - THE ROOM LATTICE (rooms interface, Docs/INSTRUCTIONS-layout-lattice.md)
+//
+// The pure geometry shared by the part/select grids, the seam sliver, and the machine panel so all
+// three land on the SAME horizontal band lines. Extracted here (Double, Foundation-only) so it's the
+// ONE source of truth AND unit-testable — RoomsMetrics (SwiftUI, CGFloat) wraps it. The column layout
+// is: [pad][▲PLAY door @ ch·nf][gap][header row @ ch][gap][8 interior rows @ ch, gap-separated][pad].
+struct RoomsLatticeGeom: Equatable {
+    var ch: Double          // one grid-row height (also the header/RECORD band height)
+    var navH: Double        // the ▲PLAY door-bar band height (= ch · nf)
+    var interiorTop: Double // y where the 8 interior rows begin (below the ▲PLAY door + header row)
+    var interiorH: Double   // total height of the 8 interior rows (8 rows, 7 gaps)
+}
+/// Solve the room lattice for a content `height`. `nf` = the nav-door fraction of a cell (0.5). The cell
+/// is floored at 6 so a tiny/degenerate height can never produce a non-positive or NaN row (guards the
+/// GeometryReader's first zero-height layout pass). gap/pad default to the RoomsMetrics constants.
+func roomsLattice(height: Double, gap: Double = 3, pad: Double = 3, nf: Double = 0.5) -> RoomsLatticeGeom {
+    let c = max(6, (height - 2 * pad - 9 * gap) / (9 + nf))   // 9 full rows (door·nf + header + 8 interior counts as 8+nf) + the nf door
+    return RoomsLatticeGeom(ch: c,
+                            navH: c * nf,
+                            interiorTop: pad + c * nf + gap + c + gap,
+                            interiorH: c * 8 + gap * 7)
+}
+
+/// Rooms STAMP / COMMIT source priority (the SELECT grid). The live audition wins — it holds the card EDITS, with the
+/// register home already baked in (so transpose 0) — then the browsed library cell, then the aimed side-button's part
+/// row; nil if no source. Kept pure so the priority — the exact locus of the edit-not-carried bug (2026-08-29, where the
+/// stamp read the ORIGINAL library chain and dropped edits) — is unit-tested; BuildPage resolves the three candidates
+/// from @State and delegates here.
+func roomsStampSource(auditionEdited: [ProcessorSlot]?,
+                      libraryCell: (chain: [ProcessorSlot], transpose: Int)?,
+                      sideRow: (chain: [ProcessorSlot], transpose: Int)?) -> (chain: [ProcessorSlot], transpose: Int)? {
+    if let a = auditionEdited, !a.isEmpty { return (a, 0) }   // the live gsAud audition — edits + baked register home
+    if let c = libraryCell { return c }                       // the browsed library/dealt cell
+    if let s = sideRow { return s }                           // the aimed side-button's part row
+    return nil
+}

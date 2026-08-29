@@ -285,6 +285,7 @@ final class MigrationTests: XCTestCase {
         part.stagingCells[0][3] = "b17"; part.stagingSel[0] = 3; part.cast = ["b17"]; part.selID = "b17"
         part.receiver = 2; part.emitters = [.a, .c]; part.rowChain[3] = [ProcessorSlot(type: .harmonize)]
         var ephemeral = Colour(colourID: "b17", type: .arp); ephemeral.defined = true; ephemeral.templateChain = [ProcessorSlot(type: .cascade)]
+        ephemeral.transpose = -12   // REGISTER-HOME (BUG fix 2026-08-29): the ephemeral colour's octave must travel too, else a saved ensemble reloads shifted
         plain.buildUnassigned = BuildUnassignedData(part: part, colours: [ephemeral], hues: ["b17": 0x2288EE], idCounter: 17)
 
         let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(plain))
@@ -294,6 +295,7 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(u.part.emitters, [.a, .c])
         XCTAssertEqual(u.part.rowChain[3].first?.type, .harmonize)
         XCTAssertEqual(u.colours.first?.templateChain?.first?.type, .cascade, "its ephemeral colour's machine travels")
+        XCTAssertEqual(u.colours.first?.transpose, -12, "its register-home (octave) travels — buildCapture/RestoreUnassigned carry Colour.transpose (BUG fix 2026-08-29)")
         XCTAssertEqual(u.hues["b17"], 0x2288EE, "its custom hue travels")
         XCTAssertEqual(u.idCounter, 17)
     }

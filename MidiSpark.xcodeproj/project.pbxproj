@@ -66,6 +66,7 @@
 		D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14036510EE49EB0BD7CE1E /* TestSessions.swift */; };
 		D2A032B560DA0D402529CB97 /* DiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */; };
 		D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */; };
+		D45C1A821793F49D844B14A5 /* RoomsLatticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */; };
 		D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */; };
 		D561647D508BA5A188B6D44B /* MacroAuthoringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */; };
 		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
@@ -172,6 +173,7 @@
 		DB638CF9CF505A6ABF3A9423 /* SnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilderTests.swift; sourceTree = "<group>"; };
 		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTest.swift; sourceTree = "<group>"; };
+		E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsLatticeTests.swift; sourceTree = "<group>"; };
 		EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelDeckTests.swift; sourceTree = "<group>"; };
 		EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroAuthoringTests.swift; sourceTree = "<group>"; };
 		F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridUI.swift; sourceTree = "<group>"; };
@@ -222,6 +224,7 @@
 				91BA15AAFC801CACFECA4085 /* MigrationTests.swift */,
 				72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */,
 				EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */,
+				E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */,
 				688828AD8E02A3FA163D3656 /* RouterTests.swift */,
 				CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */,
 				1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */,
@@ -521,6 +524,7 @@
 				E4A4FB320ACDA110C13DC8B5 /* PresetStore.swift in Sources */,
 				9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */,
 				EBAECBA5B3E3F98B83E42E48 /* ReelDeckTests.swift in Sources */,
+				D45C1A821793F49D844B14A5 /* RoomsLatticeTests.swift in Sources */,
 				2862323D03259AC99DF87345 /* Router.swift in Sources */,
 				676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */,
 				C166DF5660C355F1056946B2 /* Row8Tests.swift in Sources */,

@@ -13,11 +13,9 @@ struct RoomsMetrics {
     let interiorTop: CGFloat   // y where the 8 interior rows begin (below the ▲PLAY door + header row)
     let interiorH: CGFloat     // total height of the 8 interior rows
     init(height: CGFloat) {
-        let g = RoomsMetrics.gap, p = RoomsMetrics.pad, nf: CGFloat = 0.5
-        let c = max(6, (height - 2 * p - 9 * g) / (9 + nf))
-        ch = c; navH = c * nf
-        interiorTop = p + c * nf + g + c + g
-        interiorH = c * 8 + g * 7
+        // Delegate to the pure, unit-tested lattice (Derivations.roomsLattice) — one source of truth for the geometry.
+        let g = roomsLattice(height: Double(height), gap: Double(RoomsMetrics.gap), pad: Double(RoomsMetrics.pad))
+        ch = CGFloat(g.ch); navH = CGFloat(g.navH); interiorTop = CGFloat(g.interiorTop); interiorH = CGFloat(g.interiorH)
     }
 }
 
