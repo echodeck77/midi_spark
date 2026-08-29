@@ -1381,7 +1381,7 @@ extension DiagView {
         .padding(pad)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))   // matches the grid box + seam styling
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))   // matches the grid box + seam styling
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button, styled as a section header (equal height to the ▲PLAY
     // nav door). SELECT plays the CHAIN audition, PART plays the PART (mutually exclusive voices). (Paul 2026-08-28)
@@ -1547,7 +1547,7 @@ extension DiagView {
             }
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
     // THE PAGE RAIL (Paul 2026-08-29) — the SELECT grid's LEFT buttons. Each loads a PAGE of the preset library (page r =
@@ -1672,7 +1672,7 @@ extension DiagView {
             }
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
     // A PART interior cell — ONE RUNG PER COLUMN (old-gui buildStagingTap): tap selects that rung for its column; tap the
@@ -1776,7 +1776,7 @@ extension DiagView {
             .padding(pad)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
     // A PLAY interior cell — reads the play grid's OWN store (buildPlayCells), ONE selected rung per column via
