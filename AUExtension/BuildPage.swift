@@ -1386,21 +1386,20 @@ extension DiagView {
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
         VStack(spacing: gap) {
             Color.clear.frame(height: m.navH)                               // BAND 1 — INVISIBLE, aligns with the grid's ▲PLAY nav door (Paul 2026-08-29)
-            AnyView(roomsPlayHeader(room)).frame(height: m.ch)              // BAND 2 — the PLAY button, parallel with the grid's FERRY row (was the wide RECORD button)
+            AnyView(buildReceiverSelector(castW: castW)).frame(height: m.ch)   // BAND 2 — the 4 MIDI IN controls (was the PLAY button; no latch/settings) (Paul 2026-08-29)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
-                AnyView(buildReceiverSelector(castW: castW))                 // MIDI IN A–D — pinned at the interior TOP
-                Spacer(minLength: 8)                                         // centre the chain row VERTICALLY between the receiver + emitters (Paul 2026-08-29)
-                AnyView(HStack(alignment: .center, spacing: 0) {           // MIDI CHAIN CENTRED · verb buttons to ONE side — LEFT on PART, RIGHT on SELECT (Paul 2026-08-29)
-                    if room == .part {                                     // PART → buttons LEFT of the chain
+                Spacer(minLength: 8)                                         // centre the chain row VERTICALLY
+                AnyView(HStack(alignment: .center, spacing: 0) {           // verb buttons on ONE side · MIDI CHAIN centred · VERTICAL PLAY + PLAYHEAD on the OPPOSITE side (Paul 2026-08-29)
+                    if room == .part {                                     // PART → verb buttons LEFT · vertical play RIGHT
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
-                    } else {
-                        Color.clear.frame(width: sideW)                    // SELECT → empty flank (mirrors the buttons' width, keeps the chain centred)
+                    } else {                                               // SELECT → vertical play LEFT (opposite the right verb buttons)
+                        AnyView(roomsVerticalPlay(room, height: blockH)).frame(width: sideW)
                     }
                     AnyView(buildProcessorBlock(castW: castW, cell: cell)).frame(width: blockW)   // the chain, its intrinsic width, CENTRED between the equal flanks
                     if room == .part {
-                        Color.clear.frame(width: sideW)
-                    } else {                                               // SELECT → buttons RIGHT of the chain (flex to the mirror flank)
-                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                        AnyView(roomsVerticalPlay(room, height: blockH)).frame(width: sideW)   // PART → vertical play RIGHT (opposite the left verb buttons)
+                    } else {
+                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
                     }
                 })
                 Spacer(minLength: 8)
@@ -1420,6 +1419,32 @@ extension DiagView {
         let voice: BuildWorkshopVoice = partRoom ? .part : .chain
         buildColumnButton(partRoom ? "PLAY THIS PART" : "PLAY THIS MIDI CHAIN", active: buildDisplayVoice == voice, fill: .grid, fillHeight: true,
                           action: { buildRequestWorkshopVoice(buildDisplayVoice == voice ? .none : voice) })
+    }
+    // THE VERTICAL PLAY BUTTON + PLAYHEAD (Paul 2026-08-29) — a tall thin play/stop toggle beside the MIDI chain, on the
+    // OPPOSITE side from the verb buttons. Its PLAYHEAD is a TOP→BOTTOM fill running the chain's play duration (buildHeaderFill).
+    @ViewBuilder func roomsVerticalPlay(_ room: Room, height: CGFloat) -> some View {
+        let voice: BuildWorkshopVoice = room == .part ? .part : .chain
+        let active = buildDisplayVoice == voice
+        GeometryReader { g in
+            ZStack(alignment: .top) {
+                RoundedRectangle(cornerRadius: 8).fill(active ? buildCyan.opacity(0.28) : buildCell)
+                if active && d.playing {                                    // the PLAYHEAD — a fill sweeping TOP→BOTTOM over the chain's duration
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                        RoundedRectangle(cornerRadius: 8).fill(buildCyan.opacity(0.30))
+                            .frame(height: g.size.height * buildHeaderFill(.grid, tl.date))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // grows from the top down
+                    }
+                }
+                Image(systemName: active ? "stop.fill" : "play.fill").font(.system(size: 14, weight: .black))
+                    .foregroundColor(active ? Color(red: 0.98, green: 0.5, blue: 0.5) : buildCyan)
+                    .frame(maxWidth: .infinity).padding(.top, 7)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .frame(height: height)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? buildCyan : buildEdge, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { buildRequestWorkshopVoice(active ? .none : voice) }
     }
     // (The wide RECORD row was RETIRED 2026-08-29 — the PLAY button took its band. The reel is still reached via the
     // REEL room. buildReelButton remains for that room / a future RECORD home.)
