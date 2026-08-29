@@ -2227,7 +2227,7 @@ extension DiagView {
         // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
         let letter = ["A", "B", "C", "D"][i]
         let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-        let key: String? = (i < receivers.count && receivers[i].doorModeResolved == .scale) ? names[receivers[i].scaleRootResolved] : nil
+        let key: String? = (i < receivers.count && receivers[i].doorModeResolved == .scale) ? "\(names[receivers[i].scaleRootResolved]) \(receivers[i].scaleTypeResolved.label)" : nil   // e.g. "A MIXO"
         buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
@@ -2248,7 +2248,7 @@ extension DiagView {
     @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
         VStack(spacing: 1) {
             Text(top).font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.5)
-            Text(letter).font(.system(size: 15, weight: .black, design: .monospaced))
+            Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         }
         .foregroundColor(on ? Color.black : buildDim)
         .frame(maxWidth: .infinity).frame(height: 48)                        // matches the emitter chips (height 48, fill the row)
