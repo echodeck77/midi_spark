@@ -2048,4 +2048,46 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNil(r(0, 0, .fold), "rank 0 = rest")
         XCTAssertNil(riffResolve(rank: 1, oct: 0, n: 0, wrap: .fold) { _ in 0 }, "empty pool = nil")
     }
+
+    // MARK: - defensive resolver clamps (reachable only via a hostile/legacy DECODE — the UI constrains these)
+
+    // These guard the classic silent-regression: someone "simplifies" the negative-safe modulo / drops a clamp and a
+    // legacy or garbage-decoded door breaks on the render path. The happy path is exercised elsewhere with valid values;
+    // here we pin the edges. (coverage 2026-08-29)
+    func testReceiverScaleAndExcludeResolversClampAndWrap() {
+        var r = Receiver()
+        // scaleRootResolved — negative-safe wrap into 0…11 (the (r%12+12)%12 guard)
+        r.scaleRoot = -1;  XCTAssertEqual(r.scaleRootResolved, 11, "a negative root wraps up, never negative")
+        r.scaleRoot = 14;  XCTAssertEqual(r.scaleRootResolved, 2)
+        r.scaleRoot = nil; XCTAssertEqual(r.scaleRootResolved, 0, "nil ⇒ C")
+        // scaleBaseOctResolved — 0…8
+        r.scaleBaseOct = -3; XCTAssertEqual(r.scaleBaseOctResolved, 0)
+        r.scaleBaseOct = 12; XCTAssertEqual(r.scaleBaseOctResolved, 8)
+        r.scaleBaseOct = nil; XCTAssertEqual(r.scaleBaseOctResolved, 3)
+        // scaleOctavesResolved — floored at 1 (a decoded 0 must never feed an empty range to scaleNotes)
+        r.scaleOctaves = 0; XCTAssertEqual(r.scaleOctavesResolved, 1, "0 floors to 1 — never a degenerate empty scale")
+        r.scaleOctaves = 9; XCTAssertEqual(r.scaleOctavesResolved, 4)
+        r.scaleOctaves = nil; XCTAssertEqual(r.scaleOctavesResolved, 2)
+        // excludeDoorResolved — out-of-range / nil ⇒ OFF(-1)
+        r.excludeDoor = 5;   XCTAssertEqual(r.excludeDoorResolved, -1, "an out-of-range door ⇒ OFF")
+        r.excludeDoor = -2;  XCTAssertEqual(r.excludeDoorResolved, -1)
+        r.excludeDoor = 2;   XCTAssertEqual(r.excludeDoorResolved, 2)
+        r.excludeDoor = nil; XCTAssertEqual(r.excludeDoorResolved, -1)
+        // controllerMaskResolved — nil ⇒ all four; a garbage decoded byte is truncated to the 4-emitter mask
+        r.controllerMask = nil;  XCTAssertEqual(r.controllerMaskResolved, 0b1111, "nil ⇒ forward on all four emitters")
+        r.controllerMask = 0xF3; XCTAssertEqual(r.controllerMaskResolved, 0b0011, "high bits truncated to 4 bits")
+    }
+    func testCellStarsResolverClamps() {
+        var c = Cell(colourID: "gold")
+        c.stars = nil; XCTAssertEqual(c.starsResolved, 0, "nil ⇒ unrated")
+        c.stars = 9;   XCTAssertEqual(c.starsResolved, 5, "clamped to the 5-star ceiling")
+        c.stars = -1;  XCTAssertEqual(c.starsResolved, 0, "clamped to the floor")
+    }
+    // arpPatternAt (the cached-cases reader that replaced ArpPattern.allCases on the render path) indexes exactly like
+    // allCases and clamps an out-of-range index to UP — byte-identical to the old inline guard. (efficiency 2026-08-29)
+    func testArpPatternAtMatchesAllCasesAndClampsToUp() {
+        for (i, c) in ArpPattern.allCases.enumerated() { XCTAssertEqual(arpPatternAt(i), c, "index \(i) matches allCases") }
+        XCTAssertEqual(arpPatternAt(ArpPattern.allCases.count), .up, "an out-of-range index clamps to UP")
+        XCTAssertEqual(arpPatternAt(-1), .up, "a negative index clamps to UP")
+    }
 }

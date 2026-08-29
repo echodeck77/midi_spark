@@ -3820,7 +3820,7 @@ final class Router {
         // re-anchors + repeats the same shuffle every column (so RANDOM ANCHOR pedalled the low note instead of "anchor then
         // shuffle until the next pool cycle"). Using the free `tick` makes the anchor fire once per pool traversal + the
         // shuffle never repeat. Other patterns keep their NEW-CHORD phase.
-        let arpIsRandom = Int(colour.a.patternIndex) < ArpPattern.allCases.count && ArpPattern.allCases[Int(colour.a.patternIndex)] == .random
+        let arpIsRandom = arpPatternAt(Int(colour.a.patternIndex)) == .random   // cached cases — no per-tick allocation
 
         iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,

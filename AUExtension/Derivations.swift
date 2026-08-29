@@ -32,6 +32,13 @@ import Foundation
 // (odd N against the 8-column row). CELL = 1, ROW = 8 are the byte-identical endpoints (S and the row/bar width).
 let spanLadderValues = [1, 2, 3, 4, 6, 8, 16, 32]
 func spanLadderLabel(_ n: Int) -> String { n == 16 ? "×2" : (n == 32 ? "×4" : "\(n)") }
+// ArpPattern.allCases is a COMPUTED property → it heap-allocates a fresh array on every access. The arp render path
+// reads it per tick (arpPick + emitArpRow), which violates invariant 3 (no render-path allocation). Cache it once (the
+// same idiom as spanLadderValues/rtcCoinSizes). Order = declaration order = patternIndex (SnapshotBuilder maps a stored
+// index via firstIndex(of:)), so indexing the cache is byte-identical to indexing allCases. (efficiency 2026-08-29)
+let arpPatternCases = ArpPattern.allCases
+/// The ArpPattern at a stored patternIndex, clamped to UP for an out-of-range index — the render-path reader.
+@inline(__always) func arpPatternAt(_ i: Int) -> ArpPattern { i >= 0 && i < arpPatternCases.count ? arpPatternCases[i] : .up }
 /// The span's WIDTH in beats: 1 = one column (S) · 8 = the whole row (`rowBeats`, byte-identical to the old ROW —
 /// honours a short loop) · ×2/×4 = 2/4 rows · 2·3·4·6 = N columns (the polymeter spans). Pure.
 @inline(__always) func spanLadderBeats(_ n: Int, S: Double, row rowBeats: Double) -> Double {
@@ -1099,7 +1106,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
     guard count > 0 else { return (-1, 0) }
     let span = count * max(1, octaves)
     let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
-    let pat = Int(pattern) < ArpPattern.allCases.count ? ArpPattern.allCases[Int(pattern)] : .up
+    let pat = arpPatternAt(Int(pattern))   // cached cases — no per-tick allocation (was ArpPattern.allCases)
 
     let pos: Int
     switch pat {
@@ -1288,7 +1295,6 @@ func tapExpiryBeat(onsetBeat: Double, duration: OnTapFor, stepBeats: Double) -> 
 
 /// One ON-TAP overlay: a timed, ephemeral flip on a cell (never a document write). `cell` = col*8+row;
 /// `busMask` carries the emitter bits (used by SOLO). Pure value type so the overlay logic stays testable.
-/// (Distinct from `TapAction`, the persisted per-scene setting in Models — this is a live overlay instance.)
 enum TapKind { case alt, mute, solo }
 struct TapOverlay: Equatable { let cell: Int; let kind: TapKind; let busMask: UInt8; let onset: Double; let expiry: Double }
 

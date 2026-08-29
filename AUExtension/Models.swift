@@ -118,10 +118,6 @@ enum StrumDir: String, Codable, CaseIterable { case up = "UP", down = "DOWN", al
 enum EuclidPick: String, Codable, CaseIterable { case all = "ALL", cycle = "CYCLE", low = "LOW", high = "HIGH", random = "RANDOM" }
 // CHANCE MODE (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = 8 per-step odds (the odds SLIDER LANE).
 enum ChanceMode: String, Codable, CaseIterable { case single = "SINGLE", pattern = "PATTERN" }
-enum TapAction: String, Codable, CaseIterable {
-    case alt = "ALT", byp = "BYP", mute = "MUTE"
-}
-enum Quant: String, Codable { case off = "OFF", step = "STEP", pass = "PASS" }                              // §6.8
 // TUTTI (working name; Paul 2026-08-13) — set-level chance, CHANCE's correlated cousin. MODE = COIN | PATTERN.
 enum TuttiMode: String, Codable, CaseIterable { case coin = "COIN", pattern = "PATTERN" }
 // COIN: which note survives a SOLO step, by pitch rank. CYCLE walks the solo across steps.
@@ -821,8 +817,6 @@ struct SceneState: Codable, Equatable {
     // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask, so the BUILD staging + perform grids loop INDEPENDENTLY
     // in one combined scene. nil ⇒ no per-row lap (the render uses the ephemeral global lap, GRID-tab behaviour).
     var rowLane: [UInt8]? = nil           // count Snap.cols when set; entry = that row's loop mask (0 = no loop)
-    var tapAction: TapAction = .alt
-    var quant: Quant = .off        // §6.8
     // master panel: KEY — per-scene master transpose (semitones, clamp ±12), applied to every output note.
     // Optional (append-only) → old scenes decode nil (0). PERSISTED (the key is structure).
     var masterKey: Int? = nil
