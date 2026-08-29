@@ -1478,20 +1478,23 @@ extension DiagView {
                 .offset(y: m.interiorTop)                                    // the rest of the column is empty → partially invisible
         }
     }
-    // A SELECT track-head (top-row selector) — the PLAY-GRID ASSIGN button (Paul 2026-08-29). LONG-PRESS copies the
-    // currently-selected cell onto the play grid at THIS column's selected rung (→ its grid position + the bottom
-    // readout), with the SAME rising-white overwrite warning the side buttons use (buildGridSelStampSweep, offset by +8
-    // so the top-button fill never collides with the side buttons that share the select grid). Tap = the placeholder
-    // track toggle (unchanged for now).
-    @ViewBuilder func roomsTrackHead(_ t: Int) -> some View {
+    // THE PLAY FERRY button (Paul 2026-08-29) — the SELECT grid's top-row buttons that FERRY the selected cell to the
+    // PLAY grid. LONG-PRESS copies the currently-selected cell onto the play grid at THIS column's selected rung (→ its
+    // grid position + the play bottom readout), with the rising-white overwrite warning (buildGridSelStampSweep, offset
+    // +8 so the play-ferry fill never collides with the PART-ferry side buttons that share the select grid). The button
+    // REFLECTS its column's set state: once ferried it wears the ferried cell's colour + a white "set" keyline (was a
+    // dead placeholder toggle that never changed after a ferry).
+    @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
-            let on = t >= 0 && t < roomsTrackOn.count && roomsTrackOn[t]
-            RoundedRectangle(cornerRadius: 4).fill(on ? buildCyan.opacity(0.9) : Color.white.opacity(0.11))
-                .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-copy confirm (overwrite warning)
+            let sel = t < buildPlaySel.count ? buildPlaySel[t] : -1
+            let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
+            let hue = id.flatMap { colourColor($0) }
+            RoundedRectangle(cornerRadius: 4).fill(hue?.opacity(0.9) ?? Color.white.opacity(0.11))   // SET → its play cell's colour; empty → faint
+                .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.55)))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(hue != nil ? Color.white.opacity(0.6) : buildEdge, lineWidth: hue != nil ? 1.5 : 1))   // a "set" keyline once ferried
+                .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(hue != nil ? .black.opacity(0.75) : .white.opacity(0.55)))
                 .contentShape(Rectangle())
-                .onTapGesture { if t >= 0 && t < roomsTrackOn.count { roomsTrackOn[t].toggle() } }
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                     pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })
         }
@@ -1523,7 +1526,7 @@ extension DiagView {
                 roomsPlayNavSliver(width: interiorW, height: navH)          // ▲PLAY directly above the track row, over cols 1–8
                 VStack(spacing: gap) {
                     HStack(spacing: gap) {                                   // track (col-select) row + corner
-                        ForEach(0..<8, id: \.self) { c in roomsTrackHead(c).frame(width: cw, height: ch) }
+                        ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
                         Color.clear.frame(width: cw, height: ch)
                     }
                     ForEach(0..<8, id: \.self) { r in                        // interior rows + right side buttons
