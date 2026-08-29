@@ -1388,9 +1388,12 @@ extension DiagView {
     @ViewBuilder func roomsPlayHeader(_ room: Room) -> some View {
         let partRoom = room == .part
         let voice: BuildWorkshopVoice = partRoom ? .part : .chain
+        // The caller frames this to the lattice's PLAY band (m.navH); buildColumnButton carries its own intrinsic
+        // height (38pt icons+label), so no redundant frame here (a hardcoded 40 fought the lattice and did nothing —
+        // the internal 38 clamps it). ⚠ device-flag: navH (half a cell) may be shorter than the button's content — if
+        // it reads cramped, raise the PLAY band metric in RoomsMetrics rather than clipping the button. (2026-08-29)
         buildColumnButton(partRoom ? "PLAY THIS PART" : "PLAY THIS MIDI CHAIN", active: buildDisplayVoice == voice, fill: .grid,
                           action: { buildRequestWorkshopVoice(buildDisplayVoice == voice ? .none : voice) })
-            .frame(height: 40)
     }
     // THE RECORDER ROW — the reel/RECORD button below the emitter toggles (Paul 2026-08-28). Reuses buildReelButton (the
     // breathing tape glyph → opens the pass browser).
@@ -3104,14 +3107,14 @@ extension DiagView {
         ids.formUnion(part.rowUnder.compactMap { $0 })
         if let s = part.selID { ids.insert(s) }
         let ephemeral = ids.filter { buildColourReg[$0] != nil }.sorted()
-        let colours = ephemeral.map { id -> Colour in var c = Colour(colourID: id, type: .arp); c.defined = true; c.templateChain = buildColourReg[id]; return c }
+        let colours = ephemeral.map { id -> Colour in var c = Colour(colourID: id, type: .arp); c.defined = true; c.templateChain = buildColourReg[id]; c.transpose = buildColourTranspose[id] ?? 0; return c }   // carry the register-home so a saved ensemble restores in the right octave (BUG state-loss 2026-08-29)
         var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = colourHueOverride[id] { hues[id] = h } }
         return BuildUnassignedData(part: part, colours: colours, hues: hues, idCounter: buildIDCounter)
     }
     // RESTORE the saved unassigned part on load: re-register its ephemeral colours + hues, lift the id counter past
     // them (so new colours don't collide), then place it as the single unassigned part and load it into the workshop.
     func buildRestoreUnassigned(_ u: BuildUnassignedData) {
-        for c in u.colours { buildColourReg[c.colourID] = c.templateChain ?? [] }
+        for c in u.colours { buildColourReg[c.colourID] = c.templateChain ?? []; if c.transpose != 0 { buildColourTranspose[c.colourID] = c.transpose } }   // restore the register-home too (BUG state-loss 2026-08-29)
         for (id, hue) in u.hues { colourHueOverride[id] = hue }
         buildIDCounter = max(buildIDCounter, u.idCounter)
         buildSyncColours()
@@ -5815,7 +5818,13 @@ extension DiagView {
     // COMMIT button → the frozen arrival row (or the first empty). LONG-PRESS a row chip → that specific row (Paul 2026-08-25).
     private func buildGridSelCommit() { buildGridSelCommit(to: buildGridSelArrivalRow ?? (0..<8).first { buildRowColour($0) == nil }) }
     private func buildGridSelCommit(to r: Int?) {
-        guard let row = r, let i = buildGridSelSel, let hit = buildGridSelChainAt(i) else { buildGridSelCancel(); return }   // no target/selection → restore, don't discard the selection
+        guard let row = r, let i = buildGridSelSel else { buildGridSelCancel(); return }   // no target/selection → restore, don't discard the selection
+        // Prefer the live audition (gsAud, with card EDITS + baked register home) over the on-disk/dealt cell, so COMMIT
+        // carries edits too (same class as the stamp bug). (Bug 2026-08-29)
+        let hit: (chain: [ProcessorSlot], transpose: Int)
+        if buildSelID == buildGridSelAudID, let ch = buildColourReg[buildGridSelAudID], !ch.isEmpty { hit = (ch, 0) }
+        else if let h = buildGridSelChainAt(i) { hit = (h.chain, h.transpose) }
+        else { buildGridSelCancel(); return }
         buildRecordUndo()   // BUILD UNDO: commit a browsed chain to a row
         let targetID: String
         if let tgt = buildRowColour(row) {                               // populated → overwrite its chain (keeps its hue/register; v1 doesn't move the register home onto an existing colour)
@@ -5842,10 +5851,12 @@ extension DiagView {
     // (buildGridSelSel, SELECT library) or an active SIDE BUTTON's populated part row (buildGridSelStampSourceRow).
     // This is what a long-press copy stamps. (Paul 2026-08-28)
     private func buildGridSelStampSource() -> (chain: [ProcessorSlot], transpose: Int)? {
-        // A browse CELL: copy the CURRENTLY-AUDITIONED chain (buildColourReg[gsAud]) so card EDITS carry to the target —
-        // the register home is already baked into it (transpose 0). The on-disk/dealt cell is the fallback only if the
-        // transient is gone. (BUG 2026-08-29: the stamp was reading buildGridSelChainAt = the ORIGINAL, dropping edits.)
-        if buildGridSelSel != nil, let ch = buildColourReg[buildGridSelAudID], !ch.isEmpty { return (ch, 0) }
+        // The active audition (gsAud) holds card EDITS — on SELECT BOTH a browse cell AND an aimed side button load +
+        // edit it (buildSelID == gsAud), so prefer it (register home already baked → transpose 0). PART edits the REAL
+        // colour instead (buildSelID != gsAud there → falls through to the row's colour, which already reflects the edit).
+        // (BUG 2026-08-29: the stamp was reading buildGridSelChainAt/buildColourChain = the ORIGINAL, dropping edits — the
+        // cell case was fixed narrowly first; this covers the SIDE-BUTTON source too.)
+        if buildSelID == buildGridSelAudID, let ch = buildColourReg[buildGridSelAudID], !ch.isEmpty { return (ch, 0) }
         if let i = buildGridSelSel, let hit = buildGridSelChainAt(i) { return (hit.chain, hit.transpose) }
         if let s = buildGridSelStampSourceRow, let cid = buildRowColour(s) { return (buildColourChain(cid), buildColourTranspose[cid] ?? 0) }
         return nil

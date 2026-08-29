@@ -1349,8 +1349,14 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         get {
             var state = super.fullState ?? [:]
             var encodeDoc = document
-            encodeDoc.buildUnassigned = pendingBuildUnassigned   // BUILD's half-built piece travels with the save (Paul 2026-08-16)
-            encodeDoc.buildScenes = pendingBuildScenes; encodeDoc.buildScenesActive = pendingBuildScenesActive   // SCENES V2: the deployed play-grid arrangements travel too (Paul 2026-08-24)
+            // BUILD's half-built piece + the deployed play-grid arrangements travel with the save. Fall back to the
+            // DECODED document's own fields when the session-side pending is nil — otherwise a load→save with the BUILD
+            // editor never opened (its 4 Hz poll never runs, so pending stays nil) would encode nil OVER the restored
+            // part + piece and permanently drop them. consumeBuildUnassigned/Scenes nils document.* once BUILD is
+            // visited, so the fallback engages only in the correct pre-consume window. (BUG data-loss 2026-08-29)
+            encodeDoc.buildUnassigned = pendingBuildUnassigned ?? document.buildUnassigned
+            encodeDoc.buildScenes = pendingBuildScenes ?? document.buildScenes
+            encodeDoc.buildScenesActive = pendingBuildScenesActive ?? document.buildScenesActive
             if let data = try? JSONEncoder().encode(encodeDoc) { state[Self.stateKey] = data }
             return state
         }
