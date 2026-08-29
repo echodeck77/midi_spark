@@ -30,7 +30,9 @@ struct RoomsMetrics {
 extension DiagView {
     enum Room: String, CaseIterable { case select = "SELECT", part = "PART", play = "PLAY", reel = "REEL" }
 
-    private var roomsAccent: Color { Color(red: 0.19, green: 0.83, blue: 0.91) }
+    // §8b: the footer/mixer are PLUMBING — room-neutral (only door affordances tint). So the footer's accent is a
+    // neutral light grey now (was cyan). The per-strip mixer hues (green/blue/red/purple) stay their own identity.
+    private var roomsAccent: Color { Color(white: 0.62) }
     private var roomsABCD: [String] { ["A", "B", "C", "D"] }
 
     @ViewBuilder func roomsPage(_ size: CGSize) -> some View {
@@ -45,11 +47,14 @@ extension DiagView {
     }
 
     @ViewBuilder private func roomsMiddle(_ size: CGSize) -> some View {
-        switch roomsRoom {
-        case .select: roomsSelect(size)
-        case .part:   roomsPart(size)
-        case .play:   roomsPlay(size)
-        case .reel:   roomsReel(size)
+        ZStack {
+            roomsField(roomsRoom).ignoresSafeArea()                        // §8b: charcoal floor everywhere; PLAY = the near-black stage
+            switch roomsRoom {
+            case .select: roomsSelect(size)
+            case .part:   roomsPart(size)
+            case .play:   roomsPlay(size)
+            case .reel:   roomsReel(size)
+            }
         }
     }
 
@@ -190,8 +195,9 @@ extension DiagView {
     // BuildPage. The PLAY grid still uses the capsule navDoor below. Paul 2026-08-28.)
     private func navDoor(_ label: String, to room: Room) -> some View {
         Button { roomsRoom = room } label: {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
-                .padding(.horizontal, 12).frame(height: 22).background(Capsule().fill(Color.white.opacity(0.10)))
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(roomsDoorInk(to: room))
+                .padding(.horizontal, 12).frame(height: 22)
+                .background(roomsDoorBar(to: room, corner: 11))            // §8b: the door wears its DESTINATION's signature
         }.buttonStyle(.plain)
     }
     // THE MIDI CHAIN panel — the REAL machine strip (play button · receiver toggles · chain + side buttons · emitter
@@ -254,9 +260,9 @@ extension DiagView {
         VStack(spacing: 8) {
             HStack(spacing: 8) { navDoor("◂ PLAY", to: .play); Spacer() }.padding(.horizontal, 12).padding(.top, 8)
             ZStack {
-                RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03)).overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsAccent.opacity(0.35), lineWidth: 1.5))
+                RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03)).overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsRedSig.opacity(0.5), lineWidth: 1.5))   // §8b REEL = RED signature
                 VStack(spacing: 8) {
-                    Text("REEL").font(.system(size: 30, weight: .black, design: .monospaced)).foregroundColor(roomsAccent)
+                    Text("REEL").font(.system(size: 30, weight: .black, design: .monospaced)).foregroundColor(roomsRedSig)
                     Text("the tape — recorded passes  ·  housed next").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.5))
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 12).padding(.bottom, 8)

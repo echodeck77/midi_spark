@@ -57,6 +57,16 @@ private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 private let buildRed   = Color(red: 0.91, green: 0.36, blue: 0.44)   // ROW 8 CLEAR + destructive verbs
 private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
+// THE ROOM SIGNATURES (Paul 2026-08-29, §8b WAYFINDING): each room owns a colour and every DOOR wears its DESTINATION's
+// signature — RAINBOW = SELECT (a multicolour strip, refuses one hue) · AMBER = PART · INDIGO = PLAY (retires cyan) ·
+// RED = REEL/record. Hex are starting points (Paul's glass tunes; the STRUCTURE is the instruction).
+let roomsAmber   = Color(red: 0.91, green: 0.64, blue: 0.24)   // PART — ~#E8A33D  (module-internal: RoomsPage uses these too)
+let roomsIndigo  = Color(red: 0.36, green: 0.36, blue: 0.84)   // PLAY — ~#5B5BD6
+let roomsRedSig  = Color(red: 0.86, green: 0.30, blue: 0.30)   // REEL / record
+let roomsRainbowHues: [Color] = [                              // SELECT — the mini-rainbow strip
+    Color(red: 0.91, green: 0.30, blue: 0.36), Color(red: 0.95, green: 0.66, blue: 0.24),
+    Color(red: 0.95, green: 0.90, blue: 0.35), Color(red: 0.40, green: 0.85, blue: 0.50),
+    Color(red: 0.29, green: 0.63, blue: 0.95), Color(red: 0.62, green: 0.42, blue: 0.92)]
 // BUILD grid PIANO-ROLL (Paul 2026-08-19): one scrolling note mark on a cell face; `lane` = pitch (0…1), born = when it sounded.
 struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Double }
 
@@ -1440,16 +1450,38 @@ extension DiagView {
     // ── THE NAV SLIVERS — thin navigation bars that are a COMPONENT OF THE GRID BOX (Paul 2026-08-28). The ▲PLAY sliver
     // sits directly above the top-row selector buttons (1/3 cell tall, spanning cols 1–8); the SEAM sliver sits beside
     // the side buttons (1/3 cell wide, spanning the interior rows). Destination-cyan for now.
+    // A DOOR BAR fills with its DESTINATION's signature (§8b): a RAINBOW strip to SELECT · AMBER to PART · INDIGO to
+    // PLAY · RED to REEL. Used by every nav door/sliver so a door always announces where it leads.
+    @ViewBuilder func roomsDoorBar(to room: Room, corner: CGFloat = 4) -> some View {
+        let shape = RoundedRectangle(cornerRadius: corner)
+        switch room {
+        case .select: shape.fill(LinearGradient(colors: roomsRainbowHues, startPoint: .leading, endPoint: .trailing))
+        case .part:   shape.fill(roomsAmber)
+        case .play:   shape.fill(roomsIndigo)
+        case .reel:   shape.fill(roomsRedSig)
+        }
+    }
+    // The legible ink for a door's label on its signature fill.
+    func roomsDoorInk(to room: Room) -> Color {
+        switch room {
+        case .select, .part: return .black.opacity(0.82)   // on the rainbow strip / amber
+        case .play, .reel:   return .white                 // on indigo / red
+        }
+    }
+    // The room's FIELD tint behind everything (§8b): charcoal floor in every room; PLAY is the dark stage (near-black).
+    func roomsField(_ room: Room) -> Color {
+        room == .play ? Color(red: 0.02, green: 0.02, blue: 0.03) : Color(red: 0.06, green: 0.07, blue: 0.085)
+    }
     @ViewBuilder func roomsPlayNavSliver(width: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 4).fill(buildCyan)
+        roomsDoorBar(to: .play)                                             // → PLAY = INDIGO (retires cyan)
             .frame(width: width, height: height)
-            .overlay(HStack(spacing: 4) { Image(systemName: "chevron.up"); Text("PLAY") }.font(.system(size: min(11, height * 0.7), weight: .heavy, design: .monospaced)).foregroundColor(.black))
+            .overlay(HStack(spacing: 4) { Image(systemName: "chevron.up"); Text("PLAY") }.font(.system(size: min(11, height * 0.7), weight: .heavy, design: .monospaced)).foregroundColor(roomsDoorInk(to: .play)))
             .contentShape(Rectangle()).onTapGesture { roomsRoom = .play }
     }
     @ViewBuilder func roomsSeamSliver(to room: Room, chevron: String, width: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 4).fill(buildCyan)
+        roomsDoorBar(to: room)                                              // → its DESTINATION's signature
             .frame(width: width, height: height)
-            .overlay(Text(chevron).font(.system(size: min(13, width * 0.7), weight: .heavy)).foregroundColor(.black))
+            .overlay(Text(chevron).font(.system(size: min(13, width * 0.7), weight: .heavy)).foregroundColor(roomsDoorInk(to: room)))
             .contentShape(Rectangle()).onTapGesture { roomsRoom = room }
     }
     // THE SEAM COLUMN (Paul 2026-08-28) — the part↔select nav, relocated to the FAR side of the page (opposite the MIDI
