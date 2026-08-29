@@ -1515,19 +1515,18 @@ extension DiagView {
     // THE PLAY FERRY button (Paul 2026-08-29) — the SELECT grid's top-row buttons that FERRY the selected cell to the
     // PLAY grid. LONG-PRESS copies the currently-selected cell onto the play grid at THIS column's selected rung (→ its
     // grid position + the play bottom readout), with the rising-white overwrite warning (buildGridSelStampSweep, offset
-    // +8 so the play-ferry fill never collides with the PART-ferry side buttons that share the select grid). The button
-    // REFLECTS its column's set state: once ferried it wears the ferried cell's colour + a white "set" keyline (was a
-    // dead placeholder toggle that never changed after a ferry).
+    // +8 so the play-ferry fill never collides with the PART-ferry side buttons that share the select grid). Each button
+    // shows a PLAY ICON in its predetermined PLAY colour (INDIGO); the button itself stays neutral — a white "set" keyline
+    // + brighter field mark a column that has been ferried (was a number on a hue field).
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
             let sel = t < buildPlaySel.count ? buildPlaySel[t] : -1
-            let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
-            let hue = id.flatMap { colourColor($0) }
-            RoundedRectangle(cornerRadius: 4).fill(hue?.opacity(0.9) ?? Color.white.opacity(0.11))   // SET → its play cell's colour; empty → faint
+            let set = sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count && buildPlayCells[t][sel] != nil   // has this column been ferried?
+            RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(set ? 0.14 : 0.08))   // NEUTRAL button — only the play icon carries colour
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(hue != nil ? Color.white.opacity(0.6) : buildEdge, lineWidth: hue != nil ? 1.5 : 1))   // a "set" keyline once ferried
-                .overlay(Text("\(t + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(hue != nil ? .black.opacity(0.75) : .white.opacity(0.55)))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? Color.white.opacity(0.6) : buildEdge, lineWidth: set ? 1.5 : 1))   // a "set" keyline once ferried
+                .overlay(Image(systemName: "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(roomsIndigo))   // the PLAY icon in its predetermined (PLAY = INDIGO) colour
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                     pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })
