@@ -1657,11 +1657,14 @@ extension DiagView {
         let active = buildGridSelStampSourceRow == n                      // THE active side button — white border (§ "one cell or one side button is active")
         let predet = Color(hex: colourHexes[n % 16])                      // the slot's PREDETERMINED colour (a range across the 8)
         let sounding = buildStagingPlaying && buildStagingSel.contains(n) // this row is a currently-sounding rung (per-slot status proxy)
-        RoundedRectangle(cornerRadius: 5).fill(active ? Color.white.opacity(0.16) : (populated ? Color.white.opacity(0.10) : buildRowButtonFill))
+        // SELECTED only when POPULATED (Paul 2026-08-29): pressing/holding an EMPTY ferry button that the user never
+        // commits to (no copy) must NOT leave it looking selected. The SELECTED border is the PREDETERMINED colour, not white.
+        let selectedVis = active && populated
+        RoundedRectangle(cornerRadius: 5).fill(selectedVis ? Color.white.opacity(0.16) : (populated ? Color.white.opacity(0.10) : buildRowButtonFill))
             .frame(height: height)
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(active ? Color.white : (populated ? predet.opacity(0.5) : buildEdge), lineWidth: active ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selectedVis ? predet : (populated ? predet.opacity(0.5) : buildEdge), lineWidth: selectedVis ? 2 : 1))
             .overlay {
                 if part {                                                // PART LEFT rail → the slot NUMBER in its predetermined colour
                     Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced)).foregroundColor(predet.opacity(populated ? 1.0 : 0.5))
@@ -1684,10 +1687,11 @@ extension DiagView {
         buildRoomsSetActiveSide(n)                                       // the TARGET side button is now the active selection
         if buildRowColour(n) != nil { part ? buildSelectRow(n) : buildGridSelAimRow(n); buildTapColourTab(n) }   // reflect its chain (+ on PART, play that row)
     }
-    // TAP a SELECT side button — it becomes the active selection + stamp source (if populated), and auditions its chain.
+    // TAP a SELECT side button — a POPULATED one becomes the active selection + stamp source (and auditions its chain); an
+    // EMPTY one only AIMS (targets a future stamp) — it must not read as selected when the user hasn't committed. (Paul 2026-08-29)
     private func roomsTapSide(_ n: Int) {
-        buildGridSelAimRow(n)                                            // load + audition the part's chain (reflect its door/emitters in the panel)
-        buildRoomsSetActiveSide(n)                                      // this side button is now THE active selection (white border) + the copy source when populated
+        buildGridSelAimRow(n)                                            // aim this row as the stamp/commit target (+ audition if populated)
+        if buildRowColour(n) != nil { buildRoomsSetActiveSide(n) }      // only a POPULATED button becomes THE active selection + copy source
     }
     // ── THE PART GRID UNIT (rooms) — the old-gui part/staging grid + its nav slivers, ALL in ONE box (Paul 2026-08-28):
     // a LEFT seam sliver (◂ → SELECT, beside the left side buttons) · LEFT row-slots (the selection) · an 8×8 interior
