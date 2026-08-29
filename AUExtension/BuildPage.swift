@@ -5842,6 +5842,10 @@ extension DiagView {
     // (buildGridSelSel, SELECT library) or an active SIDE BUTTON's populated part row (buildGridSelStampSourceRow).
     // This is what a long-press copy stamps. (Paul 2026-08-28)
     private func buildGridSelStampSource() -> (chain: [ProcessorSlot], transpose: Int)? {
+        // A browse CELL: copy the CURRENTLY-AUDITIONED chain (buildColourReg[gsAud]) so card EDITS carry to the target —
+        // the register home is already baked into it (transpose 0). The on-disk/dealt cell is the fallback only if the
+        // transient is gone. (BUG 2026-08-29: the stamp was reading buildGridSelChainAt = the ORIGINAL, dropping edits.)
+        if buildGridSelSel != nil, let ch = buildColourReg[buildGridSelAudID], !ch.isEmpty { return (ch, 0) }
         if let i = buildGridSelSel, let hit = buildGridSelChainAt(i) { return (hit.chain, hit.transpose) }
         if let s = buildGridSelStampSourceRow, let cid = buildRowColour(s) { return (buildColourChain(cid), buildColourTranspose[cid] ?? 0) }
         return nil
