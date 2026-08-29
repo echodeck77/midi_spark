@@ -248,7 +248,7 @@ extension DiagView {
                 }
             }.padding(8)
         }
-        .onAppear { roomsPlaySetup() }                                     // default the per-column selection to row 1
+        // (buildPlaySel inits to ROW 1 for every column — no per-appear seed needed; a user deselect then persists.)
     }
     @ViewBuilder private func roomsReel(_ size: CGSize) -> some View {
         VStack(spacing: 8) {

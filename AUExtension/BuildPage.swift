@@ -1497,20 +1497,17 @@ extension DiagView {
         }
     }
     // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
-    // (default row 1). Writes ONE cell of the shared buildStagingCells, so it appears at the grid's selected position +
-    // column t's bottom readout. Mints a colour carrying the source chain + register home; undoable + a confirm flash.
+    // (default row 1). Writes ONLY the play grid's OWN store (buildPlayCells) — NOT the shared buildStagingCells — so it
+    // appears at the play grid's selected position + column t's bottom readout, and NEVER touches the part-grid side
+    // buttons (the bug this fixes). Mints a colour carrying the source chain + register home; a confirm flash.
     private func roomsAssignPlayColumn(_ t: Int) {
         guard t >= 0 && t < 8, let hit = buildGridSelStampSource() else { return }
         buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
-        let r = (t < buildStagingSel.count && buildStagingSel[t] >= 0) ? buildStagingSel[t] : 0   // the selected rung (default row 1)
-        buildRecordUndo()                                                    // BUILD UNDO: assign a cell to the play grid
+        let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0   // the selected rung (default row 1)
         let y = buildNewTabColour(r, machine: hit.chain, transpose: hit.transpose)   // a colour carrying the chain + its register home (hue from the row)
-        buildStagingCells[t][r] = y
-        buildPlacedOrig.removeValue(forKey: t * 8 + r)
-        if t < buildStagingSel.count { buildStagingSel[t] = r }              // make the assigned rung the selected one (so it shows on play)
-        buildStagingSyncIfPlaying()
-        buildGridSelComputeRowRolls()
-        buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space)
+        buildPlayCells[t][r] = y
+        if t < buildPlaySel.count { buildPlaySel[t] = r }                    // make the assigned rung the selected one (so it shows on play)
+        buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
     }
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
@@ -1730,20 +1727,19 @@ extension DiagView {
         }
     }
 
-    // ── THE PLAY GRID (Paul 2026-08-29 — "treat as new", BANDS DROPPED). A clean 8×8 over the SHARED arrangement
-    // (buildStagingCells), ONE selected rung per column (buildStagingSel — reuses the proven roomsPartCell tap), plus a
-    // BOTTOM READOUT row that reflects each column's selected cell (the numbered row buttons, the same slots shown at the
-    // TOP of the SELECT/PART grids). Cells arrive by assignment from the SELECT grid — its side-button long-press already
-    // writes buildStagingCells rows, so an assigned row shows here at its grid position + (when it's a column's selected
-    // rung) in the bottom readout. Self-sizing: 9 equal rows (8 interior + 1 readout) fill the height; 8 cols the width.
+    // ── THE PLAY GRID (Paul 2026-08-29 — "treat as new", BANDS DROPPED). A clean 8×8 over the play grid's OWN arrangement
+    // (buildPlayCells — INDEPENDENT of the part's buildStagingCells), ONE selected rung per column (buildPlaySel, default
+    // ROW 1), plus a BOTTOM READOUT row reflecting each column's selected cell (the numbered slots also shown at the TOP
+    // of the SELECT/PART grids). Cells arrive by the SELECT TOP-button ferry (roomsAssignPlayColumn) — which writes ONLY
+    // buildPlayCells, so it never touches the part-grid side buttons. Self-sizing: 9 equal rows (8 interior + 1 readout).
     @ViewBuilder func roomsPlayGrid() -> some View {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad
             let cw = max(6, (g.size.width - 2 * pad - 7 * gap) / 8)        // 8 cols, no rails → fills the width
             let ch = max(6, (g.size.height - 2 * pad - 8 * gap) / 9)       // 9 rows (8 interior + 1 bottom readout)
             VStack(spacing: gap) {
-                ForEach(0..<8, id: \.self) { r in                          // the interior 8×8 — reuse the part cell (rung-per-column select)
-                    HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPartCell(c, r, w: cw, h: ch) } }
+                ForEach(0..<8, id: \.self) { r in                          // the interior 8×8 — the play grid's OWN cells (rung-per-column select)
+                    HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPlayCell(c, r).frame(width: cw, height: ch) } }
                 }
                 HStack(spacing: gap) {                                      // the BOTTOM readout — each column's selected cell
                     ForEach(0..<8, id: \.self) { c in roomsPlayBottom(c).frame(width: cw, height: ch) }
@@ -1755,19 +1751,25 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildCyan.opacity(0.35), lineWidth: 1.5))
         }
     }
+    // A PLAY interior cell — reads the play grid's OWN store (buildPlayCells), ONE selected rung per column via
+    // buildPlaySel; tap selects that rung (re-tap the selected rung → deselect, column silent). Selected rung brighter.
+    @ViewBuilder private func roomsPlayCell(_ c: Int, _ r: Int) -> some View {
+        let id = (c < buildPlayCells.count && r < buildPlayCells[c].count) ? buildPlayCells[c][r] : nil
+        let selected = c < buildPlaySel.count && buildPlaySel[c] == r
+        RoundedRectangle(cornerRadius: 5)
+            .fill((id.flatMap { colourColor($0) } ?? buildCell).opacity(selected ? 1.0 : 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? .white.opacity(0.85) : buildEdge, lineWidth: selected ? 2 : 1))
+            .contentShape(Rectangle())
+            .onTapGesture { if c < buildPlaySel.count { buildPlaySel[c] = (buildPlaySel[c] == r) ? -1 : r } }   // one rung per column, toggle
+    }
     // A PLAY bottom-row button — REFLECTS column c's SELECTED cell (its colour), numbered like the SELECT/PART top-row
     // track heads (the same 8 slots). Display-only readout for now. (Paul 2026-08-29)
     @ViewBuilder private func roomsPlayBottom(_ c: Int) -> some View {
-        let sel = c < buildStagingSel.count ? buildStagingSel[c] : -1
-        let id = (sel >= 0 && c < buildStagingCells.count && sel < buildStagingCells[c].count) ? buildStagingCells[c][sel] : nil
+        let sel = c < buildPlaySel.count ? buildPlaySel[c] : -1
+        let id = (sel >= 0 && c < buildPlayCells.count && sel < buildPlayCells[c].count) ? buildPlayCells[c][sel] : nil
         let hue = id.flatMap { colourColor($0) }
         RoundedRectangle(cornerRadius: 4).fill(hue?.opacity(0.9) ?? Color.white.opacity(0.11))
             .overlay(Text("\(c + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(hue != nil ? .black : .white.opacity(0.55)))
-    }
-    // Entering PLAY: DEFAULT the per-column selection to ROW 1 where nothing is chosen (Paul 2026-08-29). Shares the
-    // staging arrangement, so SELECT assignments already appear here + the part/play rung selection stays in lockstep.
-    func roomsPlaySetup() {
-        for c in 0..<min(8, buildStagingSel.count) where buildStagingSel[c] < 0 { buildStagingSel[c] = 0 }
     }
 
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
@@ -2896,7 +2898,7 @@ extension DiagView {
         var live = Set<String>()
         live.formUnion(buildPartCast); for p in buildParts { live.formUnion(p.cast) }
         func addCells(_ cells: [[String?]]) { for col in cells { for c in col { if let c = c { live.insert(c) } } } }
-        addCells(buildStagingCells); addCells(buildPerformCells); for p in buildParts { addCells(p.stagingCells) }
+        addCells(buildStagingCells); addCells(buildPerformCells); addCells(buildPlayCells); for p in buildParts { addCells(p.stagingCells) }   // the PLAY grid's own colours are live too (else GC frees them)
         for u in buildRowUnder { if let u = u { live.insert(u) } }
         for p in buildParts { for u in p.rowUnder { if let u = u { live.insert(u) } } }
         for (_, row) in buildDeletedRows { for c in row { if let c = c { live.insert(c) } } }
