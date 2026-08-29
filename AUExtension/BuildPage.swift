@@ -1576,7 +1576,7 @@ extension DiagView {
                     }
                 }
                 .overlay(alignment: .topLeading) {                          // the processor card over the interior 8×8 (past the left rail)
-                    roomsProcessorCardAt(x: leftInset, y: ch + gap, w: interiorW, h: interiorH)
+                    roomsProcessorCardAt(x: 0, y: ch + gap, w: leftInset + interiorW, h: interiorH)   // extend LEFT over the page-select rail (Paul 2026-08-29)
                 }
             }
             .padding(pad)
@@ -1702,7 +1702,7 @@ extension DiagView {
                     }
                     VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: cw, height: ch) } }
                 }
-                .overlay(alignment: .topLeading) { roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW, h: interiorH) }
+                .overlay(alignment: .topLeading) { roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW + gap + cw, h: interiorH) }   // extend RIGHT over the row-selector rail (Paul 2026-08-29)
             }
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
