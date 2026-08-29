@@ -1522,11 +1522,14 @@ extension DiagView {
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
             let sel = t < buildPlaySel.count ? buildPlaySel[t] : -1
-            let set = sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count && buildPlayCells[t][sel] != nil   // has this column been ferried?
-            RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(set ? 0.14 : 0.08))   // NEUTRAL button — only the play icon carries colour
+            let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
+            let set = id != nil                                          // has this column been ferried?
+            let cellHue = id.flatMap { colourColor($0) }                 // the ferried cell's colour
+            RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(set ? 0.14 : 0.08))   // NEUTRAL button — the play icon + border carry colour
+                .overlay { if set { buildNoteSweep(idx: 64 + t, active: buildStagingPlaying, id: id).padding(2) } }   // PLAYING → drift notes like the part cells (⚠ inert until play-grid playback feeds per-cell rolls)
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? Color.white.opacity(0.6) : buildEdge, lineWidth: set ? 1.5 : 1))   // a "set" keyline once ferried
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? (cellHue ?? roomsIndigo) : buildEdge, lineWidth: set ? 2.5 : 1))   // POPULATED → a THICKER COLOUR border (more prominent)
                 .overlay(Image(systemName: "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(roomsIndigo))   // the PLAY icon in its predetermined (PLAY = INDIGO) colour
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
@@ -1660,11 +1663,17 @@ extension DiagView {
         // SELECTED only when POPULATED (Paul 2026-08-29): pressing/holding an EMPTY ferry button that the user never
         // commits to (no copy) must NOT leave it looking selected. The SELECTED border is the PREDETERMINED colour, not white.
         let selectedVis = active && populated
+        // ANIMATION (the SELECT→PART ferry, !part): when the part is playing, the populated button drifts notes like the
+        // part cells — buildNoteSweep keyed to this row's cell at the ACTIVE column (the currently-sounding one). (Paul 2026-08-29)
+        let ec = max(0, min(7, d.effColumn))
+        let animActive = !part && populated && buildStagingPlaying && ec < buildStagingSel.count && buildStagingSel[ec] == n
         RoundedRectangle(cornerRadius: 5).fill(selectedVis ? Color.white.opacity(0.16) : (populated ? Color.white.opacity(0.10) : buildRowButtonFill))
             .frame(height: height)
+            .overlay { if animActive { buildNoteSweep(idx: ec * 8 + n, active: true, id: buildRowColour(n)).padding(2) } }   // PLAYING → part-cell drift animation
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selectedVis ? predet : (populated ? predet.opacity(0.5) : buildEdge), lineWidth: selectedVis ? 2 : 1))
+            // POPULATED → a THICKER COLOUR border (more prominent); SELECTED thicker still.
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? predet : buildEdge, lineWidth: selectedVis ? 3 : (populated ? 2.5 : 1)))
             .overlay {
                 if part {                                                // PART LEFT rail → the slot NUMBER in its predetermined colour
                     Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced)).foregroundColor(predet.opacity(populated ? 1.0 : 0.5))
