@@ -288,7 +288,6 @@ struct DiagView: View {
     @AppStorage("midispark.roomsFooter") var showRoomsFooter = false   // the extend-page MIDI footer is HIDDEN now (its controls moved onto the machine column); re-enablable on the cog page (Paul 2026-08-30)
     // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — a parallel NEW-interface shell behind a preview toggle
     // (old BUILD stays the default + fully working). Off ⇒ the current BUILD page; on ⇒ the room shell (roomsPage).
-    @AppStorage("midispark.newInterfaceV2") var useNewInterface = true   // NEW interface is the DEFAULT now (Paul 2026-08-28); toggle to old BUILD in the cog. (Fresh key so the new default-on isn't shadowed by a stored value from increment 1.)
     @State var roomsRoom: Room = .select       // which room is in view in the new shell (one grid at a time)
     // (roomsTrackOn — the placeholder per-track toggle — retired 2026-08-29 when the top buttons became the PLAY FERRY,
     // which reflects its column's set play cell instead. See roomsPlayFerry.)
@@ -773,7 +772,6 @@ struct DiagView: View {
                     CogPage(au: au, d: d, aboutLine: aboutLine,
                             showScenes: $showScenes,
                             showRoomsFooter: $showRoomsFooter,
-                            useNewInterface: $useNewInterface,
                             onClose: { showSettings = false })
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
@@ -1041,8 +1039,7 @@ struct DiagView: View {
             // arms the chain as the workshop voice so a held chord sounds the selected machine straight away.
             // SILENCE ON FRESH START (Paul 2026-08-29): the rooms interface auditions on TAP + starts play columns on their
             // own buttons, so it must NOT auto-arm any voice on launch (that engaged free-run + could leak a passthrough).
-            // Only the OLD build interface auto-armed PLAY THIS MIDI CHAIN.
-            if activeTab == .build { buildSeedCastIfNeeded(); if !useNewInterface { buildRequestWorkshopVoice(.chain) } }
+            if activeTab == .build { buildSeedCastIfNeeded() }   // (the OLD interface's auto-arm of PLAY THIS MIDI CHAIN retired with buildPage, Paul 2026-08-30)
             // FREE-RUN is no longer a blanket enable (Paul 2026-08-27, FERRY-strike-anchor ①: stopped = silent). It is
             // now GATED on an active BUILD play mode and synced from buildPublishScene() — the .chain request above
             // already published + synced it. Seed false so a non-BUILD entry (defensive; BUILD is the sole surface) stays silent.
@@ -1106,7 +1103,7 @@ struct DiagView: View {
     // overflow → no scroll → touches land. (user 2026-08-12) The deep RackMatrix lives in a BUILD overlay now.
     @ViewBuilder func tabBody(_ geo: GeometryProxy) -> some View {
         GeometryReader { g in
-            if useNewInterface { roomsPage(g.size) } else { buildPage(g.size) }   // INTERFACE REDESIGN: the parallel shell (preview toggle)
+            roomsPage(g.size)   // the rooms interface is the sole surface now (old buildPage retired, Paul 2026-08-30)
         }
     }
 
