@@ -1262,10 +1262,15 @@ extension DiagView {
     fileprivate var buildSelHue: Color { colourColor(ddSelectedColourID ?? "") ?? buildCyan }
     // THE MACHINE DISPLAY HUE (Paul 2026-08-30): the ONE hue for the machine BOX + MIDI CHAIN + PLAY button, so the three
     // stay consistent. Colour is a thing on the PART/PLAY grids + ferries only — it has LEFT the SELECT grid (its cells show
-    // the inverse light grey), so on SELECT the machine shows that SAME light grey, NOT the browsed cell's (old) colour. On
-    // PART it wears the selected machine's colour. (The machine box only appears on SELECT + PART.)
+    // the inverse light grey). So a PLAIN select-grid audition (the transient gsAud, which carries no colour) shows the
+    // machine that SAME light grey. But once a REAL colour is the selection — a ferry has just been copied and becomes
+    // selected, or PART's own machine — the box + chain + play button all wear THAT colour (not grey/white). PART always
+    // wears its machine's colour. (The machine box only appears on SELECT + PART.)
     var buildSelectGrey: Color { Color(white: 0.84) }
-    func buildMachineHue(_ room: Room) -> Color { room == .part ? buildSelHue : buildSelectGrey }
+    func buildMachineHue(_ room: Room) -> Color {
+        if room == .part { return buildSelHue }
+        return buildSelID == buildGridSelAudID ? buildSelectGrey : buildSelHue   // SELECT: grey for the colourless audition, the ferry's real hue once one is selected
+    }
 
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
@@ -1342,12 +1347,12 @@ extension DiagView {
         }
         .padding(pad)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
+        .background(Rectangle().fill(Color.white.opacity(0.05)))                 // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
         // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
         // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
         // PAIRING: the selected-colour box wears the focused machine's hue — or the SELECT running-cell light grey (boxHue).
         // Static border (the playing GLOW lives only on the play button now, Paul 2026-08-30).
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(boxHue.opacity(0.85), lineWidth: 2.5))
+        .overlay(Rectangle().stroke(boxHue.opacity(0.85), lineWidth: 2.5))       // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
