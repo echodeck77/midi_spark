@@ -1721,13 +1721,18 @@ extension DiagView {
             ? (buildStagingPlaying && ec < buildStagingSel.count && buildStagingSel[ec] == n)
             : (buildGridSelStampSourceRow == n && buildDisplayVoice == .chain))
         // THREE STATES (Paul 2026-08-30): NULL (dark + thin edge) · POPULATED (machine-hue frame + a calm fingerprint) ·
-        // PLAYING (bright machine frame + an EMITTER glow + the fingerprint DRIFTS). Machine = the frame, emitter = the
-        // drift tint + a corner dot. The select→part ferry drifts the CHAIN'S FINGERPRINT (buildGridSelRowRoll) — the live
-        // strike feed can't reach it (the audition composes on a dynamic engine row), so a fingerprint is the honest signal.
+        // PLAYING (bright machine frame + an EMITTER glow + REAL drifting notes). Machine = the frame, emitter = the drift
+        // tint + a corner dot. When the select→part ferry is the AIMED/auditioning one, it now shows the audition's LIVE
+        // emitted notes (#5, Paul 2026-08-30): the audition parks on buildChainAuditionRow (col 0), so its strike feed lives
+        // at that engine index — read it here. Idle → the static CHAIN fingerprint (buildGridSelRowRoll) as the calm tell.
+        let liveIdx = (!part && playing) ? buildChainAuditionRow : nil    // this ferry is auditioning → its live-strike engine row (col 0)
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
             .frame(height: height)
             .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(populated ? (playing ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
-            .overlay { if populated && !part { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: playing, tint: eHue).padding(.vertical, 3).padding(.horizontal, 2).opacity(playing ? 1.0 : 0.55) } }   // CHAIN fingerprint in the EMITTER colour
+            .overlay { if populated && !part {
+                if let li = liveIdx { buildNoteSweep(idx: li, active: true, id: buildRowColour(n), emitter: buildRowEmittersResolved(n)) }   // REAL audition notes in the EMITTER colour
+                else { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: false, tint: eHue).padding(.vertical, 3).padding(.horizontal, 2).opacity(0.55) }   // idle → the calm CHAIN fingerprint
+            } }
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : buildEdge,
@@ -1806,7 +1811,11 @@ extension DiagView {
     // reads as a brighter wash + a medium frame (it's the one that plays — the drift already confirms it).
     @ViewBuilder private func roomsGridCellBody<S: View>(id: String?, selected: Bool, @ViewBuilder sweep: () -> S) -> some View {
         let mHue = id.flatMap { colourColor($0) } ?? buildCell            // the machine's identity hue
-        let focused = id != nil && id == ddSelectedColourID              // the machine currently shown in the strip / card
+        // FOCUS = the machine shown in the strip/card. While a SELECT ferry is aimed the shown machine is the transient
+        // gsAud, so ALSO pair the MIRRORED part row's REAL colour (#6, Paul 2026-08-30) — else that row's cells, whose id is
+        // the real colour, never light focused during ferry editing even though the card is editing them.
+        let mirrorCid = buildFerryMirrorRow.flatMap { buildRowColour($0) }
+        let focused = id != nil && (id == ddSelectedColourID || (mirrorCid != nil && id == mirrorCid))
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
             .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(id == nil ? 0 : (selected ? 0.30 : 0.13))))   // faint machine-hue identity wash
             .overlay { sweep() }                                        // the EMITTER-coloured drift
@@ -3005,7 +3014,9 @@ extension DiagView {
             guard r >= 0, r < 8, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return [] }
             return buildColourChain(cid)
         }
-        au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
+        let composed = BuildSceneLogic.composeSceneMeta(input)
+        au?.setBuildStagingScene(composed.scene)
+        buildChainAuditionRow = composed.auditionRow                          // #5: the engine row the audition parked on → the aimed ferry reads its LIVE strikes there
         // (The reference-chord fallback was REMOVED 2026-08-23, Paul: PLAY THIS MIDI CHAIN now sounds ONLY real input —
         // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
         // FREE-RUN GATE (Paul 2026-08-27, FERRY-strike-anchor ①: REVERTS the 2026-08-25 held-note internal transport).

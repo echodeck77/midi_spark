@@ -208,6 +208,22 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(lane[0], 0b1, "row 0 loops column 0 → continuous")
     }
 
+    func testComposeSceneMetaReportsTheAuditionRow() {
+        // #5 (Paul 2026-08-30): composeSceneMeta exposes the engine ROW the audition parked on so the aimed ferry can read
+        // its LIVE strike feed at idx = col0*Snap.rows + auditionRow. It must equal where the audition cell actually lands.
+        var i = BuildSceneLogic.Input()
+        i.chainActive = true; i.chainColourID = "cyan"
+        i.performPlaying = true
+        i.performCells = grid([(0, 0, "gold")])            // piece on row 0 → the audition takes the next free row (1)
+        let m = BuildSceneLogic.composeSceneMeta(i)
+        let ar = m.auditionRow
+        XCTAssertEqual(ar, 1, "the audition parks on the first free row (row 0 taken by the piece)")
+        XCTAssertEqual(m.scene?.cellAt(0, ar ?? -1)?.colourID, "cyan", "auditionRow points at the audition cell (col 0)")
+        // No chain voice ⇒ no audition row.
+        var j = BuildSceneLogic.Input(); j.performPlaying = true; j.performCells = grid([(0, 0, "gold")])
+        XCTAssertNil(BuildSceneLogic.composeSceneMeta(j).auditionRow, "no chain voice → no audition row")
+    }
+
     func testChainFallsBackToTheLeastOccupiedRowWhenPieceIsFull() {
         var i = BuildSceneLogic.Input()
         i.chainActive = true

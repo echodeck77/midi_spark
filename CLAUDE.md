@@ -208,6 +208,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (Paul's model: the ferry is a COPY of the select cell but MIRRORED to its part row). Guarded on `cid == gsAud` so it never fires
   for library-browser edits. The PART-grid side buttons already selected the real colour (edits persisted there); the fix closes
   the SELECT-ferry gap.**
+- **▶ ROOMS #5 FERRY LIVE NOTES + #6 FOCUS-FRAME PAIRING (2026-08-30, on `main`; iOS builds, macOS 934 green; DEVICE-owed,
+  UI-only). Paul: "do 5 and 6." **#5 FERRY-TO-PART LIVE NOTES:** the SELECT→part ferry showed a static/animated CHAIN
+  FINGERPRINT (buildGridSelRowRoll) while playing because the audition composes on a DYNAMIC engine row, so the aimed ferry
+  couldn't line its strike feed up. Now `BuildSceneLogic.composeSceneMeta` (the tested `composeScene` delegates to it) also
+  returns the ROW the audition parked on (col 0); `buildPublishScene` captures it into `buildChainAuditionRow`, and the aimed
+  ferry reads its LIVE strikes via `buildNoteSweep(idx: auditionRow, ...)` — REAL drifting notes in the emitter colour when
+  auditioning, the calm fingerprint when idle. +1 BuildSceneLogic test (auditionRow points at the audition cell; nil with no
+  chain voice). **#6 FOCUS-FRAME PAIRING:** while a ferry is aimed the strip/card edits the transient gsAud, so a part cell
+  (id = the row's REAL colour) never lit the bright "focused" frame. `roomsGridCellBody.focused` now ALSO matches the
+  MIRRORED row's real colour (`buildFerryMirrorRow → buildRowColour`), so the mirrored row's cells pair with the machine in
+  view during ferry editing.**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2

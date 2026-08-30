@@ -242,6 +242,7 @@ struct DiagView: View {
     @State var buildGridSelTab = 0                       // 0 = DEALT · 1 = MY LIBRARY
     @State var buildGridSelArrivalRow: Int? = nil        // the row selected when the selector OPENED — frozen (never re-read live)
     @State var buildFerryMirrorRow: Int? = nil           // the POPULATED part row a SELECT-grid ferry aim mirrors: card edits on gsAud write BACK to it (bidirectional, Paul 2026-08-30)
+    @State var buildChainAuditionRow: Int? = nil         // the engine row the SELECT/chain audition parked on (col 0) → the aimed ferry reads its LIVE strikes there (#5, Paul 2026-08-30)
     @State var buildGridSelDealSeed: UInt64 = 1          // RE-DEAL bumps this
     @State var buildGridSelDealt: [Dice.EnsembleRow] = [] // the 64 shown chains (sampled from the corpus, or fresh while it builds)
     @State var buildGridSelCorpus: [Dice.EnsembleRow] = [] // §3.1 THE PREGEN CORPUS: the big pool DEAL samples 64 from (built once, background)

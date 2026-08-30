@@ -59,8 +59,12 @@ enum BuildSceneLogic {
     /// Three independent passes — piece → part → chain — matching `buildPublishScene`. The chain lands raw on the
     /// LEAST-occupied free row (every free column active), so it sounds alongside the piece with none of the part
     /// grid's per-column rules; it only goes gappy when all 8 rows are full.
-    static func composeScene(_ i: Input) -> SceneState? {
-        guard i.stagingPlaying || i.performPlaying || i.chainActive || i.playPlaying else { return nil }
+    static func composeScene(_ i: Input) -> SceneState? { composeSceneMeta(i).scene }
+    /// As `composeScene`, but also returns the engine ROW the SELECT/chain audition parked on (col 0) — so the UI can read
+    /// its LIVE strike feed at `idx = col0*Snap.rows + auditionRow` and drift the aimed ferry's real notes (Paul 2026-08-30,
+    /// #5: the audition composes on a DYNAMIC row, so the ferry couldn't line up its strikes without knowing which).
+    static func composeSceneMeta(_ i: Input) -> (scene: SceneState?, auditionRow: Int?) {
+        guard i.stagingPlaying || i.performPlaying || i.chainActive || i.playPlaying else { return (nil, nil) }
         var s = SceneState.empty()
         var chainLaneRow: Int? = nil                                // the SELECT audition's engine row → looped to column 0 (a 1-step continuous pass)
 
@@ -182,7 +186,7 @@ enum BuildSceneLogic {
             s.rowLane = rowLane
         }
 
-        return s
+        return (s, chainLaneRow)
     }
 
     /// Keep each staging column's pick VALID after an edit. Paul 2026-08-16 (bug C1): an explicit −1 (the user
