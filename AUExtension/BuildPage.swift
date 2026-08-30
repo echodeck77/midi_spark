@@ -1384,6 +1384,9 @@ extension DiagView {
         let blockH = 4 * (cell + cgap) * 1.5 + 3 * cgap                     // the MIDI-chain block height — +50% box height (Paul 2026-08-30); verb buttons + play square share it
         let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
+        // On the SELECT grid a running cell is shown in the INVERSE LIGHT GREY (not its hue), so the machine box matches that
+        // same light grey while a cell runs there — instead of the chain's colour (Paul 2026-08-30).
+        let boxHue: Color = (room == .select && buildDisplayVoice == .chain) ? Color(white: 0.84) : buildSelHue
         VStack(spacing: gap) {
             AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
@@ -1410,9 +1413,9 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
         // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
         // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
-        // PAIRING: the selected-colour box wears the focused machine's hue (static — the playing GLOW lives only on the play
-        // button now, Paul 2026-08-30).
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(0.85), lineWidth: 2.5))
+        // PAIRING: the selected-colour box wears the focused machine's hue — or the SELECT running-cell light grey (boxHue).
+        // Static border (the playing GLOW lives only on the play button now, Paul 2026-08-30).
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(boxHue.opacity(0.85), lineWidth: 2.5))
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
@@ -1433,7 +1436,9 @@ extension DiagView {
         // STYLED LIKE THE PLAYING CELL (Paul 2026-08-30): the button wears the PLAYING cell's hue — the sequencer's active
         // cell on PART, the selected/auditioning colour on SELECT — with the same dark-stage + hue-frame + glow language a
         // ferry box uses in playing mode.
-        let hue: Color = room == .part ? (buildPlayingColourHue ?? buildSelHue) : buildSelHue
+        // SELECT: a running cell shows in the inverse LIGHT GREY, so the play button matches it (not the chain's hue) while
+        // running; PART: the sequencer's active cell hue. (Paul 2026-08-30)
+        let hue: Color = room == .part ? (buildPlayingColourHue ?? buildSelHue) : (active ? Color(white: 0.84) : buildSelHue)
         GeometryReader { g in
             let side = min(g.size.width, g.size.height)                      // SQUARE, ~one chain box
             ZStack {
