@@ -5,14 +5,27 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-24._
 
-## ★ HOUSEKEEPING — dead-code sweep after the OLD-UI REMOVAL (2026-08-30)
-- **~33 pre-existing FULLY-DEAD orphan functions remain in `AUExtension/BuildPage.swift`** (dead BEFORE the old-UI removal, from
-  earlier BUILD reworks; the removal deleted the 79 old-UI-exclusive funcs + 31 entangled orphans, but not these). NEXT SWEEP:
-  grep-verify zero-reference functions in BuildPage.swift and delete, building after each batch. **EXCLUDE the flagged
-  artifacts (do NOT delete):** `makeUIViewController`/`updateUIViewController` (the kept `ReelShareSheet`'s
-  UIViewControllerRepresentable conformance), `xOf`/`yOf`/`pt` (nested local funcs inside kept parents), and eyeball
-  `addCells`/`flatten`/`row8Live` (possible nested/locals) before removing. Source of the list: the 2026-08-30 dependency-map
-  agent (FULLY-DEAD section).
+## ★ HOUSEKEEPING SWEEP — 2026-08-30 (dead code · 30-bug hunt · tests · refactors, unattended)
+- **✅ DEAD CODE DONE:** 24 grep-verified zero-ref orphans deleted (`Housekeeping: delete 24 grep-clean dead orphans`) —
+  22 BuildPage leaf helpers (buildBandNumber/BandRange/BlankSlot/CastMemberAt/ColourTabs/ColumnHasSelection/
+  FirstFreePaletteSlot/FooterBoxBtn/Lighten/MidiOutInfo/MSBtn/RowButtonIcon/SetPartLen/SetSource/Step/TargetMark/
+  colSelCellPart/row8Live + vars CurrentDeployed/PerformPopulated/ShowColourBox/StagingPopulated) + `clearReceiverLatch`
+  + `buildPlacedOrig` (dead write-only PLACE-verb state). KEPT (reserved/conformance/WIP, do NOT delete): the macro-
+  authoring + colour-chain + mark-feed + Row 8 AU APIs, the EditSelection undo cluster (markBorn/recordUndo/wasBorn/
+  asSet/syncAnchor), `roomsPlayHeader` (active rooms surface), makeUIViewController/updateUIViewController.
+- **✅ BUGS DONE (this pass):** K1 presets now carry the BUILD workspace · K2 load paths drop stale pending · K3 empty-
+  scenes guards · P1 chain-audition fallback sweeps (not pins) · R1 master-MUTE closes sustained notes · R3 no-machine wire
+  honors emitter enable/solo · Rooms1 play-rung tap re-publishes · Rooms2 pass-aware transport · Rooms4 ragged-restore guards.
+  The 2026-08-24 pre-surveyed bug list (below, §"Wrong audio / correctness"…) was RE-VERIFIED — nearly all already fixed by
+  unticked CR-6/9/10/11/15/16/17/18 passes; only [7]'s gate-stack half remained (= R2, flagged).
+- **⚠ FLAGGED, NOT fixed (need a dedicated tested + device pass):**
+  - **R2 — GLIDE bypasses the emitOneBus gate stack** (Router `emitColumnGlide`/`emitGlideDriven`/`emitGlideStepRun` open
+    via raw `openVoice`): no masterKey/emitterOctaveShift (glide plays OUT OF KEY) + no busEnabled/solo/FENCE/CLAIM. The pitch
+    transforms are mechanical but the emission GATES need a note-shift consistent across glide's multiple open AND close
+    paths (a mismatch = stuck note) — device ear-verify. This is the open half of old finding [7].
+  - **Rooms3 — a flattened play PASS's per-step I/O chips edit-but-are-ignored** (the engine uses playColStepRecv/Emit; the
+    chips write only the column default). Overlaps the ⛔ PAUL-TO-DEFINE pass-editing model below — settle that first.
+  - Minor (low): glide stamps a stale currentCellIndex (cosmetic SEAL/reel tag); flood governor undercounts BROADCAST.
 - **`buildGCColours` (ephemeral-colour GC) was removed with the old UI** — the rooms UI never called it, so no behaviour change,
   BUT ephemeral colours (minted on ferry/flatten/audition) no longer GC. If a long rooms session shows colour bloat, add a
   rooms-side colour-GC (the old one keyed off the old-UI liveset; a rooms one would key off buildStagingCells + buildPlayCells +
@@ -246,6 +259,10 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
 ## init(from:) (the Macro/BuildPart pattern; fields stay non-Optional so encode is byte-identical; +3 tests). Commits:
 ## e1f6925 (CR-1/12/16/17) · 67bd53c (CR-2/3/4/5/6/7/9/10/11/13) · 9e72626 (CR-14/15 + the 7 EXTRAS). The historical
 ## finding text is kept below for the record.
+## **RE-VERIFIED 2026-08-30 (housekeeping sweep):** every item below re-checked against current code — ALL closed by the
+## CR passes above EXCEPT [7]'s emitOneBus-gate-stack half (GLIDE), now flagged as R2 in the top housekeeping section.
+## New data-loss fixes this pass extend the same class: K1 (presets now carry the BUILD workspace) + K2 (load paths drop
+## stale pending) — see the top section. The list below is HISTORICAL; do not re-chase without re-verifying first.
 ##
 ## (original sweep header:) 6-reviewer adversarial sweep — Router · Kernel · Derivations/Builder · Models/Emission · BuildPage · VC/AU; each finding VERIFIED against the code. Fix in small individually-verifiable commits (macOS suite + iOS build after each); the render-engine ones are byte-identical-sensitive — lean on RouterTests + fuzz.
 

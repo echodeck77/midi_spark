@@ -159,6 +159,33 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ HOUSEKEEPING SWEEP — dead code · 7-agent bug hunt · +8 tests · refactors (2026-08-30, on `main`; iOS builds, macOS
+  suite green throughout — RouterTests 330 + the new tests). Paul: "long housekeeping, unattended — search for 30 bugs,
+  add missing tests, investigate + perform refactors." Seven parallel read-only survey agents (4 bug-hunt: rooms-UI ·
+  Router · Kernel/persist · pure-core; + dead-code · test-gap · refactor), EVERY finding re-verified against current code
+  before acting. KEY FINDING: the whole 2026-08-24 pre-surveyed bug list (pending-tasks §"Wrong audio"…) was already
+  fixed by unticked CR-6/9/10/11/15/16/17/18 passes — only [7]'s glide-gate half remained. **FIXED (7 commits):**
+  ① DEAD CODE — 24 grep-clean orphans deleted (22 BuildPage leaf helpers + clearReceiverLatch + buildPlacedOrig write-only
+  PLACE-verb state; ~140 lines). ② PERSISTENCE — **K1** presets now carry the BUILD workspace (savePreset used the RAW
+  document → 'Save as preset' dropped the unassigned part / deployed scenes / rooms PLAY GRID; a shared `encodeDocument`
+  folds the pending fields for both fullState + presets) · **K2** the factory/preset/test load paths now `clearPendingBuild()`
+  (only fullState.set did → cross-doc contamination) · **K3** editScene + the stepRate/swing observers guard empty scenes.
+  ③ ROOMS — **Rooms1** a play-grid rung tap re-publishes (audio followed the OLD rung / kept sounding after deselect) ·
+  **Rooms2** a pass-aware transport gate (`buildPlayColHasContent` = rung OR pass; a deselected-rung pass was stuck/
+  unstartable) · **Rooms4** ragged-restore bounds guards on buildRowColour/roomsPartCell. ④ PURE-CORE — **P1** the
+  no-empty-row chain audition SWEEPS instead of pinning col 0 to another voice's cell (would silence the audition);
+  +1 test. ⑤ ENGINE — **R1** master MUTE now closes sustained drones/glides (folds into the enabled mask like master-KILL
+  → the edge-close fires; was an invariant-4 violation — a sustained note-on never paired with an off; +RouterTest) ·
+  **R3** the no-machine wire honors emitter enable/output-solo (was diverging from the grid; the reconcile diff self-
+  corrects → no stuck note). ⑥ TESTS — +8 coverage tests (multi-step pass rate + per-step I/O fallback · ReelDeck range
+  reunification/empty-pass-skip/trailing-flush · BuildPlayGridData decode-tolerance · thruReceiver clamp · rtcCoinSize
+  zero-weights · weaveRate drawn/euclid/negative · Macro lane clamps). ⑦ REFACTORS — `BuildSceneLogic.passLen` (dedup ×4)
+  · `buildDefaultEmitters` property (dedup ×10) · 7 stale col*8+row/'64 cells' SEAL-comet comments → col*Snap.rows+row/128
+  (left the tap/mask 64-bit comments). **FLAGGED, NOT fixed (need device + a dedicated pass):** R2 = GLIDE bypasses the
+  emitOneBus gate stack (out-of-key + ignores enable/solo/FENCE/CLAIM — the open half of [7]; the pitch transforms are
+  easy but the emission GATES risk a stuck note without device ears); Rooms3 = a flattened pass's per-step I/O chips
+  edit-but-ignored (overlaps the PAUL-TO-DEFINE pass-editing model); minor: glide stale currentCellIndex (cosmetic),
+  BROADCAST flood-governor undercount. Refactor agent confirmed NO render-path allocations (all Router arrays pre-alloc).**
 - **▶ ROOMS PLAY-GRID BATCH + THE 64→128 CELL REFACTOR (2026-08-29/30, on `main`; iOS builds, macOS 933 green incl. fuzz;
   ALL device-owed — the whole rooms/play-grid interface is UI-heavy + Paul-steered on glass). A long device-driven thread
   redefining the PLAY grid + the voice model, capped by an engine change. NOT YET COMMITTED (uncommitted working tree —
