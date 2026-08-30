@@ -1822,8 +1822,8 @@ extension DiagView {
     // A PART interior cell — ONE RUNG PER COLUMN (old-gui buildStagingTap): tap selects that rung for its column; tap the
     // selected rung to UNSELECT it (that column falls silent). Dark stage + machine-hue frame; the selected rung brighter.
     @ViewBuilder private func roomsPartCell(_ c: Int, _ r: Int, w: CGFloat, h: CGFloat) -> some View {
-        let id = buildStagingCells[c][r]
-        let selected = buildStagingSel[c] == r                            // the ONE selected rung for column c
+        let id = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil   // Rooms4: bounds-safe against a ragged decoded doc
+        let selected = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r   // the ONE selected rung for column c
         roomsGridCellBody(id: id, selected: selected,
                           sweep: { buildNoteSweep(idx: c * Snap.rows + r, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
             .frame(width: w, height: h)                                   // fixed size so the playhead pitch is exact
@@ -1897,7 +1897,7 @@ extension DiagView {
     var buildPlayPlaying: Bool { buildPlayColOn.contains(true) }
     // Toggle ONE play column's independent playback + republish. (Paul 2026-08-29 — each play cell starts/stops on its own.)
     func buildTogglePlayColumn(_ c: Int) {
-        guard c >= 0, c < buildPlayColOn.count, buildPlayColPopulated(c) else { return }
+        guard c >= 0, c < buildPlayColOn.count, buildPlayColHasContent(c) else { return }
         buildPlayColOn[c].toggle(); buildPublishScene()
     }
     // SELECT a play column's cell → the machine strip + the I/O toggles reflect it (Paul 2026-08-30: play-ferry selection,
@@ -1923,7 +1923,7 @@ extension DiagView {
     // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
     func buildTogglePlayGrid() {
         let anyOn = buildPlayColOn.contains(true)
-        for c in 0..<8 { buildPlayColOn[c] = anyOn ? false : buildPlayColPopulated(c) }
+        for c in 0..<8 { buildPlayColOn[c] = anyOn ? false : buildPlayColHasContent(c) }
         buildPublishScene()
     }
     // Column c has a populated selected rung (something to sound).
@@ -1931,8 +1931,14 @@ extension DiagView {
         let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
         return r >= 0 && r < 8 && c < buildPlayCells.count && r < buildPlayCells[c].count && buildPlayCells[c][r] != nil
     }
-    // The play grid has at least one populated selected rung (something to sound).
-    var buildPlayPopulated: Bool { (0..<8).contains { buildPlayColPopulated($0) } }
+    // Column c has SOMETHING to sound — a populated selected rung OR a MULTI-STEP pass (Rooms2 fix, Paul 2026-08-30).
+    // A pass plays independent of the rung (composeScene reads playColSteps, not playSel), so a deselected-rung pass
+    // must still be startable/stoppable + count toward the grid transport — else it strands playing/unstartable.
+    func buildPlayColHasContent(_ c: Int) -> Bool {
+        buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1)
+    }
+    // The play grid has at least one column with content (a rung OR a pass).
+    var buildPlayPopulated: Bool { (0..<8).contains { buildPlayColHasContent($0) } }
 
     // ── THE PLAY GRID (Paul 2026-08-29 — "treat as new", BANDS DROPPED). A clean 8×8 over the play grid's OWN arrangement
     // (buildPlayCells — INDEPENDENT of the part's buildStagingCells), ONE selected rung per column (buildPlaySel, default
@@ -1977,7 +1983,10 @@ extension DiagView {
             roomsCellPlayhead(active: on)   // PER-CELL PLAYHEAD — the pass sweeping L→R
         })
             .contentShape(Rectangle())
-            .onTapGesture { if c < buildPlaySel.count { buildPlaySel[c] = (buildPlaySel[c] == r) ? -1 : r } }   // one rung per column, toggle
+            .onTapGesture {
+                if c < buildPlaySel.count { buildPlaySel[c] = (buildPlaySel[c] == r) ? -1 : r }   // one rung per column, toggle
+                if c < buildPlayColOn.count, buildPlayColOn[c] { buildPublishScene() }   // Rooms1: a rung change while playing must re-publish so the engine FOLLOWS the selection (was UI-only → audio stayed on the old rung / kept sounding after deselect)
+            }
     }
     // A PLAY bottom-row button — column c's PER-COLUMN TRANSPORT (Paul 2026-08-29): shows the selected cell's colour + a
     // play/stop icon reflecting the column's independent state; TAP = start/stop THIS column. Empty column → inert readout.
@@ -3310,7 +3319,7 @@ extension DiagView {
         buildStagingSyncIfPlaying()
     }
 
-    private func buildRowColour(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<8).compactMap { buildStagingCells[$0][r] }.first : nil }
+    private func buildRowColour(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<8).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe against a ragged decoded doc (buildRowColour is called all over the rooms UI)
     private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one colour
         for c in 0..<8 { buildStagingCells[c][r] = cid }
         if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the colour's OWN machine (no per-row variation override)
