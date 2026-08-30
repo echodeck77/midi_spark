@@ -220,6 +220,8 @@ struct DiagView: View {
     @State var buildPlayColLen: [Int] = Array(repeating: 1, count: 8)
     @State var buildPlayColSteps: [[String?]] = Array(repeating: [], count: 8)
     @State var buildPlayColRate: [StepRate?] = Array(repeating: nil, count: 8)
+    @State var buildPlayColStepRecv: [[Int]] = Array(repeating: [], count: 8)      // per-step door (from the flattened part row)
+    @State var buildPlayColStepEmit: [[Set<Bus>]] = Array(repeating: [], count: 8) // per-step emitters (from the flattened part row)
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildStagingPlaying = false
     // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.

@@ -1344,6 +1344,15 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         document.buildScenes = nil; document.buildScenesActive = nil   // one-shot; not render-relevant
         return (s, a)
     }
+    // THE ROOMS PLAY GRID (Paul 2026-08-30): the play columns + their multi-step passes travel with the save.
+    private var pendingBuildPlayGrid: BuildPlayGridData? = nil
+    func setBuildPlayGrid(_ d: BuildPlayGridData?) { pendingBuildPlayGrid = d }
+    /// On load, hand BUILD the restored play grid ONCE (then clear it so it isn't re-restored).
+    func consumeBuildPlayGrid() -> BuildPlayGridData? {
+        let d = document.buildPlayGrid
+        if d != nil { document.buildPlayGrid = nil }   // not render-relevant → no rebuild; a one-shot transport
+        return d
+    }
 
     public override var fullState: [String: Any]? {
         get {
@@ -1357,6 +1366,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             encodeDoc.buildUnassigned = pendingBuildUnassigned ?? document.buildUnassigned
             encodeDoc.buildScenes = pendingBuildScenes ?? document.buildScenes
             encodeDoc.buildScenesActive = pendingBuildScenesActive ?? document.buildScenesActive
+            encodeDoc.buildPlayGrid = pendingBuildPlayGrid ?? document.buildPlayGrid
             if let data = try? JSONEncoder().encode(encodeDoc) { state[Self.stateKey] = data }
             return state
         }
@@ -1368,6 +1378,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 document = doc
                 pendingBuildUnassigned = nil          // CR-10: the loaded doc carries its OWN unassigned part (via consumeBuildUnassigned) — drop the outgoing session's stale one so the next fullState save doesn't re-encode it over the restored part
                 pendingBuildScenes = nil; pendingBuildScenesActive = nil   // …and its OWN scenes (consumeBuildScenes) — same reason
+                pendingBuildPlayGrid = nil   // …and its OWN play grid (consumeBuildPlayGrid) — same reason
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
                                                      // session restore must not strand the outgoing document's voices
                 seedLatchArm()                       // restore the persisted door-arm intent (Paul 2026-08-27)

@@ -60,6 +60,8 @@ enum BuildSceneLogic {
         var playColSteps: [[String?]] = []             // per-column [step] → colourID (nil = a rest); used only when len > 1
         var playColStepChain: [[[ProcessorSlot]]] = [] // per-column [step] → the step colour's RESOLVED chain ([] = passthrough)
         var playColRate: [StepRate?] = []              // per-column pass step rate (captured from the flattened part; nil ⇒ scene default)
+        var playColStepRecv: [[Int]] = []              // per-column [step] → the step's OWN input door (the part row it came from); short ⇒ playColRecv
+        var playColStepEmit: [[Set<Bus>]] = []         // per-column [step] → the step's OWN output emitters; empty/short ⇒ playColEmit
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -95,8 +97,13 @@ enum BuildSceneLogic {
                 } else {                                                        // MULTI-STEP PASS: the flattened part's step colours across cols 0..len-1, SWEPT + looped (rowLen below)
                     for step in 0..<len {
                         guard c < i.playColSteps.count, step < i.playColSteps[c].count, let cid = i.playColSteps[c][step] else { continue }   // nil ⇒ a rest step
-                        var cell = Cell(colourID: cid, buses: buses)
-                        cell.inputReceiver = recv
+                        // PER-STEP I/O (Paul 2026-08-30): each step keeps the door + emitters of the part ROW it flattened from
+                        // (the rung's resolved I/O); short/empty ⇒ the column default (the part default). So a flattened part
+                        // whose columns route to different doors/emitters keeps that routing.
+                        let sEmit = (c < i.playColStepEmit.count && step < i.playColStepEmit[c].count && !i.playColStepEmit[c][step].isEmpty) ? i.playColStepEmit[c][step] : buses
+                        let sRecv = (c < i.playColStepRecv.count && step < i.playColStepRecv[c].count) ? max(0, min(3, i.playColStepRecv[c][step])) : recv
+                        var cell = Cell(colourID: cid, buses: sEmit)
+                        cell.inputReceiver = sRecv
                         cell.processors = (c < i.playColStepChain.count && step < i.playColStepChain[c].count) ? i.playColStepChain[c][step] : []
                         s.setCell(step, Snap.playLayerRowBase + c, cell)        // engine (col step, row 8+c) — the playhead sweeps 0..len-1 and loops
                     }

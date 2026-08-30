@@ -148,6 +148,8 @@ final class BuildSceneLogicTests: XCTestCase {
         i.playColLen = [3, 1, 1, 1, 1, 1, 1, 1]
         i.playColSteps = [["a", nil, "c"], [], [], [], [], [], [], []]
         i.playColStepChain = [[[ProcessorSlot(type: .arp)], [], [ProcessorSlot(type: .harmonize)]], [], [], [], [], [], [], []]
+        i.playColStepEmit = [[[.a], [], [.c]], [], [], [], [], [], [], []]   // PER-STEP I/O: step 0 → A, step 2 → C
+        i.playColStepRecv = [[0, 0, 2], [], [], [], [], [], [], []]          // step 2 reads door C (2)
         i.playCells = grid([(1, 0, "solo")]); i.playSel = [0, 0, -1, -1, -1, -1, -1, -1]   // col 1's single cell
         let s = BuildSceneLogic.composeScene(i)!
         let base = Snap.playLayerRowBase
@@ -155,7 +157,9 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(s.cellAt(1, base), "step 1 is a REST → no cell")
         XCTAssertEqual(s.cellAt(2, base)?.colourID, "c", "step 2 at (col 2, play row)")
         XCTAssertEqual(s.cellAt(2, base)?.processors?.first?.type, .harmonize, "each step carries its own resolved chain")
-        XCTAssertEqual(s.cellAt(0, base)?.buses, [.a], "the pass takes the column's ferried emitter")
+        XCTAssertEqual(s.cellAt(0, base)?.buses, [.a], "step 0 keeps its OWN emitter (A)")
+        XCTAssertEqual(s.cellAt(2, base)?.buses, [.c], "step 2 keeps its OWN emitter (C) — per-step I/O")
+        XCTAssertEqual(s.cellAt(2, base)?.inputReceiver, 2, "step 2 keeps its OWN door (C)")
         let len = try XCTUnwrap(s.rowLen, "the play layer carries a per-row length")
         XCTAssertEqual(len[base], 3, "the multi-step play row loops its pass length (3)")
         let lane = try XCTUnwrap(s.rowLane, "the play grid sets a per-row lane")

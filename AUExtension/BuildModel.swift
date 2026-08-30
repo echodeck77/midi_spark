@@ -38,6 +38,44 @@ struct BuildUnassignedData: Codable, Equatable {
     var idCounter: Int = 0              // the ephemeral "b<n>" counter high-water mark, so restored ids don't collide
 }
 
+// THE ROOMS PLAY GRID (Paul 2026-08-30) — the 8 INDEPENDENT play columns (buildPlayCells + their I/O + start state) plus
+// the MULTI-STEP PASSES a flattened part rides (colLen/colSteps/colRate + per-step I/O). Persisted like BuildUnassignedData:
+// it carries the EPHEMERAL colours it references (buildColourReg is session-only) so a reload restores the passes AND their
+// machines. Before this the whole rooms play grid was in-memory → a fresh load lost it. Additive-Optional on PluginState.
+struct BuildPlayGridData: Codable, Equatable {
+    var cells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
+    var sel: [Int] = Array(repeating: 0, count: 8)
+    var colOn: [Bool] = Array(repeating: false, count: 8)
+    var colRecv: [Int] = Array(repeating: 0, count: 8)
+    var colEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
+    var colLen: [Int] = Array(repeating: 1, count: 8)
+    var colSteps: [[String?]] = Array(repeating: [], count: 8)
+    var colRate: [StepRate?] = Array(repeating: nil, count: 8)
+    var colStepRecv: [[Int]] = Array(repeating: [], count: 8)
+    var colStepEmit: [[Set<Bus>]] = Array(repeating: [], count: 8)
+    var colours: [Colour] = []          // referenced EPHEMERAL colours (colourID + templateChain machine + transpose)
+    var hues: [String: UInt32] = [:]    // ephemeral colour hues (colourHueOverride is session-only)
+    var idCounter: Int = 0              // the "b<n>" high-water mark so restored ids don't collide
+}
+extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedData pattern) — a field added later never fails an older save
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        cells       = try c.decodeIfPresent([[String?]].self, forKey: .cells) ?? Array(repeating: Array(repeating: nil, count: 8), count: 8)
+        sel         = try c.decodeIfPresent([Int].self, forKey: .sel) ?? Array(repeating: 0, count: 8)
+        colOn       = try c.decodeIfPresent([Bool].self, forKey: .colOn) ?? Array(repeating: false, count: 8)
+        colRecv     = try c.decodeIfPresent([Int].self, forKey: .colRecv) ?? Array(repeating: 0, count: 8)
+        colEmit     = try c.decodeIfPresent([Set<Bus>].self, forKey: .colEmit) ?? Array(repeating: [.a], count: 8)
+        colLen      = try c.decodeIfPresent([Int].self, forKey: .colLen) ?? Array(repeating: 1, count: 8)
+        colSteps    = try c.decodeIfPresent([[String?]].self, forKey: .colSteps) ?? Array(repeating: [], count: 8)
+        colRate     = try c.decodeIfPresent([StepRate?].self, forKey: .colRate) ?? Array(repeating: nil, count: 8)
+        colStepRecv = try c.decodeIfPresent([[Int]].self, forKey: .colStepRecv) ?? Array(repeating: [], count: 8)
+        colStepEmit = try c.decodeIfPresent([[Set<Bus>]].self, forKey: .colStepEmit) ?? Array(repeating: [], count: 8)
+        colours     = try c.decodeIfPresent([Colour].self, forKey: .colours) ?? []
+        hues        = try c.decodeIfPresent([String: UInt32].self, forKey: .hues) ?? [:]
+        idCounter   = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
+    }
+}
+
 // SCENES V2 (Paul 2026-08-12, Docs/scenes-v2-multigrids.md) — a SCENE = one PLAY-GRID ARRANGEMENT: which part sits in
 // each band, the flatten/copy content, the rung/mute/lane state, and the ROW 8 lit toggles. The PARTS, colours, casts,
 // doors + the master are SHARED across scenes (a scene arranges the same band; it never owns the musicians). v1 is an

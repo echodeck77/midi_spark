@@ -259,6 +259,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   door + emitter (the part default — per-step I/O lost); editing the pass's machine edits only the representative (first-step)
   colour; re-entering the PART room re-arms the part audition (can double with the pass); the pass sounds only with held/latched
   input at its door (input-dependent, like all play cells). NEXT: reel multi-pass load · per-step I/O · pass editing.**
+- **▶ MULTI-STEP PASSES — PER-STEP I/O + PERSISTENCE (2026-08-30, on `main`; iOS builds, macOS 937 green; DEVICE-owed).
+  Paul's two follow-up fixes (+ two design to-dos filed to `pending-tasks.md` §PAUL TO DEFINE: part/ferry EDITING model, and
+  the RE-ENTER-A-FERRIED-PART behaviour). **PER-STEP I/O:** the flatten now captures each step's OWN door + emitters from the
+  part ROW (rung) it flattened from (`playColStepRecv`/`playColStepEmit`, empty ⇒ the column default); composeScene composes
+  each step-cell with its own I/O. So a part whose columns route to different doors/emitters keeps that routing on the play
+  pass (was: one door+emitter for the whole pass). Test extended. **PERSISTENCE:** the whole rooms play grid (the 8 columns +
+  their multi-step passes) now travels with the document — `BuildPlayGridData` (Codable, decode-tolerant like BuildUnassigned-
+  Data; carries the referenced EPHEMERAL colours since colourReg is session-only) + `PluginState.buildPlayGrid` (additive-
+  Optional) + AU pending/consume/`fullState` encode + VC `buildCapturePlayGrid`/`buildRestorePlayGrid` wired into
+  `buildPersistTick` (the 4 Hz poll, runs under `activeTab == .build` = the rooms shell). Restore is shape-guarded (malformed
+  ⇒ keep empty defaults). +1 round-trip test. Was in-memory (a fresh load lost the play grid).**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2

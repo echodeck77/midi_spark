@@ -5,6 +5,19 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-24._
 
+## ⛔ PAUL TO DEFINE — design decisions BLOCKING further build (2026-08-30, rooms multi-step passes)
+- **★★★ HIGH — RE-ENTERING A PART ROOM AFTER IT'S BEEN FERRIED.** When a part has been flattened onto a play column
+  (`roomsFlattenPartToPlay`), the flatten stops the part audition — but re-entering the PART room re-arms it
+  (`roomsSyncVoice(.part)` sets `buildStagingPlaying = true`), so the part can play on rows 0–7 WHILE the flattened pass plays
+  the same sequence on the play layer → DOUBLING/phasing. Need Paul's ruling: on re-entry should the part (a) stay silent
+  because it's "moved to play", (b) play as normal (accept the double), or (c) something else (e.g. the pass mutes while you're
+  in the part room)? Blocks a clean re-entry rule. Flagged in CLAUDE.md status (multi-step-play-passes entry).
+- **★★ PRIORITY — EDITING CELLS ON THE PART GRID + FERRIES.** How editing works across the part grid, the select→part
+  ferries, and (now) a flattened multi-step PLAY pass is under-defined. Current v1: a play pass's machine edit hits only the
+  representative (first-step) colour — pass editing isn't a defined operation. Need Paul to define the model: what does
+  "edit this ferry/pass" mean (edit one step? the whole pass? re-flatten?), and how the part-grid ↔ ferry ↔ pass edits
+  relate. Blocks a coherent edit UX for the rooms surface.
+
 ## ★★★ ACTIVE THREAD — THE UNIVERSAL SPAN MODEL + STANDARD PANEL ANATOMY (2026-08-27)
 - **✅ SPAN = re-anchor period, decoupled from an ABSOLUTE RATE (grain). DONE for the free-running generators:**
   - **RIFF + EUCLID** → FREE·1·2·3·4·6·8·×2·×4 re-anchor with an absolute GRID grain (`a94f4a8`; Paul "go absolute").

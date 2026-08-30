@@ -90,6 +90,36 @@ final class Row8Tests: XCTestCase {
         XCTAssertEqual(back.buildScenes?[0].performEmit[0], [.a])
     }
 
+    // ROOMS PLAY GRID persistence (Paul 2026-08-30): the play columns + their MULTI-STEP PASSES + referenced ephemeral
+    // colours travel with the document, so a reload restores the play grid (was in-memory).
+    func testBuildPlayGridSurvivesCodableRoundTrip() throws {
+        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        var pg = BuildPlayGridData()
+        pg.colOn[0] = true
+        pg.colLen[0] = 3
+        pg.colSteps[0] = ["a", nil, "c"]              // a 3-step pass with a rest
+        pg.colStepEmit[0] = [[.a], [], [.c]]          // per-step emitters
+        pg.colStepRecv[0] = [0, 0, 2]                 // per-step doors
+        pg.colRate[0] = .r1_8
+        var eph = Colour(colourID: "a", type: .arp); eph.templateChain = [ProcessorSlot(type: .arp)]
+        pg.colours = [eph]
+        st.buildPlayGrid = pg
+        let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(st))
+        let r = try XCTUnwrap(back.buildPlayGrid, "the play grid survives the document round-trip")
+        XCTAssertTrue(r.colOn[0])
+        XCTAssertEqual(r.colLen[0], 3, "the pass length survives")
+        XCTAssertEqual(r.colSteps[0], ["a", nil, "c"], "the step colours survive (incl. the rest)")
+        XCTAssertEqual(r.colStepEmit[0], [[.a], [], [.c]], "per-step emitters survive")
+        XCTAssertEqual(r.colStepRecv[0], [0, 0, 2], "per-step doors survive")
+        XCTAssertEqual(r.colRate[0], .r1_8, "the pass rate survives")
+        XCTAssertEqual(r.colours.first?.templateChain?.first?.type, .arp, "referenced ephemeral colours travel")
+        // Additive-Optional: an old save with no play grid decodes nil.
+        var st2 = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        st2.buildPlayGrid = nil
+        let back2 = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(st2))
+        XCTAssertNil(back2.buildPlayGrid, "no play grid → nil")
+    }
+
     func testRow8OnResolvedNilSafe() {
         var s = SceneState.empty()
         XCTAssertEqual(s.row8OnResolved, Array(repeating: false, count: 8), "nil ⇒ all off")

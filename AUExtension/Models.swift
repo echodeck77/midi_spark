@@ -1202,6 +1202,9 @@ struct PluginState: Codable, Equatable {
     // BUILD: the single UNASSIGNED workshop part, saved with the document (Paul 2026-08-16). Additive-Optional →
     // old saves decode as nil. Populated at save time from the live workshop; restored into BUILD @State on load.
     var buildUnassigned: BuildUnassignedData? = nil
+    // THE ROOMS PLAY GRID (Paul 2026-08-30): the 8 independent play columns + their multi-step passes, saved with the
+    // document. Additive-Optional → old saves decode nil. Populated from the live @State each poll; restored on load.
+    var buildPlayGrid: BuildPlayGridData? = nil
     // SCENES V2 (Paul 2026-08-24): the DEPLOYED play-grid arrangements, one per scene index — this ALSO persists the
     // deployed play grid (the long-open gap). Additive-Optional → old saves decode nil. Restored into BUILD @State on load;
     // `buildScenesActive` = which was live. (The document's `scenes[]` + `activeScene` are the RENDER scenes; these are the

@@ -1584,6 +1584,7 @@ extension DiagView {
         guard let hit = buildGridSelStampSource() else { return }
         buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
         buildPlayColLen[t] = 1; buildPlayColSteps[t] = []; buildPlayColRate[t] = nil   // a SELECT single-cell ferry clears any prior multi-step pass on this column
+        buildPlayColStepRecv[t] = []; buildPlayColStepEmit[t] = []
         let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0   // the selected rung (default row 1)
         let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose)   // a colour carrying the chain + its register home, HUE per COLUMN (colourHexes[t] — a range across the 8; was per-rung → all gold, Paul 2026-08-30)
         buildPlayCells[t][r] = y
@@ -1617,9 +1618,19 @@ extension DiagView {
         buildPlayColSteps[t] = steps
         buildPlayColLen[t] = len
         buildPlayColRate[t] = buildPartRate                                  // the pass plays at the part's own tempo
+        // PER-STEP I/O (Paul 2026-08-30): each step keeps the door + emitters of the part ROW (rung) it flattened from, so a
+        // part whose columns route to different doors/emitters keeps that routing on the play pass.
+        buildPlayColStepRecv[t] = (0..<len).map { c in
+            let rung = c < buildStagingSel.count ? buildStagingSel[c] : -1
+            return rung >= 0 ? buildRowReceiverResolved(rung) : buildSelReceiver
+        }
+        buildPlayColStepEmit[t] = (0..<len).map { c in
+            let rung = c < buildStagingSel.count ? buildStagingSel[c] : -1
+            return rung >= 0 ? buildRowEmittersResolved(rung) : (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+        }
         buildPlayCells[t][r] = rep                                           // a representative colour so the ferry reads POPULATED + takes a hue
         buildPlaySel[t] = r
-        buildPlayColRecv[t] = buildSelReceiver                               // the part's DEFAULT door/emitters drive the whole pass (v1)
+        buildPlayColRecv[t] = buildSelReceiver                               // the column DEFAULT (the ferry dot/drift tint + any rest-step fallback)
         buildPlayColEmit[t] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
         buildPlayColOn[t] = true                                            // start it
         buildStagingPlaying = false                                         // the part audition stops — the play column now carries the sequence (no doubling)
@@ -3091,6 +3102,8 @@ extension DiagView {
         input.playColLen = buildPlayColLen
         input.playColSteps = buildPlayColSteps
         input.playColRate = buildPlayColRate
+        input.playColStepRecv = buildPlayColStepRecv
+        input.playColStepEmit = buildPlayColStepEmit
         input.playColStepChain = (0..<8).map { c -> [[ProcessorSlot]] in
             let len = c < buildPlayColLen.count ? buildPlayColLen[c] : 1
             guard len > 1, c < buildPlayColSteps.count else { return [] }
@@ -3542,13 +3555,43 @@ extension DiagView {
         if let i = buildParts.firstIndex(where: { !$0.deployed }) { buildParts[i] = part; buildLoadPart(i) }
         else { buildParts.append(part); buildLoadPart(buildParts.count - 1) }
     }
+    // THE ROOMS PLAY GRID (Paul 2026-08-30): capture the 8 play columns + their multi-step passes + the ephemeral colours
+    // they reference, so a reload restores the whole play grid. Only when there's content (a populated/multi-step column).
+    func buildCapturePlayGrid() -> BuildPlayGridData? {
+        let hasContent = (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }
+        guard hasContent else { return nil }
+        var ids = Set<String>()
+        for col in buildPlayCells { for cell in col { if let id = cell { ids.insert(id) } } }
+        for col in buildPlayColSteps { for step in col { if let id = step { ids.insert(id) } } }
+        let ephemeral = ids.filter { buildColourReg[$0] != nil }.sorted()
+        let colours = ephemeral.map { id -> Colour in var c = Colour(colourID: id, type: .arp); c.defined = true; c.templateChain = buildColourReg[id]; c.transpose = buildColourTranspose[id] ?? 0; return c }
+        var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = colourHueOverride[id] { hues[id] = h } }
+        return BuildPlayGridData(cells: buildPlayCells, sel: buildPlaySel, colOn: buildPlayColOn, colRecv: buildPlayColRecv,
+                                 colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
+                                 colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, colours: colours, hues: hues, idCounter: buildIDCounter)
+    }
+    func buildRestorePlayGrid(_ d: BuildPlayGridData) {
+        for c in d.colours { buildColourReg[c.colourID] = c.templateChain ?? []; if c.transpose != 0 { buildColourTranspose[c.colourID] = c.transpose } }
+        for (id, hue) in d.hues { colourHueOverride[id] = hue }
+        buildIDCounter = max(buildIDCounter, d.idCounter)
+        buildSyncColours()
+        // Restore the arrays only when the shapes are exactly right (a valid round-trip is 8 columns × ≥8 rungs); a malformed
+        // doc keeps the empty defaults rather than risking an out-of-range ferry write later (defensive).
+        guard d.cells.count == 8, d.cells.allSatisfy({ $0.count >= 8 }), d.sel.count == 8, d.colOn.count == 8, d.colRecv.count == 8,
+              d.colEmit.count == 8, d.colLen.count == 8, d.colSteps.count == 8, d.colRate.count == 8, d.colStepRecv.count == 8, d.colStepEmit.count == 8 else { return }
+        buildPlayCells = d.cells; buildPlaySel = d.sel; buildPlayColOn = d.colOn; buildPlayColRecv = d.colRecv; buildPlayColEmit = d.colEmit
+        buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
+        buildPublishScene()   // republish so restored STARTED columns sound at once
+    }
     // The per-poll persistence tick (BUILD active only): restore a just-loaded part ONCE, then keep the save-state current.
     func buildPersistTick() {
         guard activeTab == .build else { return }
         if let u = au?.consumeBuildUnassigned() { buildRestoreUnassigned(u) }   // a host load happened while on BUILD
         if let sc = au?.consumeBuildScenes() { buildRestoreScenes(sc.scenes, active: sc.active) }   // SCENES V2: restore the saved play-grid arrangements
+        if let pg = au?.consumeBuildPlayGrid() { buildRestorePlayGrid(pg) }     // ROOMS PLAY GRID: restore the play columns + passes
         au?.setBuildUnassigned(buildCaptureUnassigned())                         // keep fullState's copy fresh
         au?.setBuildScenes(buildCaptureScenes(), active: buildActiveScene)       // …and the scenes — cheap (COW refcount bumps, not a deep copy), so no dirty-gate needed
+        au?.setBuildPlayGrid(buildCapturePlayGrid())                             // …and the play grid
     }
     // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter colours, one per processor type (arp/ratchet/euclid/echo
     // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in
