@@ -140,6 +140,28 @@ extension DiagView {
                 .padding(.top, 10).allowsHitTesting(false).transition(.opacity)
         }
     }
+    // ROOMS SHARED OVERLAYS + CHROME (Paul 2026-08-30, old-UI removal): the overlays/modifiers the rooms interface triggers
+    // (config sheets, stage-eye, reel, ROW 8, file import, the IO-hold banner, scene-switch) — lifted out of the retired
+    // buildPage. Kept HERE so they can reach the PRIVATE config-sheet views; roomsPage wraps its content with roomsChrome +
+    // includes roomsSharedOverlays in its ZStack. (Before this, these were rendered only inside buildPage → dead in rooms,
+    // so the header MIDI IN/OUT/RACK/ROW 8/RECORD buttons + the strip spanners silently did nothing.)
+    @ViewBuilder func roomsSharedOverlays(_ size: CGSize) -> some View {
+        if buildStageEye, let slot = buildEditSlot { AnyView(buildStageEyeView(slot: slot, size: size)) }   // §4 stage eye (from the card's truth strips)
+        if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                             // the reel PASS BROWSER (header RECORD)
+        if buildMidiConfigOpen { AnyView(buildMidiConfigSheet(size: size)) }                                 // MIDI INPUTS (strip spanner + header)
+        if buildRackConfigOpen { AnyView(buildRackConfigSheet(size: size)) }                                 // THE RACK (header)
+        if buildMidiOutConfigOpen { AnyView(buildMidiOutConfigSheet(size: size)) }                           // MIDI OUTPUTS (strip spanner + header)
+        if buildRow8EditOpen { AnyView(buildRow8EditPage(size: size)) }                                      // ROW 8 authoring (header)
+    }
+    @ViewBuilder func roomsChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .overlay(alignment: .top) { buildIOHoldBanner() }                                               // "HOLD TO APPLY TO ALL"
+            .fileImporter(isPresented: Binding(get: { buildFileImportDoor != nil }, set: { if !$0 { buildFileImportDoor = nil } }),
+                          allowedContentTypes: [UTType.midi, UTType(filenameExtension: "mid") ?? .data], allowsMultipleSelection: false) { result in
+                buildHandleFileImport(result)                                                                // FILE import onto the picking door
+            }
+            .onChange(of: activeSceneIdx) { _ in buildSyncSceneSwitch(activeSceneIdx) }                       // scene chips → swap the play-grid arrangement
+    }
     // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
     // output while playing, so it reads as RECORDING — red with a pulsing record dot; GREEN while a pass replays; dim stopped.
     // ── THE MIDI INPUTS SHEET (config-sheets stage 5, §1/§5/§7/§9 — Paul 2026-08-20) ─────────────────────────────────

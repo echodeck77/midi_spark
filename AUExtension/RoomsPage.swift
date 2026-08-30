@@ -36,14 +36,17 @@ extension DiagView {
     private var roomsABCD: [String] { ["A", "B", "C", "D"] }
 
     @ViewBuilder func roomsPage(_ size: CGSize) -> some View {
-        ZStack {
-            VStack(spacing: 0) {
-                roomsMiddle(size).frame(maxWidth: .infinity, maxHeight: .infinity)
-                if showRoomsFooter { roomsFooter() }   // the MIDI footer is HIDDEN by default now (its controls live on the machine column); cog → re-enable (Paul 2026-08-30)
-            }
-            if roomsMixerOpen { roomsMixerOverlay(size) }   // §1 the strip-controls overlay (two-stage: strips → full config)
-            roomsProcessorPicker(size: size)                // empty chain-box → the processor selector window
-        }.frame(width: size.width, height: size.height, alignment: .top)
+        roomsChrome {                                       // .fileImporter · the IO-hold banner · scene-switch (Paul 2026-08-30, old-UI removal)
+            ZStack {
+                VStack(spacing: 0) {
+                    roomsMiddle(size).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if showRoomsFooter { roomsFooter() }   // the MIDI footer is HIDDEN by default now (its controls live on the machine column); cog → re-enable (Paul 2026-08-30)
+                }
+                if roomsMixerOpen { roomsMixerOverlay(size) }   // §1 the strip-controls overlay (two-stage: strips → full config)
+                roomsProcessorPicker(size: size)                // empty chain-box → the processor selector window
+                roomsSharedOverlays(size)                       // the config sheets · stage-eye · reel · ROW 8 (were dead in rooms until now)
+            }.frame(width: size.width, height: size.height, alignment: .top)
+        }
     }
 
     @ViewBuilder private func roomsMiddle(_ size: CGSize) -> some View {
