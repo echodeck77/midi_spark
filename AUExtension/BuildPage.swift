@@ -1560,7 +1560,7 @@ extension DiagView {
             // playing) also brightens the frame so the ferry ↔ machine pairing is visible.
             RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                 .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
-                .overlay { if set { buildNoteSweep(idx: Snap.playLayerRowBase + t, active: on, id: id, emitter: t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a]).padding(2) } }   // live drift in the EMITTER colour (play cell strikes at index 8+t)
+                .overlay { if set { buildNoteSweep(indices: buildPlayColSweepIndices(t), active: on, id: id, emitter: t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a]).padding(2) } }   // live drift in the EMITTER colour (a multi-step pass gathers all its steps)
                 .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -1579,8 +1579,11 @@ extension DiagView {
     // appears at the play grid's selected position + column t's bottom readout, and NEVER touches the part-grid side
     // buttons (the bug this fixes). Mints a colour carrying the source chain + register home; a confirm flash.
     private func roomsAssignPlayColumn(_ t: Int) {
-        guard t >= 0 && t < 8, let hit = buildGridSelStampSource() else { return }
+        guard t >= 0 && t < 8 else { return }
+        if roomsRoom == .part { roomsFlattenPartToPlay(t); return }           // PART page → FLATTEN the part into a multi-step pass (Paul 2026-08-30)
+        guard let hit = buildGridSelStampSource() else { return }
         buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
+        buildPlayColLen[t] = 1; buildPlayColSteps[t] = []; buildPlayColRate[t] = nil   // a SELECT single-cell ferry clears any prior multi-step pass on this column
         let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0   // the selected rung (default row 1)
         let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose)   // a colour carrying the chain + its register home, HUE per COLUMN (colourHexes[t] — a range across the 8; was per-rung → all gold, Paul 2026-08-30)
         buildPlayCells[t][r] = y
@@ -1597,6 +1600,34 @@ extension DiagView {
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
         buildPublishScene()                                                  // republish: the started column plays, the audition is off
+    }
+    // FLATTEN THE PART → a multi-step play pass (Paul 2026-08-30). Long-pressing a play ferry on the PART page captures the
+    // current part's SEQUENCE — its per-column selected-rung colours across the loop length — onto play column t as an N-step
+    // pass (playColSteps/Len/Rate). The play layer then sweeps + loops that pass at the part's tempo, disjoint from the part
+    // rows. v1: one output (the part's default door + emitters) for the whole pass; per-step I/O is a follow-up.
+    private func roomsFlattenPartToPlay(_ t: Int) {
+        let len = max(1, min(Snap.cols, buildPartLen ?? Snap.cols))
+        let steps: [String?] = (0..<len).map { c in
+            let rr = c < buildStagingSel.count ? buildStagingSel[c] : -1
+            return (rr >= 0 && c < buildStagingCells.count && rr < buildStagingCells[c].count) ? buildStagingCells[c][rr] : nil
+        }
+        guard let rep = steps.compactMap({ $0 }).first else { return }       // nothing selected in the part → nothing to flatten
+        buildGridSelStampRow = nil; buildGridSelStampAt = nil
+        let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0
+        buildPlayColSteps[t] = steps
+        buildPlayColLen[t] = len
+        buildPlayColRate[t] = buildPartRate                                  // the pass plays at the part's own tempo
+        buildPlayCells[t][r] = rep                                           // a representative colour so the ferry reads POPULATED + takes a hue
+        buildPlaySel[t] = r
+        buildPlayColRecv[t] = buildSelReceiver                               // the part's DEFAULT door/emitters drive the whole pass (v1)
+        buildPlayColEmit[t] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        buildPlayColOn[t] = true                                            // start it
+        buildStagingPlaying = false                                         // the part audition stops — the play column now carries the sequence (no doubling)
+        if ddSolo { ddSolo = false; au?.clearColourSolo() }
+        buildSelectPlayColumn(t)
+        buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
+        buildPublishScene()
     }
     // The I/O the ferry SOURCE is currently playing through (Paul 2026-08-29: the play cell copies the settings). An aimed
     // side-row source uses that row's resolved door/emitters; otherwise the SELECT audition's door + emitters.
@@ -1995,7 +2026,7 @@ extension DiagView {
         let selected = c < buildPlaySel.count && buildPlaySel[c] == r
         let on = (c < buildPlayColOn.count && buildPlayColOn[c]) && selected
         roomsGridCellBody(id: id, selected: selected, sweep: {
-            buildNoteSweep(idx: Snap.playLayerRowBase + c, active: on, id: id, emitter: c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])   // CONTINUOUS drift in the EMITTER colour
+            buildNoteSweep(indices: buildPlayColSweepIndices(c), active: on, id: id, emitter: c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])   // CONTINUOUS drift in the EMITTER colour (multi-step gathers all steps)
             roomsCellPlayhead(active: on)   // PER-CELL PLAYHEAD — the pass sweeping L→R
         })
             .contentShape(Rectangle())
@@ -3055,6 +3086,15 @@ extension DiagView {
             let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
             guard r >= 0, r < 8, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return [] }
             return buildColourChain(cid)
+        }
+        // MULTI-STEP PASS (Paul 2026-08-30): a flattened part rides a play column as N steps — resolve each step's chain here.
+        input.playColLen = buildPlayColLen
+        input.playColSteps = buildPlayColSteps
+        input.playColRate = buildPlayColRate
+        input.playColStepChain = (0..<8).map { c -> [[ProcessorSlot]] in
+            let len = c < buildPlayColLen.count ? buildPlayColLen[c] : 1
+            guard len > 1, c < buildPlayColSteps.count else { return [] }
+            return buildPlayColSteps[c].map { cid in cid.map { buildColourChain($0) } ?? [] }
         }
         let composed = BuildSceneLogic.composeSceneMeta(input)
         au?.setBuildStagingScene(composed.scene)
@@ -4658,9 +4698,14 @@ extension DiagView {
     // and drift LEFT at REAL pitch lanes (the per-cell note feed), tinted the cell's own bright tone. ONLY on a populated
     // cell of the grid that is the PLAYING voice. Accumulated in the VC poll (buildCellRoll); paused when the cell rests.
     @ViewBuilder private func buildNoteSweep(idx: Int, active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
+        buildNoteSweep(indices: [idx], active: active, id: id, emitter: emitter)
+    }
+    // MULTI-STEP PASS (Paul 2026-08-30): a play column's pass strikes across several engine cells (col step, row 8+c → index
+    // step*Snap.rows + 8+c), so the ferry gathers ALL its steps' feeds → the whole pass's notes drift, not just step 0.
+    @ViewBuilder private func buildNoteSweep(indices: [Int], active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
       if active, id != nil {
         let hue = emitterHue(emitter)   // ROUTING channel (Paul 2026-08-30): the drift is the cell's EMITTER colour, not its machine hue
-        let notes = idx < buildCellRoll.count ? buildCellRoll[idx] : []
+        let notes = indices.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] }
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || notes.isEmpty)) { tl in
             let now = tl.date
             Canvas { ctx, size in
@@ -4681,6 +4726,13 @@ extension DiagView {
         }
         .allowsHitTesting(false)
       }
+    }
+    // The engine strike-feed indices for play column t: a single-cell column is (col 0, row 8+t); a multi-step pass strikes
+    // across (col step, row 8+t) for each step. (Paul 2026-08-30)
+    private func buildPlayColSweepIndices(_ t: Int) -> [Int] {
+        let base = Snap.playLayerRowBase + t
+        let len = t < buildPlayColLen.count ? max(1, min(Snap.cols, buildPlayColLen[t])) : 1
+        return len <= 1 ? [base] : (0..<len).map { $0 * Snap.rows + base }
     }
 
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────

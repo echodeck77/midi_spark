@@ -59,6 +59,7 @@ enum BuildSceneLogic {
         var playColLen: [Int] = []                     // per-column pass length (1 = single continuous cell, today's default)
         var playColSteps: [[String?]] = []             // per-column [step] → colourID (nil = a rest); used only when len > 1
         var playColStepChain: [[[ProcessorSlot]]] = [] // per-column [step] → the step colour's RESOLVED chain ([] = passthrough)
+        var playColRate: [StepRate?] = []              // per-column pass step rate (captured from the flattened part; nil ⇒ scene default)
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -175,7 +176,10 @@ enum BuildSceneLogic {
             for c in 0..<8 {
                 guard c < i.playColOn.count, i.playColOn[c] else { continue }
                 let len = c < i.playColLen.count ? max(1, min(Snap.cols, i.playColLen[c])) : 1
-                if len > 1 { rowLen[Snap.playLayerRowBase + c] = len }   // len ≤ 1 stays nil → the single cell is pinned via rowLane below
+                if len > 1 {
+                    rowLen[Snap.playLayerRowBase + c] = len            // len ≤ 1 stays nil → the single cell is pinned via rowLane below
+                    if c < i.playColRate.count, let rate = i.playColRate[c] { rowStepRate[Snap.playLayerRowBase + c] = rate }   // the pass plays at the flattened part's tempo
+                }
             }
         }
         if rowStepRate.contains(where: { $0 != nil }) || rowLen.contains(where: { $0 != nil }) {

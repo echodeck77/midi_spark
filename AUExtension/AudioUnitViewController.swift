@@ -215,6 +215,11 @@ struct DiagView: View {
     @State var buildPlayColOn: [Bool] = Array(repeating: false, count: 8)
     @State var buildPlayColRecv: [Int] = Array(repeating: 0, count: 8)
     @State var buildPlayColEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
+    // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column can hold an N-step pass. len[c] = 1 ⇒ the single
+    // ferried cell (today); len[c] > 1 ⇒ steps[c] (the flattened part's per-column colours) swept + looped at rate[c].
+    @State var buildPlayColLen: [Int] = Array(repeating: 1, count: 8)
+    @State var buildPlayColSteps: [[String?]] = Array(repeating: [], count: 8)
+    @State var buildPlayColRate: [StepRate?] = Array(repeating: nil, count: 8)
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildStagingPlaying = false
     // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.

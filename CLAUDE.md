@@ -243,6 +243,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   select→part ferry now GUARANTEES motion while playing — the chain fingerprint DRIFTS as a base layer (gated on `playing` so
   it still stops on STOP, per the earlier drift-stop fix) with the REAL audition notes riding on top when the live-strike row
   is known. So a playing ferry always animates regardless of the live-feed edge, and shows real notes when they flow.**
+- **▶ MULTI-STEP PLAY PASSES — "flatten the part" (2026-08-30, on `main`; iOS builds, macOS 936 green; DEVICE-owed, UI +
+  engine). Paul's keystone pick. A play column can now carry an N-STEP PASS instead of a single looped cell. **INCREMENT 1
+  (engine, tested, inert):** `BuildSceneLogic.Input` gains `playColLen`/`playColSteps`/`playColStepChain`/`playColRate`;
+  composeScene — len > 1 lays the step colours across cols 0..len-1 of the play-layer row (each step its own resolved chain),
+  sets `rowLen[8+c] = len` (+ `rowStepRate[8+c]` = the pass rate) and leaves rowLane 0 so the row SWEEPS + loops; len ≤ 1 =
+  the pinned single cell, byte-identical. The play layer already runs on the multi-clock path (it sets rowLane), which handles
+  a pinned row (lapColumn with a col-0 mask) AND a swept row, so NO render-engine change — rowStepRate/rowLen widened to
+  Snap.rows so the play layer carries per-column length. +1 test. **INCREMENT 2 (flatten ferry + UI):** on the PART page,
+  long-pressing a play ferry (`roomsRoom == .part` → `roomsFlattenPartToPlay`) captures the current part's SEQUENCE — its
+  per-column selected-rung colours across the loop length — onto play column t as an N-step pass at the part's tempo, stops
+  the part audition (no doubling), and selects it. A SELECT single-cell ferry clears any prior pass. `buildNoteSweep` gained a
+  multi-index overload (`buildPlayColSweepIndices`) so the ferry/play cell drift ALL the pass's step feeds, not just step 0.
+  In-memory (the rooms play grid isn't persisted). **v1 LIMITS (flagged for device/Paul):** the whole pass plays through ONE
+  door + emitter (the part default — per-step I/O lost); editing the pass's machine edits only the representative (first-step)
+  colour; re-entering the PART room re-arms the part audition (can double with the pass); the pass sounds only with held/latched
+  input at its door (input-dependent, like all play cells). NEXT: reel multi-pass load · per-step I/O · pass editing.**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2
