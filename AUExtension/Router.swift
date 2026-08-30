@@ -2597,6 +2597,27 @@ final class Router {
         }
         return (Int(note), max(1, pool.velocity(note)))
     }
+    /// R2 (2026-08-30): the OUTPUT pitch a glide voice sounds — the SAME transform the grid applies in emitOneBus:
+    /// emitter OCT overlay + master KEY (per-scene transpose), range-guarded, then the RACK FENCE. nil ⇒ suppress
+    /// (out of range / fence DROP). So a glide plays IN KEY and honours per-emitter octave + FENCE, like every other
+    /// voice (was raw source pitch → glide diverged from the rest of the patch). previewMode bypasses KEY + FENCE
+    /// (a stopped audition, like emitOneBus). Safe: every glide close is by the stored voice SLOT, never a recomputed
+    /// note, so shifting the note at the open sites can never strand an off.
+    private func glideOutNote(_ inNote: Int, bus: Int) -> UInt8? {
+        let sn = inNote + emitterOctaveShift(bus) + (previewMode ? 0 : masterKey)
+        guard sn >= 0 && sn <= 127 else { return nil }
+        if previewMode { return UInt8(sn) }
+        return fencedNote(UInt8(sn), bus: bus)
+    }
+    /// R2: whether a glide may sound on this emitter — the emitter ENABLE + output-SOLO gates emitOneBus applies. A
+    /// disabled or soloed-out emitter silences glide; a glide voice on a now-unavailable bus is PHRASE-ENDED at its
+    /// call sites (self-correcting each render → no stuck note). previewMode bypasses (a solo audition has no
+    /// other-emitter context — matches emitOneBus). CLAIM + CONVERSATION are intentionally NOT applied: their discrete
+    /// note-ghost / per-onset-stance models don't map onto a continuous mono bend (flagged as a future item).
+    private func glideBusAvailable(_ bus: Int) -> Bool {
+        if previewMode { return true }
+        return bit(busEnabledMask, bus) && (soloEmitterMask == 0 || bit(soloEmitterMask, bus))
+    }
     /// Drive the mono glide voices for the active column's single-slot GLIDE cells: anchor on the first note, bend-ramp
     /// to each in-range target (else RE-ANCHOR / CLAMP), phrase-end on rest or column exit. Runs before the pool guard.
     private func emitColumnGlide(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
@@ -2620,6 +2641,7 @@ final class Router {
                 let inactive = cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
                     || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r)))
                     || effectivePool(for: cell, live: pool).count == 0
+                    || (cell.busMask != 0 && !glideBusAvailable(Int(cell.busMask.trailingZeroBitCount)))   // R2: a disabled/soloed-out emitter silences the driven glide
                 if inactive { glidePhraseEnd(cellIdx, atSample: windowStart, out: out) }
                 continue
             }
@@ -2639,27 +2661,34 @@ final class Router {
             let bus = Int(cell.busMask.trailingZeroBitCount)
             let cable = UInt8(bus + 1)
             let ch = (busChannels[bus] &- 1) & 15
+            // R2 (2026-08-30): route the glide through the SAME output gates emitOneBus applies — a disabled/soloed-out
+            // emitter silences it (phrase-ended → self-correcting, no stuck note), and the OUTPUT pitch adds the emitter
+            // OCT overlay + master KEY + RACK FENCE. Every anchor/bend/re-anchor below keys on `outN` (the output pitch),
+            // so the whole voice lives in output space (was: raw source pitch → glide played out of key / off a disabled bus).
+            guard glideBusAvailable(bus) else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue }
+            guard let outNote = glideOutNote(inNote, bus: bus) else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue }   // out of range / FENCE DROP → phrase-end (like a rest)
+            let outN = Int(outNote)
             var gv = glideVoices[cellIdx]
             switch p.glideMode {
             case .bend:
                 if gv.anchor < 0 {                                      // ANCHOR: first note = note-on + centred bend
-                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote); gv.rampStart = beatPos
+                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN); gv.rampStart = beatPos
                     emitBend(cable: cable, ch: ch, value: 8192, atSample: windowStart, out: out); gv.lastBend14 = 8192
-                } else if Int(gv.lastInput) != inNote {                 // NEW TARGET
-                    let semis = inNote - Int(gv.anchor)
-                    if p.glideReanchor && glideNeedsReanchor(target: inNote, anchor: Int(gv.anchor), range: p.glideRange) {
+                } else if Int(gv.lastInput) != outN {                   // NEW TARGET
+                    let semis = outN - Int(gv.anchor)
+                    if p.glideReanchor && glideNeedsReanchor(target: outN, anchor: Int(gv.anchor), range: p.glideRange) {
                         if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: windowStart, out: out) }
                         emitBend(cable: cable, ch: ch, value: 8192, atSample: windowStart, out: out)
-                        let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                        gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = beatPos; gv.lastBend14 = 8192
+                        let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
+                        gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = beatPos; gv.lastBend14 = 8192
                     } else {                                            // GLIDE: capture the current bend, ramp to the new target (clamp if not re-anchoring)
                         let tt = max(0.0001, p.glideTime)
                         gv.bendFrom = gv.bendFrom + (gv.bendTo - gv.bendFrom) * min(1, p.glideTime > 0 ? (beatPos - gv.rampStart) / tt : 1)
                         gv.bendTo = p.glideReanchor ? Double(semis) : Double(max(-p.glideRange, min(p.glideRange, semis)))
                         gv.rampStart = beatPos
                     }
-                    gv.lastInput = Int16(inNote)
+                    gv.lastInput = Int16(outN)
                 }
                 let tt = max(0.0001, p.glideTime)                       // emit the bend ramp across this window (control grid, deduped)
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))
@@ -2681,12 +2710,12 @@ final class Router {
                 if gv.anchor < 0 {
                     out?.emit(sampleTime: windowStart, cable: cable, 0xB0 | ch, 65, 127)                 // CC65 portamento ON
                     out?.emit(sampleTime: windowStart, cable: cable, 0xB0 | ch, 5, UInt8(glideSynthCCTime(p.glideTime)))   // CC5 portamento time
-                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote)
-                } else if Int(gv.lastInput) != inNote {
-                    let newSlot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
+                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN)
+                } else if Int(gv.lastInput) != outN {
+                    let newSlot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
                     if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: windowStart, out: out) }   // release old AFTER new = legato
-                    gv.anchor = Int16(inNote); gv.slot = Int16(newSlot); gv.lastInput = Int16(inNote)
+                    gv.anchor = Int16(outN); gv.slot = Int16(newSlot); gv.lastInput = Int16(outN)
                 }
             case .step:
                 // STEP: a fast chromatic run source→target — each semitone a short note, the target held. Note-hungry:
@@ -2694,14 +2723,14 @@ final class Router {
                 // NOT gate it — it's bounded only by |Δ| ≤ 127 steps and the 128-voice cap. The run is scheduled across
                 // windows (idempotent via stepsDone). (review 2026-08-26: corrected — governor doesn't apply here.)
                 if gv.anchor < 0 {
-                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote)
-                } else if Int(gv.lastInput) != inNote {                 // NEW TARGET: start a run from the current note
+                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN)
+                } else if Int(gv.lastInput) != outN {                   // NEW TARGET: start a run from the current note
                     if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: windowStart, out: out) }
                     gv.slot = -1
-                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(inNote); gv.stepVel = pick.vel
-                    gv.stepTotal = Int16(abs(inNote - Int(gv.anchor))); gv.stepsDone = 0; gv.stepRunStart = beatPos
-                    gv.anchor = Int16(inNote); gv.lastInput = Int16(inNote)   // the target becomes the anchor for the NEXT transition
+                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(outN); gv.stepVel = pick.vel
+                    gv.stepTotal = Int16(abs(outN - Int(gv.anchor))); gv.stepsDone = 0; gv.stepRunStart = beatPos
+                    gv.anchor = Int16(outN); gv.lastInput = Int16(outN)   // the target becomes the anchor for the NEXT transition
                 }
                 emitGlideStepRun(&gv, cable: cable, ch: ch, bus: bus, glideTime: p.glideTime, beatPos: beatPos, bEnd: bEnd, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
             }
@@ -2727,6 +2756,7 @@ final class Router {
            || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { return }   // inactive → emitColumnGlide already phrase-ended it
         let p = cell.procs[gi]
         let bus = Int(cell.busMask.trailingZeroBitCount)
+        guard glideBusAvailable(bus) else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); return }   // R2: a disabled/soloed-out emitter silences the driven glide (self-correcting → no stuck note)
         let ch = (busChannels[bus] &- 1) & 15
         var gv = glideVoices[cellIdx]
         let cnt = glideDrivenCount[cellIdx]
@@ -2737,48 +2767,50 @@ final class Router {
             let vel = glideDrivenVel[cellIdx * Self.glideDrivenCap + i]
             let tb = glideDrivenBeat[cellIdx * Self.glideDrivenCap + i]
             let onS = sampleOf(musical: tb, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)   // swing-accurate (was a raw linear conversion that dropped the warp — review 2026-08-23)
+            guard let outNote = glideOutNote(inNote, bus: bus) else { continue }   // R2: OCT + KEY + FENCE; out of range / DROP → skip this target (keep the current anchor)
+            let outN = Int(outNote)
             switch p.glideMode {
             case .bend:
                 if gv.anchor < 0 {                                   // ANCHOR: first driver note = note-on + centred bend
-                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote); gv.rampStart = tb
+                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN); gv.rampStart = tb
                     emitBend(cable: cable, ch: ch, value: 8192, atSample: onS, out: out); gv.lastBend14 = 8192
-                } else if Int(gv.lastInput) != inNote {              // NEW TARGET
-                    let semis = inNote - Int(gv.anchor)
-                    if p.glideReanchor && glideNeedsReanchor(target: inNote, anchor: Int(gv.anchor), range: p.glideRange) {   // leap → RE-ANCHOR
+                } else if Int(gv.lastInput) != outN {               // NEW TARGET
+                    let semis = outN - Int(gv.anchor)
+                    if p.glideReanchor && glideNeedsReanchor(target: outN, anchor: Int(gv.anchor), range: p.glideRange) {   // leap → RE-ANCHOR
                         if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }
                         emitBend(cable: cable, ch: ch, value: 8192, atSample: onS, out: out)
-                        let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                        gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = tb; gv.lastBend14 = 8192
+                        let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                        gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = tb; gv.lastBend14 = 8192
                     } else {                                         // in range → GLIDE (capture the current bend, ramp to the new target; clamp if not re-anchoring)
                         let tt = max(0.0001, p.glideTime)
                         gv.bendFrom = gv.bendFrom + (gv.bendTo - gv.bendFrom) * min(1, p.glideTime > 0 ? (tb - gv.rampStart) / tt : 1)
                         gv.bendTo = p.glideReanchor ? Double(semis) : Double(max(-p.glideRange, min(p.glideRange, semis)))
                         gv.rampStart = tb
                     }
-                    gv.lastInput = Int16(inNote)
+                    gv.lastInput = Int16(outN)
                 }
             case .synth:                                            // SYNTH: the synth glides itself — CC65 ON + CC5 time at anchor, then LEGATO transitions
                 if gv.anchor < 0 {
                     out?.emit(sampleTime: onS, cable: cable, 0xB0 | ch, 65, 127)
                     out?.emit(sampleTime: onS, cable: cable, 0xB0 | ch, 5, UInt8(glideSynthCCTime(p.glideTime)))
-                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote)
-                } else if Int(gv.lastInput) != inNote {
-                    let newSlot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN)
+                } else if Int(gv.lastInput) != outN {
+                    let newSlot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
                     if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }   // release old AFTER new = legato
-                    gv.anchor = Int16(inNote); gv.slot = Int16(newSlot); gv.lastInput = Int16(inNote)
+                    gv.anchor = Int16(outN); gv.slot = Int16(newSlot); gv.lastInput = Int16(outN)
                 }
             case .step:                                             // STEP: a fast chromatic run per transition (emitted after the loop; note-hungry, governed)
                 if gv.anchor < 0 {
-                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote)
-                } else if Int(gv.lastInput) != inNote {
+                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
+                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN)
+                } else if Int(gv.lastInput) != outN {
                     if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }
                     gv.slot = -1
-                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(inNote); gv.stepVel = vel
-                    gv.stepTotal = Int16(abs(inNote - Int(gv.anchor))); gv.stepsDone = 0; gv.stepRunStart = tb
-                    gv.anchor = Int16(inNote); gv.lastInput = Int16(inNote)
+                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(outN); gv.stepVel = vel
+                    gv.stepTotal = Int16(abs(outN - Int(gv.anchor))); gv.stepsDone = 0; gv.stepRunStart = tb
+                    gv.anchor = Int16(outN); gv.lastInput = Int16(outN)
                 }
             }
         }

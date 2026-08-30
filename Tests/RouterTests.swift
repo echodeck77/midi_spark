@@ -2883,6 +2883,43 @@ final class RouterTests: XCTestCase {
         render(NotePool(), playing: false)   // stop → flush
         assertNothingLeftSounding(e)
     }
+    // R2 (2026-08-30): GLIDE now sounds through the SAME output transform as every other voice — the per-scene master
+    // KEY shifts its pitch (was raw source pitch → the glide played OUT OF KEY against the rest of the patch). The
+    // note-off pairs on the SHIFTED note (proven by assertNothingLeftSounding — a shift on open but not close = stuck).
+    func testGlideHonoursMasterKey() {
+        let cs = arpColours()
+        var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glidePriority = .last; g.params.glideTime = 0
+        let b = box(colours: cs) { $0.masterKey = 5; $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func render(_ pool: NotePool, playing: Bool = true) { router.process(box: b, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        render(chord([60]))                   // ANCHOR 60 — with KEY +5 it must sound as 65
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }, [65], "the glide anchor is transposed by the master KEY (+5): 60 → 65")
+        render(NotePool(), playing: false)    // stop → flush
+        assertNothingLeftSounding(e)          // the off pairs on 65 (the shifted note), not 60
+    }
+    // R2 (2026-08-30): GLIDE now honours the emitter ENABLE gate like the grid — a disabled emitter silences it, and a
+    // glide sustaining on an emitter that is disabled MID-PHRASE is closed (no stuck note; was: raw openVoice ignored
+    // busEnabled → the glide kept sounding on a disabled emitter).
+    func testGlideHonoursEmitterEnableAndClosesOnDisable() {
+        let cs = arpColours()
+        let g: ProcessorSlot = { var s = ProcessorSlot(type: .glide); s.params.glideMode = .bend; s.params.glidePriority = .last; s.params.glideTime = 0; return s }()
+        func mk(_ en: [Bool]) -> SnapshotBox { box(colours: cs, busEnabled: en) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() } }
+        let bOn = mk([true, true, true, true]), bOff = mk([false, true, true, true])
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func render(_ b: SnapshotBox, _ pool: NotePool) { router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        render(bOn, chord([60]))              // anchor 60 on emitter A (enabled)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 1, "the glide sounds on the enabled emitter")
+        render(bOff, chord([60]))             // DISABLE emitter A → the sustained glide must close
+        assertNothingLeftSounding(e)          // the anchor's off was emitted — no stuck note on the disabled emitter
+        // A FRESH glide on an already-disabled emitter never sounds.
+        let e2 = RecordingEmitter(); let r2 = Router(); var d2 = KernelDiag()
+        r2.process(box: bOff, pool: chord([64]), playing: true, beatPos: 0, tempo: tempo, sampleRate: sr, timestampSample: 0, frameCount: frames, out: e2, diag: &d2)
+        XCTAssertEqual(e2.ons.filter { $0.cable == 1 }.count, 0, "a disabled emitter silences the glide entirely")
+    }
     // E1 FIX (Paul 2026-08-27): a BEND-mode glide left the pitch wheel OFF-CENTRE on a flush edge (transport stop /
     // scene flush / panic / latch) — flushGlide cleared SYNTH's CC65 but never re-centred BEND, so the NEXT note on
     // that channel played detuned. flushGlide must re-centre the wheel (bend 8192) on the edge.
