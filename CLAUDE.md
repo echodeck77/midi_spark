@@ -294,6 +294,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   colourHexes); the play-ferry single-cell mint + the flatten's representative (now minted with the first step's chain, not the
   reused part colour) + the empty-ferry fallback all pass `playHexes[col]`. Populated play cells flow their dusk hue from the
   minted colour via colourColor(id).**
+- **▶ OLD UI REMOVED — the rooms interface is the SOLE surface (2026-08-30, on `main`; iOS builds; UI-only, DEVICE-owed).
+  Paul: "I don't need the old user interface anymore." A dependency-mapping agent split old-UI-only code from the shared
+  helpers the rooms UI reuses, then a 3-stage cleanup. **STAGE 1 (`d30acb9`) — roomsPage self-contained:** the MIDI IN/OUT/
+  RACK sheets, stage-eye, reel browser, ROW 8 page, `.fileImporter`, IO-hold banner, and scene-switch were rendered ONLY in
+  `buildPage`'s ZStack → DEAD in rooms (so the header MIDI IN/OUT/RACK/ROW 8/RECORD buttons AND the new strip spanners silently
+  did nothing — a latent bug). Lifted into `roomsSharedOverlays` + `roomsChrome` (in BuildPage.swift so they reach the private
+  config views); `roomsPage` now renders them. **STAGE 2 (`b720598`) — dropped the toggle:** `tabBody` always calls
+  `roomsPage`; removed the `useNewInterface` @AppStorage + the cog "NEW UI" toggle + the old-only auto-arm. **STAGE 3
+  (`8679b66`) — deleted the dead tree:** 79 old-UI-exclusive funcs (`buildPage`/`buildLandscape` + the old palette/machine/
+  staging/play grids · ROW-8 grid path · part/deploy/perform-row logic · randomize/mutate/stage-the-grid · full-page grid-
+  selector chrome · old overlays) + 31 entangled orphans; BuildPage.swift 6749→4870 lines. Done via a brace-matching script,
+  build-verified, iterating on orphan-caller errors. `buildGCColours` (ephemeral-colour GC) was old-UI-only + is gone — rooms
+  never called it (no behaviour change) but ephemeral colours no longer GC (a rooms-side GC is a possible follow-up). ~33
+  pre-existing fully-dead orphans remain (a separate housekeeping sweep).**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2
