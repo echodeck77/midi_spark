@@ -1385,7 +1385,6 @@ extension DiagView {
         let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
         let machinePlaying = buildDisplayVoice != .none                     // the machine (chain on SELECT / part on PART) is the active voice
-        let machineOutHue = emitterHue(buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)   // the machine's output emitter colour — for the playing GLOW (Paul 2026-08-30)
         VStack(spacing: gap) {
             AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
@@ -1412,10 +1411,10 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
         // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
         // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
-        // PLAYING (Paul 2026-08-30): the selected-colour box gets the SAME effect a ferry box has in playing mode — the frame
-        // BRIGHTENS + an EMITTER-coloured GLOW blooms around it while the machine is the active voice.
+        // PLAYING (Paul 2026-08-30): the selected-colour box gets a playing-mode effect — the frame BRIGHTENS + a GLOW in the
+        // MACHINE's OWN hue (buildSelHue, not the emitter — the emitter is already clearly shown by its toggles/drift) blooms.
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(machinePlaying ? 1.0 : 0.85), lineWidth: machinePlaying ? 3 : 2.5))
-        .shadow(color: machinePlaying ? machineOutHue.opacity(0.7) : .clear, radius: machinePlaying ? 9 : 0)
+        .shadow(color: machinePlaying ? buildSelHue.opacity(0.7) : .clear, radius: machinePlaying ? 9 : 0)
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
