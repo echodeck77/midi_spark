@@ -3550,9 +3550,10 @@ extension DiagView {
 
     // A small SPANNER button (Paul 2026-08-30) — sits ABOVE a strip's velocity fader, in the fader's 22-wide column (no wider),
     // replacing the A/B/C/D label. Tap → open the MIDI settings page focused on this receiver/emitter strip.
-    @ViewBuilder private func buildStripSpanner(_ action: @escaping () -> Void) -> some View {
-        Image(systemName: "wrench.fill").font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.7))
-            .frame(maxWidth: .infinity).frame(height: 16)
+    // The strip config button — styled like the other strip buttons (buildRecMini), CH-height, fader-width (Paul 2026-08-30).
+    @ViewBuilder private func buildStripSpanner(height: CGFloat, _ action: @escaping () -> Void) -> some View {
+        Image(systemName: "wrench.fill").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.7))
+            .frame(maxWidth: .infinity).frame(height: height)
             .background(RoundedRectangle(cornerRadius: 4).fill(buildCell))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(buildEdge, lineWidth: 1))
             .contentShape(Rectangle()).onTapGesture(perform: action)
@@ -3562,9 +3563,10 @@ extension DiagView {
         let letter = ["A", "B", "C", "D"][i]
         let soloed = soloReceiverMask & (1 << UInt8(i)) != 0
         let h = height                                                          // total control height (the column strip passes the 2-cell height, Paul 2026-08-30)
+        let rowH = (h - 9) / 4                                                   // the CH/ENABLE button's height (right column = 4 equal rows, spacing 3) — the spanner matches it (Paul 2026-08-30)
         HStack(spacing: 6) {
             VStack(spacing: 2) {                                                // the FADER column: a SPANNER above · the velocity fader (label dropped when the spanner is present)
-                if let spanner { buildStripSpanner(spanner) }
+                if let spanner { buildStripSpanner(height: rowH, spanner) }      // CH-height, fader-width, styled like the strip buttons
                 buildReceiverFader(i, letter: spanner != nil ? "" : letter)     // velocity INDICATOR — draggable to override input velocity (spring-back on release)
             }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                                // EQUAL rows, top → bottom
@@ -3666,7 +3668,7 @@ extension DiagView {
     @ViewBuilder private func buildReceiverFader(_ i: Int, letter: String) -> some View {
         let override = i < recvDragVel.count ? recvDragVel[i] : nil
         VStack(spacing: 2) {
-            Text(override.map { "\($0)" } ?? letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(override != nil ? buildPink : buildDim)
+            Text(letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildDim)   // NO drag-velocity number over the slider (Paul 2026-08-30)
             GeometryReader { g in
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     let held = i < recvHeld.count ? (recvHeld[i].max() ?? 0) : 0   // SUSTAINED while notes are held (no decay/drop animation, Paul 2026-08-18)
@@ -3733,9 +3735,10 @@ extension DiagView {
         let racked = rackMask & (1 << UInt8(i)) != 0
         let ch = i < busChannels.count ? busChannels[i] : i + 1
         let h = height                                                        // match the receiver control (the column strip passes the 2-cell height, Paul 2026-08-30)
+        let rowH = (h - 9) / 4                                                // CH-button height (right column = 4 equal rows, spacing 3, RACK hidden on the column strip) — the spanner matches it (Paul 2026-08-30)
         HStack(spacing: 6) {
             VStack(spacing: 2) {                                              // the FADER column: a SPANNER above · the velocity fader (label dropped when the spanner is present)
-                if let spanner { buildStripSpanner(spanner) }
+                if let spanner { buildStripSpanner(height: rowH, spanner) }   // CH-height, fader-width, styled like the strip buttons
                 buildEmitterFader(i, letter: spanner != nil ? "" : letter)    // interactive velocity fader — drag to override output velocity
             }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                               // EQUAL rows, top → bottom (mirrors the receiver control)
@@ -3784,7 +3787,7 @@ extension DiagView {
     @ViewBuilder private func buildEmitterFader(_ i: Int, letter: String) -> some View {
         let override = i < emitDragVel.count ? emitDragVel[i] : nil
         VStack(spacing: 2) {
-            Text(override.map { "\($0)" } ?? letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(override != nil ? buildPink : buildDim)
+            Text(letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildDim)   // NO drag-velocity number over the slider (Paul 2026-08-30)
             GeometryReader { g in
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     // DECAY + note-priority (Paul 2026-08-19): the bar FALLS from the last peak; a new note resets
