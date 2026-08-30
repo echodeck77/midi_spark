@@ -423,7 +423,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// delta §9 item 11: per-receiver INPUT peak velocity + event count since the last poll (read-and-clear).
     func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32], channels: [UInt16]) { kernel.drainReceiverActivity() }
     func pollEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterMarks() }   // item 4 velocity marks
-    func pollCellStrikes() -> [UInt8] { kernel.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity (col*8+row)
+    func pollCellStrikes() -> [UInt8] { kernel.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity (col*Snap.rows+row)
     func pollCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { kernel.drainCellNotes() }   // NOTE-SWEEP: per-cell recent emitted note-ons
     func pollCellSounding() -> (lo: UInt64, hi: UInt64) { kernel.pollCellSounding() }   // SEAL comet: per-cell sounding gate (128 cells: lo=0…63, hi=64…127)
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell

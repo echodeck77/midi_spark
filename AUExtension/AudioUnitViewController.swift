@@ -371,7 +371,7 @@ struct DiagView: View {
     @State var ladderMode = false            // LADDER: exclusive-columns mode (mirror of au.uiLadderMode)
     @State var ladderPending: [Int: Int] = [:]   // LADDER: armed rung switches (column → row) — fire at the column's next entry
     @State var ladderBlink = false           // LADDER: the armed-cell blink (beat-toggled, like the scene arm)
-    // SEAL comet: per-cell last-strike time + velocity (index = col*8+row), stamped from the 4 Hz poll of
+    // SEAL comet: per-cell last-strike time + velocity (index = col*Snap.rows+row), stamped from the 4 Hz poll of
     // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
     @State var cellHitAt = [Date](repeating: .distantPast, count: Snap.cells)   // Snap.cells = 128 (rows 0–15; index = col*Snap.rows+row)
     @State var cellHitVel = [Double](repeating: 0, count: Snap.cells)

@@ -51,7 +51,7 @@ final class Router {
         var colourIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — matches SnapCell; a colour index can exceed 127
         var alt = false
         var vel: UInt8 = 0           // §strips-done: the emit velocity, for the per-emitter hold-while-sounding feed
-        var cellIndex: Int8 = -1     // SEAL comet: the emitting cell's grid index (col*8+row), for the per-cell
+        var cellIndex: Int8 = -1     // SEAL comet: the emitting cell's grid index (col*Snap.rows+row, 0…127), for the per-cell
                                      // SOUNDING gate — the spark travels for exactly as long as the note is held.
         var bypassRecv: Int8 = -1    // BYPASS: ≥0 = a direct-injection voice for that receiver (IMMORTAL, managed by
                                      // reconcileBypass) — the grid's continuity + transport flushes leave it alone.
@@ -217,7 +217,7 @@ final class Router {
     private var soundCount = [Int](repeating: 0, count: 4)
     private var currentColourIndex: Int16 = -1        // the emitting cell's colourIndex (for the SEAL comet feed) — CR-13a Int16
     private var curBox: SnapshotBox?                  // this render's box — so openVoice can read the sounding colour's DISPLAY hue to tag the reel (Paul 2026-08-19)
-    // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
+    // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*Snap.rows+row) — the grid comet's
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
     private var cellStrike = [UInt8](repeating: 0, count: Snap.cells)   // Snap.cells = 128 (col*rows+row, rows 0–15)
@@ -807,7 +807,7 @@ final class Router {
         for i in 0..<4 { peak[i] = meterPeakVel[i]; meterPeakVel[i] = 0; events[i] = meterEvents[i]; meterEvents[i] = 0 }
         return (peak, events)
     }
-    /// SEAL comet: read-and-clear the per-CELL peak strike velocity (index = col*8+row) since the last poll.
+    /// SEAL comet: read-and-clear the per-CELL peak strike velocity (index = col*Snap.rows+row) since the last poll.
     /// Accumulates across render windows (never lost between polls); the UI stamps a hit time + owns the decay.
     func drainCellStrikes() -> [UInt8] {
         var out = [UInt8](repeating: 0, count: Snap.cells)   // FRESH copy — never share `cellStrike` with the poll (COW-on-render race)
@@ -857,7 +857,7 @@ final class Router {
         }
     }
 
-    /// SEAL comet: snapshot which of the 64 cells are CURRENTLY SOUNDING (≥1 active, non-silent voice) into a
+    /// SEAL comet: snapshot which of the 128 cells (rows 0–15) are CURRENTLY SOUNDING (≥1 active, non-silent voice) into a
     /// bitmask. Render thread, once per window after reconciliation (like snapshotEmitterSounding). The UI polls
     /// `currentCellSounding` and drives the spark's life off the gate — travelling for exactly the held duration.
     func snapshotCellSounding() {

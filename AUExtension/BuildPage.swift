@@ -1261,6 +1261,10 @@ extension DiagView {
     // machine that SAME light grey. But once a REAL colour is the selection — a ferry has just been copied and becomes
     // selected, or PART's own machine — the box + chain + play button all wear THAT colour (not grey/white). PART always
     // wears its machine's colour. (The machine box only appears on SELECT + PART.)
+    // The part's DEFAULT output emitters — its chosen set, or emitter A when none. A row/cell/ferry inherits this when
+    // it has no emitters of its own. (refactor 2026-08-30: was `buildPartEmitters.isEmpty ? [.a] : buildPartEmitters`
+    // inlined at ~10 sites.)
+    var buildDefaultEmitters: Set<Bus> { buildPartEmitters.isEmpty ? [.a] : buildPartEmitters }
     var buildSelectGrey: Color { Color(white: 0.84) }
     func buildMachineHue(_ room: Room) -> Color {
         if room == .part { return buildSelHue }
@@ -1570,12 +1574,12 @@ extension DiagView {
         }
         buildPlayColStepEmit[t] = (0..<len).map { c in
             let rung = c < buildStagingSel.count ? buildStagingSel[c] : -1
-            return rung >= 0 ? buildRowEmittersResolved(rung) : (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+            return rung >= 0 ? buildRowEmittersResolved(rung) : (buildDefaultEmitters)
         }
         buildPlayCells[t][r] = buildNewTabColour(t, machine: buildColourChain(rep), hex: playHexes[t % playHexes.count])   // a DUSK representative (carries the first step's chain) so the play column reads dusk, not the part's vivid hue (Paul 2026-08-30)
         buildPlaySel[t] = r
         buildPlayColRecv[t] = buildSelReceiver                               // the column DEFAULT (the ferry dot/drift tint + any rest-step fallback)
-        buildPlayColEmit[t] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        buildPlayColEmit[t] = buildDefaultEmitters
         buildPlayColOn[t] = true                                            // start it
         buildStagingPlaying = false                                         // the part audition stops — the play column now carries the sequence (no doubling)
         if ddSolo { ddSolo = false; au?.clearColourSolo() }
@@ -1590,7 +1594,7 @@ extension DiagView {
         if let s = buildGridSelStampSourceRow, buildRowColour(s) != nil {
             return (buildRowReceiverResolved(s), buildRowEmittersResolved(s))
         }
-        return (buildSelReceiver, buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+        return (buildSelReceiver, buildDefaultEmitters)
     }
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
     // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)
@@ -2306,7 +2310,7 @@ extension DiagView {
                 // buildGridSelOpen branch + a `?? false` that blanked the chips when no row was selected.
                 let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) }
                     ?? buildSelectedPlayCol.map { ($0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a]).contains(b) }
-                    ?? ((buildPartEmitters.isEmpty ? [.a] : buildPartEmitters).contains(b))
+                    ?? ((buildDefaultEmitters).contains(b))
                 buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on, accent: emitterColour(b), action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE colour (Paul 2026-08-30)
             }
         }
@@ -2571,7 +2575,7 @@ extension DiagView {
         let selPC = selR == nil ? buildSelectedPlayCol : nil       // a selected PLAY cell edits its OWN emitters (Paul 2026-08-30)
         var buses = selR.map { buildRowEmittersResolved($0) }
             ?? selPC.map { $0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a] }
-            ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+            ?? (buildDefaultEmitters)
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
         if buses.isEmpty { buses = [bus] }                        // never leave a row with no output
         if let r = selR, r < buildRowEmitters.count { buildRowEmitters[r] = buses }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
@@ -2595,7 +2599,7 @@ extension DiagView {
         if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildToggleBus(bus); return }   // a play cell has no "all rows" — edit just its emitters (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the emitter to every row (U7 fix 2026-08-27)
         buildClearPendingOnEdit()                                // an EMITTER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
-        var buses = buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+        var buses = buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters)
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
         if buses.isEmpty { buses = [bus] }
         for r in 0..<min(8, buildRowEmitters.count) { buildRowEmitters[r] = buses }
@@ -2611,7 +2615,7 @@ extension DiagView {
         buildStagingPlaying = false                              // CHAIN ⟂ PART; the PIECE is independent — it keeps sounding via the scene
         buildSeedCastIfNeeded()                                  // §2: part 1's cast reflects the already-defined colours (once); selects within the cast
         ddStickyReceiver = buildSelReceiver                      // §2: the chain audition uses the PART's I/O (door + emitters)
-        ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        ddStickyBuses = buildDefaultEmitters
         // A document colour never given a chain shows an EMPTY chain but has a nil templateChain; make it an explicit []
         // once so the palette's shown-empty chain matches the raw sound (the injected cell reads buildColourChain, which
         // is [] here → a born-audible passthrough — never the legacy A-face arp). Only fires when the chain is unstored.
@@ -2822,7 +2826,7 @@ extension DiagView {
         }
         let selR = buildSelectedRow                                          // the chain audition takes the SELECTED colour's row I/O
         input.chainReceiver = selR.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
-        input.chainEmitters = selR.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+        input.chainEmitters = selR.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters)
         // PER-PART CLOCK (Paul 2026-08-19): each play-grid ROW takes its owning deployed part's rate/length; the STAGING
         // audition takes the CURRENT part's. nil ⇒ the scene default (uniform = today). This is what makes deployed parts
         // at different rates play at DIFFERENT tempos in one play grid.
@@ -2882,7 +2886,7 @@ extension DiagView {
     private func buildRowEmittersResolved(_ r: Int) -> Set<Bus> {
         let own = (r >= 0 && r < buildRowEmitters.count) ? buildRowEmitters[r] : nil
         if let own, !own.isEmpty { return own }
-        return buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        return buildDefaultEmitters
     }
 
     // A colour's OWN machine (templateChain), audible slots only.
@@ -2922,7 +2926,7 @@ extension DiagView {
         buildSelID = id                                          // the DISPLAY selection updates immediately (target, footer, highlight)
         ddColourSel = colourIDs.firstIndex(of: id) ?? -1
         ddStickyReceiver = buildSelReceiver
-        ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        ddStickyBuses = buildDefaultEmitters
         ddScopeToColour(id, anchor: nil, engage: false)          // BUILD never uses the AU solo — the chain plays via the scene
         if ddSolo {                                              // auditioning the chain → re-inject the newly-selected colour
             if d.playing { buildPendingReengage = true }         // SEAMLESS: swap on the next cell boundary
@@ -3388,7 +3392,7 @@ extension DiagView {
     // across (col step, row 8+t) for each step. (Paul 2026-08-30)
     private func buildPlayColSweepIndices(_ t: Int) -> [Int] {
         let base = Snap.playLayerRowBase + t
-        let len = t < buildPlayColLen.count ? max(1, min(Snap.cols, buildPlayColLen[t])) : 1
+        let len = BuildSceneLogic.passLen(buildPlayColLen, t)   // shared clamp (refactor 2026-08-30)
         return len <= 1 ? [base] : (0..<len).map { $0 * Snap.rows + base }
     }
 

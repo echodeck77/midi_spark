@@ -195,7 +195,7 @@ struct GridView: View {
     var flagNoDest: Bool = true                      // show the "no emitter" red-dashed border (a PERFORM routing hint; off on the setup grid)
     var animateSelection: Bool = false               // MODE ROW: the SELECTED cells wear a marching black/white dashed border (setup grid)
     var showAddPlus: Bool = false                    // MODE ROW · ADD/EDIT with a selection: empty cells show a faint "+" (tap to add)
-    var cellHitAt: [Date] = []                       // SEAL comet: per-cell last-strike time (index col*8+row)
+    var cellHitAt: [Date] = []                       // SEAL comet: per-cell last-strike time (index col*Snap.rows+row)
     var cellHitVel: [Double] = []                    // SEAL comet: per-cell last-strike velocity (0–1)
     var cellSounding: [Bool] = []                    // SEAL comet: per-cell note-on/off gate (currently sounding)
     var cellReleasedAt: [Date] = []                  // SEAL comet: per-cell last release time (for the fade)

@@ -68,6 +68,9 @@ enum BuildSceneLogic {
     /// Three independent passes — piece → part → chain — matching `buildPublishScene`. The chain lands raw on the
     /// LEAST-occupied free row (every free column active), so it sounds alongside the piece with none of the part
     /// grid's per-column rules; it only goes gappy when all 8 rows are full.
+    /// A play column's pass length, clamped to [1, Snap.cols] (out-of-range / short array → a single cell). Shared by
+    /// the composer + BuildPage's sweep-index helper so the clamp lives in ONE place. (refactor 2026-08-30)
+    static func passLen(_ arr: [Int], _ c: Int) -> Int { c < arr.count ? max(1, min(Snap.cols, arr[c])) : 1 }
     static func composeScene(_ i: Input) -> SceneState? { composeSceneMeta(i).scene }
     /// As `composeScene`, but also returns the engine ROW the SELECT/chain audition parked on (col 0) — so the UI can read
     /// its LIVE strike feed at `idx = col0*Snap.rows + auditionRow` and drift the aimed ferry's real notes (Paul 2026-08-30,
@@ -87,7 +90,7 @@ enum BuildSceneLogic {
                 let own = c < i.playColEmit.count ? i.playColEmit[c] : []
                 let buses: Set<Bus> = own.isEmpty ? [.a] : own                  // per-column emitters, derived from the ferry source
                 let recv = max(0, min(3, c < i.playColRecv.count ? i.playColRecv[c] : 0))   // per-column door, derived from the ferry source
-                let len = c < i.playColLen.count ? max(1, min(Snap.cols, i.playColLen[c])) : 1
+                let len = passLen(i.playColLen, c)
                 if len <= 1 {                                                   // SINGLE CELL (today, byte-identical): pinned continuous at (col 0, row 8+c)
                     let r = c < i.playSel.count ? i.playSel[c] : -1
                     guard r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, let cid = i.playCells[c][r] else { continue }
@@ -183,7 +186,7 @@ enum BuildSceneLogic {
         if i.playPlaying {   // MULTI-STEP PASS (Paul 2026-08-30): a play column with len > 1 loops its own N columns on the play-layer row
             for c in 0..<8 {
                 guard c < i.playColOn.count, i.playColOn[c] else { continue }
-                let len = c < i.playColLen.count ? max(1, min(Snap.cols, i.playColLen[c])) : 1
+                let len = passLen(i.playColLen, c)
                 if len > 1 {
                     rowLen[Snap.playLayerRowBase + c] = len            // len ≤ 1 stays nil → the single cell is pinned via rowLane below
                     if c < i.playColRate.count, let rate = i.playColRate[c] { rowStepRate[Snap.playLayerRowBase + c] = rate }   // the pass plays at the flattened part's tempo
@@ -209,7 +212,7 @@ enum BuildSceneLogic {
             if i.playPlaying {                              // the PLAY grid: each STARTED column's HIDDEN row (8+c)
                 for c in 0..<8 {                            //   SINGLE cell → loops COLUMN 0 (pinned, continuous); MULTI-STEP pass → SWEEPS (rowLane 0, rowLen loops it)
                     guard c < i.playColOn.count, i.playColOn[c] else { continue }
-                    let len = c < i.playColLen.count ? max(1, min(Snap.cols, i.playColLen[c])) : 1
+                    let len = passLen(i.playColLen, c)
                     if len > 1 { continue }                 // multi-step sweeps 0..len-1 → leave rowLane 0 (no pin)
                     let r = c < i.playSel.count ? i.playSel[c] : -1
                     if r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, i.playCells[c][r] != nil { rowLane[Snap.playLayerRowBase + c] = 0b0000_0001 }
