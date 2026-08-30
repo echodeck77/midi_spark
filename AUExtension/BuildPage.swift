@@ -940,11 +940,6 @@ extension DiagView {
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative for performRate mapping
         buildPublishScene()
     }
-    func buildSetPartLen(_ n: Int?) {
-        buildPartLen = n
-        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = n }   // authoritative for performLen mapping
-        buildPublishScene()
-    }
 
     // THE PASS BROWSER (Paul 2026-08-19): an 8×8 grid — TOP 4 rows = the last 32 passes (newest bottom-right), tap one to
     // replay it live; BOTTOM 4 rows = the selected pass drawn as A/B/C/D piano-roll lanes. SAVE exports the selected pass.
@@ -1863,14 +1858,6 @@ extension DiagView {
             }
         }
     }
-    // A PART track-head (top row) — placeholder track play/stop, matching the launchpad col-select style. (§2 header)
-    private func colSelCellPart(_ t: Int) -> some View {
-        let populated = t >= 0 && t < 8 && buildRowColour(t) != nil
-        let predet = Color(hex: colourHexes[t % 16])                      // predetermined colour (a range across the 8)
-        let sounding = buildStagingPlaying && buildStagingSel.contains(t) // this row currently sounding (per-slot status proxy)
-        return RoundedRectangle(cornerRadius: 4).fill(populated ? Color.white.opacity(0.10) : Color.white.opacity(0.05))
-            .overlay(Image(systemName: sounding ? "stop.fill" : "play.fill").font(.system(size: 11, weight: .black)).foregroundColor(predet.opacity(populated ? 1.0 : 0.4)))   // PLAY/STOP transport icon in its predetermined colour (Paul 2026-08-29)
-    }
     // TAP a PART LEFT side button — it becomes the SELECTED slot (the always-one selection, shared with SELECT) + the
     // copy source, and reflects its chain in the panel. It does NOT select a grid row — the RIGHT rail does that. (Paul 2026-08-28)
     private func roomsTapPartSide(_ n: Int) {
@@ -2079,8 +2066,6 @@ extension DiagView {
         }
     }
     private func busLetter(_ i: Int) -> String { i >= 0 && i < 4 ? String(UnicodeScalar(UInt8(65 + i))) : "?" }
-    /// Whether a lit ROW 8 cell has a LIVE engine (v1: only the FREEZE/HALFTIME toggles affect audio yet).
-    private func row8Live(_ t: Row8Type) -> Bool { t == .freeze || t == .halftime }
 
 
 
@@ -2341,24 +2326,6 @@ extension DiagView {
             } else { withAnimation { buildIOHoldMsg = nil } }
         })
     }
-    // THE COLOUR TABS (Paul 2026-08-17): 8 tabs numbered 1–8, one per part-grid row. Each tab is a colour/midi-chain;
-    // the SELECTED tab drives the processor block + MIDI + visuals. A SET tab shows its colour; an empty tab reads blank.
-    @ViewBuilder private func buildColourTabs(castW: CGFloat, cell: CGFloat, inEditor: Bool = false) -> some View {
-        let gap = BuildGeom.castGap
-        if inEditor {
-            // The row selector: 8 chips. LONG-PRESS a chip applies a COPY of the current machine to that row. (The ◀/BANK▶
-            // carriage buttons were removed 2026-08-25 — Paul.)
-            let tabW = (castW - gap * 7) / 8
-            HStack(spacing: gap) {
-                ForEach(0..<8, id: \.self) { n in buildColourTab(n, w: tabW, cell: cell, inEditor: true) }
-            }
-        } else {
-            let tabW = (castW - gap * 7) / 8
-            HStack(spacing: gap) {
-                ForEach(0..<8, id: \.self) { n in buildColourTab(n, w: tabW, cell: cell, inEditor: false) }
-            }
-        }
-    }
     @ViewBuilder private func buildColourTab(_ n: Int, w: CGFloat, cell: CGFloat, inEditor: Bool = false) -> some View {
         let cid = buildRowColour(n)                              // tab N's colour = the colour on part-grid row N
         let selected = cid != nil && cid == ddSelectedColourID
@@ -2584,13 +2551,6 @@ extension DiagView {
         refreshFromDocument()
     }
 
-    // Flip the SELECTED door between MIDI-in and the in-app piano. Mirroring `receivers` guarantees SwiftUI
-    // invalidates this row immediately (buildInputSection reads uiReceivers live, but the mirror forces the update).
-    private func buildSetSource(_ i: Int, piano: Bool) {
-        // route through the door mode (ONE source of truth): piano ⇒ KEYS, DIN ⇒ LATCH (preserves BUILD's live-input behaviour).
-        // buildRecvEdit records a BUILD-undo step + re-polls/refreshes (U9 fix 2026-08-27 — was recording to the AU stack the header can't reach).
-        buildRecvEdit { au?.setDoorMode(i, piano ? .keys : .latch) }
-    }
 
 
 
@@ -2667,9 +2627,6 @@ extension DiagView {
     // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADERS read this so
     // they highlight the new state IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
     var buildDisplayVoice: BuildWorkshopVoice { buildPendingWorkshopVoice ?? buildWorkshopVoice }
-    // The left column wears its SELECTED-COLOUR frame only when PLAY THIS MIDI CHAIN is the voice AND no processor card
-    // is open — a card open hides the box (Paul 2026-08-25), so the two coloured frames don't fight while editing.
-    var buildShowColourBox: Bool { buildDisplayVoice == .chain && buildEditSlot == nil }
 
     // A header TOGGLES its section: play it if stopped, STOP it if playing (Paul 2026-08-15). Both sections can be off.
     // While the transport runs the switch is QUANTIZED to the next cell boundary (buildCommitPendingVoice, fired from the
@@ -2707,9 +2664,6 @@ extension DiagView {
             if ddSolo { buildPublishScene() }
         }
     }
-    // Population (Paul 2026-08-15): real deployed play-grid cells (preview doesn't count) · any stocked staging cell.
-    var buildPerformPopulated: Bool { buildPerformCells.contains { $0.contains { $0 != nil } } }
-    var buildStagingPopulated: Bool { buildStagingCells.contains { $0.contains { $0 != nil } } }
 
     // Publish the ephemeral scene for the ACTIVE voices. §correction (2026-08-13): the PIECE is INDEPENDENT of the
     // audition — PLAY THIS PART + START/STOP THE PLAY GRID sound TOGETHER (the shopping/alongside workflow). Each
@@ -3099,7 +3053,7 @@ extension DiagView {
         buildPartRate = p.rate; buildPartLen = p.length                       // PER-PART CLOCK (Paul 2026-08-19)
         buildReslotCast()                                       // migrate old parts + backfill any extra colour missing a slot
         buildEnforceCastHues()                                  // strong rule: no two palette colours share a hue
-        buildPulseColourID = nil; buildAuditionID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
+        buildPulseColourID = nil; buildAuditionID = nil; buildDeletedRows = [:]   // transient — never crosses a part
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
     }
@@ -3224,13 +3178,6 @@ extension DiagView {
 
 
 
-    // The play grid's band form → the (base, rows) range containing a grid row, and the band's 1-based label number.
-    private func buildBandRange(forRow r: Int) -> (base: Int, rows: Int)? {
-        var base = 0; for rows in [3, 2, 1, 1, 1] { if r >= base && r < base + rows { return (base, rows) }; base += rows }; return nil
-    }
-    private func buildBandNumber(base: Int) -> Int {
-        var acc = 0; for (b, rows) in [3, 2, 1, 1, 1].enumerated() { if acc == base { return b + 1 }; acc += rows }; return 1
-    }
 
 
     // How many play-grid rows a deployed part occupies (1 = single-rung lane · >1 = multi-rung ladder).
@@ -3243,7 +3190,6 @@ extension DiagView {
         let sr = buildPerformStagingRow[r]
         return sr >= 0 && part < buildParts.count && c < buildParts[part].stagingSel.count && buildParts[part].stagingSel[c] == sr
     }
-    private var buildCurrentDeployed: Bool { buildCurrentPart < buildParts.count && buildParts[buildCurrentPart].deployed }
 
 
 
@@ -3260,31 +3206,8 @@ extension DiagView {
             .onTapGesture { action?() }
     }
 
-    // MIDI OUT readout below the emitters — the lit emitters + their stamp channels. Piano-height, cast-width.
-    @ViewBuilder private func buildMidiOutInfo(buses: Set<Bus>, castW: CGFloat) -> some View {
-        let chans = au?.uiBusChannels() ?? [1, 2, 3, 4]
-        let lit = Array(Bus.allCases.enumerated()).filter { buses.contains($0.element) }
-        let summary = lit.isEmpty ? "—"
-            : lit.map { "\($0.element.rawValue)→CH\(chans.indices.contains($0.offset) ? chans[$0.offset] : $0.offset + 1)" }.joined(separator: "   ")
-        VStack(spacing: 3) {
-            Text("MIDI OUT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1.2)
-            Text(summary).font(.system(size: lit.count > 1 ? 11 : 15, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
-                .lineLimit(1).minimumScaleFactor(0.55)
-        }
-        .frame(width: castW, height: 52)
-        .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
-    }
 
 
-    // THE TARGET — a reticle marking the SELECTED machine wherever it appears: the cast swatch, the footer EXAMPLE cell,
-    // and every grid cell that shares the selected colour (matches its properties). (Paul 2026-08-14)
-    @ViewBuilder private func buildTargetMark(_ size: CGFloat) -> some View {
-        Image(systemName: "scope")
-            .font(.system(size: size, weight: .medium))
-            .foregroundColor(.white)
-            .shadow(color: .black.opacity(0.7), radius: 1)
-            .allowsHitTesting(false)
-    }
 
 
     // THE PALETTE GRID stays 8×4 (32 slots). The 8 DEFAULTS occupy the TOP-LEFT 4×2 block (a proportion of the grid);
@@ -3292,23 +3215,11 @@ extension DiagView {
     private var buildCastDefaultCount: Int { min(Self.buildDefaultTypes.count, buildPartCast.count) }
     // Is a slot part of the top-left 4×2 DEFAULT block (which is positional), vs the freely-placeable extras region?
     private func buildIsDefaultSlot(_ slot: Int) -> Bool { let row = slot / 8, col = slot % 8; return row < 2 && col < 4 }
-    // slot (0–31) → the buildPartCast index shown there, or nil (an empty slot). 8 cols × 4 rows. The default block is
-    // positional (top-left); every OTHER colour sits where it was explicitly placed (buildCastSlots).
-    private func buildCastMemberAt(_ slot: Int) -> Int? {
-        let dc = buildCastDefaultCount
-        if buildIsDefaultSlot(slot) {                                 // the top-left 4×2 default block
-            let row = slot / 8, col = slot % 8, k = row * 4 + col
-            return k < dc ? k : nil
-        }
-        guard let id = buildCastSlots[slot] else { return nil }       // extras live at their explicitly-placed slot
-        return buildPartCast.firstIndex(of: id)
-    }
     // The bottom-right-most FREE add slot — where the next auto-added colour lands (nil once the palette is full).
     private func buildFirstFreeCastSlot() -> Int? {
         for slot in stride(from: 31, through: 0, by: -1) where !buildIsDefaultSlot(slot) && buildCastSlots[slot] == nil { return slot }
         return nil
     }
-    private func buildFirstFreePaletteSlot() -> Int? { buildFirstFreeCastSlot() }
     // Reconcile buildCastSlots with membership: drop stale slots, and give every extra member a slot (migrates old
     // parts saved before castSlots existed, and keeps auto-added colours visible).
     private func buildReslotCast() {
@@ -3400,9 +3311,8 @@ extension DiagView {
     }
 
     private func buildRowColour(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<8).compactMap { buildStagingCells[$0][r] }.first : nil }
-    private func buildColumnHasSelection(_ c: Int) -> Bool { let s = buildStagingSel[c]; return s >= 0 && s < 8 }   // an empty rung counts as a selection (Paul 2026-08-15)
     private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one colour
-        for c in 0..<8 { buildStagingCells[c][r] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + r) }
+        for c in 0..<8 { buildStagingCells[c][r] = cid }
         if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the colour's OWN machine (no per-row variation override)
         if r < buildRowShade.count { buildRowShade[r] = 0 }
         buildDeletedRows[r] = nil
@@ -3427,27 +3337,11 @@ extension DiagView {
 
 
 
-    @ViewBuilder private func buildMSBtn(_ label: String, tint: Color) -> some View {
-        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(tint)
-            .frame(maxWidth: .infinity).frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(tint.opacity(0.5), lineWidth: 1.5))
-    }
 
 
 
 
 
-    // THE NOTE SWEEP (v1 — spec `AcceptanceCriteria-note-sweep.md`, ratified 2026-08-16). A line sweeps across the
-    // cell for as long as the note SOUNDS (note-off mid-travel = the line freezes where it got to → the note's length
-    // reads visually). VELOCITY is the stroke (weight + opacity). AXIS = ROTATION: each new strike moment takes the
-    // next edge (L→R · T→B · R→L · B→T) via cellStrikeSeq. Reuses the existing per-cell feeds (no new plumbing).
-    // Deferred: velocity-fed density governor · CONTOUR axis (needs a per-note pitch feed) · face-dimming. (2026-08-17)
-    // A hex lightened toward white by `t` (0…1) — the hue's BRIGHT tone.
-    private func buildLighten(_ hex: UInt32, _ t: Double) -> UInt32 {
-        func ch(_ s: Int) -> UInt32 { let c = Double((hex >> s) & 0xFF); return UInt32(max(0, min(255, c + (255 - c) * t))) }
-        return (ch(16) << 16) | (ch(8) << 8) | ch(0)
-    }
     // THE PIANO-ROLL FACE on the BUILD grid cells (Paul 2026-08-19): soft note marks enter at the RIGHT as the cell sounds
     // and drift LEFT at REAL pitch lanes (the per-cell note feed), tinted the cell's own bright tone. ONLY on a populated
     // cell of the grid that is the PLAYING voice. Accumulated in the VC poll (buildCellRoll); paused when the cell rests.
@@ -3491,19 +3385,6 @@ extension DiagView {
 
 
 
-    @ViewBuilder private func buildFooterBoxBtn(_ label: String) -> some View {
-        let empty = label.isEmpty
-        let live = label.contains("RANDOMIZE")   // RANDOMIZE runs the simple roll — but is styled plain, like MUTATE/LIBRARY (Paul 2026-08-18)
-        Text(label)
-            .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
-            .foregroundColor(.white)
-            .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 4)
-            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)   // FIXED height (min==max) — a flexible box competes with the column's Spacer and stretches to the screen bottom
-            .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1).opacity(empty ? 0.5 : 1))
-            .contentShape(Rectangle())
-            .onTapGesture { buildExitPlaceMode(); if live { buildRandomizeSimple() } }   // any control button leaves PLACE mode
-    }
 
     // PLACE is armed by the PLACE button / the verb-box radio; clicking any button that ISN'T a grid row selector
     // turns it back off (→ SELECT). Wired into the control buttons (transports + footer buttons).
@@ -3866,9 +3747,6 @@ extension DiagView {
         let raw = period > 0 ? (musical / period).truncatingRemainder(dividingBy: 1) : 0
         return CGFloat(max(0, min(1, raw < 0 ? raw + 1 : raw)))
     }
-    @ViewBuilder private func buildStep(_ s: String) -> some View {
-        Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1.2)   // §0 MUTED: step labels recede (were loud pink)
-    }
     @ViewBuilder private func buildIOChip(_ s: String, on: Bool = false, keys: Bool = false, fill: Bool = false, action: (() -> Void)? = nil) -> some View {
         Text(s).font(.system(size: 9, weight: on ? .heavy : .regular, design: .monospaced))
             .foregroundColor(on ? Color.black : (keys ? buildCyan : buildDim))
@@ -3878,21 +3756,6 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))   // §0: neutral border when idle (was standing cyan)
             .contentShape(Rectangle())
             .onTapGesture { action?() }
-    }
-    // The left row-button icon for the current mode: a chevron (SELECT), the TARGET (PLACE) or a wand (MUTATE); the
-    // latter two carry the SELECTED palette colour so you see what a press will lay down. (Paul 2026-08-16)
-    @ViewBuilder private func buildRowButtonIcon() -> some View {
-        switch buildRowMode {
-        case .select: Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.55))
-        case .place:  Image(systemName: "scope").font(.system(size: 13, weight: .medium)).foregroundColor(buildSelHue)
-        case .mutate: Image(systemName: "wand.and.stars").font(.system(size: 12, weight: .medium)).foregroundColor(buildSelHue)
-        }
-    }
-    // A reserved (inert) button slot — the second verb-box row is blank for now (Paul 2026-08-16).
-    @ViewBuilder private func buildBlankSlot() -> some View {
-        Color.clear.frame(maxWidth: .infinity).frame(minHeight: 36, maxHeight: 36)   // FIXED height — matches the row buttons; keeps the verb box compact
-            .background(RoundedRectangle(cornerRadius: 9).fill(buildCell.opacity(0.4)))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildEdge.opacity(0.5), lineWidth: 1))
     }
 
 

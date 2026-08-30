@@ -125,7 +125,6 @@ struct DiagView: View {
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
     @State var buildPlayMode: BuildGridMode = .edit      // the play grid's PLAY/EDIT radio
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
-    @State var buildPlacedOrig: [Int: String?] = [:]     // PLACE verb: a cell's content BEFORE it was placed (for revert on 2nd tap), keyed c*8+r
     @State var buildStagingSel: [Int] = Array(repeating: -1, count: 8)   // the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
     @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
     @State var buildRowShade: [Double] = Array(repeating: 0, count: 8)   // STAGE THE GRID: per-row shade of the selected colour (+lighter … −darker), by output complexity
@@ -636,7 +635,6 @@ struct DiagView: View {
         latchMask ^= UInt8(1 << i)
         au?.setLatchArm(latchMask)
     }
-    func clearReceiverLatch() { if latchMask != 0 { latchMask = 0; au?.setLatchArm(0) } }
     /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge. The LATCH/KEYS arm is
     /// NO LONGER cleared here (Paul 2026-08-27): the latch section is durable CONFIG (saved with the document, restored on
     /// reload), so it survives a transport stop like the mode itself. Only the true weather (solo · octave · vel) resets.
