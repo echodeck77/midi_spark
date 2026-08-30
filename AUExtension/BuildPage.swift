@@ -1426,12 +1426,8 @@ extension DiagView {
         if let slot = buildEditSlot {
             let chain = selectedColourChain()
             if slot < chain.count, let cid = ddSelectedColourID {
-                ScrollView(.vertical, showsIndicators: false) {
-                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w).frame(width: w).frame(minHeight: h, alignment: .top)
-                }
-                .frame(width: w, height: h)
-                .clipShape(RoundedRectangle(cornerRadius: 8))                 // clip the scroll to the panel's own (less-rounded) box
-                .shadow(color: .black.opacity(0.5), radius: 14, y: 6)         // depth so it reads as a floating overlay
+                buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
+                .frame(width: w, height: h)                                   // fixed card box — the panel pins its header + scrolls its body inside this
                 .offset(x: x, y: y)
                 .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
                 .onChange(of: ddSelectedColourID) { newID in
@@ -3942,6 +3938,10 @@ extension DiagView {
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             .background(hue.opacity(0.22))
+            // FIXED HEADER above · SCROLLABLE BODY below (Paul 2026-08-30) — the title + DONE/CANCEL/DELETE/BYPASS stay
+            // pinned while SOURCE/OCT, the truth strips, and the controls scroll under them.
+            ScrollView(.vertical, showsIndicators: true) {
+              VStack(alignment: .leading, spacing: 0) {
             // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — the per-STAGE header standard: OCT ◀n▶ (this stage's own
             // voice, ±3 octaves, dimmed at 0). Distinct from the OCTAVE utility card (a positional stream transform).
             HStack(spacing: 10) {
@@ -3977,10 +3977,13 @@ extension DiagView {
             // (ROW SELECTOR — the "Long press to copy" 1–8 tabs — removed, no longer required. Paul 2026-08-30)
             buildTruthStrips().padding(.horizontal, 16).padding(.vertical, 8)   // §1 IN | OUT truths — silence explains itself
             Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
-            ScrollView { buildSlotBox(slot, proc, cid: cid).padding(16) }   // CONTROLS — reuse ProcessorBox (our chrome hidden)
+            buildSlotBox(slot, proc, cid: cid).padding(16)   // CONTROLS — reuse ProcessorBox (our chrome hidden)
+              }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
+        .clipShape(RoundedRectangle(cornerRadius: 8))                           // clip the header's top corners + the scroll body to the panel box
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(hue, lineWidth: 4))   // THICKER + LESS ROUNDED (Paul 2026-08-28)
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
         .contentShape(Rectangle()).onTapGesture { }            // swallow taps inside the panel so they don't reach the backdrop (close)
