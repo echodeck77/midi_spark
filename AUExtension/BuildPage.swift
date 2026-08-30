@@ -2299,7 +2299,7 @@ extension DiagView {
         let letter = ["A", "B", "C", "D"][i]
         let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
         let key: String? = (i < receivers.count && receivers[i].doorModeResolved == .scale) ? "\(names[receivers[i].scaleRootResolved]) \(receivers[i].scaleTypeResolved.label)" : nil   // e.g. "A MIXO"
-        buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
+        buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: on, accent: receiverGrey(i), action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30)
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every colour follows). (Paul 2026-08-18)
@@ -3567,7 +3567,7 @@ extension DiagView {
                 buildReceiverFader(i, letter: spanner != nil ? "" : letter)     // velocity INDICATOR — draggable to override input velocity (spring-back on release)
             }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                                // EQUAL rows, top → bottom
-                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE)
+                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: receiverGrey(i)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE) — the receiver's SIGNATURE GREY (Paul 2026-08-30)
                 buildReceiverLatchButton(i, rec)                                    // LATCH — SET (no mode) / mode label / "LAST N" · pulses when ready · solid when armed
                 buildOctRow(oct: i < receiverOctave.count ? receiverOctave[i] : 0, onDown: { nudgeReceiverOctave(i, -1) }, onUp: { nudgeReceiverOctave(i, 1) })   // OCT −/+ (between LATCH and S/M)
                 HStack(spacing: 3) {                                            // SOLO (left) · MUTE (right)
@@ -3974,12 +3974,7 @@ extension DiagView {
             .padding(.horizontal, 16).padding(.vertical, 8)
             .background(hue.opacity(0.10))
             Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
-            VStack(alignment: .leading, spacing: 5) {          // ROW SELECTOR — a tab OVERWRITES that row with the current edits
-                Text("Long press to copy").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
-                AnyView(buildColourTabs(castW: contentW - 40, cell: 30, inEditor: true))
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
+            // (ROW SELECTOR — the "Long press to copy" 1–8 tabs — removed, no longer required. Paul 2026-08-30)
             buildTruthStrips().padding(.horizontal, 16).padding(.vertical, 8)   // §1 IN | OUT truths — silence explains itself
             Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
             ScrollView { buildSlotBox(slot, proc, cid: cid).padding(16) }   // CONTROLS — reuse ProcessorBox (our chrome hidden)

@@ -107,6 +107,12 @@ let colourHexes: [UInt32] = [
 // beside the loud part rainbow, and calm enough that the vivid emitter drift-notes still pop on top.
 let playHexes: [UInt32] = [0xB08D57, 0xB06A4E, 0xA85A5A, 0x8F5A78, 0x7A6AA8, 0x5A7AA8, 0x5A9A8A, 0x8A9A5A]
 
+// THE RECEIVER SIGNATURE GREYS (Paul 2026-08-30): the four MIDI-IN receivers A→D are now 4 shades of grey, LIGHT→DARK — their
+// identity colour going forward (the OMNI/ENABLE button on the receiver strip + the MIDI-IN toggle chips). Kept light enough
+// for black labels. (Distinct from the vivid emitter signature colours + the machine hues.)
+let receiverGreys: [Color] = [Color(white: 0.88), Color(white: 0.74), Color(white: 0.60), Color(white: 0.46)]
+func receiverGrey(_ i: Int) -> Color { receiverGreys[max(0, min(3, i))] }
+
 // delta §9 item 11: the four receivers' fixed "infrastructure family" hues (muted), shared by the
 // RECEIVERS panel and the cells' band-as-deviation marker.
 let receiverHues: [Color] = [Color(hex: 0x6B7A8F), Color(hex: 0x7E6B8F), Color(hex: 0x6B8F7E), Color(hex: 0x8F836B)]
