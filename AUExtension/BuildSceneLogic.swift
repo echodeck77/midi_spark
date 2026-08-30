@@ -42,13 +42,16 @@ enum BuildSceneLogic {
         var stagingLane: UInt8 = 0                     // the CURRENT part's column-loop mask (staging grid)
         var performLane: UInt8 = 0                     // the PIECE's column-loop mask (play grid)
         // THE PLAY GRID (Paul 2026-08-29, "treat as new") — the independent 8×8 (buildPlayCells) with ONE rung per column
-        // (playSel); plays exactly like the part, on its OWN voice. Cells arrive via the SELECT top-button ferry.
-        var playPlaying = false
+        // (playSel). Each column is a FULLY INDEPENDENT voice: it starts/stops on its own (playColOn) and carries the I/O
+        // it was FERRIED WITH (playColRecv/playColEmit — the door + emitters the source was playing through). Cells arrive
+        // via the SELECT top-button ferry, which copies both the machine AND the source's I/O.
+        var playPlaying = false                        // ANY play column is on (the composeScene guard)
         var playCells: [[String?]] = []                // [col][row] → colourID
         var playSel: [Int] = []                        // the ONE selected rung per column (-1 = silent)
         var playColChain: [[ProcessorSlot]] = []       // per-column RESOLVED chain (the selected cell's machine; [] = passthrough wire)
-        var playEmitters: Set<Bus> = []                // the play grid's output emitters (empty → [.a])
-        var playReceiver = 0                           // the play grid's input door
+        var playColOn: [Bool] = []                     // per-column play state — ONLY started columns sound
+        var playColRecv: [Int] = []                    // per-column input door (derived from the ferry source)
+        var playColEmit: [Set<Bus>] = []               // per-column output emitters (derived from the ferry source; empty → [.a])
         var playLane: UInt8 = 0                        // the play grid's column-loop mask
     }
 
@@ -59,17 +62,22 @@ enum BuildSceneLogic {
     static func composeScene(_ i: Input) -> SceneState? {
         guard i.stagingPlaying || i.performPlaying || i.chainActive || i.playPlaying else { return nil }
         var s = SceneState.empty()
+        var chainLaneRow: Int? = nil                                // the SELECT audition's engine row → looped to column 0 (a 1-step continuous pass)
 
-        if i.playPlaying {                                          // THE PLAY GRID — the independent 8×8, one rung per column, plays like the part
-            let buses: Set<Bus> = i.playEmitters.isEmpty ? [.a] : i.playEmitters
-            let recv = max(0, min(3, i.playReceiver))
+        if i.playPlaying {                                          // THE PLAY GRID — each column an INDEPENDENT, CONTINUOUS voice
+            // NO TIME AXIS (Paul 2026-08-29): the play grid is NOT a step sequencer. Each STARTED column is placed at engine
+            // (COLUMN 0, row = the play-column index) and its row is looped to column 0 (the lane pass below), so the playhead
+            // never leaves it → the cell plays CONTINUOUSLY while enabled, not only when a sweeping playhead crosses its column.
             for c in 0..<8 {
+                guard c < i.playColOn.count, i.playColOn[c] else { continue }   // ONLY started columns sound
                 let r = c < i.playSel.count ? i.playSel[c] : -1
                 guard r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, let cid = i.playCells[c][r] else { continue }
+                let own = c < i.playColEmit.count ? i.playColEmit[c] : []
+                let buses: Set<Bus> = own.isEmpty ? [.a] : own                  // per-column emitters, derived from the ferry source
                 var cell = Cell(colourID: cid, buses: buses)
-                cell.inputReceiver = recv
+                cell.inputReceiver = max(0, min(3, c < i.playColRecv.count ? i.playColRecv[c] : 0))   // per-column door, derived from the ferry source
                 cell.processors = c < i.playColChain.count ? i.playColChain[c] : []   // EXPLICIT resolved machine ([] = passthrough wire)
-                s.setCell(c, r, cell)
+                s.setCell(0, Snap.playLayerRowBase + c, cell)                   // engine (col 0, HIDDEN play-layer row 8+c) → a continuous voice, DISJOINT from the part's rows 0–7
             }
         }
 
@@ -105,17 +113,19 @@ enum BuildSceneLogic {
             }
         }
 
-        if i.chainActive, let cid = i.chainColourID {               // THE MIDI CHAIN — raw, on the least-occupied free row
+        if i.chainActive, let cid = i.chainColourID {               // THE MIDI CHAIN / SELECT audition — a 1-step CONTINUOUS pass
             let buses: Set<Bus> = i.chainEmitters.isEmpty ? [.a] : i.chainEmitters   // the SELECTED colour's own I/O (Paul 2026-08-18)
             let recv = max(0, min(3, i.chainReceiver))
             let occ = (0..<8).map { r in (0..<8).filter { s.cellAt($0, r) != nil }.count }
-            if let row = (0..<8).min(by: { occ[$0] < occ[$1] }), occ[row] < 8 {
-                for c in 0..<8 where s.cellAt(c, row) == nil {
-                    var cell = Cell(colourID: cid, buses: buses)
-                    cell.inputReceiver = recv
-                    cell.processors = i.chainMachine                // explicit chain (even []) — never the legacy A-face arp
-                    s.setCell(c, row, cell)
-                }
+            func mk() -> Cell { var c = Cell(colourID: cid, buses: buses); c.inputReceiver = recv; c.processors = i.chainMachine; return c }
+            if let emptyRow = (0..<8).first(where: { occ[$0] == 0 }) {
+                // NO RE-STRIKING (Paul 2026-08-29): park at COLUMN 0 of a FULLY-EMPTY row + loop that row to column 0 (below),
+                // so the audition plays CONTINUOUSLY — a 1-step pass, exactly like a play cell. (Was laid across all 8 columns
+                // → the grid clock re-triggered it every step, the "select page re-striking" Paul flagged.)
+                s.setCell(0, emptyRow, mk())
+                chainLaneRow = emptyRow
+            } else if let row = (0..<8).min(by: { occ[$0] < occ[$1] }), occ[row] < 8 {
+                for c in 0..<8 where s.cellAt(c, row) == nil { s.setCell(c, row, mk()) }   // FALLBACK (no empty row — every row already sounds): lay across (may re-strike)
             }
         }
 
@@ -144,8 +154,9 @@ enum BuildSceneLogic {
 
         // PER-ROW LAP (Paul 2026-08-19): each row takes the loop mask of whichever voice's cell landed on it — mirroring
         // the placement precedence above (piece first, staging overwrites), so the two grids' loops stay independent.
-        if i.stagingLane != 0 || i.performLane != 0 || i.playLane != 0 {
-            var rowLane = [UInt8](repeating: 0, count: 8)
+        if i.stagingLane != 0 || i.performLane != 0 || i.playLane != 0 || i.playPlaying || chainLaneRow != nil {
+            var rowLane = [UInt8](repeating: 0, count: Snap.rows)    // Snap.rows = 16 (rows 0–7 the visible grids, 8–15 the play layer)
+            if let cr = chainLaneRow { rowLane[cr] = 0b0000_0001 }   // the SELECT audition row loops column 0 → continuous (no re-strike)
             if i.performPlaying {
                 for c in 0..<8 { for r in 0..<8 {
                     guard c < i.performCells.count, r < i.performCells[c].count, i.performCells[c][r] != nil,
@@ -153,10 +164,11 @@ enum BuildSceneLogic {
                     rowLane[r] = i.performLane
                 } }
             }
-            if i.playPlaying {                              // the PLAY grid's loop mask
-                for c in 0..<8 {
+            if i.playPlaying {                              // the PLAY grid: each STARTED column's HIDDEN row (8+c)
+                for c in 0..<8 {                            //   loops COLUMN 0 → the cell plays CONTINUOUSLY (no time/step axis), disjoint from the part
+                    guard c < i.playColOn.count, i.playColOn[c] else { continue }
                     let r = c < i.playSel.count ? i.playSel[c] : -1
-                    if r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, i.playCells[c][r] != nil { rowLane[r] = i.playLane }
+                    if r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, i.playCells[c][r] != nil { rowLane[Snap.playLayerRowBase + c] = 0b0000_0001 }
                 }
             }
             if i.stagingPlaying {

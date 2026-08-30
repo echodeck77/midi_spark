@@ -3405,19 +3405,24 @@ final class RouterTests: XCTestCase {
     // silent cell records nothing. Drains read-and-clear.
     func testCellStrikeFeedRecordsFiringCell() {
         let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
+        let b = box(colours: cs) {
+            $0.stepRate = .r1_8   // fast columns (0.5 beat each) so the playhead sweeps to column 5 within the run
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }()
+            $0.cells[5][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }()   // col 5 → index 5*16 = 80 (≥64: guards the strike-feed cap regression, Paul 2026-08-30)
+        }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let windowBeats = Double(frames) * tempo / 60.0 / sr
         var beat = 0.0, ts = 0.0
-        for _ in 0..<8 {   // a few windows so the arp fires
+        for _ in 0..<64 {   // enough windows (0.5-beat columns) for the playhead to sweep past column 5 (so the (5,0) cell fires)
             router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: e, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
         let strikes = router.drainCellStrikes()
-        XCTAssertEqual(strikes.count, 64)
+        XCTAssertEqual(strikes.count, Snap.cells)
         XCTAssertGreaterThan(strikes[0], 0, "cell (0,0) fired → its strike velocity is recorded at index 0")
+        XCTAssertGreaterThan(strikes[5 * Snap.rows + 0], 0, "cell (5,0) fired → recorded at index 80 (≥64, the cap bug)")
         XCTAssertEqual(strikes[1], 0, "a silent cell records nothing")
         XCTAssertTrue(router.drainCellStrikes().allSatisfy { $0 == 0 }, "drain is read-and-clear")
     }
@@ -3436,7 +3441,7 @@ final class RouterTests: XCTestCase {
             beat += windowBeats; ts += Double(frames)
         }
         let notes = router.drainCellNotes()
-        XCTAssertEqual(notes.count.count, 64)
+        XCTAssertEqual(notes.count.count, Snap.cells)
         XCTAssertGreaterThan(Int(notes.count[0]), 0, "cell (0,0) emitted notes → recorded at index 0")
         XCTAssertEqual(notes.count[1], 0, "a silent cell records nothing")
         let n0 = Int(notes.count[0])
@@ -3486,12 +3491,12 @@ final class RouterTests: XCTestCase {
         }
         router.snapshotCellSounding()
         let held = router.currentCellSounding()
-        XCTAssertEqual(held & 1, 1, "cell (0,0) is holding a note → its sounding bit is set")
-        XCTAssertEqual(held >> 1, 0, "no other cell sounds")
+        XCTAssertEqual(held.lo & 1, 1, "cell (0,0) is holding a note → its sounding bit is set")
+        XCTAssertEqual(held.lo >> 1, 0, "no other cell sounds"); XCTAssertEqual(held.hi, 0)
         router.process(box: b, pool: chord([60, 64, 67]), playing: false, beatPos: beat, tempo: tempo,   // stop → release
                        sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         router.snapshotCellSounding()
-        XCTAssertEqual(router.currentCellSounding(), 0, "after release the gate clears")
+        let rel = router.currentCellSounding(); XCTAssertEqual(rel.lo, 0, "after release the gate clears"); XCTAssertEqual(rel.hi, 0)
     }
 
     /// Run `b` for a few windows on a DIRECT router (so the caller can inspect drainCellStrikes /
@@ -3523,8 +3528,8 @@ final class RouterTests: XCTestCase {
         let router = runDirect(SnapshotBuilder.build(from: st), chord([60]))
         router.snapshotCellSounding()
         let mask = router.currentCellSounding()
-        XCTAssertEqual(mask & 1, 0, "the muted claimant's SILENT ghost must NOT light its comet (cell 0)")
-        XCTAssertEqual((mask >> 1) & 1, 1, "…while the audible non-claimant DOES light (cell 1) — the scene is live")
+        XCTAssertEqual(mask.lo & 1, 0, "the muted claimant's SILENT ghost must NOT light its comet (cell 0)")
+        XCTAssertEqual((mask.lo >> 1) & 1, 1, "…while the audible non-claimant DOES light (cell 1) — the scene is live")
     }
 
     // SEAL comet — a MUTED (occupied) cell records NEITHER a strike NOR a sounding bit (tap-to-mute = dark comet).
@@ -3537,7 +3542,7 @@ final class RouterTests: XCTestCase {
         let router = runDirect(b, chord([60, 64, 67]))
         XCTAssertEqual(router.drainCellStrikes()[0], 0, "a muted cell records no strike")
         router.snapshotCellSounding()
-        XCTAssertEqual(router.currentCellSounding(), 0, "a muted cell lights no comet")
+        let ms = router.currentCellSounding(); XCTAssertEqual(ms.lo, 0, "a muted cell lights no comet"); XCTAssertEqual(ms.hi, 0)
     }
 
     // SEAL comet — a FAN-OUT cell (emitting to ≥2 buses → ≥2 voices sharing one cellIndex) reports EXACTLY ONE
@@ -3551,8 +3556,9 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(strikes[0], 0, "the fan-out cell records a strike at its index")
         XCTAssertEqual(strikes.filter { $0 > 0 }.count, 1, "recorded ONCE, not per bus")
         router.snapshotCellSounding()
-        XCTAssertEqual(router.currentCellSounding().nonzeroBitCount, 1, "exactly one sounding bit despite the fan-out")
-        XCTAssertEqual(router.currentCellSounding() & 1, 1, "…at the cell's index")
+        let fm = router.currentCellSounding()
+        XCTAssertEqual(fm.lo.nonzeroBitCount + fm.hi.nonzeroBitCount, 1, "exactly one sounding bit despite the fan-out")
+        XCTAssertEqual(fm.lo & 1, 1, "…at the cell's index")
     }
 
     // CELL MACHINE stage-2: a RATCHET tail re-strikes the HEAD stage's WHOLE output set each repeat.

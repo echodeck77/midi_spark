@@ -749,7 +749,7 @@ final class MigrationTests: XCTestCase {
         d.scenes[1].cells[3][0] = Cell(colourID: "cyan")   // scene 1 → cell (3,0)
         d.activeScene = 1
         let box = SnapshotBuilder.build(from: d)
-        XCTAssertGreaterThanOrEqual(box.cells[3 * 8 + 0].colourIndex, 0, "the ACTIVE scene's cell is in the snapshot")
+        XCTAssertGreaterThanOrEqual(box.cells[3 * Snap.rows + 0].colourIndex, 0, "the ACTIVE scene's cell is in the snapshot")
         XCTAssertLessThan(box.cells[0].colourIndex, 0, "the inactive scene's cell is NOT")
     }
 

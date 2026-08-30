@@ -226,10 +226,10 @@ final class SnapshotBuilderTests: XCTestCase {
             var st = PluginState(colours: cs, scenes: [s]); st.ladderMode = ladder
             return SnapshotBuilder.build(from: st)
         }
-        XCTAssertEqual(build(ladder: false).cells[4 * 8 + 0].runStartColumn, 0, "no ladder → the row is ONE run from col 0")
+        XCTAssertEqual(build(ladder: false).cells[4 * Snap.rows + 0].runStartColumn, 0, "no ladder → the row is ONE run from col 0")
         let on = build(ladder: true)
-        XCTAssertEqual(on.cells[4 * 8 + 0].runStartColumn, 4, "ladder: the active rung (col 4, row 0) runs from its OWN column")
-        XCTAssertEqual(on.cells[5 * 8 + 1].runStartColumn, 5, "ladder: the active rung (col 5, row 1) runs from its OWN column")
+        XCTAssertEqual(on.cells[4 * Snap.rows + 0].runStartColumn, 4, "ladder: the active rung (col 4, row 0) runs from its OWN column")
+        XCTAssertEqual(on.cells[5 * Snap.rows + 1].runStartColumn, 5, "ladder: the active rung (col 5, row 1) runs from its OWN column")
     }
 
     func testBusEnabledMaskFromDocument() {

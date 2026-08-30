@@ -220,23 +220,25 @@ final class Router {
     // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
-    private var cellStrike = [UInt8](repeating: 0, count: 64)
+    private var cellStrike = [UInt8](repeating: 0, count: Snap.cells)   // Snap.cells = 128 (col*rows+row, rows 0–15)
     // THE NOTE-SWEEP feed (Paul 2026-08-19): per-cell RECENT emitted note-ons (pitch + velocity), a small ring per cell.
     // Drained read-and-clear like the strike feed → the piano-roll faces place marks at REAL pitch (not a hash), and the
     // BUILD note-sweep CONTOUR axis gets its per-note pitch. Fixed storage; no allocation on the render path.
-    private var cellNotePitch = [UInt8](repeating: 0, count: 64 * 6)
-    private var cellNoteVel   = [UInt8](repeating: 0, count: 64 * 6)
-    private var cellNoteHead  = [Int](repeating: 0, count: 64)     // ring write cursor per cell
-    private var cellNoteNew   = [UInt8](repeating: 0, count: 64)   // note-ons written since the last drain (return capped at 6)
+    private var cellNotePitch = [UInt8](repeating: 0, count: Snap.cells * 6)
+    private var cellNoteVel   = [UInt8](repeating: 0, count: Snap.cells * 6)
+    private var cellNoteHead  = [Int](repeating: 0, count: Snap.cells)     // ring write cursor per cell
+    private var cellNoteNew   = [UInt8](repeating: 0, count: Snap.cells)   // note-ons written since the last drain (return capped at 6)
     private var currentCellIndex: Int = -1
     // UTILITY (Paul 2026-08-22) — per-cell EMIT overrides, set right where currentCellIndex is set and read in emitOneBus.
     // Both are byte-identical when unset (−1 / 0). Reset before drainEchoTails so echo tails use the wire defaults (v1).
     private var chanOverride: Int16 = -1   // CHANNEL: output channel (−1 = the bus stamp · 0–15 = override)
     private var nudgeSamples: Int64 = 0    // NUDGE: timing offset in samples (0 = none)
-    // THE SEAL COMET (note-on/off gate): a bitmask of the 64 cells CURRENTLY SOUNDING (≥1 active non-silent
-    // voice). Snapshotted on the render thread each window (a live set, like snapshotEmitterSounding); the UI
-    // polls it so the spark travels for exactly as long as the note is held, and stops on release.
-    private var cellSoundingMask: UInt64 = 0
+    // THE SEAL COMET (note-on/off gate): a bitmask of the cells CURRENTLY SOUNDING (≥1 active non-silent voice).
+    // Snapshotted on the render thread each window (a live set, like snapshotEmitterSounding); the UI polls it so the
+    // spark travels for exactly as long as the note is held, and stops on release. TWO UInt64s (Paul 2026-08-29) since
+    // there are now 128 cells (rows 0–15) — lo = cells 0…63, hi = cells 64…127. Both scalars → a torn read stays benign.
+    private var cellSoundingLo: UInt64 = 0
+    private var cellSoundingHi: UInt64 = 0
     private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
     // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
     // reconcile either keeps it (matched by the new column) or closes it (dropped). Sized to the pool, reused.
@@ -278,7 +280,7 @@ final class Router {
     // call (onlyRow == nil), byte-identical to the old single value.
     private var modLastColumn = [Int32](repeating: -1, count: Snap.rows + 1)  // the column whose MOD cells emitted last, per slot (reset when it exits)
     private var modColumnEntryBeat = [Double](repeating: 0, count: Snap.rows + 1)  // STRIKE: the beat the slot's active column became active (AR trigger)
-    private var modPrevTarget = [Int16](repeating: -1, count: 64 * 8)         // per (gridCell*8 + slot): the LAST CC# a MOD slot emitted — revert it when the target changes
+    private var modPrevTarget = [Int16](repeating: -1, count: Snap.cells * 8)         // per (gridCell*8 + slot): the LAST CC# a MOD slot emitted — revert it when the target changes
     // GLIDE (notes→pitch-bend): one mono sliding voice per GLIDE cell. Beat-derived ramps + a sustained anchor note.
     private struct GlideVoice {
         var anchor: Int16 = -1     // the sounding note-on pitch (-1 = no voice)
@@ -323,7 +325,7 @@ final class Router {
             gv.stepsDone = Int16(i); i += 1
         }
     }
-    private var glideVoices = [GlideVoice](repeating: GlideVoice(), count: 64)
+    private var glideVoices = [GlideVoice](repeating: GlideVoice(), count: Snap.cells)
     private var glideLastColumn = [Int32](repeating: -1, count: Snap.rows + 1)   // PER-ROW phrase-end on column exit (slot Snap.rows = the uniform/global call)
     // [driver→GLIDE] v2 (§7①, ratified 2026-08-22): a chain DRIVER (arp/cascade/…) folds its notes into a downstream
     // GLIDE slot instead of emitting them — the walk becomes one mono gliding voice (the 303 line). Per-window TRANSIENT
@@ -331,10 +333,10 @@ final class Router {
     // vel) here + SUPPRESSES the note-on; emitGlideDriven (post-tick) consumes them into the SAME glideVoices, so
     // flushGlide / glidePhraseEnd / the no-stuck-notes contract all cover driven glide unchanged.
     private static let glideDrivenCap = 8                                        // max driver targets recorded per cell per window
-    private var glideDrivenNote = [Int16](repeating: -1, count: 64 * 8)          // per (gridCell*cap + i): the driver's note
-    private var glideDrivenBeat = [Double](repeating: 0, count: 64 * 8)          // …its musical beat (ramp origin)
-    private var glideDrivenVel  = [UInt8](repeating: 0, count: 64 * 8)           // …its velocity (anchor/re-anchor note-on)
-    private var glideDrivenCount = [Int](repeating: 0, count: 64)                // per gridCell: targets recorded this window
+    private var glideDrivenNote = [Int16](repeating: -1, count: Snap.cells * 8)          // per (gridCell*cap + i): the driver's note
+    private var glideDrivenBeat = [Double](repeating: 0, count: Snap.cells * 8)          // …its musical beat (ramp origin)
+    private var glideDrivenVel  = [UInt8](repeating: 0, count: Snap.cells * 8)           // …its velocity (anchor/re-anchor note-on)
+    private var glideDrivenCount = [Int](repeating: 0, count: Snap.cells)                // per gridCell: targets recorded this window
     private var modLastVal = [Int16](repeating: -1, count: 5 * 16 * 128)      // [cable*2048 + ch*128 + cc] → last CC value (-1 = none sent)
     private let modCtrlBeats = 1.0 / 16.0                                     // CC control-grid resolution (16 points per beat)
     // EXTERN: the incoming controller VALUE STORE (cc → value, channel-agnostic v1) — the Kernel writes it each render
@@ -414,19 +416,21 @@ final class Router {
     // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell ALT flips (bit col*8+row). Set each process()
     // from the param; XORed into a cell's base ALT so a PERFORM tap is momentary, never a document write.
     private var tapAltMask: UInt64 = 0
-    private func tapFlipped(_ col: Int, _ row: Int) -> Bool { (tapAltMask >> UInt64(col * 8 + row)) & 1 == 1 }
+    // tap/solo masks are the VISIBLE grid's own 64-bit space (index col*8+row, rows 0–7). The hidden PLAY LAYER (rows 8–15)
+    // is EXEMPT (Paul 2026-08-29) — else col*8+row would alias a play cell onto a visible cell's tap bit. It plays regardless.
+    private func tapFlipped(_ col: Int, _ row: Int) -> Bool { row < Snap.playLayerRowBase && (tapAltMask >> UInt64(col * 8 + row)) & 1 == 1 }
     // §9 item 1 ON TAP actions (4b), ephemeral: MUTE = a per-cell momentary silence (bit col*8+row);
     // SOLO EMITTERS = a global emitter solo set (bits A–D; 0 = no solo → siblings fall silent at emission).
     private var tapMuteMask: UInt64 = 0
     private var soloEmitterMask: UInt8 = 0
-    private func tapMuted(_ col: Int, _ row: Int) -> Bool { (tapMuteMask >> UInt64(col * 8 + row)) & 1 == 1 }
+    private func tapMuted(_ col: Int, _ row: Int) -> Bool { row < Snap.playLayerRowBase && (tapMuteMask >> UInt64(col * 8 + row)) & 1 == 1 }
     // EDIT PAGE "play this cell only" (user 2026-08-08): an ephemeral solo SET (bits col*8+row). While non-empty,
     // every cell whose bit is UNSET falls silent (like muted/dormant) — so only the edited cell(s) sound. 0 = off.
     private var soloCellMask: UInt64 = 0
-    private func cellSoloedOut(_ col: Int, _ row: Int) -> Bool { soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 0 }
+    private func cellSoloedOut(_ col: Int, _ row: Int) -> Bool { row < Snap.playLayerRowBase && soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 0 }
     /// PLAY: THIS CELL — is THIS cell an explicit solo target? A target plays REGARDLESS of mute / dormant / tap-mute
     /// (the feature isolates and previews one cell's machine, so grid state must not silence it). (user 2026-08-10)
-    private func cellSoloForced(_ col: Int, _ row: Int) -> Bool { soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 1 }
+    private func cellSoloForced(_ col: Int, _ row: Int) -> Bool { row < Snap.playLayerRowBase && soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 1 }
     // receiver strip: the additive input SOLO set (bits R1–R4). While non-empty, a cell whose receiver is
     // NOT a member falls silent — `audible = ¬muted ∧ (soloSet=∅ ∨ member)`. Row-fed cells (recv −1) reach
     // this through their root MIDI-IN cell in parentSoundingNote. Ephemeral (cleared on stop / EDIT).
@@ -779,7 +783,7 @@ final class Router {
         voices[slot].colourIndex = currentColourIndex   // §2 adoption identity (COLOUR-AND-FACE)
         voices[slot].alt = currentAlt
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
-        voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < 64) ? Int8(currentCellIndex) : -1   // SEAL sounding gate
+        voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < Snap.cells) ? Int8(currentCellIndex) : -1   // SEAL sounding gate (Int8 holds ≤127; the max cell index is 7*16+15 = 127 — exactly at the Int8 ceiling, so 16 rows is the limit for this field)
         voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
         voices[slot].glideAnchor = meter       // GLIDE: `meter` marks glide direct-injection voices (its sole users — see
                                                // the comment above + the Voice.glideAnchor note); tag them so the
@@ -802,16 +806,16 @@ final class Router {
     /// SEAL comet: read-and-clear the per-CELL peak strike velocity (index = col*8+row) since the last poll.
     /// Accumulates across render windows (never lost between polls); the UI stamps a hit time + owns the decay.
     func drainCellStrikes() -> [UInt8] {
-        var out = [UInt8](repeating: 0, count: 64)   // FRESH copy — never share `cellStrike` with the poll (COW-on-render race)
-        for i in 0..<64 { out[i] = cellStrike[i]; cellStrike[i] = 0 }
+        var out = [UInt8](repeating: 0, count: Snap.cells)   // FRESH copy — never share `cellStrike` with the poll (COW-on-render race)
+        for i in 0..<Snap.cells { out[i] = cellStrike[i]; cellStrike[i] = 0 }
         return out
     }
 
     /// NOTE-SWEEP feed: per cell, the note-ons emitted SINCE the last drain (up to 6 most-recent, oldest→newest) as
     /// pitch + velocity, plus a per-cell count. FRESH copies (never share render arrays with the poll). Read-and-clear.
     func drainCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) {
-        var p = [UInt8](repeating: 0, count: 64 * 6), vv = [UInt8](repeating: 0, count: 64 * 6), cnt = [UInt8](repeating: 0, count: 64)
-        for c in 0..<64 {
+        var p = [UInt8](repeating: 0, count: Snap.cells * 6), vv = [UInt8](repeating: 0, count: Snap.cells * 6), cnt = [UInt8](repeating: 0, count: Snap.cells)
+        for c in 0..<Snap.cells {
             let n = Int(cellNoteNew[c]); cnt[c] = cellNoteNew[c]; cellNoteNew[c] = 0
             for k in 0..<n {
                 let idx = ((cellNoteHead[c] - n + k) % 6 + 6) % 6
@@ -853,14 +857,15 @@ final class Router {
     /// bitmask. Render thread, once per window after reconciliation (like snapshotEmitterSounding). The UI polls
     /// `currentCellSounding` and drives the spark's life off the gate — travelling for exactly the held duration.
     func snapshotCellSounding() {
-        var mask: UInt64 = 0
-        for v in voices where v.active && !v.silent && v.cellIndex >= 0 {
-            mask |= UInt64(1) << UInt64(v.cellIndex)
+        var lo: UInt64 = 0, hi: UInt64 = 0
+        for v in voices where v.active && !v.silent && v.cellIndex >= 0 && v.cellIndex < Snap.cells {
+            if v.cellIndex < 64 { lo |= UInt64(1) << UInt64(v.cellIndex) }
+            else { hi |= UInt64(1) << UInt64(v.cellIndex - 64) }
         }
-        cellSoundingMask = mask
+        cellSoundingLo = lo; cellSoundingHi = hi
     }
     /// UI-poll read of the per-cell sounding bitmask (main thread; benign render/UI staleness, as the other feeds).
-    func currentCellSounding() -> UInt64 { cellSoundingMask }
+    func currentCellSounding() -> (lo: UInt64, hi: UInt64) { (cellSoundingLo, cellSoundingHi) }
 
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
     /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source colour) set.
@@ -1261,7 +1266,7 @@ final class Router {
         if !previewMode { noteOnsThisBeat[bus] &+= 1 }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
-        if currentCellIndex >= 0 && currentCellIndex < 64 {
+        if currentCellIndex >= 0 && currentCellIndex < Snap.cells {   // Snap.cells = 128 (was 64 — dropped the strike/note feed for cols 4–7, whose index ≥64)
             if v > cellStrike[currentCellIndex] { cellStrike[currentCellIndex] = v }   // SEAL comet: this cell struck
             let c = currentCellIndex, h = cellNoteHead[c]                              // NOTE-SWEEP: record the emitted pitch+vel (ring)
             cellNotePitch[c * 6 + h] = note; cellNoteVel[c * 6 + h] = v
@@ -2357,7 +2362,7 @@ final class Router {
         //      output (mirror model). ARP cells produce ticks; identity-fed cells mirror the feeder;
         //      identity-unfed cells have no tick content (their hold was emitted at the transition). ----
         for r in 0..<Snap.rows { articCount[r] = 0 }
-        for i in 0..<64 { glideDrivenCount[i] = 0 }   // §7① [driver→GLIDE]: fresh per-window target buffer (emitDriverNote fills it, emitGlideDriven drains it)
+        for i in 0..<Snap.cells { glideDrivenCount[i] = 0 }   // §7① [driver→GLIDE]: fresh per-window target buffer (emitDriverNote fills it, emitGlideDriven drains it)
         let windowBeats = Double(frameCount) * beatsPerSample
 
         if uniformFast {
@@ -3549,7 +3554,7 @@ final class Router {
         // §7① [driver→GLIDE] v2: a downstream GLIDE slot consumes the driver's note as a target for its mono gliding
         // voice — RECORD it (post-tick emitGlideDriven anchors/bends) and SUPPRESS the note-on here. Keyed by the
         // emitting cell's grid index (currentCellIndex, set per-cell in emitTickRow). Multi-emitter fan-out is v2.
-        if currentCellIndex >= 0 && currentCellIndex < 64, downstreamGlideIndex(cell, after: driver) != nil {
+        if currentCellIndex >= 0 && currentCellIndex < Snap.cells, downstreamGlideIndex(cell, after: driver) != nil {   // was < 64 (dropped [driver→GLIDE] for cols 4–7)
             let ci = currentCellIndex, k = glideDrivenCount[ci]
             if k < Self.glideDrivenCap {
                 glideDrivenNote[ci * Self.glideDrivenCap + k] = Int16(note)

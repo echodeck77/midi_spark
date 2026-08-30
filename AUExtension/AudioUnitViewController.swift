@@ -208,7 +208,13 @@ struct DiagView: View {
     // [column][row]; one selected rung per column (buildPlaySel, default ROW 1 = 0). Populated by the top-button ferry.
     @State var buildPlayCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
     @State var buildPlaySel: [Int] = Array(repeating: 0, count: 8)   // per-column selected rung; 0 = ROW 1 default, −1 = none
-    @State var buildPlayPlaying = false                             // THE PLAY GRID is running (its own voice; composes into the scene like the part) (Paul 2026-08-29)
+    // THE PLAY GRID — each column is a FULLY INDEPENDENT voice (Paul 2026-08-29): it starts/stops on its own and carries
+    // the I/O it was FERRIED WITH (no separate I/O toggles). buildPlayColOn = per-column play state; buildPlayColRecv /
+    // buildPlayColEmit = the door + emitters copied from the source at ferry time. (buildPlayPlaying is now a computed
+    // "any column on", in the BuildPage extension.)
+    @State var buildPlayColOn: [Bool] = Array(repeating: false, count: 8)
+    @State var buildPlayColRecv: [Int] = Array(repeating: 0, count: 8)
+    @State var buildPlayColEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildStagingPlaying = false
     // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.
@@ -235,6 +241,7 @@ struct DiagView: View {
     @State var buildGridSelOpen = false
     @State var buildGridSelTab = 0                       // 0 = DEALT · 1 = MY LIBRARY
     @State var buildGridSelArrivalRow: Int? = nil        // the row selected when the selector OPENED — frozen (never re-read live)
+    @State var buildFerryMirrorRow: Int? = nil           // the POPULATED part row a SELECT-grid ferry aim mirrors: card edits on gsAud write BACK to it (bidirectional, Paul 2026-08-30)
     @State var buildGridSelDealSeed: UInt64 = 1          // RE-DEAL bumps this
     @State var buildGridSelDealt: [Dice.EnsembleRow] = [] // the 64 shown chains (sampled from the corpus, or fresh while it builds)
     @State var buildGridSelCorpus: [Dice.EnsembleRow] = [] // §3.1 THE PREGEN CORPUS: the big pool DEAL samples 64 from (built once, background)
@@ -359,22 +366,22 @@ struct DiagView: View {
     @State var ladderBlink = false           // LADDER: the armed-cell blink (beat-toggled, like the scene arm)
     // SEAL comet: per-cell last-strike time + velocity (index = col*8+row), stamped from the 4 Hz poll of
     // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
-    @State var cellHitAt = [Date](repeating: .distantPast, count: 64)
-    @State var cellHitVel = [Double](repeating: 0, count: 64)
+    @State var cellHitAt = [Date](repeating: .distantPast, count: Snap.cells)   // Snap.cells = 128 (rows 0–15; index = col*Snap.rows+row)
+    @State var cellHitVel = [Double](repeating: 0, count: Snap.cells)
     // SEAL comet note-on/off GATE: which cells are currently SOUNDING (from au.pollCellSounding), and when each
     // last went SILENT. The spark travels for exactly as long as the note is held, then fades ~0.45s from release.
-    @State var cellSounding = [Bool](repeating: false, count: 64)
-    @State var cellReleasedAt = [Date](repeating: .distantPast, count: 64)
-    @State var cellStrikeSeq = [Int](repeating: 0, count: 64)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)
+    @State var cellSounding = [Bool](repeating: false, count: Snap.cells)
+    @State var cellReleasedAt = [Date](repeating: .distantPast, count: Snap.cells)
+    @State var cellStrikeSeq = [Int](repeating: 0, count: Snap.cells)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)
     // NOTE-SWEEP feed (Paul 2026-08-19): per-cell RECENT emitted note-ons — pitch + velocity + count (6 slots/cell). The
     // piano-roll faces place marks at REAL pitch. Polled from au.pollCellNotes(); stored only on a tick that carried notes.
-    @State var cellNotePitch = [UInt8](repeating: 0, count: 64 * 6)
-    @State var cellNoteVel   = [UInt8](repeating: 0, count: 64 * 6)
-    @State var cellNoteCount = [UInt8](repeating: 0, count: 64)
+    @State var cellNotePitch = [UInt8](repeating: 0, count: Snap.cells * 6)
+    @State var cellNoteVel   = [UInt8](repeating: 0, count: Snap.cells * 6)
+    @State var cellNoteCount = [UInt8](repeating: 0, count: Snap.cells)
     // BUILD grid PIANO-ROLL (Paul 2026-08-19): the BUILD cells echo a piano roll too — accumulate per-cell scrolling notes
     // from the strike/note feed (same as the perform grid's face), read by buildNoteSweep→buildPianoRoll.
-    @State var buildCellRoll: [[BuildRollNote]] = Array(repeating: [], count: 64)
-    @State var buildRollPrevSeq = [Int](repeating: 0, count: 64)
+    @State var buildCellRoll: [[BuildRollNote]] = Array(repeating: [], count: Snap.cells)
+    @State var buildRollPrevSeq = [Int](repeating: 0, count: Snap.cells)
     // §6a meter peaks (emitter + receiver) live in `meters` — a @State-held class so the 30 Hz updates DON'T re-run the
     // body (CPU, device 2026-08-24). The meter TimelineViews read `meters.emitPeak`/`emitPeakAt` etc. live through the reference.
     @State var meters = LiveTelemetry()
@@ -825,7 +832,7 @@ struct DiagView: View {
                 clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
                 clearEmitterPerform()                                     // emitter strip: output OCT = weather
                 if !ladderPending.isEmpty { ladderPending = [:] }         // LADDER: drop un-committed arms (no "next entry" while stopped)
-                if buildCellRoll.contains(where: { !$0.isEmpty }) { buildCellRoll = Array(repeating: [], count: 64) }   // BUILD piano-roll: clear on stop so idle faces pause
+                if buildCellRoll.contains(where: { !$0.isEmpty }) { buildCellRoll = Array(repeating: [], count: Snap.cells) }   // BUILD piano-roll: clear on stop so idle faces pause
             }
             let lm = au.uiLadderMode(); if lm != ladderMode { ladderMode = lm }   // LADDER: sync the mode (preset load / external change)
             // `d` drives the BODY (effColumn highlight, pass, etc.). DON'T update it on `beat` alone — that fired every
@@ -947,7 +954,7 @@ struct DiagView: View {
             // during a chain audition (part stopped) that IS the chain's output. Pruned to ~2.5s; ≤96 marks.
             if editorOpen {
                 var out = buildOutRoll
-                for i in 0..<64 {
+                for i in 0..<Snap.cells {
                     let k = min(Int(cn.count[i]), 6)
                     for j in 0..<k where i * 6 + j < cn.pitch.count {
                         out.append(OutMark(note: cn.pitch[i * 6 + j], vel: Double(cn.vel[i * 6 + j]) / 127.0, born: mnow))
@@ -973,11 +980,11 @@ struct DiagView: View {
             let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
                 let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq
-                for i in 0..<min(64, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0; seq[i] &+= 1 }
+                for i in 0..<min(Snap.cells, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0; seq[i] &+= 1 }
                 cellHitAt = at; cellHitVel = vel; cellStrikeSeq = seq   // MOSAIC: advance the per-cell moment counter
                 if activeTab == .build {                            // BUILD grid PIANO-ROLL: fold new strikes into per-cell scrolling notes (at real pitch)
                     let now = Date(); var roll = buildCellRoll; var changed = false
-                    for i in 0..<64 {
+                    for i in 0..<Snap.cells {
                         roll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }   // drop notes that have crossed
                         guard cellStrikeSeq[i] > buildRollPrevSeq[i] else { continue }
                         let cnt = Int(cellNoteCount[i])
@@ -1000,11 +1007,11 @@ struct DiagView: View {
                 for i in 0..<roll.count { let n0 = roll[i].count; roll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }; if roll[i].count != n0 { pruned = true } }
                 if pruned { buildCellRoll = roll }
             }
-            let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected)
+            let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected; 128 cells = lo 0…63 + hi 64…127)
             var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
             let nowG = Date()
-            for i in 0..<64 {
-                let on = (sounding >> UInt64(i)) & 1 == 1
+            for i in 0..<Snap.cells {
+                let on = i < 64 ? ((sounding.lo >> UInt64(i)) & 1 == 1) : ((sounding.hi >> UInt64(i - 64)) & 1 == 1)
                 if on != newSounding[i] {
                     if !on { relAt[i] = nowG }             // falling edge → stamp the release (the spark fades from here)
                     newSounding[i] = on; gateChanged = true
@@ -1022,7 +1029,10 @@ struct DiagView: View {
             // (the reference-chord fallback that "played chords from nowhere") is GONE — that fallback was removed
             // 2026-08-23, so an engaged chain voice is SILENT until the user holds a note. Engaging on start-up just
             // arms the chain as the workshop voice so a held chord sounds the selected machine straight away.
-            if activeTab == .build { buildSeedCastIfNeeded(); buildRequestWorkshopVoice(.chain) }
+            // SILENCE ON FRESH START (Paul 2026-08-29): the rooms interface auditions on TAP + starts play columns on their
+            // own buttons, so it must NOT auto-arm any voice on launch (that engaged free-run + could leak a passthrough).
+            // Only the OLD build interface auto-armed PLAY THIS MIDI CHAIN.
+            if activeTab == .build { buildSeedCastIfNeeded(); if !useNewInterface { buildRequestWorkshopVoice(.chain) } }
             // FREE-RUN is no longer a blanket enable (Paul 2026-08-27, FERRY-strike-anchor ①: stopped = silent). It is
             // now GATED on an active BUILD play mode and synced from buildPublishScene() — the .chain request above
             // already published + synced it. Seed false so a non-BUILD entry (defensive; BUILD is the sole surface) stays silent.

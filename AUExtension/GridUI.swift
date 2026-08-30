@@ -106,6 +106,20 @@ let colourHexes: [UInt32] = [
 // RECEIVERS panel and the cells' band-as-deviation marker.
 let receiverHues: [Color] = [Color(hex: 0x6B7A8F), Color(hex: 0x7E6B8F), Color(hex: 0x6B8F7E), Color(hex: 0x8F836B)]
 
+// EMITTER SIGNATURE COLOURS (Paul 2026-08-30): four VIVID, high-contrast hues for A/B/C/D — the ROUTING channel. They
+// carry the DRIFTING piano-roll notes (and the MIDI-OUT toggles/dots). Kept the loudest colours in the app so the eye
+// reads "vivid + moving = emitter" vs "calm frame = machine" — two colour languages that never fight on one small cell.
+let emitterHexes: [UInt32] = [0xFF453A, 0x30D158, 0x0A84FF, 0xFF9F0A]   // A red · B green · C blue · D orange
+func emitterColour(_ bus: Bus) -> Color {
+    let i = Bus.allCases.firstIndex(of: bus) ?? 0
+    return Color(hex: i < emitterHexes.count ? emitterHexes[i] : 0x808080)
+}
+// The representative emitter colour for a cell's output SET — the LOWEST enabled bus (A<B<C<D); the drift's colour.
+func emitterHue(_ buses: Set<Bus>) -> Color {
+    for b in Bus.allCases where buses.contains(b) { return emitterColour(b) }
+    return emitterColour(.a)
+}
+
 // §5 drag-and-drop: the grid's fixed layout metrics + a point→cell map, SHARED by GridView (its own
 // coordinate space) and the VC (mapping a cross-view palette drag by the grid's captured global frame).
 enum GridGeometry {
@@ -362,7 +376,7 @@ struct GridView: View {
             } else if let cell {
                 if usePianoRollFace {
                     // THE PIANO-ROLL FACE — note marks drift right→left as the cell sounds (identity = the hue).
-                    pianoRollFace(col * 8 + row)
+                    pianoRollFace(col * Snap.rows + row)
                 } else {
                     // THE SEAL (which) — the derived glyph fills the WHOLE cell face now (user 2026-08-03: the bus dots
                     // are dropped). An engraved plate carries the seal; a COMET runs the wire while the cell fires MIDI (§5).
@@ -371,7 +385,7 @@ struct GridView: View {
                         RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                       // engraved plate
                         RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
                         Canvas { ctx, size in drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: sealInk) }
-                        sealComet(geo, col * 8 + row)
+                        sealComet(geo, col * Snap.rows + row)
                     }
                     .padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

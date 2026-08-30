@@ -502,7 +502,7 @@ final class FuzzTests: XCTestCase {
         for i in 0..<4000 {
             var r = FuzzRNG(UInt32(0xB0_0000 + i))
             let box = SnapshotBuilder.build(from: randomDoc(&r))
-            XCTAssertEqual(box.cells.count, 64, "builder must always yield 8×8 cells — seed \(i)")
+            XCTAssertEqual(box.cells.count, Snap.cells, "builder must always yield 8×16 cells (rows 0–7 visible + 8–15 play layer) — seed \(i)")
             XCTAssertEqual(box.receiverRangeLo.count, 4)
         }
     }

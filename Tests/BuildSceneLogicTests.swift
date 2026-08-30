@@ -106,26 +106,45 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s.cellAt(2, 2)?.colourID, "gold")
     }
 
-    // THE PLAY GRID (Paul 2026-08-29): the independent 8×8 plays like the part — the selected rung per column, each cell's
-    // own machine, the play grid's emitters. A machine-less play cell composes as a passthrough (unlike a part cell).
-    func testPlayGridComposesSelectedRungPerColumn() {
+    // THE PLAY GRID (Paul 2026-08-29): each STARTED column is an INDEPENDENT, CONTINUOUS voice. It composes at engine
+    // (COLUMN 0, row = the play-column index) and that row loops COLUMN 0 — no time axis, so it plays continuously (not
+    // only when a playhead crosses). Each carries the I/O it was FERRIED WITH (playColRecv/playColEmit).
+    func testPlayGridComposesStartedColumnsAsContinuousVoices() throws {
         var i = BuildSceneLogic.Input()
         i.playPlaying = true
-        i.playCells = grid([(0, 1, "b1"), (1, 3, "b2")])
-        i.playSel = [1, 3, -1, -1, -1, -1, -1, -1]
+        i.playCells = grid([(0, 1, "b1"), (1, 3, "b2"), (2, 0, "b3")])
+        i.playSel = [1, 3, 0, -1, -1, -1, -1, -1]
         i.playColChain = (0..<8).map { c in c == 0 ? [ProcessorSlot(type: .arp)] : [] }
-        i.playEmitters = [.b]
+        i.playColOn = [true, true, false, false, false, false, false, false]   // col 2 is populated but NOT started
+        i.playColRecv = [2, 1, 0, 0, 0, 0, 0, 0]                                 // per-column doors, derived from the ferry source
+        i.playColEmit = [[.b], [.c, .d], [.a], [.a], [.a], [.a], [.a], [.a]]
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 1)?.colourID, "b1", "col 0 rung 1 plays")
-        XCTAssertEqual(s.cellAt(0, 1)?.processors?.first?.type, .arp, "with its own machine")
-        XCTAssertEqual(s.cellAt(0, 1)?.buses, [.b], "the play grid's emitters")
-        XCTAssertEqual(s.cellAt(1, 3)?.colourID, "b2", "col 1 rung 3 plays even with an empty chain (passthrough wire)")
-        XCTAssertNil(s.cellAt(2, 0), "an unselected column is silent")
+        let base = Snap.playLayerRowBase                                // the hidden play layer starts at engine row 8
+        // play column 0 → engine (col 0, row 8) — the HIDDEN play layer, DISJOINT from the part's rows 0–7
+        XCTAssertEqual(s.cellAt(0, base + 0)?.colourID, "b1", "col 0's cell composes at engine row 8")
+        XCTAssertEqual(s.cellAt(0, base + 0)?.processors?.first?.type, .arp, "with its own machine")
+        XCTAssertEqual(s.cellAt(0, base + 0)?.buses, [.b], "its ferried emitter")
+        XCTAssertEqual(s.cellAt(0, base + 0)?.inputReceiver, 2, "its ferried door")
+        // play column 1 → engine (col 0, row 9)
+        XCTAssertEqual(s.cellAt(0, base + 1)?.colourID, "b2", "col 1's cell composes at engine row 9 (empty chain = passthrough)")
+        XCTAssertEqual(s.cellAt(0, base + 1)?.buses, [.c, .d], "carries its own ferried emitters")
+        XCTAssertNil(s.cellAt(0, base + 2), "col 2 is populated but NOT started → its engine row is empty")
+        XCTAssertNil(s.cellAt(0, 0), "the visible rows 0–7 stay free for the part (no play cell there)")
+        // CONTINUOUS: the started columns' play-layer rows loop column 0; the rest don't loop.
+        let lane = try XCTUnwrap(s.rowLane, "the play grid sets a per-row lane")
+        XCTAssertEqual(lane[base + 0], 0b1, "row 8 loops column 0 → continuous")
+        XCTAssertEqual(lane[base + 1], 0b1, "row 9 loops column 0 → continuous")
+        XCTAssertEqual(lane[base + 2], 0, "col 2 not started → its row doesn't loop")
     }
-    func testPlayGridAloneProducesAScene() {
+    func testPlayGridAloneProducesASceneOnlyWhenAColumnIsStarted() {
         var i = BuildSceneLogic.Input()
         i.playPlaying = true; i.playCells = grid([(0, 0, "b1")]); i.playSel = [0, -1, -1, -1, -1, -1, -1, -1]
-        XCTAssertNotNil(BuildSceneLogic.composeScene(i), "the play grid alone (no staging/perform/chain) produces a scene")
+        i.playColOn = [true, false, false, false, false, false, false, false]
+        XCTAssertNotNil(BuildSceneLogic.composeScene(i), "a started play column alone produces a scene")
+        i.playColOn = Array(repeating: false, count: 8)
+        // playPlaying reflects "any column on" in real use, but assert the guard: with playPlaying false, no scene.
+        i.playPlaying = false
+        XCTAssertNil(BuildSceneLogic.composeScene(i), "no started column → no scene")
     }
 
     // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only selected it — no output until a
@@ -174,15 +193,19 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(s.cellAt(2, 0), "inactive rung → dropped")
     }
 
-    func testChainLandsOnAFullyEmptyRowRawAcrossAllColumns() {
+    func testChainAuditionIsAOneStepContinuousPass() throws {
+        // SELECT audition = a 1-step CONTINUOUS pass (Paul 2026-08-29: no re-striking per step). It parks at COLUMN 0 of a
+        // fully-empty row and loops that row to column 0 — NOT laid across all 8 columns (which re-triggered every step).
         var i = BuildSceneLogic.Input()
         i.chainActive = true
         i.chainColourID = "cyan"
         i.chainMachine = []                                // raw passthrough
         let s = BuildSceneLogic.composeScene(i)!
-        // the whole grid is empty → the chain takes row 0, every column
-        XCTAssertEqual(colourIDsAt(s, row: 0), Array(repeating: "cyan", count: 8), "the chain plays raw on every column")
+        XCTAssertEqual(s.cellAt(0, 0)?.colourID, "cyan", "the audition parks at column 0 of the empty row 0")
+        XCTAssertNil(s.cellAt(1, 0), "NOT laid across the other columns — it's continuous, not re-struck each step")
         XCTAssertEqual(s.cellAt(0, 0)?.processors, [], "explicit empty chain (born-audible passthrough), never nil")
+        let lane = try XCTUnwrap(s.rowLane, "the audition sets a per-row lane")
+        XCTAssertEqual(lane[0], 0b1, "row 0 loops column 0 → continuous")
     }
 
     func testChainFallsBackToTheLeastOccupiedRowWhenPieceIsFull() {

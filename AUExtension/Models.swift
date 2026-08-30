@@ -848,7 +848,7 @@ struct SceneState: Codable, Equatable {
     }
 
     static func empty() -> SceneState {
-        SceneState(cells: Array(repeating: Array(repeating: nil, count: 8), count: 8))
+        SceneState(cells: Array(repeating: Array(repeating: nil, count: Snap.rows), count: Snap.cols))   // Snap.rows = 16: rows 0–7 visible, 8–15 the hidden play layer
     }
 
     /// A scene with no placed cells — the sparse "+" slot on the strip (never destroyed; just absent).
@@ -1446,23 +1446,12 @@ struct PluginState: Codable, Equatable {
         if state.receivers!.count > 3 {   // DEFAULT: receiver D → A MIXOLYDIAN scale door (Paul 2026-08-29) — fresh instances only
             state.receivers![3].doorMode = .scale; state.receivers![3].scaleRoot = 9; state.receivers![3].scaleType = .mixolydian
         }
-        // Start with ONE colour on the grid (user 2026-08-09): so the palette shows a single colour and there's a piece
-        // to drag/fork. GOLD, a DRONE across the WHOLE top row (Paul 2026-08-23): a held note sounds STRAIGHT THROUGH —
-        // a drone is a legato sustained hold (struck once, adopted across all 8 columns with NO per-step re-strike), so a
-        // held note sustains continuously while down and releases on key-up. (Was a single-slot .arp, which re-struck
-        // every 1/16 = the "some kind of hold" a fresh app defaulted to; a plain passgate/empty chain re-strikes per
-        // column, so DRONE is the one hold-path mode that's unconditionally legato.) SUBSCRIBE to R1 (inputReceiver 0)
-        // so the cells hear R1's frozen pool too (a nil receiver reads live OMNI only → a latched chord never reaches
-        // them). R1 is OMNI, so live input is identical.
-        for c in 0..<8 {
-            state.scenes[0].cells[c][0] = {
-                var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0
-                cell.processors = [{ var p = ColourParams(); p.gate = 1.0; return ProcessorSlot(type: .drone, params: p) }()]   // legato sustained pass-through
-                return cell
-            }()
-        }
+        // A FRESH INSTANCE IS SILENT (Paul 2026-08-29): the grid starts EMPTY — no default cells — so a held note produces
+        // NOTHING until the user selects/ferries a cell. (Previously makeInit placed 8 GOLD .drone cells across the top row,
+        // a legato straight-through passthrough; with the rooms interface the arrangement is built on the play/part grids,
+        // so a document default cell just leaked input to the output on launch. "No cell selected ⇒ silence.")
         state.padScenes()
-        state.markDefinedFromUsage()   // one used Colour (GOLD) → palette shows GOLD + fifteen "+" slots
+        state.markDefinedFromUsage()   // no cells → no colour is "in use" (the rooms SELECT grid is library-backed, not this palette)
         return state
     }
 

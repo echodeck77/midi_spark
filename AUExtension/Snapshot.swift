@@ -14,7 +14,13 @@ import Foundation
 // MARK: - Fixed geometry
 
 enum Snap {
-    static let cols = 8, rows = 8, colours = 16
+    // rows = 16 (Paul 2026-08-29): the VISIBLE grids use ONLY rows 0–7 (their ForEach is hardcoded 8); rows 8–15 are the
+    // HIDDEN PLAY LAYER — 8 continuous "play cells" that need their own rows (a per-row lane pins each to a column, so they
+    // can't share a row with the sequenced part). This gives the play layer + the sequenced part DISJOINT engine rows on the
+    // part page (was: both crammed into 8 rows → they collided in column 0). Cell index stays `col * Snap.rows + row`.
+    static let cols = 8, rows = 16, colours = 16
+    static var cells: Int { cols * rows }   // 128 — the per-cell array/feed size (index = col*rows + row)
+    static let playLayerRowBase = 8         // the hidden play layer occupies engine rows 8…15 (row 8+c = play column c)
     // delta §9 item 11: a source filter ≥17 matches no held note (NotePool.matches never sees chan ≥16),
     // so it is the render-free way to express a MUTED receiver — its subscribers read an empty pool.
     static let mutedSourceFilter: UInt8 = 17

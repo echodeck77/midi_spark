@@ -433,7 +433,7 @@ final class Kernel {
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { router.drainEmitterSounding() }   // §strips-done: hold-while-sounding
     func drainCellStrikes() -> [UInt8] { router.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity
     func drainCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { router.drainCellNotes() }   // NOTE-SWEEP: per-cell recent note-ons
-    func pollCellSounding() -> UInt64 { router.currentCellSounding() }  // SEAL comet: per-cell sounding gate (note-on/off)
+    func pollCellSounding() -> (lo: UInt64, hi: UInt64) { router.currentCellSounding() }  // SEAL comet: per-cell sounding gate (128 cells: lo=0…63, hi=64…127)
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
@@ -456,6 +456,9 @@ final class Kernel {
     private var keyFilterChanBuf = [UInt8](repeating: 0, count: 128)
     private var keyFilterCblBuf = [UInt8](repeating: 0, count: 128)
     private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
+    // NOTE MONITOR (Paul 2026-08-29): raw held notes are NOT echoed to the output — a CELL is the sole note source, so a
+    // fresh instance (nothing selected) is SILENT. Default OFF; kept as a flag so a soundcheck toggle can re-enable it.
+    private let noteMonitorPassthrough = false
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
     private var inputChannelMask = [UInt16](repeating: 0, count: 4)   // §MPE: channels (bit = ch-1) a receiver heard this window
@@ -933,6 +936,7 @@ final class Kernel {
             freeRunActive = false; freeRunBeat = 0
             router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)
         }
+        diag.beat = rBeat            // EFFECTIVE beat (host OR free-run) → UI beat-driven playheads work while the host is stopped (Paul 2026-08-29)
         if reel.state == .replaying, reel.hasLoop {               // REPLACE the live output with the recorded loop
             reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reel.loopCycle,   // loop at the SELECTED pass's own length, not the live rate
                         beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
@@ -1105,8 +1109,11 @@ final class Kernel {
         // a8: routed through the gate so a note-OFF follows its forwarded ON regardless of state now.
         let pNote = length >= 2 ? bytes[1] : 0
         let pVel  = length >= 3 ? bytes[2] : 0
+        // NOTE MONITOR OFF by policy (Paul 2026-08-29: "silence as no cell is selected"). Folding !noteMonitorPassthrough
+        // into auditionSuppressing makes the gate treat every raw note as suppressed → mask 0 AND tracked want=false, so
+        // its OFF also drops (no spurious note-off, no stuck note). System messages (isNote=false in the gate) still forward.
         var mask = passthroughGate.mask(statusByte: bytes[0], note: pNote, velocity: pVel,
-                                        playing: playing, auditionSuppressing: suppressAuditionNotes || previewActive)
+                                        playing: playing, auditionSuppressing: suppressAuditionNotes || previewActive || !noteMonitorPassthrough)
         // receiver strip: passthrough FOLLOWS THE THRU PIP's receiver (default R1) — supersedes follows-R1.
         // A non-note event forwards only if the THRU receiver hears it (cable + channel); a note soundcheck is
         // mute-gated only; a MUTED THRU passes NOTHING (note soundcheck included). See `thruAudible`.

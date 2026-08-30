@@ -1409,7 +1409,9 @@ extension DiagView {
         .padding(pad)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))   // matches the grid box + seam styling
+        // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
+        // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(0.85), lineWidth: 2.5))
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
@@ -1549,16 +1551,25 @@ extension DiagView {
             let sel = t < buildPlaySel.count ? buildPlaySel[t] : -1
             let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
             let set = id != nil                                          // has this column been ferried?
-            let cellHue = id.flatMap { colourColor($0) }                 // the ferried cell's colour
-            RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(set ? 0.14 : 0.08))   // NEUTRAL button — the play icon + border carry colour
-                .overlay { if set { buildNoteSweep(idx: t * 8 + sel, active: buildPlayPlaying, id: id).padding(2) } }   // PLAYING → drift notes like the part cells (keyed to the play cell's real grid position)
+            let on = t < buildPlayColOn.count && buildPlayColOn[t]        // is this column PLAYING? (independent per-column voice)
+            let mHue = id.flatMap { colourColor($0) } ?? Color(hex: colourHexes[t % 16])   // MACHINE identity (the ferried cell's colour)
+            let eHue = emitterHue(t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a])  // EMITTER colour (routing)
+            // THREE STATES (Paul 2026-08-30): NULL · POPULATED (machine frame, calm) · PLAYING (bright frame + EMITTER glow +
+            // the live drift). Machine = the frame, emitter = the drift tint + a corner dot + the playing glow.
+            RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
+                .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
+                .overlay { if set { buildNoteSweep(idx: Snap.playLayerRowBase + t, active: on, id: id, emitter: t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a]).padding(2) } }   // live drift in the EMITTER colour (play cell strikes at index 8+t)
+                .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? (cellHue ?? roomsIndigo) : buildEdge, lineWidth: set ? 2.5 : 1))   // POPULATED → a THICKER COLOUR border (more prominent)
-                .overlay(Image(systemName: "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(roomsIndigo))   // the PLAY icon in its predetermined (PLAY = INDIGO) colour
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // MACHINE frame: dim → BRIGHT when PLAYING
+                .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
+                .overlay(Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0))   // PLAY/STOP (state) in the MACHINE hue
+                .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
                 .contentShape(Rectangle())
+                .onTapGesture { buildTogglePlayColumn(t) }               // TAP = start/stop THIS column's independent playback (Paul 2026-08-29)
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
-                                    pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })
+                                    pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
         }
     }
     // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
@@ -1569,11 +1580,28 @@ extension DiagView {
         guard t >= 0 && t < 8, let hit = buildGridSelStampSource() else { return }
         buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
         let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0   // the selected rung (default row 1)
-        let y = buildNewTabColour(r, machine: hit.chain, transpose: hit.transpose)   // a colour carrying the chain + its register home (hue from the row)
+        let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose)   // a colour carrying the chain + its register home, HUE per COLUMN (colourHexes[t] — a range across the 8; was per-rung → all gold, Paul 2026-08-30)
         buildPlayCells[t][r] = y
+        let io = roomsStampSourceIO()                                        // COPY the source's I/O (Paul 2026-08-29: "play will have the copied settings")
+        if t < buildPlayColRecv.count { buildPlayColRecv[t] = io.recv }
+        if t < buildPlayColEmit.count { buildPlayColEmit[t] = io.emit }
         if t < buildPlaySel.count { buildPlaySel[t] = r }                    // make the assigned rung the selected one (so it shows on play)
+        // FERRYING TO PLAY STARTS IT (Paul 2026-08-30): start this play column, and STOP the select grid's audition (its
+        // extra voice) — parallel to the select→part ferry, which switches playback to the held target. The play layer
+        // then sounds via its persistent voice; the previously-auditioning library cell goes quiet.
+        if t < buildPlayColOn.count { buildPlayColOn[t] = true }
+        if ddSolo { ddSolo = false; au?.clearColourSolo() }                  // the SELECT grid stops playing
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
+        buildPublishScene()                                                  // republish: the started column plays, the audition is off
+    }
+    // The I/O the ferry SOURCE is currently playing through (Paul 2026-08-29: the play cell copies the settings). An aimed
+    // side-row source uses that row's resolved door/emitters; otherwise the SELECT audition's door + emitters.
+    private func roomsStampSourceIO() -> (recv: Int, emit: Set<Bus>) {
+        if let s = buildGridSelStampSourceRow, buildRowColour(s) != nil {
+            return (buildRowReceiverResolved(s), buildRowEmittersResolved(s))
+        }
+        return (buildSelReceiver, buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
     }
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
     // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)
@@ -1682,30 +1710,37 @@ extension DiagView {
     }
     @ViewBuilder private func roomsSideChip(_ n: Int, height: CGFloat, part: Bool) -> some View {
         let populated = buildRowColour(n) != nil                          // this slot/row holds a chain
-        let active = buildGridSelStampSourceRow == n                      // THE active side button — white border (§ "one cell or one side button is active")
-        let predet = Color(hex: colourHexes[n % 16])                      // the slot's PREDETERMINED colour (a range across the 8)
-        let sounding = buildStagingPlaying && buildStagingSel.contains(n) // this row is a currently-sounding rung (per-slot status proxy)
-        // SELECTED only when POPULATED (Paul 2026-08-29): pressing/holding an EMPTY ferry button that the user never
-        // commits to (no copy) must NOT leave it looking selected. The SELECTED border is the PREDETERMINED colour, not white.
+        let active = buildGridSelStampSourceRow == n                      // THE active side button
+        let mHue = Color(hex: colourHexes[n % 16])                        // MACHINE identity (the row's predetermined colour)
+        let eHue = emitterHue(buildRowEmittersResolved(n))               // EMITTER colour (routing)
         let selectedVis = active && populated
-        // ANIMATION (the SELECT→PART ferry, !part): when the part is playing, the populated button drifts notes like the
-        // part cells — buildNoteSweep keyed to this row's cell at the ACTIVE column (the currently-sounding one). (Paul 2026-08-29)
+        // IS THIS ROW'S CELL SOUNDING? PART grid → the SEQUENCER's active rung; SELECT→part ferry → the AIMED audition
+        // (the select page's extra voice; the sequenced part does NOT run on select).
         let ec = max(0, min(7, d.effColumn))
-        let animActive = !part && populated && buildStagingPlaying && ec < buildStagingSel.count && buildStagingSel[ec] == n
-        RoundedRectangle(cornerRadius: 5).fill(selectedVis ? Color.white.opacity(0.16) : (populated ? Color.white.opacity(0.10) : buildRowButtonFill))
+        let playing = populated && (part
+            ? (buildStagingPlaying && ec < buildStagingSel.count && buildStagingSel[ec] == n)
+            : (buildGridSelStampSourceRow == n && buildDisplayVoice == .chain))
+        // THREE STATES (Paul 2026-08-30): NULL (dark + thin edge) · POPULATED (machine-hue frame + a calm fingerprint) ·
+        // PLAYING (bright machine frame + an EMITTER glow + the fingerprint DRIFTS). Machine = the frame, emitter = the
+        // drift tint + a corner dot. The select→part ferry drifts the CHAIN'S FINGERPRINT (buildGridSelRowRoll) — the live
+        // strike feed can't reach it (the audition composes on a dynamic engine row), so a fingerprint is the honest signal.
+        RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
             .frame(height: height)
-            .overlay { if animActive { buildNoteSweep(idx: ec * 8 + n, active: true, id: buildRowColour(n)).padding(2) } }   // PLAYING → part-cell drift animation
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(populated ? (playing ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
+            .overlay { if populated && !part { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: playing, tint: eHue).padding(.vertical, 3).padding(.horizontal, 2).opacity(playing ? 1.0 : 0.55) } }   // CHAIN fingerprint in the EMITTER colour
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            // POPULATED → a THICKER COLOUR border (more prominent); SELECTED thicker still.
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? predet : buildEdge, lineWidth: selectedVis ? 3 : (populated ? 2.5 : 1)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : buildEdge,
+                                                              lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING
+            .overlay(alignment: .topTrailing) { if populated { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
             .overlay {
-                if part {                                                // PART LEFT rail → the slot NUMBER in its predetermined colour
-                    Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced)).foregroundColor(predet.opacity(populated ? 1.0 : 0.5))
-                } else {                                                 // SELECT RIGHT rail → a PLAY/STOP transport icon in its predetermined colour (populated = bright, empty = dim, sounding = stop)
-                    Image(systemName: sounding ? "stop.fill" : "play.fill").font(.system(size: min(13, height * 0.5), weight: .black)).foregroundColor(predet.opacity(populated ? 1.0 : 0.4))
+                if part {                                                // PART rail → the slot NUMBER in the machine hue
+                    Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced)).foregroundColor(mHue.opacity(populated ? 1.0 : 0.5))
+                } else {                                                 // SELECT→part ferry → a small PLAY/STOP status glyph in the machine hue (over a calm fingerprint)
+                    Image(systemName: playing ? "stop.fill" : "play.fill").font(.system(size: min(11, height * 0.4), weight: .black)).foregroundColor(populated ? mHue : buildDim).opacity(playing ? 0.85 : 1.0)
                 }
             }
+            .shadow(color: playing ? eHue.opacity(0.7) : .clear, radius: playing ? 5 : 0)   // PLAYING → an EMITTER-coloured glow (the "this is alive" tell)
             .contentShape(Rectangle())
             .onTapGesture { part ? roomsTapPartSide(n) : roomsTapSide(n) }
             .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
@@ -1745,9 +1780,9 @@ extension DiagView {
                     Color.clear.frame(width: leftInset)
                     roomsPlayNavSliver(width: interiorW, height: navH)
                 }
-                HStack(spacing: gap) {                                      // track-head row over the interior
-                    Color.clear.frame(width: cw)
-                    ForEach(0..<8, id: \.self) { c in colSelCellPart(c).frame(width: cw, height: ch) }
+                HStack(spacing: gap) {                                      // the PLAY-ferry row — IDENTICAL to the select grid's (Paul 2026-08-29;
+                    Color.clear.frame(width: cw)                            //   the flattened-part-grid input source is future — it ferries from the current audition for now)
+                    ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }
                     Color.clear.frame(width: cw)
                 }
                 HStack(alignment: .top, spacing: gap) {                     // body: left rail | interior+playhead | right rail
@@ -1765,16 +1800,27 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
+    // SHARED grid-cell body (Paul 2026-08-30 colour language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
+    // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
+    // colour is the one FOCUSED in the machine strip/card (abundantly-clear cell↔machine pairing). The rung-SELECTED state
+    // reads as a brighter wash + a medium frame (it's the one that plays — the drift already confirms it).
+    @ViewBuilder private func roomsGridCellBody<S: View>(id: String?, selected: Bool, @ViewBuilder sweep: () -> S) -> some View {
+        let mHue = id.flatMap { colourColor($0) } ?? buildCell            // the machine's identity hue
+        let focused = id != nil && id == ddSelectedColourID              // the machine currently shown in the strip / card
+        RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(id == nil ? 0 : (selected ? 0.30 : 0.13))))   // faint machine-hue identity wash
+            .overlay { sweep() }                                        // the EMITTER-coloured drift
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(id == nil ? buildEdge : mHue.opacity(focused ? 1.0 : (selected ? 0.7 : 0.4)),
+                                                              lineWidth: focused ? 2.5 : (selected ? 2 : 1)))   // MACHINE-HUE FRAME: dim → BRIGHT on focus
+    }
     // A PART interior cell — ONE RUNG PER COLUMN (old-gui buildStagingTap): tap selects that rung for its column; tap the
-    // selected rung to UNSELECT it (that column falls silent). Display shows its colour, the selected rung brighter.
+    // selected rung to UNSELECT it (that column falls silent). Dark stage + machine-hue frame; the selected rung brighter.
     @ViewBuilder private func roomsPartCell(_ c: Int, _ r: Int, w: CGFloat, h: CGFloat) -> some View {
         let id = buildStagingCells[c][r]
         let selected = buildStagingSel[c] == r                            // the ONE selected rung for column c
-        RoundedRectangle(cornerRadius: 5)
-            .fill((id.flatMap { colourColor($0) } ?? buildCell).opacity(selected ? 1.0 : 0.5))
-            .overlay { buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying && selected, id: id) }
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? .white.opacity(0.85) : buildEdge, lineWidth: selected ? 2 : 1))
+        roomsGridCellBody(id: id, selected: selected,
+                          sweep: { buildNoteSweep(idx: c * Snap.rows + r, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
             .frame(width: w, height: h)                                   // fixed size so the playhead pitch is exact
             .contentShape(Rectangle())
             .onTapGesture { buildStagingTap(c, r) }                       // one rung per column, toggle (the old-gui logic)
@@ -1836,31 +1882,50 @@ extension DiagView {
         }
         roomsSyncVoice(.part)                                          // chain→part (nothing from SELECT plays here)
     }
-    // Carry the PLAYING state across a room switch onto the room's OWN voice, keeping the two mutually exclusive: if
-    // something was playing, the room's voice plays (SELECT→chain / PART→part); if nothing, nothing plays. (Paul 2026-08-28)
+    // THE EXTRA VOICE IS EXCLUSIVE PER PAGE (Paul 2026-08-29). The 8 play cells are a PERSISTENT layer (buildPlayColOn) that
+    // sound on EVERY page and are NEVER touched here. Beyond them, exactly ONE "extra" cell sounds, determined by the page:
+    //   SELECT → the SELECTED cell auditions (chain), continuous.   PART → the SEQUENCER's active cell (the sequenced part).
+    // So switching pages switches ONLY the extra voice — and the sequenced part must NOT run on select (the bug the earlier
+    // "non-disruptive" change caused: the part kept sequencing while on the select grid).
     func roomsSyncVoice(_ room: Room) {
-        let playing = buildWorkshopVoice != .none || buildPlayPlaying // was ANY voice live before the switch? (carry it over)
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
         switch room {
-        case .select: buildPlayPlaying = false; buildApplyWorkshopVoice(playing ? .chain : .none)   // stop the play grid; part→chain
-        case .part:   buildPlayPlaying = false; buildApplyWorkshopVoice(playing ? .part : .none)     // stop the play grid; chain→part
-        case .play:   buildPlayPlaying = playing; buildApplyWorkshopVoice(.none)   // stop chain/part; carry the playing state to the PLAY grid (republishes with buildPlayPlaying set)
+        case .select: buildApplyWorkshopVoice(.chain)   // extra = the selected cell auditions; sequenced part OFF (play layer persists)
+        case .part:   buildApplyWorkshopVoice(.part)     // extra = the sequenced part; audition OFF (play layer persists)
+        case .play:   buildApplyWorkshopVoice(.none)     // no extra cell — just the 8 play cells
         default: break
         }
     }
-    // Toggle the PLAY GRID voice (its own independent playback) + republish the scene. (Paul 2026-08-29)
-    func buildTogglePlayGrid() { buildPlayPlaying.toggle(); buildPublishScene() }
+    // ANY play column is running (the free-run gate + "is the play grid a voice"). Each column is independent (buildPlayColOn).
+    var buildPlayPlaying: Bool { buildPlayColOn.contains(true) }
+    // Toggle ONE play column's independent playback + republish. (Paul 2026-08-29 — each play cell starts/stops on its own.)
+    func buildTogglePlayColumn(_ c: Int) {
+        guard c >= 0, c < buildPlayColOn.count, buildPlayColPopulated(c) else { return }
+        buildPlayColOn[c].toggle(); buildPublishScene()
+    }
+    // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
+    func buildTogglePlayGrid() {
+        let anyOn = buildPlayColOn.contains(true)
+        for c in 0..<8 { buildPlayColOn[c] = anyOn ? false : buildPlayColPopulated(c) }
+        buildPublishScene()
+    }
+    // Column c has a populated selected rung (something to sound).
+    func buildPlayColPopulated(_ c: Int) -> Bool {
+        let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
+        return r >= 0 && r < 8 && c < buildPlayCells.count && r < buildPlayCells[c].count && buildPlayCells[c][r] != nil
+    }
     // The play grid has at least one populated selected rung (something to sound).
-    var buildPlayPopulated: Bool { (0..<8).contains { c in let r = c < buildPlaySel.count ? buildPlaySel[c] : -1; return r >= 0 && r < 8 && c < buildPlayCells.count && r < buildPlayCells[c].count && buildPlayCells[c][r] != nil } }
+    var buildPlayPopulated: Bool { (0..<8).contains { buildPlayColPopulated($0) } }
 
     // ── THE PLAY GRID (Paul 2026-08-29 — "treat as new", BANDS DROPPED). A clean 8×8 over the play grid's OWN arrangement
     // (buildPlayCells — INDEPENDENT of the part's buildStagingCells), ONE selected rung per column (buildPlaySel, default
     // ROW 1), plus a BOTTOM READOUT row reflecting each column's selected cell (the numbered slots also shown at the TOP
     // of the SELECT/PART grids). Cells arrive by the SELECT TOP-button ferry (roomsAssignPlayColumn) — which writes ONLY
     // buildPlayCells, so it never touches the part-grid side buttons. Self-sizing: 9 equal rows (8 interior + 1 readout).
-    // START/STOP the PLAY GRID — its own voice (buildPlayPlaying). Disabled until the grid has a populated selected rung.
+    // MASTER START/STOP — starts EVERY populated column at once (or stops all). Per-column control lives on the bottom
+    // readout buttons (roomsPlayBottom) + the SELECT play-ferry buttons. Disabled until the grid has a populated rung.
     @ViewBuilder func roomsPlayStartStop() -> some View {
-        buildColumnButton("START / STOP", active: buildPlayPlaying, fill: .grid, enabled: buildPlayPopulated, fillHeight: true,
+        buildColumnButton(buildPlayPlaying ? "STOP ALL" : "START ALL", active: buildPlayPlaying, fill: .grid, enabled: buildPlayPopulated, fillHeight: true,
                           action: { buildTogglePlayGrid() })
     }
     @ViewBuilder func roomsPlayGrid() -> some View {
@@ -1869,13 +1934,10 @@ extension DiagView {
             let cw = max(6, (g.size.width - 2 * pad - 7 * gap) / 8)        // 8 cols, no rails → fills the width
             let ch = max(6, (g.size.height - 2 * pad - 8 * gap) / 9)       // 9 rows (8 interior + 1 bottom readout)
             VStack(spacing: gap) {
-                ZStack(alignment: .topLeading) {                           // the interior 8×8 + a sweeping playhead
-                    VStack(spacing: gap) {
-                        ForEach(0..<8, id: \.self) { r in                  // the interior 8×8 — the play grid's OWN cells (rung-per-column select)
-                            HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPlayCell(c, r).frame(width: cw, height: ch) } }
-                        }
+                VStack(spacing: gap) {                                      // the interior 8×8 — the play grid's OWN cells (rung-per-column select). No playhead (Paul 2026-08-29).
+                    ForEach(0..<8, id: \.self) { r in
+                        HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPlayCell(c, r).frame(width: cw, height: ch) } }
                     }
-                    roomsPlayPlayhead(colW: cw, gap: gap, height: ch * 8 + gap * 7)   // the vertical line sweeping the columns while playing
                 }
                 HStack(spacing: gap) {                                      // the BOTTOM readout — each column's selected cell
                     ForEach(0..<8, id: \.self) { c in roomsPlayBottom(c).frame(width: cw, height: ch) }
@@ -1892,39 +1954,57 @@ extension DiagView {
     @ViewBuilder private func roomsPlayCell(_ c: Int, _ r: Int) -> some View {
         let id = (c < buildPlayCells.count && r < buildPlayCells[c].count) ? buildPlayCells[c][r] : nil
         let selected = c < buildPlaySel.count && buildPlaySel[c] == r
-        RoundedRectangle(cornerRadius: 5)
-            .fill((id.flatMap { colourColor($0) } ?? buildCell).opacity(selected ? 1.0 : 0.5))
-            .overlay { buildNoteSweep(idx: c * 8 + r, active: buildPlayPlaying && selected, id: id) }   // PLAYING → drift notes (the play grid composes at this position, so its roll is real)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? .white.opacity(0.85) : buildEdge, lineWidth: selected ? 2 : 1))
+        let on = (c < buildPlayColOn.count && buildPlayColOn[c]) && selected
+        roomsGridCellBody(id: id, selected: selected, sweep: {
+            buildNoteSweep(idx: Snap.playLayerRowBase + c, active: on, id: id, emitter: c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])   // CONTINUOUS drift in the EMITTER colour
+            roomsCellPlayhead(active: on)   // PER-CELL PLAYHEAD — the pass sweeping L→R
+        })
             .contentShape(Rectangle())
             .onTapGesture { if c < buildPlaySel.count { buildPlaySel[c] = (buildPlaySel[c] == r) ? -1 : r } }   // one rung per column, toggle
     }
-    // A PLAY bottom-row button — REFLECTS column c's SELECTED cell (its colour), numbered like the SELECT/PART top-row
-    // track heads (the same 8 slots). Display-only readout for now. (Paul 2026-08-29)
+    // A PLAY bottom-row button — column c's PER-COLUMN TRANSPORT (Paul 2026-08-29): shows the selected cell's colour + a
+    // play/stop icon reflecting the column's independent state; TAP = start/stop THIS column. Empty column → inert readout.
     @ViewBuilder private func roomsPlayBottom(_ c: Int) -> some View {
         let sel = c < buildPlaySel.count ? buildPlaySel[c] : -1
         let id = (sel >= 0 && c < buildPlayCells.count && sel < buildPlayCells[c].count) ? buildPlayCells[c][sel] : nil
         let hue = id.flatMap { colourColor($0) }
-        RoundedRectangle(cornerRadius: 4).fill(hue?.opacity(0.9) ?? Color.white.opacity(0.11))
-            .overlay(Text("\(c + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(hue != nil ? .black : .white.opacity(0.55)))
+        let populated = buildPlayColPopulated(c)
+        let on = c < buildPlayColOn.count && buildPlayColOn[c]
+        RoundedRectangle(cornerRadius: 4).fill(hue?.opacity(on ? 1.0 : 0.55) ?? Color.white.opacity(0.11))
+            .overlay {
+                if populated {
+                    Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: 11, weight: .black)).foregroundColor(.black.opacity(0.8))
+                } else {
+                    Text("\(c + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { buildTogglePlayColumn(c) }
     }
-    // THE PLAY-GRID PLAYHEAD — a 2pt line sweeping the 8 columns while the play grid runs, phase-locked to the beat
-    // (the scene default clock). Mirrors roomsPartPlayhead. (Paul 2026-08-29)
-    @ViewBuilder private func roomsPlayPlayhead(colW: CGFloat, gap: CGFloat, height: CGFloat) -> some View {
-        if d.playing && buildPlayPlaying {
-            let sb = stepBeats, cols = Snap.cols, width = colW * 8 + gap * 7
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
-                let colF = sb > 0 ? musical / sb : 0
-                let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
-                let p = wrapped < 0 ? wrapped + Double(cols) : wrapped
-                let x = min(width, CGFloat(p) * (colW + gap))
-                Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: height).offset(x: x).allowsHitTesting(false)
+    // (The GRID-WIDE play-grid playhead was removed 2026-08-29. The PER-CELL playhead below replaces it.)
+    // PER-CELL PLAYHEAD (Paul 2026-08-29) — a thin line sweeping LEFT→RIGHT over one bar, BEAT-LOCKED, on each ACTIVE play
+    // cell + play ferry. It makes a looping pass legible: independent per cell, cycling with the beat. Works under free-run
+    // too (diag.beat is now the EFFECTIVE beat). One bar per loop today (a 1-step continuous pass); when N-step passes land
+    // (part loop-length / reel) the loop maps to the pass's real length.
+    @ViewBuilder private func roomsCellPlayhead(active: Bool) -> some View {
+        if active {
+            GeometryReader { g in
+                let sb = max(0.0001, stepBeats)
+                let barBeats = Double(Snap.cols) * sb                // one bar = 8 steps
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                    let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                    let ph = (live.truncatingRemainder(dividingBy: barBeats)) / barBeats
+                    let p = ph < 0 ? ph + 1 : ph                     // 0…1 across the cell over one bar
+                    Rectangle().fill(Color.white.opacity(0.6)).frame(width: 1.5)
+                        .position(x: CGFloat(p) * g.size.width, y: g.size.height / 2)
+                        .allowsHitTesting(false)
+                }
             }
         }
     }
+
+    // (The play-grid I/O toggles were REMOVED 2026-08-29 — Paul: the play grid has NO I/O toggles. Each ferried cell
+    // DERIVES its door + emitters from the source it was copied from, stored per-column in buildPlayColRecv/Emit.)
 
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
     @ViewBuilder private func buildGridVerbButtons() -> some View {
@@ -2287,9 +2367,12 @@ extension DiagView {
         .frame(width: castW)
     }
     @ViewBuilder private func buildReceiverSelectChip(_ i: Int) -> some View {
-        // In the grid selector the audition door IS buildSelReceiver (what the toggle sets + the audition plays), so the chip
-        // reflects that directly; on the main page it reflects the SELECTED row's resolved door. (Paul 2026-08-26)
-        let on = buildGridSelOpen ? (buildSelReceiver == i) : (buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? false)
+        // RELIABILITY FIX (Paul 2026-08-29): the chip's lit state MUST read from the SAME place the toggle WRITES, or it
+        // shows wrong. buildSelectDoor writes buildRowReceiver[row] when a row is selected, else buildSelReceiver (the part
+        // default). So read exactly that: the selected row's RESOLVED door, else buildSelReceiver — never a `?? false`
+        // (which used to blank the chip when no row was selected) and never a mismatched buildGridSelOpen branch (which
+        // read buildSelReceiver while the write went to the row → the toggle looked dead/incorrect).
+        let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? (buildSelReceiver == i)
         // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
         // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
         let letter = ["A", "B", "C", "D"][i]
@@ -2302,9 +2385,11 @@ extension DiagView {
     @ViewBuilder private func buildEmitterToggles(castW: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
-                // Grid selector: the audition emitters ARE buildPartEmitters (what the toggle sets + the audition uses); main page: the selected row's resolved emitters. (Paul 2026-08-26)
-                let on = buildGridSelOpen ? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters).contains(b) : (buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) } ?? false)
-                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })
+                // RELIABILITY FIX (Paul 2026-08-29): read from the SAME place buildToggleBus writes — the selected row's
+                // RESOLVED emitters, else the part default (buildPartEmitters, [.a] when empty). Was a mismatched
+                // buildGridSelOpen branch + a `?? false` that blanked the chips when no row was selected.
+                let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) } ?? ((buildPartEmitters.isEmpty ? [.a] : buildPartEmitters).contains(b))
+                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on, accent: emitterColour(b), action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE colour (Paul 2026-08-30)
             }
         }
         .frame(width: castW)
@@ -2312,14 +2397,14 @@ extension DiagView {
     // The shared two-line I/O chip: a small top label over a big A/B/C/D, styled like the centre column's emitter A–D
     // chips (cyan-when-on, muted idle, height 48). Used by BOTH the MIDI-IN receiver selector and the MIDI-OUT
     // emitter toggles so they read identically. (Paul 2026-08-18)
-    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
+    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
         VStack(spacing: 1) {
             Text(top).font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.5)
             Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         }
         .foregroundColor(on ? Color.black : buildDim)
         .frame(maxWidth: .infinity).frame(height: 48)                        // matches the emitter chips (height 48, fill the row)
-        .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))   // ON = the accent; idle mutes
+        .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature colour for MIDI OUT); idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture(perform: action)                                       // TAP = this row (or the part default)
@@ -2907,18 +2992,19 @@ extension DiagView {
         input.stagingLen  = buildPartLen
         input.stagingLane = buildStagingLane                     // PER-ROW LAP: the two grids loop independently
         input.performLane = buildPerformLane
-        // THE PLAY GRID (Paul 2026-08-29): its own independent voice — cells (buildPlayCells) at the selected rung per
-        // column, each carrying its ferried machine. I/O defaults to the current door + part emitters (v1; per-cell I/O later).
-        input.playPlaying = buildPlayPlaying
+        // THE PLAY GRID (Paul 2026-08-29): each column an INDEPENDENT voice — only STARTED columns (buildPlayColOn) sound,
+        // each carrying its ferried machine AND the I/O it was ferried with (buildPlayColRecv/Emit). No shared I/O toggles.
+        input.playPlaying = buildPlayColOn.contains(true)
         input.playCells = buildPlayCells
         input.playSel = buildPlaySel
+        input.playColOn = buildPlayColOn
+        input.playColRecv = buildPlayColRecv
+        input.playColEmit = buildPlayColEmit
         input.playColChain = (0..<8).map { c -> [ProcessorSlot] in
             let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
             guard r >= 0, r < 8, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return [] }
             return buildColourChain(cid)
         }
-        input.playEmitters = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
-        input.playReceiver = buildSelReceiver
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
         // (The reference-chord fallback was REMOVED 2026-08-23, Paul: PLAY THIS MIDI CHAIN now sounds ONLY real input —
         // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
@@ -4029,7 +4115,7 @@ extension DiagView {
                                         if buildPendingTab == r { buildPulseOverlay() }   // PENDING tab → its row previews, pulsing
                                         // ONLY the ACTIVE RUNG sweeps: the part renders just its selected rung per column (the rest of the
                                         // scene is the DEPLOYED piece), so a non-selected part cell must NOT read the piece's sounding. (Paul 2026-08-19 bug)
-                                        buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying && selected && inLoop, id: id)
+                                        buildNoteSweep(idx: c * Snap.rows + r, active: buildStagingPlaying && selected && inLoop, id: id, emitter: buildRowEmittersResolved(r))
                                     } }
                                     .opacity(inLoop ? 1 : 0.3)   // OUTSIDE the loop → dimmed (still tappable — extend the length to include it)
                                     .contentShape(Rectangle())
@@ -4431,7 +4517,7 @@ extension DiagView {
                                     .overlay { if id != nil && multiRung && activeRung { RoundedRectangle(cornerRadius: 7).stroke(Color.white, lineWidth: 2.5) } }   // WHITE = the selected rung (like the part grid)
                                     .overlay { ZStack {                                            // TARGET + NOTE SWEEP (folded into one overlay to keep the cell type-checkable)
                                         if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) }   // THE TARGET rides every play-grid cell matching the selected machine
-                                        buildNoteSweep(idx: c * 8 + r, active: buildPerformPlaying && inLoop, id: id)   // THE NOTE SWEEP (v1) — only when the PLAY grid plays
+                                        buildNoteSweep(idx: c * Snap.rows + r, active: buildPerformPlaying && inLoop, id: id, emitter: buildRowEmittersResolved(r))   // THE NOTE SWEEP (v1) — only when the PLAY grid plays
                                     } }
                                     .opacity((!inLoop || muted || (id != nil && multiRung && !activeRung)) ? 0.3 : 1)   // OUTSIDE the loop · MUTED · non-selected rung → dim
                                     .contentShape(Rectangle())
@@ -4518,9 +4604,9 @@ extension DiagView {
     // THE PIANO-ROLL FACE on the BUILD grid cells (Paul 2026-08-19): soft note marks enter at the RIGHT as the cell sounds
     // and drift LEFT at REAL pitch lanes (the per-cell note feed), tinted the cell's own bright tone. ONLY on a populated
     // cell of the grid that is the PLAYING voice. Accumulated in the VC poll (buildCellRoll); paused when the cell rests.
-    @ViewBuilder private func buildNoteSweep(idx: Int, active: Bool, id: String?) -> some View {
-      if active, let cid = id {
-        let hue = Color(hex: buildLighten(buildBaseHex(cid), 0.72))
+    @ViewBuilder private func buildNoteSweep(idx: Int, active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
+      if active, id != nil {
+        let hue = emitterHue(emitter)   // ROUTING channel (Paul 2026-08-30): the drift is the cell's EMITTER colour, not its machine hue
         let notes = idx < buildCellRoll.count ? buildCellRoll[idx] : []
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || notes.isEmpty)) { tl in
             let now = tl.date
@@ -5639,10 +5725,26 @@ extension DiagView {
         // notes the NEW settings produce (born after the gesture started) stand out from the old ones, as you drag.
         let now = Date(); if buildEditStartedAt == nil { buildEditStartedAt = now }; buildLastEditAt = now
         buildWriteColourMachine(cid, chain)
+        // FERRY MIRROR (Paul 2026-08-30): a SELECT-grid ferry aim edits the transient gsAud (so the audition stays quantized-
+        // swappable). Card edits were auditioned but never written back — an ARP change was HEARD in the audition so it read
+        // as "working", a PASSGATE change wasn't obvious → "not applied", and NEITHER persisted to the part row. Mirror the
+        // edited chain (minus its baked register-home) straight to the aimed row's REAL colour so the part row updates too.
+        if cid == buildGridSelAudID, let mr = buildFerryMirrorRow, let real = buildRowColour(mr) {
+            let t = buildColourTranspose[real] ?? 0
+            buildWriteColourMachine(real, buildStripRegisterHome(chain, transpose: t))
+        }
         // PLACED: a pending tab whose chain has diverged from its source is committed (stops pulsing). (2026-08-17)
         if let p = buildPendingTab, buildRowColour(p) == cid, chain != buildPendingSource {
             buildPendingTab = nil; buildPendingSource = []
         }
+    }
+    // Reverse buildGridSelLoadChain's register-home bake: it inserts a leading TRANSPOSE utility (== the colour's own
+    // transpose) so the ephemeral audition swaps atomically. Dropping it before writing to the REAL colour (which stores
+    // the register home in buildColourTranspose, not as a slot) avoids double-transposing. No baked slot ⇒ returned as-is.
+    private func buildStripRegisterHome(_ chain: [ProcessorSlot], transpose: Int) -> [ProcessorSlot] {
+        guard transpose != 0, let first = chain.first, first.type == .transpose,
+              (first.params.utilTranspose ?? 0) == max(-24, min(24, transpose)) else { return chain }
+        return Array(chain.dropFirst())
     }
     private func buildChainEditSlot(_ i: Int, _ mutate: (inout ProcessorSlot) -> Void) {
         var c = selectedColourChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c)
@@ -6056,6 +6158,7 @@ extension DiagView {
     // Stop the transient audition but KEEP the browser open (tab-switch / RE-DEAL): silence the chain voice, reap the
     // transient, and re-select the pre-open colour so nothing is stranded. The deployed piece plays on.
     private func buildGridSelStopAudition() {
+        buildFerryMirrorRow = nil                                        // stop mirroring — the transient is being reaped
         guard buildGridSelSel != nil || ddSolo || buildPendingWorkshopVoice != nil || buildPendingReengage else { return }
         buildGridSelSel = nil; buildGridSelActiveRoll = []
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
@@ -6116,18 +6219,18 @@ extension DiagView {
     private func buildRoomsSetActiveSide(_ n: Int) { buildGridSelStampSourceRow = n; buildGridSelSel = nil }
     private func buildGridSelStampCommit(_ row: Int) {
         guard let hit = buildGridSelStampSource() else { return }
-        buildRecordUndo()   // BUILD UNDO: stamp the auditioning chain onto a part
-        if let tgt = buildRowColour(row) {                               // populated → overwrite its chain, KEEP its colour
-            buildWriteColourMachine(tgt, hit.chain)
-        } else {                                                         // empty → mint a colour carrying the chain + its register home
-            let y = buildNewTabColour(row, machine: hit.chain, transpose: hit.transpose)
-            buildPartCast.append(y)
-            if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }
-            buildSetRow(row, to: y)
-            if row < buildRowReceiver.count { buildRowReceiver[row] = ddStickyReceiver; buildRowEmitters[row] = ddStickyBuses }
-        }
+        buildRecordUndo()   // BUILD UNDO: capture the auditioning chain onto a part row
+        // CAPTURE-INTO-MIRROR (Paul 2026-08-29): every long-press makes a FRESH cell in the row's PREDETERMINED colour
+        // (colourHexes[row]) carrying whatever's CURRENTLY PLAYING (hit = the audition's chain + its register home), written
+        // to the part ROW — so the ferry button and that part row are ONE cell thereafter (edits mirror). An INDEPENDENT
+        // copy: not linked to the source. (Was: keep an existing row's colour + overwrite only the chain.)
+        if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }
+        let y = buildNewTabColour(row, machine: hit.chain, transpose: hit.transpose)
+        if !buildPartCast.contains(y) { buildPartCast.append(y) }
+        buildSetRow(row, to: y)
+        if row < buildRowReceiver.count { buildRowReceiver[row] = ddStickyReceiver; buildRowEmitters[row] = ddStickyBuses }
         buildStagingSyncIfPlaying()
-        buildGridSelComputeRowRolls()                                    // the row's drifting face updates to the stamped chain
+        buildGridSelComputeRowRolls()                                    // the row's drifting face updates to the captured chain
         buildGridSelStampFlashRow = row; buildGridSelStampFlashAt = Date()   // the white→fade confirm
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == row { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
     }
@@ -6135,6 +6238,7 @@ extension DiagView {
     private func buildGridSelCancel() { buildGridSelTeardown(select: buildGridSelPriorSel, restoreSolo: true) }
     // Shared teardown: reap the transient, restore the selection + (on CANCEL) the pre-open voice + borrowed door, republish.
     private func buildGridSelTeardown(select: String?, restoreSolo: Bool) {
+        buildFerryMirrorRow = nil                                        // the transient is reaped here — stop mirroring
         buildGridSelOpen = false; buildGridSelSel = nil; buildGridSelActiveRoll = []
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
         buildColourReg[buildGridSelAudID] = nil; colourHueOverride[buildGridSelAudID] = nil; buildColourTranspose[buildGridSelAudID] = nil
@@ -6381,8 +6485,10 @@ extension DiagView {
         // LOAD the pressed part's own chain into the MIDI CHAIN panel + audition it (Paul 2026-08-26). sel = nil → it's a
         // view/hear of what's on the row, not a commit source (re-deal or tap a cell to change it). Empty row → clear.
         if let cid = buildRowColour(n) {
+            buildFerryMirrorRow = n                                       // a POPULATED ferry aim MIRRORS this row: card edits on gsAud write straight back to it (Paul 2026-08-30)
             buildGridSelLoadChain(buildColourChain(cid), transpose: buildColourTranspose[cid] ?? 0, hex: buildBaseHex(cid), sel: nil)
         } else {
+            buildFerryMirrorRow = nil                                     // empty row → no mirror target
             buildGridSelStopAudition()                                    // empty part → nothing to load; silence the transient
         }
     }

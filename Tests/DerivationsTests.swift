@@ -780,7 +780,8 @@ final class DerivationsTests: XCTestCase {
         // CC/PB/AT (non-note) ALWAYS forward, both transport states.
         XCTAssertEqual(passthroughCableMask(isNote: false, playing: true,  auditionSuppressing: false), allAndA)
         XCTAssertEqual(passthroughCableMask(isNote: false, playing: false, auditionSuppressing: true),  allAndA)
-        // Notes forward ONLY when stopped and not audition-suppressed.
+        // Notes forward ONLY when stopped and not audition-suppressed (the PURE §2.6 rule; the Kernel now
+        // gates this whole note branch OFF by policy — see noteMonitorPassthrough — so a fresh instance is silent).
         XCTAssertEqual(passthroughCableMask(isNote: true, playing: false, auditionSuppressing: false), allAndA)
         XCTAssertEqual(passthroughCableMask(isNote: true, playing: true,  auditionSuppressing: false), 0, "playing → sequencer owns notes")
         XCTAssertEqual(passthroughCableMask(isNote: true, playing: false, auditionSuppressing: true),  0, "audition replaces the raw chord")

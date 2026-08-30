@@ -277,8 +277,8 @@ final class EffectiveParamsTests: XCTestCase {
             MacroTarget(col: 3, row: 5, slot: 0, param: "gate", delta: 0.3),
         ])
         let box = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(box.cells[0 * 8 + 0].procs[0].gate, 0.8, accuracy: 1e-9)
-        XCTAssertEqual(box.cells[3 * 8 + 5].procs[0].gate, 0.8, accuracy: 1e-9)
+        XCTAssertEqual(box.cells[0 * Snap.rows + 0].procs[0].gate, 0.8, accuracy: 1e-9)
+        XCTAssertEqual(box.cells[3 * Snap.rows + 5].procs[0].gate, 0.8, accuracy: 1e-9)
     }
 
     /// A BUTTON-bank macro (index ≥ 8) folds identically to a slider — the builder iterates all 24 banks, so a

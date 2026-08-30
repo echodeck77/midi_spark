@@ -159,6 +159,55 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ROOMS PLAY-GRID BATCH + THE 64→128 CELL REFACTOR (2026-08-29/30, on `main`; iOS builds, macOS 933 green incl. fuzz;
+  ALL device-owed — the whole rooms/play-grid interface is UI-heavy + Paul-steered on glass). A long device-driven thread
+  redefining the PLAY grid + the voice model, capped by an engine change. NOT YET COMMITTED (uncommitted working tree —
+  Paul commits). **THE VOICE MODEL (exclusive per PAGE):** the 8 play cells are a PERSISTENT continuous layer sounding on
+  EVERY page (select/part/play); beyond them exactly ONE "extra" cell sounds — SELECT = the SELECTED cell (continuous
+  audition), PART = the SEQUENCER's active cell. `roomsSyncVoice` gates the extra voice per page (chain on select, part on
+  part, none on play) WITHOUT touching the play layer. (Reverted a short-lived "non-disruptive SELECT" that let the
+  sequenced part leak onto the select grid — Paul's bug.) **THE PLAY GRID = CONTINUOUS VOICES (no time axis):** each STARTED
+  column (per-column `buildPlayColOn`, independent tap-to-start on the play-ferry + bottom-row buttons) composes at engine
+  (col 0, a dedicated row) LOOPED to column 0 → plays continuously, NOT a step sequencer. I/O is DERIVED from the ferry
+  source (per-column `buildPlayColRecv/Emit` captured at ferry time — no I/O toggles). Per-cell PLAYHEADS (beat-locked,
+  L→R) on play cells + ferries (`diag.beat` now exposes the EFFECTIVE beat so playheads work under free-run). **THE SELECT
+  AUDITION** is now a 1-step CONTINUOUS pass (parks at col 0 of an empty row + loops it — no more re-striking every step).
+  **FERRY-TO-PART = capture-into-mirror:** long-press mints a FRESH cell in the row's predetermined colour carrying whatever
+  plays, writes it to the part row (button ↔ row are one cell). **PART-PAGE TOP ROW** = the identical play-ferry controls.
+  **FRESH-START SILENCE:** makeInit's 8 GOLD `.drone` cells removed (they leaked input to the output on launch) + the raw
+  stopped-note MONITOR passthrough gated OFF (`noteMonitorPassthrough=false`; the pure fn + flag kept for a future
+  soundcheck toggle) + rooms no longer auto-arms the chain on launch. **EMITTER/RECEIVER TOGGLE RELIABILITY:** the chips now
+  read lit-state from the SAME place the toggle writes (`buildSelectedRow` → the row's resolved I/O, else the part default;
+  dropped the mismatched `buildGridSelOpen` branch + the `?? false` that blanked them). **THE 64→128 CELL REFACTOR (#3
+  voice-scene separation):** structural — 8 continuous play cells each need their OWN row (a per-row lane pins each to a
+  column), so they can't share the 8-row scene with the sequenced part. `Snap.rows` 8→16: rows 0–7 the VISIBLE grids, 8–15
+  the HIDDEN play layer (`Snap.playLayerRowBase=8`, `Snap.cells=128`). So the play layer + part now hold DISJOINT engine
+  rows → zero collision on the part page. Touched: ~20 per-cell Router arrays + all VC feeds → `Snap.cells`; the SEAL
+  `cellSoundingMask` UInt64 → two race-safe scalars (lo/hi) threaded through pollCellSounding; the play layer EXEMPTED from
+  the tap/solo `col*8+row` masks (they'd alias); the strike-feed index (`col*Snap.rows+row`) threaded through every UI sweep
+  + the old GridUI faces; +7 tests fixed for the 128-cell count/index. **THE STRIKE-FEED CAP BUG (Paul device 2026-08-30):**
+  three `currentCellIndex < 64` guards (strike/note record · voice cellIndex · [driver→GLIDE]) survived the refactor →
+  cols 4–7 (index ≥64) recorded NO strike → only the first 4 part columns animated (sounded fine). Fixed to `< Snap.cells`;
+  +a col-5 (index 80) strike-feed test assertion so it can't regress. FLAGGED: `Voice.cellIndex` is Int8 (max 127 = the
+  exact 7·16+15 ceiling → 16 rows is this field's limit). OUTSTANDING (future, Paul's steer): multi-step passes + part-grid
+  rate/loop-length + reel multi-pass load + flattened-grid input for the part-page top row; the ferry-to-part note-DRIFT
+  (playhead-only for now — the audition composes on a dynamic row so its index doesn't line up).**
+- **▶ ROOMS FERRY BUG PAIR — play-ferry long-press start + ferry-card edit MIRROR (2026-08-30, on `main`; iOS builds, macOS
+  933 green; DEVICE-owed, UI-only). Two device-reported bugs. **① PLAY-FERRY LONG-PRESS DID NOTHING** (`roomsAssignPlayColumn`):
+  ferrying the select audition to a PLAY-ferry (ferry-to-play) copied the cell + I/O but never STARTED it (unlike ferry-to-part,
+  which switches playback to the held target). Now: `buildPlayColOn[t] = true` (starts this column → the persistent play layer
+  sounds it, and the grid is thereby "playing") + `ddSolo = false; clearColourSolo()` (the SELECT audition stops) + republish —
+  Paul's three asks (start the item · start the grid · stop select). **② FERRY-CARD EDITS NOT APPLIED** (Paul: "the passgate
+  was failing to edit; an arp works on the same path"). ROOT CAUSE: a SELECT-grid ferry AIM loads the row's chain into the
+  transient `gsAud` (kept ephemeral so the audition stays quantized-swappable); processor-card edits wrote to gsAud but were
+  NEVER written back to the mirrored part row — only the explicit long-press COMMIT carried them. The audition plays gsAud, so
+  an ARP change was HEARD ("works") while a PASSGATE change wasn't obvious ("not applied"), and NEITHER persisted. FIX: a live
+  FERRY MIRROR — `buildFerryMirrorRow` (set when aiming a POPULATED ferry, cleared on stop/teardown) makes `buildApplyChain`,
+  when editing gsAud, ALSO write the chain (minus its baked leading register-home transpose, via `buildStripRegisterHome`) to the
+  aimed row's REAL colour. So a focused ferry ↔ the machine controls are bound and edits persist bidirectionally to the part row
+  (Paul's model: the ferry is a COPY of the select cell but MIRRORED to its part row). Guarded on `cid == gsAud` so it never fires
+  for library-browser edits. The PART-grid side buttons already selected the real colour (edits persisted there); the fix closes
+  the SELECT-ferry gap.**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2
