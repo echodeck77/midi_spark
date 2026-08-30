@@ -1335,7 +1335,7 @@ extension DiagView {
             AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6).padding(.bottom, 16)   // the MIDI-IN (receiver) selector — door CONFIG moved to the MIDI CONFIG sheet (config-sheets §5, Paul 2026-08-20)
             AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the CHAIN verb stack (LEFT) + the VERTICAL 2×4 MIDI chain (RIGHT) — Paul 2026-08-18
                 AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75,
-                                              height: 4 * (cell + BuildGeom.castGap) + 3 * BuildGeom.castGap))   // LEFT: centred verb stack (HALF box height, Paul 2026-08-30)
+                                              height: 4 * (cell + BuildGeom.castGap) * 1.5 + 3 * BuildGeom.castGap))   // LEFT: centred verb stack (+50% box height, Paul 2026-08-30)
                 AnyView(buildProcessorBlock(castW: castW, cell: cell))      // RIGHT: 2×4 of 2×2-cell boxes — ~half the width
             })
         }
@@ -1381,12 +1381,11 @@ extension DiagView {
         let cgap = BuildGeom.castGap                                         // the chain block keeps its own 8-column grain (4)
         let swW = (castW - cgap * 7) / 8
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))
-        let blockH = 4 * (cell + cgap) + 3 * cgap                           // the MIDI-chain block height — HALF box height (Paul 2026-08-30); verb buttons + play square share it
+        let blockH = 4 * (cell + cgap) * 1.5 + 3 * cgap                     // the MIDI-chain block height — +50% box height (Paul 2026-08-30); verb buttons + play square share it
         let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
         VStack(spacing: gap) {
-            Color.clear.frame(height: m.navH)                               // BAND 1 — INVISIBLE, aligns with the grid's ▲PLAY nav door (Paul 2026-08-29)
-            AnyView(buildReceiverSelector(castW: castW)).frame(height: m.ch)   // BAND 2 — the 4 MIDI IN controls (was the PLAY button; no latch/settings) (Paul 2026-08-29)
+            AnyView(buildReceiverSelector(castW: castW)).frame(height: m.ch)   // the 4 MIDI IN toggles (the nav-door spacer above was removed — Paul 2026-08-30; the machine no longer rhymes with the grid rows in the 3-section column)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 Spacer(minLength: 8)                                         // centre the chain row VERTICALLY
                 AnyView(HStack(alignment: .center, spacing: 0) {           // verb buttons on ONE side · MIDI CHAIN centred · VERTICAL PLAY + PLAYHEAD on the OPPOSITE side (Paul 2026-08-29)
@@ -2491,7 +2490,7 @@ extension DiagView {
         // Paul 2026-08-30: HALF height (48→24) + only the LARGER line (the letter) — the small "MIDI IN"/"MIDI OUT" caption dropped.
         Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         .foregroundColor(on ? Color.black : buildDim)
-        .frame(maxWidth: .infinity).frame(height: 24)                        // HALF the old 48 (Paul 2026-08-30)
+        .frame(maxWidth: .infinity).frame(height: 36)                        // +50% over the halved 24 (Paul 2026-08-30)
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature colour for MIDI OUT); idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
         .contentShape(Rectangle())
@@ -2639,7 +2638,7 @@ extension DiagView {
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                            // same swatch width as the cast → boxes sit on the 8-column grid
         let boxW = swW * 2 + gap                                   // 2 cast columns wide
-        let boxH = cell + gap                                      // HALF height (Paul 2026-08-30; was 2 cast rows tall)
+        let boxH = (cell + gap) * 1.5                              // +50% over the halved height (Paul 2026-08-30)
         VStack(spacing: gap) {                                      // VERTICAL 2×4 (was 4×2): 4 rows of 2 boxes, reading L→R then down (Paul 2026-08-18)
             ForEach(0..<4, id: \.self) { r in
                 HStack(spacing: gap) {
@@ -5223,7 +5222,7 @@ extension DiagView {
         HStack(spacing: 6) {
             buildEmitterFader(i, letter: letter).frame(width: 22, height: h)   // interactive velocity fader — drag to override output velocity
             VStack(spacing: 3) {                                               // EQUAL rows, top → bottom (mirrors the receiver control)
-                buildRecProminent("CH \(ch)", on: !muted, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleEmitter(i) }   // TOP: CH n — acts as the MUTE (dim = muted / bus disabled)
+                buildRecProminent("CH \(ch)", on: !muted, colour: emitterColour(Bus.allCases[i])) { toggleEmitter(i) }   // TOP: CH n — lit in the emitter's SIGNATURE colour (consistent with the MIDI-OUT toggles, Paul 2026-08-30); acts as the MUTE
                 if showRack { buildRecProminent("RACK", on: racked, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleRack(i) } }   // RACK (hidden on the column strip, Paul 2026-08-30)
                 buildOctRow(oct: i < emitterOctave.count ? emitterOctave[i] : 0, onDown: { nudgeEmitterOctave(i, -1) }, onUp: { nudgeEmitterOctave(i, 1) })   // OCT −/+
                 buildRecMini("SOLO", on: soloed, colour: buildCyan) { toggleEmitterSolo(i) }   // SOLO only (CH is the mute)
