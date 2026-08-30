@@ -6351,7 +6351,9 @@ extension DiagView {
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(fill)
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
-                buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: sel, tint: rollTint)
+                // The drift ANIMATES only while the chain is actually PLAYING (Paul 2026-08-30 bug): gating on `sel` alone kept
+                // the fingerprint looping after STOP on "play this midi chain" (MIDI stopped, animation didn't) — reads as still running.
+                buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: sel && buildDisplayVoice == .chain, tint: rollTint)
                     .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // DSP: only the SELECTED cell drifts; SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
             }
             if sel {       // THE ACTIVE CELL — a breathing live frame
