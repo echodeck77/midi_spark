@@ -270,6 +270,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   Optional) + AU pending/consume/`fullState` encode + VC `buildCapturePlayGrid`/`buildRestorePlayGrid` wired into
   `buildPersistTick` (the 4 Hz poll, runs under `activeTab == .build` = the rooms shell). Restore is shape-guarded (malformed
   ⇒ keep empty defaults). +1 round-trip test. Was in-memory (a fresh load lost the play grid).**
+- **▶ FOOTER RETIREMENT STAGE 1 — I/O strips ONTO the machine column (2026-08-30, on `main`; iOS builds; UI-only, DEVICE-
+  owed). Paul: retire the extend-page MIDI footer in stages; stage 1 = COPY the receiver + emitter controls onto the machine
+  column. The machine column (`chainPanel`) is now THREE stacked sections: the 4 full RECEIVER controls on top · the MACHINE
+  as-is in the middle (colour outline · receiver toggles · chain + buttons · emitter toggles — unchanged, on a REDUCED metric
+  so it fits between the strips, no longer rhyming with the grid rows) · the 4 full EMITTER controls at the bottom. Both new
+  strips: NO config/spanner (the mixer wrench isn't copied), NO RACK on the emitter (`showRack: false`), + a per-strip SETUP
+  button below the S/M (receiver → opens the MIDI IN sheet for that door) / SOLO (emitter → opens the MIDI OUT sheet). The
+  base `buildReceiverControl`/`buildEmitterControl` gained `setup:`/`showRack:` params (the mixer still calls them with
+  defaults → unchanged). The extend-page FOOTER (`roomsFooter`) is HIDDEN (gated on `@AppStorage showRoomsFooter`, default
+  false) with a **MIDI BAR** toggle in the cog DISPLAY section to re-enable it. Applies to SELECT + PART columns. **FLAGGED for
+  Paul's device pass:** 4 full controls in the 1/3-width column is TIGHT (may need a more compact strip); the machine's
+  grid-line alignment is sacrificed; the receiver has NO separate SCALE button to remove (its LATCH row shows the mode incl.
+  SCALE — kept as the arm control); SETUP opens the existing config sheets (my read of its job). NEXT stages: retire the
+  footer/mixer machinery once the strips are proven.**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2

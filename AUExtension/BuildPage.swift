@@ -4994,21 +4994,22 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
-    @ViewBuilder private func buildReceiverControl(_ i: Int) -> some View {
+    @ViewBuilder private func buildReceiverControl(_ i: Int, setup: (() -> Void)? = nil) -> some View {
         let rec = i < receivers.count ? receivers[i] : Receiver()
         let letter = ["A", "B", "C", "D"][i]
         let soloed = soloReceiverMask & (1 << UInt8(i)) != 0
-        let h: CGFloat = 148                                                    // total control height, split into 4 EQUAL rows on the right (Paul 2026-08-18)
+        let h: CGFloat = setup != nil ? 178 : 148                               // total control height, split into EQUAL rows on the right (Paul 2026-08-18; +1 for SETUP)
         HStack(spacing: 6) {
             buildReceiverFader(i, letter: letter).frame(width: 22, height: h)   // velocity INDICATOR — draggable to override input velocity (spring-back on release)
-            VStack(spacing: 3) {                                                // four EQUAL rows, top → bottom
+            VStack(spacing: 3) {                                                // EQUAL rows, top → bottom
                 buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE)
                 buildReceiverLatchButton(i, rec)                                    // LATCH — SET (no mode) / mode label / "LAST N" · pulses when ready · solid when armed
                 buildOctRow(oct: i < receiverOctave.count ? receiverOctave[i] : 0, onDown: { nudgeReceiverOctave(i, -1) }, onUp: { nudgeReceiverOctave(i, 1) })   // OCT −/+ (between LATCH and S/M)
-                HStack(spacing: 3) {                                            // BOTTOM: SOLO (left) · MUTE (right)
+                HStack(spacing: 3) {                                            // SOLO (left) · MUTE (right)
                     buildRecMini("S", on: soloed, colour: buildCyan) { toggleReceiverSolo(i) }
                     buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
                 }
+                if let setup { buildRecMini("SETUP", on: false, colour: buildDim) { setup() } }   // SETUP — the per-door config entry (replaces the footer spanner, Paul 2026-08-30)
             }.frame(height: h)
         }
     }
@@ -5210,20 +5211,21 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
-    @ViewBuilder private func buildEmitterControl(_ i: Int) -> some View {
+    @ViewBuilder private func buildEmitterControl(_ i: Int, showRack: Bool = true, setup: (() -> Void)? = nil) -> some View {
         let letter = ["A", "B", "C", "D"][i]
         let muted = !(i < busEnabled.count ? busEnabled[i] : true)
         let soloed = emitterFootSolo & (1 << UInt8(i)) != 0
         let racked = rackMask & (1 << UInt8(i)) != 0
         let ch = i < busChannels.count ? busChannels[i] : i + 1
-        let h: CGFloat = 148                                                   // match the receiver control — four EQUAL rows (Paul 2026-08-18)
+        let h: CGFloat = setup != nil ? 178 : 148                             // match the receiver control (Paul 2026-08-18; +1 for SETUP)
         HStack(spacing: 6) {
             buildEmitterFader(i, letter: letter).frame(width: 22, height: h)   // interactive velocity fader — drag to override output velocity
-            VStack(spacing: 3) {                                               // four EQUAL rows, top → bottom (mirrors the receiver control)
+            VStack(spacing: 3) {                                               // EQUAL rows, top → bottom (mirrors the receiver control)
                 buildRecProminent("CH \(ch)", on: !muted, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleEmitter(i) }   // TOP: CH n — acts as the MUTE (dim = muted / bus disabled)
-                buildRecProminent("RACK", on: racked, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleRack(i) }             // RACK
+                if showRack { buildRecProminent("RACK", on: racked, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleRack(i) } }   // RACK (hidden on the column strip, Paul 2026-08-30)
                 buildOctRow(oct: i < emitterOctave.count ? emitterOctave[i] : 0, onDown: { nudgeEmitterOctave(i, -1) }, onUp: { nudgeEmitterOctave(i, 1) })   // OCT −/+
-                buildRecMini("SOLO", on: soloed, colour: buildCyan) { toggleEmitterSolo(i) }   // BOTTOM: SOLO only (CH is the mute)
+                buildRecMini("SOLO", on: soloed, colour: buildCyan) { toggleEmitterSolo(i) }   // SOLO only (CH is the mute)
+                if let setup { buildRecMini("SETUP", on: false, colour: buildDim) { setup() } }   // SETUP — the emitter config entry (Paul 2026-08-30)
             }.frame(height: h)
         }
     }
@@ -5232,6 +5234,25 @@ extension DiagView {
     // OCT · SOLO). Internal wrappers so RoomsPage can call the private controls.
     @ViewBuilder func roomsMixerReceiver(_ i: Int) -> some View { buildReceiverControl(i) }
     @ViewBuilder func roomsMixerEmitter(_ i: Int) -> some View { buildEmitterControl(i) }
+
+    // THE MACHINE-COLUMN I/O STRIPS (Paul 2026-08-30, footer-retirement stage 1): the 4 full receiver / emitter controls
+    // COPIED into the machine column — receiver strip on TOP, emitter strip at the BOTTOM. NO config/spanner, NO RACK (emitter),
+    // + a per-strip SETUP button that opens that door/emitter's config sheet (the footer's job, moved onto the strip). The
+    // receiver has no separate SCALE button — its LATCH row shows the mode (SCALE included), kept as the arm control.
+    @ViewBuilder func roomsColumnReceivers() -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<4, id: \.self) { i in
+                buildReceiverControl(i, setup: { buildMidiConfigTab = i; buildMidiConfigOpen = true }).frame(maxWidth: .infinity)
+            }
+        }
+    }
+    @ViewBuilder func roomsColumnEmitters() -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<4, id: \.self) { i in
+                buildEmitterControl(i, showRack: false, setup: { buildMidiOutConfigOpen = true }).frame(maxWidth: .infinity)
+            }
+        }
+    }
 
     // The colour currently PLAYING the cell (the active rung in the playing column) → the emitter velocity-strip tint. (Paul 2026-08-19)
     private var buildPlayingColourHue: Color? {

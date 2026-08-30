@@ -11,6 +11,7 @@ struct CogPage: View {
     let d: KernelDiag                 // health readout (voices / held / panics)
     let aboutLine: String
     @Binding var showScenes: Bool     // DISPLAY: the arrangement bar's 16-scene row (hidden by default)
+    @Binding var showRoomsFooter: Bool   // DISPLAY: the extend-page MIDI footer (hidden by default now — its controls moved onto the machine column)
     @Binding var useNewInterface: Bool   // DISPLAY: preview the NEW room-based interface (Docs/INSTRUCTIONS-interface-redesign.md)
     let onClose: () -> Void
 
@@ -38,6 +39,12 @@ struct CogPage: View {
                             Text("preview the room-based interface (in progress)").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
                             Spacer()
                             onOffToggle(on: useNewInterface) { useNewInterface = $0 }
+                        }
+                        HStack(spacing: 8) {
+                            Text("MIDI BAR").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).frame(width: 60, alignment: .leading)
+                            Text("show the old extend-page MIDI footer (its controls now live on the machine column)").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+                            Spacer()
+                            onOffToggle(on: showRoomsFooter) { showRoomsFooter = $0 }
                         }
                         divider
                         section("HEALTH")

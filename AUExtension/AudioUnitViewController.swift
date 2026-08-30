@@ -285,6 +285,7 @@ struct DiagView: View {
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
+    @AppStorage("midispark.roomsFooter") var showRoomsFooter = false   // the extend-page MIDI footer is HIDDEN now (its controls moved onto the machine column); re-enablable on the cog page (Paul 2026-08-30)
     // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — a parallel NEW-interface shell behind a preview toggle
     // (old BUILD stays the default + fully working). Off ⇒ the current BUILD page; on ⇒ the room shell (roomsPage).
     @AppStorage("midispark.newInterfaceV2") var useNewInterface = true   // NEW interface is the DEFAULT now (Paul 2026-08-28); toggle to old BUILD in the cog. (Fresh key so the new default-on isn't shadowed by a stored value from increment 1.)
@@ -771,6 +772,7 @@ struct DiagView: View {
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, d: d, aboutLine: aboutLine,
                             showScenes: $showScenes,
+                            showRoomsFooter: $showRoomsFooter,
                             useNewInterface: $useNewInterface,
                             onClose: { showSettings = false })
                 }

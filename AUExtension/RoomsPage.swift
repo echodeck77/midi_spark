@@ -39,7 +39,7 @@ extension DiagView {
         ZStack {
             VStack(spacing: 0) {
                 roomsMiddle(size).frame(maxWidth: .infinity, maxHeight: .infinity)
-                roomsFooter()
+                if showRoomsFooter { roomsFooter() }   // the MIDI footer is HIDDEN by default now (its controls live on the machine column); cog → re-enable (Paul 2026-08-30)
             }
             if roomsMixerOpen { roomsMixerOverlay(size) }   // §1 the strip-controls overlay (two-stage: strips → full config)
             roomsProcessorPicker(size: size)                // empty chain-box → the processor selector window
@@ -204,7 +204,16 @@ extension DiagView {
     // toggles) reused verbatim from the old BUILD left column via buildPage's internal roomsMachineStrip. (Paul 2026-08-28)
     @ViewBuilder private func chainPanel(_ room: Room, _ m: RoomsMetrics) -> some View {
         GeometryReader { g in
-            roomsMachineStrip(width: g.size.width, room: room, m: m)        // metric-driven bands → exact height, no scroll needed (lines up with the grid)
+            // THREE SECTIONS (Paul 2026-08-30, footer-retirement stage 1): the RECEIVER strip on top · the MACHINE (as it is)
+            // in the middle · the EMITTER strip at the bottom. The machine takes a REDUCED metric so it fits between the strips
+            // (it no longer rhymes with the grid rows — an accepted trade for the console-on-the-column layout).
+            let stripH: CGFloat = 190
+            let mid = max(150, g.size.height - 2 * stripH - 12)
+            VStack(spacing: 6) {
+                roomsColumnReceivers().frame(height: stripH)                  // TOP — the 4 MIDI IN controls (+ SETUP)
+                roomsMachineStrip(width: g.size.width, room: room, m: RoomsMetrics(height: mid)).frame(height: mid)   // MIDDLE — the machine, unchanged
+                roomsColumnEmitters().frame(height: stripH)                   // BOTTOM — the 4 MIDI OUT controls (+ SETUP)
+            }
         }
     }
 
