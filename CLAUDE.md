@@ -283,7 +283,10 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   Paul's device pass:** 4 full controls in the 1/3-width column is TIGHT (may need a more compact strip); the machine's
   grid-line alignment is sacrificed; the receiver has NO separate SCALE button to remove (its LATCH row shows the mode incl.
   SCALE — kept as the arm control); SETUP opens the existing config sheets (my read of its job). NEXT stages: retire the
-  footer/mixer machinery once the strips are proven.**
+  footer/mixer machinery once the strips are proven. **FOLLOW-UP (Paul device 2026-08-30): the SETUP buttons were REMOVED from
+  both strips (config still reached via the header MIDI IN / MIDI OUT buttons; strips back to 4 rows, stripH 190→152); and the
+  vertical PLAY button became a SQUARE (~one chain box, centred in its flank) with the playhead sweeping LEFT→RIGHT (was a tall
+  narrow button, top→bottom fill).**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2

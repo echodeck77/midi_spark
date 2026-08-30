@@ -1424,29 +1424,33 @@ extension DiagView {
     }
     // THE VERTICAL PLAY BUTTON + PLAYHEAD (Paul 2026-08-29) — a tall thin play/stop toggle beside the MIDI chain, on the
     // OPPOSITE side from the verb buttons. Its PLAYHEAD is a TOP→BOTTOM fill running the chain's play duration (buildHeaderFill).
+    // THE PLAY BUTTON — now a SQUARE (~one MIDI-chain box) with a LEFT→RIGHT playhead sweep (Paul 2026-08-30, was a tall
+    // narrow button with a top→bottom fill). Sits centred in its flank; tap = play/stop the chain (SELECT) or part (PART).
     @ViewBuilder func roomsVerticalPlay(_ room: Room, height: CGFloat) -> some View {
         let voice: BuildWorkshopVoice = room == .part ? .part : .chain
         let active = buildDisplayVoice == voice
         GeometryReader { g in
-            ZStack(alignment: .top) {
+            let side = min(g.size.width, g.size.height)                      // SQUARE, ~one chain box
+            ZStack {
                 RoundedRectangle(cornerRadius: 8).fill(active ? buildCyan.opacity(0.28) : buildCell)
-                if active && d.playing {                                    // the PLAYHEAD — a fill sweeping TOP→BOTTOM over the chain's duration
+                if active && d.playing {                                    // the PLAYHEAD — a fill sweeping LEFT→RIGHT over the chain's duration
                     TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                         RoundedRectangle(cornerRadius: 8).fill(buildCyan.opacity(0.30))
-                            .frame(height: g.size.height * buildHeaderFill(.grid, tl.date))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // grows from the top down
+                            .frame(width: side * buildHeaderFill(.grid, tl.date))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)   // grows from the left across
                     }
                 }
-                Image(systemName: active ? "stop.fill" : "play.fill").font(.system(size: 14, weight: .black))
+                Image(systemName: active ? "stop.fill" : "play.fill").font(.system(size: 16, weight: .black))
                     .foregroundColor(active ? Color(red: 0.98, green: 0.5, blue: 0.5) : buildCyan)
-                    .frame(maxWidth: .infinity).padding(.top, 7)
             }
+            .frame(width: side, height: side)
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? buildCyan : buildEdge, lineWidth: 1))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)   // centre the square in its flank
+            .contentShape(Rectangle())
+            .onTapGesture { buildRequestWorkshopVoice(active ? .none : voice) }
         }
         .frame(height: height)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? buildCyan : buildEdge, lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture { buildRequestWorkshopVoice(active ? .none : voice) }
     }
     // (The wide RECORD row was RETIRED 2026-08-29 — the PLAY button took its band. The reel is still reached via the
     // REEL room. buildReelButton remains for that room / a future RECORD home.)
@@ -5237,20 +5241,16 @@ extension DiagView {
 
     // THE MACHINE-COLUMN I/O STRIPS (Paul 2026-08-30, footer-retirement stage 1): the 4 full receiver / emitter controls
     // COPIED into the machine column — receiver strip on TOP, emitter strip at the BOTTOM. NO config/spanner, NO RACK (emitter),
-    // + a per-strip SETUP button that opens that door/emitter's config sheet (the footer's job, moved onto the strip). The
-    // receiver has no separate SCALE button — its LATCH row shows the mode (SCALE included), kept as the arm control.
+    // NO SETUP button (Paul 2026-08-30 — removed; config still reached via the header MIDI IN / MIDI OUT buttons). The receiver
+    // has no separate SCALE button — its LATCH row shows the mode (SCALE included), kept as the arm control.
     @ViewBuilder func roomsColumnReceivers() -> some View {
         HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { i in
-                buildReceiverControl(i, setup: { buildMidiConfigTab = i; buildMidiConfigOpen = true }).frame(maxWidth: .infinity)
-            }
+            ForEach(0..<4, id: \.self) { i in buildReceiverControl(i).frame(maxWidth: .infinity) }
         }
     }
     @ViewBuilder func roomsColumnEmitters() -> some View {
         HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { i in
-                buildEmitterControl(i, showRack: false, setup: { buildMidiOutConfigOpen = true }).frame(maxWidth: .infinity)
-            }
+            ForEach(0..<4, id: \.self) { i in buildEmitterControl(i, showRack: false).frame(maxWidth: .infinity) }
         }
     }
 
