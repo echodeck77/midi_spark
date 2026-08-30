@@ -235,6 +235,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   `buildSelectedPlayCol` (the play-grid analogue of buildSelectedRow) threaded into the receiver/emitter chip read + into
   buildSelectDoor/buildToggleBus (and the All-long-press guards) → they resolve buildSelID → buildPlayColRecv/Emit[c] instead
   of the part default.**
+- **▶ ROOMS FERRY ANIMATION ROBUSTNESS (2026-08-30, on `main`; iOS builds, macOS 935 green; DEVICE-owed). Paul: on SELECT,
+  copying a grid cell to a ferry animated the FIRST time but subsequent copies didn't (an edit — which forces a republish —
+  made them animate). The ferry's live drift reads `buildChainAuditionRow` (the audition's engine row from composeSceneMeta);
+  when that's nil the ferry had no live index → static. Two fixes: (1) composeScene's FALLBACK branch (no fully-empty row — a
+  deployed piece fills rows 0–7) now sets `chainLaneRow = row` so auditionRow is never nil in that case (+1 test); (2) the
+  select→part ferry now GUARANTEES motion while playing — the chain fingerprint DRIFTS as a base layer (gated on `playing` so
+  it still stops on STOP, per the earlier drift-stop fix) with the REAL audition notes riding on top when the live-strike row
+  is known. So a playing ferry always animates regardless of the live-feed edge, and shows real notes when they flow.**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2

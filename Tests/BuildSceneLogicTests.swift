@@ -224,6 +224,17 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(BuildSceneLogic.composeSceneMeta(j).auditionRow, "no chain voice → no audition row")
     }
 
+    func testComposeSceneMetaFallbackStillExposesARow() {
+        // Paul 2026-08-30: when NO row is fully empty (a deployed piece fills col 0 of every row), the audition takes the
+        // FALLBACK branch — which must STILL expose a chainLaneRow, else the aimed ferry has no live-strike index and reads
+        // as dead (the "subsequent copies didn't animate" bug locus).
+        var i = BuildSceneLogic.Input()
+        i.chainActive = true; i.chainColourID = "cyan"
+        i.performPlaying = true
+        i.performCells = (0..<8).map { c in (0..<8).map { r in c == 0 ? "gold" : nil } }   // col 0 filled in EVERY row → no empty row
+        XCTAssertNotNil(BuildSceneLogic.composeSceneMeta(i).auditionRow, "the fallback still exposes a row for the ferry's live feed")
+    }
+
     func testChainFallsBackToTheLeastOccupiedRowWhenPieceIsFull() {
         var i = BuildSceneLogic.Input()
         i.chainActive = true

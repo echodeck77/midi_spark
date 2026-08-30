@@ -130,6 +130,7 @@ enum BuildSceneLogic {
                 chainLaneRow = emptyRow
             } else if let row = (0..<8).min(by: { occ[$0] < occ[$1] }), occ[row] < 8 {
                 for c in 0..<8 where s.cellAt(c, row) == nil { s.setCell(c, row, mk()) }   // FALLBACK (no empty row — every row already sounds): lay across (may re-strike)
+                chainLaneRow = row                                     // expose the row so the aimed ferry still has a live-strike index (Paul 2026-08-30; col 0 = a chain cell iff it was free)
             }
         }
 

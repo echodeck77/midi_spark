@@ -1733,8 +1733,15 @@ extension DiagView {
             .frame(height: height)
             .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(populated ? (playing ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
             .overlay { if populated && !part {
-                if let li = liveIdx { buildNoteSweep(idx: li, active: true, id: buildRowColour(n), emitter: buildRowEmittersResolved(n)) }   // REAL audition notes in the EMITTER colour
-                else { buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: false, tint: eHue).padding(.vertical, 3).padding(.horizontal, 2).opacity(0.55) }   // idle → the calm CHAIN fingerprint
+                ZStack {
+                    // BASE: the chain's fingerprint. While PLAYING it DRIFTS (a guaranteed "this is running" tell that covers the
+                    // edges where the live strike feed is momentarily empty or the audition row shifted — Paul 2026-08-30, the
+                    // "subsequent copies didn't animate" bug); idle → a calm static fingerprint.
+                    buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: playing, tint: eHue)
+                        .padding(.vertical, 3).padding(.horizontal, 2).opacity(playing ? 0.45 : 0.55)
+                    // REAL audition notes ride ON TOP when this ferry's live-strike row is known (brighter, the honest signal).
+                    if let li = liveIdx { buildNoteSweep(idx: li, active: true, id: buildRowColour(n), emitter: buildRowEmittersResolved(n)) }
+                }
             } }
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
             .clipShape(RoundedRectangle(cornerRadius: 5))
