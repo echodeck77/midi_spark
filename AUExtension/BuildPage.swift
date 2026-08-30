@@ -1554,20 +1554,22 @@ extension DiagView {
             let on = t < buildPlayColOn.count && buildPlayColOn[t]        // is this column PLAYING? (independent per-column voice)
             let mHue = id.flatMap { colourColor($0) } ?? Color(hex: colourHexes[t % 16])   // MACHINE identity (the ferried cell's colour)
             let eHue = emitterHue(t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a])  // EMITTER colour (routing)
+            let focused = set && id == ddSelectedColourID               // this play ferry is the SELECTED machine (Paul 2026-08-30)
             // THREE STATES (Paul 2026-08-30): NULL · POPULATED (machine frame, calm) · PLAYING (bright frame + EMITTER glow +
-            // the live drift). Machine = the frame, emitter = the drift tint + a corner dot + the playing glow.
+            // the live drift). Machine = the frame, emitter = the drift tint + a corner dot + the playing glow. SELECTED (not
+            // playing) also brightens the frame so the ferry ↔ machine pairing is visible.
             RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                 .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
                 .overlay { if set { buildNoteSweep(idx: Snap.playLayerRowBase + t, active: on, id: id, emitter: t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a]).padding(2) } }   // live drift in the EMITTER colour (play cell strikes at index 8+t)
                 .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // MACHINE frame: dim → BRIGHT when PLAYING
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING or SELECTED
                 .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
                 .overlay(Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0))   // PLAY/STOP (state) in the MACHINE hue
                 .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
                 .contentShape(Rectangle())
-                .onTapGesture { buildTogglePlayColumn(t) }               // TAP = start/stop THIS column's independent playback (Paul 2026-08-29)
+                .onTapGesture { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }   // TAP = start/stop THIS column + SELECT it (machine reflects — Paul 2026-08-30)
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                     pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
         }
@@ -1591,6 +1593,7 @@ extension DiagView {
         // then sounds via its persistent voice; the previously-auditioning library cell goes quiet.
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }
         if ddSolo { ddSolo = false; au?.clearColourSolo() }                  // the SELECT grid stops playing
+        buildSelectID(y)                                                     // the FERRIED play cell becomes the selection → the machine strip reflects it, the original select cell is deselected (Paul 2026-08-30)
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
         buildPublishScene()                                                  // republish: the started column plays, the audition is off
@@ -1911,6 +1914,13 @@ extension DiagView {
     func buildTogglePlayColumn(_ c: Int) {
         guard c >= 0, c < buildPlayColOn.count, buildPlayColPopulated(c) else { return }
         buildPlayColOn[c].toggle(); buildPublishScene()
+    }
+    // SELECT a play column's cell → the machine strip reflects its chain (Paul 2026-08-30: play-ferry selection). Independent
+    // of playback: focusing a play ferry never starts/stops it. Reaped-transient safe (buildSelectID handles a real colour).
+    func buildSelectPlayColumn(_ c: Int) {
+        let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
+        guard r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return }
+        buildSelectID(cid)
     }
     // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
     func buildTogglePlayGrid() {

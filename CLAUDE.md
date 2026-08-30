@@ -219,6 +219,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (id = the row's REAL colour) never lit the bright "focused" frame. `roomsGridCellBody.focused` now ALSO matches the
   MIRRORED row's real colour (`buildFerryMirrorRow → buildRowColour`), so the mirrored row's cells pair with the machine in
   view during ferry editing.**
+- **▶ ROOMS PLAY-FERRY SELECTION + select-cell drift-stop (2026-08-30, on `main`; iOS builds; UI-only, DEVICE-owed). Two
+  device bugs. **SELECT-CELL DRIFT DIDN'T STOP:** the SELECT audition cell looped its chain fingerprint gated on `sel`
+  (selected) alone, so STOP on "play this midi chain" left it animating after the MIDI stopped (`buildGridSelCell` line ~6354,
+  `animated: sel && buildDisplayVoice == .chain`; matches the part/play/ferry sweeps, which all gate on their own voice).
+  **PLAY-FERRY SELECTION DIDN'T EXIST:** long-pressing a ferry-to-PLAY started the column but never selected it — the machine
+  strip kept showing the original select cell, and play ferries had no selection concept at all. Now `roomsAssignPlayColumn`
+  ends with `buildSelectID(y)` (the minted play colour → the strip reflects it, the source is deselected), the play ferry TAP
+  toggles play AND selects (`buildTogglePlayColumn` + new `buildSelectPlayColumn`), and `roomsPlayFerry` brightens its frame
+  when `focused` (id == ddSelectedColourID). The ferry's note DRIFT reads the play-layer strike feed (idx 8+t) = REAL emitted
+  notes, so it only animates when the column actually sounds (a latched chord at its receiver); a momentary-input source ferries
+  the chain but goes silent → only the beat-driven playhead runs (input-dependent, not a feed bug).**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2
