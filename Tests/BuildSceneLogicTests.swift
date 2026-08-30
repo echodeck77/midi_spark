@@ -136,6 +136,35 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(lane[base + 1], 0b1, "row 9 loops column 0 → continuous")
         XCTAssertEqual(lane[base + 2], 0, "col 2 not started → its row doesn't loop")
     }
+    func testPlayColumnMultiStepPassLaysStepsAndLoopsItsLength() throws {
+        // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column with len > 1 lays its step colours across
+        // cols 0..len-1 of the play-layer row, SWEPT (no col-0 pin) and looped by rowLen. len ≤ 1 stays the pinned single cell.
+        var i = BuildSceneLogic.Input()
+        i.playPlaying = true
+        i.playColOn = [true, true, false, false, false, false, false, false]
+        i.playColEmit = [[.a], [.b], [.a], [.a], [.a], [.a], [.a], [.a]]
+        i.playColRecv = [0, 0, 0, 0, 0, 0, 0, 0]
+        // column 0 = a 3-step pass (step 1 is a REST); column 1 = a single continuous cell (len defaults to 1).
+        i.playColLen = [3, 1, 1, 1, 1, 1, 1, 1]
+        i.playColSteps = [["a", nil, "c"], [], [], [], [], [], [], []]
+        i.playColStepChain = [[[ProcessorSlot(type: .arp)], [], [ProcessorSlot(type: .harmonize)]], [], [], [], [], [], [], []]
+        i.playCells = grid([(1, 0, "solo")]); i.playSel = [0, 0, -1, -1, -1, -1, -1, -1]   // col 1's single cell
+        let s = BuildSceneLogic.composeScene(i)!
+        let base = Snap.playLayerRowBase
+        XCTAssertEqual(s.cellAt(0, base)?.colourID, "a", "step 0 at (col 0, play row)")
+        XCTAssertNil(s.cellAt(1, base), "step 1 is a REST → no cell")
+        XCTAssertEqual(s.cellAt(2, base)?.colourID, "c", "step 2 at (col 2, play row)")
+        XCTAssertEqual(s.cellAt(2, base)?.processors?.first?.type, .harmonize, "each step carries its own resolved chain")
+        XCTAssertEqual(s.cellAt(0, base)?.buses, [.a], "the pass takes the column's ferried emitter")
+        let len = try XCTUnwrap(s.rowLen, "the play layer carries a per-row length")
+        XCTAssertEqual(len[base], 3, "the multi-step play row loops its pass length (3)")
+        let lane = try XCTUnwrap(s.rowLane, "the play grid sets a per-row lane")
+        XCTAssertEqual(lane[base], 0, "multi-step SWEEPS 0..len-1 → no col-0 pin")
+        // column 1 stays the pinned single cell, byte-identical to today.
+        XCTAssertEqual(s.cellAt(0, base + 1)?.colourID, "solo", "the single-cell column is unchanged")
+        XCTAssertEqual(lane[base + 1], 0b1, "single cell → pinned to col 0 (continuous)")
+        XCTAssertNil(len[base + 1], "single cell sets no per-row length")
+    }
     func testPlayGridAloneProducesASceneOnlyWhenAColumnIsStarted() {
         var i = BuildSceneLogic.Input()
         i.playPlaying = true; i.playCells = grid([(0, 0, "b1")]); i.playSel = [0, -1, -1, -1, -1, -1, -1, -1]

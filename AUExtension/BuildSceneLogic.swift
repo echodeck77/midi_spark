@@ -53,6 +53,12 @@ enum BuildSceneLogic {
         var playColRecv: [Int] = []                    // per-column input door (derived from the ferry source)
         var playColEmit: [Set<Bus>] = []               // per-column output emitters (derived from the ferry source; empty → [.a])
         var playLane: UInt8 = 0                        // the play grid's column-loop mask
+        // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part") — a play column can carry an N-STEP pass instead of a single
+        // looped cell. playColLen[c] > 1 ⇒ playColSteps[c][step] (the flattened part's per-column colours) is laid across
+        // cols 0..len-1 of the play-layer row and SWEPT+looped (rowLen); len ≤ 1 ⇒ the single-cell path (today, byte-identical).
+        var playColLen: [Int] = []                     // per-column pass length (1 = single continuous cell, today's default)
+        var playColSteps: [[String?]] = []             // per-column [step] → colourID (nil = a rest); used only when len > 1
+        var playColStepChain: [[[ProcessorSlot]]] = [] // per-column [step] → the step colour's RESOLVED chain ([] = passthrough)
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -74,14 +80,26 @@ enum BuildSceneLogic {
             // never leaves it → the cell plays CONTINUOUSLY while enabled, not only when a sweeping playhead crosses its column.
             for c in 0..<8 {
                 guard c < i.playColOn.count, i.playColOn[c] else { continue }   // ONLY started columns sound
-                let r = c < i.playSel.count ? i.playSel[c] : -1
-                guard r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, let cid = i.playCells[c][r] else { continue }
                 let own = c < i.playColEmit.count ? i.playColEmit[c] : []
                 let buses: Set<Bus> = own.isEmpty ? [.a] : own                  // per-column emitters, derived from the ferry source
-                var cell = Cell(colourID: cid, buses: buses)
-                cell.inputReceiver = max(0, min(3, c < i.playColRecv.count ? i.playColRecv[c] : 0))   // per-column door, derived from the ferry source
-                cell.processors = c < i.playColChain.count ? i.playColChain[c] : []   // EXPLICIT resolved machine ([] = passthrough wire)
-                s.setCell(0, Snap.playLayerRowBase + c, cell)                   // engine (col 0, HIDDEN play-layer row 8+c) → a continuous voice, DISJOINT from the part's rows 0–7
+                let recv = max(0, min(3, c < i.playColRecv.count ? i.playColRecv[c] : 0))   // per-column door, derived from the ferry source
+                let len = c < i.playColLen.count ? max(1, min(Snap.cols, i.playColLen[c])) : 1
+                if len <= 1 {                                                   // SINGLE CELL (today, byte-identical): pinned continuous at (col 0, row 8+c)
+                    let r = c < i.playSel.count ? i.playSel[c] : -1
+                    guard r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, let cid = i.playCells[c][r] else { continue }
+                    var cell = Cell(colourID: cid, buses: buses)
+                    cell.inputReceiver = recv
+                    cell.processors = c < i.playColChain.count ? i.playColChain[c] : []   // EXPLICIT resolved machine ([] = passthrough wire)
+                    s.setCell(0, Snap.playLayerRowBase + c, cell)               // engine (col 0, HIDDEN play-layer row 8+c) → a continuous voice, DISJOINT from the part's rows 0–7
+                } else {                                                        // MULTI-STEP PASS: the flattened part's step colours across cols 0..len-1, SWEPT + looped (rowLen below)
+                    for step in 0..<len {
+                        guard c < i.playColSteps.count, step < i.playColSteps[c].count, let cid = i.playColSteps[c][step] else { continue }   // nil ⇒ a rest step
+                        var cell = Cell(colourID: cid, buses: buses)
+                        cell.inputReceiver = recv
+                        cell.processors = (c < i.playColStepChain.count && step < i.playColStepChain[c].count) ? i.playColStepChain[c][step] : []
+                        s.setCell(step, Snap.playLayerRowBase + c, cell)        // engine (col step, row 8+c) — the playhead sweeps 0..len-1 and loops
+                    }
+                }
             }
         }
 
@@ -136,8 +154,8 @@ enum BuildSceneLogic {
 
         // PER-PART CLOCK (Paul 2026-08-19): each scene ROW takes its owning part's rate/length. The STAGING (current
         // part) rows win over the piece (they sit in front); a nil ⇒ the scene default (uniform = today).
-        var rowStepRate = [StepRate?](repeating: nil, count: 8)
-        var rowLen = [Int?](repeating: nil, count: 8)
+        var rowStepRate = [StepRate?](repeating: nil, count: Snap.rows)   // Snap.rows (16) so the PLAY layer (rows 8–15) can carry a per-column pass length too
+        var rowLen = [Int?](repeating: nil, count: Snap.rows)
         var clockClaimed = [Bool](repeating: false, count: 8)   // rows the STAGING (front) voice owns — the piece never overrides these
         if i.stagingPlaying {
             for c in 0..<8 {
@@ -151,6 +169,13 @@ enum BuildSceneLogic {
             for r in 0..<8 where !clockClaimed[r] {   // a staging row wins even when its rate/len are nil (scene default); else the piece fills
                 if r < i.performRate.count { rowStepRate[r] = i.performRate[r] }   // rate + length set INDEPENDENTLY: a default-rate part still applies its short LENGTH (bug fix Paul 2026-08-19)
                 if r < i.performLen.count { rowLen[r] = i.performLen[r] }
+            }
+        }
+        if i.playPlaying {   // MULTI-STEP PASS (Paul 2026-08-30): a play column with len > 1 loops its own N columns on the play-layer row
+            for c in 0..<8 {
+                guard c < i.playColOn.count, i.playColOn[c] else { continue }
+                let len = c < i.playColLen.count ? max(1, min(Snap.cols, i.playColLen[c])) : 1
+                if len > 1 { rowLen[Snap.playLayerRowBase + c] = len }   // len ≤ 1 stays nil → the single cell is pinned via rowLane below
             }
         }
         if rowStepRate.contains(where: { $0 != nil }) || rowLen.contains(where: { $0 != nil }) {
@@ -170,8 +195,10 @@ enum BuildSceneLogic {
                 } }
             }
             if i.playPlaying {                              // the PLAY grid: each STARTED column's HIDDEN row (8+c)
-                for c in 0..<8 {                            //   loops COLUMN 0 → the cell plays CONTINUOUSLY (no time/step axis), disjoint from the part
+                for c in 0..<8 {                            //   SINGLE cell → loops COLUMN 0 (pinned, continuous); MULTI-STEP pass → SWEEPS (rowLane 0, rowLen loops it)
                     guard c < i.playColOn.count, i.playColOn[c] else { continue }
+                    let len = c < i.playColLen.count ? max(1, min(Snap.cols, i.playColLen[c])) : 1
+                    if len > 1 { continue }                 // multi-step sweeps 0..len-1 → leave rowLane 0 (no pin)
                     let r = c < i.playSel.count ? i.playSel[c] : -1
                     if r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, i.playCells[c][r] != nil { rowLane[Snap.playLayerRowBase + c] = 0b0000_0001 }
                 }
