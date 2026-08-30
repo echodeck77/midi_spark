@@ -207,12 +207,12 @@ extension DiagView {
             // THREE SECTIONS (Paul 2026-08-30, footer-retirement stage 1): the RECEIVER strip on top · the MACHINE (as it is)
             // in the middle · the EMITTER strip at the bottom. The machine takes a REDUCED metric so it fits between the strips
             // (it no longer rhymes with the grid rows — an accepted trade for the console-on-the-column layout).
-            let stripH: CGFloat = 152                                        // the 4 controls (no SETUP row now) + a little margin
+            let stripH = 2 * m.ch + RoomsMetrics.gap                         // the strips are exactly TWO GRID CELLS tall (Paul 2026-08-30)
             let mid = max(150, g.size.height - 2 * stripH - 12)
             VStack(spacing: 6) {
-                roomsColumnReceivers().frame(height: stripH)                  // TOP — the 4 MIDI IN controls (+ SETUP)
+                roomsColumnReceivers(height: stripH).frame(height: stripH)    // TOP — the 4 MIDI IN controls
                 roomsMachineStrip(width: g.size.width, room: room, m: RoomsMetrics(height: mid)).frame(height: mid)   // MIDDLE — the machine, unchanged
-                roomsColumnEmitters().frame(height: stripH)                   // BOTTOM — the 4 MIDI OUT controls (+ SETUP)
+                roomsColumnEmitters(height: stripH).frame(height: stripH)     // BOTTOM — the 4 MIDI OUT controls
             }
         }
     }

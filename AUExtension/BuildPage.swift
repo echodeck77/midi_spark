@@ -1385,7 +1385,7 @@ extension DiagView {
         let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
         VStack(spacing: gap) {
-            AnyView(buildReceiverSelector(castW: castW)).frame(height: m.ch)   // the 4 MIDI IN toggles (the nav-door spacer above was removed — Paul 2026-08-30; the machine no longer rhymes with the grid rows in the 3-section column)
+            AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 Spacer(minLength: 8)                                         // centre the chain row VERTICALLY
                 AnyView(HStack(alignment: .center, spacing: 0) {           // verb buttons on ONE side · MIDI CHAIN centred · VERTICAL PLAY + PLAYHEAD on the OPPOSITE side (Paul 2026-08-29)
@@ -4995,11 +4995,11 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
-    @ViewBuilder private func buildReceiverControl(_ i: Int, setup: (() -> Void)? = nil) -> some View {
+    @ViewBuilder private func buildReceiverControl(_ i: Int, height: CGFloat = 148) -> some View {
         let rec = i < receivers.count ? receivers[i] : Receiver()
         let letter = ["A", "B", "C", "D"][i]
         let soloed = soloReceiverMask & (1 << UInt8(i)) != 0
-        let h: CGFloat = setup != nil ? 178 : 148                               // total control height, split into EQUAL rows on the right (Paul 2026-08-18; +1 for SETUP)
+        let h = height                                                          // total control height (the column strip passes the 2-cell height, Paul 2026-08-30)
         HStack(spacing: 6) {
             buildReceiverFader(i, letter: letter).frame(width: 22, height: h)   // velocity INDICATOR — draggable to override input velocity (spring-back on release)
             VStack(spacing: 3) {                                                // EQUAL rows, top → bottom
@@ -5010,7 +5010,6 @@ extension DiagView {
                     buildRecMini("S", on: soloed, colour: buildCyan) { toggleReceiverSolo(i) }
                     buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
                 }
-                if let setup { buildRecMini("SETUP", on: false, colour: buildDim) { setup() } }   // SETUP — the per-door config entry (replaces the footer spanner, Paul 2026-08-30)
             }.frame(height: h)
         }
     }
@@ -5209,21 +5208,21 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
-    @ViewBuilder private func buildEmitterControl(_ i: Int, showRack: Bool = true, setup: (() -> Void)? = nil) -> some View {
+    @ViewBuilder private func buildEmitterControl(_ i: Int, showRack: Bool = true, height: CGFloat = 148) -> some View {
         let letter = ["A", "B", "C", "D"][i]
         let muted = !(i < busEnabled.count ? busEnabled[i] : true)
         let soloed = emitterFootSolo & (1 << UInt8(i)) != 0
         let racked = rackMask & (1 << UInt8(i)) != 0
         let ch = i < busChannels.count ? busChannels[i] : i + 1
-        let h: CGFloat = setup != nil ? 178 : 148                             // match the receiver control (Paul 2026-08-18; +1 for SETUP)
+        let h = height                                                        // match the receiver control (the column strip passes the 2-cell height, Paul 2026-08-30)
         HStack(spacing: 6) {
             buildEmitterFader(i, letter: letter).frame(width: 22, height: h)   // interactive velocity fader — drag to override output velocity
             VStack(spacing: 3) {                                               // EQUAL rows, top → bottom (mirrors the receiver control)
                 buildRecProminent("CH \(ch)", on: !muted, colour: emitterColour(Bus.allCases[i])) { toggleEmitter(i) }   // TOP: CH n — lit in the emitter's SIGNATURE colour (consistent with the MIDI-OUT toggles, Paul 2026-08-30); acts as the MUTE
                 if showRack { buildRecProminent("RACK", on: racked, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleRack(i) } }   // RACK (hidden on the column strip, Paul 2026-08-30)
+                buildRecProminent("···", on: false, colour: buildDim) { }      // PLACEHOLDER (Paul 2026-08-30) — a future emitter control, between CH and OCT
                 buildOctRow(oct: i < emitterOctave.count ? emitterOctave[i] : 0, onDown: { nudgeEmitterOctave(i, -1) }, onUp: { nudgeEmitterOctave(i, 1) })   // OCT −/+
                 buildRecMini("SOLO", on: soloed, colour: buildCyan) { toggleEmitterSolo(i) }   // SOLO only (CH is the mute)
-                if let setup { buildRecMini("SETUP", on: false, colour: buildDim) { setup() } }   // SETUP — the emitter config entry (Paul 2026-08-30)
             }.frame(height: h)
         }
     }
@@ -5237,14 +5236,14 @@ extension DiagView {
     // COPIED into the machine column — receiver strip on TOP, emitter strip at the BOTTOM. NO config/spanner, NO RACK (emitter),
     // NO SETUP button (Paul 2026-08-30 — removed; config still reached via the header MIDI IN / MIDI OUT buttons). The receiver
     // has no separate SCALE button — its LATCH row shows the mode (SCALE included), kept as the arm control.
-    @ViewBuilder func roomsColumnReceivers() -> some View {
+    @ViewBuilder func roomsColumnReceivers(height: CGFloat) -> some View {
         HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { i in buildReceiverControl(i).frame(maxWidth: .infinity) }
+            ForEach(0..<4, id: \.self) { i in buildReceiverControl(i, height: height).frame(maxWidth: .infinity) }
         }
     }
-    @ViewBuilder func roomsColumnEmitters() -> some View {
+    @ViewBuilder func roomsColumnEmitters(height: CGFloat) -> some View {
         HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { i in buildEmitterControl(i, showRack: false).frame(maxWidth: .infinity) }
+            ForEach(0..<4, id: \.self) { i in buildEmitterControl(i, showRack: false, height: height).frame(maxWidth: .infinity) }
         }
     }
 
