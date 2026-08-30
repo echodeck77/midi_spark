@@ -510,7 +510,11 @@ final class Router {
             let soloExcluded = soloReceiverMask != 0 && (soloReceiverMask & (1 << UInt8(r))) == 0
             // CR-4: master MUTE (the "nothing sounds" contract) silences the wire monitor too — destMask 0 both opens
             // none AND closes any live monitor voice (the reconcile below). Matches the grid/MOD/GLIDE mute guards.
-            let destMask = (masterMute && !previewMode) ? 0 : (soloExcluded ? 0 : passEmitterMask[r])
+            // R3 (2026-08-30): honor the emitter ENABLE + output-SOLO gates like the grid path (emitOneBus) too — a
+            // disabled or soloed-out emitter must silence the wire (was: the wire ignored both → it kept sounding on a
+            // disabled/soloed-out emitter, diverging from the grid). The close/open diff below self-corrects → no stuck note.
+            let outAvail: UInt8 = busEnabledMask & (soloEmitterMask != 0 ? soloEmitterMask : 0b1111)
+            let destMask = (masterMute && !previewMode) ? 0 : (soloExcluded ? 0 : (passEmitterMask[r] & outAvail))
             // LATCH (incl. self-armed PIANO): a bypassed door with an armed latch injects its FROZEN chord, not the
             // (for PIANO, empty) live pool. The frozen pool is already receiver-filtered at capture, so read it whole
             // (OMNI / all-cables / full-range) — mirrors the input meter's `armed ? OMNI` read.
@@ -2093,6 +2097,12 @@ final class Router {
         rebuildAltSequence(box.altCount)
         masterKey = Int(box.masterKey)              // master panel: per-scene KEY + global MUTE, this render
         masterMute = box.masterMute
+        // R1 (2026-08-30): master MUTE folds into the effective enabled mask exactly like master-KILL (line above), so
+        // the enabled→disabled EDGE below CLOSES sustained content (legato drones, glide anchors). Was: MUTE only
+        // suppressed NEW emission via the per-path guards, so a sustained note's on was never paired with an off — it
+        // rang on through the mute (an invariant-4 violation; masterKill flushed but plain MUTE didn't). The per-path
+        // `masterMute` guards stay (belt-and-suspenders); recoverable — an unmute re-strikes held content next boundary.
+        if masterMute && !previewMode { busEnabledMask = 0 }
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = Int64(timestampSample)

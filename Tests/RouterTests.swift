@@ -25,10 +25,10 @@ final class RouterTests: XCTestCase {
     // MARK: setup helpers
 
     /// A one-scene document with the given colours + cell layout, then its resolved SnapshotBox.
-    private func box(colours cs: [Colour], busChannels: [Int] = [1, 2, 3, 4],
+    private func box(colours cs: [Colour], busChannels: [Int] = [1, 2, 3, 4], masterMute: Bool = false,
                      _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: cs, scenes: [s]); st.busChannels = busChannels
+        var st = PluginState(colours: cs, scenes: [s]); st.busChannels = busChannels; st.masterMute = masterMute
         return SnapshotBuilder.build(from: st)
     }
 
@@ -834,6 +834,26 @@ final class RouterTests: XCTestCase {
         for n: UInt8 in [60, 64, 67] { XCTAssertEqual(onCounts[n], 1, "note \(n) strikes ONCE across the legato drone span (cols 0-3) — no per-step re-strike") }
         router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e); XCTAssertTrue(router.quiescent)
+    }
+    // R1 (2026-08-30): the master MUTE toggle must CLOSE sustained content, not merely suppress NEW notes. A legato
+    // drone is an immortal hold — before the fix its note-on was never paired with an off when muted (it rang on, an
+    // invariant-4 violation). Now MUTE folds into the enabled mask like master-KILL → the enabled→disabled edge closes it.
+    func testMasterMuteClosesASustainedDrone() {
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .drone
+        let bLive = box(colours: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }   // drone the whole row → it holds every column
+        let bMute = box(colours: cs, masterMute: true) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        for _ in 0..<4 {   // hold the drone a few renders → it sustains as an immortal legato hold
+            router.process(box: bLive, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67], "the drone sounds the held chord")
+        // ENGAGE master MUTE → the sustained notes must CLOSE (offs emitted), nothing left ringing.
+        router.process(box: bMute, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(router.quiescent, "master MUTE flushed the sustained drone — no leaked voice")
     }
     // Render→main SOUNDING feed buckets by emitter (device crash 2026-08-10: the nested [[…]] feed arrays raced the
     // 4 Hz poll → libmalloc corruption; flattened to 4×W). This locks the flat re-indexing: a note on emitter A and
