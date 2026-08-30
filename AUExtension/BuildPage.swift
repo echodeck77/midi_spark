@@ -1384,7 +1384,6 @@ extension DiagView {
         let blockH = 4 * (cell + cgap) * 1.5 + 3 * cgap                     // the MIDI-chain block height — +50% box height (Paul 2026-08-30); verb buttons + play square share it
         let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
-        let machinePlaying = buildDisplayVoice != .none                     // the machine (chain on SELECT / part on PART) is the active voice
         VStack(spacing: gap) {
             AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
@@ -1411,10 +1410,9 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
         // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
         // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
-        // PLAYING (Paul 2026-08-30): the selected-colour box gets a playing-mode effect — the frame BRIGHTENS + a GLOW in the
-        // MACHINE's OWN hue (buildSelHue, not the emitter — the emitter is already clearly shown by its toggles/drift) blooms.
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(machinePlaying ? 1.0 : 0.85), lineWidth: machinePlaying ? 3 : 2.5))
-        .shadow(color: machinePlaying ? buildSelHue.opacity(0.7) : .clear, radius: machinePlaying ? 9 : 0)
+        // PAIRING: the selected-colour box wears the focused machine's hue (static — the playing GLOW lives only on the play
+        // button now, Paul 2026-08-30).
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(0.85), lineWidth: 2.5))
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
@@ -1451,7 +1449,7 @@ extension DiagView {
                 Image(systemName: active ? "stop.fill" : "play.fill").font(.system(size: 16, weight: .black))
                     .foregroundColor(active ? hue : hue.opacity(0.8))
             }
-            .frame(width: side, height: side)
+            .frame(width: side, height: side * 0.5)                          // HALF height (Paul 2026-08-30) — a wide short button, the L→R playhead reads across it
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? hue : buildEdge, lineWidth: active ? 3 : 1))   // BRIGHT hue frame when playing
             .shadow(color: active ? hue.opacity(0.6) : .clear, radius: active ? 5 : 0)   // hue glow when playing (ferry-style)
@@ -6507,8 +6505,11 @@ extension DiagView {
         // greyUnlessSel (SELECT grid, Paul 2026-08-29): an unselected present cell is a DARK-GREY button with a LIGHT-GREY
         // piano roll; only the SELECTED cell wears its chain's colour + white roll. Else (old grid selector) = coloured.
         let unselGrey = greyUnlessSel && !sel
-        let fill = present ? (sel ? hue.opacity(0.85) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)
-        let rollTint: Color = unselGrey ? Color(white: 0.78) : .white
+        // SELECT grid (greyUnlessSel): the PLAYING (selected) cell is ONE colour — the INVERSE of the unselected dark-grey
+        // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
+        let selGrey = greyUnlessSel && sel
+        let fill = present ? (sel ? (selGrey ? Color(white: 0.84) : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)
+        let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(fill)
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
@@ -6517,10 +6518,10 @@ extension DiagView {
                 buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: sel && buildDisplayVoice == .chain, tint: rollTint)
                     .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // DSP: only the SELECTED cell drifts; SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
             }
-            if sel {       // THE ACTIVE CELL — a breathing live frame
+            if sel {       // THE ACTIVE CELL — a breathing live frame (DARK on the light-grey SELECT cell, else white)
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     let f = stagingPulseFraction(tl.date, period: 0.9)
-                    RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.45 + 0.5 * f), lineWidth: 3)
+                    RoundedRectangle(cornerRadius: 6).stroke((selGrey ? Color.black : Color.white).opacity(0.45 + 0.5 * f), lineWidth: 3)
                 }
             }
         }
