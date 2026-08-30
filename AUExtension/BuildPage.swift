@@ -1384,6 +1384,8 @@ extension DiagView {
         let blockH = 4 * (cell + cgap) * 1.5 + 3 * cgap                     // the MIDI-chain block height — +50% box height (Paul 2026-08-30); verb buttons + play square share it
         let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
+        let machinePlaying = buildDisplayVoice != .none                     // the machine (chain on SELECT / part on PART) is the active voice
+        let machineOutHue = emitterHue(buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)   // the machine's output emitter colour — for the playing GLOW (Paul 2026-08-30)
         VStack(spacing: gap) {
             AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
@@ -1410,7 +1412,10 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
         // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
         // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(0.85), lineWidth: 2.5))
+        // PLAYING (Paul 2026-08-30): the selected-colour box gets the SAME effect a ferry box has in playing mode — the frame
+        // BRIGHTENS + an EMITTER-coloured GLOW blooms around it while the machine is the active voice.
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(machinePlaying ? 1.0 : 0.85), lineWidth: machinePlaying ? 3 : 2.5))
+        .shadow(color: machinePlaying ? machineOutHue.opacity(0.7) : .clear, radius: machinePlaying ? 9 : 0)
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
@@ -1428,23 +1433,29 @@ extension DiagView {
     @ViewBuilder func roomsVerticalPlay(_ room: Room, height: CGFloat) -> some View {
         let voice: BuildWorkshopVoice = room == .part ? .part : .chain
         let active = buildDisplayVoice == voice
+        // STYLED LIKE THE PLAYING CELL (Paul 2026-08-30): the button wears the PLAYING cell's hue — the sequencer's active
+        // cell on PART, the selected/auditioning colour on SELECT — with the same dark-stage + hue-frame + glow language a
+        // ferry box uses in playing mode.
+        let hue: Color = room == .part ? (buildPlayingColourHue ?? buildSelHue) : buildSelHue
         GeometryReader { g in
             let side = min(g.size.width, g.size.height)                      // SQUARE, ~one chain box
             ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(active ? buildCyan.opacity(0.28) : buildCell)
+                RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
+                if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when playing
                 if active && d.playing {                                    // the PLAYHEAD — a fill sweeping LEFT→RIGHT over the chain's duration
                     TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                        RoundedRectangle(cornerRadius: 8).fill(buildCyan.opacity(0.30))
+                        RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.34))
                             .frame(width: side * buildHeaderFill(.grid, tl.date))
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)   // grows from the left across
                     }
                 }
                 Image(systemName: active ? "stop.fill" : "play.fill").font(.system(size: 16, weight: .black))
-                    .foregroundColor(active ? Color(red: 0.98, green: 0.5, blue: 0.5) : buildCyan)
+                    .foregroundColor(active ? hue : hue.opacity(0.8))
             }
             .frame(width: side, height: side)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? buildCyan : buildEdge, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? hue : buildEdge, lineWidth: active ? 3 : 1))   // BRIGHT hue frame when playing
+            .shadow(color: active ? hue.opacity(0.6) : .clear, radius: active ? 5 : 0)   // hue glow when playing (ferry-style)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)   // centre the square in its flank
             .contentShape(Rectangle())
             .onTapGesture { buildRequestWorkshopVoice(active ? .none : voice) }
