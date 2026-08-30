@@ -1260,6 +1260,12 @@ extension DiagView {
 
     // The selected colour's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.
     fileprivate var buildSelHue: Color { colourColor(ddSelectedColourID ?? "") ?? buildCyan }
+    // THE MACHINE DISPLAY HUE (Paul 2026-08-30): the ONE hue for the machine BOX + MIDI CHAIN + PLAY button, so the three
+    // stay consistent. Colour is a thing on the PART/PLAY grids + ferries only — it has LEFT the SELECT grid (its cells show
+    // the inverse light grey), so on SELECT the machine shows that SAME light grey, NOT the browsed cell's (old) colour. On
+    // PART it wears the selected machine's colour. (The machine box only appears on SELECT + PART.)
+    var buildSelectGrey: Color { Color(white: 0.84) }
+    func buildMachineHue(_ room: Room) -> Color { room == .part ? buildSelHue : buildSelectGrey }
 
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
@@ -1312,7 +1318,7 @@ extension DiagView {
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
         // On the SELECT grid a running cell is shown in the INVERSE LIGHT GREY (not its hue), so the machine box matches that
         // same light grey while a cell runs there — instead of the chain's colour (Paul 2026-08-30).
-        let boxHue: Color = (room == .select && buildDisplayVoice == .chain) ? Color(white: 0.84) : buildSelHue
+        let boxHue: Color = buildMachineHue(room)   // grey on SELECT (colour left it), the machine colour on PART — Paul 2026-08-30
         VStack(spacing: gap) {
             AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
@@ -1323,7 +1329,7 @@ extension DiagView {
                     } else {                                               // SELECT → vertical play LEFT (opposite the right verb buttons)
                         AnyView(roomsVerticalPlay(room, height: blockH)).frame(width: sideW)
                     }
-                    AnyView(buildProcessorBlock(castW: castW, cell: cell)).frame(width: blockW)   // the chain, its intrinsic width, CENTRED between the equal flanks
+                    AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
                     if room == .part {
                         AnyView(roomsVerticalPlay(room, height: blockH)).frame(width: sideW)   // PART → vertical play RIGHT (opposite the left verb buttons)
                     } else {
@@ -1364,7 +1370,7 @@ extension DiagView {
         // ferry box uses in playing mode.
         // SELECT: a running cell shows in the inverse LIGHT GREY, so the play button matches it (not the chain's hue) while
         // running; PART: the sequencer's active cell hue. (Paul 2026-08-30)
-        let hue: Color = room == .part ? (buildPlayingColourHue ?? buildSelHue) : (active ? Color(white: 0.84) : buildSelHue)
+        let hue: Color = buildMachineHue(room)   // SAME hue as the machine box + chain (grey on SELECT, machine colour on PART) — Paul 2026-08-30
         GeometryReader { g in
             let side = min(g.size.width, g.size.height)                      // SQUARE, ~one chain box
             ZStack {
@@ -2461,7 +2467,7 @@ extension DiagView {
 
     // The chain as the block's lower half: 8 processor boxes, each the size of 2×2 cast cells, laid 1·2·3·4 /
     // 5·6·7·8 with NO connectors. Empty slots read as their number (1–8); populated show the processor type.
-    @ViewBuilder private func buildProcessorBlock(castW: CGFloat, cell: CGFloat) -> some View {
+    @ViewBuilder private func buildProcessorBlock(castW: CGFloat, cell: CGFloat, hue: Color) -> some View {
         let chain = selectedColourChain()
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                            // same swatch width as the cast → boxes sit on the 8-column grid
@@ -2471,32 +2477,32 @@ extension DiagView {
             ForEach(0..<4, id: \.self) { r in
                 HStack(spacing: gap) {
                     ForEach(0..<2, id: \.self) { c in
-                        buildProcBox(r * 2 + c, chain: chain, w: boxW, h: boxH, gap: gap)
+                        buildProcBox(r * 2 + c, chain: chain, w: boxW, h: boxH, gap: gap, hue: hue)
                     }
                 }
             }
         }
         // §1 THE FLOW LINE (design 2026-08-17): the dotted thread draws ORDER (the numbers' old job) — door ┈▶ slot 0 ┈▶
         // … ┈▶ slot 7 ┈▶ wire, in chain order, with a TURN MARK at each row wrap (the boustrophedon made visible).
-        .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap))
+        .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap, hue: hue))
         .coordinateSpace(name: "chainBlock")                        // DRAG-TO-REORDER: a stable space for the finger track + the floating ghost
-        .overlay(alignment: .topLeading) { buildChainDragGhost(chain: chain, boxW: boxW, boxH: boxH) }
+        .overlay(alignment: .topLeading) { buildChainDragGhost(chain: chain, boxW: boxW, boxH: boxH, hue: hue) }
     }
     // DRAG-TO-REORDER: the floating ghost of the box under the finger (drawn in the "chainBlock" space, hit-transparent).
-    @ViewBuilder private func buildChainDragGhost(chain: [ProcessorSlot], boxW: CGFloat, boxH: CGFloat) -> some View {
+    @ViewBuilder private func buildChainDragGhost(chain: [ProcessorSlot], boxW: CGFloat, boxH: CGFloat, hue: Color) -> some View {
         if let from = buildChainDragFrom, from < chain.count, !buildIsEmptySlot(chain[from]) {
             Text(buildProcLabel(chain[from]))
                 .font(.system(size: 11, weight: .heavy, design: .monospaced))
                 .foregroundColor(.black)
                 .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
                 .frame(width: boxW * 0.8, height: boxH * 0.8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(buildSelHue))
+                .background(RoundedRectangle(cornerRadius: 8).fill(hue))
                 .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
                 .position(buildChainDragLoc)
                 .allowsHitTesting(false)
         }
     }
-    private func buildChainFlowLine(boxW: CGFloat, boxH: CGFloat, gap: CGFloat) -> some View {
+    private func buildChainFlowLine(boxW: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color) -> some View {
         Canvas { ctx, size in
             func center(_ i: Int) -> CGPoint {
                 CGPoint(x: CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2)
@@ -2505,15 +2511,15 @@ extension DiagView {
             path.move(to: CGPoint(x: 0, y: center(0).y)); path.addLine(to: center(0))   // DOOR entry
             for i in 1..<8 { path.addLine(to: center(i)) }                               // chain order 0→…→7
             path.addLine(to: CGPoint(x: size.width, y: center(7).y))                     // WIRE exit
-            ctx.stroke(path, with: .color(buildSelHue.opacity(0.32)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 3]))
+            ctx.stroke(path, with: .color(hue.opacity(0.32)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 3]))
             for wrap in [1, 3, 5] {                                                      // TURN MARK at each row wrap (slot 1→2, 3→4, 5→6)
                 let a = center(wrap), b = center(wrap + 1); let m = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-                ctx.fill(Path(ellipseIn: CGRect(x: m.x - 2, y: m.y - 2, width: 4, height: 4)), with: .color(buildSelHue.opacity(0.5)))
+                ctx.fill(Path(ellipseIn: CGRect(x: m.x - 2, y: m.y - 2, width: 4, height: 4)), with: .color(hue.opacity(0.5)))
             }
         }
     }
 
-    @ViewBuilder private func buildProcBox(_ i: Int, chain: [ProcessorSlot], w: CGFloat, h: CGFloat, gap: CGFloat) -> some View {
+    @ViewBuilder private func buildProcBox(_ i: Int, chain: [ProcessorSlot], w: CGFloat, h: CGFloat, gap: CGFloat, hue: Color) -> some View {
         let populated = i < chain.count && !buildIsEmptySlot(chain[i])
         let bw = w * 0.8, bh = h * 0.8                             // the button is 80% of the 2×2-cell footprint …
         let isDragged = buildChainDragFrom == i
@@ -2525,7 +2531,7 @@ extension DiagView {
                     .foregroundColor(.black)
                     .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
                     .frame(width: bw, height: bh)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(buildSelHue))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(hue))
                     .overlay { if chain[i].bypassed { RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.45)) } }
             } else {
                 // §1 GHOST-DASHED EMPTY (design 2026-08-17): numbers OUT (the FLOW LINE now carries ORDER) — the house

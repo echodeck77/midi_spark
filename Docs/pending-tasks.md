@@ -5,6 +5,19 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-24._
 
+## ★ HOUSEKEEPING — dead-code sweep after the OLD-UI REMOVAL (2026-08-30)
+- **~33 pre-existing FULLY-DEAD orphan functions remain in `AUExtension/BuildPage.swift`** (dead BEFORE the old-UI removal, from
+  earlier BUILD reworks; the removal deleted the 79 old-UI-exclusive funcs + 31 entangled orphans, but not these). NEXT SWEEP:
+  grep-verify zero-reference functions in BuildPage.swift and delete, building after each batch. **EXCLUDE the flagged
+  artifacts (do NOT delete):** `makeUIViewController`/`updateUIViewController` (the kept `ReelShareSheet`'s
+  UIViewControllerRepresentable conformance), `xOf`/`yOf`/`pt` (nested local funcs inside kept parents), and eyeball
+  `addCells`/`flatten`/`row8Live` (possible nested/locals) before removing. Source of the list: the 2026-08-30 dependency-map
+  agent (FULLY-DEAD section).
+- **`buildGCColours` (ephemeral-colour GC) was removed with the old UI** — the rooms UI never called it, so no behaviour change,
+  BUT ephemeral colours (minted on ferry/flatten/audition) no longer GC. If a long rooms session shows colour bloat, add a
+  rooms-side colour-GC (the old one keyed off the old-UI liveset; a rooms one would key off buildStagingCells + buildPlayCells +
+  buildColourReg + the selection).
+
 ## ⛔ PAUL TO DEFINE — design decisions BLOCKING further build (2026-08-30, rooms multi-step passes)
 - **★★★ HIGH — RE-ENTERING A PART ROOM AFTER IT'S BEEN FERRIED.** When a part has been flattened onto a play column
   (`roomsFlattenPartToPlay`), the flatten stops the part audition — but re-entering the PART room re-arms it
