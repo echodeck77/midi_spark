@@ -5008,13 +5008,25 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
-    @ViewBuilder private func buildReceiverControl(_ i: Int, height: CGFloat = 148) -> some View {
+    // A small SPANNER button (Paul 2026-08-30) — sits ABOVE a strip's velocity fader, in the fader's 22-wide column (no wider),
+    // replacing the A/B/C/D label. Tap → open the MIDI settings page focused on this receiver/emitter strip.
+    @ViewBuilder private func buildStripSpanner(_ action: @escaping () -> Void) -> some View {
+        Image(systemName: "wrench.fill").font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.7))
+            .frame(maxWidth: .infinity).frame(height: 16)
+            .background(RoundedRectangle(cornerRadius: 4).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(buildEdge, lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    @ViewBuilder private func buildReceiverControl(_ i: Int, height: CGFloat = 148, spanner: (() -> Void)? = nil) -> some View {
         let rec = i < receivers.count ? receivers[i] : Receiver()
         let letter = ["A", "B", "C", "D"][i]
         let soloed = soloReceiverMask & (1 << UInt8(i)) != 0
         let h = height                                                          // total control height (the column strip passes the 2-cell height, Paul 2026-08-30)
         HStack(spacing: 6) {
-            buildReceiverFader(i, letter: letter).frame(width: 22, height: h)   // velocity INDICATOR — draggable to override input velocity (spring-back on release)
+            VStack(spacing: 2) {                                                // the FADER column: a SPANNER above · the velocity fader (label dropped when the spanner is present)
+                if let spanner { buildStripSpanner(spanner) }
+                buildReceiverFader(i, letter: spanner != nil ? "" : letter)     // velocity INDICATOR — draggable to override input velocity (spring-back on release)
+            }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                                // EQUAL rows, top → bottom
                 buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE)
                 buildReceiverLatchButton(i, rec)                                    // LATCH — SET (no mode) / mode label / "LAST N" · pulses when ready · solid when armed
@@ -5221,7 +5233,7 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
-    @ViewBuilder private func buildEmitterControl(_ i: Int, showRack: Bool = true, height: CGFloat = 148) -> some View {
+    @ViewBuilder private func buildEmitterControl(_ i: Int, showRack: Bool = true, height: CGFloat = 148, spanner: (() -> Void)? = nil) -> some View {
         let letter = ["A", "B", "C", "D"][i]
         let muted = !(i < busEnabled.count ? busEnabled[i] : true)
         let soloed = emitterFootSolo & (1 << UInt8(i)) != 0
@@ -5229,7 +5241,10 @@ extension DiagView {
         let ch = i < busChannels.count ? busChannels[i] : i + 1
         let h = height                                                        // match the receiver control (the column strip passes the 2-cell height, Paul 2026-08-30)
         HStack(spacing: 6) {
-            buildEmitterFader(i, letter: letter).frame(width: 22, height: h)   // interactive velocity fader — drag to override output velocity
+            VStack(spacing: 2) {                                              // the FADER column: a SPANNER above · the velocity fader (label dropped when the spanner is present)
+                if let spanner { buildStripSpanner(spanner) }
+                buildEmitterFader(i, letter: spanner != nil ? "" : letter)    // interactive velocity fader — drag to override output velocity
+            }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                               // EQUAL rows, top → bottom (mirrors the receiver control)
                 buildRecProminent("CH \(ch)", on: !muted, colour: emitterColour(Bus.allCases[i])) { toggleEmitter(i) }   // TOP: CH n — lit in the emitter's SIGNATURE colour (consistent with the MIDI-OUT toggles, Paul 2026-08-30); acts as the MUTE
                 if showRack { buildRecProminent("RACK", on: racked, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleRack(i) } }   // RACK (hidden on the column strip, Paul 2026-08-30)
@@ -5251,12 +5266,16 @@ extension DiagView {
     // has no separate SCALE button — its LATCH row shows the mode (SCALE included), kept as the arm control.
     @ViewBuilder func roomsColumnReceivers(height: CGFloat) -> some View {
         HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { i in buildReceiverControl(i, height: height).frame(maxWidth: .infinity) }
+            ForEach(0..<4, id: \.self) { i in
+                buildReceiverControl(i, height: height, spanner: { buildMidiConfigTab = i; buildMidiConfigOpen = true }).frame(maxWidth: .infinity)   // spanner → MIDI INPUTS, this door's tab
+            }
         }
     }
     @ViewBuilder func roomsColumnEmitters(height: CGFloat) -> some View {
         HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { i in buildEmitterControl(i, showRack: false, height: height).frame(maxWidth: .infinity) }
+            ForEach(0..<4, id: \.self) { i in
+                buildEmitterControl(i, showRack: false, height: height, spanner: { buildMidiOutConfigOpen = true }).frame(maxWidth: .infinity)   // spanner → MIDI OUTPUTS
+            }
         }
     }
 
