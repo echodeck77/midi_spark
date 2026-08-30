@@ -229,7 +229,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   toggles play AND selects (`buildTogglePlayColumn` + new `buildSelectPlayColumn`), and `roomsPlayFerry` brightens its frame
   when `focused` (id == ddSelectedColourID). The ferry's note DRIFT reads the play-layer strike feed (idx 8+t) = REAL emitted
   notes, so it only animates when the column actually sounds (a latched chord at its receiver); a momentary-input source ferries
-  the chain but goes silent → only the beat-driven playhead runs (input-dependent, not a feed bug).**
+  the chain but goes silent → only the beat-driven playhead runs (input-dependent, not a feed bug). **FOLLOW-UP (parity with
+  ferry-to-part):** selecting a play cell now also (a) DESELECTS the source (buildSelectPlayColumn clears buildGridSelSel +
+  buildGridSelStampSourceRow) and (b) makes the MIDI-IN/OUT toggles reflect + edit the play cell's OWN I/O — a computed
+  `buildSelectedPlayCol` (the play-grid analogue of buildSelectedRow) threaded into the receiver/emitter chip read + into
+  buildSelectDoor/buildToggleBus (and the All-long-press guards) → they resolve buildSelID → buildPlayColRecv/Emit[c] instead
+  of the part default.**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2

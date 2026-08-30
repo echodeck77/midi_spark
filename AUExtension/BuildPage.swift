@@ -1593,7 +1593,7 @@ extension DiagView {
         // then sounds via its persistent voice; the previously-auditioning library cell goes quiet.
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }
         if ddSolo { ddSolo = false; au?.clearColourSolo() }                  // the SELECT grid stops playing
-        buildSelectID(y)                                                     // the FERRIED play cell becomes the selection → the machine strip reflects it, the original select cell is deselected (Paul 2026-08-30)
+        buildSelectPlayColumn(t)                                             // the FERRIED play cell becomes THE selection (deselects the source; machine strip + I/O toggles reflect it — Paul 2026-08-30)
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
         buildPublishScene()                                                  // republish: the started column plays, the audition is off
@@ -1915,12 +1915,25 @@ extension DiagView {
         guard c >= 0, c < buildPlayColOn.count, buildPlayColPopulated(c) else { return }
         buildPlayColOn[c].toggle(); buildPublishScene()
     }
-    // SELECT a play column's cell → the machine strip reflects its chain (Paul 2026-08-30: play-ferry selection). Independent
-    // of playback: focusing a play ferry never starts/stops it. Reaped-transient safe (buildSelectID handles a real colour).
+    // SELECT a play column's cell → the machine strip + the I/O toggles reflect it (Paul 2026-08-30: play-ferry selection,
+    // parity with ferry-to-part). Independent of playback: focusing a play ferry never starts/stops it. Clears the SELECT
+    // browse-cell + active-side selection so the SOURCE deselects (else it stays lit). buildSelectedPlayCol then resolves
+    // buildSelID → this column, so buildSelectDoor/buildToggleBus reflect + edit its OWN receiver/emitters.
     func buildSelectPlayColumn(_ c: Int) {
         let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
         guard r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return }
+        buildGridSelSel = nil; buildGridSelStampSourceRow = nil      // the source select cell / active side button deselects
         buildSelectID(cid)
+    }
+    // The PLAY column currently selected — its selected-rung cell's colour == buildSelID. The play-grid analogue of
+    // buildSelectedRow (which only searches STAGING rows), so the I/O toggles reflect + edit a ferried play cell's OWN
+    // receiver/emitters. nil unless buildSelID names a live play cell. (Paul 2026-08-30)
+    var buildSelectedPlayCol: Int? {
+        guard let id = buildSelID else { return nil }
+        return (0..<8).first { c in
+            let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
+            return r >= 0 && c < buildPlayCells.count && r < buildPlayCells[c].count && buildPlayCells[c][r] == id
+        }
     }
     // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
     func buildTogglePlayGrid() {
@@ -2391,7 +2404,10 @@ extension DiagView {
         // default). So read exactly that: the selected row's RESOLVED door, else buildSelReceiver — never a `?? false`
         // (which used to blank the chip when no row was selected) and never a mismatched buildGridSelOpen branch (which
         // read buildSelReceiver while the write went to the row → the toggle looked dead/incorrect).
-        let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? (buildSelReceiver == i)
+        // A selected PLAY cell (buildSelectedPlayCol) reads its OWN receiver, between the staging row and the part default (Paul 2026-08-30).
+        let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i }
+            ?? buildSelectedPlayCol.map { ($0 < buildPlayColRecv.count ? buildPlayColRecv[$0] : buildSelReceiver) == i }
+            ?? (buildSelReceiver == i)
         // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
         // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
         let letter = ["A", "B", "C", "D"][i]
@@ -2407,7 +2423,9 @@ extension DiagView {
                 // RELIABILITY FIX (Paul 2026-08-29): read from the SAME place buildToggleBus writes — the selected row's
                 // RESOLVED emitters, else the part default (buildPartEmitters, [.a] when empty). Was a mismatched
                 // buildGridSelOpen branch + a `?? false` that blanked the chips when no row was selected.
-                let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) } ?? ((buildPartEmitters.isEmpty ? [.a] : buildPartEmitters).contains(b))
+                let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) }
+                    ?? buildSelectedPlayCol.map { ($0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a]).contains(b) }
+                    ?? ((buildPartEmitters.isEmpty ? [.a] : buildPartEmitters).contains(b))
                 buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on, accent: emitterColour(b), action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE colour (Paul 2026-08-30)
             }
         }
@@ -2706,6 +2724,7 @@ extension DiagView {
         buildRecordUndo()   // BUILD UNDO: pick the input door (receiver)
         buildClearPendingOnEdit()                                // a RECEIVER change ends the fresh-row flash (Paul 2026-08-25)
         if let r = buildSelectedRow, r < buildRowReceiver.count { buildRowReceiver[r] = i }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
+        else if let pc = buildSelectedPlayCol, pc < buildPlayColRecv.count { buildPlayColRecv[pc] = i; buildPublishScene() }   // a selected PLAY cell edits its OWN door (Paul 2026-08-30)
         else { buildSelReceiver = i }                            // nothing on a row → set the part DEFAULT
         ddStickyReceiver = i                                     // a new row inherits the LAST-USED
         receivers = au?.uiReceivers() ?? receivers               // mirror so the source toggle/keyboard reflect the newly-selected door at once
@@ -2747,16 +2766,21 @@ extension DiagView {
         buildRecordUndo()   // BUILD UNDO: toggle an output emitter
         buildClearPendingOnEdit()                                // an EMITTER change ends the fresh-row flash (Paul 2026-08-25)
         let selR = buildSelectedRow
-        var buses = selR.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+        let selPC = selR == nil ? buildSelectedPlayCol : nil       // a selected PLAY cell edits its OWN emitters (Paul 2026-08-30)
+        var buses = selR.map { buildRowEmittersResolved($0) }
+            ?? selPC.map { $0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a] }
+            ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
         if buses.isEmpty { buses = [bus] }                        // never leave a row with no output
         if let r = selR, r < buildRowEmitters.count { buildRowEmitters[r] = buses }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
+        else if let pc = selPC, pc < buildPlayColEmit.count { buildPlayColEmit[pc] = buses }   // the selected play column
         else { buildPartEmitters = buses }                        // nothing on a row → the part DEFAULT
         ddStickyBuses = buses                                     // a new row inherits the LAST-USED
         buildPublishScene()                                       // apply the row's output LIVE to whatever's sounding
     }
     // LONG-PRESS → apply the door to EVERY row (Paul 2026-08-19).
     private func buildSelectDoorAll(_ i: Int) {
+        if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildSelectDoor(i); return }   // a play cell has no "all rows" — edit just its door (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the door to every row (U7 fix 2026-08-27 — the single-row sibling records; this didn't)
         buildClearPendingOnEdit()                                // a RECEIVER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
         for r in 0..<min(8, buildRowReceiver.count) { buildRowReceiver[r] = i }
@@ -2766,6 +2790,7 @@ extension DiagView {
     }
     // LONG-PRESS → toggle the emitter on EVERY row (all rows take the reference row's toggled set). (Paul 2026-08-19)
     private func buildToggleBusAll(_ bus: Bus) {
+        if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildToggleBus(bus); return }   // a play cell has no "all rows" — edit just its emitters (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the emitter to every row (U7 fix 2026-08-27)
         buildClearPendingOnEdit()                                // an EMITTER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
         var buses = buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
