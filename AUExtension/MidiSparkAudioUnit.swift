@@ -42,6 +42,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// so the render side sees them exactly as it sees a preset load. UI-only state (selection,
     /// brush) never touches the document.
     func editScene(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout SceneState) -> Void) {
+        guard !document.scenes.isEmpty else { return }   // K3 (2026-08-30): a decoded doc with scenes:[] would trap on scenes[0] — activeSceneResolved clamps the index but can't conjure a scene. Builders always make ≥1 + deleteScene refuses to empty, so unreachable today; a defensive guard on the main edit chokepoint.
         // MODE ROW: inside a transactional EDIT session, individual edits publish for LIVE PREVIEW but defer
         // their undo — the whole session records ONE step at APPLY (see beginEditSession/applyEditSession).
         if record && sessionBaseline == nil { undoStack.record(document, coalesceKey: coalesceKey) }   // a6: snapshot BEFORE the mutation
@@ -1087,9 +1088,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             defer { self.scheduleRebuild() }
             switch param.address {
             case ParamAddress.stepRate:
+                guard !self.document.scenes.isEmpty else { break }   // K3: never subscript an empty scenes array (host automation before a scene exists)
                 let all = StepRate.allCases
                 self.document.scenes[self.document.activeSceneResolved].stepRate = all[min(all.count - 1, max(0, Int(value)))]
             case ParamAddress.swing:
+                guard !self.document.scenes.isEmpty else { break }   // K3
                 self.document.scenes[self.document.activeSceneResolved].swing = Int(value)
             case ParamAddress.morphMaster:
                 self.document.morphMaster = Double(value)
@@ -1132,6 +1135,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         dispatchPrecondition(condition: .onQueue(.main))
         document = session.make()
         document.migrateLegacyRoutingIfNeeded()   // fill inputRow from legacy stack (now the live routing field)
+        clearPendingBuild()                        // K2: the test doc carries its own BUILD state — drop stale pending
         loadedTestSession = session.id
 
         // Tree writes re-enter implementorValueObserver (each calling scheduleRebuild), so
@@ -1201,6 +1205,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         guard let fp = Self.factoryPresetBuilders.first(where: { $0.name == name }) else { return }
         kernel.flushVoices()
         editDocument { $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded() }   // migrate is a no-op for v4 builders
+        clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
         seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree (else host automation snaps a fresh note back to the OLD morph/transpose/macros)
@@ -1214,14 +1219,30 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         willChangeValue(forKey: "currentPreset"); _currentPreset = p; didChangeValue(forKey: "currentPreset")
     }
 
-    /// The document the host would persist right now (== `fullState`; the preview-overlay path was retired).
-    private var documentToSave: PluginState { document }
+    /// The document the host would persist right now — == what `fullState` encodes. BOTH the host session (`fullState`)
+    /// AND user presets (`savePreset` → `documentToSave`) go through `encodeDocument`, so a preset carries the BUILD
+    /// workspace too (K1, 2026-08-30: was `{ document }`, the RAW doc, so a "Save as preset" dropped the unassigned
+    /// part / deployed scenes / rooms PLAY GRID — the exact fields the session path was engineered to preserve).
+    private var documentToSave: PluginState { encodeDocument }
+    /// `document` with BUILD's session-side pending fields folded in — the single source of what gets persisted.
+    /// Falls back to the DECODED document's own fields when a `pending*` is nil (a load→save with the BUILD editor
+    /// never opened leaves pending nil; consume* nils document.* once BUILD is visited, so the fallback engages only
+    /// in the correct pre-consume window).
+    private var encodeDocument: PluginState {
+        var d = document
+        d.buildUnassigned = pendingBuildUnassigned ?? document.buildUnassigned
+        d.buildScenes = pendingBuildScenes ?? document.buildScenes
+        d.buildScenesActive = pendingBuildScenesActive ?? document.buildScenesActive
+        d.buildPlayGrid = pendingBuildPlayGrid ?? document.buildPlayGrid
+        return d
+    }
     /// Apply a preset's document — ONE undoable step (§3), voices closed via the transition machinery. No host
     /// notification (the caller owns that): used by both our LOAD and the host's `currentPreset` setter.
     private func applyPresetDocument(named name: String) {
         guard let doc = PresetStore.load(name) else { return }
         kernel.flushVoices()                 // a session act — no arm ceremony
         editDocument { $0 = doc }            // one undoable step
+        clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)
         seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree
@@ -1347,6 +1368,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // THE ROOMS PLAY GRID (Paul 2026-08-30): the play columns + their multi-step passes travel with the save.
     private var pendingBuildPlayGrid: BuildPlayGridData? = nil
     func setBuildPlayGrid(_ d: BuildPlayGridData?) { pendingBuildPlayGrid = d }
+    /// Drop the OUTGOING session's stale BUILD pending fields on every load — the loaded doc carries its OWN (restored
+    /// via consume*), so the next save doesn't re-encode the previous session's part/scenes/play grid over the new one
+    /// (K2/CR-10, 2026-08-30: was applied only in `fullState.set`; the factory/preset/test load paths leaked pending).
+    private func clearPendingBuild() { pendingBuildUnassigned = nil; pendingBuildScenes = nil; pendingBuildScenesActive = nil; pendingBuildPlayGrid = nil }
     /// On load, hand BUILD the restored play grid ONCE (then clear it so it isn't re-restored).
     func consumeBuildPlayGrid() -> BuildPlayGridData? {
         let d = document.buildPlayGrid
@@ -1357,17 +1382,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     public override var fullState: [String: Any]? {
         get {
             var state = super.fullState ?? [:]
-            var encodeDoc = document
-            // BUILD's half-built piece + the deployed play-grid arrangements travel with the save. Fall back to the
-            // DECODED document's own fields when the session-side pending is nil — otherwise a load→save with the BUILD
-            // editor never opened (its 4 Hz poll never runs, so pending stays nil) would encode nil OVER the restored
-            // part + piece and permanently drop them. consumeBuildUnassigned/Scenes nils document.* once BUILD is
-            // visited, so the fallback engages only in the correct pre-consume window. (BUG data-loss 2026-08-29)
-            encodeDoc.buildUnassigned = pendingBuildUnassigned ?? document.buildUnassigned
-            encodeDoc.buildScenes = pendingBuildScenes ?? document.buildScenes
-            encodeDoc.buildScenesActive = pendingBuildScenesActive ?? document.buildScenesActive
-            encodeDoc.buildPlayGrid = pendingBuildPlayGrid ?? document.buildPlayGrid
-            if let data = try? JSONEncoder().encode(encodeDoc) { state[Self.stateKey] = data }
+            if let data = try? JSONEncoder().encode(encodeDocument) { state[Self.stateKey] = data }   // BUILD's piece + scenes + play grid fold in via encodeDocument (shared with the preset path)
             return state
         }
         set {
@@ -1376,9 +1391,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                var doc = try? JSONDecoder().decode(PluginState.self, from: data) {
                 doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
                 document = doc
-                pendingBuildUnassigned = nil          // CR-10: the loaded doc carries its OWN unassigned part (via consumeBuildUnassigned) — drop the outgoing session's stale one so the next fullState save doesn't re-encode it over the restored part
-                pendingBuildScenes = nil; pendingBuildScenesActive = nil   // …and its OWN scenes (consumeBuildScenes) — same reason
-                pendingBuildPlayGrid = nil   // …and its OWN play grid (consumeBuildPlayGrid) — same reason
+                clearPendingBuild()   // CR-10/K2: the loaded doc carries its OWN BUILD state (via consume*) — drop the outgoing session's stale pending so the next save doesn't re-encode it over the restored doc
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
                                                      // session restore must not strand the outgoing document's voices
                 seedLatchArm()                       // restore the persisted door-arm intent (Paul 2026-08-27)
