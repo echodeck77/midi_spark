@@ -76,6 +76,7 @@ enum BuildSceneLogic {
         guard i.stagingPlaying || i.performPlaying || i.chainActive || i.playPlaying else { return (nil, nil) }
         var s = SceneState.empty()
         var chainLaneRow: Int? = nil                                // the SELECT audition's engine row → looped to column 0 (a 1-step continuous pass)
+        var chainPinned = false                                     // P1 (2026-08-30): pin col 0 ONLY for the single-cell (empty-row) audition; the fallback lays across many cols and must SWEEP
 
         if i.playPlaying {                                          // THE PLAY GRID — each column an INDEPENDENT, CONTINUOUS voice
             // NO TIME AXIS (Paul 2026-08-29): the play grid is NOT a step sequencer. Each STARTED column is placed at engine
@@ -153,7 +154,7 @@ enum BuildSceneLogic {
                 // so the audition plays CONTINUOUSLY — a 1-step pass, exactly like a play cell. (Was laid across all 8 columns
                 // → the grid clock re-triggered it every step, the "select page re-striking" Paul flagged.)
                 s.setCell(0, emptyRow, mk())
-                chainLaneRow = emptyRow
+                chainLaneRow = emptyRow; chainPinned = true            // a single cell at col 0 → pin col 0 (continuous, no re-strike)
             } else if let row = (0..<8).min(by: { occ[$0] < occ[$1] }), occ[row] < 8 {
                 for c in 0..<8 where s.cellAt(c, row) == nil { s.setCell(c, row, mk()) }   // FALLBACK (no empty row — every row already sounds): lay across (may re-strike)
                 chainLaneRow = row                                     // expose the row so the aimed ferry still has a live-strike index (Paul 2026-08-30; col 0 = a chain cell iff it was free)
@@ -197,7 +198,7 @@ enum BuildSceneLogic {
         // the placement precedence above (piece first, staging overwrites), so the two grids' loops stay independent.
         if i.stagingLane != 0 || i.performLane != 0 || i.playLane != 0 || i.playPlaying || chainLaneRow != nil {
             var rowLane = [UInt8](repeating: 0, count: Snap.rows)    // Snap.rows = 16 (rows 0–7 the visible grids, 8–15 the play layer)
-            if let cr = chainLaneRow { rowLane[cr] = 0b0000_0001 }   // the SELECT audition row loops column 0 → continuous (no re-strike)
+            if let cr = chainLaneRow, chainPinned { rowLane[cr] = 0b0000_0001 }   // P1: pin ONLY the single-cell audition; the fallback laid chain cells across cols 1..7 → leave rowLane 0 so the row SWEEPS (else the pin loops col 0, often ANOTHER voice's cell → the audition is silent)
             if i.performPlaying {
                 for c in 0..<8 { for r in 0..<8 {
                     guard c < i.performCells.count, r < i.performCells[c].count, i.performCells[c][r] != nil,

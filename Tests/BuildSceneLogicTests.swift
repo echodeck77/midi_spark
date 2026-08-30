@@ -169,6 +169,32 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(lane[base + 1], 0b1, "single cell → pinned to col 0 (continuous)")
         XCTAssertNil(len[base + 1], "single cell sets no per-row length")
     }
+    // P1 (2026-08-30): when NO row is fully empty, the chain audition (PLAY THIS MIDI CHAIN) lays across the
+    // least-occupied row's FREE columns and must SWEEP. The old code unconditionally pinned col 0 of that row —
+    // which, when col 0 already holds another voice's cell, looped THAT cell and left the audition silent.
+    func testChainAuditionFallbackSweepsInsteadOfPinningANonChainColumn() throws {
+        var i = BuildSceneLogic.Input()
+        i.performPlaying = true
+        i.performCells = grid((0..<8).map { ($0, $0, "p\($0)") })   // a DIAGONAL → every row occupied (occ 1), none full, col 0 held by "p0"
+        i.chainActive = true; i.chainColourID = "aud"; i.chainMachine = []
+        let (sceneOpt, auditionRow) = BuildSceneLogic.composeSceneMeta(i)
+        let s = try XCTUnwrap(sceneOpt)
+        XCTAssertEqual(auditionRow, 0, "the least-occupied row (all tie → row 0)")
+        XCTAssertEqual(s.cellAt(0, 0)?.colourID, "p0", "col 0 stays the PIECE's cell")
+        XCTAssertEqual(s.cellAt(1, 0)?.colourID, "aud", "the chain lays across the row's FREE columns")
+        XCTAssertEqual(try XCTUnwrap(s.rowLane)[0], 0, "P1: the fallback row is NOT pinned to col 0 → it sweeps (else the pin loops p0 and the audition is silent)")
+
+        // CONTROL — a fully-empty row exists → the single-cell audition DOES pin col 0 (continuous, no re-strike).
+        var j = BuildSceneLogic.Input()
+        j.performPlaying = true
+        j.performCells = grid((0..<7).map { ($0, $0, "p\($0)") })   // rows 0–6 occupied, ROW 7 empty
+        j.chainActive = true; j.chainColourID = "aud"; j.chainMachine = []
+        let (s2Opt, aud2) = BuildSceneLogic.composeSceneMeta(j)
+        let s2 = try XCTUnwrap(s2Opt)
+        XCTAssertEqual(aud2, 7, "the fully-empty row")
+        XCTAssertEqual(s2.cellAt(0, 7)?.colourID, "aud", "the single cell parks at col 0 of the empty row")
+        XCTAssertEqual(try XCTUnwrap(s2.rowLane)[7], 0b1, "the single-cell audition pins col 0 → continuous")
+    }
     func testPlayGridAloneProducesASceneOnlyWhenAColumnIsStarted() {
         var i = BuildSceneLogic.Input()
         i.playPlaying = true; i.playCells = grid([(0, 0, "b1")]); i.playSel = [0, -1, -1, -1, -1, -1, -1, -1]
