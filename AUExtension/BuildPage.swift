@@ -5087,16 +5087,13 @@ extension DiagView {
         else if mode == .replay { buildToggleReplay(i) } else { toggleReceiverLatch(i) }
         receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
     }
-    // A shared OCTAVE nudge row: −  OCT ±n  + (±3 octaves). Used by both the receiver and emitter controls. (Paul 2026-08-18)
+    // A shared OCTAVE nudge row (Paul 2026-08-30): just two boxes, − and +, NO middle value box. The active box LIGHTS by
+    // the current octave amount — ORANGE for ±1, RED for ±2 (and beyond). The colour IS the octave readout. (±3 range.)
     @ViewBuilder private func buildOctRow(oct: Int, onDown: @escaping () -> Void, onUp: @escaping () -> Void) -> some View {
+        let orange = Color(hex: 0xFF9F0A), red = Color(hex: 0xFF453A)
         HStack(spacing: 3) {
-            buildRecMini("−", on: false, colour: buildCyan, action: onDown).frame(width: 16)
-            Text("OCT \(oct > 0 ? "+" : "")\(oct)").font(.system(size: 8, weight: .heavy, design: .monospaced))
-                .foregroundColor(oct == 0 ? .white.opacity(0.6) : buildCyan).lineLimit(1).minimumScaleFactor(0.5)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 4).fill(buildCell))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(buildEdge, lineWidth: 1))
-            buildRecMini("+", on: false, colour: buildCyan, action: onUp).frame(width: 16)
+            buildRecMini("−", on: oct < 0, colour: oct <= -2 ? red : orange, action: onDown)   // lit when octave is DOWN
+            buildRecMini("+", on: oct > 0, colour: oct >= 2 ? red : orange, action: onUp)        // lit when octave is UP
         }
     }
     // The INTERACTIVE input-velocity indicator: the incoming-velocity meter (sustained while held, brief attack flash)
