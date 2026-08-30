@@ -1133,4 +1133,23 @@ final class OnConfigTests: XCTestCase {
         cell.processors = [ProcessorSlot(type: .harmonize)]; cell.stars = 4; cell.alt = true
         XCTAssertEqual(try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(cell)), cell)
     }
+    // BuildPlayGridData is the newest Codable type + the one lacking a decode-tolerance test (its siblings all have
+    // one). A missing post-v1 key must DEFAULT, never throw — else an older save throws → the whole PluginState
+    // decode throws → factory reset (the CR-8 data-loss class this decode-tolerant init exists to prevent).
+    func testBuildPlayGridDataDecodesWithMissingKeys() throws {
+        let json = #"{"colOn":[true,false,false,false,false,false,false,false]}"#.data(using: .utf8)!
+        let pg = try JSONDecoder().decode(BuildPlayGridData.self, from: json)
+        XCTAssertTrue(pg.colOn[0], "the present key decodes")
+        XCTAssertEqual(pg.colLen, Array(repeating: 1, count: 8), "a MISSING key falls back to its default, never throws")
+        XCTAssertEqual(pg.sel.count, 8)
+        XCTAssertEqual(pg.idCounter, 0)
+    }
+    // thruReceiverResolved clamps a decoded door index to 0…3 (the four doors A–D); an out-of-range value must not
+    // reach the render as-is. (Coverage gap 2026-08-30.)
+    func testThruReceiverResolvedClampsToDoorRange() {
+        var st = PluginState(colours: [], scenes: [SceneState.empty()])
+        st.thruReceiver = 9;  XCTAssertEqual(st.thruReceiverResolved, 3, "above D clamps to 3")
+        st.thruReceiver = -4; XCTAssertEqual(st.thruReceiverResolved, 0, "below A clamps to 0")
+        st.thruReceiver = nil; XCTAssertEqual(st.thruReceiverResolved, 0, "nil → door A (0)")
+    }
 }

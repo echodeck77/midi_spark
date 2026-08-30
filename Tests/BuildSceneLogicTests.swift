@@ -195,6 +195,29 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s2.cellAt(0, 7)?.colourID, "aud", "the single cell parks at col 0 of the empty row")
         XCTAssertEqual(try XCTUnwrap(s2.rowLane)[7], 0b1, "the single-cell audition pins col 0 → continuous")
     }
+    // A multi-step pass plays at its OWN captured rate (rowStepRate[8+c], not the scene default), and a step whose
+    // per-step I/O is empty/short falls back to the column default. Neither is asserted by the layout test above.
+    // (Coverage gap 2026-08-30.)
+    func testMultiStepPassAppliesItsOwnRateAndFallsBackIOToTheColumnDefault() throws {
+        var i = BuildSceneLogic.Input()
+        i.playPlaying = true
+        i.playColOn = [true, false, false, false, false, false, false, false]
+        i.playColLen = [2, 1, 1, 1, 1, 1, 1, 1]
+        i.playColSteps = [["a", "b"], [], [], [], [], [], [], []]
+        i.playColStepChain = [[[], []], [], [], [], [], [], [], []]
+        i.playColRate = [.r1_8, nil, nil, nil, nil, nil, nil, nil]         // the pass's OWN tempo
+        i.playColEmit = [[.b], [.a], [.a], [.a], [.a], [.a], [.a], [.a]]     // COLUMN default emitter = B
+        i.playColRecv = [3, 0, 0, 0, 0, 0, 0, 0]                             // COLUMN default door = D (3)
+        i.playColStepEmit = [[[], []], [], [], [], [], [], [], []]           // both steps EMPTY → fall back to the column default
+        i.playColStepRecv = [[], [], [], [], [], [], [], []]                 // short → fall back to the column default
+        let s = BuildSceneLogic.composeScene(i)!
+        let base = Snap.playLayerRowBase
+        XCTAssertEqual(s.rowStepRate?[base], .r1_8, "the pass plays at its OWN captured rate at rowStepRate[8+c]")
+        XCTAssertNil(s.rowStepRate?[base + 1], "a single-cell column sets no per-row rate")
+        XCTAssertEqual(s.cellAt(0, base)?.buses, [.b], "step 0's EMPTY per-step emitter falls back to the column default (B)")
+        XCTAssertEqual(s.cellAt(1, base)?.buses, [.b], "step 1 too")
+        XCTAssertEqual(s.cellAt(0, base)?.inputReceiver, 3, "the SHORT per-step door falls back to the column default (D)")
+    }
     func testPlayGridAloneProducesASceneOnlyWhenAColumnIsStarted() {
         var i = BuildSceneLogic.Input()
         i.playPlaying = true; i.playCells = grid([(0, 0, "b1")]); i.playSel = [0, -1, -1, -1, -1, -1, -1, -1]

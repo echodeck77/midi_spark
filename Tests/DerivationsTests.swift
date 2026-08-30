@@ -482,6 +482,20 @@ final class DerivationsTests: XCTestCase {
         XCTAssertFalse(burstCoinFires(step: 0, chance: 0), "chance 0 never fires")
         XCTAssertEqual(burstCoinFires(step: 5, chance: 0.5), burstCoinFires(step: 5, chance: 0.5), "deterministic per step")
     }
+    // rtcCoinSize's zero/empty-weight FALLBACK (its own comment says "guarded anyway"): with no positive weight
+    // there's nothing to pick, so it returns the first size. The existing tests always pass a non-zero weight.
+    func testRtcCoinSizeFallsBackWhenWeightsAreZeroOrEmpty() {
+        XCTAssertEqual(rtcCoinSize(step: 7, weights: [0, 0, 0, 0, 0]), rtcCoinSizes[0], "all-zero weights → the first size (no divide-by-zero)")
+        XCTAssertEqual(rtcCoinSize(step: 3, weights: []), rtcCoinSizes[0], "empty weights → the first size")
+    }
+    // weaveRate's DRAWN/EUCLID fallback (those modes drive their own emitter clock) + the negative-rank clamp +
+    // the 0.03125 floor — none exercised by the ladder/harmonic tests.
+    func testWeaveRateDrawnEuclidAndNegativeRank() {
+        XCTAssertEqual(weaveRate(mode: .drawn, baseBeats: 0.5, rank: 3), 0.5, accuracy: 1e-9, "DRAWN falls back to baseBeats")
+        XCTAssertEqual(weaveRate(mode: .euclid, baseBeats: 0.25, rank: 7), 0.25, accuracy: 1e-9, "EUCLID too")
+        XCTAssertEqual(weaveRate(mode: .ladder, baseBeats: 1.0, rank: -5), 1.0, accuracy: 1e-9, "a negative rank clamps to 0 → base ÷ 2^0")
+        XCTAssertEqual(weaveRate(mode: .ladder, baseBeats: 0.03, rank: 10), 0.03125, accuracy: 1e-9, "a deep ladder rank hits the 1/32-beat floor")
+    }
     func testAsPlayedHonoursCableMask() {
         let p = NotePool()
         p.noteOn(67, velocity: 100, channel: 0, cable: 2)   // press order: 67 …

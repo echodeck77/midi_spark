@@ -472,4 +472,19 @@ final class EffectiveParamsTests: XCTestCase {
         let lane = [0.3] + Array(repeating: 0.0, count: 7)
         XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 0.5, stepBeats: 1, manual: 0.9), 0.3, accuracy: 1e-9)
     }
+    // The Macro lane resolvers CLAMP out-of-range decoded values (a corrupt/hand-edited doc): each lane value to
+    // [0,1], each mode to [0,2], and the rate INDEX into Macro.laneRateMul. The existing tests only check count/pad.
+    func testMacroLaneResolversClampOutOfRangeValuesAndIndex() {
+        var m = Macro(value: 0.5, targets: [])
+        m.lane = [1.5, -0.2]
+        XCTAssertEqual(m.laneResolved[0], 1.0, "> 1 clamps to 1")
+        XCTAssertEqual(m.laneResolved[1], 0.0, "< 0 clamps to 0")
+        XCTAssertEqual(m.laneResolved.count, 8, "padded to 8")
+        m.laneModes = [9]
+        XCTAssertEqual(m.laneModesResolved[0], 2, "an out-of-range mode clamps to the max (2)")
+        m.laneRate = 99
+        XCTAssertEqual(m.laneRateMulResolved, Macro.laneRateMul.last, "a too-high rate index clamps to the last multiplier")
+        m.laneRate = -1
+        XCTAssertEqual(m.laneRateMulResolved, Macro.laneRateMul.first, "a negative rate index clamps to the first")
+    }
 }

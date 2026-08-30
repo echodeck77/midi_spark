@@ -174,6 +174,36 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(notes.count, 2, "two paired notes across the range")
         XCTAssertTrue(notes.contains { $0.note == 64 && abs($0.start - 4.5) < 1e-9 && abs($0.end - 5.5) < 1e-9 }, "pass 1's note offset into the phrase")
     }
+    // rangeRoll's whole point: a note held ACROSS a pass boundary REUNITES (its ON in pass N, its OFF in N+1 → one
+    // Note), and a note never closed by the range end is FLUSHED at `total`. The all-populated test above exercises
+    // neither. (Coverage gap 2026-08-30.)
+    func testRangeRollReunitesAcrossBoundaryAndFlushesTrailing() {
+        let deck = ReelDeck(); deck.cycleBeats = 4.0
+        deck.record(beat: 3.0, cable: 1, 0x90, 60, 100)          // pass 0: ON 60 at beat 3, NO off
+        deck.promote(); deck.startPass()
+        deck.record(beat: 1.0, cable: 1, 0x80, 60, 0)            // pass 1: OFF 60 → reunites [3, 4+1=5]
+        deck.record(beat: 2.0, cable: 1, 0x90, 67, 90)          // pass 1: ON 67, never closed → flush at total
+        deck.promote()
+        let (notes, total) = deck.rangeRoll(fromPass: 0, toPass: 1)
+        XCTAssertEqual(total, 8.0)
+        XCTAssertEqual(notes.count, 2, "the boundary-spanning note + the never-closed note")
+        XCTAssertTrue(notes.contains { $0.note == 60 && abs($0.start - 3.0) < 1e-9 && abs($0.end - 5.0) < 1e-9 }, "60 reunites across the boundary (ON pass 0, OFF pass 1)")
+        XCTAssertTrue(notes.contains { $0.note == 67 && abs($0.start - 6.0) < 1e-9 && abs($0.end - 8.0) < 1e-9 }, "67 never closes → flushed at the range end (total 8)")
+    }
+    // An EMPTY / unrecorded pass in the MIDDLE of a range is SKIPPED — it advances neither the events nor the phrase
+    // clock (the export concatenates NON-EMPTY passes back-to-back). Locks the intended behaviour so a stray "advance
+    // offset for the empty pass" can't slip in phantom silent bars. (Coverage gap 2026-08-30.)
+    func testRangeExportSkipsAnEmptyInteriorPass() {
+        let deck = ReelDeck(); deck.cycleBeats = 4.0
+        deck.record(beat: 0.0, cable: 1, 0x90, 60, 100); deck.record(beat: 1.0, cable: 1, 0x80, 60, 0)
+        deck.promote(); deck.startPass()                         // pass 0: note 60
+        deck.promote(); deck.startPass()                         // pass 1: EMPTY (no records)
+        deck.record(beat: 0.5, cable: 1, 0x90, 64, 90); deck.record(beat: 1.5, cable: 1, 0x80, 64, 0)
+        deck.promote()                                           // pass 2: note 64
+        let (evs, total) = deck.exportRangeEvents(fromPass: 0, toPass: 2, cables: [1])
+        XCTAssertEqual(total, 8.0, "only the two NON-empty 4-beat passes count (pass 1 is skipped)")
+        XCTAssertTrue(evs.contains { abs($0.beat - 4.5) < 1e-9 && $0.b1 == 64 }, "pass 2's note-on lands at offset 4 (pass 1 added no gap), not 8")
+    }
 
     // THE DOOR RING (config-sheets REPLAY, Paul 2026-08-20): record input, capture a loop, query sounding notes.
     func testDoorRingCapturesAndQueriesSoundingNotes() {
