@@ -1335,7 +1335,7 @@ extension DiagView {
             AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6).padding(.bottom, 16)   // the MIDI-IN (receiver) selector — door CONFIG moved to the MIDI CONFIG sheet (config-sheets §5, Paul 2026-08-20)
             AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the CHAIN verb stack (LEFT) + the VERTICAL 2×4 MIDI chain (RIGHT) — Paul 2026-08-18
                 AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75,
-                                              height: 4 * (cell * 2 + BuildGeom.castGap) + 3 * BuildGeom.castGap))   // LEFT: centred verb stack
+                                              height: 4 * (cell + BuildGeom.castGap) + 3 * BuildGeom.castGap))   // LEFT: centred verb stack (HALF box height, Paul 2026-08-30)
                 AnyView(buildProcessorBlock(castW: castW, cell: cell))      // RIGHT: 2×4 of 2×2-cell boxes — ~half the width
             })
         }
@@ -1381,7 +1381,7 @@ extension DiagView {
         let cgap = BuildGeom.castGap                                         // the chain block keeps its own 8-column grain (4)
         let swW = (castW - cgap * 7) / 8
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, swW))
-        let blockH = 4 * (cell * 2 + cgap) + 3 * cgap                       // the 2×4 MIDI-chain block height (the verb buttons share it)
+        let blockH = 4 * (cell + cgap) + 3 * cgap                           // the MIDI-chain block height — HALF box height (Paul 2026-08-30); verb buttons + play square share it
         let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
         VStack(spacing: gap) {
@@ -2488,12 +2488,10 @@ extension DiagView {
     // chips (cyan-when-on, muted idle, height 48). Used by BOTH the MIDI-IN receiver selector and the MIDI-OUT
     // emitter toggles so they read identically. (Paul 2026-08-18)
     @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
-        VStack(spacing: 1) {
-            Text(top).font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.5)
-            Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
-        }
+        // Paul 2026-08-30: HALF height (48→24) + only the LARGER line (the letter) — the small "MIDI IN"/"MIDI OUT" caption dropped.
+        Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         .foregroundColor(on ? Color.black : buildDim)
-        .frame(maxWidth: .infinity).frame(height: 48)                        // matches the emitter chips (height 48, fill the row)
+        .frame(maxWidth: .infinity).frame(height: 24)                        // HALF the old 48 (Paul 2026-08-30)
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature colour for MIDI OUT); idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
         .contentShape(Rectangle())
@@ -2641,7 +2639,7 @@ extension DiagView {
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                            // same swatch width as the cast → boxes sit on the 8-column grid
         let boxW = swW * 2 + gap                                   // 2 cast columns wide
-        let boxH = cell * 2 + gap                                  // 2 cast rows tall
+        let boxH = cell + gap                                      // HALF height (Paul 2026-08-30; was 2 cast rows tall)
         VStack(spacing: gap) {                                      // VERTICAL 2×4 (was 4×2): 4 rows of 2 boxes, reading L→R then down (Paul 2026-08-18)
             ForEach(0..<4, id: \.self) { r in
                 HStack(spacing: gap) {
