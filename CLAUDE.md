@@ -181,11 +181,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   reunification/empty-pass-skip/trailing-flush · BuildPlayGridData decode-tolerance · thruReceiver clamp · rtcCoinSize
   zero-weights · weaveRate drawn/euclid/negative · Macro lane clamps). ⑦ REFACTORS — `BuildSceneLogic.passLen` (dedup ×4)
   · `buildDefaultEmitters` property (dedup ×10) · 7 stale col*8+row/'64 cells' SEAL-comet comments → col*Snap.rows+row/128
-  (left the tap/mask 64-bit comments). **FLAGGED, NOT fixed (need device + a dedicated pass):** R2 = GLIDE bypasses the
-  emitOneBus gate stack (out-of-key + ignores enable/solo/FENCE/CLAIM — the open half of [7]; the pitch transforms are
-  easy but the emission GATES risk a stuck note without device ears); Rooms3 = a flattened pass's per-step I/O chips
-  edit-but-ignored (overlaps the PAUL-TO-DEFINE pass-editing model); minor: glide stale currentCellIndex (cosmetic),
-  BROADCAST flood-governor undercount. Refactor agent confirmed NO render-path allocations (all Router arrays pre-alloc).**
+  (left the tap/mask 64-bit comments). **FLAGGED, NOT fixed (need device + a dedicated pass):** Rooms3 = a flattened
+  pass's per-step I/O chips edit-but-ignored (overlaps the PAUL-TO-DEFINE pass-editing model); minor: glide stale
+  currentCellIndex (cosmetic), BROADCAST flood-governor undercount. Refactor agent confirmed NO render-path allocations
+  (all Router arrays pre-alloc). [R2/GLIDE was flagged here then DONE in the follow-up below.]**
+- **▶ GLIDE ROUTED THROUGH THE OUTPUT GATES (R2, 2026-08-30, on `main`, PUSHED; iOS builds, macOS 332 RouterTests + fuzz
+  green; DEVICE ear owed). Paul: "do the glide fix." GLIDE opened note-ons via raw `openVoice`, bypassing the emitOneBus
+  output pipeline → it played the RAW source pitch (out of key: ignored master KEY + per-emitter OCT + RACK FENCE) and kept
+  sounding on a disabled/soloed-out emitter (the open half of finding [7]). Two shared helpers mirror emitOneBus exactly —
+  `glideOutNote` (OCT + KEY + FENCE, nil = DROP) + `glideBusAvailable` (ENABLE + output-SOLO) — applied at every open site
+  in `emitColumnGlide` (single-slot) + `emitGlideDriven` (driver→GLIDE); the whole voice lives in OUTPUT space now, and an
+  unavailable bus phrase-ends it (self-correcting). STUCK-NOTE SAFE by construction: every glide close is by the stored
+  voice SLOT, never a recomputed note, so shifting at the open sites can't strand an off. Byte-identical when KEY/OCT/FENCE
+  unset (330 pre-existing RouterTests unchanged). +2 RouterTests (KEY shifts the glide + the off pairs on the shifted note;
+  a disabled emitter silences it + a mid-phrase disable closes it). DEFERRED: CLAIM + CONVERSATION for glide (their
+  discrete note-ghost / per-onset-stance models don't map onto a continuous mono bend — a design question); STEP-mode
+  intermediate zipper notes aren't re-FENCEd (transient; endpoints are).**
 - **▶ ROOMS PLAY-GRID BATCH + THE 64→128 CELL REFACTOR (2026-08-29/30, on `main`; iOS builds, macOS 933 green incl. fuzz;
   ALL device-owed — the whole rooms/play-grid interface is UI-heavy + Paul-steered on glass). A long device-driven thread
   redefining the PLAY grid + the voice model, capped by an engine change. NOT YET COMMITTED (uncommitted working tree —

@@ -19,10 +19,13 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-2
   The 2026-08-24 pre-surveyed bug list (below, §"Wrong audio / correctness"…) was RE-VERIFIED — nearly all already fixed by
   unticked CR-6/9/10/11/15/16/17/18 passes; only [7]'s gate-stack half remained (= R2, flagged).
 - **⚠ FLAGGED, NOT fixed (need a dedicated tested + device pass):**
-  - **R2 — GLIDE bypasses the emitOneBus gate stack** (Router `emitColumnGlide`/`emitGlideDriven`/`emitGlideStepRun` open
-    via raw `openVoice`): no masterKey/emitterOctaveShift (glide plays OUT OF KEY) + no busEnabled/solo/FENCE/CLAIM. The pitch
-    transforms are mechanical but the emission GATES need a note-shift consistent across glide's multiple open AND close
-    paths (a mismatch = stuck note) — device ear-verify. This is the open half of old finding [7].
+  - **R2 — GLIDE gate stack — ✅ DONE (2026-08-30):** routed glide through the emitOneBus output pipeline via two helpers
+    (`glideOutNote` = OCT + master KEY + FENCE · `glideBusAvailable` = emitter ENABLE + output-SOLO), applied at every open
+    site in emitColumnGlide + emitGlideDriven; an unavailable bus phrase-ends the voice. Byte-identical when KEY/OCT/FENCE
+    unset (330 RouterTests unchanged); +2 tests + fuzz. DEVICE ear owed (glide in key; disabled-emitter silence).
+    **STILL DEFERRED:** CLAIM + CONVERSATION for glide — their discrete note-ghost / per-onset-stance models don't map onto
+    a continuous mono bend (a design question, not a mechanical fix); the STEP-mode intermediate zipper notes aren't
+    re-FENCEd (transient; endpoints are). This closes the open half of old finding [7].
   - **Rooms3 — a flattened play PASS's per-step I/O chips edit-but-are-ignored** (the engine uses playColStepRecv/Emit; the
     chips write only the column default). Overlaps the ⛔ PAUL-TO-DEFINE pass-editing model below — settle that first.
   - Minor (low): glide stamps a stale currentCellIndex (cosmetic SEAL/reel tag); flood governor undercounts BROADCAST.
