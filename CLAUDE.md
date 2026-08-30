@@ -287,6 +287,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   both strips (config still reached via the header MIDI IN / MIDI OUT buttons; strips back to 4 rows, stripH 190→152); and the
   vertical PLAY button became a SQUARE (~one chain box, centred in its flank) with the playhead sweeping LEFT→RIGHT (was a tall
   narrow button, top→bottom fill).**
+- **▶ PLAY GRID = A DUSK PALETTE — differentiable from the VIVID part grid (2026-08-30, on `main`; iOS builds; UI-only,
+  DEVICE-owed). Paul chose "vivid PART · muted dusk PLAY" (from a swatch artifact of 3 options). `playHexes` (GridUI) = a muted
+  earthy 8-set (B08D57·B06A4E·A85A5A·8F5A78·7A6AA8·5A7AA8·5A9A8A·8A9A5A); each grid owns its own palette section + it stays calm
+  enough that the vivid emitter drift-notes pop on top. `buildNewTabColour` gained a `hex:` override (PART keeps the vivid
+  colourHexes); the play-ferry single-cell mint + the flatten's representative (now minted with the first step's chain, not the
+  reused part colour) + the empty-ferry fallback all pass `playHexes[col]`. Populated play cells flow their dusk hue from the
+  minted colour via colourColor(id).**
 - **▶ UNATTENDED 4-PHASE BATCH — bug hunt · rooms test-coverage · CR-8 data-loss · housekeeping (2026-08-29, on `main`;
   iOS builds, macOS 914→931 green throughout). Paul: "meaty, valuable, lengthy unattended jobs — all of the above."
   **① BUG HUNT** (18-agent adversarial sweep of the NEW rooms interface + engine; 8 confirmed / 4 refuted; 6 fixed, 2

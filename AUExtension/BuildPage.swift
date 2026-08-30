@@ -1555,7 +1555,7 @@ extension DiagView {
             let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
             let set = id != nil                                          // has this column been ferried?
             let on = t < buildPlayColOn.count && buildPlayColOn[t]        // is this column PLAYING? (independent per-column voice)
-            let mHue = id.flatMap { colourColor($0) } ?? Color(hex: colourHexes[t % 16])   // MACHINE identity (the ferried cell's colour)
+            let mHue = id.flatMap { colourColor($0) } ?? Color(hex: playHexes[t % playHexes.count])   // MACHINE identity — dusk (the ferried cell's colour, or the play grid's dusk slot when empty; Paul 2026-08-30)
             let eHue = emitterHue(t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a])  // EMITTER colour (routing)
             let focused = set && id == ddSelectedColourID               // this play ferry is the SELECTED machine (Paul 2026-08-30)
             // THREE STATES (Paul 2026-08-30): NULL · POPULATED (machine frame, calm) · PLAYING (bright frame + EMITTER glow +
@@ -1589,7 +1589,7 @@ extension DiagView {
         buildPlayColLen[t] = 1; buildPlayColSteps[t] = []; buildPlayColRate[t] = nil   // a SELECT single-cell ferry clears any prior multi-step pass on this column
         buildPlayColStepRecv[t] = []; buildPlayColStepEmit[t] = []
         let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0   // the selected rung (default row 1)
-        let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose)   // a colour carrying the chain + its register home, HUE per COLUMN (colourHexes[t] — a range across the 8; was per-rung → all gold, Paul 2026-08-30)
+        let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose, hex: playHexes[t % playHexes.count])   // a colour carrying the chain + register home, in the PLAY grid's DUSK hue per column (Paul 2026-08-30)
         buildPlayCells[t][r] = y
         let io = roomsStampSourceIO()                                        // COPY the source's I/O (Paul 2026-08-29: "play will have the copied settings")
         if t < buildPlayColRecv.count { buildPlayColRecv[t] = io.recv }
@@ -1631,7 +1631,7 @@ extension DiagView {
             let rung = c < buildStagingSel.count ? buildStagingSel[c] : -1
             return rung >= 0 ? buildRowEmittersResolved(rung) : (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
         }
-        buildPlayCells[t][r] = rep                                           // a representative colour so the ferry reads POPULATED + takes a hue
+        buildPlayCells[t][r] = buildNewTabColour(t, machine: buildColourChain(rep), hex: playHexes[t % playHexes.count])   // a DUSK representative (carries the first step's chain) so the play column reads dusk, not the part's vivid hue (Paul 2026-08-30)
         buildPlaySel[t] = r
         buildPlayColRecv[t] = buildSelReceiver                               // the column DEFAULT (the ferry dot/drift tint + any rest-step fallback)
         buildPlayColEmit[t] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
@@ -3614,8 +3614,8 @@ extension DiagView {
     }
     // Mint a TAB colour: an ephemeral colour carrying `machine` with tab n's FIXED hue (colourHexes[n]), verbatim
     // (no uniquify — a tab always shows the same colour). (Paul 2026-08-17 — the 8-tab model)
-    private func buildNewTabColour(_ n: Int, machine: [ProcessorSlot], transpose: Int = 0) -> String {
-        let hex = n < colourHexes.count ? colourHexes[n] : 0x808080
+    private func buildNewTabColour(_ n: Int, machine: [ProcessorSlot], transpose: Int = 0, hex hexOverride: UInt32? = nil) -> String {
+        let hex = hexOverride ?? (n < colourHexes.count ? colourHexes[n] : 0x808080)   // PLAY columns pass a DUSK hex; PART keeps the vivid colourHexes (Paul 2026-08-30)
         buildIDCounter += 1
         let id = "b\(buildIDCounter)"
         buildColourReg[id] = machine

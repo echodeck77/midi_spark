@@ -102,6 +102,11 @@ let colourHexes: [UInt32] = [
     0xFFC53D, 0xFF7A1A, 0xFF4B33, 0xC2244B, 0xFF4D9E, 0xFFA8B8, 0xB44DFF, 0x7A3DF0,
     0x5566FF, 0x38A6FF, 0x25E0F0, 0x148F80, 0x7BF2CE, 0x2ECC5E, 0xC6F23D, 0x4C6E8F,   // [15] SLATE (was BRONZE 0xC9A227 — too close to GOLD, user 2026-08-09)
 ]
+// THE PLAY GRID's own palette (Paul 2026-08-30): a muted "DUSK" family, so the play grid is differentiable from the VIVID
+// part grid at a glance (each grid owns its own section of colour). Earthy, mid-brightness, low-saturation — a quieter world
+// beside the loud part rainbow, and calm enough that the vivid emitter drift-notes still pop on top.
+let playHexes: [UInt32] = [0xB08D57, 0xB06A4E, 0xA85A5A, 0x8F5A78, 0x7A6AA8, 0x5A7AA8, 0x5A9A8A, 0x8A9A5A]
+
 // delta §9 item 11: the four receivers' fixed "infrastructure family" hues (muted), shared by the
 // RECEIVERS panel and the cells' band-as-deviation marker.
 let receiverHues: [Color] = [Color(hex: 0x6B7A8F), Color(hex: 0x7E6B8F), Color(hex: 0x6B8F7E), Color(hex: 0x8F836B)]
