@@ -3678,20 +3678,21 @@ extension DiagView {
     @ViewBuilder func roomsMixerEmitter(_ i: Int) -> some View { buildEmitterControl(i) }
 
     // THE MACHINE-COLUMN I/O STRIPS (Paul 2026-08-30, footer-retirement stage 1): the 4 full receiver / emitter controls
-    // COPIED into the machine column — receiver strip on TOP, emitter strip at the BOTTOM. NO config/spanner, NO RACK (emitter),
-    // NO SETUP button (Paul 2026-08-30 — removed; config still reached via the header MIDI IN / MIDI OUT buttons). The receiver
-    // has no separate SCALE button — its LATCH row shows the mode (SCALE included), kept as the arm control.
+    // COPIED into the machine column — receiver strip on TOP, emitter strip at the BOTTOM. NO RACK (emitter). The receiver
+    // has no separate SCALE button — its LATCH row shows the mode (SCALE included), kept as the arm control. The SPANNER now
+    // opens the MIXER expanded on this door (all 8 strips visible, this one highlighted), the salvaged footer console — the
+    // footer itself is retired (Paul 2026-08-31).
     @ViewBuilder func roomsColumnReceivers(height: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(0..<4, id: \.self) { i in
-                buildReceiverControl(i, height: height, spanner: { buildMidiConfigTab = i; buildMidiConfigOpen = true }).frame(maxWidth: .infinity)   // spanner → MIDI INPUTS, this door's tab
+                buildReceiverControl(i, height: height, spanner: { roomsMixerSel = i; roomsMixerOpen = true }).frame(maxWidth: .infinity)   // spanner → the MIXER, this door (IN) selected
             }
         }
     }
     @ViewBuilder func roomsColumnEmitters(height: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(0..<4, id: \.self) { i in
-                buildEmitterControl(i, showRack: false, height: height, spanner: { buildMidiOutConfigOpen = true }).frame(maxWidth: .infinity)   // spanner → MIDI OUTPUTS
+                buildEmitterControl(i, showRack: false, height: height, spanner: { roomsMixerSel = 4 + i; roomsMixerOpen = true }).frame(maxWidth: .infinity)   // spanner → the MIXER, this emitter (OUT) selected
             }
         }
     }
