@@ -51,7 +51,7 @@ final class Router {
         var colourIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — matches SnapCell; a colour index can exceed 127
         var alt = false
         var vel: UInt8 = 0           // §strips-done: the emit velocity, for the per-emitter hold-while-sounding feed
-        var cellIndex: Int8 = -1     // SEAL comet: the emitting cell's grid index (col*Snap.rows+row, 0…127), for the per-cell
+        var cellIndex: Int16 = -1    // SEAL comet: the emitting cell's grid index (col*Snap.rows+row). Int16 (was Int8, whose 127 ceiling = the exact 7*16+15 cell max) so a 16-COLUMN grid (index up to 15*16+15 = 255) doesn't overflow — the grid-8|16 groundwork (2026-08-31)
                                      // SOUNDING gate — the spark travels for exactly as long as the note is held.
         var bypassRecv: Int8 = -1    // BYPASS: ≥0 = a direct-injection voice for that receiver (IMMORTAL, managed by
                                      // reconcileBypass) — the grid's continuity + transport flushes leave it alone.
@@ -787,7 +787,7 @@ final class Router {
         voices[slot].colourIndex = currentColourIndex   // §2 adoption identity (COLOUR-AND-FACE)
         voices[slot].alt = currentAlt
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
-        voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < Snap.cells) ? Int8(currentCellIndex) : -1   // SEAL sounding gate (Int8 holds ≤127; the max cell index is 7*16+15 = 127 — exactly at the Int8 ceiling, so 16 rows is the limit for this field)
+        voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < Snap.cells) ? Int16(currentCellIndex) : -1   // SEAL sounding gate (Int16 now — was the grid's hard ceiling at Int8's 127)
         voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
         voices[slot].glideAnchor = meter       // GLIDE: `meter` marks glide direct-injection voices (its sole users — see
                                                // the comment above + the Voice.glideAnchor note); tag them so the

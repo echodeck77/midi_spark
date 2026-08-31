@@ -155,6 +155,18 @@ ceilings that OVERFLOW at 16:
 add the setting → the UI). **RISK:** HIGH (render hot path + persistence). **EFFORT:** 2–3 sessions, staged. Do LAST of the
 ratified batch, after §K3.
 
+**REFINED ANALYSIS (2026-08-31, Paul approved the refactor):** the widening is INSEPARABLE from the cols=16 flip — at
+active-width 8 nothing overflows (index ≤127, masks ≤63), so widening the masks/cellSounding is only EXERCISED when cols
+8–15 actually render. That flip changes what the render produces (16 columns), which needs Paul's DEVICE to verify. So the
+staged plan is:
+- **STAGE 1 (DONE unattended, byte-identical, verifiable off-device):** `Voice.cellIndex` Int8 → Int16 (Router.swift:54/790)
+  — removes the single flagged latent ceiling ("16 is this field's limit"), a no-op at cols=8, full suite green.
+- **STAGE 2 (Paul-present, device-verified — the flip + its widenings):** `cellSounding` 2→4 UInt64 (de-hardcode `<64`/
+  `-64` at Router:864-869) · the tap/solo/tapAlt/audition masks UInt64 → 128-bit (Router:418-433, Kernel:70-85, AU
+  :283/:325/:351, widen `setSoloCellMask`/`setAudition`) · the `Snap.cols` static-let → the always-16-allocation +
+  per-document active-width (option a) · the feed arrays 128→256 (audit `<64`/`128` literals) · the UI `ForEach(0..<8)`
+  column loops · a 1..16 loop-length control. Each byte-identical at active-width 8; the cols=16 rendering is the device check.
+
 ---
 
 ## §F — ▲▼ TRACK-MOVE + GHOST PREVIEWS (ratified · UI · redesign §9)
