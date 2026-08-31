@@ -890,10 +890,9 @@ extension DiagView {
     @ViewBuilder func buildStopAllButton() -> some View {
         let anyPlaying = buildDisplayVoice != .none || buildPlayColOn.contains(true)
         Image(systemName: "stop.fill").font(.system(size: 15, weight: .black))
-            .foregroundColor(anyPlaying ? .white : buildDim)
+            .foregroundColor(roomsDoorInk(to: .play))                                             // white ink — like the nav buttons (Paul 2026-08-31)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(anyPlaying ? buildPink : buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(anyPlaying ? Color.clear : buildPink.opacity(0.4), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 5).fill(anyPlaying ? roomsIndigo : roomsIndigo.opacity(0.35)))   // PLAY-GRID indigo (dimmer when idle)
             .contentShape(Rectangle()).onTapGesture { buildStopAllOnTransportStop() }
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
@@ -1568,14 +1567,15 @@ extension DiagView {
         GeometryReader { g in
             let s = min(g.size.width, g.size.height) * 0.5
             VStack(spacing: 1) {
-                Image(systemName: "chevron.up").font(.system(size: s, weight: .black)).foregroundColor(canUp ? .white : buildDim)
+                // ▲▼ wear the PLAY-GRID indigo (like the nav buttons); dimmed indigo when the edge is reached (Paul 2026-08-31)
+                Image(systemName: "chevron.up").font(.system(size: s, weight: .black)).foregroundColor(canUp ? roomsDoorInk(to: .play) : .white.opacity(0.3))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(canUp ? buildCyan.opacity(0.3) : buildCell))   // UP LIT while a row can be added
+                    .background(RoundedRectangle(cornerRadius: 4).fill(canUp ? roomsIndigo : roomsIndigo.opacity(0.25)))
                     .contentShape(Rectangle()).onTapGesture { if canUp { buildPlayFerryStep(1) } }
                 Text("R\(buildPlayFerryRow + 1)").font(.system(size: 9, weight: .black, design: .monospaced)).foregroundColor(.white.opacity(0.75)).lineLimit(1).minimumScaleFactor(0.5)
-                Image(systemName: "chevron.down").font(.system(size: s, weight: .black)).foregroundColor(canDown ? .white : buildDim)
+                Image(systemName: "chevron.down").font(.system(size: s, weight: .black)).foregroundColor(canDown ? roomsDoorInk(to: .play) : .white.opacity(0.3))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(buildCell))
+                    .background(RoundedRectangle(cornerRadius: 4).fill(canDown ? roomsIndigo : roomsIndigo.opacity(0.25)))
                     .contentShape(Rectangle()).onTapGesture { if canDown { buildPlayFerryStep(-1) } }
             }
         }
