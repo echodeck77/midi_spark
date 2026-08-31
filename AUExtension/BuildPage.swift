@@ -1519,8 +1519,8 @@ extension DiagView {
         // on the SELECT page the seam → PART ("PART GRID", far RIGHT, ▸); on the PART page → SELECT ("SELECT GRID", far LEFT, ◂).
         let label = room == .part ? "PART GRID" : (room == .select ? "SELECT GRID" : room.rawValue)
         let toRight = room == .part
-        let ink = roomsDoorInk(to: room)
-        roomsDoorBar(to: room)                                              // → its DESTINATION's signature
+        let ink = roomsDoorInk(to: .play)                                   // ALL nav buttons wear the PLAY-GRID colour (Paul 2026-08-31)
+        roomsDoorBar(to: .play)                                             // → the PLAY-GRID indigo (not the destination's own signature)
             .frame(width: width, height: height)
             .overlay(
                 VStack(spacing: 6) {
@@ -2565,7 +2565,9 @@ extension DiagView {
     }
     // The LIVE held chord at the chain's input door — the notes ACTUALLY coming through (empty ⇒ no comets). (Paul 2026-08-31)
     private var buildChainLiveChord: [Int] {
-        let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        let door: Int
+        if let pc = buildSelectedPlayCol, pc >= 0, pc < buildPlayColRecv.count { door = buildPlayColRecv[pc] }   // a selected FERRY reads ITS door
+        else { door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver }
         guard door >= 0, door < recvHeldNotes.count else { return [] }
         return recvHeldNotes[door].map(Int.init).sorted()
     }
@@ -2623,59 +2625,46 @@ extension DiagView {
                     ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
                     ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
                 }
-                // COMETS — the chain must be the voice + the TRANSPORT actually PLAYING (Paul 2026-08-31: it animated on the
-                // wall clock even when stopped, so it never reflected the real throughput). No transport = frozen/no comets.
-                let playing = d.playing && buildDisplayVoice == .chain
-                guard playing, let notes = stages.last, !notes.isEmpty else { return }
+                // COMETS — PER-STAGE (Paul 2026-08-31): each segment carries the notes AT THAT POINT in the chain, so the flow
+                // shows the real transform: the INPUT held chord draws as a HARD LINE up to the first processor that changes it
+                // (e.g. an arp), and its OUTPUT draws as SHORT comets flowing on toward the wire. Gated on the TRANSPORT playing
+                // + the machine being the voice OR a selected FERRY playing (so a ferry shows its flow too).
+                let ferryOn = buildSelectedPlayCol.map { $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? false
+                let playing = d.playing && (buildDisplayVoice == .chain || ferryOn)
+                guard playing, !stages.isEmpty else { return }
                 let recBeats = 3.0
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let lp = ((live / recBeats).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
-                var segLen = [CGFloat](repeating: 0, count: P.count - 1); var total: CGFloat = 0
-                for j in 0..<segLen.count { segLen[j] = max(0.001, hypot(P[j + 1].x - P[j].x, P[j + 1].y - P[j].y)); total += segLen[j] }
-                func pointAt(_ f: Double) -> CGPoint {
-                    var dist = CGFloat(max(0, min(1, f))) * total
-                    for j in 0..<segLen.count {
-                        if dist <= segLen[j] || j == segLen.count - 1 { let t = dist / segLen[j]; return CGPoint(x: P[j].x + (P[j + 1].x - P[j].x) * t, y: P[j].y + (P[j + 1].y - P[j].y) * t) }
-                        dist -= segLen[j]
-                    }
-                    return P.last!
-                }
-                // CLIP OUT only the POPULATED boxes (0.8 of the cell, centred) → comets vanish behind a real processor's opaque
-                // face but flow THROUGH the transparent empty boxes (Paul 2026-08-31).
+                // CLIP OUT only the POPULATED boxes → comets vanish behind a real processor's opaque face, flow through empties.
                 var boxesPath = Path()
                 for i in 0..<8 where populated[i] { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
                 if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
-                ctx.blendMode = .plusLighter                                   // ADDITIVE glow in the connectors + gaps
-                let transit = max(0.03, stepBeats) / recBeats                  // the journey top-left circle → bottom-right = ONE STEP (Paul 2026-08-31)
-                func dot(_ head: CGPoint, _ r: CGFloat, _ vel: Double) {
-                    ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * vel)))
-                }
-                func tail(_ g: Double, _ tf: Double, _ r: CGFloat, _ vel: Double, _ alpha: Double) {
-                    let steps = max(4, Int(tf * 24))                            // FINE sampling — follows the zig-zag PATH instead of cutting corners (Paul 2026-08-31)
-                    for k in 0..<steps {
-                        let f0 = g - tf * Double(k + 1) / Double(steps), f1 = g - tf * Double(k) / Double(steps)
-                        guard f1 >= 0 else { continue }
-                        var seg = Path(); seg.move(to: pointAt(max(0, f0))); seg.addLine(to: pointAt(max(0, f1)))
-                        ctx.stroke(seg, with: .color(hue.opacity((alpha * vel) * (1 - Double(k) / Double(steps)))), style: StrokeStyle(lineWidth: r, lineCap: .round))
-                    }
-                }
-                for note in notes {
-                    let r = 1.4 + 2.6 * CGFloat(note.vel)
-                    var g0 = lp - note.onset; if g0 < 0 { g0 += 1 }; g0 /= transit
-                    if note.dur >= 0.5 {
-                        // SUSTAINED / HELD chord → a CONTINUOUS stream of heads flowing along the chain, NOT a single crossing
-                        // that shoots out once per loop (Paul 2026-08-31: a sustained chord read as 2× the input frequency).
-                        let heads = 4
-                        for m in 0..<heads {
-                            let gm = (g0 + Double(m) / Double(heads)).truncatingRemainder(dividingBy: 1.0)
-                            tail(gm, 0.07, r, note.vel, 0.35)
-                            dot(pointAt(gm), r, note.vel)
+                ctx.blendMode = .plusLighter
+                let nSeg = P.count - 1
+                let transit = max(0.03, stepBeats) / recBeats                  // circle → circle = ONE STEP
+                let segTime = transit / Double(nSeg)                          // per-segment flow time (so a comet propagates outward)
+                func stageAt(_ j: Int) -> Int { min(max(0, j - 1), stages.count - 1) }   // segment 0/1 = input · seg k = output of box k-2
+                func rhythmic(_ s: Int) -> Bool { stages[s].contains { $0.dur < 0.5 } }   // a stage with any SHORT note = rhythmic (arp etc.)
+                for j in 0..<nSeg {
+                    let a = P[j], b = P[j + 1], s = stageAt(j), rhy = rhythmic(s)
+                    for note in stages[s] {
+                        let r = 1.3 + 2.4 * CGFloat(note.vel)
+                        if note.dur >= 0.5 && !rhy {
+                            // HELD chord in a still-unchanged (input) stage → a HARD continuous LINE along this segment.
+                            var seg = Path(); seg.move(to: a); seg.addLine(to: b)
+                            ctx.stroke(seg, with: .color(hue.opacity(0.3 + 0.45 * note.vel)), style: StrokeStyle(lineWidth: 1.5 + 2.2 * CGFloat(note.vel), lineCap: .round))
+                        } else {
+                            // SHORT / rhythmic → a comet flowing along this segment, onset-timed + a per-segment delay so it flows outward.
+                            var t = lp - note.onset - Double(j) * segTime
+                            t = (t.truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
+                            let prog = t / segTime
+                            guard prog >= 0, prog <= 1 else { continue }
+                            let head = CGPoint(x: a.x + (b.x - a.x) * CGFloat(prog), y: a.y + (b.y - a.y) * CGFloat(prog))
+                            let tl = min(prog, 0.7)
+                            var tp = Path(); tp.move(to: CGPoint(x: a.x + (b.x - a.x) * CGFloat(prog - tl), y: a.y + (b.y - a.y) * CGFloat(prog - tl))); tp.addLine(to: head)
+                            ctx.stroke(tp, with: .color(hue.opacity(0.3 * note.vel)), style: StrokeStyle(lineWidth: r, lineCap: .round))
+                            ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * note.vel)))
                         }
-                    } else {
-                        // SHORT (arp / staccato) → a single comet + a duration-length tail, at the note rhythm.
-                        guard g0 >= 0, g0 <= 1 else { continue }
-                        tail(g0, min(1.0, note.dur / transit), r, note.vel, 0.45)
-                        dot(pointAt(g0), r, note.vel)
                     }
                 }
             }
