@@ -3595,10 +3595,22 @@ extension DiagView {
     // normally; DRAG to force this door's input velocity (top = 127 · bottom = 0) via setReceiverVel; release springs
     // back to the natural velocity — the receiver mirror of buildEmitterFader. (Paul 2026-08-18)
     // The velocity-meter FILL as vertical colour bands (one per feeding/playing cell) rising to `level`. (Paul 2026-08-31)
-    @ViewBuilder private func buildMeterBands(_ colours: [Color], level: Double, height: CGFloat, override: Color?) -> some View {
+    // ENERGY (Paul 2026-08-31): each band fades to alpha 0 at the BOTTOM (bright at the peak line), OVERLAID with an
+    // identical band whose fade is INVERTED (visible at the bottom, gone at the top) — the two crossing gradients read as
+    // energy. Applied to the receiver strips.
+    @ViewBuilder private func buildMeterBands(_ colours: [Color], level: Double, height: CGFloat, override: Color?, energy: Bool = false) -> some View {
         let cs: [Color] = override != nil ? [override!] : (colours.isEmpty ? [buildCyan] : colours)
         HStack(spacing: cs.count > 1 ? 0.7 : 0) {
-            ForEach(cs.indices, id: \.self) { k in Rectangle().fill(cs[k].opacity(0.9)) }
+            ForEach(cs.indices, id: \.self) { k in
+                if energy {
+                    ZStack {
+                        Rectangle().fill(LinearGradient(colors: [cs[k].opacity(0.95), cs[k].opacity(0)], startPoint: .top, endPoint: .bottom))   // fades to 0 at the bottom
+                        Rectangle().fill(LinearGradient(colors: [cs[k].opacity(0), cs[k].opacity(0.95)], startPoint: .top, endPoint: .bottom))   // inverted overlay: visible at the bottom
+                    }
+                } else {
+                    Rectangle().fill(cs[k].opacity(0.9))
+                }
+            }
         }
         .frame(height: height * CGFloat(min(1, max(0, level))))
         .clipShape(RoundedRectangle(cornerRadius: 3))
@@ -3619,7 +3631,7 @@ extension DiagView {
                     let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
-                        buildMeterBands(feed, level: level, height: g.size.height, override: override != nil ? buildPink : nil)   // tinted by the feeding cell(s)
+                        buildMeterBands(feed, level: level, height: g.size.height, override: override != nil ? buildPink : nil, energy: true)   // tinted by the feeding cell(s) + the ENERGY gradient (Paul 2026-08-31)
                     }
                 }
                 .contentShape(Rectangle())
