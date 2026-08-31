@@ -1524,17 +1524,16 @@ struct ProcessorBox: View {
             // THE PIANO — what's happening, live. Top = the notes you're listening to (the reference); bottom = what makes it out.
             let refClasses: Set<Int> = refIsInput ? Set((idx < avoidInputNotes.count ? avoidInputNotes[idx] : []).map { (($0 % 12) + 12) % 12 }) : []
             let clashClasses: Set<Int> = clashSemis > 0 ? avoidWidenClasses(refClasses, semis: clashSemis) : []
-            let outSet = Set(avoidOutputNotes)
+            let outClasses = Set(avoidOutputNotes.map { (($0 % 12) + 12) % 12 })   // octave-agnostic (the filter is by pitch class), so the piano is 2 octaves + lit by class
             VStack(alignment: .leading, spacing: 5) {
                 if refIsInput {
-                    avoidKeyboard(md == .lock ? "LOCK TO — what INPUT \(letters[idx]) plays" : "AVOID — what INPUT \(letters[idx]) plays") { midi in
-                        let pc = ((midi % 12) + 12) % 12
+                    avoidKeyboard(md == .lock ? "LOCK TO — what INPUT \(letters[idx]) plays" : "AVOID — what INPUT \(letters[idx]) plays") { pc in
                         if refClasses.contains(pc) { return refTint.opacity(0.9) }
                         if clashClasses.contains(pc) { return refTint.opacity(0.32) }   // the widened clash halo
                         return nil
                     }
                 }
-                avoidKeyboard("YOUR OUTPUT — what plays") { midi in outSet.contains(midi) ? accent.opacity(0.92) : nil }
+                avoidKeyboard("YOUR OUTPUT — what plays") { pc in outClasses.contains(pc) ? accent.opacity(0.92) : nil }
             }
             Text(avoidBlurb(input: refIsInput, letter: letters[idx], lock: md == .lock, clash: clashSemis, move: (p.avoidAction ?? .remove) == .move))
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -1551,19 +1550,19 @@ struct ProcessorBox: View {
         for pc in classes { for d in 1...semis { out.insert((pc + d) % 12); out.insert((pc + 12 - (d % 12)) % 12) } }
         return out.subtracting(classes)   // the halo = only the NEW neighbours (the exact notes already read at full tint)
     }
-    // A compact C1–C7 keyboard for the AVOID illustration: each key is filled by `tint(midi)` (nil = unlit), over a faint
-    // black/white key backdrop for orientation.
+    // A compact TWO-OCTAVE keyboard for the AVOID illustration (the filter is octave-agnostic, so two octaves say it all):
+    // each key is filled by `tint(pitchClass)` (nil = unlit), over a faint black/white key backdrop for orientation.
     private func avoidKeyboard(_ label: String, _ tint: @escaping (Int) -> Color?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.secondary)
             Canvas { ctx, size in
-                let lo = 24, hi = 96, n = hi - lo, bw = size.width / CGFloat(n)   // C1..C7
+                let n = 24, bw = size.width / CGFloat(n)   // two octaves = 24 keys
                 for s in 0..<n {
-                    let midi = lo + s
-                    let isBlack = [1, 3, 6, 8, 10].contains(((midi % 12) + 12) % 12)
+                    let pc = s % 12
+                    let isBlack = [1, 3, 6, 8, 10].contains(pc)
                     let rect = CGRect(x: CGFloat(s) * bw, y: 0, width: max(1, bw - 0.4), height: size.height)
                     ctx.fill(Path(rect), with: .color(.white.opacity(isBlack ? 0.05 : 0.11)))
-                    if let c = tint(midi) { ctx.fill(Path(rect), with: .color(c)) }
+                    if let c = tint(pc) { ctx.fill(Path(rect), with: .color(c)) }
                 }
             }
             .frame(height: 24)
