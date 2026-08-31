@@ -13,10 +13,18 @@ Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/
   - ✅ **§5 play-grid undo** — DONE (the 10 play arrays added to BuildSnapshot; ferry/flatten now record undo).
   - ✅ **§E GRID 8|16 stage 1** — DONE (Voice.cellIndex Int8→Int16, byte-identical, full suite green). STAGE 2 (the
     cols=16 flip + mask/cellSounding/Snap.cols widening) is device-verified, Paul-present — see plan §E.
-  - ⏸ **§B AVOID** — HELD pending Paul's #1 confirm (SKIP is upstream re-pool; downstream = REST|SHIFT — explained).
-  - ⏸ **§C scale-aware IN strip** — after §B (thin UI over it).
-  - ⏸ **§D MACRO LANES** — blocked on #2 (render-time per-column macro path + part-scope).
-  - ⏸ **§F ▲▼ track-move** — the row-track model needs Paul on-glass (tracks are columns today); ghosts need the slot model.
+  - ✅ **§B AVOID / LOCK (UNIFIED)** — DONE (`7c60dac`). Paul unified "avoid clashes" + "lock to key" into ONE processor:
+    a per-note pitch filter (keyFilterNote as a chain stage) — REFERENCE (KEY·DOOR·WIRE·ALL SOUNDING) × MODE (LOCK|AVOID)
+    × ACTION (REMOVE|MOVE), placeable anywhere (position-independent; no SKIP). Subsumes the separate §H LOCK-TO-KEY. Full
+    surface + self-naming (LOCK A MIXO / AVOID CLASHES) + 2 storefront cards + 3 tests + fuzz. **v1 limits:** the DOOR
+    reference reads the door's LATCHED/scale pool (a live unlatched chord door = v2); WIRE/SOUNDING = the L1 later-row caveat.
+    DEVICE ear owed.
+  - ✅ **§F PLAY-FERRY ROW CURSOR** — DONE (`7c60dac`; Paul's #4 clarification, NOT the abstract track-swap): a ▲▼ picks
+    which grid ROW the play-ferry buttons target (`buildPlayFerryRow`). The ghost-previews/track-swap of redesign §9 remain
+    a separate incremental-redesign item. DEVICE eye owed.
+  - ⏸ **§C scale-aware IN strip** — the §6 SCALE-door IN readout + the "arm AVOID CLASHES from the strip" chip (thin UI over
+    §B now that AVOID exists). Buildable next.
+  - ⏸ **§D MACRO LANES** — blocked on Paul's #2 (render-time per-column macro path + part-scope).
 - **ALREADY BUILT (verified — do NOT rebuild):** the bazaar-muted select cells · scale-doors-name-themselves (on the
   receiver chip; only the MIDI-config tab bar is left = §A) · the room palette signatures (roomsField near-black PLAY,
   roomsDoorBar rainbow/amber/indigo/red, ▲PLAY indigo) · CHORDS/the dynamic reference.

@@ -216,7 +216,12 @@ band = a redesign slice with Paul.
 
 ---
 
-## §H — LOCK TO KEY (CAPTURED, NOT ratified — sketch only, HOLD)
+## §H — LOCK TO KEY — ✅ SUBSUMED into §B (2026-08-31)
+Paul unified LOCK TO KEY with AVOID: LOCK is just AVOID's `MODE = lock` (`keyFilterNote only:true`) with a KEY reference,
+placeable anywhere (incl. the chain END). Built as part of §B (`7c60dac`) — the "LOCK TO KEY" storefront card = AVOID(kind:
+key, mode: lock, action: move). No separate processor. (Historical sketch below.)
+
+## §H(old) — LOCK TO KEY (the pre-unification sketch, kept for the record)
 Scale-door §7/§7b: an END-of-chain force-to-key output filter (declared/referenced key + REJECTS BLOCK|SNAP, seated at the
 chain END; self-named "LOCK: A MIXO"). Mechanically it is **AVOID with `keyFilterNote(only:true, snap:)`** at the chain tail
 (the LENGTH-override pattern at Router.swift:3666-3676 shows "last stage overrides the note"). A shared `.avoid`/`.lock`

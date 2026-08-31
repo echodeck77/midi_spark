@@ -159,6 +159,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ AVOID/LOCK (UNIFIED) + PLAY-FERRY ROW CURSOR (2026-08-31, on `main`, PUSHED `7c60dac`; iOS builds, macOS 953 green
+  incl. fuzz; DEVICE ear/eye owed). Paul unified "avoid clashes" + "lock to key" into ONE processor — a per-note pitch
+  filter (`keyFilterNote` as a chain stage): REFERENCE (KEY declared root+scale · DOOR 0–3 the receiver's latched/scale
+  pool · WIRE 0–3 an emitter's live output · ALL SOUNDING the voice table) × MODE (LOCK keep-only-in = in-key · AVOID
+  remove-in = dodge clashes) × ACTION (REMOVE drop · MOVE snap-nearest). POSITION-INDEPENDENT (Paul's ruling on #1: no
+  SKIP-repick, so it works the SAME before a driver [applyStage re-pool] or after [emitDriverNote punch/shift] or as a
+  hold-tail — position only chooses pool-thin vs line-holes). Pure (`scalePitchClassMask` + `soundingPitchClassMask` voice
+  scan; the WIRE/SOUNDING ref carries the HOCKET L1 later-row caveat). `ProcessorType.avoid` + `CellMode.avoid` + the full
+  surface + self-naming ("LOCK A MIXO" / "AVOID CLASHES") + 2 storefront cards + 3 tests + fuzz. **SUBSUMES the separate
+  scale-door §7 LOCK-TO-KEY.** v1: the DOOR ref reads the latched/scale pool (a live unlatched chord door = v2). Also the
+  **PLAY-FERRY ROW CURSOR** (Paul's #4 clarification — NOT the abstract §9 track-swap): a ▲▼ picks which grid ROW the
+  play-ferry buttons target (`buildPlayFerryRow`), so cells can be ferried to different rows (each stays independent).**
 - **▶ FERRY INTAKE 2026-08-31 + first ratified slices (on `main`, PUSHED; iOS builds, macOS 950 green; UI device-owed).
   Read/merged/added the 5-doc design ferry (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes ·
   listening-set · macro-lanes) + filed `Docs/PLAN-incoming-2026-08-31.md` (grounded file:line plan for the ratified batch,
