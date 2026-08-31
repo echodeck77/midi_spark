@@ -3594,21 +3594,24 @@ extension DiagView {
     // The INTERACTIVE input-velocity indicator: the incoming-velocity meter (sustained while held, brief attack flash)
     // normally; DRAG to force this door's input velocity (top = 127 · bottom = 0) via setReceiverVel; release springs
     // back to the natural velocity — the receiver mirror of buildEmitterFader. (Paul 2026-08-18)
+    // One velocity-meter colour band + whether it wears the ENERGY effect (only the SELECTED colour's band — Paul 2026-08-31).
+    private struct MeterBand { let color: Color; let energy: Bool }
     // The velocity-meter FILL as vertical colour bands (one per feeding/playing cell) rising to `level`. (Paul 2026-08-31)
-    // ENERGY (Paul 2026-08-31): each band fades to alpha 0 at the BOTTOM (bright at the peak line), OVERLAID with an
-    // identical band whose fade is INVERTED (visible at the bottom, gone at the top) — the two crossing gradients read as
-    // energy. Applied to the receiver strips.
-    @ViewBuilder private func buildMeterBands(_ colours: [Color], level: Double, height: CGFloat, override: Color?, energy: Bool = false) -> some View {
-        let cs: [Color] = override != nil ? [override!] : (colours.isEmpty ? [buildCyan] : colours)
-        HStack(spacing: cs.count > 1 ? 0.7 : 0) {
-            ForEach(cs.indices, id: \.self) { k in
-                if energy {
+    // ENERGY (Paul 2026-08-31): the reverse-velocity look — the colour fades out toward the MIDDLE from both ends (bright at
+    // the peak line AND the base, a pinched "energy" waist), the inverted overlay SCREEN-blended for a glow at the crossover.
+    // Only bands flagged `energy` (the selected colour) get it; the rest are flat.
+    @ViewBuilder private func buildMeterBands(_ bands: [MeterBand], level: Double, height: CGFloat, override: Color?) -> some View {
+        let bs: [MeterBand] = override != nil ? [MeterBand(color: override!, energy: false)] : (bands.isEmpty ? [MeterBand(color: buildCyan, energy: false)] : bands)
+        HStack(spacing: bs.count > 1 ? 0.7 : 0) {
+            ForEach(bs.indices, id: \.self) { k in
+                if bs[k].energy {
+                    let c = bs[k].color
                     ZStack {
-                        Rectangle().fill(LinearGradient(colors: [cs[k].opacity(0.95), cs[k].opacity(0)], startPoint: .top, endPoint: .bottom))   // fades to 0 at the bottom
-                        Rectangle().fill(LinearGradient(colors: [cs[k].opacity(0), cs[k].opacity(0.95)], startPoint: .top, endPoint: .bottom))   // inverted overlay: visible at the bottom
-                    }
+                        Rectangle().fill(LinearGradient(gradient: Gradient(stops: [.init(color: c, location: 0), .init(color: c.opacity(0), location: 0.60)]), startPoint: .top, endPoint: .bottom))   // full at the top, gone by 60%
+                        Rectangle().fill(LinearGradient(gradient: Gradient(stops: [.init(color: c.opacity(0), location: 0.40), .init(color: c, location: 1)]), startPoint: .top, endPoint: .bottom)).blendMode(.screen)   // inverted, screen-blended → glow at the crossover
+                    }.compositingGroup()
                 } else {
-                    Rectangle().fill(cs[k].opacity(0.9))
+                    Rectangle().fill(bs[k].color.opacity(0.9))
                 }
             }
         }
@@ -3631,7 +3634,7 @@ extension DiagView {
                     let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
-                        buildMeterBands(feed, level: level, height: g.size.height, override: override != nil ? buildPink : nil, energy: true)   // tinted by the feeding cell(s) + the ENERGY gradient (Paul 2026-08-31)
+                        buildMeterBands(feed, level: level, height: g.size.height, override: override != nil ? buildPink : nil)   // tinted by the feeding cell(s); energy on the SELECTED colour's band (Paul 2026-08-31)
                     }
                 }
                 .contentShape(Rectangle())
@@ -3729,7 +3732,7 @@ extension DiagView {
 
     // The colours of every CELL FEEDING receiver `door` (its velocity-strip tint) — the part rows whose input is this door
     // + any live play column reading it. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
-    private func buildReceiverFeedColours(_ door: Int) -> [Color] {
+    private func buildReceiverFeedColours(_ door: Int) -> [MeterBand] {
         var ids: [String] = []
         func add(_ cid: String?) { if let cid, !ids.contains(cid) { ids.append(cid) } }
         for r in 0..<8 where buildRowColour(r) != nil && buildRowReceiverResolved(r) == door { add(buildRowColour(r)) }   // part rows on this door
@@ -3737,17 +3740,17 @@ extension DiagView {
             let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
             if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) }
         }
-        var out = ids.map { colourColor($0) ?? buildCyan }
+        var out = ids.map { MeterBand(color: colourColor($0) ?? buildCyan, energy: $0 == ddSelectedColourID) }   // the ENERGY effect only on the SELECTED colour's band (Paul 2026-08-31)
         // SELECT-grid CHAIN audition (ddSolo): the audition has no placed "cell", so the door it reads found no feed → it
         // was showing the cyan no-feed fallback. Show the MACHINE hue instead (light grey on SELECT, matching the grid
-        // cells' inverse-grey playing look) so the receiver strip agrees with the machine box. (Paul 2026-08-31)
+        // cells' inverse-grey playing look) so the receiver strip agrees with the machine box. It IS the selection → energy.
         let auditionDoor = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
-        if ddSolo, door == auditionDoor, out.isEmpty { out.append(buildMachineHue(roomsRoom)) }
+        if ddSolo, door == auditionDoor, out.isEmpty { out.append(MeterBand(color: buildMachineHue(roomsRoom), energy: true)) }
         return out
     }
     // The colours of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
     // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
-    private func buildEmitterPlayingColours(_ e: Bus) -> [Color] {
+    private func buildEmitterPlayingColours(_ e: Bus) -> [MeterBand] {
         var ids: [String] = []
         func add(_ cid: String?) { if let cid, !ids.contains(cid) { ids.append(cid) } }
         if buildStagingPlaying {                                                                     // PART: the selected rungs that emit on e
@@ -3760,7 +3763,7 @@ extension DiagView {
             if emit.contains(e) { let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
                 if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) } }
         }
-        return ids.map { colourColor($0) ?? buildCyan }
+        return ids.map { MeterBand(color: colourColor($0) ?? buildCyan, energy: false) }             // emitters keep the flat fill (energy is receivers-only, Paul 2026-08-31)
     }
     // The interactive velocity fader: the meter (emitPeak, decayed) normally; while DRAGGED it forces the emitter's
     // output velocity (top = 127 · bottom = 0/KILL) via setVelOverride, and releases (springs back) on lift.
