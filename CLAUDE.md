@@ -159,6 +159,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ AVOID HARDENING — pianos redesign · EVERYTHING semantics · MOVE-in-scale-downstream · 20 tests (2026-08-31, on
+  `main`, `15965eb`+`512c154`; iOS builds, macOS 974 green incl. fuzz; DEVICE eye/ear owed). Paul: the processor "feels
+  inconsistent." A thorough 3-agent-informed end-to-end investigation (MIDI in → MIDI out) found + fixed two real
+  inconsistencies, plus the piano rework. **PIANOS (`15965eb`, UI):** proper 2-octave keyboards; INPUT piano = a WHITE
+  "playing" band + the reference zone RED (avoid) / GREEN (lock) + clash halo; OUTPUT piano = GREEN (plays) / RED (dropped).
+  **B-2 EVERYTHING (`512c154`, engine):** was the OUTPUT voice table incl. SELF while the piano predicted OTHER inputs
+  excl. self — a domain+self mismatch (could avoid itself). Now EVERYTHING = the union of every OTHER input door, never
+  this chain's own receiver (`avoidRefMask(ownDoor:)` + `doorRefMask`) — engine, piano, and Paul's "everything except its
+  own receiver" all agree. **B-1 MOVE downstream (`512c154`, engine):** `[ARP→AVOID(move)]` could only DROP (survivor pool
+  of one driven note); now snaps onto the DRIVER's whole-pool survivors like a standalone AVOID (`avoidDriverSurvivor`,
+  resolved per column, gated to emitDriverNote's fold — mirrors SPLIT's `splitGate`). REMOVE & LOCK were already position-
+  invariant. **TESTS:** +18 Router acceptance (real MIDI-in→out, concept-derived: empty-ref, clash width, EVERYTHING self-
+  exclusion, KEY/octave refs, LOCK-MOVE-to-absent-ref, range safety, full chain-position matrix, no-stuck sweep) + 2
+  keyFilterNote unit edges. v1 limit: echo-chain-repeat MOVE still degrades to drop (flagged).**
 - **▶ ROOMS STATE CONSOLIDATION — one machine-hue + one audition-owner model (2026-08-31, on `main`, `231ad6c`; iOS builds;
   UI-only, DEVICE eye/ear owed). Paul reported two bugs and suspected scattered state that should be in a model — a 2-agent
   read-only review confirmed TWO sources of truth for "the selected colour" + TWO independent voice booleans. **BUG 1 (card
