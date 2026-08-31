@@ -883,17 +883,17 @@ extension DiagView {
                 buildConfigButton("ROW 8")    { buildRow8EditSlot = max(0, buildRow8EditSlot); buildRow8EditOpen = true }   // the ROW 8 action-cell authoring page (Paul 2026-08-24: edit lives in the header, after RACK)
             }
             buildReelButton()                                   // RECORD — top-right (Paul 2026-08-23); handles the pass-browser hide + share anchor
-            buildStopAllButton()                                // STOP EVERYTHING — far top-right (Paul 2026-08-31)
         }
     }
-    // The global STOP — stops every playing voice (chain audition · part · every play column). Top-right of the header.
-    @ViewBuilder private func buildStopAllButton() -> some View {
+    // The global STOP — stops every playing voice (chain audition · part · every play column). Lives in the SELECT grid's
+    // top-right EMPTY corner cell (Paul 2026-08-31). Cell-sized; red + lit when anything plays.
+    @ViewBuilder func buildStopAllButton() -> some View {
         let anyPlaying = buildDisplayVoice != .none || buildPlayColOn.contains(true)
-        Image(systemName: "stop.fill").font(.system(size: 13, weight: .black))
+        Image(systemName: "stop.fill").font(.system(size: 15, weight: .black))
             .foregroundColor(anyPlaying ? .white : buildDim)
-            .frame(width: 34, height: 30)
-            .background(RoundedRectangle(cornerRadius: 6).fill(anyPlaying ? buildPink : buildPanel))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildPink.opacity(anyPlaying ? 0.0 : 0.4), lineWidth: 1))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(anyPlaying ? buildPink : buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(anyPlaying ? Color.clear : buildPink.opacity(0.4), lineWidth: 1))
             .contentShape(Rectangle()).onTapGesture { buildStopAllOnTransportStop() }
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
@@ -1562,14 +1562,22 @@ extension DiagView {
     // a cell to row 1 of a column, then move the cursor and ferry another to row 3 (each cell stays independent). Sits in
     // the ferry row's left corner. Compact: ▲ · Rn · ▼ in one cell.
     @ViewBuilder func roomsPlayFerryRowSelector() -> some View {
-        VStack(spacing: 1) {
-            Image(systemName: "chevron.up").font(.system(size: 9, weight: .black)).foregroundColor(buildPlayFerryRow > 0 ? .white.opacity(0.85) : buildDim)
-                .frame(maxWidth: .infinity, maxHeight: .infinity).background(RoundedRectangle(cornerRadius: 3).fill(buildCell))
-                .contentShape(Rectangle()).onTapGesture { buildPlayFerryRow = max(0, buildPlayFerryRow - 1) }
-            Text("R\(buildPlayFerryRow + 1)").font(.system(size: 8, weight: .black, design: .monospaced)).foregroundColor(buildDim)
-            Image(systemName: "chevron.down").font(.system(size: 9, weight: .black)).foregroundColor(buildPlayFerryRow < 7 ? .white.opacity(0.85) : buildDim)
-                .frame(maxWidth: .infinity, maxHeight: .infinity).background(RoundedRectangle(cornerRadius: 3).fill(buildCell))
-                .contentShape(Rectangle()).onTapGesture { buildPlayFerryRow = min(7, buildPlayFerryRow + 1) }
+        // BOTTOM-UP (Paul 2026-08-31): the play grid climbs — Row 1 at the bottom, UP goes to a new higher row (lit at Row 1),
+        // DOWN goes back. Big, touchable ▲/▼ each filling a half of the cell.
+        let canUp = buildPlayFerryRow < 7, canDown = buildPlayFerryRow > 0
+        GeometryReader { g in
+            let s = min(g.size.width, g.size.height) * 0.5
+            VStack(spacing: 1) {
+                Image(systemName: "chevron.up").font(.system(size: s, weight: .black)).foregroundColor(canUp ? .white : buildDim)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(canUp ? buildCyan.opacity(0.3) : buildCell))   // UP LIT while a row can be added
+                    .contentShape(Rectangle()).onTapGesture { if canUp { buildPlayFerryStep(1) } }
+                Text("R\(buildPlayFerryRow + 1)").font(.system(size: 9, weight: .black, design: .monospaced)).foregroundColor(.white.opacity(0.75)).lineLimit(1).minimumScaleFactor(0.5)
+                Image(systemName: "chevron.down").font(.system(size: s, weight: .black)).foregroundColor(canDown ? .white : buildDim)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(buildCell))
+                    .contentShape(Rectangle()).onTapGesture { if canDown { buildPlayFerryStep(-1) } }
+            }
         }
     }
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
@@ -1577,6 +1585,10 @@ extension DiagView {
             let sel = buildPlayFerryRow                                  // the ferry buttons show + act on the CURSOR ROW (▲▼-chosen), not a fixed rung (Paul 2026-08-31)
             let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
             let set = id != nil                                          // has this column been ferried at the cursor row?
+            // FAINT COPY (Paul 2026-08-31): an EMPTY cursor cell whose ROW-BELOW holds a cell → a faint, pulsing copy of it;
+            // tap DUPLICATES it onto this row (same colour) + starts it playing.
+            let copyId: String? = (!set && sel > 0 && t < buildPlayCells.count && (sel - 1) < buildPlayCells[t].count) ? buildPlayCells[t][sel - 1] : nil
+            let copyHue = copyId.flatMap { colourColor($0) } ?? Color(hex: playHexes[t % playHexes.count])
             let on = (t < buildPlayColOn.count && buildPlayColOn[t]) && (t < buildPlaySel.count && buildPlaySel[t] == buildPlayFerryRow)   // PLAYING iff the cursor row is this column's active rung
             let mHue = id.flatMap { colourColor($0) } ?? Color(hex: playHexes[t % playHexes.count])   // MACHINE identity — dusk (the ferried cell's colour, or the play grid's dusk slot when empty; Paul 2026-08-30)
             let eHue = emitterHue(t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a])  // EMITTER colour (routing)
@@ -1586,6 +1598,14 @@ extension DiagView {
             // playing) also brightens the frame so the ferry ↔ machine pairing is visible.
             RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                 .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
+                .overlay { if copyId != nil {                            // FAINT PULSING COPY — tap to duplicate the row-below cell here
+                    TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in
+                        let f = stagingPulseFraction(tl.date, period: 1.1)
+                        RoundedRectangle(cornerRadius: 4).fill(copyHue.opacity(0.06 + 0.12 * f))
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(copyHue.opacity(0.28 + 0.4 * f), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
+                            .overlay(Image(systemName: "plus").font(.system(size: min(13, g.size.height * 0.42), weight: .black)).foregroundColor(copyHue.opacity(0.4 + 0.4 * f)))
+                    }
+                } }
                 .overlay { if set { buildNoteSweep(indices: buildPlayColSweepIndices(t), active: on, id: id, emitter: t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a]).padding(2) } }   // live drift in the EMITTER colour (a multi-step pass gathers all its steps)
                 .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
@@ -1593,10 +1613,11 @@ extension DiagView {
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING or SELECTED
                 .overlay { if buildSelectMode && set { RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
                 .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
-                .overlay(Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0))   // PLAY/STOP (state) in the MACHINE hue
+                .overlay { if copyId == nil { Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) } }   // PLAY/STOP (a COPY cell shows its own "+" instead)
                 .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
                 .contentShape(Rectangle())
                 .onTapGesture {
+                    if copyId != nil { buildPlayFerryDuplicate(t); return }   // FAINT COPY → duplicate the row-below cell here + play
                     if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
                     if buildSelectMode { buildSelectPlayColumn(t); buildSelectMode = false }   // SELECT MODE: focus this ferry (no start/stop), then end SELECT (Paul 2026-08-31)
                     else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
@@ -1604,6 +1625,25 @@ extension DiagView {
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                     pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
         }
+    }
+    // Move the ferry-row cursor (bottom-up) with a soft slide. (Paul 2026-08-31)
+    func buildPlayFerryStep(_ dir: Int) {
+        let n = max(0, min(7, buildPlayFerryRow + dir))
+        guard n != buildPlayFerryRow else { return }
+        withAnimation(.easeInOut(duration: 0.26)) { buildPlayFerryRow = n }
+    }
+    // DUPLICATE the ROW-BELOW's cell onto the cursor row (same colour) + start it playing immediately (Paul 2026-08-31).
+    func buildPlayFerryDuplicate(_ t: Int) {
+        let cur = buildPlayFerryRow
+        guard cur > 0, t >= 0, t < buildPlayCells.count, cur < buildPlayCells[t].count, (cur - 1) < buildPlayCells[t].count,
+              let src = buildPlayCells[t][cur - 1] else { return }
+        buildRecordUndo()
+        buildPlayCells[t][cur] = src                                     // same colour (a copy of the row below)
+        if t < buildPlaySel.count { buildPlaySel[t] = cur }             // the cursor row becomes this column's active rung
+        if t < buildPlayColOn.count { buildPlayColOn[t] = true }        // …and starts playing immediately
+        buildVoiceOwner = .none; au?.clearColourSolo()                  // the play layer is the voice
+        buildSelectPlayColumn(t)                                        // reflect it in the machine + deselect the source
+        buildPublishScene()
     }
     // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
     // (default row 1). Writes ONLY the play grid's OWN store (buildPlayCells) — NOT the shared buildStagingCells — so it
@@ -1699,7 +1739,7 @@ extension DiagView {
                     HStack(spacing: gap) {                                   // ▲▼ row cursor + PLAY-ferry row + right corner
                         roomsPlayFerryRowSelector().frame(width: cw, height: ch)
                         ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
-                        Color.clear.frame(width: cw, height: ch)
+                        buildStopAllButton().frame(width: cw, height: ch)   // STOP — the select grid's top-right corner (Paul 2026-08-31)
                     }
                     ForEach(0..<8, id: \.self) { r in                        // LEFT page rail + interior cells + right side buttons
                         HStack(spacing: gap) {
