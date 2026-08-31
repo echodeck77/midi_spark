@@ -796,7 +796,8 @@ struct Receiver: Codable, Equatable {
     var doorModeResolved: DoorMode {
         if let m = doorMode { return m }
         if (latchPiano ?? false) { return .keys }
-        return (latchAdd ?? true) ? .latch : .hold
+        if let la = latchAdd { return la ? .latch : .hold }   // honour an explicit legacy KEYS|CHORD toggle
+        return .hold                                          // DEFAULT: an unset receiver defaults to HOLD (Paul 2026-08-31)
     }
     // KEYS EXCLUDE — the COMPLEMENT DOOR (Paul 2026-08-22): in KEYS mode, this door's pool = the typed set MINUS the
     // excluded door's current notes, by PITCH CLASS, live. nil/-1 ⇒ OFF; 0–3 ⇒ subtract that door (never self). Type a
@@ -1465,9 +1466,9 @@ struct PluginState: Codable, Equatable {
         var state = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
         state.formatVersion = 4
         state.synthesizeReceiversIfNeeded()
-        // Every door defaults to THRU (Paul 2026-08-23): a fresh instance plays STRAIGHT — live input feeds the grid,
-        // nothing latches. The user opts into latching by choosing LATCH/HOLD/KEYS/REPLAY/FILE.
-        for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1; state.receivers![i].doorMode = .thru }
+        // Every door starts UNSET (doorMode nil → the strip shows "SET" pulsing) and DEFAULTS to HOLD when resolved (Paul
+        // 2026-08-31, was THRU): a fresh receiver's mode is HOLD, not yet armed. The user arms/changes it from the strip.
+        for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1; state.receivers![i].doorMode = nil }
         if state.receivers!.count > 3 {   // DEFAULT: receiver D → A MIXOLYDIAN scale door (Paul 2026-08-29) — fresh instances only
             state.receivers![3].doorMode = .scale; state.receivers![3].scaleRoot = 9; state.receivers![3].scaleType = .mixolydian
         }

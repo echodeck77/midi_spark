@@ -308,8 +308,9 @@ final class SnapshotBuilderTests: XCTestCase {
     // THE CONFIG SHEETS (Paul 2026-08-20): the door MODE reframes the 3 existing latch modes, behaviour-preserving.
     func testDoorModeDerivesFromLegacyLatchFields() {
         func mode(_ f: (inout Receiver) -> Void) -> DoorMode { var r = Receiver(name: "x"); f(&r); return r.doorModeResolved }
-        XCTAssertEqual(mode { _ in }, .latch, "default (nil latch) ⇒ LATCH (the old KEYS default)")
+        XCTAssertEqual(mode { _ in }, .hold, "default (nothing set) ⇒ HOLD (Paul 2026-08-31: receivers default to HOLD)")
         XCTAssertEqual(mode { $0.latchAdd = false }, .hold, "CHORD ⇒ HOLD")
+        XCTAssertEqual(mode { $0.latchAdd = true }, .latch, "explicit legacy KEYS/ADD ⇒ LATCH (honoured)")
         XCTAssertEqual(mode { $0.latchPiano = true }, .keys, "PIANO ⇒ KEYS")
         // the legacy resolvers are UNCHANGED for old docs (byte-identical)
         var chord = Receiver(name: "c"); chord.latchAdd = false
