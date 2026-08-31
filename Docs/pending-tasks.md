@@ -30,6 +30,21 @@ Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/
   - ✅ **§F PLAY-FERRY ROW CURSOR** — DONE (`7c60dac`; Paul's #4 clarification, NOT the abstract track-swap): a ▲▼ picks
     which grid ROW the play-ferry buttons target (`buildPlayFerryRow`). The ghost-previews/track-swap of redesign §9 remain
     a separate incremental-redesign item. DEVICE eye owed.
+  - ⏸ **§G AVOID — OUTPUT/EMITTER references (RATIFIED 2026-08-31)** — extend the LISTEN-TO axis from input-domain only
+    (INPUT ▸A–D · EVERYTHING IN = other receivers, excl. own) to ALSO output-domain: **OUTPUT ▸A–D** (what one emitter is
+    actually PLAYING, post-arp/harmony/generators) + **EVERYTHING OUT** (all emitter output EXCEPT this chain's OWN
+    emitters). Point: avoid the real MIX, not just raw held chords — a bass dodging a busy lead arp catches every arp note.
+    Same PITCH-CLASS model (octave-agnostic — a ref C blocks every C). **Self-exclusion is mandatory** (else self-thin/
+    flicker): v1 = exclude by BUS (read `soundingPitchClassMask` for emitters ∉ cell.busMask — simple, correct; also skips
+    other chains on that bus); v2 = exclude by VOICE ownership (colourIndex/cellIndex — precise, keeps other chains on the
+    same bus). **Engine ~mostly there:** `.wire` = one emitter (`soundingPitchClassMask(bus:)`), `bus:nil` = all — add
+    "all except own buses"; the enum already has `.wire`. **COSTS to design around:** (1) L1 ORDERING — an output ref reads
+    the live voice table (emitted-so-far this render), so the avoider must sit on a LATER grid row than its source, else it
+    reads last render's output (~1 block lag); mutual refs ping-pong at 1-block latency. (2) MOVING TARGET — an emitter's
+    output changes note-by-note; DROP = holes open/close musically, but a LEGATO hold could drop+re-strike (click) as the
+    source crosses its class. (3) PIANO — the pianos predict from input doors (recvHeldNotes); an output ref needs a NEW
+    per-emitter output feed to stay honest, else the OUTPUT-ref piano is degraded. UI = a LISTEN-TO domain toggle
+    INPUTS|OUTPUTS × (one A–D | EVERYTHING). Effort: small engine + a UI axis + (for the honest piano) an emitter-output feed.
   - ⏸ **§C scale-aware IN strip** — the §6 SCALE-door IN readout + the "arm AVOID CLASHES from the strip" chip (thin UI over
     §B now that AVOID exists). Buildable next.
   - ⏸ **§D MACRO LANES** — blocked on Paul's #2 (render-time per-column macro path + part-scope).
