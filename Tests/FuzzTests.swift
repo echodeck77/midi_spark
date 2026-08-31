@@ -97,6 +97,7 @@ final class FuzzTests: XCTestCase {
                 c.paramsA.avoidRefKind = AvoidRefKind.allCases[r.int(AvoidRefKind.allCases.count)]; c.paramsA.avoidRefIndex = r.int(4)
                 c.paramsA.avoidRoot = r.int(12); c.paramsA.avoidScale = ScaleType.allCases[r.int(ScaleType.allCases.count)]
                 c.paramsA.avoidMode = r.chance(0.5) ? .lock : .avoid; c.paramsA.avoidAction = r.chance(0.5) ? .move : .remove
+                c.paramsA.avoidWhat = AvoidWhat.allCases[r.int(AvoidWhat.allCases.count)]   // SAME | CLASH(ic1) | CLASH+(ic2) — the widened avoided sphere
             }
             if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)

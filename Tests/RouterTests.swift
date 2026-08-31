@@ -2586,6 +2586,30 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(notes.allSatisfy { [0,2,4,5,7,9,11].contains($0 % 12) }, "every snapped note is in C major")
         assertNothingLeftSounding(e)
     }
+    // Paul's scenario (2026-08-31): a chain references ANOTHER receiver and avoids not just its exact notes but the ones
+    // that CLASH with them. Door 0 (ch 1) feeds the AVOID chain; door 1 (ch 2) is the referenced receiver, played LIVE.
+    func testAvoidDoorReferenceReadsAnotherLiveReceiverAndItsClashes() {
+        let cs = arpColours()
+        func mk(_ what: AvoidWhat) -> SnapshotBox {
+            var av = ProcessorSlot(type: .avoid); av.params.avoidRefKind = .door; av.params.avoidRefIndex = 1
+            av.params.avoidMode = .avoid; av.params.avoidAction = .remove; av.params.avoidWhat = what
+            var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
+                s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = [av]; return c }()   // AVOID chain reads door 0 (ch 1)
+                return s }()])
+            st.busChannels = [1, 2, 3, 4]
+            st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3"), Receiver(name: "4")]
+            return SnapshotBuilder.build(from: st)
+        }
+        func played(_ what: AvoidWhat) -> Set<Int> {
+            let pool = NotePool()
+            pool.noteOn(60, velocity: 100, channel: 1)   // C → the REFERENCED receiver (door 1, ch 2) is playing it
+            pool.noteOn(61, velocity: 100, channel: 0)   // C# → the AVOID chain's OWN input (door 0, ch 1)
+            let e = RecordingEmitter(); run(mk(what), pool, beats: 16, into: e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        }
+        XCTAssertTrue(played(.same).contains(61), "SAME: C# is not the reference's C → it passes (only exact doubling avoided)")
+        XCTAssertFalse(played(.clash).contains(61), "CLASH: C# rubs against the reference's live C (ic1) → removed — avoid what it plays AND what clashes with it")
+    }
     // The downstream passgate gates on the PASS the user sees (diag.pass): pass 0 closed (passes[0]=false) → the
     // whole first lap is silent even though later passes are open.
     func testArpThenPassgateGatesPassZero() {

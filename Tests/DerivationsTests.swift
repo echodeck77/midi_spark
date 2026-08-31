@@ -917,6 +917,20 @@ final class DerivationsTests: XCTestCase {
         // AVOID (minus) + REMOVE: a note whose class IS in the reference drops (dodge the clash).
         XCTAssertEqual(keyFilterNote(60, refMask: scalePitchClassMask(root: 0, scale: .chromatic) & 0b1, only: false, snap: false), nil, "AVOID: a C is removed when C is the clash class")
     }
+    // AVOID's "CLASHES" (2026-08-31): the reference mask widens to its ±1 (ic1) / ±2 (ic2) neighbours, so a note a
+    // semitone from the reference is dodged too (not just the exact doubling). A SPARSE reference is where it matters.
+    func testWidenClashMask() {
+        let justC: UInt16 = 1 << 0                                   // only C
+        XCTAssertEqual(widenClashMask(justC, semis: 0), justC, "SAME leaves it exact")
+        let ic1 = widenClashMask(justC, semis: 1)                    // C + B + C#
+        XCTAssertEqual(ic1 & 1, 1); XCTAssertEqual((ic1 >> 11) & 1, 1, "B (below C) clashes"); XCTAssertEqual((ic1 >> 1) & 1, 1, "C# (above C) clashes")
+        XCTAssertEqual((ic1 >> 4) & 1, 0, "E does NOT clash with C at ic1")
+        let ic2 = widenClashMask(justC, semis: 2)                    // + A# and D
+        XCTAssertEqual((ic2 >> 10) & 1, 1, "A# (2 below) at ic2"); XCTAssertEqual((ic2 >> 2) & 1, 1, "D (2 above) at ic2")
+        // A note a semitone from the reference: SAME keeps it, CLASH drops it (AVOID = only:false).
+        XCTAssertEqual(keyFilterNote(61, refMask: justC, only: false, snap: false), 61, "SAME: C# is not C → kept")
+        XCTAssertEqual(keyFilterNote(61, refMask: widenClashMask(justC, semis: 1), only: false, snap: false), nil, "CLASH: C# rubs against C → removed")
+    }
     // A SCALE door names itself ("A MIXO") — the chip-never-lies label shared by the receiver chip + the MIDI tab. (2026-08-31)
     func testScaleDoorLabel() {
         var r = Receiver(); XCTAssertNil(r.scaleLabel, "a non-scale door has no key label")

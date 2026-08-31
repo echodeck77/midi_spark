@@ -4313,7 +4313,7 @@ extension DiagView {
                 C("SPLIT", "Keeps only part of the chord: top, bottom, or a range.", .split),
                 C("DRONE", "Holds the chord as a sustained pad.", .drone),
                 C("LOCK TO KEY", "Forces every note into a chosen key — out-of-key notes drop or snap in.", .avoid) { $0.avoidRefKind = .key; $0.avoidMode = .lock; $0.avoidAction = .move },
-                C("AVOID CLASHES", "Removes notes that clash with what's already sounding — polite, never doubles.", .avoid) { $0.avoidRefKind = .sounding; $0.avoidMode = .avoid; $0.avoidAction = .remove },
+                C("AVOID CLASHES", "Removes notes that clash with what's already sounding (its notes + the semitones near them).", .avoid) { $0.avoidRefKind = .sounding; $0.avoidMode = .avoid; $0.avoidAction = .remove; $0.avoidWhat = .clash },
             ]),
             BuildCardGroup(title: "RHYTHM", note: nil, cards: [
                 C("RATCHET", "Re-strikes the whole chord in fast rolls, every step.", .ratchet) { $0.rtcMode = .all },

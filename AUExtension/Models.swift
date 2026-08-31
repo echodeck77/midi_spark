@@ -39,6 +39,7 @@ enum ProcessorType: String, Codable, CaseIterable {
 enum AvoidRefKind: String, Codable, CaseIterable { case key = "KEY", door = "DOOR", wire = "WIRE", sounding = "ALL" }   // the reference set to test against
 enum AvoidMode: String, Codable, CaseIterable { case lock = "LOCK", avoid = "AVOID" }        // LOCK = keep ONLY notes in the reference (in-key) · AVOID = REMOVE notes in the reference (dodge clashes)
 enum AvoidAction: String, Codable, CaseIterable { case remove = "REMOVE", move = "MOVE" }    // a rejected note: REMOVE = drop (a rest) · MOVE = snap to the nearest safe tone
+enum AvoidWhat: String, Codable, CaseIterable { case same = "SAME", clash = "CLASH", clash2 = "CLASH+" }   // AVOID mode: SAME = only the exact pitch-class (don't double) · CLASH = also ±1 semitone (ic1) · CLASH+ = also ±2 (ic2, stricter). Widens the avoided sphere to what CLASHES with the reference.
 
 // HOCKET (spec §MODE): GAPS = speak only in the listened wire's SILENCES (call-and-response) · TRADE = hit-for-hit
 // alternation with it (one line split across two synths, by listening). §12 append-only.
@@ -357,6 +358,7 @@ struct ColourParams: Codable, Equatable {
     var avoidScale: ScaleType? = nil            // the declared KEY scale (kind = key)
     var avoidMode: AvoidMode? = nil             // LOCK (only) | AVOID (minus)
     var avoidAction: AvoidAction? = nil         // REMOVE (block/drop) | MOVE (snap-nearest)
+    var avoidWhat: AvoidWhat? = nil             // AVOID mode: SAME the exact class | CLASH ±1 semitone | CLASH+ ±2 — how wide the "clash" sphere is
     // TAP (AcceptanceCriteria-tap-processor, ratified): a mid-chain SEND — emits the stream as it stands at this slot AND passes it on.
     var tapLevel: Double? = 1.0                 // velocity scale on the tapped copy (the send fader; 0…1+)
     var tapTo: Int? = 0                         // 0 = THIS WIRE (layer on the cell's output) · 1–4 = emitter A–D (a parallel out)

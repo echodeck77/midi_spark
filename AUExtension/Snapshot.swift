@@ -241,6 +241,7 @@ struct SnapParams {
     var avoidScale: ScaleType = .major
     var avoidLock = false                                 // MODE: true = LOCK (only) · false = AVOID (minus)
     var avoidMove = false                                 // ACTION: true = MOVE (snap) · false = REMOVE (block)
+    var avoidClashSemis = 0                               // AVOID mode: widen the avoided set by ±N semitones (0 = SAME · 1 = ic1 CLASH · 2 = ic2)
     // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
     var tapLevel: Double = 1.0
     var tapTo: Int = 0                                    // 0 = THIS WIRE · 1–4 = emitter A–D

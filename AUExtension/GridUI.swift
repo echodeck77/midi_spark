@@ -1514,8 +1514,12 @@ struct ProcessorBox: View {
                 field("SCALE", \.avoidScale) { seg(ScaleType.allCases.map(\.label), sel: (p.avoidScale ?? .major).label) { i in setParam { $0.avoidScale = ScaleType.allCases[i] } } }
             }
             field("MODE", \.avoidMode) { seg(AvoidMode.allCases.map(\.rawValue), sel: md.rawValue) { i in setParam { $0.avoidMode = AvoidMode.allCases[i] } } }
+            if md == .avoid {   // WHAT: how wide the "clash" sphere is (LOCK is exact — the key)
+                field("WHAT", \.avoidWhat) { seg(AvoidWhat.allCases.map(\.rawValue), sel: (p.avoidWhat ?? .same).rawValue) { i in setParam { $0.avoidWhat = AvoidWhat.allCases[i] } } }
+            }
             field("REJECTS", \.avoidAction) { seg(AvoidAction.allCases.map(\.rawValue), sel: (p.avoidAction ?? .remove).rawValue) { i in setParam { $0.avoidAction = AvoidAction.allCases[i] } } }
-            Text(md == .lock ? "LOCK — keep only notes IN the reference (in-key)." : "AVOID — remove notes that CLASH with the reference.")
+            Text(md == .lock ? "LOCK — keep only notes IN the reference (in-key)." :
+                 (((p.avoidWhat ?? .same) == .same) ? "AVOID — remove notes that DOUBLE the reference." : "AVOID — remove notes that CLASH with the reference (its notes + the semitones that rub against them)."))
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("Before a driver it filters the pool; after one it drops (REMOVE) or shifts (MOVE) each note. For a live reference, put it on a later row.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)

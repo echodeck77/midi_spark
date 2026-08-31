@@ -167,15 +167,33 @@ final class Router {
         for v in voices where v.active && !v.silent && (bus == nil || Int(v.bus) == bus!) { m |= UInt16(1) << UInt16(Int(v.note) % 12) }
         return m
     }
-    /// The reference PITCH-CLASS set an AVOID/LOCK stage tests against: a declared KEY · another DOOR's pool (latched /
-    /// SCALE — the scale door) · a WIRE's live output · ALL SOUNDING. Computed once per stage fold (cheap ≤128-voice scan).
-    private func avoidRefMask(_ p: SnapParams) -> UInt16 {
-        switch p.avoidRefKind {
-        case .key:      return scalePitchClassMask(root: p.avoidRoot, scale: p.avoidScale)
-        case .door:     let i = max(0, min(3, p.avoidRefIndex)); return i < latchedPools.count ? latchedPools[i].pitchClassMaskAll() : 0   // v1: the door's latched/scale pool (a live unlatched chord door is a v2 refinement)
-        case .wire:     return soundingPitchClassMask(bus: max(0, min(3, p.avoidRefIndex)))
-        case .sounding: return soundingPitchClassMask(bus: nil)
+    // AVOID DOOR reference: the live input pool this render, so a DOOR-referenced AVOID can read what ANOTHER receiver is
+    // playing RIGHT NOW (Paul's "listen to a different receiver"). A held reference to the render's NotePool (a class),
+    // valid only during process (where avoidRefMask runs). The door's own channel/cable/range filter selects its notes.
+    private weak var avoidLivePool: NotePool?
+    private func doorLivePitchClassMask(_ r: Int) -> UInt16 {
+        guard let pool = avoidLivePool, r >= 0, r < receiverChannels.count else { return 0 }
+        let filter = receiverChannels[r], cable = Int(receiverCables[r]), lo = receiverRangeLo[r], hi = r < receiverRangeHi.count ? receiverRangeHi[r] : 127
+        var m: UInt16 = 0
+        for k in 0..<pool.srcCount(filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi) {
+            m |= UInt16(1) << UInt16(Int(pool.srcAscending(k, filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)) % 12)
         }
+        return m
+    }
+    /// The reference PITCH-CLASS set an AVOID/LOCK stage tests against: a declared KEY · another DOOR (its latched/SCALE
+    /// pool if present, else its LIVE input) · a WIRE's live output · ALL SOUNDING. Computed once per stage fold.
+    private func avoidRefMask(_ p: SnapParams) -> UInt16 {
+        let base: UInt16
+        switch p.avoidRefKind {
+        case .key:      base = scalePitchClassMask(root: p.avoidRoot, scale: p.avoidScale)
+        case .door:     let i = max(0, min(3, p.avoidRefIndex))
+                        let latched = i < latchedPools.count ? latchedPools[i].pitchClassMaskAll() : 0
+                        base = latched != 0 ? latched : doorLivePitchClassMask(i)   // a latched/SCALE door → its frozen pool; a live THRU door → what it's playing NOW
+        case .wire:     base = soundingPitchClassMask(bus: max(0, min(3, p.avoidRefIndex)))
+        case .sounding: base = soundingPitchClassMask(bus: nil)
+        }
+        // WHAT (AVOID mode only): widen the avoided sphere to the CLASHING neighbours (ic1/ic2). LOCK keeps the exact set.
+        return (!p.avoidLock && p.avoidClashSemis > 0) ? widenClashMask(base, semis: p.avoidClashSemis) : base
     }
     /// Apply an AVOID/LOCK stage to ONE note: keep it, remap it (MOVE), or drop it (REMOVE → nil). Pure `keyFilterNote`.
     @inline(__always) private func avoidFilter(_ note: Int, _ p: SnapParams, refMask: UInt16) -> Int? {
@@ -1598,7 +1616,7 @@ final class Router {
             let mode = cellMode(type: effectiveType(treat),
                                 bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
                                 passMask: effectivePassMask(treat), pass: pass)
-            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split || mode == .octave || mode == .transpose else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT = SET filters; OCTAVE/TRANSPOSE = pitch SHIFTS (Paul 2026-08-22)
+            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split || mode == .avoid || mode == .octave || mode == .transpose else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT/AVOID = SET/pitch filters; OCTAVE/TRANSPOSE = pitch SHIFTS (Paul 2026-08-22)
             if mode == .tutti && !holdChain && treat.a.tuttiMode == .pattern { continue }   // PATTERN standalone re-articulates per slice in the tick loop, not here
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
@@ -1652,9 +1670,14 @@ final class Router {
                 ? chordSplitWindow(count: srcN, split: treat.a.splitSet,
                                    noteAt: { holdChain ? Int(chainScratch.srcAscending($0, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending($0, for: cell)) })
                 : (0, srcN)
+            let avoidHoldMask: UInt16 = mode == .avoid ? avoidRefMask(treatP) : 0   // AVOID/LOCK (standalone / hold-tail): the reference set, once per hold
             for k in 0..<srcN where !holdEchoMute {                  // ECHO MUTE: the dry is suppressed (echoes-only); tails still register below
                 let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
-                let n = poolTrans ? poolStepMask(base, steps: procShift, pcMask: holdPoolMask) + regShift : base + transpose
+                var n = poolTrans ? poolStepMask(base, steps: procShift, pcMask: holdPoolMask) + regShift : base + transpose
+                if mode == .avoid {                                   // AVOID/LOCK filter (standalone/hold-tail): drop (REMOVE) or remap (MOVE)
+                    guard let f = avoidFilter(n, treatP, refMask: avoidHoldMask) else { continue }
+                    n = f
+                }
                 guard n >= 0 && n <= 127 else { continue }
                 let vel0 = max(1, holdChain ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
                 let vel = droneScale < 1.0 ? clampVel(Int((Double(vel0) * droneScale).rounded())) : vel0   // DRONE scales by GATE
@@ -2079,6 +2102,7 @@ final class Router {
         self.receiverDisabledMask = box.receiverDisabledMask   // INPUT ENABLE: disabled doors block their cells' live read
         self.receiverChannels = box.receiverChannels; self.receiverCables = box.receiverCables   // BYPASS: per-receiver admission for the direct-injection pass
         self.receiverRangeLo = box.receiverRangeLo; self.receiverRangeHi = box.receiverRangeHi
+        self.avoidLivePool = pool   // AVOID: a DOOR-referenced filter reads another receiver's LIVE notes this render (valid only during process)
         self.passEmitterMask = box.passEmitterMask
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
@@ -3279,6 +3303,7 @@ final class Router {
         switch last.type {
         case .passgate, .chance, .harmonize: return true
         case .split: return true                                         // SPLIT tail = a set-membership FILTER over the composed hold ([HARMONIZE → SPLIT] keeps a subset)
+        case .avoid: return true                                         // AVOID/LOCK tail = a per-note pitch FILTER over the composed hold ([HARMONIZE → AVOID] drops/snaps clashes)
         case .octave, .transpose: return true                            // UTILITY pitch-shift tail = a per-note SHIFT of the composed hold ([HARMONIZE → OCTAVE])
         case .tutti: return last.tuttiMode == .coin                      // TUTTI COIN tail = a per-step SET roll over the composed hold; PATTERN re-articulates (tick loop)
         case .tap: return chainDriverIndex(cell) < 0                     // TAP tail = a held passthrough + its parallel send, but ONLY with no driver ([HARMONIZE→TAP]); [ARP→TAP] stays driver-folded (Paul 2026-08-26)

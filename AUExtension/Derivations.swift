@@ -628,6 +628,20 @@ func scalePitchClassMask(root: Int, scale: ScaleType) -> UInt16 {
     for iv in scale.intervals { m |= UInt16(1) << UInt16((((root + iv) % 12) + 12) % 12) }
     return m
 }
+/// Widen a 12-bit pitch-class mask by ±`semis` semitones — every set class ALSO marks its neighbours. AVOID's "CLASHES":
+/// don't just dodge the reference's exact notes, dodge the ones a semitone (ic1, semis 1) or tone (ic2, semis 2) away that
+/// clash with it. semis 0 = unchanged. Pure/testable. (2026-08-31)
+func widenClashMask(_ mask: UInt16, semis: Int) -> UInt16 {
+    guard mask != 0, semis > 0 else { return mask }
+    var out = mask
+    for pc in 0..<12 where (mask >> UInt16(pc)) & 1 != 0 {
+        for d in 1...semis {
+            out |= UInt16(1) << UInt16((pc + d) % 12)
+            out |= UInt16(1) << UInt16((pc + 12 - (d % 12)) % 12)
+        }
+    }
+    return out
+}
 /// THE KEY FILTER (ratified scale-door §3): map an input note through a reference PITCH-CLASS set. `only` = keep only the
 /// set's classes (ONLY / intersection — in-key) vs drop them (MINUS / complement). `snap` = an out-of-set note remaps to the
 /// NEAREST legal note (SNAP — the jam-proof keyboard) vs drops (BLOCK — the strict gate). Returns the note (possibly

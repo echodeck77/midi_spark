@@ -402,6 +402,7 @@ enum SnapshotBuilder {
         if let v = p.avoidScale { out.avoidScale = v }
         if let v = p.avoidMode { out.avoidLock = (v == .lock) }
         if let v = p.avoidAction { out.avoidMove = (v == .move) }
+        if let v = p.avoidWhat { out.avoidClashSemis = (v == .same ? 0 : (v == .clash ? 1 : 2)) }
         // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
         if let v = p.tapLevel { out.tapLevel = max(0, min(2, v)) }
         if let v = p.tapTo { out.tapTo = clamp(v, 0, 4) }
