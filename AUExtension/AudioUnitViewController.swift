@@ -260,6 +260,7 @@ struct DiagView: View {
     @State var buildGridSelPage = 0                      // SELECT grid CATEGORY index (Paul 2026-08-29): the left rail's 8 buttons are fixed processor-type categories (ARP·RIFF·EUCLID·RATCHET·CHANCE·HARMONY·MOD/CC·GATE); this is the selected one. (Reuses the old page slot.)
     @State var buildGridSelCatIndices: [Int] = []        // the LIBRARY indices matching the current category (cached; recomputed on category change / library load), so grid position i → buildGridSelLib[catIndices[i]]
     @State var buildGridSelSel: Int? = nil               // the index of the auditioning cell (nil = none)
+    @State var buildSelectGreyAlt: Bool = false          // SELECT machine grey ALTERNATES between two bright shades on each new selection, so a new pick visibly shifts even though the audition stays "gsAud" (Paul 2026-09-01)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
     @State var buildGridSelQuantStep = false             // §2 QUANTIZE: INSTANT (default — snappy switching) | STEP
     @State var buildChainStages: [[BuildChainDot]] = []   // the selected chain's per-processor OUTPUT note sets → the comets flowing along the machine chain (Paul 2026-08-31)

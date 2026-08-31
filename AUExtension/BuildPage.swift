@@ -1284,7 +1284,9 @@ extension DiagView {
     // it has no emitters of its own. (refactor 2026-08-30: was `buildPartEmitters.isEmpty ? [.a] : buildPartEmitters`
     // inlined at ~10 sites.)
     var buildDefaultEmitters: Set<Bus> { buildPartEmitters.isEmpty ? [.a] : buildPartEmitters }
-    var buildSelectGrey: Color { Color(white: 0.84) }
+    // Two BRIGHT shades that alternate each new SELECT pick (buildSelectGreyAlt flips on selection) so the machine section
+    // visibly shifts even though the audition colour is always the same transient "gsAud" (Paul 2026-09-01).
+    var buildSelectGrey: Color { Color(white: buildSelectGreyAlt ? 0.90 : 0.80) }
     func buildMachineHue(_ room: Room) -> Color {
         if room == .part { return buildSelHue }
         return buildSelID == buildGridSelAudID ? buildSelectGrey : buildSelHue   // SELECT: grey for the colourless audition, the ferry's real hue once one is selected
@@ -1760,6 +1762,7 @@ extension DiagView {
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
+            .onChange(of: buildGridSelSel) { new in if new != nil { buildSelectGreyAlt.toggle() } }   // a NEW select pick → shift the bright machine grey (Paul 2026-09-01)
         }
     }
     // THE CATEGORY RAIL (Paul 2026-08-29) — the SELECT grid's LEFT buttons are FIXED processor-type categories; tapping one
@@ -4955,7 +4958,7 @@ extension DiagView {
         // SELECT grid (greyUnlessSel): the PLAYING (selected) cell is ONE colour — the INVERSE of the unselected dark-grey
         // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
         let selGrey = greyUnlessSel && sel
-        let fill = present ? (sel ? (selGrey ? Color(white: 0.84) : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)
+        let fill = present ? (sel ? (selGrey ? buildSelectGrey : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)   // selGrey ALTERNATES two bright shades per selection (matches the machine box; Paul 2026-09-01)
         let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
         // TASTEFUL CHEQUER (Paul 2026-08-31): the SELECT grid reads as a BOARD — a faint two-tone parity wash on every
         // non-selected cell (the classic chessboard), subtle enough not to fight the roll. SELECT grid only (greyUnlessSel);
