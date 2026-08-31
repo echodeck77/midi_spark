@@ -2554,8 +2554,10 @@ extension DiagView {
                 for i in 0..<8 { P.append(center(i)) }
                 P.append(CGPoint(x: size.width, y: center(7).y))
                 // LOOP PHASE, beat-locked (~3-beat recording); frozen when the chain isn't the voice → "lift" when it stops.
+                // GATE on the CHAIN being the voice — NOT d.playing (the SELECT audition runs on the free-run clock while the
+                // host transport is STOPPED, so d.playing is false there and the comets never fired). (Paul 2026-08-31)
                 let recBeats = 3.0
-                let playing = d.playing && buildDisplayVoice == .chain
+                let playing = buildDisplayVoice == .chain
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let lp = playing ? ((live / recBeats).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0) : -1
                 guard playing else { return }   // no comets when the chain isn't sounding (the lift)
@@ -2587,11 +2589,10 @@ extension DiagView {
     @ViewBuilder private func buildChainEndCircles(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, hue: Color) -> some View {
         Canvas { ctx, size in
             let cr = max(3.5, min(boxH * 0.16, sideW * 0.42))
-            let lx = sideW - cr - 2                                   // just LEFT of the block (in the flank), clear of box 0
-            let rx = sideW + blockW + cr + 2                          // just RIGHT of the block, clear of box 7
-            let ty = boxH / 2                                         // top chain row
-            let by = blockH - boxH / 2                                // bottom chain row
-            for end in [CGPoint(x: lx, y: ty), CGPoint(x: rx, y: by)] {
+            let lx = sideW / 2                                        // CENTRE of the left flank column (the play button) — Paul 2026-08-31
+            let rx = sideW + blockW + sideW / 2                       // CENTRE of the right flank column (symmetric)
+            let cy = blockH / 2                                       // vertical centre — aligned with the play button
+            for end in [CGPoint(x: lx, y: cy), CGPoint(x: rx, y: cy)] {
                 ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
                 ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
             }
@@ -3695,7 +3696,9 @@ extension DiagView {
     // placed cell): light grey + transparency + a soft band drifting DOWNWARD. (Paul 2026-08-31, replaces the cyan fallback.)
     @ViewBuilder private func buildMeterNoFeedBand() -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-            let phase = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.4) / 1.4   // 0→1 loop, downward
+            // TEMPO-LOCKED downward sweep — one per BEAT, off the beat clock (was a free 1.4s wall-clock loop). (Paul 2026-08-31)
+            let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+            let phase = (live.truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // 0→1 per beat, downward
             Canvas { ctx, size in
                 let gray = Color(white: 0.82)
                 ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: size.height)), with: .color(gray.opacity(0.16)))   // faint grey base
@@ -3824,33 +3827,50 @@ extension DiagView {
     // The colours of every CELL FEEDING receiver `door` (its velocity-strip tint) — the part rows whose input is this door
     // + any live play column reading it. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
     private func buildReceiverFeedColours(_ door: Int) -> [MeterBand] {
-        var ids: [String] = []
-        func add(_ cid: String?) { if let cid, !ids.contains(cid) { ids.append(cid) } }
+        var bands: [MeterBand] = []
+        var seen = Set<String>()
+        func add(_ cid: String?, color: Color? = nil) {
+            guard let cid, !seen.contains(cid) else { return }
+            seen.insert(cid)
+            bands.append(MeterBand(color: color ?? colourColor(cid) ?? buildCyan, energy: cid == ddSelectedColourID))   // ENERGY (inverted overlay) only on the SELECTED colour
+        }
         for r in 0..<8 where buildRowColour(r) != nil && buildRowReceiverResolved(r) == door { add(buildRowColour(r)) }   // part rows on this door
         for c in 0..<8 where c < buildPlayColRecv.count && buildPlayColRecv[c] == door {                                   // play columns on this door
             let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
             if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) }
         }
-        // The ENERGY (inverted overlay) only on the SELECTED colour's band. A door with NO feeding cell (a scale-door
-        // audition, input not on a placed cell) returns EMPTY → the strip shows the light-grey downward shimmer (Paul 2026-08-31).
-        return ids.map { MeterBand(color: colourColor($0) ?? buildCyan, energy: $0 == ddSelectedColourID) }
+        // A CHAIN AUDITION (the SELECT-grid cell playing) on this door → the STANDARDIZED machine hue (LIGHT GREY on SELECT),
+        // not its palette colour, and not empty — so the select-grid audition IS reflected in the input strip. (Paul 2026-08-31)
+        if buildDisplayVoice == .chain {
+            let aDoor = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+            if aDoor == door { add(ddSelectedColourID, color: buildMachineHue(roomsRoom)) }
+        }
+        // A door with NO feeding cell (a scale-door audition, input not on a placed cell) returns EMPTY → the strip shows the
+        // light-grey downward shimmer. (Paul 2026-08-31)
+        return bands
     }
     // The colours of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
     // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
     private func buildEmitterPlayingColours(_ e: Bus) -> [MeterBand] {
-        var ids: [String] = []
-        func add(_ cid: String?) { if let cid, !ids.contains(cid) { ids.append(cid) } }
+        var bands: [MeterBand] = []
+        var seen = Set<String>()
+        func add(_ cid: String?, color: Color? = nil) {
+            guard let cid, !seen.contains(cid) else { return }
+            seen.insert(cid)
+            bands.append(MeterBand(color: color ?? colourColor(cid) ?? buildCyan, energy: false))    // emitters keep the flat fill (energy is receivers-only)
+        }
         if buildStagingPlaying {                                                                     // PART: the selected rungs that emit on e
             for c in 0..<8 { let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
                 if r >= 0, buildRowColour(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowColour(r)) } }
         }
-        if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedColourID) }                      // CHAIN audition
+        // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette colour. (Paul 2026-08-31)
+        if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedColourID, color: buildMachineHue(roomsRoom)) }
         for c in 0..<8 where c < buildPlayColOn.count && buildPlayColOn[c] {                          // PLAY columns emitting on e
             let emit = c < buildPlayColEmit.count ? buildPlayColEmit[c] : []
             if emit.contains(e) { let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
                 if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) } }
         }
-        return ids.map { MeterBand(color: colourColor($0) ?? buildCyan, energy: false) }             // emitters keep the flat fill (energy is receivers-only, Paul 2026-08-31)
+        return bands
     }
     // The interactive velocity fader: the meter (emitPeak, decayed) normally; while DRAGGED it forces the emitter's
     // output velocity (top = 127 · bottom = 0/KILL) via setVelOverride, and releases (springs back) on lift.
