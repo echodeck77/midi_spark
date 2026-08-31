@@ -260,6 +260,7 @@ struct DiagView: View {
     @State var buildGridSelSel: Int? = nil               // the index of the auditioning cell (nil = none)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
     @State var buildGridSelQuantStep = false             // §2 QUANTIZE: INSTANT (default — snappy switching) | STEP
+    @State var buildChainStages: [[BuildChainDot]] = []   // the selected chain's per-processor OUTPUT note sets → the comets flowing along the machine chain (Paul 2026-08-31)
     @State var buildGridSelActiveRoll: [GridSelBar] = []  // the auditioning chain's piano-roll (offline render, shown on the active cell + right column)
     @State var buildGridSelCellRoll: [Int: [GridSelBar]] = [:]   // per-CELL piano-roll fingerprints (bg-computed per deal/tab) — the drifting note face on every present cell (Paul 2026-08-26)
     @State var buildGridSelRowRoll: [Int: [GridSelBar]] = [:]    // per-ROW-chip piano-roll fingerprints (bg-computed on open) — the row selectors get the same drifting face
