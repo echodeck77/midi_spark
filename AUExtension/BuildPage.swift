@@ -2623,8 +2623,9 @@ extension DiagView {
                     ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
                     ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
                 }
-                // COMETS — the chain must be the voice + have live output.
-                let playing = buildDisplayVoice == .chain
+                // COMETS — the chain must be the voice + the TRANSPORT actually PLAYING (Paul 2026-08-31: it animated on the
+                // wall clock even when stopped, so it never reflected the real throughput). No transport = frozen/no comets.
+                let playing = d.playing && buildDisplayVoice == .chain
                 guard playing, let notes = stages.last, !notes.isEmpty else { return }
                 let recBeats = 3.0
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
@@ -2645,7 +2646,7 @@ extension DiagView {
                 for i in 0..<8 where populated[i] { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
                 if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
                 ctx.blendMode = .plusLighter                                   // ADDITIVE glow in the connectors + gaps
-                let transit = 3.0 / recBeats                                   // ~3 beats to cross (HALVED speed — Paul 2026-08-31)
+                let transit = max(0.03, stepBeats) / recBeats                  // the journey top-left circle → bottom-right = ONE STEP (Paul 2026-08-31)
                 func dot(_ head: CGPoint, _ r: CGFloat, _ vel: Double) {
                     ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * vel)))
                 }

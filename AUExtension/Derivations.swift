@@ -580,6 +580,23 @@ final class NotePool {
     }
 }
 
+enum HoldCapture { case replace, union, keep }
+/// HOLD's per-render capture decision (PURE, so it's testable off-device — the Kernel just wires it to the live/frozen pools).
+/// Given the PREVIOUS admitted note set, the CURRENT admitted set, and whether a release is pending (`releasing`), decide:
+///   • REPLACE — a NEW chord: a note ADDED after a RELEASE (a removal this render OR a pending one) → freeze the current set.
+///   • UNION   — the same chord still FORMING: an add with no release → accumulate (staggered/rolled onset builds up).
+///   • KEEP    — no note added → hold the frozen chord.
+/// Returns the action + the new `releasing` flag. Catches a same-size SWAP and a within-block release+restrike (both change
+/// the SET even when the COUNT is unchanged). LIMITATION: a LEGATO change where the new chord fully sounds BEFORE the old is
+/// released (no removal precedes the add) is indistinguishable from adding to the chord → UNION (documented). (Paul 2026-08-31.)
+func holdCaptureDecision(prevLo: UInt64, prevHi: UInt64, curLo: UInt64, curHi: UInt64, releasing: Bool) -> (action: HoldCapture, releasing: Bool) {
+    let removed = (prevLo & ~curLo) != 0 || (prevHi & ~curHi) != 0
+    let added   = (curLo & ~prevLo) != 0 || (curHi & ~prevHi) != 0
+    let rel = releasing || removed
+    if added { return (rel ? .replace : .union, false) }
+    return (.keep, rel)
+}
+
 /// THE SCALE DOOR pool (ratified spec §1): every note of `type` rooted at `root` (0=C…11=B), realized ascending across
 /// `octaves` octaves from the home octave `baseOct` (baseOct 3 → C3 = MIDI 48, the C-1 convention). Out-of-MIDI notes
 /// drop. Pure/testable — the derived KEYS pool for a SCALE door (fed exactly like tapped piano notes). No allocation

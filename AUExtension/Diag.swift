@@ -48,4 +48,10 @@ struct KernelDiag {
     var replayEngaged: UInt8 = 0       // which REPLAY doors are looping (bit i)
     var replayLoopN = 0                // events in the ENGAGED door's captured loop (0 = nothing captured)
     var replayPoolN = 0                // notes the engaged door's loop currently feeds into the frozen pool
+    // HOLD BISECT (Paul 2026-08-31): while any door latch is armed, per armed door — the LIVE admitted note count and the
+    // FROZEN (held) note count. If a new chord doesn't update FRZ, the live→frozen HOLD capture is the fault; if LIVE never
+    // shows the new chord, the input isn't reaching the door (channel/cable/range). Shown in cog HEALTH while armed.
+    var holdArmed: UInt8 = 0           // which doors are latch-armed (bit i)
+    var holdLiveN: [Int] = [0, 0, 0, 0]   // live admitted notes per door
+    var holdFrozenN: [Int] = [0, 0, 0, 0] // frozen (held) notes per door
 }

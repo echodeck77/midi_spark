@@ -36,6 +36,7 @@ struct CogPage: View {
                         section("HEALTH")
                         healthRow
                         replayRow
+                        holdRow
                         Text(aboutLine).font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.3))
                             .padding(.top, 4)
                     }
@@ -86,6 +87,22 @@ struct CogPage: View {
                 healthStat("RPLY ENG", Int(d.replayEngaged))
                 healthStat("LOOP", d.replayLoopN, alert: d.replayLoopN == 0)
                 healthStat("RPOOL", d.replayPoolN, alert: d.replayPoolN == 0)
+                Spacer()
+            }
+        }
+    }
+    // HOLD BISECT (Paul 2026-08-31): while any door latch is armed, show per-armed-door LIVE (admitted input) vs FRZ (held).
+    // Play a chord → arm → play a NEW chord: if FRZ doesn't follow, the live→frozen capture is at fault; if LIVE never shows
+    // the new chord, the input isn't reaching that door (channel / cable / range).
+    @ViewBuilder private var holdRow: some View {
+        if d.holdArmed != 0 {
+            HStack(spacing: 10) {
+                ForEach(0..<4, id: \.self) { i in
+                    if d.holdArmed & (1 << UInt8(i)) != 0 {
+                        healthStat("\(["A","B","C","D"][i]) LIV", i < d.holdLiveN.count ? d.holdLiveN[i] : 0)
+                        healthStat("FRZ", i < d.holdFrozenN.count ? d.holdFrozenN[i] : 0)
+                    }
+                }
                 Spacer()
             }
         }

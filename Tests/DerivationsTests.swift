@@ -476,6 +476,27 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(c.admittedMask(chanMask: 0xFFFF, cableMask: 0b0010).0, UInt64(1) << 40)
     }
 
+    func testHoldCaptureDecisionReplacesNewChords() {
+        let A: UInt64 = 0b111, B: UInt64 = 0b111000     // two disjoint 3-note chords (lo word)
+        // Fresh arm (releasing=true): the first press REPLACES.
+        XCTAssertEqual(holdCaptureDecision(prevLo: 0, prevHi: 0, curLo: A, curHi: 0, releasing: true).action, .replace)
+        // Same chord still forming (add, no release) → UNION (staggered onset builds up).
+        XCTAssertEqual(holdCaptureDecision(prevLo: 0b1, prevHi: 0, curLo: 0b11, curHi: 0, releasing: false).action, .union)
+        // A → B via SILENCE: A released (keep, releasing set), then B struck → REPLACE.
+        let rel = holdCaptureDecision(prevLo: A, prevHi: 0, curLo: 0, curHi: 0, releasing: false)
+        XCTAssertEqual(rel.action, .keep); XCTAssertTrue(rel.releasing)
+        XCTAssertEqual(holdCaptureDecision(prevLo: 0, prevHi: 0, curLo: B, curHi: 0, releasing: rel.releasing).action, .replace)
+        // A → B as a SAME-RENDER swap (release + add together, same 3-note COUNT) → REPLACE (count alone would miss this).
+        XCTAssertEqual(holdCaptureDecision(prevLo: A, prevHi: 0, curLo: B, curHi: 0, releasing: false).action, .replace)
+        // TWO different notes replacing the last chord (Paul's exact report) → REPLACE.
+        XCTAssertEqual(holdCaptureDecision(prevLo: A, prevHi: 0, curLo: 0b11000, curHi: 0, releasing: false).action, .replace)
+        // A pure release (no add) → KEEP the frozen chord, arm releasing.
+        let pr = holdCaptureDecision(prevLo: A, prevHi: 0, curLo: 0b1, curHi: 0, releasing: false)
+        XCTAssertEqual(pr.action, .keep); XCTAssertTrue(pr.releasing)
+        // A note-for-note RESTRIKE of the SAME chord (no net add/remove) → KEEP (the held chord survives).
+        XCTAssertEqual(holdCaptureDecision(prevLo: A, prevHi: 0, curLo: A, curHi: 0, releasing: false).action, .keep)
+    }
+
     // GENERATORS (user 2026-08-08) — the pure pattern derivations.
     func testEuclidPatternSpreadsKHitsEvenly() {
         XCTAssertEqual(euclidPattern(pulses: 3, steps: 8).map { $0 ? 1 : 0 }, [1, 0, 0, 1, 0, 0, 1, 0], "tresillo: hits at 0,3,6")

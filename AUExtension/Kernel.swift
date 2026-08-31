@@ -256,6 +256,8 @@ final class Kernel {
     private var holdLiveLo = [UInt64](repeating: 0, count: 4)          // previous live NOTE SET per door (lo = notes 0…63)
     private var holdLiveHi = [UInt64](repeating: 0, count: 4)          // (hi = notes 64…127) — compared by IDENTITY so a same-size swap is caught
     private var holdReleasing = [Bool](repeating: true, count: 4)      // a release happened since the last capture → the next ADD is a NEW chord (true at arm so the first press replaces)
+    private var holdDiagLive = [Int](repeating: 0, count: 4)           // HOLD bisect: live admitted note count per door
+    private var holdDiagFrozen = [Int](repeating: 0, count: 4)         // HOLD bisect: frozen (held) note count per door
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
     private func updateLatchedPools() {
         guard effectiveLatchMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed (incl. PIANO) now or before
@@ -319,21 +321,18 @@ final class Kernel {
                 // chord builds up; "press three, only two hold"). A pure release keeps the frozen set. A note-for-note restrike
                 // of the SAME chord (no net add/remove) → nothing → held chord survives.
                 let (clo, chi) = pool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
-                let hasRemoved = (holdLiveLo[i] & ~clo) != 0 || (holdLiveHi[i] & ~chi) != 0   // a held note went off
-                let hasAdded   = (clo & ~holdLiveLo[i]) != 0 || (chi & ~holdLiveHi[i]) != 0   // a new note came on
-                if hasRemoved { holdReleasing[i] = true }
-                if hasAdded {
-                    if holdReleasing[i] {                               // a new note AFTER a release → a NEW chord → REPLACE
-                        latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
-                                                        noteLo: rLo, noteHi: rHi)
-                        holdReleasing[i] = false
-                    } else {                                            // still forming the same chord → UNION (never shrink)
-                        latchedPools[i].mergeFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
-                                                      noteLo: rLo, noteHi: rHi)
-                    }
+                let dec = holdCaptureDecision(prevLo: holdLiveLo[i], prevHi: holdLiveHi[i], curLo: clo, curHi: chi, releasing: holdReleasing[i])
+                holdReleasing[i] = dec.releasing
+                switch dec.action {
+                case .replace: latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                case .union:   latchedPools[i].mergeFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                case .keep:    break
                 }
                 holdLiveLo[i] = clo; holdLiveHi[i] = chi
             }
+            // HOLD BISECT diagnostic (Paul 2026-08-31): live admitted vs frozen note counts, per armed door.
+            holdDiagLive[i] = pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi)
+            holdDiagFrozen[i] = latchedPools[i].count
         }
         // ---- PASS 2: THE KEY FILTER (ratified §3) — every armed door's pool is filtered by a reference door's PITCH CLASSES
         //      (MINUS = subtract / the complement · ONLY = intersect / in-key), out-of-set notes BLOCKed or SNAPped to the
@@ -882,6 +881,7 @@ final class Kernel {
         // so "loop animates but silent" localizes at a glance (see Diag.swift). loopN=0 ⇒ nothing captured; loopN>0 &
         // poolN=0 ⇒ the loop→pool fill isn't landing; poolN>0 & still silent ⇒ no grid cell reads that door.
         diag.replayEngaged = replayEngagedMask; diag.replayLoopN = 0; diag.replayPoolN = 0
+        diag.holdArmed = effectiveLatchMask & ~replayMask & ~fileMask; diag.holdLiveN = holdDiagLive; diag.holdFrozenN = holdDiagFrozen   // HOLD/LATCH/KEYS/SCALE bisect
         for i in 0..<4 where (replayEngagedMask & (1 << UInt8(i))) != 0 {
             diag.replayLoopN += doorRings[i].loopN; diag.replayPoolN += latchedPools[i].count
         }
