@@ -425,6 +425,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterMarks() }   // item 4 velocity marks
     func pollCellStrikes() -> [UInt8] { kernel.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity (col*Snap.rows+row)
     func pollCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { kernel.drainCellNotes() }   // NOTE-SWEEP: per-cell recent emitted note-ons
+    func setFocusCell(_ cell: Int) { kernel.setFocusCell(cell) }   // FOCUS note-event feed: the machine's cell
+    func pollFocusNotes() -> (pitch: [UInt8], vel: [UInt8], beat: [Double], count: Int) { kernel.drainFocusNotes() }
     func pollCellSounding() -> (lo: UInt64, hi: UInt64) { kernel.pollCellSounding() }   // SEAL comet: per-cell sounding gate (128 cells: lo=0…63, hi=64…127)
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes (latch-aware meter)

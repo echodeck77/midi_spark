@@ -75,6 +75,9 @@ final class Kernel {
     // laneMask; the UI sets it while a cell is held and clears it on release / stop / EDIT switch.
     private var heldCell: Int32 = -1
     func setHoldCell(_ cell: Int) { heldCell = Int32(cell) }
+    private var focusCell: Int32 = -1
+    func setFocusCell(_ cell: Int) { focusCell = Int32(cell) }   // FOCUS note-event feed target (the machine's cell)
+    func drainFocusNotes() -> (pitch: [UInt8], vel: [UInt8], beat: [Double], count: Int) { router.drainFocusNotes() }
     // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell ALT flips (bit col*8+row). Set by the PERFORM
     // tap; cleared on transport stop / mode switch. Never persisted — a tap is momentary now, not a doc write.
     private var tapAltMask: UInt64 = 0
@@ -967,6 +970,7 @@ final class Kernel {
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
+                        focusCell: Int(focusCell),
                         out: reelTap, diag: &diag)
         router.snapshotEmitterSounding()   // §strips-done: capture the currently-sounding set (voices now reconciled)
         router.snapshotCellSounding()      // SEAL comet: capture which cells are sounding (note-on/off gate)

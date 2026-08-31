@@ -3720,6 +3720,37 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(router.drainCellNotes().count.allSatisfy { $0 == 0 }, "drain is read-and-clear")
     }
 
+    // FOCUS note-event feed (Paul 2026-08-31): drainFocusNotes records the focus cell's REAL emitted notes WITH musical beat —
+    // the data the chain-flow comets animate. Only the focus cell records; read-and-clear.
+    func testFocusNoteFeedRecordsEmittedNotesWithBeats() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<8 {
+            router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, focusCell: 0, out: e, diag: &diag)   // cell (0,0) → index 0
+            beat += windowBeats; ts += Double(frames)
+        }
+        let f = router.drainFocusNotes()
+        XCTAssertGreaterThan(f.count, 0, "the focus cell recorded emitted notes")
+        XCTAssertEqual(f.pitch.count, f.count); XCTAssertEqual(f.vel.count, f.count); XCTAssertEqual(f.beat.count, f.count)
+        for k in 0..<f.count {
+            XCTAssertTrue([60, 64, 67].contains(Int(f.pitch[k])), "a recorded pitch is a played arp note")
+            XCTAssertGreaterThan(f.vel[k], 0)
+            XCTAssertGreaterThanOrEqual(f.beat[k], -0.001, "the note carries a real (non-negative) beat")
+            XCTAssertLessThanOrEqual(f.beat[k], beat + 0.5, "…within the played range")
+        }
+        XCTAssertEqual(router.drainFocusNotes().count, 0, "read-and-clear")
+        // A DIFFERENT focus cell records nothing (cell (0,0) is index 0; index 1 never emits here).
+        let e2 = RecordingEmitter()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, laneMask: 0, focusCell: 1, out: e2, diag: &diag)
+        XCTAssertEqual(router.drainFocusNotes().count, 0, "a non-emitting focus cell records nothing")
+    }
+
     // The per-cell note ring CAPS at 6 and the wrap-index read returns valid pitches (Paul 2026-08-19). A cell emitting
     // many notes before a drain must return exactly 6 (the ring size), all real chord pitches (proving the modular read).
     func testCellNoteRingCapsAtSixWithValidWrap() {

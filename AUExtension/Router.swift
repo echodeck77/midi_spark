@@ -287,6 +287,17 @@ final class Router {
     private var cellNoteHead  = [Int](repeating: 0, count: Snap.cells)     // ring write cursor per cell
     private var cellNoteNew   = [UInt8](repeating: 0, count: Snap.cells)   // note-ons written since the last drain (return capped at 6)
     private var currentCellIndex: Int = -1
+    // THE FOCUS-CELL note-EVENT feed (Paul 2026-08-31): for the ONE cell shown in the machine (focusCellIdx), a bigger ring of
+    // recent emitted note-ons WITH their musical BEAT — so the chain-flow comets animate the REAL notes at REAL timing (not an
+    // offline simulation). FLAT scalar arrays (invariant 3 crash-fix: never nested [[…]]); read-and-clear via drainFocusNotes.
+    private static let focusRing = 64
+    private var focusCellIdx: Int = -1
+    private var focusNotePitch = [UInt8](repeating: 0, count: Router.focusRing)
+    private var focusNoteVel   = [UInt8](repeating: 0, count: Router.focusRing)
+    private var focusNoteBeat  = [Double](repeating: 0, count: Router.focusRing)
+    private var focusNoteHead  = 0
+    private var focusNoteNew   = 0
+    private var fBeatPos: Double = 0, fBeatsPerSample: Double = 0, fWindowStart: Int64 = 0   // this render's beat conversion (set in process)
     // UTILITY (Paul 2026-08-22) — per-cell EMIT overrides, set right where currentCellIndex is set and read in emitOneBus.
     // Both are byte-identical when unset (−1 / 0). Reset before drainEchoTails so echo tails use the wire defaults (v1).
     private var chanOverride: Int16 = -1   // CHANNEL: output channel (−1 = the bus stamp · 0–15 = override)
@@ -891,6 +902,19 @@ final class Router {
         }
         return (p, vv, cnt)
     }
+    func setFocusCell(_ i: Int) { focusCellIdx = i }   // control-thread hint; process overwrites it each render from its param (torn read benign)
+    /// FOCUS note-event feed: the focus cell's note-ons emitted SINCE the last drain (up to focusRing, oldest→newest) as
+    /// pitch + velocity + musical BEAT. FRESH copies (never share render arrays). Read-and-clear.
+    func drainFocusNotes() -> (pitch: [UInt8], vel: [UInt8], beat: [Double], count: Int) {
+        let cap = Router.focusRing
+        let n = min(cap, max(0, focusNoteNew)); focusNoteNew = 0
+        var p = [UInt8](repeating: 0, count: n), vv = [UInt8](repeating: 0, count: n), bt = [Double](repeating: 0, count: n)
+        for k in 0..<n {
+            let idx = ((focusNoteHead - n + k) % cap + cap) % cap
+            p[k] = focusNotePitch[idx]; vv[k] = focusNoteVel[idx]; bt[k] = focusNoteBeat[idx]
+        }
+        return (p, vv, bt, n)
+    }
 
     /// item 4 VELOCITY MARKS: read-and-clear the per-emitter note-on marks accumulated since the last poll —
     /// each a (velocity, source colourIndex). The UI latches a timestamp per mark and fades it (~250ms).
@@ -1339,6 +1363,13 @@ final class Router {
             cellNotePitch[c * 6 + h] = note; cellNoteVel[c * 6 + h] = v
             cellNoteHead[c] = (h + 1) % 6
             if cellNoteNew[c] < 6 { cellNoteNew[c] &+= 1 }
+        }
+        if currentCellIndex == focusCellIdx && focusCellIdx >= 0 && !previewMode {     // FOCUS note-event feed: the machine's cell → the REAL emitted note + its BEAT (Paul 2026-08-31)
+            let fh = focusNoteHead
+            focusNotePitch[fh] = note; focusNoteVel[fh] = v
+            focusNoteBeat[fh] = fBeatPos + Double(onSample - fWindowStart) * fBeatsPerSample
+            focusNoteHead = (fh + 1) % Router.focusRing
+            if focusNoteNew < Router.focusRing { focusNoteNew &+= 1 }
         }
 
         if markCount[bus] < 8 {                              // item 4: a floating velocity MARK for this note-on
@@ -2123,6 +2154,7 @@ final class Router {
                  latchMask: UInt8 = 0,
                  latchedPools: [NotePool] = [],
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
+                 focusCell: Int = -1,     // FOCUS: the cell whose per-note flow the machine shows (records the focus note-event feed) — ephemeral, not in the snapshot
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
@@ -2211,6 +2243,8 @@ final class Router {
             prevBusEnabledMask = busEnabledMask
         }
         let beatsPerSample = tempo / 60.0 / sampleRate
+        focusCellIdx = focusCell                              // FOCUS note-event feed: this render's target cell + beat conversion
+        fBeatPos = beatPos; fBeatsPerSample = beatsPerSample; fWindowStart = windowStart
         let swing = min(75, max(50, over(1, box.swing)))
         let a = swing / 50.0
         var S = box.stepBeats
