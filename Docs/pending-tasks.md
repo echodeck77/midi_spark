@@ -457,6 +457,32 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
   invariant-3 spot: MOD §2 `applyInternalMods` COW-allocates when a cell uses an INTERNAL-target MOD (unused today; fix
   if that feature sees use). Device factors outside us: AUM's audio buffer size + whatever else is running.
 
+## ★★★ HOUSEKEEPING — TOP PRIORITY (Paul 2026-08-31): UNIFY THE MACHINE↔CELL PLAYBACK/SELECTION MODEL
+- **The problem (Paul's device report):** the machine (box + play button) is meant to ALWAYS represent exactly one cell —
+  a select-grid cell (light grey), a part cell, or a ferry (its colour) — and its play/stop must drive THAT cell, with the
+  cell reflecting the play state (and vice-versa). Today there's a disconnect: the machine can be playing while no cell shows
+  it, and edits/selection can diverge from what plays.
+- **Root cause (mapped 2026-08-31 by an Explore agent — see the session transcript):** playback truth is split across
+  FOUR independent axes, reconciled only inside individual tap handlers (`buildGridSelAudition`, `buildSelectPlayColumn`,
+  `roomsAssignPlayColumn`), so any state change touching one axis without the others desyncs:
+  1. `buildVoiceOwner` (`.none|.chain|.part`) — the shared EXCLUSIVE audition voice (ddSolo/buildStagingPlaying are mirrors).
+  2. `buildPlayColOn[8]` — the PERSISTENT per-column ferry layer (sounds on every page, independent of selection).
+  3. `buildSelID` → `ddSelectedColourID` — MACHINE identity (which cell the box/chain/play button represent).
+  4. `buildGridSelSel` — the SELECT-grid cell highlight.
+  Machine hue greys iff `buildSelID == buildGridSelAudID` (gsAud); the play button's `active` is `buildDisplayVoice==voice`
+  OR `buildPlayColOn[buildSelectedPlayCol]`; the select cell's "playing" adds `!buildChainLiveChord.isEmpty`; the ferry's is
+  `buildPlayColOn[t] && buildPlaySel[t]==buildPlayFerryRow` — five different derivations of one conceptual binding.
+- **The disconnects (agent's D1–D6):** D1 machine `active` ≠ select-cell roll-scroll (extra live-chord term); D2 a ferry keeps
+  playing while the machine represents gsAud and reads STOPPED; D3 selecting a ferry kills the chain audition; **D4 (partly
+  fixed 2026-08-31, `e01e77d`)** entering SELECT auto-played an orphan colour with no visible cell — now gated on
+  `buildGridSelSel != nil`; D5 two independent "grey" conditions; D6 five "playing" derivations off different @State.
+- **The task:** collapse to ONE source of truth. Sketch: a single `MachineBinding { kind: .selectCell(i) | .partRow(n) |
+  .ferry(c) | .none, playing: Bool }` (or equivalent), from which the machine identity/hue, the play button state+action, and
+  EVERY cell's highlight/playing indicator all DERIVE — so they cannot diverge. Keep the persistent ferry layer (`buildPlayColOn`)
+  but make the machine's play button + the represented cell read the SAME state. Do it TEST-GUARDED (extract the pure
+  binding→state resolution into a Foundation-only function with unit tests, the BuildSceneLogic pattern) — this is UI-model
+  logic that's currently untestable and device-verify-only. Was going to rush it blind; Paul said do it LATER, carefully.
+
 ## ★ HOUSEKEEPING FLAGS — surveyed + verified 2026-08-19, DEFERRED (need a focused tested pass, not unattended)
 - **Render-path allocations (invariant 3):** (1) ~~`srcNotes` local array in the 4 driver emitters~~ DONE (2026-08-19,
   `ac7eb2b`) — a reused `srcNoteBuf`/`srcNoteCount` + `srcNoteBuf[0..<srcNoteCount]` slice view; byte-identical.

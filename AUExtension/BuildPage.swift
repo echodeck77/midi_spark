@@ -2549,10 +2549,8 @@ extension DiagView {
         }
         // §1 THE FLOW LINE (design 2026-08-17): the dotted thread draws ORDER (the numbers' old job) — door ┈▶ slot 0 ┈▶
         // … ┈▶ slot 7 ┈▶ wire, in chain order, with a TURN MARK at each row wrap (the boustrophedon made visible).
-        .background {                                                // BEHIND the boxes (Paul 2026-08-31: comets over the boxes strobed their alpha text)
-            buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap, hue: hue)
-            buildChainComets(boxW: boxW, boxH: boxH, gap: gap, hue: hue)   // NOTE COMETS — flow through the connectors, occluded by the box fills
-        }
+        .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap, hue: hue))
+        .overlay { buildChainComets(boxW: boxW, boxH: boxH, gap: gap, hue: hue) }   // NOTE COMETS — IN FRONT so they're visible, ADDITIVE blend so they glow over the boxes without strobing the alpha text (Paul 2026-08-31)
         .coordinateSpace(name: "chainBlock")                        // DRAG-TO-REORDER: a stable space for the finger track + the floating ghost
         .overlay(alignment: .topLeading) { buildChainDragGhost(chain: chain, boxW: boxW, boxH: boxH, hue: hue) }
         .task(id: buildChainStructSig) {                            // recompute each processor's real output when the chain OR the live input chord changes
@@ -2596,6 +2594,7 @@ extension DiagView {
         let stages = buildChainStages
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || stages.isEmpty)) { tl in
             Canvas { ctx, size in
+                ctx.blendMode = .plusLighter                             // ADDITIVE — the comets GLOW over the boxes; they add light rather than alpha-blend over the text (no strobe) — Paul 2026-08-31
                 func center(_ i: Int) -> CGPoint { CGPoint(x: CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2) }
                 // DOOR entry (block left edge) ┈▶ boxes ┈▶ WIRE exit (block right edge). The two CIRCLES are drawn separately,
                 // OUTSIDE the block, in the flanks (buildChainEndCircles) — here we only flow the comets. (Paul 2026-08-31)
@@ -2640,8 +2639,9 @@ extension DiagView {
             let cr = max(3.5, min(boxH * 0.16, sideW * 0.42))
             let lx = sideW / 2                                        // CENTRE of the left flank column (the play button) — Paul 2026-08-31
             let rx = sideW + blockW + sideW / 2                       // CENTRE of the right flank column (symmetric)
-            let cy = blockH / 2                                       // vertical centre — aligned with the play button
-            for end in [CGPoint(x: lx, y: cy), CGPoint(x: rx, y: cy)] {
+            let ty = boxH / 2                                         // aligned with the FIRST processor (top row) — Paul 2026-08-31
+            let by = blockH - boxH / 2                                // aligned with the LAST processor (bottom row)
+            for end in [CGPoint(x: lx, y: ty), CGPoint(x: rx, y: by)] {
                 ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
                 ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
             }
