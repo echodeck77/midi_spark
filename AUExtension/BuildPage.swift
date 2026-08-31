@@ -1568,17 +1568,19 @@ extension DiagView {
         let canUp = buildPlayFerryRow < 7, canDown = buildPlayFerryRow > 0
         GeometryReader { g in
             let s = min(g.size.width, g.size.height) * 0.5
-            VStack(spacing: 1) {
-                // ▲▼ wear the PLAY-GRID indigo (like the nav buttons); dimmed indigo when the edge is reached (Paul 2026-08-31)
-                Image(systemName: "chevron.up").font(.system(size: s, weight: .black)).foregroundColor(canUp ? roomsDoorInk(to: .play) : .white.opacity(0.3))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(canUp ? roomsIndigo : roomsIndigo.opacity(0.25)))
-                    .contentShape(Rectangle()).onTapGesture { if canUp { buildPlayFerryStep(1) } }
-                Text("R\(buildPlayFerryRow + 1)").font(.system(size: 9, weight: .black, design: .monospaced)).foregroundColor(.white.opacity(0.75)).lineLimit(1).minimumScaleFactor(0.5)
-                Image(systemName: "chevron.down").font(.system(size: s, weight: .black)).foregroundColor(canDown ? roomsDoorInk(to: .play) : .white.opacity(0.3))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(canDown ? roomsIndigo : roomsIndigo.opacity(0.25)))
-                    .contentShape(Rectangle()).onTapGesture { if canDown { buildPlayFerryStep(-1) } }
+            // ONE SOLID BLOCK (Paul 2026-09-01): a single indigo fill; the two chevrons are just tap-halves over it (only the
+            // CHEVRON dims at an edge, never the block) so it reads as one control, not two buttons.
+            ZStack {
+                RoundedRectangle(cornerRadius: 4).fill(roomsIndigo)
+                VStack(spacing: 0) {
+                    Image(systemName: "chevron.up").font(.system(size: s, weight: .black)).foregroundColor(canUp ? roomsDoorInk(to: .play) : .white.opacity(0.28))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle()).onTapGesture { if canUp { buildPlayFerryStep(1) } }
+                    Text("R\(buildPlayFerryRow + 1)").font(.system(size: 9, weight: .black, design: .monospaced)).foregroundColor(.white.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.5)
+                    Image(systemName: "chevron.down").font(.system(size: s, weight: .black)).foregroundColor(canDown ? roomsDoorInk(to: .play) : .white.opacity(0.28))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle()).onTapGesture { if canDown { buildPlayFerryStep(-1) } }
+                }
             }
         }
     }
