@@ -23,7 +23,10 @@ Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/
     receiver is playing THIS render (latched/SCALE pool if present, else the live THRU input via doorLivePitchClassMask) —
     Paul's "listen to a different receiver" scenario, +test. Also fixed: standalone/single-slot [AVOID] + [X→AVOID] were
     silently emitting nothing (emitColumnHolds guard + isHoldTailChain lacked `.avoid`). WIRE/SOUNDING keep the L1 later-
-    row caveat. DEVICE ear owed.
+    row caveat. **EDITOR REWORK (`b810558`, UI-only, DEVICE eye owed):** removed the KEY picker; REFERENCE → "LISTEN TO" =
+    INPUT (▸A–D) | EVERYTHING (WIRE dropped from the UI); plain labels (AVOID|LOCK · ALSO DODGE NOTHING/CLASHES/MORE · IF
+    BLOCKED DROP/MOVE) + an illustration PIANO (two live C1–C7 keyboards: the reference notes + clash halo · YOUR OUTPUT).
+    Engine keeps every enum case (decode/test safety). DEVICE ear owed.
   - ✅ **§F PLAY-FERRY ROW CURSOR** — DONE (`7c60dac`; Paul's #4 clarification, NOT the abstract track-swap): a ▲▼ picks
     which grid ROW the play-ferry buttons target (`buildPlayFerryRow`). The ghost-previews/track-swap of redesign §9 remain
     a separate incremental-redesign item. DEVICE eye owed.

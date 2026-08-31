@@ -185,6 +185,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   mode guard excluded `.avoid` and `isHoldTailChain` didn't route an AVOID tail; both fixed + the hold loop now applies
   `avoidFilter` per note (drop on REMOVE, remap on MOVE). +1 RouterTest (door-live reference reads another receiver + its
   clashes) + widenClashMask/scalePitchClassMask Derivations tests. WIRE/SOUNDING keep the L1 later-row caveat.**
+- **▶ STRIP SPANNER → THE MIXER + footer retired · AVOID editor plain-language rework + illustration piano (2026-08-31, on
+  `main`, `9c6295a`+`b810558`; iOS builds; UI-only, DEVICE eye owed). Two device-driven asks. **SPANNER → MIXER (`9c6295a`):**
+  the machine-column strip spanner opened the OLD `buildMidiConfigSheet`; Paul wanted the footer's 8-strip console there
+  instead. Both strip spanners now open `roomsMixerOverlay` directly in STAGE 2, pre-selecting the tapped strip (a receiver
+  → `roomsMixerSel = i` IN A–D · an emitter → `4 + i` OUT A–D) — all 8 strips visible, the tapped one highlighted, its full
+  config (buildDoorSection / buildEmitterOutRow) below. RETIRED the extend-page footer (`roomsFooter`/`footerStrip`/
+  `footerChannel`/`roomsMidiIndicator`/`roomsABCD` + `showRoomsFooter` @AppStorage + the CogPage MIDI-BAR toggle); the mixer
+  (the salvaged console) stays, now reached via the spanners. The header MIDI IN/OUT buttons still open the old sheets (a
+  separate entry point). **AVOID EDITOR REWORK (`b810558`):** Paul — the DOOR/WIRE/KEY terminology was opaque. Removed the
+  KEY picker (the key belongs to the channel — point at a scale INPUT). REFERENCE → "LISTEN TO" = INPUT (▸A–D) | EVERYTHING
+  (per-output WIRE dropped from the UI — no live feed); MODE AVOID|LOCK; "ALSO DODGE" NOTHING/CLASHES/MORE; "IF BLOCKED"
+  DROP/MOVE; self-name "AVOID IN A"/"LOCK IN A"/"AVOID CLASHES". Added the ILLUSTRATION PIANO — two live C1–C7 keyboards
+  ("what INPUT A plays" lit by pitch class + clash halo · "YOUR OUTPUT — what plays"), fed from recvHeldNotes + buildOutRoll
+  (new ProcessorBox avoidInputNotes/avoidOutputNotes, wired in buildSlotBox). Engine/model/tests untouched (all enum cases
+  kept for decode/test safety, just no longer surfaced); storefront "LOCK TO KEY" now seeds INPUT B + LOCK.**
 - **▶ FERRY INTAKE 2026-08-31 + first ratified slices (on `main`, PUSHED; iOS builds, macOS 950 green; UI device-owed).
   Read/merged/added the 5-doc design ferry (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes ·
   listening-set · macro-lanes) + filed `Docs/PLAN-incoming-2026-08-31.md` (grounded file:line plan for the ratified batch,
