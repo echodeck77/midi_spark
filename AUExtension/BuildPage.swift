@@ -1340,12 +1340,12 @@ extension DiagView {
                 AnyView(HStack(alignment: .center, spacing: 0) {           // verb buttons on ONE side · MIDI CHAIN centred · VERTICAL PLAY + PLAYHEAD on the OPPOSITE side (Paul 2026-08-29)
                     if room == .part {                                     // PART → verb buttons LEFT · vertical play RIGHT
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
-                    } else {                                               // SELECT → vertical play LEFT (opposite the right verb buttons)
-                        AnyView(roomsVerticalPlay(room, height: blockH)).frame(width: sideW)
+                    } else {                                               // SELECT → PLAY + SELECT column LEFT (opposite the right verb buttons)
+                        AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)
                     }
                     AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
                     if room == .part {
-                        AnyView(roomsVerticalPlay(room, height: blockH)).frame(width: sideW)   // PART → vertical play RIGHT (opposite the left verb buttons)
+                        AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)   // PART → PLAY + SELECT column RIGHT (opposite the left verb buttons)
                     } else {
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
                     }
@@ -1413,6 +1413,38 @@ extension DiagView {
                 if let pc = ferryCol { buildTogglePlayColumn(pc) }              // the ferry's OWN play column (start/stop the ferry)
                 else { buildRequestWorkshopVoice(active ? .none : voice) }      // else the chain audition
             }
+        }
+        .frame(height: height)
+    }
+    // THE SELECT-MODE BUTTON (Paul 2026-08-31) — directly under the play button, SAME size/style. Toggles buildSelectMode: while
+    // on, every cell (select + ferry) lights white and a TAP only FOCUSES it into the machine (no start/stop). A way to pick a
+    // cell for editing/viewing without playing it.
+    @ViewBuilder func roomsSelectButton(height: CGFloat) -> some View {
+        let on = buildSelectMode
+        GeometryReader { g in
+            let side = min(g.size.width, g.size.height)
+            ZStack {
+                RoundedRectangle(cornerRadius: 8).fill(buildCell)
+                if on { RoundedRectangle(cornerRadius: 8).fill(buildCyan.opacity(0.28)) }   // lit cyan when armed
+                Text("SELECT").font(.system(size: min(11, side * 0.24), weight: .black, design: .monospaced))
+                    .foregroundColor(on ? buildCyan : buildDim).lineLimit(1).minimumScaleFactor(0.5)
+            }
+            .frame(width: side, height: side * 0.5)                          // HALF height — matches the play button
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? buildCyan : buildEdge, lineWidth: on ? 3 : 1))
+            .shadow(color: on ? buildCyan.opacity(0.5) : .clear, radius: on ? 4 : 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+            .onTapGesture { buildSelectMode.toggle() }
+        }
+        .frame(height: height)
+    }
+    // THE PLAY + SELECT COLUMN — the machine's flank: PLAY on top, SELECT directly beneath it (equal size/style). (Paul 2026-08-31)
+    @ViewBuilder func roomsPlaySelectColumn(_ room: Room, height: CGFloat) -> some View {
+        let h2 = max(20, (height - 8) / 2)
+        VStack(spacing: 8) {
+            roomsVerticalPlay(room, height: h2).frame(height: h2)
+            roomsSelectButton(height: h2).frame(height: h2)
         }
         .frame(height: height)
     }
@@ -1543,11 +1575,16 @@ extension DiagView {
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING or SELECTED
+                .overlay { if buildSelectMode && set { RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
                 .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
                 .overlay(Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0))   // PLAY/STOP (state) in the MACHINE hue
                 .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
                 .contentShape(Rectangle())
-                .onTapGesture { if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }; buildTogglePlayColumn(t); buildSelectPlayColumn(t) }   // TAP = make the cursor row this column's active rung, then start/stop + SELECT it (Paul 2026-08-31)
+                .onTapGesture {
+                    if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
+                    if buildSelectMode { buildSelectPlayColumn(t) }                    // SELECT MODE: focus this ferry into the machine, no start/stop (Paul 2026-08-31)
+                    else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
+                }
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                     pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
         }
@@ -1768,6 +1805,7 @@ extension DiagView {
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : buildEdge,
                                                               lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING
+            .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
             .overlay(alignment: .topTrailing) { if populated { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
             .overlay {
                 if part {                                                // PART rail → the slot NUMBER in the machine hue
@@ -1778,7 +1816,10 @@ extension DiagView {
             }
             .shadow(color: playing ? eHue.opacity(0.7) : .clear, radius: playing ? 5 : 0)   // PLAYING → an EMITTER-coloured glow (the "this is alive" tell)
             .contentShape(Rectangle())
-            .onTapGesture { part ? roomsTapPartSide(n) : roomsTapSide(n) }
+            .onTapGesture {
+                if buildSelectMode { if let cid = buildRowColour(n) { buildSelectID(cid) } }   // SELECT MODE: focus this row's colour into the machine (Paul 2026-08-31)
+                else { part ? roomsTapPartSide(n) : roomsTapSide(n) }
+            }
             .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                 pressing: { p in buildGridSelStampPressing(n, p) }, perform: { roomsStampFire(n, part: part) })
     }
@@ -1853,6 +1894,7 @@ extension DiagView {
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(id == nil ? buildEdge : mHue.opacity(focused ? 1.0 : (selected ? 0.7 : 0.4)),
                                                               lineWidth: focused ? 2.5 : (selected ? 2 : 1)))   // MACHINE-HUE FRAME: dim → BRIGHT on focus
+            .overlay { if buildSelectMode && id != nil { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
     }
     // A PART interior cell — ONE RUNG PER COLUMN (old-gui buildStagingTap): tap selects that rung for its column; tap the
     // selected rung to UNSELECT it (that column falls silent). Dark stage + machine-hue frame; the selected rung brighter.
@@ -1863,7 +1905,10 @@ extension DiagView {
                           sweep: { buildNoteSweep(idx: c * Snap.rows + r, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
             .frame(width: w, height: h)                                   // fixed size so the playhead pitch is exact
             .contentShape(Rectangle())
-            .onTapGesture { buildStagingTap(c, r) }                       // one rung per column, toggle (the old-gui logic)
+            .onTapGesture {
+                if buildSelectMode { if let cid = id { buildSelectID(cid) } }   // SELECT MODE: focus this cell's colour into the machine (Paul 2026-08-31)
+                else { buildStagingTap(c, r) }                                  // else: one rung per column, toggle (the old-gui logic)
+            }
     }
     // The RIGHT rail — selects the ENTIRE row (every column → this row), like the old gui's row-select. Lights when the
     // whole row is the current per-column selection. (Paul 2026-08-28)
@@ -1922,7 +1967,11 @@ extension DiagView {
     func roomsSyncVoice(_ room: Room) {
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
         switch room {
-        case .select: buildApplyWorkshopVoice(.chain)   // extra = the selected cell auditions; sequenced part OFF (play layer persists)
+        case .select:
+            // Auto-audition ONLY when the selection is a real SELECT-grid cell (buildGridSelSel). Otherwise the machine would
+            // PLAY a colour with NO visible cell showing it — e.g. a part colour carried in from PART, or a ferry colour that
+            // would then double the play layer (Paul 2026-08-31: "it'll be playing but the UI doesn't show that").
+            if buildGridSelSel != nil { buildApplyWorkshopVoice(.chain) } else { buildApplyWorkshopVoice(.none) }
         case .part:   buildApplyWorkshopVoice(.part)     // extra = the sequenced part; audition OFF (play layer persists)
         case .play:   buildApplyWorkshopVoice(.none)     // no extra cell — just the 8 play cells
         default: break
@@ -4724,9 +4773,20 @@ extension DiagView {
         buildGridSelStampSourceRow = nil                                 // a library CELL is now the active source → clear the active side button (mutual exclusivity; no-op in old BUILD)
         buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i)   // a DEALT/LIBRARY cell — its index is the commit source
     }
+    // A select-grid TAP: SELECT MODE focuses the cell into the machine (no play/stop); else it auditions. (Paul 2026-08-31)
+    private func buildGridSelTapCell(_ i: Int) {
+        guard buildGridSelPresent(i) else { return }
+        if buildSelectMode { buildGridSelFocus(i) } else { buildGridSelAudition(i) }
+    }
+    // FOCUS ONLY (SELECT mode): load the cell into the machine + select it, but DON'T start/swap the audition voice. (Paul 2026-08-31)
+    private func buildGridSelFocus(_ i: Int) {
+        guard let hit = buildGridSelChainAt(i) else { return }
+        buildGridSelStampSourceRow = nil
+        buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i, play: false)
+    }
     // Load a chain onto the ONE transient audition colour, select it, and drive the chain voice (quantized). Shared by a
     // cell audition (sel = the cell index → the commit source) and a ROW press (sel = nil → a view/hear of that part's chain).
-    private func buildGridSelLoadChain(_ raw: [ProcessorSlot], transpose: Int, hex: UInt32, sel: Int?) {
+    private func buildGridSelLoadChain(_ raw: [ProcessorSlot], transpose: Int, hex: UInt32, sel: Int?, play: Bool = true) {
         buildGridSelSel = sel
         buildGridSelActiveRoll = gridSelRollBars(raw)                     // the piano-roll shown on the cell + the right column
         // BAKE the register home into the CHAIN (a leading TRANSPOSE utility) rather than the ephemeral colour's transpose:
@@ -4740,6 +4800,7 @@ extension DiagView {
         buildColourTranspose[buildGridSelAudID] = 0
         buildSyncColours()
         buildSelID = buildGridSelAudID; ddColourSel = -1                  // ddSelectedColourID now returns the transient
+        guard play else { return }                                        // FOCUS ONLY (SELECT mode): shown in the machine, voice untouched (Paul 2026-08-31)
         let instant = !buildGridSelQuantStep || !d.playing
         if !ddSolo {                                                       // chain voice OFF → turn it on
             if instant { buildPendingWorkshopVoice = nil; buildPendingReengage = false; buildSelectMachineVoice() }   // now (+ drop any stale arm)
@@ -4825,10 +4886,11 @@ extension DiagView {
                     RoundedRectangle(cornerRadius: 6).stroke((selGrey ? Color.black : Color.white).opacity(0.45 + 0.5 * f), lineWidth: 3)
                 }
             }
+            if buildSelectMode && present { RoundedRectangle(cornerRadius: 6).stroke(Color.white, lineWidth: 2.5) }   // SELECT MODE: every cell lights white — tap to focus (Paul 2026-08-31)
         }
         .frame(width: w, height: h)
         .contentShape(Rectangle())
-        .onTapGesture { if present { buildGridSelAudition(i) } }
+        .onTapGesture { buildGridSelTapCell(i) }   // SELECT mode focuses; else auditions
     }
     // THE SELECT-CELL PIANO ROLL (Paul 2026-08-31 — replaces the looping drift on the SELECT grid CELLS only; the ferries
     // keep buildGridSelDriftFace/buildNoteSweep). A PRECISE one-frame piano roll of the chain's real output (gridSelRollBars

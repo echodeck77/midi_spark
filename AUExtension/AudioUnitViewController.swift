@@ -208,6 +208,7 @@ struct DiagView: View {
     @State var buildPlayCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
     @State var buildPlaySel: [Int] = Array(repeating: 0, count: 8)   // per-column selected rung; 0 = ROW 1 default, −1 = none
     @State var buildPlayFerryRow: Int = 0   // the ROW the play-ferry buttons target (▲▼ moves it); a ferry lands on this rung of the touched column (Paul 2026-08-31)
+    @State var buildSelectMode: Bool = false   // SELECT MODE (Paul 2026-08-31): a toggle under the machine play button — while on, every cell (select + ferry) lights white and a TAP only FOCUSES it into the machine (no start/stop), for editing/viewing
     // THE PLAY GRID — each column is a FULLY INDEPENDENT voice (Paul 2026-08-29): it starts/stops on its own and carries
     // the I/O it was FERRIED WITH (no separate I/O toggles). buildPlayColOn = per-column play state; buildPlayColRecv /
     // buildPlayColEmit = the door + emitters copied from the source at ferry time. (buildPlayPlaying is now a computed
