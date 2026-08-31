@@ -1094,8 +1094,12 @@ final class Kernel {
             // CC121 = Reset All Controllers → clear the store (§11). Note-agnostic; the note pipeline never sees this.
             if status == 0xB0, length >= 3 {
                 if bytes[1] == 121 { router.clearControllerIn() } else { router.setControllerIn(cc: Int(bytes[1]), value: Int(bytes[2])) }
-                // CC120/123 = ALL-SOUND / ALL-NOTES-OFF (ratified) → FLUSH our held pool + every armed latch, then forward.
-                if bytes[1] == 120 || bytes[1] == 123 { pool.reset(); for p in latchedPools { p.reset() } }
+                // CC120/123 = ALL-SOUND / ALL-NOTES-OFF → flush our LIVE input pool, then forward. But do NOT touch the armed
+                // LATCH/HOLD pools (Paul 2026-08-31 ROOT CAUSE): many sources send CC123 routinely (on chord release, between
+                // phrases, on transport events), and wiping the frozen chord broke HOLD — the held chord died + the input
+                // indicator dropped to zero on every new chord (app-independent). A user's HOLD is a deliberate freeze that must
+                // survive a source's all-notes-off; a real host panic/transport-stop flushes stuck notes via the edge allNotesOff.
+                if bytes[1] == 120 || bytes[1] == 123 { pool.reset() }
             }
         }
         // CONTROLLER ROUTING (v1): CC · PB · AT · PC forward to each door's CONTROLLERS emitters (union), RE-STAMPED to
