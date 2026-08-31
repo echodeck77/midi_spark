@@ -195,9 +195,22 @@ final class Router {
         // WHAT (AVOID mode only): widen the avoided sphere to the CLASHING neighbours (ic1/ic2). LOCK keeps the exact set.
         return (!p.avoidLock && p.avoidClashSemis > 0) ? widenClashMask(base, semis: p.avoidClashSemis) : base
     }
-    /// Apply an AVOID/LOCK stage to ONE note: keep it, remap it (MOVE), or drop it (REMOVE → nil). Pure `keyFilterNote`.
-    @inline(__always) private func avoidFilter(_ note: Int, _ p: SnapParams, refMask: UInt16) -> Int? {
-        keyFilterNote(note, refMask: refMask, only: p.avoidLock, snap: p.avoidMove)
+    /// Apply an AVOID/LOCK stage to ONE note: keep it, remap it (MOVE), or drop it (REMOVE → nil).
+    /// LOCK keeps/snaps to the reference (musical — it IS the referenced key). AVOID drops notes in the blocked sphere;
+    /// MOVE snaps a blocked note to the nearest SURVIVING note in the INPUT SCALE (`survivorMask` = the pool's passing
+    /// classes) — never a chromatic note outside the pool (Paul 2026-08-31: this is a scale processor, so MOVE stays in key).
+    @inline(__always) private func avoidFilter(_ note: Int, _ p: SnapParams, refMask: UInt16, survivorMask: UInt16) -> Int? {
+        if p.avoidLock { return keyFilterNote(note, refMask: refMask, only: true, snap: p.avoidMove) }
+        let pc = ((note % 12) + 12) % 12
+        if (refMask >> UInt16(pc)) & 1 == 0 { return note }                 // not blocked → passes through
+        guard p.avoidMove, survivorMask != 0 else { return nil }            // DROP (or nothing survives to move onto)
+        return keyFilterNote(note, refMask: survivorMask, only: true, snap: true)   // snap to the nearest surviving scale note
+    }
+    /// The INPUT-scale classes that PASS an AVOID stage (a note's class ∉ the blocked sphere) — MOVE's legal landing set.
+    @inline(__always) private func avoidSurvivors(_ notes: (Int) -> Int, count: Int, refMask: UInt16) -> UInt16 {
+        var m: UInt16 = 0
+        for k in 0..<count { let pc = ((notes(k) % 12) + 12) % 12; if (refMask >> UInt16(pc)) & 1 == 0 { m |= UInt16(1) << UInt16(pc) } }
+        return m
     }
     // HOCKET (wire-as-source v1): the sample of the most recent REAL note-on on each emitter (A–D) — the "when the wire
     // struck" edge that TRADE reads. Updated in openVoice; reset to a far-past sentinel on transport/flush edges so a
@@ -1671,11 +1684,18 @@ final class Router {
                                    noteAt: { holdChain ? Int(chainScratch.srcAscending($0, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending($0, for: cell)) })
                 : (0, srcN)
             let avoidHoldMask: UInt16 = mode == .avoid ? avoidRefMask(treatP) : 0   // AVOID/LOCK (standalone / hold-tail): the reference set, once per hold
+            // The FINAL emitted note for rank k (base + the register/pool shift) — also the survivor scan's input.
+            let holdFinalNote: (Int) -> Int = { k in
+                let b = holdChain ? Int(self.chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
+                return poolTrans ? poolStepMask(b, steps: procShift, pcMask: holdPoolMask) + regShift : b + transpose
+            }
+            let avoidSurvivorMask: UInt16 = (mode == .avoid && !treatP.avoidLock && treatP.avoidMove && avoidHoldMask != 0)
+                ? avoidSurvivors(holdFinalNote, count: srcN, refMask: avoidHoldMask) : 0   // AVOID MOVE lands only on the input scale's surviving notes
             for k in 0..<srcN where !holdEchoMute {                  // ECHO MUTE: the dry is suppressed (echoes-only); tails still register below
                 let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
                 var n = poolTrans ? poolStepMask(base, steps: procShift, pcMask: holdPoolMask) + regShift : base + transpose
                 if mode == .avoid {                                   // AVOID/LOCK filter (standalone/hold-tail): drop (REMOVE) or remap (MOVE)
-                    guard let f = avoidFilter(n, treatP, refMask: avoidHoldMask) else { continue }
+                    guard let f = avoidFilter(n, treatP, refMask: avoidHoldMask, survivorMask: avoidSurvivorMask) else { continue }
                     n = f
                 }
                 guard n >= 0 && n <= 127 else { continue }
@@ -3572,9 +3592,12 @@ final class Router {
             }
         case .avoid:                                           // per-note PITCH filter — RE-POOL upstream / hold-tail: drop or snap each note vs the reference
             let refMask = avoidRefMask(p)
-            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
+            let srcN = src.srcCount(filter: 0, cableMask: 0b1111)
+            // AVOID MOVE lands only on the input scale's SURVIVING notes (never a chromatic note outside the pool).
+            let survivorMask: UInt16 = (!p.avoidLock && p.avoidMove) ? avoidSurvivors({ Int(src.srcAscending($0, filter: 0, cableMask: 0b1111)) }, count: srcN, refMask: refMask) : 0
+            for k in 0..<srcN {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                if let outN = avoidFilter(Int(n), p, refMask: refMask), outN >= 0, outN <= 127 { dst.noteOn(UInt8(outN), velocity: max(1, src.velocity(n)), channel: 0) }
+                if let outN = avoidFilter(Int(n), p, refMask: refMask, survivorMask: survivorMask), outN >= 0, outN <= 127 { dst.noteOn(UInt8(outN), velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .octave, .transpose:                              // UTILITY — pitch shift (pitch-class preserved for OCTAVE); out-of-range notes drop
             // §2 POOL-STEP: TRANSPOSE in POOL units steps each note by utilTranspose DEGREES up the source pool ("up a

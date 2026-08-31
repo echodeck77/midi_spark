@@ -2610,6 +2610,31 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(played(.same).contains(61), "SAME: C# is not the reference's C → it passes (only exact doubling avoided)")
         XCTAssertFalse(played(.clash).contains(61), "CLASH: C# rubs against the reference's live C (ic1) → removed — avoid what it plays AND what clashes with it")
     }
+    // AVOID MOVE stays IN THE INPUT SCALE (Paul 2026-08-31: a scale processor must not snap to a chromatic note outside it).
+    // Input = a C-major triad; the reference blocks E. MOVE relocates E to the nearest SURVIVING triad note (G), never D#.
+    func testAvoidMoveSnapsWithinTheInputScaleNotChromatically() {
+        let cs = arpColours()
+        var av = ProcessorSlot(type: .avoid); av.params.avoidRefKind = .door; av.params.avoidRefIndex = 1
+        av.params.avoidMode = .avoid; av.params.avoidAction = .move; av.params.avoidWhat = .same
+        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = [av]; return c }()   // AVOID chain reads door 0 (ch 1)
+            return s }()])
+        st.busChannels = [1, 2, 3, 4]
+        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3"), Receiver(name: "4")]
+        let box = SnapshotBuilder.build(from: st)
+        let pool = NotePool()
+        pool.noteOn(76, velocity: 100, channel: 1)   // E5 → the REFERENCED receiver (door 1, ch 2) blocks pitch class 4 (a DIFFERENT octave so it doesn't collide with the input E)
+        pool.noteOn(60, velocity: 100, channel: 0)   // C ┐
+        pool.noteOn(64, velocity: 100, channel: 0)   // E ┼ the AVOID chain's own input (door 0, ch 1) — a C-major triad
+        pool.noteOn(67, velocity: 100, channel: 0)   // G ┘  (E is blocked → MOVE relocates it in-scale)
+        let e = RecordingEmitter(); run(box, pool, beats: 16, into: e)
+        let classes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 })
+        XCTAssertFalse(classes.isEmpty, "MOVE relocates the blocked E rather than dropping it")
+        XCTAssertFalse(classes.contains(4), "E (class 4) is blocked — it never sounds")
+        XCTAssertTrue(classes.isSubset(of: [0, 4, 7]), "MOVE lands only on the input triad's notes (C/E/G), never a chromatic note")
+        XCTAssertFalse(classes.contains(3), "the OLD chromatic snap moved E→D# (class 3, out of scale); the in-scale snap does not")
+        assertNothingLeftSounding(e)
+    }
     // The downstream passgate gates on the PASS the user sees (diag.pass): pass 0 closed (passes[0]=false) → the
     // whole first lap is silent even though later passes are open.
     func testArpThenPassgateGatesPassZero() {

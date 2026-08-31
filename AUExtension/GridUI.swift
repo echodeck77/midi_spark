@@ -1590,11 +1590,13 @@ struct ProcessorBox: View {
     private func avoidPredict(_ chainIn: Set<Int>, blocked: Set<Int>, lock: Bool, refOnly: Set<Int>, move: Bool) -> Set<Int> {
         let empty = lock ? refOnly.isEmpty : blocked.isEmpty
         let allowed: (Int) -> Bool = lock ? { refOnly.contains($0) } : { !blocked.contains($0) }
+        // MOVE lands ONLY on: LOCK → the referenced key · AVOID → the input scale's surviving notes (never a chromatic note outside it)
+        let snapTo: Set<Int> = lock ? refOnly : chainIn.filter { !blocked.contains($0) }
         var out = Set<Int>()
         for pc in chainIn {
             if empty { if !lock { out.insert(pc) }; continue }   // refMask==0: LOCK admits nothing · AVOID excludes nothing
             if allowed(pc) { out.insert(pc) }
-            else if move, let s = avoidSnapClass(pc, allowed) { out.insert(s) }
+            else if move, !snapTo.isEmpty, let s = avoidSnapClass(pc, { snapTo.contains($0) }) { out.insert(s) }
         }
         return out
     }
@@ -1631,8 +1633,8 @@ struct ProcessorBox: View {
     // The plain-language one-liner under the AVOID/LOCK controls.
     private func avoidBlurb(input: Bool, letter: String, lock: Bool, clash: Int, move: Bool) -> String {
         let src = input ? "INPUT \(letter)" : "everything else playing"
-        // MOVE snaps chromatically to the nearest free note, which can land OUT of key; DROP always keeps you in the input's key.
-        let fix = move ? "moved to the nearest free note (can be out of key)" : "dropped"
+        // MOVE snaps to the nearest surviving note in the INPUT scale (never a chromatic note outside it); DROP just removes.
+        let fix = move ? "moved to the nearest note still in the scale" : "dropped"
         if lock { return "LOCK — plays only the notes \(src) is playing. Point INPUT at a scale channel to stay in its key; anything else is \(fix)." }
         let sphere = clash == 0 ? "the exact notes \(src) plays" : (clash == 1 ? "\(src)'s notes and the semitone either side (the ones that clash)" : "\(src)'s notes and the two semitones either side")
         return "AVOID — your notes stay clear of \(sphere); any that land there are \(fix)."
