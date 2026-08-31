@@ -3,7 +3,25 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-24._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-31._
+
+## ★★★ FERRY INTAKE 2026-08-31 — the ratified batch (DETAILED PLAN: `Docs/PLAN-incoming-2026-08-31.md`)
+Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes · listening-set · macro-lanes).
+`Docs/PLAN-incoming-2026-08-31.md` is the grounded, file:line implementation plan — read it before building any of these.
+- **RATIFIED, buildable (sequence + risk in the plan §J):** §A MIDI-tab scale label (minutes) · §B AVOID processor
+  (engine; reuses keyFilterNote; SPLIT-position law) · §C scale-aware IN strip (thin UI over §B) · §D MACRO LANES (needs a
+  render-time per-column macro path — the M1-bake→per-column change) · §E GRID 8|16 (⚠ gated by an Int8→Int16 cell-index
+  widening — the 64→128 playbook) · §F ▲▼ track-move + ghost previews (⚠ 10 parallel play arrays + NO play-grid undo today).
+- **ALREADY BUILT (verified — do NOT rebuild):** the bazaar-muted select cells · scale-doors-name-themselves (on the
+  receiver chip; only the MIDI-config tab bar is left = §A) · the room palette signatures (roomsField near-black PLAY,
+  roomsDoorBar rainbow/amber/indigo/red, ▲PLAY indigo) · CHORDS/the dynamic reference.
+- **⛔ DECISIONS PAUL MUST SETTLE before the risky pieces (plan §K):** (1) AVOID SKIP has no clean DOWNSTREAM meaning
+  (SKIP=upstream re-pool; downstream REST|SHIFT only?) · (2) macro-lane render path (build-side table vs render-side eval)
+  + part-local scope (never write the global Macro.value) · (3) GRID 8|16 = always-16 allocation + active-width, per-doc? ·
+  (4) ▲▼ axis/glyph (tracks are COLUMNS — swap c↔c±1? ▲▼ vs ◀▶) · (5) OK to add the 10 play arrays to BuildSnapshot (play
+  grid has NO undo today).
+- **CAPTURED, NOT ratified (HOLD):** LOCK TO KEY stage (scale-door §7 — ≈ AVOID with only:true at chain END) · the rest of
+  the LISTENING SET (SHADOW/FEEL-THIEF/IMITATE/…) · the full rooms/tracks/provenance/footer redesign (build with Paul).
 
 ## ★ HOUSEKEEPING SWEEP — 2026-08-30 (dead code · 30-bug hunt · tests · refactors, unattended)
 - **✅ DEAD CODE DONE:** 24 grep-verified zero-ref orphans deleted (`Housekeeping: delete 24 grep-clean dead orphans`) —

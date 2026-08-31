@@ -149,3 +149,52 @@ Two opens this exposes (leans, Paul's word):
   a reel pass — legal; the door tracks the lit one).
 - **A fresh assign lands in the NEXT EMPTY slot** (lean; full
   column = replace the lit slot, with the flash tell).
+
+## §8 — THE ROOM PALETTES (Paul, 2026-08-28 — leans for his
+## glass; colour is device territory)
+**The law first**: MACHINE HUES ARE SACRED and room-independent
+(identity = the thread). Rooms differentiate by AMBIENT (field ·
+chrome · empty cells), never by re-tinting content.
+- **SELECT = THE BAZAAR**: crazy multicolour, made MEANINGFUL —
+  each cell wears its own chain's colours (the corpus's
+  diversity visible; RE-DEAL reshuffles the palette). Dense,
+  riotous, alive.
+- **PART = THE WORKSHOP LADDER**: the shipped row-gradient
+  stands — staggered, distinctive, warm, ordered.
+- **PLAY = THE DARK STAGE**: near-black field, minimal chrome;
+  tracks GLOW in their identity hues — dark house, lit
+  performers. Maximally distinct from both workrooms.
+- Grace note: DOOR-BUTTONS tinted by their DESTINATION's ambient
+  — the map colours itself.
+
+## §8b — §8's SACRED-HUES LAW SUPERSEDED (Paul, 2026-08-28)
+**Colours are NOT sacred.** Users should never be hung up on
+what colour a machine is. Colour's PRIMARY job is WAYFINDING:
+1. **The three grids are IMMEDIATELY DISTINCTIVE** — room-first
+   colour (the three ambients of §8 survive as servants of this:
+   bazaar · ladder · dark stage).
+2. **DOOR-BUTTONS wear their DESTINATION'S scheme** — top and
+   side buttons visibly point elsewhere by colour; the §8 grace
+   note promoted to the rule.
+3. Machine hues DEMOTE to local, per-room roles — they may
+   colour content within a room's scheme but carry no cross-room
+   identity burden a user must track.
+Engine note: per-note COLOUR ATTRIBUTION (revert/decompose
+machinery) is internal and unaffected — attribution is
+plumbing, not paint.
+
+## §9 — MOVING TRACKS FROM THE SHOP (Paul, 2026-08-29 —
+## captured with leans, awaiting his word)
+- **FOCUS-FOLLOWS-TOUCH**: tapping a header (play/stop as law)
+  also makes that track CURRENT (a subtle focus frame).
+- **THE ▲▼ PAIR** (seated by the header row): each press SWAPS
+  the focused track with its neighbour — swap, never shift (no
+  cascades; each press its own undo). Track 3 → row 6 = tap 3,
+  ▼▼▼, done — without leaving the select grid.
+- **GHOST PREVIEWS ON FRESH ARRIVAL** (Paul's shortcut, gated):
+  landing on a column that was EMPTY fills its open slots with
+  SEEDED MUTATION GHOSTS of the moved content — dim/dashed,
+  clearly previews. TAP A GHOST = it commits as a real take;
+  otherwise they EVAPORATE on the next action. Swaps between
+  occupied tracks spawn nothing (ghosts greet fresh ground
+  only — invitation without clutter). Deterministic (seeded).

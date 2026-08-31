@@ -102,3 +102,58 @@ Also ratified this stretch, already marked in their own docs:
 HOCKET + the wire-as-source class remain CAPTURED-awaiting-word
 as filed (not in this ratification unless Paul says otherwise);
 EXCLUDE door-only (OPEN-listening-set §3) confirmed ratified.
+
+## §6 — THE SCALE-AWARE IN STRIP (Paul's grain problem,
+## 2026-08-29 — captured; leaner than the auto-processor)
+**The grain law, from his emitter-D proof**: the DECLARATION
+(root·scale·range) = door business, one truth, stays on the
+sheet. The BEHAVIOUR (how a chain uses the stream) = CHAIN
+business — the same palette feeds an avoider AND a full-palette
+harmoniser side by side.
+**The solution — no auto-processor, no slot eaten**: when a
+chain's door is a SCALE door, its IN STRIP becomes scale-aware:
+- The readout, plain: **"A MIXOLYDIAN — the full palette."**
+- **PLAY: ALL NOTES | AVOID CLASHES** — one chip, per-chain
+  ("skip notes that would rub against what's already sounding")
+  = the settled AVOID's common case (ALL-SOUNDING · SKIP)
+  armed from the strip; the full AVOID card remains for exotic
+  sources.
+- **change key →** — the jump-link to the door sheet (displayed
+  here, OWNED there; the one-home law intact; nothing exclude-
+  shaped relitigated).
+The hidden-away complaint cured by visibility, the grain honoured
+by seat.
+
+## §7 — RATIFIED TONIGHT (Paul, 2026-08-29) + the self-naming
+## stage + the key-lock generalisation
+**RATIFIED, all of tonight**: the ▲▼ track-move + ghost previews
+(redesign §9) · the GRID 8|16 setting · THE MACRO LANES ·
+AVOID's settled shape (listening §4) · the scale-aware strip
+(§6) with this revision: **THE SETTING BECOMES A STAGE, AND THE
+SETTING IS ITS NAME** — arming AVOID CLASHES materializes a
+slot-resident stage displayed as "AVOID CLASHES" (the chrome
+law: the non-default announces itself in the machine; the strip
+chip is its switch, the slot is its face). CHORDS upgrades from
+wanted-soon to RATIFIED.
+**Captured with his lean (not yet ratified)**: the same stage on
+NON-scale chains = **LOCK TO KEY** — a declared key (picked in
+the stage, or referenced from a SCALE door) + REJECTS BLOCK|SNAP
+applied to the chain's OUTPUT, **seated at the chain's END**
+(post-derivation cleanup — the force-to-key filter arriving at
+the grain his emitter-D proof established: chain, never door).
+Self-naming as ever: the slot reads "LOCK: A MIXO."
+
+## §7b — TWO RULINGS (Paul's questions, 2026-08-29)
+- **AVOID's sources, tiered (not overcomplicated)**: the strip
+  chip = ALL SOUNDING only (one word, one tap). The A–D/wire
+  SOURCE pick lives in the materialized stage's PANEL (the
+  setting-becomes-a-stage law pays: simple surface, depth one
+  tap in). Nothing added to the chip.
+- **START ≠ END, and start is already covered**: input-locking
+  = the DOOR's job (§3's ONLY composition — no stage dupe).
+  **The LOCK stage is the END lock**: it catches out-of-key
+  notes MADE mid-chain (chromatic transposes · fixed-interval
+  harmonies · pitch-step echoes) — proof: [start-lock →
+  TRANSPOSE+1] emits out-of-key; [TRANSPOSE+1 → end-lock] snaps
+  back. Manual honesty: SNAP can collapse chromatic neighbours
+  into doubled tones — the safety net's one cost.
