@@ -168,9 +168,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   hold-tail — position only chooses pool-thin vs line-holes). Pure (`scalePitchClassMask` + `soundingPitchClassMask` voice
   scan; the WIRE/SOUNDING ref carries the HOCKET L1 later-row caveat). `ProcessorType.avoid` + `CellMode.avoid` + the full
   surface + self-naming ("LOCK A MIXO" / "AVOID CLASHES") + 2 storefront cards + 3 tests + fuzz. **SUBSUMES the separate
-  scale-door §7 LOCK-TO-KEY.** v1: the DOOR ref reads the latched/scale pool (a live unlatched chord door = v2). Also the
-  **PLAY-FERRY ROW CURSOR** (Paul's #4 clarification — NOT the abstract §9 track-swap): a ▲▼ picks which grid ROW the
-  play-ferry buttons target (`buildPlayFerryRow`), so cells can be ferried to different rows (each stays independent).**
+  scale-door §7 LOCK-TO-KEY.** Also the **PLAY-FERRY ROW CURSOR** (Paul's #4 clarification — NOT the abstract §9
+  track-swap): a ▲▼ picks which grid ROW the play-ferry buttons target (`buildPlayFerryRow`), so cells can be ferried to
+  different rows (each stays independent).**
+- **▶ AVOID — the CLASHES axis + a LIVE-DOOR reference (2026-08-31, on `main`, `6477fbb`; iOS builds, macOS RouterTests
+  335 + FuzzTests 8 green; DEVICE ear owed). Paul: "set up a channel with key, add a processor to specify a different
+  receiver to listen to, then don't just avoid the notes that it plays — also avoid notes that CLASH with what it plays."
+  **CLASHES (WHAT axis):** `avoidWhat` SAME | CLASH | CLASH+ → `SnapParams.avoidClashSemis` 0/1/2; in AVOID mode the
+  reference set is WIDENED to its ±1 (CLASH) / ±2 (CLASH+) pitch-class neighbours (`Derivations.widenClashMask`) before
+  filtering, so the avoided sphere covers the dissonant semitones around each reference note (LOCK keeps the exact key).
+  **LIVE-DOOR reference:** a DOOR-referenced AVOID now reads what ANOTHER receiver is playing THIS render — `avoidRefMask`
+  prefers the door's latched/SCALE pool, else falls back to `doorLivePitchClassMask` (the render's live NotePool filtered
+  by that door's channel/cable/range); `Router.avoidLivePool` is a weak ref set in process(), valid only there. So a KEY
+  channel can point at a live THRU receiver and dodge its notes + clashes as they play (closes the v1 latched-only limit).
+  **Standalone/hold-path fix:** a single-slot [AVOID] and [X→AVOID] were silently emitting NOTHING — `emitColumnHolds`'
+  mode guard excluded `.avoid` and `isHoldTailChain` didn't route an AVOID tail; both fixed + the hold loop now applies
+  `avoidFilter` per note (drop on REMOVE, remap on MOVE). +1 RouterTest (door-live reference reads another receiver + its
+  clashes) + widenClashMask/scalePitchClassMask Derivations tests. WIRE/SOUNDING keep the L1 later-row caveat.**
 - **▶ FERRY INTAKE 2026-08-31 + first ratified slices (on `main`, PUSHED; iOS builds, macOS 950 green; UI device-owed).
   Read/merged/added the 5-doc design ferry (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes ·
   listening-set · macro-lanes) + filed `Docs/PLAN-incoming-2026-08-31.md` (grounded file:line plan for the ratified batch,

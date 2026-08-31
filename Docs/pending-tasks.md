@@ -13,12 +13,17 @@ Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/
   - ✅ **§5 play-grid undo** — DONE (the 10 play arrays added to BuildSnapshot; ferry/flatten now record undo).
   - ✅ **§E GRID 8|16 stage 1** — DONE (Voice.cellIndex Int8→Int16, byte-identical, full suite green). STAGE 2 (the
     cols=16 flip + mask/cellSounding/Snap.cols widening) is device-verified, Paul-present — see plan §E.
-  - ✅ **§B AVOID / LOCK (UNIFIED)** — DONE (`7c60dac`). Paul unified "avoid clashes" + "lock to key" into ONE processor:
-    a per-note pitch filter (keyFilterNote as a chain stage) — REFERENCE (KEY·DOOR·WIRE·ALL SOUNDING) × MODE (LOCK|AVOID)
-    × ACTION (REMOVE|MOVE), placeable anywhere (position-independent; no SKIP). Subsumes the separate §H LOCK-TO-KEY. Full
-    surface + self-naming (LOCK A MIXO / AVOID CLASHES) + 2 storefront cards + 3 tests + fuzz. **v1 limits:** the DOOR
-    reference reads the door's LATCHED/scale pool (a live unlatched chord door = v2); WIRE/SOUNDING = the L1 later-row caveat.
-    DEVICE ear owed.
+  - ✅ **§B AVOID / LOCK (UNIFIED)** — DONE (`7c60dac`) + **CLASHES axis & LIVE-DOOR reference** (`6477fbb`). Paul unified
+    "avoid clashes" + "lock to key" into ONE processor: a per-note pitch filter (keyFilterNote as a chain stage) —
+    REFERENCE (KEY·DOOR·WIRE·ALL SOUNDING) × MODE (LOCK|AVOID) × ACTION (REMOVE|MOVE), placeable anywhere (position-
+    independent; no SKIP — §K1 resolved). Subsumes the separate §H LOCK-TO-KEY. Full surface + self-naming (LOCK A MIXO /
+    AVOID CLASHES) + storefront cards + fuzz. **CLASHES (`6477fbb`):** WHAT = SAME | CLASH | CLASH+ widens the reference
+    set to its ±1/±2 pitch-class neighbours (widenClashMask) in AVOID mode (LOCK keeps the exact key) — so it dodges the
+    dissonant semitones, not just the notes. **LIVE-DOOR (`6477fbb`):** a DOOR-referenced AVOID now reads what ANOTHER
+    receiver is playing THIS render (latched/SCALE pool if present, else the live THRU input via doorLivePitchClassMask) —
+    Paul's "listen to a different receiver" scenario, +test. Also fixed: standalone/single-slot [AVOID] + [X→AVOID] were
+    silently emitting nothing (emitColumnHolds guard + isHoldTailChain lacked `.avoid`). WIRE/SOUNDING keep the L1 later-
+    row caveat. DEVICE ear owed.
   - ✅ **§F PLAY-FERRY ROW CURSOR** — DONE (`7c60dac`; Paul's #4 clarification, NOT the abstract track-swap): a ▲▼ picks
     which grid ROW the play-ferry buttons target (`buildPlayFerryRow`). The ghost-previews/track-swap of redesign §9 remain
     a separate incremental-redesign item. DEVICE eye owed.
@@ -28,8 +33,8 @@ Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/
 - **ALREADY BUILT (verified — do NOT rebuild):** the bazaar-muted select cells · scale-doors-name-themselves (on the
   receiver chip; only the MIDI-config tab bar is left = §A) · the room palette signatures (roomsField near-black PLAY,
   roomsDoorBar rainbow/amber/indigo/red, ▲PLAY indigo) · CHORDS/the dynamic reference.
-- **⛔ DECISIONS PAUL MUST SETTLE before the risky pieces (plan §K):** (1) AVOID SKIP has no clean DOWNSTREAM meaning
-  (SKIP=upstream re-pool; downstream REST|SHIFT only?) · (2) macro-lane render path (build-side table vs render-side eval)
+- **⛔ DECISIONS PAUL MUST SETTLE before the risky pieces (plan §K):** ~~(1) AVOID SKIP downstream~~ ✅ RESOLVED (Paul: no
+  SKIP at all — AVOID is a per-note pitch FILTER, REMOVE|MOVE, position-independent before/after an arp) · (2) macro-lane render path (build-side table vs render-side eval)
   + part-local scope (never write the global Macro.value) · (3) GRID 8|16 = always-16 allocation + active-width, per-doc? ·
   (4) ▲▼ axis/glyph (tracks are COLUMNS — swap c↔c±1? ▲▼ vs ◀▶) · (5) OK to add the 10 play arrays to BuildSnapshot (play
   grid has NO undo today).
