@@ -250,6 +250,8 @@ final class Kernel {
     private var latchAddMask: UInt8 = 0
     private var latchPrevHeld = [[Bool]](repeating: [Bool](repeating: false, count: 128), count: 4)
     private var holdWasSounding = [Bool](repeating: false, count: 4)   // HOLD (chord) mode: was a finger down last render, per door — so a NEW chord (from silence) REPLACES, a held gesture ACCUMULATES
+    private var holdSilentBlocks = [Int](repeating: 999, count: 4)     // HOLD debounce (Paul 2026-08-31): consecutive SILENT render blocks per door. A REPLACE only fires after a SUSTAINED silence, so a brief input gap (a feeding app holding a sustained note then RE-STRIKING it) can't drop the held chord — a short gap unions instead.
+    private let holdReplaceSilentBlocks = 6                            // ≳30–60ms at typical block sizes: longer than a restrike glitch, shorter than a real lift-and-replay (device-tunable)
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
     private func updateLatchedPools() {
         guard effectiveLatchMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed (incl. PIANO) now or before
@@ -260,7 +262,7 @@ final class Kernel {
             if isArmed && !wasArmed {
                 latchedPools[i].reset()                                   // fresh arm → start empty (no stale chord)
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
-                holdWasSounding[i] = false                               // ...and the HOLD gesture edge (first press captures fresh)
+                holdWasSounding[i] = false; holdSilentBlocks[i] = 999    // ...and the HOLD gesture edge (first press captures fresh — a long "silence" forces the replace)
             }
             guard isArmed else { continue }
             if (replayMask & bit != 0 && replayEngagedMask & bit != 0) || (fileMask & bit != 0) {
@@ -312,13 +314,19 @@ final class Kernel {
                 let live = pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                          velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi) > 0
                 if live {
-                    if !holdWasSounding[i] {                              // new gesture from silence → replace with the fresh chord
+                    // REPLACE only after a SUSTAINED silence (holdReplaceSilentBlocks) — a genuine lift-and-replay. A brief gap
+                    // (a sustained note re-striking under the chord) unions instead, so the held chord is NEVER dropped by a
+                    // restrike glitch. (Paul 2026-08-31.)
+                    if !holdWasSounding[i] && holdSilentBlocks[i] >= holdReplaceSilentBlocks {   // new gesture from real silence → replace with the fresh chord
                         latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                                         noteLo: rLo, noteHi: rHi)
-                    } else {                                             // gesture continues → union in any newly-pressed notes (never shrink on release)
+                    } else {                                             // gesture continues (or a brief restrike gap) → union in any newly-pressed notes (never shrink)
                         latchedPools[i].mergeFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                                       noteLo: rLo, noteHi: rHi)
                     }
+                    holdSilentBlocks[i] = 0
+                } else if holdSilentBlocks[i] < 100_000 {
+                    holdSilentBlocks[i] += 1                              // count consecutive silent render blocks (the debounce)
                 }
                 holdWasSounding[i] = live
             }
