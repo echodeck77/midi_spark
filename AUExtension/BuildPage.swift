@@ -1350,7 +1350,7 @@ extension DiagView {
                     } else {
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
                     }
-                }.overlay { buildChainEndCircles(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, hue: boxHue) })   // the chain's start/end CIRCLES, in the flanks OUTSIDE the boxes (Paul 2026-08-31)
+                }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of the boxes) — Paul 2026-08-31
                 Spacer(minLength: 8)
                 AnyView(buildEmitterToggles(castW: castW))                   // MIDI OUT A–D — pinned at the interior BOTTOM (the grid's last row line)
             }.frame(height: m.interiorH)
@@ -2540,8 +2540,7 @@ extension DiagView {
         }
         // §1 THE FLOW LINE (design 2026-08-17): the dotted thread draws ORDER (the numbers' old job) — door ┈▶ slot 0 ┈▶
         // … ┈▶ slot 7 ┈▶ wire, in chain order, with a TURN MARK at each row wrap (the boustrophedon made visible).
-        .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap, hue: hue))
-        .overlay { buildChainComets(boxW: boxW, boxH: boxH, gap: gap, hue: hue) }   // NOTE COMETS — IN FRONT so they're visible, ADDITIVE blend so they glow over the boxes without strobing the alpha text (Paul 2026-08-31)
+        .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap, hue: hue))   // the dotted ORDER thread (behind the boxes); the COMETS live in the chain-row overlay (buildChainFlowOverlay) so they span the flank circles + clip out of the boxes (Paul 2026-08-31)
         .coordinateSpace(name: "chainBlock")                        // DRAG-TO-REORDER: a stable space for the finger track + the floating ghost
         .overlay(alignment: .topLeading) { buildChainDragGhost(chain: chain, boxW: boxW, boxH: boxH, hue: hue) }
         .task(id: buildChainStructSig) {                            // recompute each processor's real output when the chain OR the live input chord changes
@@ -2581,54 +2580,64 @@ extension DiagView {
     // ┈▶ WIRE. Each SEGMENT carries that stage's real MIDI (buildChainStages: the offline OUTPUT after each processor), so a
     // comet stream matches exactly what leaves that processor. Size + glow by velocity; flows with the beat (idle drift when
     // stopped). Drawn in the same "chainBlock" geometry as the flow line.
-    @ViewBuilder private func buildChainComets(boxW: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color) -> some View {
+    // THE FLOW OVERLAY — circles + dotted connectors + note COMETS, drawn on the CHAIN ROW (the HStack, not the block) so the
+    // whole path spans the top-left circle → the boxes → the bottom-right circle. The comets are CLIPPED OUT of the processor
+    // boxes, so they flow through the connectors + gaps and vanish BEHIND each box — never drawn over the box labels (Paul
+    // 2026-08-31: the additive comets were bleeding through the text). Each output note journeys the full path over `transit`
+    // beats (HALVED speed) with a tail ∝ its duration — timed to the real note rhythm.
+    @ViewBuilder private func buildChainFlowOverlay(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color) -> some View {
         let stages = buildChainStages
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || stages.isEmpty)) { tl in
-            Canvas { ctx, size in
-                ctx.blendMode = .plusLighter                             // ADDITIVE — the comets GLOW over the boxes; they add light rather than alpha-blend over the text (no strobe) — Paul 2026-08-31
-                func center(_ i: Int) -> CGPoint { CGPoint(x: CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2) }
-                // DOOR entry (block left edge) ┈▶ boxes ┈▶ WIRE exit (block right edge). The two CIRCLES are drawn separately,
-                // OUTSIDE the block, in the flanks (buildChainEndCircles) — here we only flow the comets. (Paul 2026-08-31)
-                var P: [CGPoint] = [CGPoint(x: 0, y: center(0).y)]
-                for i in 0..<8 { P.append(center(i)) }
-                P.append(CGPoint(x: size.width, y: center(7).y))
-                // LOOP PHASE, beat-locked (~3-beat recording); frozen when the chain isn't the voice → "lift" when it stops.
-                // GATE on the CHAIN being the voice — NOT d.playing (the SELECT audition runs on the free-run clock while the
-                // host transport is STOPPED, so d.playing is false there and the comets never fired). (Paul 2026-08-31)
-                let recBeats = 3.0
+        let boxW = (blockW - gap) / 2                                          // 2 columns of boxes
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+            Canvas { ctx, _ in
+                let cr = max(3.5, min(boxH * 0.16, sideW * 0.42))
+                let lx = sideW / 2, rx = sideW + blockW + sideW / 2            // flank-column centres
+                let ty = boxH / 2, by = blockH - boxH / 2                      // first / last processor rows
+                func boxC(_ i: Int) -> CGPoint { CGPoint(x: sideW + CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2) }   // box centre in HStack space
+                // THE FULL PATH: left circle ▸ door ▸ box 0 … box 7 ▸ wire ▸ right circle.
+                var P: [CGPoint] = [CGPoint(x: lx, y: ty), CGPoint(x: sideW, y: ty)]
+                for i in 0..<8 { P.append(boxC(i)) }
+                P.append(CGPoint(x: sideW + blockW, y: by)); P.append(CGPoint(x: rx, y: by))
+                // DOTTED CONNECTORS (circle ▸ block edge) — the in-block flow line carries the middle; these reach the circles.
+                let dash = StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 3])
+                var lseg = Path(); lseg.move(to: CGPoint(x: lx + cr, y: ty)); lseg.addLine(to: CGPoint(x: sideW, y: ty))
+                var rseg = Path(); rseg.move(to: CGPoint(x: sideW + blockW, y: by)); rseg.addLine(to: CGPoint(x: rx - cr, y: by))
+                ctx.stroke(lseg, with: .color(hue.opacity(0.32)), style: dash)
+                ctx.stroke(rseg, with: .color(hue.opacity(0.32)), style: dash)
+                for end in [CGPoint(x: lx, y: ty), CGPoint(x: rx, y: by)] {     // THE CIRCLES
+                    ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
+                    ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
+                }
+                // COMETS — the chain must be the voice + have live output.
                 let playing = buildDisplayVoice == .chain
+                guard playing, let notes = stages.last, !notes.isEmpty else { return }
+                let recBeats = 3.0
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                let lp = playing ? ((live / recBeats).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0) : -1
-                guard playing else { return }   // no comets when the chain isn't sounding (the lift)
-                // WHOLE-CHAIN JOURNEY (Paul 2026-08-31): each OUTPUT note is born at its onset and travels the FULL chain path
-                // (door ▸ box 0 ▸ … ▸ box 7 ▸ wire) at a STEADY pace over `transit` beats, with a TAIL proportional to its
-                // DURATION — a sustained chord reads as a long streak, an arp as distinct spaced comets moving at the note rate
-                // (not the fast per-segment blur it was). Timed to the real rhythm: onset spacing = the note rhythm.
-                let notes = stages.last ?? []
-                guard !notes.isEmpty else { return }
+                let lp = ((live / recBeats).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
                 var segLen = [CGFloat](repeating: 0, count: P.count - 1); var total: CGFloat = 0
                 for j in 0..<segLen.count { segLen[j] = max(0.001, hypot(P[j + 1].x - P[j].x, P[j + 1].y - P[j].y)); total += segLen[j] }
-                func pointAt(_ f: Double) -> CGPoint {                             // a point at path-fraction f (0=door … 1=wire)
+                func pointAt(_ f: Double) -> CGPoint {
                     var dist = CGFloat(max(0, min(1, f))) * total
                     for j in 0..<segLen.count {
-                        if dist <= segLen[j] || j == segLen.count - 1 {
-                            let t = dist / segLen[j]
-                            return CGPoint(x: P[j].x + (P[j + 1].x - P[j].x) * t, y: P[j].y + (P[j + 1].y - P[j].y) * t)
-                        }
+                        if dist <= segLen[j] || j == segLen.count - 1 { let t = dist / segLen[j]; return CGPoint(x: P[j].x + (P[j + 1].x - P[j].x) * t, y: P[j].y + (P[j + 1].y - P[j].y) * t) }
                         dist -= segLen[j]
                     }
                     return P.last!
                 }
-                let transit = 1.5 / recBeats                                       // ~1.5 beats to cross the whole chain (loop fraction)
+                // CLIP OUT the visible boxes (0.8 of the cell, centred) → comets never draw over a box or its label.
+                var boxesPath = Path()
+                for i in 0..<8 { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
+                ctx.clip(to: boxesPath, options: .inverse)
+                ctx.blendMode = .plusLighter                                   // ADDITIVE glow in the connectors + gaps
+                let transit = 3.0 / recBeats                                   // ~3 beats to cross (HALVED speed — Paul 2026-08-31)
                 for note in notes {
-                    var e = lp - note.onset; if e < 0 { e += 1 }                   // elapsed since this note's onset (loop-wrapped)
-                    let g = e / transit                                            // journey progress 0…1 across the chain
-                    guard g >= 0, g <= 1 else { continue }
+                    var e = lp - note.onset; if e < 0 { e += 1 }
+                    let g = e / transit; guard g >= 0, g <= 1 else { continue }
                     let head = pointAt(g)
                     let r = 1.4 + 2.6 * CGFloat(note.vel)
-                    let tailFrac = min(1.0, note.dur / transit)                     // DURATION → tail length along the path
+                    let tailFrac = min(1.0, note.dur / transit)
                     let steps = 6
-                    for k in 0..<steps {                                           // fading tail behind the head
+                    for k in 0..<steps {
                         let f0 = g - tailFrac * Double(k + 1) / Double(steps), f1 = g - tailFrac * Double(k) / Double(steps)
                         guard f1 >= 0 else { continue }
                         var seg = Path(); seg.move(to: pointAt(max(0, f0))); seg.addLine(to: pointAt(max(0, f1)))
@@ -2639,31 +2648,6 @@ extension DiagView {
             }
             .allowsHitTesting(false)
         }
-    }
-    // THE TWO END CIRCLES — the chain's start (door, aligned with the A/MIDI-IN side + the top chain row) and end (wire,
-    // aligned with the D side + the bottom row). Drawn as an OVERLAY on the CHAIN ROW (not the block), so they sit in the
-    // FLANKS just OUTSIDE the processor boxes — never intersecting them. (Paul 2026-08-31)
-    @ViewBuilder private func buildChainEndCircles(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, hue: Color) -> some View {
-        Canvas { ctx, size in
-            let cr = max(3.5, min(boxH * 0.16, sideW * 0.42))
-            let lx = sideW / 2                                        // CENTRE of the left flank column (the play button) — Paul 2026-08-31
-            let rx = sideW + blockW + sideW / 2                       // CENTRE of the right flank column (symmetric)
-            let ty = boxH / 2                                         // aligned with the FIRST processor (top row) — Paul 2026-08-31
-            let by = blockH - boxH / 2                                // aligned with the LAST processor (bottom row)
-            // EXTEND the dotted flow line so it STARTS at the top-left circle and ENDS at the bottom-right circle (Paul 2026-08-31):
-            // two flank connectors from each circle to the block edge, matching the in-block flow-line dash. (The block's flow
-            // line runs door→…→wire; box 0 is at HStack-x sideW, box 7 at sideW+blockW — the same y as ty/by.)
-            let dash = StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 3])
-            var lseg = Path(); lseg.move(to: CGPoint(x: lx + cr, y: ty)); lseg.addLine(to: CGPoint(x: sideW, y: ty))            // left circle → door
-            var rseg = Path(); rseg.move(to: CGPoint(x: sideW + blockW, y: by)); rseg.addLine(to: CGPoint(x: rx - cr, y: by))   // wire → right circle
-            ctx.stroke(lseg, with: .color(hue.opacity(0.32)), style: dash)
-            ctx.stroke(rseg, with: .color(hue.opacity(0.32)), style: dash)
-            for end in [CGPoint(x: lx, y: ty), CGPoint(x: rx, y: by)] {
-                ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
-                ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
-            }
-        }
-        .allowsHitTesting(false)
     }
     private func buildChainFlowLine(boxW: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color) -> some View {
         Canvas { ctx, size in

@@ -249,9 +249,12 @@ final class Kernel {
     // TWO LATCH MODES: per-receiver ADD flag (from the box) + preallocated rising-edge state (ADD only).
     private var latchAddMask: UInt8 = 0
     private var latchPrevHeld = [[Bool]](repeating: [Bool](repeating: false, count: 128), count: 4)
-    private var holdWasSounding = [Bool](repeating: false, count: 4)   // HOLD (chord) mode: was a finger down last render, per door — so a NEW chord (from silence) REPLACES, a held gesture ACCUMULATES
-    private var holdSilentBlocks = [Int](repeating: 999, count: 4)     // HOLD debounce (Paul 2026-08-31): consecutive SILENT render blocks per door. A REPLACE only fires after a SUSTAINED silence, so a brief input gap (a feeding app holding a sustained note then RE-STRIKING it) can't drop the held chord — a short gap unions instead.
-    private let holdReplaceSilentBlocks = 6                            // ≳30–60ms at typical block sizes: longer than a restrike glitch, shorter than a real lift-and-replay (device-tunable)
+    // HOLD (chord) mode (Paul 2026-08-31, rewrite): a NEW chord REPLACES the frozen pool, a still-forming chord UNIONS. The
+    // "new chord" signal is NOT silence (which a sustained note / restrike breaks) but the held set GROWING right after a
+    // RELEASE: notes-released → arm a replace · next growth → replace with the current live set · further growth in the same
+    // gesture → union (staggered onset). A whole-chord restrike (release→regrow) replaces with the SAME chord = no drop.
+    private var holdPrevCount = [Int](repeating: 0, count: 4)          // previous live note count per door
+    private var holdReleasing = [Bool](repeating: true, count: 4)      // a release happened since the last capture → the next growth is a NEW chord (true at arm so the first press replaces)
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
     private func updateLatchedPools() {
         guard effectiveLatchMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed (incl. PIANO) now or before
@@ -262,7 +265,7 @@ final class Kernel {
             if isArmed && !wasArmed {
                 latchedPools[i].reset()                                   // fresh arm → start empty (no stale chord)
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
-                holdWasSounding[i] = false; holdSilentBlocks[i] = 999    // ...and the HOLD gesture edge (first press captures fresh — a long "silence" forces the replace)
+                holdReleasing[i] = true; holdPrevCount[i] = 0            // ...and the HOLD gesture edge (first press after arm REPLACES)
             }
             guard isArmed else { continue }
             if (replayMask & bit != 0 && replayEngagedMask & bit != 0) || (fileMask & bit != 0) {
@@ -308,27 +311,26 @@ final class Kernel {
                 latchedPools[i].latchAddStep(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                              noteLo: rLo, noteHi: rHi, prevHeld: &latchPrevHeld[i])
             } else {
-                // HOLD (CHORD): a NEW chord (fingers down from silence) REPLACES; while the gesture continues the frozen
-                // pool ACCUMULATES newly-added notes (UNION) so a rolled/arpeggiated chord builds up and a RELEASE never
-                // shrinks it — the fix for "press three, only two hold" (Paul 2026-08-26). Fingers up → keep the frozen set.
-                let live = pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
-                                         velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi) > 0
-                if live {
-                    // REPLACE only after a SUSTAINED silence (holdReplaceSilentBlocks) — a genuine lift-and-replay. A brief gap
-                    // (a sustained note re-striking under the chord) unions instead, so the held chord is NEVER dropped by a
-                    // restrike glitch. (Paul 2026-08-31.)
-                    if !holdWasSounding[i] && holdSilentBlocks[i] >= holdReplaceSilentBlocks {   // new gesture from real silence → replace with the fresh chord
+                // HOLD (CHORD): capture the last chord. A NEW chord = the held set GROWS right after a RELEASE → REPLACE.
+                // Still forming the same chord (grows without a preceding release) → UNION (so a rolled/staggered chord builds
+                // up; "press three, only two hold"). Notes released → arm the next growth as a new chord, but KEEP the frozen
+                // set. This is robust to a sustained note re-striking under the chord (the regrow replaces with the same set —
+                // no dropped chord) where the old silence-based test failed. (Paul 2026-08-31.)
+                let liveCount = pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
+                                              velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi)
+                if liveCount > holdPrevCount[i] {                        // the held set GREW
+                    if holdReleasing[i] {                               // ...just after a release → a NEW chord → REPLACE
                         latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                                         noteLo: rLo, noteHi: rHi)
-                    } else {                                             // gesture continues (or a brief restrike gap) → union in any newly-pressed notes (never shrink)
+                        holdReleasing[i] = false
+                    } else {                                            // ...still forming the same chord → UNION (staggered onset)
                         latchedPools[i].mergeFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                                       noteLo: rLo, noteHi: rHi)
                     }
-                    holdSilentBlocks[i] = 0
-                } else if holdSilentBlocks[i] < 100_000 {
-                    holdSilentBlocks[i] += 1                              // count consecutive silent render blocks (the debounce)
+                } else if liveCount < holdPrevCount[i] {                // notes RELEASED → the gesture is ending; the next growth is a new chord (keep the frozen set)
+                    holdReleasing[i] = true
                 }
-                holdWasSounding[i] = live
+                holdPrevCount[i] = liveCount
             }
         }
         // ---- PASS 2: THE KEY FILTER (ratified §3) — every armed door's pool is filtered by a reference door's PITCH CLASSES
