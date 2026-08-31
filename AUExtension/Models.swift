@@ -754,6 +754,13 @@ struct Receiver: Codable, Equatable {
     var scaleRootResolved: Int { let r = scaleRoot ?? 0; return (r % 12 + 12) % 12 }
     var scaleTypeResolved: ScaleType { scaleType ?? .major }
     var scaleBaseOctResolved: Int { max(0, min(8, scaleBaseOct ?? 3)) }
+    /// The KEY label of a SCALE door ("A MIXO"), else nil — the chip-never-lies readout, shared by the machine-column
+    /// receiver chip AND the MIDI-config tab bar so they can never disagree. (2026-08-31)
+    var scaleLabel: String? {
+        guard doorModeResolved == .scale else { return nil }
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        return "\(names[scaleRootResolved]) \(scaleTypeResolved.label)"
+    }
     var scaleOctavesResolved: Int { max(1, min(4, scaleOctaves ?? 2)) }
     /// KEYS-style derived pool: on for an explicit KEYS **or SCALE** door (a scale is a pre-typed pool); else the legacy
     /// field EXACTLY (byte-identical for old docs). The note SOURCE differs (tapped keys vs the derived scale set).

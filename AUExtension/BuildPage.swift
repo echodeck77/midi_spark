@@ -182,9 +182,11 @@ extension DiagView {
                 let on = buildMidiConfigTab == i
                 let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
                 let unset = (i < recvs.count ? recvs[i].doorMode : nil) == nil
+                let tabLabel = (i < recvs.count ? recvs[i].scaleLabel : nil) ?? ["A", "B", "C", "D"][i]   // a SCALE door names itself ("A MIXO"); else the letter
                 ZStack(alignment: .topTrailing) {
-                    Text(["A", "B", "C", "D"][i]).font(.system(size: 15, weight: .black, design: .monospaced))
+                    Text(tabLabel).font(.system(size: 15, weight: .black, design: .monospaced))
                         .foregroundColor(on ? .black : .white.opacity(0.7))
+                        .lineLimit(1).minimumScaleFactor(0.5)
                         .frame(maxWidth: .infinity).frame(height: 34)
                         .background(RoundedRectangle(cornerRadius: 7).fill(on ? hue : buildCell))
                         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : hue.opacity(0.4), lineWidth: 1))
@@ -2296,8 +2298,7 @@ extension DiagView {
         // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
         // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
         let letter = ["A", "B", "C", "D"][i]
-        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-        let key: String? = (i < receivers.count && receivers[i].doorModeResolved == .scale) ? "\(names[receivers[i].scaleRootResolved]) \(receivers[i].scaleTypeResolved.label)" : nil   // e.g. "A MIXO"
+        let key: String? = i < receivers.count ? receivers[i].scaleLabel : nil   // "A MIXO" for a SCALE door (shared helper), else nil
         buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: on, accent: receiverGrey(i), action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30)
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to

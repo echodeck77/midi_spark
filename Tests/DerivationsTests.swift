@@ -903,6 +903,16 @@ final class DerivationsTests: XCTestCase {
         // Clamped inputs: octaves 0 → 1, baseOct 99 → 8 (never traps, always ≥ 1 octave).
         XCTAssertFalse(scaleNotes(root: 0, type: .major, baseOct: 99, octaves: 0).isEmpty)
     }
+    // A SCALE door names itself ("A MIXO") — the chip-never-lies label shared by the receiver chip + the MIDI tab. (2026-08-31)
+    func testScaleDoorLabel() {
+        var r = Receiver(); XCTAssertNil(r.scaleLabel, "a non-scale door has no key label")
+        r.doorMode = .scale; r.scaleRoot = 9; r.scaleType = .mixolydian   // A mixolydian
+        XCTAssertEqual(r.scaleLabel, "A MIXO")
+        r.scaleRoot = 0; r.scaleType = .major
+        XCTAssertEqual(r.scaleLabel, "C MAJOR")
+        r.doorMode = .latch
+        XCTAssertNil(r.scaleLabel, "switching off SCALE mode drops the label")
+    }
     // POOL-STEP UNITS (ratified §2) — degree arithmetic against the chain's pool.
     func testPoolStepWalksDegreesNotSemitones() {
         let cMajor = [60, 62, 64, 65, 67, 69, 71, 72]   // C major (pitch classes C D E F G A B)
