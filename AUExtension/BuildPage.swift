@@ -134,6 +134,7 @@ extension DiagView {
                 buildHandleFileImport(result)                                                                // FILE import onto the picking door
             }
             .onChange(of: activeSceneIdx) { _ in buildSyncSceneSwitch(activeSceneIdx) }                       // scene chips → swap the play-grid arrangement
+            .onChange(of: d.playing) { playing in if !playing { buildStopAllOnTransportStop() } }             // HOST TRANSPORT STOPPED → stop everything (Paul 2026-08-31)
     }
     // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
     // output while playing, so it reads as RECORDING — red with a pulsing record dot; GREEN while a pass replays; dim stopped.
@@ -1376,77 +1377,67 @@ extension DiagView {
     // OPPOSITE side from the verb buttons. Its PLAYHEAD is a TOP→BOTTOM fill running the chain's play duration (buildHeaderFill).
     // THE PLAY BUTTON — now a SQUARE (~one MIDI-chain box) with a LEFT→RIGHT playhead sweep (Paul 2026-08-30, was a tall
     // narrow button with a top→bottom fill). Sits centred in its flank; tap = play/stop the chain (SELECT) or part (PART).
-    @ViewBuilder func roomsVerticalPlay(_ room: Room, height: CGFloat) -> some View {
+    @ViewBuilder func roomsVerticalPlay(_ room: Room, buttonH: CGFloat) -> some View {
         let voice: BuildWorkshopVoice = room == .part ? .part : .chain
         // If the SELECTED machine IS a play-ferry's chain, this button STARTS/STOPS THAT FERRY (its play column) — not a
         // separate isolated chain audition. "This MIDI chain IS the one of the ferry button." (Paul 2026-08-31)
         let ferryCol: Int? = room == .select ? buildSelectedPlayCol : nil
         let active = ferryCol.map { $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? (buildDisplayVoice == voice)
-        // STYLED LIKE THE PLAYING CELL (Paul 2026-08-30): the button wears the PLAYING cell's hue — the sequencer's active
-        // cell on PART, the selected/auditioning colour on SELECT — with the same dark-stage + hue-frame + glow language a
-        // ferry box uses in playing mode.
-        // SELECT: a running cell shows in the inverse LIGHT GREY, so the play button matches it (not the chain's hue) while
-        // running; PART: the sequencer's active cell hue. (Paul 2026-08-30)
         let hue: Color = buildMachineHue(room)   // SAME hue as the machine box + chain (grey on SELECT, machine colour on PART) — Paul 2026-08-30
-        GeometryReader { g in
-            let side = min(g.size.width, g.size.height)                      // SQUARE, ~one chain box
-            ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
-                if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when playing
-                if active && d.playing {                                    // the PLAYHEAD — a fill sweeping LEFT→RIGHT over the chain's duration
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+        ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
+            if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when playing
+            if active && d.playing {                                    // the PLAYHEAD — a fill sweeping LEFT→RIGHT over the chain's duration
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                    GeometryReader { g in
                         RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.34))
-                            .frame(width: side * buildHeaderFill(.grid, tl.date))
+                            .frame(width: g.size.width * buildHeaderFill(.grid, tl.date))
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)   // grows from the left across
                     }
                 }
-                Image(systemName: active ? "stop.fill" : "play.fill").font(.system(size: 16, weight: .black))
-                    .foregroundColor(active ? hue : hue.opacity(0.8))
             }
-            .frame(width: side, height: side * 0.5)                          // HALF height (Paul 2026-08-30) — a wide short button, the L→R playhead reads across it
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? hue : buildEdge, lineWidth: active ? 3 : 1))   // BRIGHT hue frame when playing
-            .shadow(color: active ? hue.opacity(0.6) : .clear, radius: active ? 5 : 0)   // hue glow when playing (ferry-style)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)   // centre the square in its flank
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if let pc = ferryCol { buildTogglePlayColumn(pc) }              // the ferry's OWN play column (start/stop the ferry)
-                else { buildRequestWorkshopVoice(active ? .none : voice) }      // else the chain audition
-            }
+            Image(systemName: active ? "stop.fill" : "play.fill").font(.system(size: 16, weight: .black))
+                .foregroundColor(active ? hue : hue.opacity(0.8))
         }
-        .frame(height: height)
+        .frame(maxWidth: .infinity).frame(height: buttonH)              // FILL the slot (Paul 2026-08-31: no centring gap between play + SELECT)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? hue : buildEdge, lineWidth: active ? 3 : 1))   // BRIGHT hue frame when playing
+        .shadow(color: active ? hue.opacity(0.6) : .clear, radius: active ? 5 : 0)   // hue glow when playing (ferry-style)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let pc = ferryCol { buildTogglePlayColumn(pc) }              // the ferry's OWN play column (start/stop the ferry)
+            else { buildRequestWorkshopVoice(active ? .none : voice) }      // else the chain audition
+        }
     }
     // THE SELECT-MODE BUTTON (Paul 2026-08-31) — directly under the play button, SAME size/style. Toggles buildSelectMode: while
     // on, every cell (select + ferry) lights white and a TAP only FOCUSES it into the machine (no start/stop). A way to pick a
     // cell for editing/viewing without playing it.
-    @ViewBuilder func roomsSelectButton(height: CGFloat) -> some View {
+    @ViewBuilder func roomsSelectButton(buttonH: CGFloat) -> some View {
         let on = buildSelectMode
-        GeometryReader { g in
-            let side = min(g.size.width, g.size.height)
-            ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(buildCell)
-                if on { RoundedRectangle(cornerRadius: 8).fill(buildCyan.opacity(0.28)) }   // lit cyan when armed
-                Text("SELECT").font(.system(size: min(11, side * 0.24), weight: .black, design: .monospaced))
-                    .foregroundColor(on ? buildCyan : buildDim).lineLimit(1).minimumScaleFactor(0.5)
-            }
-            .frame(width: side, height: side * 0.5)                          // HALF height — matches the play button
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? buildCyan : buildEdge, lineWidth: on ? 3 : 1))
-            .shadow(color: on ? buildCyan.opacity(0.5) : .clear, radius: on ? 4 : 0)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .contentShape(Rectangle())
-            .onTapGesture { buildSelectMode.toggle() }
+        ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(buildCell)
+            if on { RoundedRectangle(cornerRadius: 8).fill(buildCyan.opacity(0.28)) }   // lit cyan when armed
+            Text("SELECT").font(.system(size: min(11, buttonH * 0.48), weight: .black, design: .monospaced))
+                .foregroundColor(on ? buildCyan : buildDim).lineLimit(1).minimumScaleFactor(0.5)
         }
-        .frame(height: height)
+        .frame(maxWidth: .infinity).frame(height: buttonH)              // FILL the slot — matches the play button, no gap
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? buildCyan : buildEdge, lineWidth: on ? 3 : 1))
+        .shadow(color: on ? buildCyan.opacity(0.5) : .clear, radius: on ? 4 : 0)
+        .contentShape(Rectangle())
+        .onTapGesture { buildSelectMode.toggle() }
     }
-    // THE PLAY + SELECT COLUMN — the machine's flank: PLAY on top, SELECT directly beneath it (equal size/style). (Paul 2026-08-31)
+    // THE PLAY + SELECT COLUMN — the machine's flank: PLAY on top, SELECT DIRECTLY beneath it (equal size/style, NO gap between
+    // them — Paul 2026-08-31), the pair centred vertically in the flank.
     @ViewBuilder func roomsPlaySelectColumn(_ room: Room, height: CGFloat) -> some View {
-        let h2 = max(20, (height - 8) / 2)
-        VStack(spacing: 8) {
-            roomsVerticalPlay(room, height: h2).frame(height: h2)
-            roomsSelectButton(height: h2).frame(height: h2)
+        GeometryReader { g in
+            let bh = max(18, min(g.size.width * 0.5, (height - 2) / 2))   // wide-short buttons, capped to fit the flank
+            VStack(spacing: 0) {                                          // ADJACENT — no spacing between play + SELECT
+                roomsVerticalPlay(room, buttonH: bh)
+                roomsSelectButton(buttonH: bh)
+            }
+            .frame(width: g.size.width, height: height, alignment: .center)   // centre the pair in the flank
         }
-        .frame(height: height)
     }
     // (The wide RECORD row was RETIRED 2026-08-29 — the PLAY button took its band. The reel is still reached via the
     // REEL room. buildReelButton remains for that room / a future RECORD home.)
@@ -1582,7 +1573,7 @@ extension DiagView {
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
-                    if buildSelectMode { buildSelectPlayColumn(t) }                    // SELECT MODE: focus this ferry into the machine, no start/stop (Paul 2026-08-31)
+                    if buildSelectMode { buildSelectPlayColumn(t); buildSelectMode = false }   // SELECT MODE: focus this ferry (no start/stop), then end SELECT (Paul 2026-08-31)
                     else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
                 }
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
@@ -1817,7 +1808,7 @@ extension DiagView {
             .shadow(color: playing ? eHue.opacity(0.7) : .clear, radius: playing ? 5 : 0)   // PLAYING → an EMITTER-coloured glow (the "this is alive" tell)
             .contentShape(Rectangle())
             .onTapGesture {
-                if buildSelectMode { if let cid = buildRowColour(n) { buildSelectID(cid) } }   // SELECT MODE: focus this row's colour into the machine (Paul 2026-08-31)
+                if buildSelectMode { if let cid = buildRowColour(n) { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this row's colour, then end SELECT (Paul 2026-08-31)
                 else { part ? roomsTapPartSide(n) : roomsTapSide(n) }
             }
             .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
@@ -1906,7 +1897,7 @@ extension DiagView {
             .frame(width: w, height: h)                                   // fixed size so the playhead pitch is exact
             .contentShape(Rectangle())
             .onTapGesture {
-                if buildSelectMode { if let cid = id { buildSelectID(cid) } }   // SELECT MODE: focus this cell's colour into the machine (Paul 2026-08-31)
+                if buildSelectMode { if let cid = id { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this cell's colour, then end SELECT (Paul 2026-08-31)
                 else { buildStagingTap(c, r) }                                  // else: one rung per column, toggle (the old-gui logic)
             }
     }
@@ -3037,13 +3028,21 @@ extension DiagView {
         // (The reference-chord fallback was REMOVED 2026-08-23, Paul: PLAY THIS MIDI CHAIN now sounds ONLY real input —
         // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
         // FREE-RUN GATE (Paul 2026-08-27, FERRY-strike-anchor ①: REVERTS the 2026-08-25 held-note internal transport).
-        // "Stopped = silent." The plugin drives its OWN clock while the host is STOPPED only when an explicit BUILD play
-        // mode is running: PLAY THIS MIDI CHAIN (ddSolo) · PLAY THIS PART (buildStagingPlaying) · START THE PLAY GRID
-        // (buildPerformPlaying). All three off ⇒ free-run OFF ⇒ a bare held note produces NO throughput. Host-playing is
-        // unchanged (the Kernel free-run guard is `!playing`). Synced HERE — the one choke point every voice toggle and
-        // scene restore routes through. (The no-machine passthrough live-wire monitors independently, governed by the
-        // pending FERRY-passage-law, not this gate.)
-        au?.setFreeRunEnabled(ddSolo || buildStagingPlaying || buildPerformPlaying || buildPlayPlaying)
+        // "STOPPED = SILENT" (Paul 2026-08-31): the HOST TRANSPORT is now the master — NOTHING plays while the host is
+        // stopped. The free-run clock (which drove the scene while stopped) is DISABLED, so auditions/parts/ferries sound
+        // only while the transport runs. Transport-stop also clears the armed voices (buildStopAllOnTransportStop, wired to
+        // d.playing) so the whole UI reflects the stopped state. (Was: free-run ran whenever a BUILD play mode was armed.)
+        au?.setFreeRunEnabled(false)
+    }
+    // TRANSPORT STOPPED → stop everything (Paul 2026-08-31). Clears the shared audition + every play column and republishes,
+    // so the machine play button, the ferries, the cells and the comets/rolls all read STOPPED. Called on the d.playing
+    // falling edge (the poll's transport flag).
+    func buildStopAllOnTransportStop() {
+        var changed = false
+        if buildVoiceOwner != .none { buildVoiceOwner = .none; changed = true }
+        for i in buildPlayColOn.indices where buildPlayColOn[i] { buildPlayColOn[i] = false; changed = true }
+        buildPendingWorkshopVoice = nil; buildPendingReengage = false
+        if changed { au?.clearColourSolo(); buildPublishScene() }
     }
     // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
     private var buildSelectedRow: Int? {
@@ -3745,9 +3744,9 @@ extension DiagView {
     // placed cell): light grey + transparency + a soft band drifting DOWNWARD. (Paul 2026-08-31, replaces the cyan fallback.)
     @ViewBuilder private func buildMeterNoFeedBand() -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-            // TEMPO-LOCKED downward sweep — one per BEAT, off the beat clock (was a free 1.4s wall-clock loop). (Paul 2026-08-31)
+            // TEMPO-LOCKED downward sweep — one per 4 BEATS (÷4, Paul 2026-08-31), off the beat clock.
             let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-            let phase = (live.truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // 0→1 per beat, downward
+            let phase = ((live / 4.0).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // 0→1 per 4 beats, downward
             Canvas { ctx, size in
                 let gray = Color(white: 0.82)
                 ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: size.height)), with: .color(gray.opacity(0.16)))   // faint grey base
@@ -4776,7 +4775,7 @@ extension DiagView {
     // A select-grid TAP: SELECT MODE focuses the cell into the machine (no play/stop); else it auditions. (Paul 2026-08-31)
     private func buildGridSelTapCell(_ i: Int) {
         guard buildGridSelPresent(i) else { return }
-        if buildSelectMode { buildGridSelFocus(i) } else { buildGridSelAudition(i) }
+        if buildSelectMode { buildGridSelFocus(i); buildSelectMode = false } else { buildGridSelAudition(i) }   // SELECT ends after one pick (Paul 2026-08-31)
     }
     // FOCUS ONLY (SELECT mode): load the cell into the machine + select it, but DON'T start/swap the audition voice. (Paul 2026-08-31)
     private func buildGridSelFocus(_ i: Int) {

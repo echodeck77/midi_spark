@@ -905,47 +905,50 @@ struct DiagView: View {
             // so poll it while EITHER is open. The scrolling-roll + replay accumulation stays config-only (the strip just
             // reads the held set). editorOpen is reused below for the OUT mini-roll.
             let editorOpen = buildEditSlot != nil
-            if buildMidiConfigOpen || editorOpen {
-                let notes = au.pollReceiverSoundingNotes()
-                if buildMidiConfigOpen {
-                    var roll = recvInputRoll
-                    for i in 0..<4 {
-                        let cur = Set(i < notes.count ? notes[i] : []), prev = Set(i < recvHeldNotes.count ? recvHeldNotes[i] : [])
-                        for n in cur.subtracting(prev) { roll[i].append(InputMark(note: n, born: mnow, beat: nd.beat)) }   // a new onset (beat-stamped for the beat-driven roll)
-                        roll[i] = roll[i].filter { mnow.timeIntervalSince($0.born) < 40.0 }   // generous; the roll view clips to its own N-pass window
-                        if roll[i].count > 128 { roll[i] = Array(roll[i].suffix(128)) }
-                    }
-                    recvInputRoll = roll
-                    let eng = au.replayEngaged(); if eng != replayEngagedMask { replayEngagedMask = eng }   // the LAST-N toggle state
-                    let la = au.latchArm();       if la != latchMask { latchMask = la }   // RE-DERIVE the KEYS/HOLD/LATCH arm from the engine so it survives a view rebuild / navigation (Paul 2026-08-27)
-                    // REPLAY loop roll (Paul 2026-08-23): while a door is ENGAGED, poll its captured loop as DURATION notes so
-                    // the piano roll shows exactly what's playing from the RECORDING (held chords, note lengths) — not live input.
-                    var lroll = recvReplayRoll, llen = recvReplayLen, lanc = recvReplayAnchor
-                    for i in 0..<4 {
-                        if eng & (1 << UInt8(i)) != 0 { lroll[i] = au.replayLoopRoll(door: i); llen[i] = au.replayLoopLen(door: i); lanc[i] = au.replayLoopAnchor(door: i) }
-                        else if !lroll[i].isEmpty { lroll[i] = []; llen[i] = 0; lanc[i] = 0 }
-                    }
-                    if lroll != recvReplayRoll { recvReplayRoll = lroll }
-                    if llen != recvReplayLen { recvReplayLen = llen }
-                    if lanc != recvReplayAnchor { recvReplayAnchor = lanc }
+            // The held-input set is polled ALWAYS (it's cheap) — the machine-strip note COMETS + the IN strip read it, not just
+            // the config sheet / editor (Paul 2026-08-31: the comets never had a chord because this was config-gated). The
+            // expensive scrolling roll / replay accumulation stays gated below.
+            let notes = au.pollReceiverSoundingNotes()
+            let prevHeld = recvHeldNotes
+            if notes != recvHeldNotes { recvHeldNotes = notes }
+            if buildMidiConfigOpen {
+                var roll = recvInputRoll
+                for i in 0..<4 {
+                    let cur = Set(i < notes.count ? notes[i] : []), prev = Set(i < prevHeld.count ? prevHeld[i] : [])
+                    for n in cur.subtracting(prev) { roll[i].append(InputMark(note: n, born: mnow, beat: nd.beat)) }   // a new onset (beat-stamped for the beat-driven roll)
+                    roll[i] = roll[i].filter { mnow.timeIntervalSince($0.born) < 40.0 }   // generous; the roll view clips to its own N-pass window
+                    if roll[i].count > 128 { roll[i] = Array(roll[i].suffix(128)) }
                 }
-                recvHeldNotes = notes   // IN strip / config roll read this
-                // §1 IN-STRIP DEBOUNCE (editor only): hold the "has input" state for a full PASS after the last note, so the
-                // teach text never flashes on note-off. By STEP when playing (8 steps = one pass) · by ~0.8s wall-clock else.
-                if editorOpen {
-                    for i in 0..<4 {
-                        if !notes[i].isEmpty {
-                            buildInSeenStep[i] = nd.absoluteStep; buildInLastHeldAt[i] = mnow
-                            buildInSticky[i] = notes[i].map { Int($0) }; buildInGrace[i] = true
-                        } else {
-                            let byStep = nd.playing && buildInSeenStep[i] >= 0 && (nd.absoluteStep - buildInSeenStep[i]) < 8
-                            let byClock = buildInLastHeldAt[i].map { mnow.timeIntervalSince($0) < 0.8 } ?? false
-                            buildInGrace[i] = byStep || byClock
-                        }
+                recvInputRoll = roll
+                let eng = au.replayEngaged(); if eng != replayEngagedMask { replayEngagedMask = eng }   // the LAST-N toggle state
+                let la = au.latchArm();       if la != latchMask { latchMask = la }   // RE-DERIVE the KEYS/HOLD/LATCH arm from the engine so it survives a view rebuild / navigation (Paul 2026-08-27)
+                // REPLAY loop roll (Paul 2026-08-23): while a door is ENGAGED, poll its captured loop as DURATION notes so
+                // the piano roll shows exactly what's playing from the RECORDING (held chords, note lengths) — not live input.
+                var lroll = recvReplayRoll, llen = recvReplayLen, lanc = recvReplayAnchor
+                for i in 0..<4 {
+                    if eng & (1 << UInt8(i)) != 0 { lroll[i] = au.replayLoopRoll(door: i); llen[i] = au.replayLoopLen(door: i); lanc[i] = au.replayLoopAnchor(door: i) }
+                    else if !lroll[i].isEmpty { lroll[i] = []; llen[i] = 0; lanc[i] = 0 }
+                }
+                if lroll != recvReplayRoll { recvReplayRoll = lroll }
+                if llen != recvReplayLen { recvReplayLen = llen }
+                if lanc != recvReplayAnchor { recvReplayAnchor = lanc }
+            }
+            // §1 IN-STRIP DEBOUNCE (editor only): hold the "has input" state for a full PASS after the last note, so the
+            // teach text never flashes on note-off. By STEP when playing (8 steps = one pass) · by ~0.8s wall-clock else.
+            if editorOpen {
+                for i in 0..<4 {
+                    if !notes[i].isEmpty {
+                        buildInSeenStep[i] = nd.absoluteStep; buildInLastHeldAt[i] = mnow
+                        buildInSticky[i] = notes[i].map { Int($0) }; buildInGrace[i] = true
+                    } else {
+                        let byStep = nd.playing && buildInSeenStep[i] >= 0 && (nd.absoluteStep - buildInSeenStep[i]) < 8
+                        let byClock = buildInLastHeldAt[i].map { mnow.timeIntervalSince($0) < 0.8 } ?? false
+                        buildInGrace[i] = byStep || byClock
                     }
                 }
-            } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) || !recvReplayRoll.allSatisfy({ $0.isEmpty }) || !recvHeldNotes.allSatisfy({ $0.isEmpty }) {
-                recvInputRoll = [[], [], [], []]; recvHeldNotes = [[], [], [], []]   // sheet+editor closed → drop the marks
+            }
+            if !buildMidiConfigOpen && (!recvInputRoll.allSatisfy({ $0.isEmpty }) || !recvReplayRoll.allSatisfy({ $0.isEmpty })) {
+                recvInputRoll = [[], [], [], []]   // sheet closed → drop the scrolling marks (recvHeldNotes stays live)
                 recvReplayRoll = [[], [], [], []]; recvReplayLen = [0, 0, 0, 0]; recvReplayAnchor = [0, 0, 0, 0]
             }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
