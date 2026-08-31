@@ -4217,7 +4217,16 @@ extension DiagView {
             liveStep: d.playing ? ((d.effColumn % 8) + 8) % 8 : -1,   // PLAYHEAD (idea 15): the live grid column sweeps the matrix/lane
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
-            onMacro: nil, plainTitle: true, showSlotChrome: false)
+            onMacro: nil, plainTitle: true, showSlotChrome: false,
+            avoidInputNotes: recvHeldNotes.map { $0.map(Int.init) },   // AVOID piano: per-input held notes (the LISTEN-TO reference) — live while the editor is open
+            avoidOutputNotes: buildAvoidOutputNotes())                 // AVOID piano: what this chain is emitting right now
+    }
+
+    // The notes this chain is currently emitting, for the AVOID editor's "YOUR OUTPUT" keyboard — recent buildOutRoll marks
+    // (the OUT truth-strip feed, board-wide = this chain's output while auditioning). Empty until you press ▶ / play.
+    private func buildAvoidOutputNotes() -> [Int] {
+        let now = Date()
+        return Array(Set(buildOutRoll.filter { now.timeIntervalSince($0.born) < 0.6 }.map { Int($0.note) }))
     }
 
     // BUILD chain edits — colour-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
@@ -4313,8 +4322,8 @@ extension DiagView {
                 C("TUTTI PATTERN", "Paints the chord's shape per step — full, top two, one note, rest.", .tutti) { $0.tuttiMode = .pattern },
                 C("SPLIT", "Keeps only part of the chord: top, bottom, or a range.", .split),
                 C("DRONE", "Holds the chord as a sustained pad.", .drone),
-                C("LOCK TO KEY", "Forces every note into a chosen key — out-of-key notes drop or snap in.", .avoid) { $0.avoidRefKind = .key; $0.avoidMode = .lock; $0.avoidAction = .move },
-                C("AVOID CLASHES", "Removes notes that clash with what's already sounding (its notes + the semitones near them).", .avoid) { $0.avoidRefKind = .sounding; $0.avoidMode = .avoid; $0.avoidAction = .remove; $0.avoidWhat = .clash },
+                C("LOCK TO KEY", "Plays only the notes another input is playing — point it at a scale channel to stay in its key.", .avoid) { $0.avoidRefKind = .door; $0.avoidRefIndex = 1; $0.avoidMode = .lock; $0.avoidAction = .move },
+                C("AVOID CLASHES", "Keeps clear of everything already playing — its notes and the semitones that clash with them.", .avoid) { $0.avoidRefKind = .sounding; $0.avoidMode = .avoid; $0.avoidAction = .remove; $0.avoidWhat = .clash },
             ]),
             BuildCardGroup(title: "RHYTHM", note: nil, cards: [
                 C("RATCHET", "Re-strikes the whole chord in fast rolls, every step.", .ratchet) { $0.rtcMode = .all },
@@ -4377,9 +4386,9 @@ extension DiagView {
         case .hocket:  switch s.params.hocketMode ?? .gaps { case .gaps: m = "GAPS"; case .trade: m = "TRADE" }
         case .avoid:
             switch s.params.avoidRefKind ?? .sounding {
-            case .key:      m = "\(["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][(((s.params.avoidRoot ?? 0) % 12) + 12) % 12]) \((s.params.avoidScale ?? .major).label)"
-            case .door:     m = "⇐\(letters[max(0, min(3, s.params.avoidRefIndex ?? 0))])"
-            case .wire:     m = "≠\(letters[max(0, min(3, s.params.avoidRefIndex ?? 0))])"
+            case .key:      m = "\(["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][(((s.params.avoidRoot ?? 0) % 12) + 12) % 12]) \((s.params.avoidScale ?? .major).label)"   // legacy/decode-only — the KEY reference is no longer settable in the UI (Paul 2026-08-31)
+            case .door:     m = "IN \(letters[max(0, min(3, s.params.avoidRefIndex ?? 0))])"
+            case .wire:     m = "OUT \(letters[max(0, min(3, s.params.avoidRefIndex ?? 0))])"
             case .sounding: m = "CLASHES"
             }
         default:       m = ""

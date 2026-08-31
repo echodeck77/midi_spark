@@ -718,6 +718,8 @@ struct ProcessorBox: View {
     var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
     var plainTitle: Bool = false                        // pop-up: show the type as a plain TITLE (no type-picker button)
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
+    var avoidInputNotes: [[Int]] = [[], [], [], []]     // AVOID editor: per-input held PITCHES (the LISTEN-TO reference), live from recvHeldNotes — drives the illustration piano
+    var avoidOutputNotes: [Int] = []                    // AVOID editor: the notes this chain is currently emitting (what makes it out) — the second piano
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
     @State private var laneReadout: String? = nil        // LANE READOUT (idea 18): the value floating while a lane bar is dragged
@@ -1501,30 +1503,80 @@ struct ProcessorBox: View {
             Text("Plays YOUR held notes (WHAT) timed by the wire (WHEN). Put it on a later row than what it listens to.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
-        case .avoid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // FILTER — the per-note pitch filter (avoid clashes / lock to key), placeable anywhere
-            let rk = p.avoidRefKind ?? .sounding
+        case .avoid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // FILTER — compares your notes against another source and keeps clear of it (AVOID) or locks onto it (LOCK)
+            // LISTEN-TO source: INPUT = another MIDI input's live notes (.door) · EVERYTHING = every note now playing (.sounding).
+            // (KEY/WIRE removed from the UI per Paul 2026-08-31 — the key lives on a scale-channel INPUT; point at it.)
+            let refIsInput = (p.avoidRefKind ?? .sounding) == .door
             let md = p.avoidMode ?? .avoid
-            let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-            heroField("REFERENCE") { seg(AvoidRefKind.allCases.map(\.rawValue), sel: rk.rawValue) { i in setParam { $0.avoidRefKind = AvoidRefKind.allCases[i] } } }
-            if rk == .door || rk == .wire {
-                field(rk == .door ? "WHICH DOOR" : "WHICH WIRE", \.avoidRefIndex) { seg(["A", "B", "C", "D"], sel: ["A", "B", "C", "D"][max(0, min(3, p.avoidRefIndex ?? 0))]) { i in setParam { $0.avoidRefIndex = i } } }
+            let idx = max(0, min(3, p.avoidRefIndex ?? 0))
+            let letters = ["A", "B", "C", "D"]
+            let clashSemis = md == .avoid ? avoidClashSemis(p.avoidWhat) : 0
+            let refTint = md == .lock ? Color(red: 0.36, green: 0.86, blue: 0.5) : Color(red: 1.0, green: 0.44, blue: 0.42)   // LOCK = green (stay on) · AVOID = coral (keep away)
+            heroField("LISTEN TO") { seg(["INPUT", "EVERYTHING"], sel: refIsInput ? "INPUT" : "EVERYTHING") { i in setParam { $0.avoidRefKind = (i == 0 ? .door : .sounding) } } }
+            if refIsInput {
+                field("WHICH INPUT", \.avoidRefIndex) { seg(letters, sel: letters[idx]) { i in setParam { $0.avoidRefIndex = i } } }
             }
-            if rk == .key {
-                field("KEY", \.avoidRoot) { seg(noteNames, sel: noteNames[(((p.avoidRoot ?? 0) % 12) + 12) % 12]) { i in setParam { $0.avoidRoot = i } } }
-                field("SCALE", \.avoidScale) { seg(ScaleType.allCases.map(\.label), sel: (p.avoidScale ?? .major).label) { i in setParam { $0.avoidScale = ScaleType.allCases[i] } } }
+            field("MODE", \.avoidMode) { seg(["AVOID", "LOCK"], sel: md == .lock ? "LOCK" : "AVOID") { i in setParam { $0.avoidMode = (i == 0 ? .avoid : .lock) } } }
+            if md == .avoid {   // how wide the "clash" sphere is: just the exact notes, or also the semitones that rub against them
+                field("ALSO DODGE", \.avoidWhat) { seg(["NOTHING", "CLASHES", "MORE"], sel: [AvoidWhat.same: "NOTHING", .clash: "CLASHES", .clash2: "MORE"][p.avoidWhat ?? .same] ?? "NOTHING") { i in setParam { $0.avoidWhat = [AvoidWhat.same, .clash, .clash2][i] } } }
             }
-            field("MODE", \.avoidMode) { seg(AvoidMode.allCases.map(\.rawValue), sel: md.rawValue) { i in setParam { $0.avoidMode = AvoidMode.allCases[i] } } }
-            if md == .avoid {   // WHAT: how wide the "clash" sphere is (LOCK is exact — the key)
-                field("WHAT", \.avoidWhat) { seg(AvoidWhat.allCases.map(\.rawValue), sel: (p.avoidWhat ?? .same).rawValue) { i in setParam { $0.avoidWhat = AvoidWhat.allCases[i] } } }
+            field("IF BLOCKED", \.avoidAction) { seg(["DROP", "MOVE"], sel: (p.avoidAction ?? .remove) == .move ? "MOVE" : "DROP") { i in setParam { $0.avoidAction = (i == 0 ? .remove : .move) } } }
+            // THE PIANO — what's happening, live. Top = the notes you're listening to (the reference); bottom = what makes it out.
+            let refClasses: Set<Int> = refIsInput ? Set((idx < avoidInputNotes.count ? avoidInputNotes[idx] : []).map { (($0 % 12) + 12) % 12 }) : []
+            let clashClasses: Set<Int> = clashSemis > 0 ? avoidWidenClasses(refClasses, semis: clashSemis) : []
+            let outSet = Set(avoidOutputNotes)
+            VStack(alignment: .leading, spacing: 5) {
+                if refIsInput {
+                    avoidKeyboard(md == .lock ? "LOCK TO — what INPUT \(letters[idx]) plays" : "AVOID — what INPUT \(letters[idx]) plays") { midi in
+                        let pc = ((midi % 12) + 12) % 12
+                        if refClasses.contains(pc) { return refTint.opacity(0.9) }
+                        if clashClasses.contains(pc) { return refTint.opacity(0.32) }   // the widened clash halo
+                        return nil
+                    }
+                }
+                avoidKeyboard("YOUR OUTPUT — what plays") { midi in outSet.contains(midi) ? accent.opacity(0.92) : nil }
             }
-            field("REJECTS", \.avoidAction) { seg(AvoidAction.allCases.map(\.rawValue), sel: (p.avoidAction ?? .remove).rawValue) { i in setParam { $0.avoidAction = AvoidAction.allCases[i] } } }
-            Text(md == .lock ? "LOCK — keep only notes IN the reference (in-key)." :
-                 (((p.avoidWhat ?? .same) == .same) ? "AVOID — remove notes that DOUBLE the reference." : "AVOID — remove notes that CLASH with the reference (its notes + the semitones that rub against them)."))
-                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            Text("Before a driver it filters the pool; after one it drops (REMOVE) or shifts (MOVE) each note. For a live reference, put it on a later row.")
+            Text(avoidBlurb(input: refIsInput, letter: letters[idx], lock: md == .lock, clash: clashSemis, move: (p.avoidAction ?? .remove) == .move))
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         }
+    }
+
+    // AVOID/LOCK editor helpers (Paul 2026-08-31 — clearer terminology + the illustration piano).
+    private func avoidClashSemis(_ w: AvoidWhat?) -> Int { switch w ?? .same { case .same: return 0; case .clash: return 1; case .clash2: return 2 } }
+    // Widen a set of pitch classes to its ±1…semis neighbours (mirrors the engine's widenClashMask, on a Set).
+    private func avoidWidenClasses(_ classes: Set<Int>, semis: Int) -> Set<Int> {
+        guard semis > 0 else { return [] }
+        var out = Set<Int>()
+        for pc in classes { for d in 1...semis { out.insert((pc + d) % 12); out.insert((pc + 12 - (d % 12)) % 12) } }
+        return out.subtracting(classes)   // the halo = only the NEW neighbours (the exact notes already read at full tint)
+    }
+    // A compact C1–C7 keyboard for the AVOID illustration: each key is filled by `tint(midi)` (nil = unlit), over a faint
+    // black/white key backdrop for orientation.
+    private func avoidKeyboard(_ label: String, _ tint: @escaping (Int) -> Color?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.secondary)
+            Canvas { ctx, size in
+                let lo = 24, hi = 96, n = hi - lo, bw = size.width / CGFloat(n)   // C1..C7
+                for s in 0..<n {
+                    let midi = lo + s
+                    let isBlack = [1, 3, 6, 8, 10].contains(((midi % 12) + 12) % 12)
+                    let rect = CGRect(x: CGFloat(s) * bw, y: 0, width: max(1, bw - 0.4), height: size.height)
+                    ctx.fill(Path(rect), with: .color(.white.opacity(isBlack ? 0.05 : 0.11)))
+                    if let c = tint(midi) { ctx.fill(Path(rect), with: .color(c)) }
+                }
+            }
+            .frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
+        }
+    }
+    // The plain-language one-liner under the AVOID/LOCK controls.
+    private func avoidBlurb(input: Bool, letter: String, lock: Bool, clash: Int, move: Bool) -> String {
+        let src = input ? "INPUT \(letter)" : "everything currently playing"
+        let fix = move ? "moved to the nearest safe note" : "removed"
+        if lock { return "LOCK — plays only the notes \(src) is playing. Point INPUT at a scale channel to stay in its key; out-of-key notes are \(fix)." }
+        let sphere = clash == 0 ? "the exact notes \(src) plays" : (clash == 1 ? "\(src)'s notes and the semitones that clash with them" : "\(src)'s notes and the two semitones either side")
+        return "AVOID — your notes stay clear of \(sphere); any that land there are \(fix)."
     }
 
     // GLIDE mode teach-in-place one-liners (Paul 2026-08-22 — the §7 teach-in-place law).
