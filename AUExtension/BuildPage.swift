@@ -3062,12 +3062,12 @@ extension DiagView {
         buildChainAuditionRow = composed.auditionRow                          // #5: the engine row the audition parked on → the aimed ferry reads its LIVE strikes there
         // (The reference-chord fallback was REMOVED 2026-08-23, Paul: PLAY THIS MIDI CHAIN now sounds ONLY real input —
         // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
-        // FREE-RUN GATE (Paul 2026-08-27, FERRY-strike-anchor ①: REVERTS the 2026-08-25 held-note internal transport).
-        // "STOPPED = SILENT" (Paul 2026-08-31): the HOST TRANSPORT is now the master — NOTHING plays while the host is
-        // stopped. The free-run clock (which drove the scene while stopped) is DISABLED, so auditions/parts/ferries sound
-        // only while the transport runs. Transport-stop also clears the armed voices (buildStopAllOnTransportStop, wired to
-        // d.playing) so the whole UI reflects the stopped state. (Was: free-run ran whenever a BUILD play mode was armed.)
-        au?.setFreeRunEnabled(false)
+        // FREE-RUN GATE (Paul 2026-08-31): "when I press play, start playing." Pressing a PLAY control in 8x8 arms a voice
+        // (ddSolo chain audition · buildStagingPlaying part · a play column), and THAT drives the internal clock so it sounds
+        // even while the host transport is stopped — an explicit play starts playback. Nothing auto-plays (roomsSyncVoice no
+        // longer auto-auditions), and a HOST transport-stop edge still clears the armed voices (buildStopAllOnTransportStop),
+        // so a stopped host with nothing pressed stays silent.
+        au?.setFreeRunEnabled(ddSolo || buildStagingPlaying || buildPerformPlaying || buildPlayPlaying)
     }
     // TRANSPORT STOPPED → stop everything (Paul 2026-08-31). Clears the shared audition + every play column and republishes,
     // so the machine play button, the ferries, the cells and the comets/rolls all read STOPPED. Called on the d.playing
