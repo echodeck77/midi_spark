@@ -210,6 +210,9 @@ extension DiagView {
                 }
             }.padding(8)
         }
+        // The PLAY room owns NO extra shared voice — only the persistent play layer sounds here. Gating it OFF on appear (the
+        // sibling of roomsSelect/roomsPart's .onAppear) stops a SELECT/PART audition from leaking onto the play page (Paul 2026-08-31).
+        .onAppear { roomsSyncVoice(.play) }
         // (buildPlaySel inits to ROW 1 for every column — no per-appear seed needed; a user deselect then persists.)
     }
     @ViewBuilder private func roomsReel(_ size: CGSize) -> some View {

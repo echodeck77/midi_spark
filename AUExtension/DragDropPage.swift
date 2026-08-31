@@ -64,7 +64,7 @@ extension DiagView {
     func ddEngageSolo() {
         if selCol >= 0, selRow >= 0 { au?.setColourSolo(col: selCol, row: selRow); return }
         if let cid = ddSelectedColourID, au?.setColourSoloPreview(colourID: cid, inputReceiver: ddStickyReceiver, buses: Array(ddStickyBuses)) == true { return }
-        ddSolo = false; au?.clearColourSolo()
+        buildVoiceOwner = .none; au?.clearColourSolo()
     }
     func ddCaptureStickyRouting() {
         guard let c = editingCell else { return }

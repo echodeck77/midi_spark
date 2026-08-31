@@ -223,7 +223,7 @@ struct DiagView: View {
     @State var buildPlayColStepRecv: [[Int]] = Array(repeating: [], count: 8)      // per-step door (from the flattened part row)
     @State var buildPlayColStepEmit: [[Set<Bus>]] = Array(repeating: [], count: 8) // per-step emitters (from the flattened part row)
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
-    @State var buildStagingPlaying = false
+    @State var buildVoiceOwner: BuildWorkshopVoice = .none   // SINGLE SOURCE OF TRUTH for the page-owned audition voice (none | chain | part). ddSolo/buildStagingPlaying are computed mirrors of this (Paul 2026-08-31) — one owner, so a play-ferry stop can never leave the shared audition sounding.
     // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.
     // Each header toggles its own section (play ⇄ stop), so BOTH can be stopped (Paul 2026-08-15). The two never sound
     // together (picking one stops the other) — the PIECE (play grid) is independent of this.
@@ -280,7 +280,7 @@ struct DiagView: View {
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
     // (the playhead beat anchor moved into `meters` — a @State-held class — so its 4 Hz re-anchor doesn't re-run the body)
-    @State var ddSolo = false                  // DRAG&DROP PLAY: THIS CELL — isolate + freeze on the selected cell's column
+    // ddSolo / buildStagingPlaying are now COMPUTED mirrors of buildVoiceOwner (see BuildPage) — not stored state.
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)

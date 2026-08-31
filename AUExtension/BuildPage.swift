@@ -1276,6 +1276,10 @@ extension DiagView {
         if room == .part { return buildSelHue }
         return buildSelID == buildGridSelAudID ? buildSelectGrey : buildSelHue   // SELECT: grey for the colourless audition, the ferry's real hue once one is selected
     }
+    // THE ONE HUE for every machine/card/editor surface (Paul 2026-08-31: the processor card was a DIFFERENT colour to the
+    // machine box — a throwback to the multi-colour select grid, because the card read raw buildSelHue while the box read
+    // the room-aware buildMachineHue). Both now resolve through this single accessor, so the card can never diverge again.
+    var buildCardHue: Color { buildMachineHue(roomsRoom) }
 
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
@@ -1565,7 +1569,7 @@ extension DiagView {
         // extra voice) — parallel to the select→part ferry, which switches playback to the held target. The play layer
         // then sounds via its persistent voice; the previously-auditioning library cell goes quiet.
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }
-        if ddSolo { ddSolo = false; au?.clearColourSolo() }                  // the SELECT grid stops playing
+        buildVoiceOwner = .none; au?.clearColourSolo()                       // the SELECT/PART shared audition stops — the play layer is the voice now
         buildSelectPlayColumn(t)                                             // the FERRIED play cell becomes THE selection (deselects the source; machine strip + I/O toggles reflect it — Paul 2026-08-30)
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
@@ -1603,8 +1607,7 @@ extension DiagView {
         buildPlayColRecv[t] = buildSelReceiver                               // the column DEFAULT (the ferry dot/drift tint + any rest-step fallback)
         buildPlayColEmit[t] = buildDefaultEmitters
         buildPlayColOn[t] = true                                            // start it
-        buildStagingPlaying = false                                         // the part audition stops — the play column now carries the sequence (no doubling)
-        if ddSolo { ddSolo = false; au?.clearColourSolo() }
+        buildVoiceOwner = .none; au?.clearColourSolo()                      // the part/chain shared audition stops — the play column now carries the sequence (no doubling)
         buildSelectPlayColumn(t)
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
@@ -1924,7 +1927,11 @@ extension DiagView {
     // Toggle ONE play column's independent playback + republish. (Paul 2026-08-29 — each play cell starts/stops on its own.)
     func buildTogglePlayColumn(_ c: Int) {
         guard c >= 0, c < buildPlayColOn.count, buildPlayColHasContent(c) else { return }
-        buildPlayColOn[c].toggle(); buildPublishScene()
+        buildPlayColOn[c].toggle()
+        // Starting a play column: the play LAYER is the voice — the shared select/part audition must be OFF, else it would
+        // keep sounding this chain on rows 0…7 and this column's own stop (buildPlayColOn) could never silence it (Paul 2026-08-31).
+        if buildPlayColOn[c] { buildVoiceOwner = .none; au?.clearColourSolo() }
+        buildPublishScene()
     }
     // SELECT a play column's cell → the machine strip + the I/O toggles reflect it (Paul 2026-08-30: play-ferry selection,
     // parity with ferry-to-part). Independent of playback: focusing a play ferry never starts/stops it. Clears the SELECT
@@ -1934,6 +1941,7 @@ extension DiagView {
         let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
         guard r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return }
         buildGridSelSel = nil; buildGridSelStampSourceRow = nil      // the source select cell / active side button deselects
+        buildVoiceOwner = .none                                      // a play column owns its OWN voice (the play layer) — never route it through the shared audition (else buildSelectID would re-inject it there, unstoppable by the ferry). Paul 2026-08-31
         buildSelectID(cid)
     }
     // The PLAY column currently selected — its selected-rung cell's colour == buildSelID. The play-grid analogue of
@@ -2633,7 +2641,6 @@ extension DiagView {
     // rules. It rides the SAME ephemeral scene as the part/piece (buildPublishScene injects it), so it coexists with the
     // play grid instead of owning the render via an isolating solo. `ddSolo` is just the "chain is the voice" flag now.
     func buildSelectMachineVoice() {
-        buildStagingPlaying = false                              // CHAIN ⟂ PART; the PIECE is independent — it keeps sounding via the scene
         buildSeedCastIfNeeded()                                  // §2: part 1's cast reflects the already-defined colours (once); selects within the cast
         ddStickyReceiver = buildSelReceiver                      // §2: the chain audition uses the PART's I/O (door + emitters)
         ddStickyBuses = buildDefaultEmitters
@@ -2643,21 +2650,22 @@ extension DiagView {
         if let cid = ddSelectedColourID, buildColourReg[cid] == nil, au?.colourHasStoredChain(cid) == false {
             au?.withChainColour(cid) { $0 = [] }; refreshFromDocument()   // document colour only — ephemeral colours always carry a registry machine
         }
-        ddSolo = true                                           // the chain is the voice — sounded RAW via the ephemeral scene
+        buildVoiceOwner = .chain                                // the chain is the voice — sounded RAW via the ephemeral scene (CHAIN ⟂ PART; the PIECE keeps sounding via the scene)
         buildPublishScene()
     }
     private func buildSelectStagingVoice() {
-        if ddSolo { ddSolo = false; au?.clearColourSolo() }      // CHAIN ⟂ PART: stop the chain audition (they're mutually exclusive)
-        buildStagingPlaying = true                               // the PART is a voice — the PIECE (if playing) keeps sounding ALONGSIDE (correction)
+        au?.clearColourSolo()                                    // CHAIN ⟂ PART: leaving the chain audition
+        buildVoiceOwner = .part                                 // the PART is the voice (the PIECE keeps sounding ALONGSIDE)
         buildPublishScene()
     }
 
-    // The LIVE workshop voice, read off the section flags (PART wins if somehow both are set — it shouldn't happen).
-    var buildWorkshopVoice: BuildWorkshopVoice {
-        if buildStagingPlaying { return .part }
-        if ddSolo { return .chain }
-        return .none
-    }
+    // The LIVE workshop voice IS the single-source-of-truth owner (Paul 2026-08-31 — was derived from two booleans that
+    // could drift; now the owner is authoritative and ddSolo/buildStagingPlaying are read-only mirrors of it).
+    var buildWorkshopVoice: BuildWorkshopVoice { buildVoiceOwner }
+    // Read-only mirrors so the ~40 existing reads (composeScene inputs, `if ddSolo`, UI gates) are untouched — only the
+    // ~11 WRITE sites route through buildVoiceOwner now, so "who is the voice" lives in ONE place.
+    var ddSolo: Bool { buildVoiceOwner == .chain }               // the SELECT chain audition
+    var buildStagingPlaying: Bool { buildVoiceOwner == .part }   // the PART sequencer audition
     // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADERS read this so
     // they highlight the new state IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
     var buildDisplayVoice: BuildWorkshopVoice { buildPendingWorkshopVoice ?? buildWorkshopVoice }
@@ -2682,8 +2690,8 @@ extension DiagView {
     }
     // Stop BOTH shop sections (the header's STOP action). The PIECE (play grid) is independent and keeps sounding.
     private func buildStopWorkshop() {
-        if ddSolo { ddSolo = false; au?.clearColourSolo() }
-        buildStagingPlaying = false
+        au?.clearColourSolo()
+        buildVoiceOwner = .none
         buildPublishScene()
     }
     // (The reference-chord fallback — engine + UI — was REMOVED 2026-08-23, Paul: a synthetic chord must never reach
@@ -3808,7 +3816,7 @@ extension DiagView {
     }
 
     @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, contentW: CGFloat) -> some View {
-        let hue = buildSelHue
+        let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {                               // HEADER: colour + name · BYPASS · CANCEL · DELETE
                 RoundedRectangle(cornerRadius: 8).fill(hue).frame(width: 34, height: 34)
@@ -3925,7 +3933,7 @@ extension DiagView {
         let inGrace = door >= 0 && door < buildInGrace.count && buildInGrace[door]
         let sticky = (door >= 0 && door < buildInSticky.count) ? buildInSticky[door] : []
         let letter = (door >= 0 && door < 4) ? ["A", "B", "C", "D"][door] : "A"
-        let hue = buildSelHue
+        let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
         let out = buildTruthOutContext
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
@@ -3972,7 +3980,7 @@ extension DiagView {
         let chain = selectedColourChain()
         if slot < chain.count {
             let proc = chain[slot]
-            let hue = buildSelHue
+            let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
             let door = buildStageEyeDoor
             let letter = (door >= 0 && door < 4) ? ["A", "B", "C", "D"][door] : "A"
             let held = (door >= 0 && door < recvHeldNotes.count) ? recvHeldNotes[door].map { Int($0) } : []
@@ -4202,7 +4210,7 @@ extension DiagView {
             onTranspose: { _ in }, onMorph: { _ in },
             onSetTypeA: { t in buildChainSetType(i, t) },
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
-            accentOverride: buildSelHue,
+            accentOverride: buildCardHue,   // the ONE machine/card hue (grey on the SELECT audition) — matches the machine box
             passHead: d.playing ? (d.pass & 3) : -1,
             liveStep: d.playing ? ((d.effColumn % 8) + 8) % 8 : -1,   // PLAYHEAD (idea 15): the live grid column sweeps the matrix/lane
             onBypass: { buildChainToggleBypass(i) },
@@ -4401,7 +4409,7 @@ extension DiagView {
     // The storefront: 31 cards grouped by musical intent, each with a plain one-liner. Selecting one populates box
     // `slot` (pre-set to the card's mode) and opens its editor.
     @ViewBuilder private func buildProcessorPicker(slot: Int, size: CGSize) -> some View {
-        let hue = buildSelHue
+        let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
         ZStack {
             Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildAddSlot = nil }
             VStack(alignment: .leading, spacing: 12) {
@@ -4588,7 +4596,7 @@ extension DiagView {
         buildGridSelSel = nil; buildGridSelActiveRoll = []
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
         buildColourReg[buildGridSelAudID] = nil; colourHueOverride[buildGridSelAudID] = nil; buildColourTranspose[buildGridSelAudID] = nil
-        if ddSolo { ddSolo = false }
+        if buildVoiceOwner == .chain { buildVoiceOwner = .none }
         buildSelID = buildGridSelPriorSel; ddColourSel = colourIDs.firstIndex(of: buildGridSelPriorSel ?? "") ?? -1
         au?.clearColourSolo(); buildSyncColours(); buildPublishScene()
     }
