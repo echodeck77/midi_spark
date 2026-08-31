@@ -2495,8 +2495,10 @@ extension DiagView {
         // §1 THE FLOW LINE (design 2026-08-17): the dotted thread draws ORDER (the numbers' old job) — door ┈▶ slot 0 ┈▶
         // … ┈▶ slot 7 ┈▶ wire, in chain order, with a TURN MARK at each row wrap (the boustrophedon made visible).
         .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap, hue: hue))
+        .overlay(buildChainComets(boxW: boxW, boxH: boxH, gap: gap, hue: hue))   // NOTE COMETS along the chain (Paul 2026-08-31)
         .coordinateSpace(name: "chainBlock")                        // DRAG-TO-REORDER: a stable space for the finger track + the floating ghost
         .overlay(alignment: .topLeading) { buildChainDragGhost(chain: chain, boxW: boxW, boxH: boxH, hue: hue) }
+        .task(id: buildChainStructSig) { buildChainStages = buildChainStageSets(selectedColourChain()) }   // recompute each processor's real output when the chain changes
     }
     // DRAG-TO-REORDER: the floating ghost of the box under the finger (drawn in the "chainBlock" space, hit-transparent).
     @ViewBuilder private func buildChainDragGhost(chain: [ProcessorSlot], boxW: CGFloat, boxH: CGFloat, hue: Color) -> some View {
@@ -2510,6 +2512,53 @@ extension DiagView {
                 .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
                 .position(buildChainDragLoc)
                 .allowsHitTesting(false)
+        }
+    }
+    // A structural signature of the selected chain (type + bypass per slot + which colour) — the comets recompute when it
+    // changes. (Param-only edits keep the same signature; the comets refresh on the next structural change / reselect — v1.)
+    private var buildChainStructSig: String {
+        selectedColourChain().map { "\($0.type.rawValue)\($0.bypassed ? "b" : "")" }.joined(separator: "|") + "@" + (ddSelectedColourID ?? "")
+    }
+    // NOTE COMETS along the MIDI chain (Paul 2026-08-31): a CIRCLE at each end (the door entry, aligned with the input/A
+    // side + the top chain row · the wire exit, aligned with the D side), and comets flowing DOOR ┈▶ slot 0 ┈▶ … ┈▶ slot 7
+    // ┈▶ WIRE. Each SEGMENT carries that stage's real MIDI (buildChainStages: the offline OUTPUT after each processor), so a
+    // comet stream matches exactly what leaves that processor. Size + glow by velocity; flows with the beat (idle drift when
+    // stopped). Drawn in the same "chainBlock" geometry as the flow line.
+    @ViewBuilder private func buildChainComets(boxW: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color) -> some View {
+        let stages = buildChainStages
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || stages.isEmpty)) { tl in
+            Canvas { ctx, size in
+                func center(_ i: Int) -> CGPoint { CGPoint(x: CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2) }
+                var P: [CGPoint] = [CGPoint(x: 0, y: center(0).y)]                // DOOR entry (top row)
+                for i in 0..<8 { P.append(center(i)) }
+                P.append(CGPoint(x: size.width, y: center(7).y))                  // WIRE exit (bottom row)
+                let live = d.playing ? meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                                     : tl.date.timeIntervalSinceReferenceDate * 0.5   // idle drift when stopped
+                // THE TWO CIRCLES — the chain's start (door, A side) + end (wire, D side).
+                let cr = max(3.5, boxH * 0.16)
+                for end in [P.first!, P.last!] {
+                    ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
+                    ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
+                }
+                // COMETS — one per note in each segment's stage set, flowing along that segment.
+                for j in 0..<(P.count - 1) where j < stages.count {
+                    let a = P[j], b = P[j + 1], dots = stages[j]
+                    guard !dots.isEmpty else { continue }
+                    let len = max(0.001, hypot(b.x - a.x, b.y - a.y))
+                    let ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
+                    for (idx, dot) in dots.enumerated() {
+                        let off = Double(idx) / Double(dots.count)
+                        let ph = ((live + Double(j) * 0.03 + off).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
+                        let x = a.x + (b.x - a.x) * CGFloat(ph), y = a.y + (b.y - a.y) * CGFloat(ph)
+                        let r = 1.3 + 2.4 * CGFloat(dot.vel)
+                        let tail = 7 + 5 * CGFloat(dot.vel)
+                        var tp = Path(); tp.move(to: CGPoint(x: x - ux * tail, y: y - uy * tail)); tp.addLine(to: CGPoint(x: x, y: y))
+                        ctx.stroke(tp, with: .color(hue.opacity(0.2 * dot.vel)), style: StrokeStyle(lineWidth: r, lineCap: .round))
+                        ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.55 + 0.45 * dot.vel)))
+                    }
+                }
+            }
+            .allowsHitTesting(false)
         }
     }
     private func buildChainFlowLine(boxW: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color) -> some View {
@@ -3576,26 +3625,52 @@ extension DiagView {
     // One velocity-meter colour band + whether it wears the ENERGY effect (only the SELECTED colour's band — Paul 2026-08-31).
     private struct MeterBand { let color: Color; let energy: Bool }
     // The velocity-meter FILL as vertical colour bands (one per feeding/playing cell) rising to `level`. (Paul 2026-08-31)
-    // ENERGY (Paul 2026-08-31): the reverse-velocity look — the colour fades out toward the MIDDLE from both ends (bright at
-    // the peak line AND the base, a pinched "energy" waist), the inverted overlay SCREEN-blended for a glow at the crossover.
-    // Only bands flagged `energy` (the selected colour) get it; the rest are flat.
-    @ViewBuilder private func buildMeterBands(_ bands: [MeterBand], level: Double, height: CGFloat, override: Color?) -> some View {
-        let bs: [MeterBand] = override != nil ? [MeterBand(color: override!, energy: false)] : (bands.isEmpty ? [MeterBand(color: buildCyan, energy: false)] : bands)
-        HStack(spacing: bs.count > 1 ? 0.7 : 0) {
-            ForEach(bs.indices, id: \.self) { k in
-                if bs[k].energy {
-                    let c = bs[k].color
-                    ZStack {
-                        Rectangle().fill(LinearGradient(gradient: Gradient(stops: [.init(color: c, location: 0), .init(color: c.opacity(0), location: 0.60)]), startPoint: .top, endPoint: .bottom))   // full at the top, gone by 60%
-                        Rectangle().fill(LinearGradient(gradient: Gradient(stops: [.init(color: c.opacity(0), location: 0.40), .init(color: c, location: 1)]), startPoint: .top, endPoint: .bottom)).blendMode(.screen)   // inverted, screen-blended → glow at the crossover
-                    }.compositingGroup()
-                } else {
-                    Rectangle().fill(bs[k].color.opacity(0.9))
+    // `faded` (the receiver strips): EVERY band fades to alpha 0 at the bottom; the SELECTED colour's band ALSO gets the
+    // INVERTED overlay (screen-blended) so it reads as energy — the pinched waist. No feed at all → a light-grey band with a
+    // downward-moving shimmer ("notes that aren't on a cell", e.g. a scale-door audition), NOT cyan. Emitters (faded=false)
+    // stay flat.
+    @ViewBuilder private func buildMeterBands(_ bands: [MeterBand], level: Double, height: CGFloat, override: Color?, faded: Bool = false) -> some View {
+        HStack(spacing: bands.count > 1 ? 0.7 : 0) {
+            if let ov = override {
+                Rectangle().fill(ov.opacity(0.9))
+            } else if bands.isEmpty {
+                if faded { buildMeterNoFeedBand() } else { Rectangle().fill(buildCyan.opacity(0.9)) }   // no cell feeds this door → light grey downward (receivers), else the cyan default
+            } else {
+                ForEach(bands.indices, id: \.self) { k in
+                    let c = bands[k].color
+                    if faded {
+                        ZStack {
+                            Rectangle().fill(LinearGradient(colors: [c.opacity(0.92), c.opacity(0)], startPoint: .top, endPoint: .bottom))   // ALL bands: fade to 0 at the bottom
+                            if bands[k].energy {   // the SELECTED colour only: the inverted overlay → the energy waist + glow
+                                Rectangle().fill(LinearGradient(colors: [c.opacity(0), c.opacity(0.92)], startPoint: .top, endPoint: .bottom)).blendMode(.screen)
+                            }
+                        }.compositingGroup()
+                    } else {
+                        Rectangle().fill(c.opacity(0.9))
+                    }
                 }
             }
         }
         .frame(height: height * CGFloat(min(1, max(0, level))))
         .clipShape(RoundedRectangle(cornerRadius: 3))
+    }
+    // The velocity-meter fill when NO cell feeds this door but it IS receiving (a scale-door audition, or any input not on a
+    // placed cell): light grey + transparency + a soft band drifting DOWNWARD. (Paul 2026-08-31, replaces the cyan fallback.)
+    @ViewBuilder private func buildMeterNoFeedBand() -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+            let phase = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.4) / 1.4   // 0→1 loop, downward
+            Canvas { ctx, size in
+                let gray = Color(white: 0.82)
+                ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: size.height)), with: .color(gray.opacity(0.16)))   // faint grey base
+                let bandH = size.height * 0.5
+                for k in [-1.0, 0.0] {                                             // the band + its wrap copy → seamless
+                    let y = (phase + k) * size.height
+                    ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: bandH)),
+                             with: .linearGradient(Gradient(colors: [gray.opacity(0), gray.opacity(0.5), gray.opacity(0)]),
+                                                   startPoint: CGPoint(x: 0, y: y), endPoint: CGPoint(x: 0, y: y + bandH)))
+                }
+            }
+        }
     }
     @ViewBuilder private func buildReceiverFader(_ i: Int, letter: String) -> some View {
         let override = i < recvDragVel.count ? recvDragVel[i] : nil
@@ -3613,7 +3688,7 @@ extension DiagView {
                     let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
-                        buildMeterBands(feed, level: level, height: g.size.height, override: override != nil ? buildPink : nil)   // tinted by the feeding cell(s); energy on the SELECTED colour's band (Paul 2026-08-31)
+                        buildMeterBands(feed, level: level, height: g.size.height, override: override != nil ? buildPink : nil, faded: true)   // ALL bands fade; inverse only on the SELECTED colour; light-grey downward when no cell feeds it (Paul 2026-08-31)
                     }
                 }
                 .contentShape(Rectangle())
@@ -3719,13 +3794,9 @@ extension DiagView {
             let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
             if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) }
         }
-        var out = ids.map { MeterBand(color: colourColor($0) ?? buildCyan, energy: $0 == ddSelectedColourID) }   // the ENERGY effect only on the SELECTED colour's band (Paul 2026-08-31)
-        // SELECT-grid CHAIN audition (ddSolo): the audition has no placed "cell", so the door it reads found no feed → it
-        // was showing the cyan no-feed fallback. Show the MACHINE hue instead (light grey on SELECT, matching the grid
-        // cells' inverse-grey playing look) so the receiver strip agrees with the machine box. It IS the selection → energy.
-        let auditionDoor = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
-        if ddSolo, door == auditionDoor, out.isEmpty { out.append(MeterBand(color: buildMachineHue(roomsRoom), energy: true)) }
-        return out
+        // The ENERGY (inverted overlay) only on the SELECTED colour's band. A door with NO feeding cell (a scale-door
+        // audition, input not on a placed cell) returns EMPTY → the strip shows the light-grey downward shimmer (Paul 2026-08-31).
+        return ids.map { MeterBand(color: colourColor($0) ?? buildCyan, energy: $0 == ddSelectedColourID) }
     }
     // The colours of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
     // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
@@ -4827,6 +4898,26 @@ extension DiagView {
 
 // One note of a GRID SELECTOR chain's piano-roll fingerprint — normalized 0…1 (x = time, y = pitch, w = gate).
 struct GridSelBar: Equatable { let x0: Double; let x1: Double; let y: Double; let vel: Double }
+// One note flowing through the chain as a comet: its pitch LANE (0 top … 1 bottom, normalised across the whole chain) +
+// velocity. Grouped per SEGMENT of the flow (index 0 = the input to slot 0 · index k = the OUTPUT of slot k−1). (Paul 2026-08-31)
+struct BuildChainDot: Equatable { let lane: Double; let vel: Double }
+// The chain's per-stage note SETS, computed offline: the source chord, then the real MIDI OUTPUT after each processor slot
+// (Dice.runRecorder on the chain PREFIX 1…8 — so `stages[k]` is exactly what leaves slot k−1). Lanes are normalised across
+// all stages so a note keeps its height as it flows. Empty/short chains pad with bypassed passthroughs. (Paul 2026-08-31)
+func buildChainStageSets(_ chain: [ProcessorSlot]) -> [[BuildChainDot]] {
+    guard !chain.isEmpty else { return [] }
+    var padded = chain
+    while padded.count < 8 { var s = ProcessorSlot(type: .passgate); s.bypassed = true; padded.append(s) }
+    var raw: [[(Int, Double)]] = [[(60, 1.0), (64, 1.0), (67, 1.0)]]   // segment 0 = the input chord (C-E-G, the recorder's source)
+    for k in 1...8 {
+        var byNote: [Int: Double] = [:]
+        for on in Dice.runRecorder(Array(padded.prefix(k))).ons where on.cable == 1 { byNote[Int(on.note)] = max(byNote[Int(on.note)] ?? 0, Double(on.vel) / 127.0) }
+        raw.append(byNote.map { ($0.key, $0.value) }.sorted { $0.0 < $1.0 })
+    }
+    let all = raw.flatMap { $0.map { $0.0 } }
+    let lo = all.min() ?? 60, hi = all.max() ?? 72, span = max(1, hi - lo)
+    return raw.map { stage in stage.map { BuildChainDot(lane: 1.0 - Double($0.0 - lo) / Double(span), vel: $0.1) } }
+}
 
 // The piano-roll fingerprint of a chain: an OFFLINE render (Dice.runRecorder vs a standard chord) → its emitter-A notes
 // as normalized bars. Pure + Foundation-only, so it runs off the main thread during a deal. Empty for a silent chain.
