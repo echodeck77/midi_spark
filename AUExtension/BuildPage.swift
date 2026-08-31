@@ -1349,13 +1349,13 @@ extension DiagView {
                     } else {
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
                     }
-                })
+                }.overlay { buildChainEndCircles(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, hue: boxHue) })   // the chain's start/end CIRCLES, in the flanks OUTSIDE the boxes (Paul 2026-08-31)
                 Spacer(minLength: 8)
                 AnyView(buildEmitterToggles(castW: castW))                   // MIDI OUT A–D — pinned at the interior BOTTOM (the grid's last row line)
             }.frame(height: m.interiorH)
         }
         .padding(pad)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)    // CENTRED (Paul 2026-08-31): top-align dumped the whole leftover BELOW the emitter toggles (padding there) while the receiver toggles sat flush at the top — centring splits it so the gap above the receiver toggles == the gap below the emitter toggles
         .background(Rectangle().fill(Color.white.opacity(0.05)))                 // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
         // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
         // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
@@ -2506,7 +2506,17 @@ extension DiagView {
         }
         .coordinateSpace(name: "chainBlock")                        // DRAG-TO-REORDER: a stable space for the finger track + the floating ghost
         .overlay(alignment: .topLeading) { buildChainDragGhost(chain: chain, boxW: boxW, boxH: boxH, hue: hue) }
-        .task(id: buildChainStructSig) { buildChainStages = buildChainStageSets(selectedColourChain()) }   // recompute each processor's real output when the chain changes
+        .task(id: buildChainStructSig) {                            // recompute each processor's real output when the chain OR the live input chord changes
+            let chain = selectedColourChain(); let chord = buildChainLiveChord
+            let stages = await Task.detached { buildChainStageSets(chain, chord: chord) }.value   // 8 offline renders — off the main actor so a chord change doesn't hitch the UI
+            buildChainStages = stages
+        }
+    }
+    // The LIVE held chord at the chain's input door — the notes ACTUALLY coming through (empty ⇒ no comets). (Paul 2026-08-31)
+    private var buildChainLiveChord: [Int] {
+        let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        guard door >= 0, door < recvHeldNotes.count else { return [] }
+        return recvHeldNotes[door].map(Int.init).sorted()
     }
     // DRAG-TO-REORDER: the floating ghost of the box under the finger (drawn in the "chainBlock" space, hit-transparent).
     @ViewBuilder private func buildChainDragGhost(chain: [ProcessorSlot], boxW: CGFloat, boxH: CGFloat, hue: Color) -> some View {
@@ -2526,6 +2536,7 @@ extension DiagView {
     // changes. (Param-only edits keep the same signature; the comets refresh on the next structural change / reselect — v1.)
     private var buildChainStructSig: String {
         selectedColourChain().map { "\($0.type.rawValue)\($0.bypassed ? "b" : "")" }.joined(separator: "|") + "@" + (ddSelectedColourID ?? "")
+            + "#" + buildChainLiveChord.map(String.init).joined(separator: ",")   // recompute when the live input chord changes
     }
     // NOTE COMETS along the MIDI chain (Paul 2026-08-31): a CIRCLE at each end (the door entry, aligned with the input/A
     // side + the top chain row · the wire exit, aligned with the D side), and comets flowing DOOR ┈▶ slot 0 ┈▶ … ┈▶ slot 7
@@ -2537,21 +2548,16 @@ extension DiagView {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || stages.isEmpty)) { tl in
             Canvas { ctx, size in
                 func center(_ i: Int) -> CGPoint { CGPoint(x: CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2) }
-                let cr = max(3.5, boxH * 0.16)
-                // The two ends INSET so the circles are FULLY visible (were half-clipped at x=0 / x=width). (Paul 2026-08-31)
-                var P: [CGPoint] = [CGPoint(x: cr + 1, y: center(0).y)]           // DOOR / start circle (top row)
+                // DOOR entry (block left edge) ┈▶ boxes ┈▶ WIRE exit (block right edge). The two CIRCLES are drawn separately,
+                // OUTSIDE the block, in the flanks (buildChainEndCircles) — here we only flow the comets. (Paul 2026-08-31)
+                var P: [CGPoint] = [CGPoint(x: 0, y: center(0).y)]
                 for i in 0..<8 { P.append(center(i)) }
-                P.append(CGPoint(x: size.width - cr - 1, y: center(7).y))         // WIRE / end circle (bottom row)
+                P.append(CGPoint(x: size.width, y: center(7).y))
                 // LOOP PHASE, beat-locked (~3-beat recording); frozen when the chain isn't the voice → "lift" when it stops.
                 let recBeats = 3.0
                 let playing = d.playing && buildDisplayVoice == .chain
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let lp = playing ? ((live / recBeats).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0) : -1
-                // THE TWO CIRCLES.
-                for end in [P.first!, P.last!] {
-                    ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
-                    ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
-                }
                 guard playing else { return }   // no comets when the chain isn't sounding (the lift)
                 // COMETS — each note EVENT flows along its segment over its own DURATION (held = slow · arp = quick zips),
                 // appearing at its onset (the rhythm) and sized by velocity. So each segment shows that processor's real output.
@@ -2574,6 +2580,23 @@ extension DiagView {
             }
             .allowsHitTesting(false)
         }
+    }
+    // THE TWO END CIRCLES — the chain's start (door, aligned with the A/MIDI-IN side + the top chain row) and end (wire,
+    // aligned with the D side + the bottom row). Drawn as an OVERLAY on the CHAIN ROW (not the block), so they sit in the
+    // FLANKS just OUTSIDE the processor boxes — never intersecting them. (Paul 2026-08-31)
+    @ViewBuilder private func buildChainEndCircles(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, hue: Color) -> some View {
+        Canvas { ctx, size in
+            let cr = max(3.5, min(boxH * 0.16, sideW * 0.42))
+            let lx = sideW - cr - 2                                   // just LEFT of the block (in the flank), clear of box 0
+            let rx = sideW + blockW + cr + 2                          // just RIGHT of the block, clear of box 7
+            let ty = boxH / 2                                         // top chain row
+            let by = blockH - boxH / 2                                // bottom chain row
+            for end in [CGPoint(x: lx, y: ty), CGPoint(x: rx, y: by)] {
+                ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
+                ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
+            }
+        }
+        .allowsHitTesting(false)
     }
     private func buildChainFlowLine(boxW: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color) -> some View {
         Canvas { ctx, size in
@@ -4773,7 +4796,7 @@ extension DiagView {
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
                 // The drift ANIMATES only while the chain is actually PLAYING (Paul 2026-08-30 bug): gating on `sel` alone kept
                 // the fingerprint looping after STOP on "play this midi chain" (MIDI stopped, animation didn't) — reads as still running.
-                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel && buildDisplayVoice == .chain, tint: rollTint)   // precise one-frame roll; scrolls L→R with the beat when auditioning (Paul 2026-08-31)
+                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel && buildDisplayVoice == .chain && !buildChainLiveChord.isEmpty, tint: rollTint)   // precise one-frame roll; SCROLLS only while real MIDI is flowing (Paul 2026-08-31: a generator no longer looks like it's "playing" with nothing held)
                     .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
             }
             if sel {       // THE ACTIVE CELL — a breathing live frame (DARK on the light-grey SELECT cell, else white)
@@ -4920,14 +4943,18 @@ struct BuildChainDot: Equatable { let onset: Double; let dur: Double; let lane: 
 // (Dice.runRecorder on the chain PREFIX 1…8 — so `stages[k]` is exactly what leaves slot k−1), each note paired on→off for
 // its onset + duration + velocity. Lanes are normalised across all stages so a note keeps its height as it flows. Empty/
 // short chains pad with bypassed passthroughs. (Paul 2026-08-31)
-func buildChainStageSets(_ chain: [ProcessorSlot]) -> [[BuildChainDot]] {
-    guard !chain.isEmpty else { return [] }
+func buildChainStageSets(_ chain: [ProcessorSlot], chord: [Int]) -> [[BuildChainDot]] {
+    // NO INPUT → NO COMETS (Paul 2026-08-31): the comets reflect the MIDI ACTUALLY COMING THROUGH — the live held chord —
+    // so a generator (RIFF/ARP) shows nothing until something is held, and the notes match what's really fed in.
+    guard !chain.isEmpty, !chord.isEmpty else { return [] }
     var padded = chain
     while padded.count < 8 { var s = ProcessorSlot(type: .passgate); s.bypassed = true; padded.append(s) }
     // Each stage → (note, onset01, end01, vel01). Stage 0 = the input chord, held across the whole loop.
-    var raw: [[(note: Int, on: Double, end: Double, vel: Double)]] = [[(60, 0, 1, 1), (64, 0, 1, 1), (67, 0, 1, 1)]]
+    let src = chord.sorted()
+    var raw: [[(note: Int, on: Double, end: Double, vel: Double)]] = [src.map { (note: $0, on: 0.0, end: 1.0, vel: 1.0) }]
+    let srcChord = chord.map { UInt8(clamping: $0) }
     for k in 1...8 {
-        let rec = Dice.runRecorder(Array(padded.prefix(k)))
+        let rec = Dice.runRecorder(Array(padded.prefix(k)), chord: srcChord)
         let ons = rec.ons.filter { $0.cable == 1 }
         let maxS = Double(max(Int64(1), max(ons.map { $0.sample }.max() ?? 1, rec.offs.map { $0.sample }.max() ?? 1)))
         var ev: [(note: Int, on: Double, end: Double, vel: Double)] = []
