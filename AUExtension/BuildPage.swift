@@ -332,7 +332,7 @@ extension DiagView {
             if buildRangeKbdDoor == i { buildRangeKeyboard(i, r) } // the large multi-octave range keyboard (min/max + DONE)
             ZStack(alignment: .topTrailing) {                      // the mode list, with the EXACT main-page strip OVERLAID over LATCH/HOLD/KEYS on the right, below OCT/RANGE (Paul 2026-08-23)
                 VStack(alignment: .leading, spacing: 8) {          // the mode list — FULL width, selected mode carries its controls inline
-                    ForEach(DoorMode.allCases, id: \.self) { m in buildDoorModeOption(i, m, r: r) }
+                    ForEach(DoorMode.allCases.filter { $0 != .thru }, id: \.self) { m in buildDoorModeOption(i, m, r: r) }   // THRU retired (Paul 2026-08-31)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 buildReceiverControl(i).frame(width: 96)           // the receiver strip at its OWN width, floating over the radios (not squeezing the column)
@@ -3509,52 +3509,31 @@ extension DiagView {
             }.frame(height: h)
         }
     }
-    // THE LATCH/arm button on a receiver strip (Paul 2026-08-23) — shared by the main-page I/O box AND the MIDI-IN
-    // settings tab (the same buildReceiverControl is used in both). States: no mode chosen → "SET" (cyan pulse; tap
-    // OPENS that door's tab); a mode chosen but not armed → the mode label (LATCH/HOLD/KEYS/"LAST N"/.MID) with an
-    // amber "ready to arm" pulse; ARMED → solid amber. Arming reuses the real latch/replay engage.
+    // THE MODE-TOGGLE button on a receiver strip (Paul 2026-08-31): "SET" and "THRU" are GONE. The door DEFAULTS to HOLD
+    // and the button just ARMS/DISARMS the current mode — tap to arm (solid amber), tap to disarm (the mode label, dim).
+    // The mode itself is changed from the config sheet (header MIDI IN / the strip spanner), not this button.
     @ViewBuilder private func buildReceiverLatchButton(_ i: Int, _ rec: Receiver) -> some View {
         let amber = Color(red: 1.0, green: 0.72, blue: 0.2)
         let bit = UInt8(1) << UInt8(i)
-        let m = rec.doorMode
-        let unset = m == nil                             // no mode chosen at all → PULSE (prompt the user to pick)
-        let isThru = m == .thru                          // THRU = "play straight": also reads SET, but STATIC (a deliberate choice)
-        // Either arm can be live (replay OR latch). Compute BOTH so a running loop is always stoppable even if the mode
-        // was switched afterwards (review finding: a mode switch used to strand a running REPLAY loop).
-        let replayOn = (replayEngagedMask & bit) != 0
-        let latchOn  = (latchMask & bit) != 0
-        let engaged  = replayOn || latchOn
-        let showsSet = (unset || isThru) && !engaged     // SET only when neutral AND nothing is armed
-        let mode = rec.doorModeResolved
-        let modeLabel: String = {
-            switch mode {
-            case .thru:   return "SET"                   // (unreachable via showsSet, but keeps the switch exhaustive)
-            case .latch:  return "LATCH"
-            case .hold:   return "HOLD"
-            case .keys:   return "KEYS"
-            case .replay: return "LAST \(rec.replayPassesResolved)"   // Paul: "last 2 for playback"
-            case .file:   return ".MID"
-            case .scale:  return "SCALE"
+        let engaged = ((replayEngagedMask | latchMask) & bit) != 0   // a running loop OR latch — always stoppable
+        let label: String = {
+            switch rec.doorModeResolved {                            // defaults to HOLD (Paul 2026-08-31)
+            case .latch:       return "LATCH"
+            case .hold, .thru: return "HOLD"                          // THRU retired → shows/acts as HOLD
+            case .keys:        return "KEYS"
+            case .replay:      return "LAST \(rec.replayPassesResolved)"
+            case .file:        return ".MID"
+            case .scale:       return "SCALE"
             }
         }()
-        // When engaged but the mode was switched to a non-armable one, show what's actually running.
-        let label = showsSet ? "SET" : (engaged && (isThru || unset) ? (replayOn ? "LAST \(rec.replayPassesResolved)" : "LATCH") : modeLabel)
-        let accent = showsSet ? buildCyan : amber
-        // PULSE only when UNSET (no mode chosen). THRU, any armable mode, and any engaged state are all STATIC (Paul 2026-08-23).
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !unset)) { tl in
-            let pulse = unset ? stagingPulseFraction(tl.date, period: 0.9) : 0
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
-                .foregroundColor(engaged ? .black : (showsSet ? buildCyan : .white.opacity(0.85)))
-                .lineLimit(1).minimumScaleFactor(0.55)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 5).fill(engaged ? amber : accent.opacity(0.10 + 0.18 * pulse)))
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(engaged ? Color.clear : accent.opacity(0.35 + 0.5 * pulse), lineWidth: 1.5))
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if showsSet { buildMidiConfigTab = i; buildMidiConfigOpen = true }   // SET / THRU → open this door's tab
-                    else { buildEngageDoor(i) }                                          // else the door's mode-act (shared with ROW 8 INPUT)
-                }
-        }
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(engaged ? .black : .white.opacity(0.8))
+            .lineLimit(1).minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(engaged ? amber : amber.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(engaged ? Color.clear : amber.opacity(0.4), lineWidth: 1.5))
+            .contentShape(Rectangle())
+            .onTapGesture { buildEngageDoor(i) }                     // TOGGLE the door's arm (unset until tapped)
     }
     // The door's MODE-ACT — engage/clear per its mode (shared by the strip's LATCH button + ROW 8's INPUT cell, Paul 2026-08-24).
     // Engage/release a REPLAY loop, and while it PLAYS, DISABLE OMNI so live input doesn't bleed alongside the loop (Paul
