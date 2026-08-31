@@ -8,6 +8,35 @@
 import SwiftUI
 import UIKit   // for UIColor (the old multi-touch ColumnHoldOverlay UIView that needed this is gone)
 
+// A PROPER piano keyboard in a Canvas (Paul 2026-08-31 — the flat all-full-height stripes read as illegible bars, not a
+// piano). White keys (C D E F G A B) fill the full height side-by-side; black keys (the 5 sharps) are narrower + ~62%
+// height, drawn ON TOP straddling the gap after their lower white neighbour. `tint(midi)` fills a lit key (nil = the base
+// key colour). Draws MIDI range [lo, hi). Shared by the AVOID pianos and the processor-header IN silhouette.
+func pianoKeysCanvas(lo: Int, hi: Int, tint: @escaping (Int) -> Color?) -> some View {
+    Canvas { ctx, size in
+        let whitePCs: Set<Int> = [0, 2, 4, 5, 7, 9, 11]
+        let whites = (lo..<hi).filter { whitePCs.contains(((($0 % 12) + 12) % 12)) }
+        let nw = max(1, whites.count)
+        let ww = size.width / CGFloat(nw)
+        let h = size.height
+        var xOf = [Int: Int]()                                             // white-key MIDI → its column index
+        for (i, m) in whites.enumerated() { xOf[m] = i }
+        for (i, m) in whites.enumerated() {                                // white keys, full height
+            let rect = CGRect(x: CGFloat(i) * ww, y: 0, width: max(1, ww - 0.7), height: h)
+            ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(.white.opacity(0.16)))
+            if let c = tint(m) { ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(c)) }
+        }
+        let bw = ww * 0.62, bh = h * 0.62                                   // black keys, narrower + shorter, on top
+        for m in lo..<hi {
+            let pc = (((m % 12) + 12) % 12)
+            guard !whitePCs.contains(pc), let wi = xOf[m - 1] else { continue }
+            let rect = CGRect(x: CGFloat(wi + 1) * ww - bw / 2, y: 0, width: bw, height: bh)
+            ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(Color(white: 0.07)))
+            if let c = tint(m) { ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(c)) }
+        }
+    }
+}
+
 // §4c INVISIBLE = FROZEN: set true at the root when the plugin view is hidden/backgrounded; every animated
 // TimelineView ORs it into its `paused:`, so the whole canvas freezes (the render engine is untouched). One
 // environment value → no parameter plumbing through the view tree.
@@ -718,8 +747,8 @@ struct ProcessorBox: View {
     var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
     var plainTitle: Bool = false                        // pop-up: show the type as a plain TITLE (no type-picker button)
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
-    var avoidInputNotes: [[Int]] = [[], [], [], []]     // AVOID editor: per-input held PITCHES (the LISTEN-TO reference), live from recvHeldNotes — drives the illustration piano
-    var avoidOutputNotes: [Int] = []                    // AVOID editor: the notes this chain is currently emitting (what makes it out) — the second piano
+    var avoidInputNotes: [[Int]] = [[], [], [], []]     // AVOID editor: per-input held PITCHES (recvHeldNotes; armed/scale doors report their pool) — feeds both illustration pianos
+    var avoidChainInputDoor: Int = -1                   // AVOID editor: the door feeding THIS chain (its receiver) — the notes the filter acts on; -1 = unknown
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
     @State private var laneReadout: String? = nil        // LANE READOUT (idea 18): the value floating while a lane bar is dragged
@@ -1414,7 +1443,12 @@ struct ProcessorBox: View {
                                     .overlay { if muted { Image(systemName: "speaker.slash.fill").font(.system(size: 9, weight: .black)).foregroundColor(.white) } }
                                     .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
                                     .contentShape(Rectangle()).onTapGesture {
-                                        setParam { var arr = $0.muteSlices ?? Array(repeating: 0, count: 8); while arr.count < 8 { arr.append(0) }; arr[step] ^= (1 << e); $0.muteSlices = arr }
+                                        setParam { p in
+                                            var arr: [Int] = p.muteSlices ?? Array(repeating: 0, count: 8)
+                                            while arr.count < 8 { arr.append(0) }
+                                            arr[step] ^= (1 << e)
+                                            p.muteSlices = arr
+                                        }
                                     }
                             }
                         }
@@ -1517,23 +1551,23 @@ struct ProcessorBox: View {
                 field("WHICH INPUT", \.avoidRefIndex) { seg(letters, sel: letters[idx]) { i in setParam { $0.avoidRefIndex = i } } }
             }
             field("MODE", \.avoidMode) { seg(["AVOID", "LOCK"], sel: md == .lock ? "LOCK" : "AVOID") { i in setParam { $0.avoidMode = (i == 0 ? .avoid : .lock) } } }
-            if md == .avoid {   // how wide the "clash" sphere is: just the exact notes, or also the semitones that rub against them
-                field("ALSO DODGE", \.avoidWhat) { seg(["NOTHING", "CLASHES", "MORE"], sel: [AvoidWhat.same: "NOTHING", .clash: "CLASHES", .clash2: "MORE"][p.avoidWhat ?? .same] ?? "NOTHING") { i in setParam { $0.avoidWhat = [AvoidWhat.same, .clash, .clash2][i] } } }
+            if md == .avoid {   // how wide the avoided zone is: just the exact notes, or also the semitones next to them (the ones that clash)
+                field("ALSO DODGE", \.avoidWhat) { seg(["NONE", "±1 SEMI", "±2 SEMIS"], sel: [AvoidWhat.same: "NONE", .clash: "±1 SEMI", .clash2: "±2 SEMIS"][p.avoidWhat ?? .same] ?? "NONE") { i in setParam { $0.avoidWhat = [AvoidWhat.same, .clash, .clash2][i] } } }
             }
             field("IF BLOCKED", \.avoidAction) { seg(["DROP", "MOVE"], sel: (p.avoidAction ?? .remove) == .move ? "MOVE" : "DROP") { i in setParam { $0.avoidAction = (i == 0 ? .remove : .move) } } }
-            // THE PIANO — what's happening, live. Top = the notes you're listening to (the reference); bottom = what makes it out.
-            let refClasses: Set<Int> = refIsInput ? Set((idx < avoidInputNotes.count ? avoidInputNotes[idx] : []).map { (($0 % 12) + 12) % 12 }) : []
-            let clashClasses: Set<Int> = clashSemis > 0 ? avoidWidenClasses(refClasses, semis: clashSemis) : []
-            let outClasses = Set(avoidOutputNotes.map { (($0 % 12) + 12) % 12 })   // octave-agnostic (the filter is by pitch class), so the piano is 2 octaves + lit by class
+            // THE PIANO — octave-agnostic (the filter works by pitch class), so two octaves lit by class. Top = the notes
+            // you're listening to (the reference); bottom = the PREDICTED output = this chain's input notes with the rule
+            // applied (NOT a board-wide feed — so "nothing to lock to" reads as empty, and the result stays in the input's key).
+            let pd = avoidPianoData(refIsInput: refIsInput, idx: idx, clashSemis: clashSemis, lock: md == .lock, move: (p.avoidAction ?? .remove) == .move)
+            let refLabel = md == .lock ? (refIsInput ? "LOCK TO — what INPUT \(letters[idx]) plays" : "LOCK TO — everything else playing")
+                                       : (refIsInput ? "AVOID — what INPUT \(letters[idx]) plays" : "AVOID — everything else playing")
             VStack(alignment: .leading, spacing: 5) {
-                if refIsInput {
-                    avoidKeyboard(md == .lock ? "LOCK TO — what INPUT \(letters[idx]) plays" : "AVOID — what INPUT \(letters[idx]) plays") { pc in
-                        if refClasses.contains(pc) { return refTint.opacity(0.9) }
-                        if clashClasses.contains(pc) { return refTint.opacity(0.32) }   // the widened clash halo
-                        return nil
-                    }
+                avoidKeyboard(refLabel) { pc in
+                    if pd.ref.contains(pc) { return refTint.opacity(0.9) }
+                    if pd.clash.contains(pc) { return refTint.opacity(0.32) }   // the widened clash halo
+                    return nil
                 }
-                avoidKeyboard("YOUR OUTPUT — what plays") { pc in outClasses.contains(pc) ? accent.opacity(0.92) : nil }
+                avoidKeyboard("OUTPUT — what plays") { pc in pd.out.contains(pc) ? accent.opacity(0.92) : nil }
             }
             Text(avoidBlurb(input: refIsInput, letter: letters[idx], lock: md == .lock, clash: clashSemis, move: (p.avoidAction ?? .remove) == .move))
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -1550,31 +1584,57 @@ struct ProcessorBox: View {
         for pc in classes { for d in 1...semis { out.insert((pc + d) % 12); out.insert((pc + 12 - (d % 12)) % 12) } }
         return out.subtracting(classes)   // the halo = only the NEW neighbours (the exact notes already read at full tint)
     }
-    // A compact TWO-OCTAVE keyboard for the AVOID illustration (the filter is octave-agnostic, so two octaves say it all):
-    // each key is filled by `tint(pitchClass)` (nil = unlit), over a faint black/white key backdrop for orientation.
+    // The PREDICTED output pitch classes = this chain's input notes with the AVOID/LOCK rule applied. Mirrors keyFilterNote
+    // (Derivations) exactly, on pitch classes: LOCK keeps only the reference (empty ⇒ nothing) · AVOID drops the blocked set
+    // (empty ⇒ everything) · MOVE snaps a blocked note to the nearest legal class (down ties before up), else it's dropped.
+    private func avoidPredict(_ chainIn: Set<Int>, blocked: Set<Int>, lock: Bool, refOnly: Set<Int>, move: Bool) -> Set<Int> {
+        let empty = lock ? refOnly.isEmpty : blocked.isEmpty
+        let allowed: (Int) -> Bool = lock ? { refOnly.contains($0) } : { !blocked.contains($0) }
+        var out = Set<Int>()
+        for pc in chainIn {
+            if empty { if !lock { out.insert(pc) }; continue }   // refMask==0: LOCK admits nothing · AVOID excludes nothing
+            if allowed(pc) { out.insert(pc) }
+            else if move, let s = avoidSnapClass(pc, allowed) { out.insert(s) }
+        }
+        return out
+    }
+    private func avoidSnapClass(_ pc: Int, _ allowed: (Int) -> Bool) -> Int? {
+        for d in 1...6 { let down = ((pc - d) % 12 + 12) % 12; if allowed(down) { return down }; let up = (pc + d) % 12; if allowed(up) { return up } }
+        return nil
+    }
+    // The AVOID illustration pianos' data, computed OUTSIDE the ViewBuilder (keeps typeParams' type-check cheap): the
+    // reference classes (what's avoided/locked-to) · the clash halo · the predicted output classes.
+    private func avoidPianoData(refIsInput: Bool, idx: Int, clashSemis: Int, lock: Bool, move: Bool) -> (ref: Set<Int>, clash: Set<Int>, out: Set<Int>) {
+        func classesOf(_ d: Int) -> Set<Int> {
+            guard d >= 0, d < avoidInputNotes.count else { return [] }
+            return Set(avoidInputNotes[d].map { (($0 % 12) + 12) % 12 })
+        }
+        var ref = Set<Int>()
+        if refIsInput { ref = classesOf(idx) }
+        else { for d in 0..<min(4, avoidInputNotes.count) where d != avoidChainInputDoor { ref.formUnion(classesOf(d)) } }   // EVERYTHING = every OTHER input
+        let clash = clashSemis > 0 ? avoidWidenClasses(ref, semis: clashSemis) : []
+        let blocked = ref.union(clash)
+        let chainIn = classesOf(avoidChainInputDoor)                          // the notes actually feeding this chain (a scale door reports its pool)
+        let out = avoidPredict(chainIn, blocked: blocked, lock: lock, refOnly: ref, move: move)
+        return (ref, clash, out)
+    }
+    // A compact TWO-OCTAVE piano for the AVOID illustration (the filter is octave-agnostic, so two octaves say it all):
+    // `tint(pitchClass 0-11)` fills a lit key. Drawn as a real keyboard via the shared pianoKeysCanvas (C4..C6).
     private func avoidKeyboard(_ label: String, _ tint: @escaping (Int) -> Color?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.secondary)
-            Canvas { ctx, size in
-                let n = 24, bw = size.width / CGFloat(n)   // two octaves = 24 keys
-                for s in 0..<n {
-                    let pc = s % 12
-                    let isBlack = [1, 3, 6, 8, 10].contains(pc)
-                    let rect = CGRect(x: CGFloat(s) * bw, y: 0, width: max(1, bw - 0.4), height: size.height)
-                    ctx.fill(Path(rect), with: .color(.white.opacity(isBlack ? 0.05 : 0.11)))
-                    if let c = tint(pc) { ctx.fill(Path(rect), with: .color(c)) }
-                }
-            }
-            .frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
+            pianoKeysCanvas(lo: 60, hi: 84) { midi in tint((((midi % 12) + 12) % 12)) }   // C4..C6 = 2 octaves
+                .frame(height: 34)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.28)))
         }
     }
     // The plain-language one-liner under the AVOID/LOCK controls.
     private func avoidBlurb(input: Bool, letter: String, lock: Bool, clash: Int, move: Bool) -> String {
-        let src = input ? "INPUT \(letter)" : "everything currently playing"
-        let fix = move ? "moved to the nearest safe note" : "removed"
-        if lock { return "LOCK — plays only the notes \(src) is playing. Point INPUT at a scale channel to stay in its key; out-of-key notes are \(fix)." }
-        let sphere = clash == 0 ? "the exact notes \(src) plays" : (clash == 1 ? "\(src)'s notes and the semitones that clash with them" : "\(src)'s notes and the two semitones either side")
+        let src = input ? "INPUT \(letter)" : "everything else playing"
+        // MOVE snaps chromatically to the nearest free note, which can land OUT of key; DROP always keeps you in the input's key.
+        let fix = move ? "moved to the nearest free note (can be out of key)" : "dropped"
+        if lock { return "LOCK — plays only the notes \(src) is playing. Point INPUT at a scale channel to stay in its key; anything else is \(fix)." }
+        let sphere = clash == 0 ? "the exact notes \(src) plays" : (clash == 1 ? "\(src)'s notes and the semitone either side (the ones that clash)" : "\(src)'s notes and the two semitones either side")
         return "AVOID — your notes stay clear of \(sphere); any that land there are \(fix)."
     }
 

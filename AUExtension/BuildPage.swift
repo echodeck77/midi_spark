@@ -4137,22 +4137,12 @@ extension DiagView {
         case .random:        return Int(splitmix64Mix(UInt64(i) &+ 0x9E3779B9) % UInt64(cyc))
         }
     }
-    // The IN silhouette: a compact C1–C7 keyboard (black keys fainter for orientation), held notes filled the colour hue.
+    // The IN silhouette: a compact C1–C7 piano (proper white/black keys), held notes filled the colour hue.
     private func buildInKeyboard(_ held: [Int], hue: Color) -> some View {
-        let lo = 24, hi = 96   // C1..C7 — covers the usual playing range; out-of-range notes simply don't light (v1)
-        return Canvas { ctx, size in
-            let n = hi - lo
-            let bw = size.width / CGFloat(n)
-            for s in 0..<n {
-                let midi = lo + s
-                let isBlack = [1, 3, 6, 8, 10].contains(((midi % 12) + 12) % 12)
-                let rect = CGRect(x: CGFloat(s) * bw, y: 0, width: max(1, bw - 0.4), height: size.height)
-                ctx.fill(Path(rect), with: .color(.white.opacity(isBlack ? 0.05 : 0.11)))
-                if held.contains(midi) { ctx.fill(Path(rect), with: .color(hue)) }
-            }
-        }
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
+        let set = Set(held)
+        return pianoKeysCanvas(lo: 24, hi: 96) { midi in set.contains(midi) ? hue : nil }   // C1..C7
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
     }
     // The OUT mini-roll: emitted note-ons drift right→left over ~2.5s, lane = pitch, opacity by velocity + age. A "—" when
     // idle. TOUCH-TO-DIFF (idea 24): while a control is being edited, the notes the NEW settings produce (born after the
@@ -4218,15 +4208,8 @@ extension DiagView {
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
             onMacro: nil, plainTitle: true, showSlotChrome: false,
-            avoidInputNotes: recvHeldNotes.map { $0.map(Int.init) },   // AVOID piano: per-input held notes (the LISTEN-TO reference) — live while the editor is open
-            avoidOutputNotes: buildAvoidOutputNotes())                 // AVOID piano: what this chain is emitting right now
-    }
-
-    // The notes this chain is currently emitting, for the AVOID editor's "YOUR OUTPUT" keyboard — recent buildOutRoll marks
-    // (the OUT truth-strip feed, board-wide = this chain's output while auditioning). Empty until you press ▶ / play.
-    private func buildAvoidOutputNotes() -> [Int] {
-        let now = Date()
-        return Array(Set(buildOutRoll.filter { now.timeIntervalSince($0.born) < 0.6 }.map { Int($0.note) }))
+            avoidInputNotes: recvHeldNotes.map { $0.map(Int.init) },   // AVOID piano: per-input held notes (armed/scale doors report their pool) — live while the editor is open
+            avoidChainInputDoor: buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver)   // the door feeding THIS chain → the OUTPUT piano predicts from its notes
     }
 
     // BUILD chain edits — colour-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
