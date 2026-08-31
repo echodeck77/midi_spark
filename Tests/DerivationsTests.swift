@@ -450,6 +450,32 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(p.srcAscending(0, filter: 5, cableMask: 0b0010), 64)  // channel 5 + cable 2
     }
 
+    // HOLD note-identity (Paul 2026-08-31): admittedMask must expose the held NOTE SET (filtered) so HOLD can tell a same-size
+    // chord SWAP from a stable chord — a difference the note COUNT hides.
+    func testAdmittedMaskExposesTheNoteSetByIdentity() {
+        let a = NotePool()                                                  // notes < 64 → all in the LO word
+        for n: UInt8 in [48, 52, 55] { a.noteOn(n, velocity: 100, channel: 0, cable: 1) }
+        a.rebuildSorted()
+        let (alo, _) = a.admittedMask(chanMask: 0xFFFF, cableMask: 0b1111)
+        XCTAssertEqual(alo, (UInt64(1) << 48) | (UInt64(1) << 52) | (UInt64(1) << 55))
+        // A SAME-SIZE swap (48,52,55 → 50,53,57): same count, DIFFERENT set → the masks differ (count alone would miss it).
+        let b = NotePool()
+        for n: UInt8 in [50, 53, 57] { b.noteOn(n, velocity: 100, channel: 0, cable: 1) }
+        b.rebuildSorted()
+        let (blo, _) = b.admittedMask(chanMask: 0xFFFF, cableMask: 0b1111)
+        XCTAssertNotEqual(alo, blo)
+        XCTAssertNotEqual(alo & ~blo, 0)   // notes removed (48,52,55 not in b)
+        XCTAssertNotEqual(blo & ~alo, 0)   // notes added   (50,53,57 not in a)
+        // A note ≥ 64 lands in the HI word.
+        let h = NotePool(); h.noteOn(72, velocity: 100, channel: 0, cable: 1); h.rebuildSorted()
+        let (hlo, hhi) = h.admittedMask(chanMask: 0xFFFF, cableMask: 0b1111)
+        XCTAssertEqual(hlo, 0); XCTAssertEqual(hhi, UInt64(1) << (72 - 64))
+        // The CHANNEL/CABLE filter is honoured — a note on an excluded cable is absent.
+        let c = NotePool(); c.noteOn(40, velocity: 100, channel: 0, cable: 2); c.rebuildSorted()
+        XCTAssertEqual(c.admittedMask(chanMask: 0xFFFF, cableMask: 0b0001).0, 0)          // cable 2 excluded by a cable-1 mask
+        XCTAssertEqual(c.admittedMask(chanMask: 0xFFFF, cableMask: 0b0010).0, UInt64(1) << 40)
+    }
+
     // GENERATORS (user 2026-08-08) — the pure pattern derivations.
     func testEuclidPatternSpreadsKHitsEvenly() {
         XCTAssertEqual(euclidPattern(pulses: 3, steps: 8).map { $0 ? 1 : 0 }, [1, 0, 0, 1, 0, 0, 1, 0], "tresillo: hits at 0,3,6")

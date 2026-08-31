@@ -540,6 +540,19 @@ final class NotePool {
         }
         rebuildSorted()
     }
+    /// The 128-bit MASK of admitted notes (lo = notes 0…63, hi = 64…127), filtered exactly like `captureFiltered`. Used by
+    /// HOLD to detect a NEW chord by note IDENTITY (added/removed notes) rather than count — so a same-size swap or a
+    /// within-block release+restrike is caught. (Paul 2026-08-31.)
+    func admittedMask(chanMask: UInt16, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127) -> (UInt64, UInt64) {
+        var lo: UInt64 = 0, hi: UInt64 = 0
+        for i in 0..<count {
+            let note = sorted[i]
+            if note >= noteLo && note <= noteHi && matchesMask(note, chanMask, cableMask) {
+                if note < 64 { lo |= UInt64(1) << UInt64(note) } else { hi |= UInt64(1) << UInt64(note - 64) }
+            }
+        }
+        return (lo, hi)
+    }
     func latchAddStep(from live: NotePool, chanMask: UInt16, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127, prevHeld: inout [Bool]) {
         for n in 0..<128 {
             let note = UInt8(n)

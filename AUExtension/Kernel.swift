@@ -253,8 +253,9 @@ final class Kernel {
     // "new chord" signal is NOT silence (which a sustained note / restrike breaks) but the held set GROWING right after a
     // RELEASE: notes-released → arm a replace · next growth → replace with the current live set · further growth in the same
     // gesture → union (staggered onset). A whole-chord restrike (release→regrow) replaces with the SAME chord = no drop.
-    private var holdPrevCount = [Int](repeating: 0, count: 4)          // previous live note count per door
-    private var holdReleasing = [Bool](repeating: true, count: 4)      // a release happened since the last capture → the next growth is a NEW chord (true at arm so the first press replaces)
+    private var holdLiveLo = [UInt64](repeating: 0, count: 4)          // previous live NOTE SET per door (lo = notes 0…63)
+    private var holdLiveHi = [UInt64](repeating: 0, count: 4)          // (hi = notes 64…127) — compared by IDENTITY so a same-size swap is caught
+    private var holdReleasing = [Bool](repeating: true, count: 4)      // a release happened since the last capture → the next ADD is a NEW chord (true at arm so the first press replaces)
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
     private func updateLatchedPools() {
         guard effectiveLatchMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed (incl. PIANO) now or before
@@ -265,7 +266,7 @@ final class Kernel {
             if isArmed && !wasArmed {
                 latchedPools[i].reset()                                   // fresh arm → start empty (no stale chord)
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
-                holdReleasing[i] = true; holdPrevCount[i] = 0            // ...and the HOLD gesture edge (first press after arm REPLACES)
+                holdReleasing[i] = true; holdLiveLo[i] = 0; holdLiveHi[i] = 0   // ...and the HOLD gesture edge (first press after arm REPLACES)
             }
             guard isArmed else { continue }
             if (replayMask & bit != 0 && replayEngagedMask & bit != 0) || (fileMask & bit != 0) {
@@ -311,26 +312,27 @@ final class Kernel {
                 latchedPools[i].latchAddStep(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                              noteLo: rLo, noteHi: rHi, prevHeld: &latchPrevHeld[i])
             } else {
-                // HOLD (CHORD): capture the last chord. A NEW chord = the held set GROWS right after a RELEASE → REPLACE.
-                // Still forming the same chord (grows without a preceding release) → UNION (so a rolled/staggered chord builds
-                // up; "press three, only two hold"). Notes released → arm the next growth as a new chord, but KEEP the frozen
-                // set. This is robust to a sustained note re-striking under the chord (the regrow replaces with the same set —
-                // no dropped chord) where the old silence-based test failed. (Paul 2026-08-31.)
-                let liveCount = pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
-                                              velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi)
-                if liveCount > holdPrevCount[i] {                        // the held set GREW
-                    if holdReleasing[i] {                               // ...just after a release → a NEW chord → REPLACE
+                // HOLD (CHORD) — by NOTE IDENTITY (Paul 2026-08-31, count was too coarse): compare the live NOTE SET to last
+                // render. A RELEASE (a note went off) arms "the next new note is a new chord". An ADD right after a release
+                // (incl. the SAME render, e.g. a fast swap or a within-block release+restrike where the count is unchanged) →
+                // REPLACE the frozen pool with the current live set. An ADD with no release (still forming) → UNION (staggered
+                // chord builds up; "press three, only two hold"). A pure release keeps the frozen set. A note-for-note restrike
+                // of the SAME chord (no net add/remove) → nothing → held chord survives.
+                let (clo, chi) = pool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                let hasRemoved = (holdLiveLo[i] & ~clo) != 0 || (holdLiveHi[i] & ~chi) != 0   // a held note went off
+                let hasAdded   = (clo & ~holdLiveLo[i]) != 0 || (chi & ~holdLiveHi[i]) != 0   // a new note came on
+                if hasRemoved { holdReleasing[i] = true }
+                if hasAdded {
+                    if holdReleasing[i] {                               // a new note AFTER a release → a NEW chord → REPLACE
                         latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                                         noteLo: rLo, noteHi: rHi)
                         holdReleasing[i] = false
-                    } else {                                            // ...still forming the same chord → UNION (staggered onset)
+                    } else {                                            // still forming the same chord → UNION (never shrink)
                         latchedPools[i].mergeFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                                       noteLo: rLo, noteHi: rHi)
                     }
-                } else if liveCount < holdPrevCount[i] {                // notes RELEASED → the gesture is ending; the next growth is a new chord (keep the frozen set)
-                    holdReleasing[i] = true
                 }
-                holdPrevCount[i] = liveCount
+                holdLiveLo[i] = clo; holdLiveHi[i] = chi
             }
         }
         // ---- PASS 2: THE KEY FILTER (ratified §3) — every armed door's pool is filtered by a reference door's PITCH CLASSES

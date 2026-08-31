@@ -1350,7 +1350,7 @@ extension DiagView {
                     } else {
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
                     }
-                }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of the boxes) — Paul 2026-08-31
+                }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedColourChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
                 Spacer(minLength: 8)
                 AnyView(buildEmitterToggles(castW: castW))                   // MIDI OUT A–D — pinned at the interior BOTTOM (the grid's last row line)
             }.frame(height: m.interiorH)
@@ -2585,9 +2585,10 @@ extension DiagView {
     // boxes, so they flow through the connectors + gaps and vanish BEHIND each box — never drawn over the box labels (Paul
     // 2026-08-31: the additive comets were bleeding through the text). Each output note journeys the full path over `transit`
     // beats (HALVED speed) with a tail ∝ its duration — timed to the real note rhythm.
-    @ViewBuilder private func buildChainFlowOverlay(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color) -> some View {
+    @ViewBuilder private func buildChainFlowOverlay(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color, chain: [ProcessorSlot]) -> some View {
         let stages = buildChainStages
         let boxW = (blockW - gap) / 2                                          // 2 columns of boxes
+        let populated = (0..<8).map { $0 < chain.count && !buildIsEmptySlot(chain[$0]) }   // only POPULATED (opaque) boxes clip the comets — EMPTY boxes are transparent, the comet flows through (Paul 2026-08-31)
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
             Canvas { ctx, _ in
                 let cr = max(3.5, min(boxH * 0.16, sideW * 0.42))
@@ -2624,10 +2625,11 @@ extension DiagView {
                     }
                     return P.last!
                 }
-                // CLIP OUT the visible boxes (0.8 of the cell, centred) → comets never draw over a box or its label.
+                // CLIP OUT only the POPULATED boxes (0.8 of the cell, centred) → comets vanish behind a real processor's opaque
+                // face but flow THROUGH the transparent empty boxes (Paul 2026-08-31).
                 var boxesPath = Path()
-                for i in 0..<8 { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
-                ctx.clip(to: boxesPath, options: .inverse)
+                for i in 0..<8 where populated[i] { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
+                if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
                 ctx.blendMode = .plusLighter                                   // ADDITIVE glow in the connectors + gaps
                 let transit = 3.0 / recBeats                                   // ~3 beats to cross (HALVED speed — Paul 2026-08-31)
                 for note in notes {
@@ -2636,7 +2638,7 @@ extension DiagView {
                     let head = pointAt(g)
                     let r = 1.4 + 2.6 * CGFloat(note.vel)
                     let tailFrac = min(1.0, note.dur / transit)
-                    let steps = 6
+                    let steps = max(6, Int(tailFrac * 24))                     // FINE sampling — a long tail follows the zig-zag PATH instead of cutting corners (Paul 2026-08-31 "redrawing from the wrong line position")
                     for k in 0..<steps {
                         let f0 = g - tailFrac * Double(k + 1) / Double(steps), f1 = g - tailFrac * Double(k) / Double(steps)
                         guard f1 >= 0 else { continue }
