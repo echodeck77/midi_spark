@@ -883,7 +883,18 @@ extension DiagView {
                 buildConfigButton("ROW 8")    { buildRow8EditSlot = max(0, buildRow8EditSlot); buildRow8EditOpen = true }   // the ROW 8 action-cell authoring page (Paul 2026-08-24: edit lives in the header, after RACK)
             }
             buildReelButton()                                   // RECORD — top-right (Paul 2026-08-23); handles the pass-browser hide + share anchor
+            buildStopAllButton()                                // STOP EVERYTHING — far top-right (Paul 2026-08-31)
         }
+    }
+    // The global STOP — stops every playing voice (chain audition · part · every play column). Top-right of the header.
+    @ViewBuilder private func buildStopAllButton() -> some View {
+        let anyPlaying = buildDisplayVoice != .none || buildPlayColOn.contains(true)
+        Image(systemName: "stop.fill").font(.system(size: 13, weight: .black))
+            .foregroundColor(anyPlaying ? .white : buildDim)
+            .frame(width: 34, height: 30)
+            .background(RoundedRectangle(cornerRadius: 6).fill(anyPlaying ? buildPink : buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildPink.opacity(anyPlaying ? 0.0 : 0.4), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { buildStopAllOnTransportStop() }
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -2640,37 +2651,44 @@ extension DiagView {
                 // THE PIVOT box — the last rhythm-creating processor (arp/ratchet/…); before it the chord is still held, from it
                 // the notes are rhythmic. No such processor ⇒ the whole chain is a held-chord line to the wire.
                 let pivot: Int = buildRhythmDriverSlot(chain).map { min($0 + 2, nSeg) } ?? nSeg
-                // INPUT LINE (unclipped) circle → pivot: the held chord, one continuous line.
+                func subPoint(_ from: Int, _ f: Double) -> CGPoint {          // a point at fraction f along the sub-path P[from … end]
+                    var lens = [CGFloat](); var tot: CGFloat = 0
+                    for j in from..<nSeg { let l = max(0.001, hypot(P[j + 1].x - P[j].x, P[j + 1].y - P[j].y)); lens.append(l); tot += l }
+                    guard !lens.isEmpty else { return P[min(from, P.count - 1)] }
+                    var dist = CGFloat(max(0, min(1, f))) * tot
+                    for i in 0..<lens.count {
+                        if dist <= lens[i] || i == lens.count - 1 { let t = dist / lens[i], a = P[from + i], b = P[from + i + 1]; return CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t) }
+                        dist -= lens[i]
+                    }
+                    return P.last!
+                }
+                // CLIP out the POPULATED boxes for BOTH the line and the comets → nothing ever draws over a processor's opaque
+                // face or its label (Paul 2026-08-31: the flow was showing through the box text). Flows through the gaps + empties.
+                var boxesPath = Path()
+                for i in 0..<8 where populated[i] { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
+                if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
+                // INPUT LINE circle → pivot: the held chord, one solid line (clipped out of the boxes).
                 if !buildChainLiveChord.isEmpty {
                     var linePath = Path(); linePath.move(to: P[0]); for j in 1...pivot { linePath.addLine(to: P[j]) }
                     ctx.stroke(linePath, with: .color(hue.opacity(0.72)), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
                 }
-                // OUTPUT COMETS (clipped out of the boxes) from the pivot to the wire — the REAL emitted notes, each flowing over
-                // ONE STEP from the moment it actually fired (live − note.beat).
+                // OUTPUT COMETS from the pivot to the wire — the REAL emitted notes, each flowing over ONE STEP from the moment it
+                // actually fired (live − note.beat).
                 guard pivot < nSeg, !buildFocusNotes.isEmpty else { return }
-                var subLen = [CGFloat](); var subTotal: CGFloat = 0
-                for j in pivot..<nSeg { let l = max(0.001, hypot(P[j + 1].x - P[j].x, P[j + 1].y - P[j].y)); subLen.append(l); subTotal += l }
-                func subPoint(_ f: Double) -> CGPoint {
-                    var dist = CGFloat(max(0, min(1, f))) * subTotal
-                    for i in 0..<subLen.count {
-                        if dist <= subLen[i] || i == subLen.count - 1 { let t = dist / subLen[i], a = P[pivot + i], b = P[pivot + i + 1]; return CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t) }
-                        dist -= subLen[i]
-                    }
-                    return P.last!
-                }
-                var boxesPath = Path()
-                for i in 0..<8 where populated[i] { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
-                if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
                 ctx.blendMode = .plusLighter
                 let transit = max(0.06, stepBeats)                            // beats to cross the output region (one step)
                 for note in buildFocusNotes {
                     let age = live - note.beat
                     guard age >= 0, age <= transit else { continue }
                     let prog = age / transit
-                    let head = subPoint(prog)
+                    let head = subPoint(pivot, prog)
                     let r = 1.3 + 2.4 * CGFloat(note.vel)
-                    var tp = Path(); tp.move(to: subPoint(max(0, prog - 0.14))); tp.addLine(to: head)
-                    ctx.stroke(tp, with: .color(hue.opacity(0.3 * note.vel)), style: StrokeStyle(lineWidth: r, lineCap: .round))
+                    let steps = 5                                             // FINE tail — follows the zig-zag path, never cuts a corner (Paul 2026-08-31)
+                    for k in 0..<steps {
+                        let p0 = max(0, prog - 0.16 * Double(k + 1) / Double(steps)), p1 = max(0, prog - 0.16 * Double(k) / Double(steps))
+                        var s = Path(); s.move(to: subPoint(pivot, p0)); s.addLine(to: subPoint(pivot, p1))
+                        ctx.stroke(s, with: .color(hue.opacity((0.32 * note.vel) * (1 - Double(k) / Double(steps)))), style: StrokeStyle(lineWidth: r, lineCap: .round))
+                    }
                     ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * note.vel)))
                 }
             }
