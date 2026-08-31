@@ -1361,8 +1361,11 @@ extension DiagView {
         // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
         // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
         // PAIRING: the selected-colour box wears the focused machine's hue — or the SELECT running-cell light grey (boxHue).
-        // Static border (the playing GLOW lives only on the play button now, Paul 2026-08-30).
-        .overlay(Rectangle().stroke(boxHue.opacity(0.85), lineWidth: 2.5))       // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
+        // GLOWING border (Paul 2026-08-31): the selected-colour's machine box (its toggles · MIDI chain · button box) wears a
+        // soft hue glow around its frame so the current colour reads at a glance.
+        .overlay(Rectangle().stroke(boxHue.opacity(0.9), lineWidth: 2.5)
+            .shadow(color: boxHue.opacity(0.75), radius: 5)
+            .shadow(color: boxHue.opacity(0.5), radius: 9))                       // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
@@ -1508,13 +1511,24 @@ extension DiagView {
     @ViewBuilder func roomsPlayNavSliver(width: CGFloat, height: CGFloat) -> some View {
         roomsDoorBar(to: .play)                                             // → PLAY = INDIGO (retires cyan)
             .frame(width: width, height: height)
-            .overlay(HStack(spacing: 4) { Image(systemName: "chevron.up"); Text("PLAY") }.font(.system(size: min(11, height * 0.7), weight: .heavy, design: .monospaced)).foregroundColor(roomsDoorInk(to: .play)))
+            .overlay(HStack(spacing: 5) { Image(systemName: "chevron.up"); Text("PLAY GRID"); Image(systemName: "chevron.up") }.font(.system(size: min(11, height * 0.7), weight: .heavy, design: .monospaced)).foregroundColor(roomsDoorInk(to: .play)))   // a chevron on EACH side (Paul 2026-08-31)
             .contentShape(Rectangle()).onTapGesture { roomsRoom = .play }
     }
     @ViewBuilder func roomsSeamSliver(to room: Room, chevron: String, width: CGFloat, height: CGFloat) -> some View {
+        // The DESTINATION grid's name, written VERTICALLY, with a left/right chevron pointing to it (Paul 2026-08-31):
+        // on the SELECT page the seam → PART ("PART GRID", far RIGHT, ▸); on the PART page → SELECT ("SELECT GRID", far LEFT, ◂).
+        let label = room == .part ? "PART GRID" : (room == .select ? "SELECT GRID" : room.rawValue)
+        let toRight = room == .part
+        let ink = roomsDoorInk(to: room)
         roomsDoorBar(to: room)                                              // → its DESTINATION's signature
             .frame(width: width, height: height)
-            .overlay(Text(chevron).font(.system(size: min(13, width * 0.7), weight: .heavy)).foregroundColor(roomsDoorInk(to: room)))
+            .overlay(
+                VStack(spacing: 6) {
+                    Image(systemName: toRight ? "chevron.right" : "chevron.left").font(.system(size: min(13, width * 0.6), weight: .heavy))
+                    Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).fixedSize()
+                        .rotationEffect(.degrees(90)).frame(width: width, height: min(height * 0.75, 130))   // VERTICAL text
+                }.foregroundColor(ink)
+            )
             .contentShape(Rectangle()).onTapGesture { roomsRoom = room }
     }
     // THE SEAM COLUMN (Paul 2026-08-28) — the part↔select nav, relocated to the FAR side of the page (opposite the MIDI
@@ -2632,20 +2646,36 @@ extension DiagView {
                 if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
                 ctx.blendMode = .plusLighter                                   // ADDITIVE glow in the connectors + gaps
                 let transit = 3.0 / recBeats                                   // ~3 beats to cross (HALVED speed — Paul 2026-08-31)
-                for note in notes {
-                    var e = lp - note.onset; if e < 0 { e += 1 }
-                    let g = e / transit; guard g >= 0, g <= 1 else { continue }
-                    let head = pointAt(g)
-                    let r = 1.4 + 2.6 * CGFloat(note.vel)
-                    let tailFrac = min(1.0, note.dur / transit)
-                    let steps = max(6, Int(tailFrac * 24))                     // FINE sampling — a long tail follows the zig-zag PATH instead of cutting corners (Paul 2026-08-31 "redrawing from the wrong line position")
+                func dot(_ head: CGPoint, _ r: CGFloat, _ vel: Double) {
+                    ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * vel)))
+                }
+                func tail(_ g: Double, _ tf: Double, _ r: CGFloat, _ vel: Double, _ alpha: Double) {
+                    let steps = max(4, Int(tf * 24))                            // FINE sampling — follows the zig-zag PATH instead of cutting corners (Paul 2026-08-31)
                     for k in 0..<steps {
-                        let f0 = g - tailFrac * Double(k + 1) / Double(steps), f1 = g - tailFrac * Double(k) / Double(steps)
+                        let f0 = g - tf * Double(k + 1) / Double(steps), f1 = g - tf * Double(k) / Double(steps)
                         guard f1 >= 0 else { continue }
                         var seg = Path(); seg.move(to: pointAt(max(0, f0))); seg.addLine(to: pointAt(max(0, f1)))
-                        ctx.stroke(seg, with: .color(hue.opacity((0.45 * note.vel) * (1 - Double(k) / Double(steps)))), style: StrokeStyle(lineWidth: r, lineCap: .round))
+                        ctx.stroke(seg, with: .color(hue.opacity((alpha * vel) * (1 - Double(k) / Double(steps)))), style: StrokeStyle(lineWidth: r, lineCap: .round))
                     }
-                    ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * note.vel)))
+                }
+                for note in notes {
+                    let r = 1.4 + 2.6 * CGFloat(note.vel)
+                    var g0 = lp - note.onset; if g0 < 0 { g0 += 1 }; g0 /= transit
+                    if note.dur >= 0.5 {
+                        // SUSTAINED / HELD chord → a CONTINUOUS stream of heads flowing along the chain, NOT a single crossing
+                        // that shoots out once per loop (Paul 2026-08-31: a sustained chord read as 2× the input frequency).
+                        let heads = 4
+                        for m in 0..<heads {
+                            let gm = (g0 + Double(m) / Double(heads)).truncatingRemainder(dividingBy: 1.0)
+                            tail(gm, 0.07, r, note.vel, 0.35)
+                            dot(pointAt(gm), r, note.vel)
+                        }
+                    } else {
+                        // SHORT (arp / staccato) → a single comet + a duration-length tail, at the note rhythm.
+                        guard g0 >= 0, g0 <= 1 else { continue }
+                        tail(g0, min(1.0, note.dur / transit), r, note.vel, 0.45)
+                        dot(pointAt(g0), r, note.vel)
+                    }
                 }
             }
             .allowsHitTesting(false)
@@ -3755,22 +3785,8 @@ extension DiagView {
     // The velocity-meter fill when NO cell feeds this door but it IS receiving (a scale-door audition, or any input not on a
     // placed cell): light grey + transparency + a soft band drifting DOWNWARD. (Paul 2026-08-31, replaces the cyan fallback.)
     @ViewBuilder private func buildMeterNoFeedBand() -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-            // TEMPO-LOCKED downward sweep — one per 4 BEATS (÷4, Paul 2026-08-31), off the beat clock.
-            let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-            let phase = ((live / 4.0).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // 0→1 per 4 beats, downward
-            Canvas { ctx, size in
-                let gray = Color(white: 0.82)
-                ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: size.height)), with: .color(gray.opacity(0.16)))   // faint grey base
-                let bandH = size.height * 0.5
-                for k in [-1.0, 0.0] {                                             // the band + its wrap copy → seamless
-                    let y = (phase + k) * size.height
-                    ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: bandH)),
-                             with: .linearGradient(Gradient(colors: [gray.opacity(0), gray.opacity(0.5), gray.opacity(0)]),
-                                                   startPoint: CGPoint(x: 0, y: y), endPoint: CGPoint(x: 0, y: y + bandH)))
-                }
-            }
-        }
+        // STATIC light grey (Paul 2026-08-31: no animation for input not assigned to a colour) — a calm translucent fill.
+        Rectangle().fill(Color(white: 0.82).opacity(0.34))
     }
     @ViewBuilder private func buildReceiverFader(_ i: Int, letter: String) -> some View {
         let override = i < recvDragVel.count ? recvDragVel[i] : nil
@@ -4917,9 +4933,10 @@ extension DiagView {
                 let phase = raw < 0 ? raw + 1 : raw                      // 0…1 with the beat; 0 (real positions) when idle
                 Canvas { ctx, size in
                     let laneH = max(1.5, size.height * 0.11)
+                    let inset = size.height * 0.16                       // PADDING above + below the notes (Paul 2026-08-31)
                     for b in bars {
                         let w = max(1.5, (b.x1 - b.x0) * size.width)     // LENGTH
-                        let y = b.y * (size.height - laneH)              // PITCH (high = top)
+                        let y = inset + b.y * (size.height - laneH - 2 * inset)   // PITCH (high = top), inset from the cell edges
                         let base = ((b.x0 - phase).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // RIGHT→LEFT scroll with the beat (Paul 2026-08-31)
                         for k in (playing ? [-1.0, 0.0, 1.0] : [0.0]) {  // draw the note + its wrap copies while scrolling, so the flow is seamless either way
                             let rect = CGRect(x: (base + k) * size.width, y: y, width: w, height: laneH)
