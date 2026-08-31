@@ -151,9 +151,9 @@ extension DiagView {
             // in the middle · the EMITTER strip at the bottom. The machine takes a REDUCED metric so it fits between the strips
             // (it no longer rhymes with the grid rows — an accepted trade for the console-on-the-column layout).
             let stripH = 2 * m.ch + RoomsMetrics.gap                         // the strips are exactly TWO GRID CELLS tall (Paul 2026-08-30)
-            let mid = max(150, g.size.height - 2 * stripH - 12)
+            let mid = max(150, g.size.height - 2 * stripH - 12 - 6)          // −6 for the receiver strip's balancing top inset (below)
             VStack(spacing: 6) {
-                roomsColumnReceivers(height: stripH).frame(height: stripH)    // TOP — the 4 MIDI IN controls
+                roomsColumnReceivers(height: stripH).frame(height: stripH).padding(.top, 6)   // a top gap ABOVE the 4 receiver toggles = the 6pt gap BELOW them (to the machine box) — was flush at the top, Paul 2026-08-31
                 roomsMachineStrip(width: g.size.width, room: room, m: RoomsMetrics(height: mid)).frame(height: mid)   // MIDDLE — the machine, unchanged
                 roomsColumnEmitters(height: stripH).frame(height: stripH)     // BOTTOM — the 4 MIDI OUT controls
             }

@@ -4688,8 +4688,8 @@ extension DiagView {
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
                 // The drift ANIMATES only while the chain is actually PLAYING (Paul 2026-08-30 bug): gating on `sel` alone kept
                 // the fingerprint looping after STOP on "play this midi chain" (MIDI stopped, animation didn't) — reads as still running.
-                buildGridSelDriftFace(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), animated: sel && buildDisplayVoice == .chain, tint: rollTint)
-                    .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // DSP: only the SELECTED cell drifts; SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
+                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel && buildDisplayVoice == .chain, tint: rollTint)   // precise one-frame roll; scrolls L→R with the beat when auditioning (Paul 2026-08-31)
+                    .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
             }
             if sel {       // THE ACTIVE CELL — a breathing live frame (DARK on the light-grey SELECT cell, else white)
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
@@ -4701,6 +4701,33 @@ extension DiagView {
         .frame(width: w, height: h)
         .contentShape(Rectangle())
         .onTapGesture { if present { buildGridSelAudition(i) } }
+    }
+    // THE SELECT-CELL PIANO ROLL (Paul 2026-08-31 — replaces the looping drift on the SELECT grid CELLS only; the ferries
+    // keep buildGridSelDriftFace/buildNoteSweep). A PRECISE one-frame piano roll of the chain's real output (gridSelRollBars
+    // = an offline render → each note's start · LENGTH (x0→x1 = bar width) · PITCH lane · VELOCITY (opacity)). STATIC at the
+    // real note positions when idle; when the cell is auditioning it SCROLLS LEFT→RIGHT, beat-locked to the music (the same
+    // extrapolated beat the cell playheads use). Same colour scheme (the caller's `tint`).
+    @ViewBuilder private func buildGridSelPianoRoll(_ bars: [GridSelBar], playing: Bool, tint: Color) -> some View {
+        GeometryReader { g in
+            let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)   // one bar (8 steps) per full left→right sweep — the playhead cadence
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !playing || bars.isEmpty)) { tl in
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let raw = playing ? (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats : 0
+                let phase = raw < 0 ? raw + 1 : raw                      // 0…1, advances L→R with the beat; 0 (real positions) when idle
+                Canvas { ctx, size in
+                    let laneH = max(1.5, size.height * 0.11)
+                    for b in bars {
+                        let w = max(1.5, (b.x1 - b.x0) * size.width)     // LENGTH
+                        let y = b.y * (size.height - laneH)              // PITCH (high = top)
+                        let base = ((b.x0 + phase).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
+                        for k in (playing ? [0.0, -1.0] : [0.0]) {       // draw the note + its wrap copy while scrolling, so the flow is seamless
+                            let rect = CGRect(x: (base + k) * size.width, y: y, width: w, height: laneH)
+                            ctx.fill(Path(roundedRect: rect, cornerRadius: laneH / 2), with: .color(tint.opacity(0.35 + 0.55 * b.vel)))   // VELOCITY = opacity
+                        }
+                    }
+                }
+            }
+        }
     }
     // THE DRIFTING NOTE FACE (Paul 2026-08-26): notes scroll RIGHT→LEFT, looping — the same aesthetic as the part/play grid
     // cells (buildNoteSweep). Every present cell + row selector wears its chain's fingerprint drifting across it (a browse
