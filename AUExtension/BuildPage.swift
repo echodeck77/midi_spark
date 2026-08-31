@@ -1378,7 +1378,10 @@ extension DiagView {
     // narrow button with a top→bottom fill). Sits centred in its flank; tap = play/stop the chain (SELECT) or part (PART).
     @ViewBuilder func roomsVerticalPlay(_ room: Room, height: CGFloat) -> some View {
         let voice: BuildWorkshopVoice = room == .part ? .part : .chain
-        let active = buildDisplayVoice == voice
+        // If the SELECTED machine IS a play-ferry's chain, this button STARTS/STOPS THAT FERRY (its play column) — not a
+        // separate isolated chain audition. "This MIDI chain IS the one of the ferry button." (Paul 2026-08-31)
+        let ferryCol: Int? = room == .select ? buildSelectedPlayCol : nil
+        let active = ferryCol.map { $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? (buildDisplayVoice == voice)
         // STYLED LIKE THE PLAYING CELL (Paul 2026-08-30): the button wears the PLAYING cell's hue — the sequencer's active
         // cell on PART, the selected/auditioning colour on SELECT — with the same dark-stage + hue-frame + glow language a
         // ferry box uses in playing mode.
@@ -1406,7 +1409,10 @@ extension DiagView {
             .shadow(color: active ? hue.opacity(0.6) : .clear, radius: active ? 5 : 0)   // hue glow when playing (ferry-style)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)   // centre the square in its flank
             .contentShape(Rectangle())
-            .onTapGesture { buildRequestWorkshopVoice(active ? .none : voice) }
+            .onTapGesture {
+                if let pc = ferryCol { buildTogglePlayColumn(pc) }              // the ferry's OWN play column (start/stop the ferry)
+                else { buildRequestWorkshopVoice(active ? .none : voice) }      // else the chain audition
+            }
         }
         .frame(height: height)
     }
@@ -2494,8 +2500,10 @@ extension DiagView {
         }
         // §1 THE FLOW LINE (design 2026-08-17): the dotted thread draws ORDER (the numbers' old job) — door ┈▶ slot 0 ┈▶
         // … ┈▶ slot 7 ┈▶ wire, in chain order, with a TURN MARK at each row wrap (the boustrophedon made visible).
-        .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap, hue: hue))
-        .overlay(buildChainComets(boxW: boxW, boxH: boxH, gap: gap, hue: hue))   // NOTE COMETS along the chain (Paul 2026-08-31)
+        .background {                                                // BEHIND the boxes (Paul 2026-08-31: comets over the boxes strobed their alpha text)
+            buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap, hue: hue)
+            buildChainComets(boxW: boxW, boxH: boxH, gap: gap, hue: hue)   // NOTE COMETS — flow through the connectors, occluded by the box fills
+        }
         .coordinateSpace(name: "chainBlock")                        // DRAG-TO-REORDER: a stable space for the finger track + the floating ghost
         .overlay(alignment: .topLeading) { buildChainDragGhost(chain: chain, boxW: boxW, boxH: boxH, hue: hue) }
         .task(id: buildChainStructSig) { buildChainStages = buildChainStageSets(selectedColourChain()) }   // recompute each processor's real output when the chain changes
@@ -2529,31 +2537,37 @@ extension DiagView {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || stages.isEmpty)) { tl in
             Canvas { ctx, size in
                 func center(_ i: Int) -> CGPoint { CGPoint(x: CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2) }
-                var P: [CGPoint] = [CGPoint(x: 0, y: center(0).y)]                // DOOR entry (top row)
-                for i in 0..<8 { P.append(center(i)) }
-                P.append(CGPoint(x: size.width, y: center(7).y))                  // WIRE exit (bottom row)
-                let live = d.playing ? meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                                     : tl.date.timeIntervalSinceReferenceDate * 0.5   // idle drift when stopped
-                // THE TWO CIRCLES — the chain's start (door, A side) + end (wire, D side).
                 let cr = max(3.5, boxH * 0.16)
+                // The two ends INSET so the circles are FULLY visible (were half-clipped at x=0 / x=width). (Paul 2026-08-31)
+                var P: [CGPoint] = [CGPoint(x: cr + 1, y: center(0).y)]           // DOOR / start circle (top row)
+                for i in 0..<8 { P.append(center(i)) }
+                P.append(CGPoint(x: size.width - cr - 1, y: center(7).y))         // WIRE / end circle (bottom row)
+                // LOOP PHASE, beat-locked (~3-beat recording); frozen when the chain isn't the voice → "lift" when it stops.
+                let recBeats = 3.0
+                let playing = d.playing && buildDisplayVoice == .chain
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let lp = playing ? ((live / recBeats).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0) : -1
+                // THE TWO CIRCLES.
                 for end in [P.first!, P.last!] {
                     ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
                     ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
                 }
-                // COMETS — one per note in each segment's stage set, flowing along that segment.
+                guard playing else { return }   // no comets when the chain isn't sounding (the lift)
+                // COMETS — each note EVENT flows along its segment over its own DURATION (held = slow · arp = quick zips),
+                // appearing at its onset (the rhythm) and sized by velocity. So each segment shows that processor's real output.
                 for j in 0..<(P.count - 1) where j < stages.count {
-                    let a = P[j], b = P[j + 1], dots = stages[j]
-                    guard !dots.isEmpty else { continue }
+                    let a = P[j], b = P[j + 1]
                     let len = max(0.001, hypot(b.x - a.x, b.y - a.y))
                     let ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
-                    for (idx, dot) in dots.enumerated() {
-                        let off = Double(idx) / Double(dots.count)
-                        let ph = ((live + Double(j) * 0.03 + off).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
-                        let x = a.x + (b.x - a.x) * CGFloat(ph), y = a.y + (b.y - a.y) * CGFloat(ph)
-                        let r = 1.3 + 2.4 * CGFloat(dot.vel)
-                        let tail = 7 + 5 * CGFloat(dot.vel)
+                    for dot in stages[j] {
+                        var t = lp - dot.onset; if t < 0 { t += 1 }              // time since this note's onset (loop-wrapped)
+                        guard t <= dot.dur else { continue }                     // only while the note is sounding
+                        let prog = min(1.0, t / dot.dur)                          // 0…1 along the segment over the note's duration
+                        let x = a.x + (b.x - a.x) * CGFloat(prog), y = a.y + (b.y - a.y) * CGFloat(prog)
+                        let r = 1.2 + 2.3 * CGFloat(dot.vel)
+                        let tail = 6 + 6 * CGFloat(dot.vel)
                         var tp = Path(); tp.move(to: CGPoint(x: x - ux * tail, y: y - uy * tail)); tp.addLine(to: CGPoint(x: x, y: y))
-                        ctx.stroke(tp, with: .color(hue.opacity(0.2 * dot.vel)), style: StrokeStyle(lineWidth: r, lineCap: .round))
+                        ctx.stroke(tp, with: .color(hue.opacity(0.22 * dot.vel)), style: StrokeStyle(lineWidth: r, lineCap: .round))
                         ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.55 + 0.45 * dot.vel)))
                     }
                 }
@@ -4898,25 +4912,36 @@ extension DiagView {
 
 // One note of a GRID SELECTOR chain's piano-roll fingerprint — normalized 0…1 (x = time, y = pitch, w = gate).
 struct GridSelBar: Equatable { let x0: Double; let x1: Double; let y: Double; let vel: Double }
-// One note flowing through the chain as a comet: its pitch LANE (0 top … 1 bottom, normalised across the whole chain) +
-// velocity. Grouped per SEGMENT of the flow (index 0 = the input to slot 0 · index k = the OUTPUT of slot k−1). (Paul 2026-08-31)
-struct BuildChainDot: Equatable { let lane: Double; let vel: Double }
-// The chain's per-stage note SETS, computed offline: the source chord, then the real MIDI OUTPUT after each processor slot
-// (Dice.runRecorder on the chain PREFIX 1…8 — so `stages[k]` is exactly what leaves slot k−1). Lanes are normalised across
-// all stages so a note keeps its height as it flows. Empty/short chains pad with bypassed passthroughs. (Paul 2026-08-31)
+// One note EVENT flowing through the chain as a comet: its ONSET + DURATION (0…1 over the loop), pitch LANE (0 top …
+// 1 bottom, normalised across the whole chain) and velocity. Grouped per SEGMENT of the flow (index 0 = the input to
+// slot 0 · index k = the OUTPUT of slot k−1). So a held chord = a long-duration comet, an arp = short rhythmic ones. (Paul 2026-08-31)
+struct BuildChainDot: Equatable { let onset: Double; let dur: Double; let lane: Double; let vel: Double }
+// The chain's per-stage note EVENTS, computed offline: the source chord, then the real MIDI OUTPUT after each processor slot
+// (Dice.runRecorder on the chain PREFIX 1…8 — so `stages[k]` is exactly what leaves slot k−1), each note paired on→off for
+// its onset + duration + velocity. Lanes are normalised across all stages so a note keeps its height as it flows. Empty/
+// short chains pad with bypassed passthroughs. (Paul 2026-08-31)
 func buildChainStageSets(_ chain: [ProcessorSlot]) -> [[BuildChainDot]] {
     guard !chain.isEmpty else { return [] }
     var padded = chain
     while padded.count < 8 { var s = ProcessorSlot(type: .passgate); s.bypassed = true; padded.append(s) }
-    var raw: [[(Int, Double)]] = [[(60, 1.0), (64, 1.0), (67, 1.0)]]   // segment 0 = the input chord (C-E-G, the recorder's source)
+    // Each stage → (note, onset01, end01, vel01). Stage 0 = the input chord, held across the whole loop.
+    var raw: [[(note: Int, on: Double, end: Double, vel: Double)]] = [[(60, 0, 1, 1), (64, 0, 1, 1), (67, 0, 1, 1)]]
     for k in 1...8 {
-        var byNote: [Int: Double] = [:]
-        for on in Dice.runRecorder(Array(padded.prefix(k))).ons where on.cable == 1 { byNote[Int(on.note)] = max(byNote[Int(on.note)] ?? 0, Double(on.vel) / 127.0) }
-        raw.append(byNote.map { ($0.key, $0.value) }.sorted { $0.0 < $1.0 })
+        let rec = Dice.runRecorder(Array(padded.prefix(k)))
+        let ons = rec.ons.filter { $0.cable == 1 }
+        let maxS = Double(max(Int64(1), max(ons.map { $0.sample }.max() ?? 1, rec.offs.map { $0.sample }.max() ?? 1)))
+        var ev: [(note: Int, on: Double, end: Double, vel: Double)] = []
+        for on in ons {
+            let off = rec.offs.filter { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }.map { $0.sample }.min()
+            let o = Double(on.sample) / maxS
+            let e = off.map { Double($0) / maxS } ?? min(1.0, o + 0.06)
+            ev.append((Int(on.note), o, max(o + 0.02, min(1.0, e)), Double(on.vel) / 127.0))
+        }
+        raw.append(ev)
     }
-    let all = raw.flatMap { $0.map { $0.0 } }
+    let all = raw.flatMap { $0.map { $0.note } }
     let lo = all.min() ?? 60, hi = all.max() ?? 72, span = max(1, hi - lo)
-    return raw.map { stage in stage.map { BuildChainDot(lane: 1.0 - Double($0.0 - lo) / Double(span), vel: $0.1) } }
+    return raw.map { stage in stage.map { BuildChainDot(onset: $0.on, dur: max(0.02, $0.end - $0.on), lane: 1.0 - Double($0.note - lo) / Double(span), vel: $0.vel) } }
 }
 
 // The piano-roll fingerprint of a chain: an OFFLINE render (Dice.runRecorder vs a standard chord) → its emitter-A notes
