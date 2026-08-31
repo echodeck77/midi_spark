@@ -143,22 +143,25 @@ let colourHexes: [UInt32] = [
 // THE PLAY GRID's own palette (Paul 2026-08-30): a muted "DUSK" family, so the play grid is differentiable from the VIVID
 // part grid at a glance (each grid owns its own section of colour). Earthy, mid-brightness, low-saturation — a quieter world
 // beside the loud part rainbow, and calm enough that the vivid emitter drift-notes still pop on top.
-let playHexes: [UInt32] = [0xB08D57, 0xB06A4E, 0xA85A5A, 0x8F5A78, 0x7A6AA8, 0x5A7AA8, 0x5A9A8A, 0x8A9A5A]
+// EVEN DUSK (Paul 2026-09-01): the muted "dusk" family collapsed together (8 hues at one lightness). Replaced with 8 hues
+// spread EVENLY round the wheel — rust · amber · olive · jade · teal · steel · violet · orchid — so each column reads as its
+// own colour while staying muted enough that the vivid emitter drift still pops on top.
+let playHexes: [UInt32] = [0xBE6E5A, 0xC0925A, 0x9BA25E, 0x5FA37E, 0x4F9AA6, 0x5E80B8, 0x8A6EBE, 0xBC6AA0]
 
 // THE RECEIVER SIGNATURE GREYS (Paul 2026-08-30): the four MIDI-IN receivers A→D are now 4 shades of grey, LIGHT→DARK — their
 // identity colour going forward (the OMNI/ENABLE button on the receiver strip + the MIDI-IN toggle chips). Kept light enough
 // for black labels. (Distinct from the vivid emitter signature colours + the machine hues.)
-let receiverGreys: [Color] = [Color(white: 0.88), Color(white: 0.74), Color(white: 0.60), Color(white: 0.46)]
+let receiverGreys: [Color] = [Color(hex: 0xC8D2DC), Color(hex: 0xA6B2BF), Color(hex: 0x808E9C), Color(hex: 0x5E6C7A)]   // Tide & Ember: cool-tinted greys (IN recedes cool)
 func receiverGrey(_ i: Int) -> Color { receiverGreys[max(0, min(3, i))] }
 
 // delta §9 item 11: the four receivers' fixed "infrastructure family" hues (muted), shared by the
 // RECEIVERS panel and the cells' band-as-deviation marker.
-let receiverHues: [Color] = [Color(hex: 0x6B7A8F), Color(hex: 0x7E6B8F), Color(hex: 0x6B8F7E), Color(hex: 0x8F836B)]
+let receiverHues: [Color] = [Color(hex: 0x4E8FA8), Color(hex: 0x4E79A8), Color(hex: 0x55A79C), Color(hex: 0x6E8CA8)]   // Tide & Ember: IN = COOL (incoming water)
 
 // EMITTER SIGNATURE COLOURS (Paul 2026-08-30): four VIVID, high-contrast hues for A/B/C/D — the ROUTING channel. They
 // carry the DRIFTING piano-roll notes (and the MIDI-OUT toggles/dots). Kept the loudest colours in the app so the eye
 // reads "vivid + moving = emitter" vs "calm frame = machine" — two colour languages that never fight on one small cell.
-let emitterHexes: [UInt32] = [0xFF453A, 0x30D158, 0x0A84FF, 0xFF9F0A]   // A red · B green · C blue · D orange
+let emitterHexes: [UInt32] = [0xF0463C, 0xFF8C1A, 0xF5C518, 0xF0479E]   // Tide & Ember: OUT = WARM (energy leaving) — A red · B orange · C gold · D magenta
 func emitterColour(_ bus: Bus) -> Color {
     let i = Bus.allCases.firstIndex(of: bus) ?? 0
     return Color(hex: i < emitterHexes.count ? emitterHexes[i] : 0x808080)

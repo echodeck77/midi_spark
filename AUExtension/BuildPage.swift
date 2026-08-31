@@ -60,13 +60,15 @@ private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a 
 // THE ROOM SIGNATURES (Paul 2026-08-29, §8b WAYFINDING): each room owns a colour and every DOOR wears its DESTINATION's
 // signature — RAINBOW = SELECT (a multicolour strip, refuses one hue) · AMBER = PART · INDIGO = PLAY (retires cyan) ·
 // RED = REEL/record. Hex are starting points (Paul's glass tunes; the STRUCTURE is the instruction).
-let roomsAmber   = Color(red: 0.91, green: 0.64, blue: 0.24)   // PART — ~#E8A33D  (module-internal: RoomsPage uses these too)
-let roomsIndigo  = Color(red: 0.36, green: 0.36, blue: 0.84)   // PLAY — ~#5B5BD6
+// TIDE & EMBER (Paul 2026-09-01): direction as temperature — IN cool, OUT warm; PART wears the warm "ember" signature,
+// PLAY the cool "tide" one. (roomsIndigo keeps its name but now holds a sea-blue.)
+let roomsAmber   = Color(red: 0.910, green: 0.592, blue: 0.239)   // PART — ~#E8973D (warm "ember" signature; RoomsPage uses these too)
+let roomsIndigo  = Color(red: 0.227, green: 0.420, blue: 0.541)   // PLAY — ~#3A6B8A (cool "tide" signature; name kept, hue is sea-blue)
 let roomsRedSig  = Color(red: 0.86, green: 0.30, blue: 0.30)   // REEL / record
-let roomsRainbowHues: [Color] = [                              // SELECT — the mini-rainbow strip
-    Color(red: 0.91, green: 0.30, blue: 0.36), Color(red: 0.95, green: 0.66, blue: 0.24),
-    Color(red: 0.95, green: 0.90, blue: 0.35), Color(red: 0.40, green: 0.85, blue: 0.50),
-    Color(red: 0.29, green: 0.63, blue: 0.95), Color(red: 0.62, green: 0.42, blue: 0.92)]
+let roomsRainbowHues: [Color] = [                              // SELECT — the mini-rainbow strip (Tide & Ember: warm→cool span)
+    Color(red: 0.941, green: 0.275, blue: 0.235), Color(red: 1.000, green: 0.549, blue: 0.102),
+    Color(red: 0.961, green: 0.773, blue: 0.094), Color(red: 0.400, green: 0.788, blue: 0.541),
+    Color(red: 0.306, green: 0.604, blue: 0.784), Color(red: 0.561, green: 0.416, blue: 0.816)]
 // BUILD grid PIANO-ROLL (Paul 2026-08-19): one scrolling note mark on a cell face; `lane` = pitch (0…1), born = when it sounded.
 struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Double }
 
