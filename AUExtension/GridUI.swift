@@ -11,8 +11,9 @@ import UIKit   // for UIColor (the old multi-touch ColumnHoldOverlay UIView that
 // A PROPER piano keyboard in a Canvas (Paul 2026-08-31 — the flat all-full-height stripes read as illegible bars, not a
 // piano). White keys (C D E F G A B) fill the full height side-by-side; black keys (the 5 sharps) are narrower + ~62%
 // height, drawn ON TOP straddling the gap after their lower white neighbour. `tint(midi)` fills a lit key (nil = the base
-// key colour). Draws MIDI range [lo, hi). Shared by the AVOID pianos and the processor-header IN silhouette.
-func pianoKeysCanvas(lo: Int, hi: Int, tint: @escaping (Int) -> Color?) -> some View {
+// key colour); `mark(midi)` (optional) draws a bright "being played" band at the key's base. Draws MIDI range [lo, hi).
+// Shared by the AVOID pianos and the processor-header IN silhouette.
+func pianoKeysCanvas(lo: Int, hi: Int, tint: @escaping (Int) -> Color?, mark: ((Int) -> Bool)? = nil) -> some View {
     Canvas { ctx, size in
         let whitePCs: Set<Int> = [0, 2, 4, 5, 7, 9, 11]
         let whites = (lo..<hi).filter { whitePCs.contains(((($0 % 12) + 12) % 12)) }
@@ -25,6 +26,10 @@ func pianoKeysCanvas(lo: Int, hi: Int, tint: @escaping (Int) -> Color?) -> some 
             let rect = CGRect(x: CGFloat(i) * ww, y: 0, width: max(1, ww - 0.7), height: h)
             ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(.white.opacity(0.16)))
             if let c = tint(m) { ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(c)) }
+            if mark?(m) == true {                                          // "being played" — a bright band at the key's base
+                let b = CGRect(x: CGFloat(i) * ww, y: h * 0.7, width: max(1, ww - 0.7), height: h * 0.3)
+                ctx.fill(Path(roundedRect: b, cornerRadius: 1.5), with: .color(.white.opacity(0.95)))
+            }
         }
         let bw = ww * 0.62, bh = h * 0.62                                   // black keys, narrower + shorter, on top
         for m in lo..<hi {
@@ -33,6 +38,10 @@ func pianoKeysCanvas(lo: Int, hi: Int, tint: @escaping (Int) -> Color?) -> some 
             let rect = CGRect(x: CGFloat(wi + 1) * ww - bw / 2, y: 0, width: bw, height: bh)
             ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(Color(white: 0.07)))
             if let c = tint(m) { ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(c)) }
+            if mark?(m) == true {                                          // played band on a black key (near its base)
+                let b = CGRect(x: CGFloat(wi + 1) * ww - bw / 2, y: bh * 0.62, width: bw, height: bh * 0.38)
+                ctx.fill(Path(roundedRect: b, cornerRadius: 1.5), with: .color(.white.opacity(0.95)))
+            }
         }
     }
 }
@@ -1545,7 +1554,9 @@ struct ProcessorBox: View {
             let idx = max(0, min(3, p.avoidRefIndex ?? 0))
             let letters = ["A", "B", "C", "D"]
             let clashSemis = md == .avoid ? avoidClashSemis(p.avoidWhat) : 0
-            let refTint = md == .lock ? Color(red: 0.36, green: 0.86, blue: 0.5) : Color(red: 1.0, green: 0.44, blue: 0.42)   // LOCK = green (stay on) · AVOID = coral (keep away)
+            let avoidRed = Color(red: 1.0, green: 0.38, blue: 0.38)     // AVOIDED (input) · DROPPED (output)
+            let avoidGreen = Color(red: 0.38, green: 0.85, blue: 0.5)   // LOCKED-TO (input) · PLAYING (output)
+            let refTint = md == .lock ? avoidGreen : avoidRed           // input reference: green when locking to it, red when avoiding it
             heroField("LISTEN TO") { seg(["INPUT", "EVERYTHING"], sel: refIsInput ? "INPUT" : "EVERYTHING") { i in setParam { $0.avoidRefKind = (i == 0 ? .door : .sounding) } } }
             if refIsInput {
                 field("WHICH INPUT", \.avoidRefIndex) { seg(letters, sel: letters[idx]) { i in setParam { $0.avoidRefIndex = i } } }
@@ -1559,15 +1570,22 @@ struct ProcessorBox: View {
             // you're listening to (the reference); bottom = the PREDICTED output = this chain's input notes with the rule
             // applied (NOT a board-wide feed — so "nothing to lock to" reads as empty, and the result stays in the input's key).
             let pd = avoidPianoData(refIsInput: refIsInput, idx: idx, clashSemis: clashSemis, lock: md == .lock, move: (p.avoidAction ?? .remove) == .move)
-            let refLabel = md == .lock ? (refIsInput ? "LOCK TO — what INPUT \(letters[idx]) plays" : "LOCK TO — everything else playing")
-                                       : (refIsInput ? "AVOID — what INPUT \(letters[idx]) plays" : "AVOID — everything else playing")
+            let srcName = refIsInput ? "INPUT \(letters[idx])" : "everything else"
+            let inLabel = md == .lock ? "INPUT — playing (white) · lock to \(srcName) (green)" : "INPUT — playing (white) · avoid \(srcName) (red)"
+            let dropped = pd.chainIn.subtracting(pd.out)   // the played-in notes that don't make it out (removed, or the from-side of a MOVE)
             VStack(alignment: .leading, spacing: 5) {
-                avoidKeyboard(refLabel) { pc in
+                // INPUT piano: the avoid/lock reference zone (red/green + clash halo), with a WHITE band on the notes you're playing in.
+                avoidKeyboard(inLabel, tint: { pc in
                     if pd.ref.contains(pc) { return refTint.opacity(0.9) }
-                    if pd.clash.contains(pc) { return refTint.opacity(0.32) }   // the widened clash halo
+                    if pd.clash.contains(pc) { return refTint.opacity(0.34) }   // the widened clash halo
                     return nil
-                }
-                avoidKeyboard("OUTPUT — what plays") { pc in pd.out.contains(pc) ? accent.opacity(0.92) : nil }
+                }, mark: { pc in pd.chainIn.contains(pc) })
+                // OUTPUT piano: GREEN = what plays · RED = what's dropped (the avoided/removed notes).
+                avoidKeyboard("OUTPUT — playing (green) · dropped (red)", tint: { pc in
+                    if pd.out.contains(pc) { return avoidGreen.opacity(0.92) }
+                    if dropped.contains(pc) { return avoidRed.opacity(0.85) }
+                    return nil
+                })
             }
             Text(avoidBlurb(input: refIsInput, letter: letters[idx], lock: md == .lock, clash: clashSemis, move: (p.avoidAction ?? .remove) == .move))
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -1606,26 +1624,27 @@ struct ProcessorBox: View {
     }
     // The AVOID illustration pianos' data, computed OUTSIDE the ViewBuilder (keeps typeParams' type-check cheap): the
     // reference classes (what's avoided/locked-to) · the clash halo · the predicted output classes.
-    private func avoidPianoData(refIsInput: Bool, idx: Int, clashSemis: Int, lock: Bool, move: Bool) -> (ref: Set<Int>, clash: Set<Int>, out: Set<Int>) {
+    private func avoidPianoData(refIsInput: Bool, idx: Int, clashSemis: Int, lock: Bool, move: Bool) -> (ref: Set<Int>, clash: Set<Int>, chainIn: Set<Int>, out: Set<Int>) {
         func classesOf(_ d: Int) -> Set<Int> {
             guard d >= 0, d < avoidInputNotes.count else { return [] }
             return Set(avoidInputNotes[d].map { (($0 % 12) + 12) % 12 })
         }
         var ref = Set<Int>()
         if refIsInput { ref = classesOf(idx) }
-        else { for d in 0..<min(4, avoidInputNotes.count) where d != avoidChainInputDoor { ref.formUnion(classesOf(d)) } }   // EVERYTHING = every OTHER input
+        else { for d in 0..<min(4, avoidInputNotes.count) where d != avoidChainInputDoor { ref.formUnion(classesOf(d)) } }   // EVERYTHING = every OTHER input (never this chain's own — Paul 2026-08-31)
         let clash = clashSemis > 0 ? avoidWidenClasses(ref, semis: clashSemis) : []
         let blocked = ref.union(clash)
-        let chainIn = classesOf(avoidChainInputDoor)                          // the notes actually feeding this chain (a scale door reports its pool)
+        let chainIn = classesOf(avoidChainInputDoor)                          // the notes actually feeding this chain (a scale door reports its pool) = "what's being played" in
         let out = avoidPredict(chainIn, blocked: blocked, lock: lock, refOnly: ref, move: move)
-        return (ref, clash, out)
+        return (ref, clash, chainIn, out)
     }
     // A compact TWO-OCTAVE piano for the AVOID illustration (the filter is octave-agnostic, so two octaves say it all):
-    // `tint(pitchClass 0-11)` fills a lit key. Drawn as a real keyboard via the shared pianoKeysCanvas (C4..C6).
-    private func avoidKeyboard(_ label: String, _ tint: @escaping (Int) -> Color?) -> some View {
+    // `tint(pitchClass 0-11)` fills a lit key; `mark(pitchClass)` = "being played" (a bright band). Real keyboard, C4..C6.
+    private func avoidKeyboard(_ label: String, tint: @escaping (Int) -> Color?, mark: ((Int) -> Bool)? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.secondary)
-            pianoKeysCanvas(lo: 60, hi: 84) { midi in tint((((midi % 12) + 12) % 12)) }   // C4..C6 = 2 octaves
+            pianoKeysCanvas(lo: 60, hi: 84, tint: { midi in tint((((midi % 12) + 12) % 12)) },
+                            mark: mark.map { m in { midi in m((((midi % 12) + 12) % 12)) } })   // C4..C6 = 2 octaves, by pitch class
                 .frame(height: 34)
                 .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.28)))
         }
