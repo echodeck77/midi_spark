@@ -2600,23 +2600,41 @@ extension DiagView {
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let lp = playing ? ((live / recBeats).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0) : -1
                 guard playing else { return }   // no comets when the chain isn't sounding (the lift)
-                // COMETS — each note EVENT flows along its segment over its own DURATION (held = slow · arp = quick zips),
-                // appearing at its onset (the rhythm) and sized by velocity. So each segment shows that processor's real output.
-                for j in 0..<(P.count - 1) where j < stages.count {
-                    let a = P[j], b = P[j + 1]
-                    let len = max(0.001, hypot(b.x - a.x, b.y - a.y))
-                    let ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
-                    for dot in stages[j] {
-                        var t = lp - dot.onset; if t < 0 { t += 1 }              // time since this note's onset (loop-wrapped)
-                        guard t <= dot.dur else { continue }                     // only while the note is sounding
-                        let prog = min(1.0, t / dot.dur)                          // 0…1 along the segment over the note's duration
-                        let x = a.x + (b.x - a.x) * CGFloat(prog), y = a.y + (b.y - a.y) * CGFloat(prog)
-                        let r = 1.2 + 2.3 * CGFloat(dot.vel)
-                        let tail = 6 + 6 * CGFloat(dot.vel)
-                        var tp = Path(); tp.move(to: CGPoint(x: x - ux * tail, y: y - uy * tail)); tp.addLine(to: CGPoint(x: x, y: y))
-                        ctx.stroke(tp, with: .color(hue.opacity(0.22 * dot.vel)), style: StrokeStyle(lineWidth: r, lineCap: .round))
-                        ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.55 + 0.45 * dot.vel)))
+                // WHOLE-CHAIN JOURNEY (Paul 2026-08-31): each OUTPUT note is born at its onset and travels the FULL chain path
+                // (door ▸ box 0 ▸ … ▸ box 7 ▸ wire) at a STEADY pace over `transit` beats, with a TAIL proportional to its
+                // DURATION — a sustained chord reads as a long streak, an arp as distinct spaced comets moving at the note rate
+                // (not the fast per-segment blur it was). Timed to the real rhythm: onset spacing = the note rhythm.
+                let notes = stages.last ?? []
+                guard !notes.isEmpty else { return }
+                var segLen = [CGFloat](repeating: 0, count: P.count - 1); var total: CGFloat = 0
+                for j in 0..<segLen.count { segLen[j] = max(0.001, hypot(P[j + 1].x - P[j].x, P[j + 1].y - P[j].y)); total += segLen[j] }
+                func pointAt(_ f: Double) -> CGPoint {                             // a point at path-fraction f (0=door … 1=wire)
+                    var dist = CGFloat(max(0, min(1, f))) * total
+                    for j in 0..<segLen.count {
+                        if dist <= segLen[j] || j == segLen.count - 1 {
+                            let t = dist / segLen[j]
+                            return CGPoint(x: P[j].x + (P[j + 1].x - P[j].x) * t, y: P[j].y + (P[j + 1].y - P[j].y) * t)
+                        }
+                        dist -= segLen[j]
                     }
+                    return P.last!
+                }
+                let transit = 1.5 / recBeats                                       // ~1.5 beats to cross the whole chain (loop fraction)
+                for note in notes {
+                    var e = lp - note.onset; if e < 0 { e += 1 }                   // elapsed since this note's onset (loop-wrapped)
+                    let g = e / transit                                            // journey progress 0…1 across the chain
+                    guard g >= 0, g <= 1 else { continue }
+                    let head = pointAt(g)
+                    let r = 1.4 + 2.6 * CGFloat(note.vel)
+                    let tailFrac = min(1.0, note.dur / transit)                     // DURATION → tail length along the path
+                    let steps = 6
+                    for k in 0..<steps {                                           // fading tail behind the head
+                        let f0 = g - tailFrac * Double(k + 1) / Double(steps), f1 = g - tailFrac * Double(k) / Double(steps)
+                        guard f1 >= 0 else { continue }
+                        var seg = Path(); seg.move(to: pointAt(max(0, f0))); seg.addLine(to: pointAt(max(0, f1)))
+                        ctx.stroke(seg, with: .color(hue.opacity((0.45 * note.vel) * (1 - Double(k) / Double(steps)))), style: StrokeStyle(lineWidth: r, lineCap: .round))
+                    }
+                    ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * note.vel)))
                 }
             }
             .allowsHitTesting(false)
@@ -2632,6 +2650,14 @@ extension DiagView {
             let rx = sideW + blockW + sideW / 2                       // CENTRE of the right flank column (symmetric)
             let ty = boxH / 2                                         // aligned with the FIRST processor (top row) — Paul 2026-08-31
             let by = blockH - boxH / 2                                // aligned with the LAST processor (bottom row)
+            // EXTEND the dotted flow line so it STARTS at the top-left circle and ENDS at the bottom-right circle (Paul 2026-08-31):
+            // two flank connectors from each circle to the block edge, matching the in-block flow-line dash. (The block's flow
+            // line runs door→…→wire; box 0 is at HStack-x sideW, box 7 at sideW+blockW — the same y as ty/by.)
+            let dash = StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 3])
+            var lseg = Path(); lseg.move(to: CGPoint(x: lx + cr, y: ty)); lseg.addLine(to: CGPoint(x: sideW, y: ty))            // left circle → door
+            var rseg = Path(); rseg.move(to: CGPoint(x: sideW + blockW, y: by)); rseg.addLine(to: CGPoint(x: rx - cr, y: by))   // wire → right circle
+            ctx.stroke(lseg, with: .color(hue.opacity(0.32)), style: dash)
+            ctx.stroke(rseg, with: .color(hue.opacity(0.32)), style: dash)
             for end in [CGPoint(x: lx, y: ty), CGPoint(x: rx, y: by)] {
                 ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
                 ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
