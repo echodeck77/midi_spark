@@ -621,6 +621,13 @@ func poolStepMask(_ note: Int, steps: Int, pcMask: UInt16) -> Int {
     return max(0, min(127, baseOct * 12 + pcOut + octShift * 12))
 }
 
+/// The 12-bit PITCH-CLASS mask of a declared key (root + scale) — the reference set for a KEY-referenced AVOID/LOCK stage.
+/// Pure/testable. (2026-08-31)
+func scalePitchClassMask(root: Int, scale: ScaleType) -> UInt16 {
+    var m: UInt16 = 0
+    for iv in scale.intervals { m |= UInt16(1) << UInt16((((root + iv) % 12) + 12) % 12) }
+    return m
+}
 /// THE KEY FILTER (ratified scale-door §3): map an input note through a reference PITCH-CLASS set. `only` = keep only the
 /// set's classes (ONLY / intersection — in-key) vs drop them (MINUS / complement). `snap` = an out-of-set note remaps to the
 /// NEAREST legal note (SNAP — the jam-proof keyboard) vs drops (BLOCK — the strict gate). Returns the note (possibly
@@ -1179,7 +1186,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, riff, hocket, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, riff, hocket, avoid, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -1401,6 +1408,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .riff:      return .riff                             // DRIVER — a stored RANK stencil derived against the held chord (the chord-following 303)
     case .hocket:    return .hocket                           // DRIVER — plays its pool timed by listening to another wire (GAPS/TRADE)
     case .split:     return .split                            // set-membership filter — keep a subset of the chord (a HOLD transform / set filter)
+    case .avoid:     return .avoid                            // per-note PITCH filter — re-pool upstream, punch/shift downstream (like SPLIT, but by pitch-class vs a reference)
     case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
     case .channel, .nudge, .dest, .muteMatrix, .tap: return .identity   // UTILITY/ROUTING — note-transparent; the emit-side effect (channel/timing/emitter override · TAP's mid-chain send) applies elsewhere
@@ -1603,6 +1611,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
     case .tap:       return "arrow.turn.up.right"          // ROUTING — the mid-chain send (the stream turns off to a parallel wire)
     case .hocket:    return "ear"                           // DRIVER — listens to a wire; plays in its gaps / trades with it
+    case .avoid:     return "hand.raised"                   // FILTER — the per-note pitch filter (avoid clashes / lock to key)
     }
 }
 

@@ -395,6 +395,13 @@ enum SnapshotBuilder {
         if let v = p.hocketSource { out.hocketSource = clamp(v, 0, 3) }
         if let v = p.hocketMode { out.hocketMode = v }
         if let v = p.hocketRate { out.hocketRateBeats = max(0.03125, v.beats) }
+        // AVOID / LOCK (unified 2026-08-31): the per-note pitch filter.
+        if let v = p.avoidRefKind { out.avoidRefKind = v }
+        if let v = p.avoidRefIndex { out.avoidRefIndex = clamp(v, 0, 3) }
+        if let v = p.avoidRoot { out.avoidRoot = ((v % 12) + 12) % 12 }
+        if let v = p.avoidScale { out.avoidScale = v }
+        if let v = p.avoidMode { out.avoidLock = (v == .lock) }
+        if let v = p.avoidAction { out.avoidMove = (v == .move) }
         // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
         if let v = p.tapLevel { out.tapLevel = max(0, min(2, v)) }
         if let v = p.tapTo { out.tapTo = clamp(v, 0, 4) }

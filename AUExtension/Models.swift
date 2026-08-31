@@ -31,8 +31,14 @@ enum ProcessorType: String, Codable, CaseIterable {
     case riff = "RIFF"         // DRIVER (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices derived against the held chord — the chord-following 303. Zero pitches stored.
     case tap = "TAP"           // ROUTING (AcceptanceCriteria-tap-processor, ratified): emits the stream AS-IT-STANDS at its chain position (LEVEL-scaled, to THIS wire | A–D) AND passes it onward unchanged — layered parallel outputs
     case hocket = "HOCKET"     // DRIVER (AcceptanceCriteria-hocket-processor, v1): plays its pool (WHAT) timed by LISTENING to another emitter wire (WHEN) — GAPS answers in its silences, TRADE hit-for-hit. The chains converse.
+    case avoid = "AVOID"       // FILTER (unified 2026-08-31): a per-note pitch filter — the DOOR key-filter as a chain stage. REFERENCE (KEY · DOOR · WIRE · ALL SOUNDING) × MODE (LOCK keep-in | AVOID remove-in) × ACTION (REMOVE drop | MOVE snap). Placeable anywhere; masks clashes / locks to key. Politeness, not counterpoint.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
+// AVOID / LOCK (unified 2026-08-31, Paul) — one processor covers "avoid clashing with X" AND "lock to key": a per-note
+// pitch-class filter (the ratified keyFilterNote) as a chain stage.
+enum AvoidRefKind: String, Codable, CaseIterable { case key = "KEY", door = "DOOR", wire = "WIRE", sounding = "ALL" }   // the reference set to test against
+enum AvoidMode: String, Codable, CaseIterable { case lock = "LOCK", avoid = "AVOID" }        // LOCK = keep ONLY notes in the reference (in-key) · AVOID = REMOVE notes in the reference (dodge clashes)
+enum AvoidAction: String, Codable, CaseIterable { case remove = "REMOVE", move = "MOVE" }    // a rejected note: REMOVE = drop (a rest) · MOVE = snap to the nearest safe tone
 
 // HOCKET (spec §MODE): GAPS = speak only in the listened wire's SILENCES (call-and-response) · TRADE = hit-for-hit
 // alternation with it (one line split across two synths, by listening). §12 append-only.
@@ -344,6 +350,13 @@ struct ColourParams: Codable, Equatable {
     var hocketSource: Int? = nil                // 0…3 = the wire (emitter A–D) this hocket listens to
     var hocketMode: HocketMode? = nil           // GAPS | TRADE
     var hocketRate: ArpRate? = nil              // the decision tick rate (nil ⇒ 1/8)
+    // AVOID / LOCK (unified 2026-08-31): the per-note pitch filter. nil ⇒ inert defaults (byte-identical for old docs).
+    var avoidRefKind: AvoidRefKind? = nil       // KEY (declared root+scale) · DOOR 0–3 (a receiver's pool) · WIRE 0–3 (an emitter's live output) · ALL SOUNDING
+    var avoidRefIndex: Int? = nil               // 0…3 = which DOOR / WIRE
+    var avoidRoot: Int? = nil                   // 0…11 = the declared KEY root (kind = key)
+    var avoidScale: ScaleType? = nil            // the declared KEY scale (kind = key)
+    var avoidMode: AvoidMode? = nil             // LOCK (only) | AVOID (minus)
+    var avoidAction: AvoidAction? = nil         // REMOVE (block/drop) | MOVE (snap-nearest)
     // TAP (AcceptanceCriteria-tap-processor, ratified): a mid-chain SEND — emits the stream as it stands at this slot AND passes it on.
     var tapLevel: Double? = 1.0                 // velocity scale on the tapped copy (the send fader; 0…1+)
     var tapTo: Int? = 0                         // 0 = THIS WIRE (layer on the cell's output) · 1–4 = emitter A–D (a parallel out)

@@ -66,7 +66,8 @@ final class FuzzTests: XCTestCase {
                                       .muteMatrix,           // ROUTING — per-step part-muting; hammered so a mid-note mute never strands a sounding voice
                                       .riff,     // DRIVER — the rank stencil; hammered so wrap/oct/rest never strand a note
                                       .tap,                  // ROUTING — the mid-chain send; hammered so a parallel copy never strands a note
-                                      .hocket]               // DRIVER — the wire-listening gate (GAPS/TRADE); hammered so the gate never strands a note across every edge
+                                      .hocket,               // DRIVER — the wire-listening gate (GAPS/TRADE); hammered so the gate never strands a note across every edge
+                                      .avoid]                // FILTER — the per-note pitch filter (drop/snap vs a reference); hammered as head/upstream/downstream/hold for no stuck notes
         // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -92,6 +93,11 @@ final class FuzzTests: XCTestCase {
             if c.type == .glide && r.chance(0.7) { c.paramsA.glideMode = [.bend, .synth, .step][r.int(3)]; c.paramsA.glideTime = [0.0, 0.1, 0.3, 0.6, 1.2][r.int(5)] }   // BEND|SYNTH|STEP — STEP is note-hungry, must never stuck
             if c.type == .harmonize && r.chance(0.6) { c.paramsA.harmIntervals = [r.int(25) - 12, r.int(25) - 12, 0]; c.paramsA.harmUnits = r.chance(0.5) ? .pool : .semitones }   // §2 POOL-STEP harmonize hammered
             if c.type == .hocket && r.chance(0.7) { c.paramsA.hocketSource = r.int(4); c.paramsA.hocketMode = r.chance(0.5) ? .trade : .gaps; c.paramsA.hocketRate = [.r1_8, .r1_16, .r1_4][r.int(3)] }   // HOCKET — wire/mode/rate incl. self-cycle (source may = the cell's own bus)
+            if c.type == .avoid && r.chance(0.8) {   // AVOID/LOCK — random reference × mode × action; hammered so a filter/remap/drop never strands a note (it's note-transparent, drops only)
+                c.paramsA.avoidRefKind = AvoidRefKind.allCases[r.int(AvoidRefKind.allCases.count)]; c.paramsA.avoidRefIndex = r.int(4)
+                c.paramsA.avoidRoot = r.int(12); c.paramsA.avoidScale = ScaleType.allCases[r.int(ScaleType.allCases.count)]
+                c.paramsA.avoidMode = r.chance(0.5) ? .lock : .avoid; c.paramsA.avoidAction = r.chance(0.5) ? .move : .remove
+            }
             if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)
             if c.type == .dest && r.chance(0.6) { c.paramsA.destSlices = (0..<8).map { _ in r.int(4) } }   // DEST MATRIX §5 — per-slice emitter override (routing-class); hammer the re-route for no stuck notes

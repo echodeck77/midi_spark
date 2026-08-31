@@ -1500,12 +1500,26 @@ extension DiagView {
     // +8 so the play-ferry fill never collides with the PART-ferry side buttons that share the select grid). Each button
     // shows a PLAY ICON in its predetermined PLAY colour (INDIGO); the button itself stays neutral — a white "set" keyline
     // + brighter field mark a column that has been ferried (was a number on a hue field).
+    // THE FERRY-ROW CURSOR (Paul 2026-08-31): ▲▼ chooses which grid ROW the play-ferry buttons target — so you can ferry
+    // a cell to row 1 of a column, then move the cursor and ferry another to row 3 (each cell stays independent). Sits in
+    // the ferry row's left corner. Compact: ▲ · Rn · ▼ in one cell.
+    @ViewBuilder func roomsPlayFerryRowSelector() -> some View {
+        VStack(spacing: 1) {
+            Image(systemName: "chevron.up").font(.system(size: 9, weight: .black)).foregroundColor(buildPlayFerryRow > 0 ? .white.opacity(0.85) : buildDim)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(RoundedRectangle(cornerRadius: 3).fill(buildCell))
+                .contentShape(Rectangle()).onTapGesture { buildPlayFerryRow = max(0, buildPlayFerryRow - 1) }
+            Text("R\(buildPlayFerryRow + 1)").font(.system(size: 8, weight: .black, design: .monospaced)).foregroundColor(buildDim)
+            Image(systemName: "chevron.down").font(.system(size: 9, weight: .black)).foregroundColor(buildPlayFerryRow < 7 ? .white.opacity(0.85) : buildDim)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(RoundedRectangle(cornerRadius: 3).fill(buildCell))
+                .contentShape(Rectangle()).onTapGesture { buildPlayFerryRow = min(7, buildPlayFerryRow + 1) }
+        }
+    }
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
-            let sel = t < buildPlaySel.count ? buildPlaySel[t] : -1
+            let sel = buildPlayFerryRow                                  // the ferry buttons show + act on the CURSOR ROW (▲▼-chosen), not a fixed rung (Paul 2026-08-31)
             let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
-            let set = id != nil                                          // has this column been ferried?
-            let on = t < buildPlayColOn.count && buildPlayColOn[t]        // is this column PLAYING? (independent per-column voice)
+            let set = id != nil                                          // has this column been ferried at the cursor row?
+            let on = (t < buildPlayColOn.count && buildPlayColOn[t]) && (t < buildPlaySel.count && buildPlaySel[t] == buildPlayFerryRow)   // PLAYING iff the cursor row is this column's active rung
             let mHue = id.flatMap { colourColor($0) } ?? Color(hex: playHexes[t % playHexes.count])   // MACHINE identity — dusk (the ferried cell's colour, or the play grid's dusk slot when empty; Paul 2026-08-30)
             let eHue = emitterHue(t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a])  // EMITTER colour (routing)
             let focused = set && id == ddSelectedColourID               // this play ferry is the SELECTED machine (Paul 2026-08-30)
@@ -1523,7 +1537,7 @@ extension DiagView {
                 .overlay(Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0))   // PLAY/STOP (state) in the MACHINE hue
                 .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
                 .contentShape(Rectangle())
-                .onTapGesture { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }   // TAP = start/stop THIS column + SELECT it (machine reflects — Paul 2026-08-30)
+                .onTapGesture { if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }; buildTogglePlayColumn(t); buildSelectPlayColumn(t) }   // TAP = make the cursor row this column's active rung, then start/stop + SELECT it (Paul 2026-08-31)
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                     pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
         }
@@ -1540,7 +1554,7 @@ extension DiagView {
         buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
         buildPlayColLen[t] = 1; buildPlayColSteps[t] = []; buildPlayColRate[t] = nil   // a SELECT single-cell ferry clears any prior multi-step pass on this column
         buildPlayColStepRecv[t] = []; buildPlayColStepEmit[t] = []
-        let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0   // the selected rung (default row 1)
+        let r = max(0, min(7, buildPlayFerryRow))   // the FERRY CURSOR row (▲▼-chosen) — Paul 2026-08-31
         let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose, hex: playHexes[t % playHexes.count])   // a colour carrying the chain + register home, in the PLAY grid's DUSK hue per column (Paul 2026-08-30)
         buildPlayCells[t][r] = y
         let io = roomsStampSourceIO()                                        // COPY the source's I/O (Paul 2026-08-29: "play will have the copied settings")
@@ -1570,7 +1584,7 @@ extension DiagView {
         guard let rep = steps.compactMap({ $0 }).first else { return }       // nothing selected in the part → nothing to flatten
         buildRecordUndo()                                                    // flattening a part onto a play column is undoable (2026-08-31)
         buildGridSelStampRow = nil; buildGridSelStampAt = nil
-        let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0
+        let r = max(0, min(7, buildPlayFerryRow))   // the FERRY CURSOR row (▲▼-chosen) — Paul 2026-08-31
         buildPlayColSteps[t] = steps
         buildPlayColLen[t] = len
         buildPlayColRate[t] = buildPartRate                                  // the pass plays at the part's own tempo
@@ -1620,8 +1634,8 @@ extension DiagView {
                     roomsPlayNavSliver(width: interiorW, height: navH)
                 }
                 VStack(spacing: gap) {
-                    HStack(spacing: gap) {                                   // left corner + PLAY-ferry row + right corner
-                        Color.clear.frame(width: cw, height: ch)
+                    HStack(spacing: gap) {                                   // ▲▼ row cursor + PLAY-ferry row + right corner
+                        roomsPlayFerryRowSelector().frame(width: cw, height: ch)
                         ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
                         Color.clear.frame(width: cw, height: ch)
                     }
@@ -1794,7 +1808,7 @@ extension DiagView {
                     roomsPlayNavSliver(width: interiorW, height: navH)
                 }
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — IDENTICAL to the select grid's (Paul 2026-08-29;
-                    Color.clear.frame(width: cw)                            //   the flattened-part-grid input source is future — it ferries from the current audition for now)
+                    roomsPlayFerryRowSelector().frame(width: cw, height: ch) //   the ▲▼ row cursor (shared with the select grid's)
                     ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }
                     Color.clear.frame(width: cw)
                 }
@@ -4298,6 +4312,8 @@ extension DiagView {
                 C("TUTTI PATTERN", "Paints the chord's shape per step — full, top two, one note, rest.", .tutti) { $0.tuttiMode = .pattern },
                 C("SPLIT", "Keeps only part of the chord: top, bottom, or a range.", .split),
                 C("DRONE", "Holds the chord as a sustained pad.", .drone),
+                C("LOCK TO KEY", "Forces every note into a chosen key — out-of-key notes drop or snap in.", .avoid) { $0.avoidRefKind = .key; $0.avoidMode = .lock; $0.avoidAction = .move },
+                C("AVOID CLASHES", "Removes notes that clash with what's already sounding — polite, never doubles.", .avoid) { $0.avoidRefKind = .sounding; $0.avoidMode = .avoid; $0.avoidAction = .remove },
             ]),
             BuildCardGroup(title: "RHYTHM", note: nil, cards: [
                 C("RATCHET", "Re-strikes the whole chord in fast rolls, every step.", .ratchet) { $0.rtcMode = .all },
@@ -4346,8 +4362,11 @@ extension DiagView {
     // A chain-box / editor label: the type name + its fixed mode written in (e.g. "WEAVE HARM", "MOD LFO"), so the
     // mode is legible without an in-editor radio (Paul 2026-08-22). Single-mode processors show just the type.
     private func buildProcLabel(_ s: ProcessorSlot) -> String {
-        let base = s.type == .passgate ? "PASSES" : (s.type == .muteMatrix ? "MUTE MTX" : s.type.rawValue)
+        // AVOID/LOCK self-names by its MODE (Paul §7): the slot reads "LOCK A MIXO" / "AVOID CLASHES".
+        let avoidBase = (s.params.avoidMode ?? .avoid) == .lock ? "LOCK" : "AVOID"
+        let base = s.type == .passgate ? "PASSES" : (s.type == .muteMatrix ? "MUTE MTX" : (s.type == .avoid ? avoidBase : s.type.rawValue))
         let m: String
+        let letters = ["A", "B", "C", "D"]
         switch s.type {
         case .ratchet: switch s.params.rtcMode ?? .all { case .all: m = "ALL"; case .coin: m = "COIN"; case .pattern: m = "PAT" }
         case .burst:   switch s.params.burstMode ?? .once { case .once: m = "ONCE"; case .coin: m = "COIN"; case .pattern: m = "PAT" }
@@ -4355,6 +4374,13 @@ extension DiagView {
         case .weave:   switch s.params.weaveMode ?? .ladder { case .ladder: m = "LAD"; case .harmonic: m = "HARM"; case .drawn: m = "DRAWN"; case .euclid: m = "EUC" }
         case .mod:     switch s.params.modSource ?? .shape { case .shape: m = "LFO"; case .follow: m = "FOLLOW"; case .steps: m = "STEP"; case .strike: m = "ENV"; case .extern: m = "CC IN" }
         case .hocket:  switch s.params.hocketMode ?? .gaps { case .gaps: m = "GAPS"; case .trade: m = "TRADE" }
+        case .avoid:
+            switch s.params.avoidRefKind ?? .sounding {
+            case .key:      m = "\(["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][(((s.params.avoidRoot ?? 0) % 12) + 12) % 12]) \((s.params.avoidScale ?? .major).label)"
+            case .door:     m = "⇐\(letters[max(0, min(3, s.params.avoidRefIndex ?? 0))])"
+            case .wire:     m = "≠\(letters[max(0, min(3, s.params.avoidRefIndex ?? 0))])"
+            case .sounding: m = "CLASHES"
+            }
         default:       m = ""
         }
         return m.isEmpty ? base : "\(base) \(m)"

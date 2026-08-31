@@ -903,6 +903,20 @@ final class DerivationsTests: XCTestCase {
         // Clamped inputs: octaves 0 → 1, baseOct 99 → 8 (never traps, always ≥ 1 octave).
         XCTAssertFalse(scaleNotes(root: 0, type: .major, baseOct: 99, octaves: 0).isEmpty)
     }
+    // AVOID/LOCK (unified 2026-08-31): the declared-key reference mask + the keyFilterNote directions it drives.
+    func testScalePitchClassMaskAndKeyFilterDirections() {
+        let cMaj = scalePitchClassMask(root: 0, scale: .major)   // C D E F G A B = classes 0,2,4,5,7,9,11
+        XCTAssertEqual((cMaj >> 0) & 1, 1, "C is in C major"); XCTAssertEqual((cMaj >> 1) & 1, 0, "C# is not")
+        XCTAssertEqual((cMaj >> 4) & 1, 1, "E is in"); XCTAssertEqual((cMaj >> 6) & 1, 0, "F# is not")
+        XCTAssertEqual(scalePitchClassMask(root: 2, scale: .major) >> 1 & 1, 1, "D major DOES contain C# (root shifts)")
+        // LOCK (only) + REMOVE (block): an out-of-key note drops; in-key passes.
+        XCTAssertEqual(keyFilterNote(61, refMask: cMaj, only: true, snap: false), nil, "C#5 out of C major → dropped (LOCK/REMOVE)")
+        XCTAssertEqual(keyFilterNote(60, refMask: cMaj, only: true, snap: false), 60, "C5 in key → kept")
+        // LOCK + MOVE (snap): C# snaps to the nearest in-key (down ties → C).
+        XCTAssertEqual(keyFilterNote(61, refMask: cMaj, only: true, snap: true), 60, "C# snaps to the nearest in-key note (C)")
+        // AVOID (minus) + REMOVE: a note whose class IS in the reference drops (dodge the clash).
+        XCTAssertEqual(keyFilterNote(60, refMask: scalePitchClassMask(root: 0, scale: .chromatic) & 0b1, only: false, snap: false), nil, "AVOID: a C is removed when C is the clash class")
+    }
     // A SCALE door names itself ("A MIXO") — the chip-never-lies label shared by the receiver chip + the MIDI tab. (2026-08-31)
     func testScaleDoorLabel() {
         var r = Receiver(); XCTAssertNil(r.scaleLabel, "a non-scale door has no key label")

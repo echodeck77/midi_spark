@@ -2549,6 +2549,43 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the arp gates every arp note → silence")
         assertNothingLeftSounding(e)
     }
+    // AVOID/LOCK (unified 2026-08-31): a per-note pitch filter placeable anywhere. It works the SAME before or after a
+    // driver (remove/move, no re-pick) — the position only changes whether it thins the POOL (before) or punches holes
+    // in the LINE (after). Uses a declared-KEY reference (deterministic, no live state).
+    private func avoidSlot(kind: AvoidRefKind, root: Int = 0, scale: ScaleType = .major, lock: Bool, move: Bool) -> ProcessorSlot {
+        var s = ProcessorSlot(type: .avoid)
+        s.params.avoidRefKind = kind; s.params.avoidRoot = root; s.params.avoidScale = scale
+        s.params.avoidMode = lock ? .lock : .avoid; s.params.avoidAction = move ? .move : .remove
+        return s
+    }
+    func testAvoidLockToKeyBeforeAndAfterAnArp() {
+        let cs = arpColours(); let arp = ProcessorSlot(type: .arp)
+        let lockRemove = avoidSlot(kind: .key, lock: true, move: false)   // LOCK to C major, REMOVE out-of-key
+        let chord4 = chord([60, 61, 64, 67])                              // C · C#(out of C major) · E · G
+        func classes(_ e: RecordingEmitter) -> Set<Int> { Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 }) }
+        // BEFORE the arp → re-pool: the arp walks {C,E,G}; C# never enters the pool.
+        let before = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [lockRemove, arp]; return c }() }
+        let eB = RecordingEmitter(); run(before, chord4, beats: 16, into: eB)
+        XCTAssertFalse(classes(eB).contains(1), "[LOCK→ARP]: C# (class 1) is re-pooled out — the arp never plays it")
+        XCTAssertFalse(eB.ons.isEmpty, "the in-key notes still arp")
+        // AFTER the arp → punch holes: the arp walks all 4, but the downstream LOCK drops C#.
+        let after = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, lockRemove]; return c }() }
+        let eA = RecordingEmitter(); run(after, chord4, beats: 16, into: eA)
+        XCTAssertFalse(classes(eA).contains(1), "[ARP→LOCK]: C# is dropped downstream — a hole in the line")
+        XCTAssertTrue(classes(eA).contains(0) || classes(eA).contains(4), "in-key notes still emit")
+        assertNothingLeftSounding(eB); assertNothingLeftSounding(eA)
+    }
+    func testAvoidMoveSnapsTheOutOfKeyNoteInsteadOfDropping() {
+        let cs = arpColours(); let arp = ProcessorSlot(type: .arp)
+        let lockMove = avoidSlot(kind: .key, lock: true, move: true)      // LOCK to C major, MOVE (snap) — nothing drops
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [lockMove, arp]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([61]), beats: 16, into: e)   // ONLY C# held → with REMOVE it'd be silent; MOVE snaps it in-key
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertFalse(notes.contains(61), "C# never sounds (it's out of key)")
+        XCTAssertFalse(notes.isEmpty, "MOVE snapped it to the nearest in-key note instead of dropping — the line stays audible")
+        XCTAssertTrue(notes.allSatisfy { [0,2,4,5,7,9,11].contains($0 % 12) }, "every snapped note is in C major")
+        assertNothingLeftSounding(e)
+    }
     // The downstream passgate gates on the PASS the user sees (diag.pass): pass 0 closed (passes[0]=false) → the
     // whole first lap is silent even though later passes are open.
     func testArpThenPassgateGatesPassZero() {

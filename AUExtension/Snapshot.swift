@@ -234,6 +234,13 @@ struct SnapParams {
     var hocketSource: Int = 0                             // 0…3 = the listened emitter (wire A–D)
     var hocketMode: HocketMode = .gaps
     var hocketRateBeats: Double = 0.5                     // resolved from hocketRate (1/8 = 0.5 beat) — the decision tick grid
+    // AVOID / LOCK (unified 2026-08-31): the resolved per-note pitch filter (see ColourParams).
+    var avoidRefKind: AvoidRefKind = .sounding
+    var avoidRefIndex: Int = 0                            // 0…3 = which DOOR / WIRE
+    var avoidRoot: Int = 0                                // 0…11 declared KEY root
+    var avoidScale: ScaleType = .major
+    var avoidLock = false                                 // MODE: true = LOCK (only) · false = AVOID (minus)
+    var avoidMove = false                                 // ACTION: true = MOVE (snap) · false = REMOVE (block)
     // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
     var tapLevel: Double = 1.0
     var tapTo: Int = 0                                    // 0 = THIS WIRE · 1–4 = emitter A–D

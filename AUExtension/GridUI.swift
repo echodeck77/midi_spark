@@ -875,6 +875,7 @@ struct ProcessorBox: View {
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
         case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
         case .hocket:    return "play your notes in another synth's gaps — or trade hits with it (listen to a wire)"
+        case .avoid:     return "remove or move notes that clash with a reference — or lock them to a key"
         }
     }
 
@@ -1498,6 +1499,25 @@ struct ProcessorBox: View {
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             field("RATE — its decision grid", \.hocketRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.hocketRate ?? .r1_8).rawValue) { i in setParam { $0.hocketRate = ArpRate.allCases[i] } } }
             Text("Plays YOUR held notes (WHAT) timed by the wire (WHEN). Put it on a later row than what it listens to.")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        })
+        case .avoid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // FILTER — the per-note pitch filter (avoid clashes / lock to key), placeable anywhere
+            let rk = p.avoidRefKind ?? .sounding
+            let md = p.avoidMode ?? .avoid
+            let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+            heroField("REFERENCE") { seg(AvoidRefKind.allCases.map(\.rawValue), sel: rk.rawValue) { i in setParam { $0.avoidRefKind = AvoidRefKind.allCases[i] } } }
+            if rk == .door || rk == .wire {
+                field(rk == .door ? "WHICH DOOR" : "WHICH WIRE", \.avoidRefIndex) { seg(["A", "B", "C", "D"], sel: ["A", "B", "C", "D"][max(0, min(3, p.avoidRefIndex ?? 0))]) { i in setParam { $0.avoidRefIndex = i } } }
+            }
+            if rk == .key {
+                field("KEY", \.avoidRoot) { seg(noteNames, sel: noteNames[(((p.avoidRoot ?? 0) % 12) + 12) % 12]) { i in setParam { $0.avoidRoot = i } } }
+                field("SCALE", \.avoidScale) { seg(ScaleType.allCases.map(\.label), sel: (p.avoidScale ?? .major).label) { i in setParam { $0.avoidScale = ScaleType.allCases[i] } } }
+            }
+            field("MODE", \.avoidMode) { seg(AvoidMode.allCases.map(\.rawValue), sel: md.rawValue) { i in setParam { $0.avoidMode = AvoidMode.allCases[i] } } }
+            field("REJECTS", \.avoidAction) { seg(AvoidAction.allCases.map(\.rawValue), sel: (p.avoidAction ?? .remove).rawValue) { i in setParam { $0.avoidAction = AvoidAction.allCases[i] } } }
+            Text(md == .lock ? "LOCK — keep only notes IN the reference (in-key)." : "AVOID — remove notes that CLASH with the reference.")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Before a driver it filters the pool; after one it drops (REMOVE) or shifts (MOVE) each note. For a live reference, put it on a later row.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         }

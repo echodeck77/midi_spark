@@ -159,6 +159,28 @@ final class Router {
         for v in voices where v.active && !v.silent && v.bus == b { return true }
         return false
     }
+    // AVOID / LOCK (unified 2026-08-31): the 12-bit PITCH-CLASS set the voice table is sounding — `bus` nil = every
+    // emitter (ALL SOUNDING), else one wire. The live-query model of HOCKET/CONVERSATION: it sees what earlier rows have
+    // emitted SO FAR this render (the L1 caveat — put the avoider on a LATER row than its source). Excludes silent ghosts.
+    private func soundingPitchClassMask(bus: Int?) -> UInt16 {
+        var m: UInt16 = 0
+        for v in voices where v.active && !v.silent && (bus == nil || Int(v.bus) == bus!) { m |= UInt16(1) << UInt16(Int(v.note) % 12) }
+        return m
+    }
+    /// The reference PITCH-CLASS set an AVOID/LOCK stage tests against: a declared KEY · another DOOR's pool (latched /
+    /// SCALE — the scale door) · a WIRE's live output · ALL SOUNDING. Computed once per stage fold (cheap ≤128-voice scan).
+    private func avoidRefMask(_ p: SnapParams) -> UInt16 {
+        switch p.avoidRefKind {
+        case .key:      return scalePitchClassMask(root: p.avoidRoot, scale: p.avoidScale)
+        case .door:     let i = max(0, min(3, p.avoidRefIndex)); return i < latchedPools.count ? latchedPools[i].pitchClassMaskAll() : 0   // v1: the door's latched/scale pool (a live unlatched chord door is a v2 refinement)
+        case .wire:     return soundingPitchClassMask(bus: max(0, min(3, p.avoidRefIndex)))
+        case .sounding: return soundingPitchClassMask(bus: nil)
+        }
+    }
+    /// Apply an AVOID/LOCK stage to ONE note: keep it, remap it (MOVE), or drop it (REMOVE → nil). Pure `keyFilterNote`.
+    @inline(__always) private func avoidFilter(_ note: Int, _ p: SnapParams, refMask: UInt16) -> Int? {
+        keyFilterNote(note, refMask: refMask, only: p.avoidLock, snap: p.avoidMove)
+    }
     // HOCKET (wire-as-source v1): the sample of the most recent REAL note-on on each emitter (A–D) — the "when the wire
     // struck" edge that TRADE reads. Updated in openVoice; reset to a far-past sentinel on transport/flush edges so a
     // stale onset can't false-trigger. Read-only from HOCKET's tick (same live-query model as CONVERSATION's L1 caveat).
@@ -1502,8 +1524,8 @@ final class Router {
                             box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                             S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .echo, .identity, .chance, .harmonize, .split, .octave, .transpose:
-                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (SPLIT filter · OCTAVE/TRANSPOSE shift) emit at the transition
+            case .echo, .identity, .chance, .harmonize, .split, .avoid, .octave, .transpose:
+                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (SPLIT/AVOID filters · OCTAVE/TRANSPOSE shift) emit at the transition
             case .tutti:
                 if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
                     emitTuttiPatternRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
@@ -3522,6 +3544,12 @@ final class Router {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
                 let v = Int(src.velocity(n))
                 if v >= vf && v <= vc { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
+            }
+        case .avoid:                                           // per-note PITCH filter — RE-POOL upstream / hold-tail: drop or snap each note vs the reference
+            let refMask = avoidRefMask(p)
+            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
+                let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
+                if let outN = avoidFilter(Int(n), p, refMask: refMask), outN >= 0, outN <= 127 { dst.noteOn(UInt8(outN), velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .octave, .transpose:                              // UTILITY — pitch shift (pitch-class preserved for OCTAVE); out-of-range notes drop
             // §2 POOL-STEP: TRANSPOSE in POOL units steps each note by utilTranspose DEGREES up the source pool ("up a
