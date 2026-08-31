@@ -64,6 +64,7 @@ struct InputMark: Equatable { let note: UInt8; let born: Date; let beat: Double 
 /// One emitted note in the TRUTH-STRIP "OUT" mini-roll (the processor editor): a note-on the plugin emitted at `born`,
 /// drifting right→left as it fades. Accumulated from pollCellNotes (read-and-clear → each is a fresh onset). §1 truth strips.
 struct OutMark: Equatable { let note: UInt8; let vel: Double; let born: Date }
+struct BuildFocusNote: Equatable { let note: Int; let vel: Double; let beat: Double }   // the focus cell's REAL emitted note + its musical beat — the chain-flow comet source (Paul 2026-08-31)
 
 /// CPU (device 2026-08-24): the FAST-changing telemetry — the emitter/receiver meter peaks (updated at 30 Hz) — used to
 /// live as `@State` on the giant `DiagView`, so every peak update re-ran the WHOLE BuildPage body 30×/sec (80% CPU, the
@@ -399,6 +400,7 @@ struct DiagView: View {
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1) — the MIDI-IN length bar reads this
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     @State var buildOutRoll: [OutMark] = []                   // §1 TRUTH STRIPS: emitted note-ons drifting in the editor's OUT mini-roll (editor-open only)
+    @State var buildFocusNotes: [BuildFocusNote] = []         // the focused machine cell's REAL emitted notes (+ beats) — drives the real chain-flow comets (Paul 2026-08-31)
     @State var buildStageEye = false                          // §4 STAGE EYE: the expanded 3-lane (input · mechanism · output) view is open
     @State var buildStageEyeDoor = -1                         // the door the eye watches (set on open) — drives the INPUT-onset accumulation below
     @State var buildEyeInRoll: [OutMark] = []                 // §4: INPUT onsets drifting in the eye's top lane (eye-open only)
@@ -959,6 +961,18 @@ struct DiagView: View {
             let sw = au.uiSwing();         if sw != swing { swing = sw }
             let cn = au.pollCellNotes()                    // NOTE-SWEEP: per-cell recent emitted notes (pitch/vel/count) — drained every tick
             if cn.count.contains(where: { $0 > 0 }) { cellNotePitch = cn.pitch; cellNoteVel = cn.vel; cellNoteCount = cn.count }
+            // FOCUS note-event feed (Paul 2026-08-31): the machine's cell → its REAL emitted notes + beats, for the chain-flow
+            // comets. The focus cell = a selected ferry's play cell (col 0, row 8+col), else the chain audition's engine row.
+            let focusIdx: Int = buildSelectedPlayCol.map { Snap.playLayerRowBase + $0 } ?? (buildDisplayVoice == .chain ? (buildChainAuditionRow ?? -1) : -1)
+            au.setFocusCell(focusIdx)
+            let ff = au.pollFocusNotes()
+            if ff.count > 0 || !buildFocusNotes.isEmpty {
+                var fn = focusIdx >= 0 ? buildFocusNotes : []
+                for k in 0..<ff.count where focusIdx >= 0 { fn.append(BuildFocusNote(note: Int(ff.pitch[k]), vel: Double(ff.vel[k]) / 127.0, beat: ff.beat[k])) }
+                fn = fn.filter { $0.beat > nd.beat - 2.5 }          // keep the last ~2.5 beats
+                if fn.count > 160 { fn = Array(fn.suffix(160)) }
+                if fn != buildFocusNotes { buildFocusNotes = fn }
+            }
             // §1 TRUTH STRIPS — OUT mini-roll: while the processor editor is open, accumulate emitted note-ons into a
             // drifting roll (cn is read-and-clear → every note is a fresh onset; no diffing). Aggregated across the board:
             // during a chain audition (part stopped) that IS the chain's output. Pruned to ~2.5s; ≤96 marks.
