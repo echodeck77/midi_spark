@@ -3594,8 +3594,18 @@ extension DiagView {
     // The INTERACTIVE input-velocity indicator: the incoming-velocity meter (sustained while held, brief attack flash)
     // normally; DRAG to force this door's input velocity (top = 127 · bottom = 0) via setReceiverVel; release springs
     // back to the natural velocity — the receiver mirror of buildEmitterFader. (Paul 2026-08-18)
+    // The velocity-meter FILL as vertical colour bands (one per feeding/playing cell) rising to `level`. (Paul 2026-08-31)
+    @ViewBuilder private func buildMeterBands(_ colours: [Color], level: Double, height: CGFloat, override: Color?) -> some View {
+        let cs: [Color] = override != nil ? [override!] : (colours.isEmpty ? [buildCyan] : colours)
+        HStack(spacing: cs.count > 1 ? 0.7 : 0) {
+            ForEach(cs.indices, id: \.self) { k in Rectangle().fill(cs[k].opacity(0.9)) }
+        }
+        .frame(height: height * CGFloat(min(1, max(0, level))))
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+    }
     @ViewBuilder private func buildReceiverFader(_ i: Int, letter: String) -> some View {
         let override = i < recvDragVel.count ? recvDragVel[i] : nil
+        let feed = buildReceiverFeedColours(i)   // the colour(s) of the cell(s) this door feeds (vertical bands if >1)
         VStack(spacing: 2) {
             Text(letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildDim)   // NO drag-velocity number over the slider (Paul 2026-08-30)
             GeometryReader { g in
@@ -3609,7 +3619,7 @@ extension DiagView {
                     let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
-                        RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9)).frame(height: g.size.height * CGFloat(min(1, max(0, level))))
+                        buildMeterBands(feed, level: level, height: g.size.height, override: override != nil ? buildPink : nil)   // tinted by the feeding cell(s)
                     }
                 }
                 .contentShape(Rectangle())
@@ -3705,17 +3715,40 @@ extension DiagView {
         }
     }
 
-    // The colour currently PLAYING the cell (the active rung in the playing column) → the emitter velocity-strip tint. (Paul 2026-08-19)
-    private var buildPlayingColourHue: Color? {
-        guard d.playing, d.effColumn >= 0, d.effColumn < buildStagingSel.count else { return nil }
-        let rung = buildStagingSel[d.effColumn]
-        guard rung >= 0, let cid = buildRowColour(rung) else { return nil }
-        return colourColor(cid)
+    // The colours of every CELL FEEDING receiver `door` (its velocity-strip tint) — the part rows whose input is this door
+    // + any live play column reading it. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
+    private func buildReceiverFeedColours(_ door: Int) -> [Color] {
+        var ids: [String] = []
+        func add(_ cid: String?) { if let cid, !ids.contains(cid) { ids.append(cid) } }
+        for r in 0..<8 where buildRowColour(r) != nil && buildRowReceiverResolved(r) == door { add(buildRowColour(r)) }   // part rows on this door
+        for c in 0..<8 where c < buildPlayColRecv.count && buildPlayColRecv[c] == door {                                   // play columns on this door
+            let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
+            if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) }
+        }
+        return ids.map { colourColor($0) ?? buildCyan }
+    }
+    // The colours of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
+    // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
+    private func buildEmitterPlayingColours(_ e: Bus) -> [Color] {
+        var ids: [String] = []
+        func add(_ cid: String?) { if let cid, !ids.contains(cid) { ids.append(cid) } }
+        if buildStagingPlaying {                                                                     // PART: the selected rungs that emit on e
+            for c in 0..<8 { let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
+                if r >= 0, buildRowColour(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowColour(r)) } }
+        }
+        if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedColourID) }                      // CHAIN audition
+        for c in 0..<8 where c < buildPlayColOn.count && buildPlayColOn[c] {                          // PLAY columns emitting on e
+            let emit = c < buildPlayColEmit.count ? buildPlayColEmit[c] : []
+            if emit.contains(e) { let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
+                if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) } }
+        }
+        return ids.map { colourColor($0) ?? buildCyan }
     }
     // The interactive velocity fader: the meter (emitPeak, decayed) normally; while DRAGGED it forces the emitter's
     // output velocity (top = 127 · bottom = 0/KILL) via setVelOverride, and releases (springs back) on lift.
     @ViewBuilder private func buildEmitterFader(_ i: Int, letter: String) -> some View {
         let override = i < emitDragVel.count ? emitDragVel[i] : nil
+        let playing = buildEmitterPlayingColours(Bus.allCases[i])   // the colour(s) of every cell playing through this emitter (vertical bands if >1)
         VStack(spacing: 2) {
             Text(letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildDim)   // NO drag-velocity number over the slider (Paul 2026-08-30)
             GeometryReader { g in
@@ -3727,10 +3760,9 @@ extension DiagView {
                         let age = tl.date.timeIntervalSince(i < meters.emitPeakAt.count ? meters.emitPeakAt[i] : .distantPast)
                         return max(0, min(1, (i < meters.emitPeak.count ? meters.emitPeak[i] : 0) * (1 - age / 0.9)))
                     }()
-                    let hue = override != nil ? buildPink : (buildPlayingColourHue ?? buildCyan)   // the colour currently playing the cell
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
-                        RoundedRectangle(cornerRadius: 3).fill(hue.opacity(0.3 + 0.6 * level)).frame(height: g.size.height * CGFloat(level))   // fade OUT as it drops
+                        buildMeterBands(playing, level: level, height: g.size.height, override: override != nil ? buildPink : nil)   // tinted by the playing cell(s)
                     }
                 }
                 .contentShape(Rectangle())
