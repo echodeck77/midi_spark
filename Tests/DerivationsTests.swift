@@ -982,6 +982,12 @@ final class DerivationsTests: XCTestCase {
         // EMPTY reference: ONLY admits nothing, MINUS excludes nothing.
         XCTAssertNil(keyFilterNote(60, refMask: 0, only: true, snap: true), "ONLY with no reference = silence")
         XCTAssertEqual(keyFilterNote(60, refMask: 0, only: false, snap: false), 60, "MINUS with no reference = pass")
+        // ALL 12 classes referenced: MINUS+SNAP has nowhere legal to land → nil (never an out-of-range escape).
+        XCTAssertNil(keyFilterNote(60, refMask: 0xFFF, only: false, snap: true), "every class excluded → MINUS snap finds nothing → nil")
+        XCTAssertEqual(keyFilterNote(60, refMask: 0xFFF, only: true, snap: false), 60, "every class in the set → ONLY keeps everything")
+        // RANGE boundary: a snap near 0/127 must stay in 0…127 and never wrap.
+        for n in [0, 1, 126, 127] { if let r = keyFilterNote(n, refMask: cMajor, only: true, snap: true) { XCTAssertTrue((0...127).contains(r), "snap of \(n) stays in range: \(r)") } }
+        for n in [0, 1, 126, 127] { if let r = keyFilterNote(n, refMask: cMajor, only: false, snap: true) { XCTAssertTrue((0...127).contains(r), "MINUS snap of \(n) stays in range: \(r)") } }
     }
     func testSilenceInvariantHoldsWhenTrulySilent() {
         XCTAssertFalse(silenceInvariantViolated(playing: false, heldInput: 0, auditioning: false,

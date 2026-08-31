@@ -2635,6 +2635,131 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(classes.contains(3), "the OLD chromatic snap moved E→D# (class 3, out of scale); the in-scale snap does not")
         assertNothingLeftSounding(e)
     }
+
+    // ═══ AVOID / LOCK — the COMPREHENSIVE end-to-end acceptance suite (Paul 2026-08-31) ═══════════════════════════════
+    // Every expectation is reasoned from the CONCEPT (a per-pitch-class filter), then checked against the REAL engine
+    // end-to-end: a held INPUT chord on door 0 → the AVOID chain → the emitted MIDI-out notes. The REFERENCE is played
+    // LIVE on another door's channel (at octave 7, note 84+pc, so it never collides with the input's own MIDI numbers).
+
+    /// A configured AVOID/LOCK slot.
+    private func mkAvoid(kind: AvoidRefKind = .door, refIndex: Int = 1, lock: Bool = false, move: Bool = false,
+                         what: AvoidWhat = .same, root: Int = 0, scale: ScaleType = .major) -> ProcessorSlot {
+        var s = ProcessorSlot(type: .avoid)
+        s.params.avoidRefKind = kind; s.params.avoidRefIndex = refIndex
+        s.params.avoidMode = lock ? .lock : .avoid; s.params.avoidAction = move ? .move : .remove
+        s.params.avoidWhat = what; s.params.avoidRoot = root; s.params.avoidScale = scale
+        return s
+    }
+    /// Run `chain` over `input` (door 0, channel 0) with `refs` = live reference classes per door (door d = channel d,
+    /// notes at 84+pc so they never collide with the input). Returns the recording emitter (for stuck-note checks).
+    private func avoidRunE(_ chain: [ProcessorSlot], input: [Int], refs: [(door: Int, classes: [Int])] = []) -> RecordingEmitter {
+        let cs = arpColours()
+        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = chain; return c }()
+            return s }()])
+        st.busChannels = [1, 2, 3, 4]
+        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3", channel: 3), Receiver(name: "4", channel: 4)]
+        let box = SnapshotBuilder.build(from: st)
+        let pool = NotePool()
+        for n in input { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
+        for (door, classes) in refs { for pc in classes { pool.noteOn(UInt8(84 + pc), velocity: 100, channel: UInt8(door)) } }
+        let e = RecordingEmitter(); run(box, pool, beats: 16, into: e); return e
+    }
+    /// The DISTINCT emitted pitch CLASSES (emitter A) — the octave-agnostic result the filter reasons about.
+    private func avoidPCs(_ chain: [ProcessorSlot], input: [Int], refs: [(door: Int, classes: [Int])] = []) -> Set<Int> {
+        Set(avoidRunE(chain, input: input, refs: refs).ons.filter { $0.cable == 1 }.map { ((Int($0.note) % 12) + 12) % 12 })
+    }
+
+    // ── Reference-content edges ────────────────────────────────────────────────
+    func testAvoidEmptyReferencePassesEverything() {   // C1
+        XCTAssertEqual(avoidPCs([mkAvoid()], input: [60, 62, 64], refs: []), [0, 2, 4], "empty reference · AVOID REMOVE → everything passes")
+        XCTAssertEqual(avoidPCs([mkAvoid(move: true)], input: [60, 62, 64], refs: []), [0, 2, 4], "empty reference · AVOID MOVE → everything passes")
+    }
+    func testLockEmptyReferenceSilences() {   // C2
+        XCTAssertTrue(avoidPCs([mkAvoid(lock: true)], input: [60, 62, 64], refs: []).isEmpty, "empty reference · LOCK → silence (nothing to lock to)")
+        XCTAssertTrue(avoidPCs([mkAvoid(lock: true, move: true)], input: [60, 62, 64], refs: []).isEmpty, "empty reference · LOCK MOVE → still silence")
+    }
+    func testAvoidRemovesExactlyTheReferenceClasses() {   // C3
+        XCTAssertEqual(avoidPCs([mkAvoid()], input: [60, 62, 64], refs: [(1, [2])]), [0, 4], "AVOID drops D (the reference class), keeps C & E")
+    }
+    func testLockKeepsOnlyTheReferenceClasses() {   // C4
+        XCTAssertEqual(avoidPCs([mkAvoid(lock: true)], input: [60, 62, 64, 67], refs: [(1, [0, 4])]), [0, 4], "LOCK keeps only C & E (the reference), drops D & G")
+    }
+    func testAvoidClashWidthNoneVsPlusOneVsPlusTwo() {   // C5
+        XCTAssertEqual(avoidPCs([mkAvoid(what: .same)], input: [61, 62], refs: [(1, [0])]), [1, 2], "SAME: only exact C blocked — C# & D pass")
+        XCTAssertEqual(avoidPCs([mkAvoid(what: .clash)], input: [61, 62], refs: [(1, [0])]), [2], "±1: C# (a semitone from C) blocked, D passes")
+        XCTAssertTrue(avoidPCs([mkAvoid(what: .clash2)], input: [61, 62], refs: [(1, [0])]).isEmpty, "±2: C# and D both blocked")
+    }
+    func testAvoidMoveWithNoSurvivorsDrops() {   // C6
+        XCTAssertTrue(avoidPCs([mkAvoid(move: true)], input: [62], refs: [(1, [2])]).isEmpty, "MOVE with a single blocked note & no survivor → drops (= REMOVE)")
+    }
+
+    // ── EVERYTHING (.sounding) = every OTHER input, never your own receiver (B-2) ──
+    func testEverythingAvoidsOtherDoorsNeverOwn() {   // C9
+        XCTAssertEqual(avoidPCs([mkAvoid(kind: .sounding)], input: [60, 62, 64], refs: [(1, [2]), (2, [5])]), [0, 4],
+                       "EVERYTHING avoids what OTHER inputs play (D on door1) — C & E pass; F on door2 wasn't in the input")
+    }
+    func testEverythingNeverAvoidsItsOwnInput() {   // C9b — the self-exclusion contract
+        XCTAssertEqual(avoidPCs([mkAvoid(kind: .sounding)], input: [60, 62, 64], refs: []), [0, 2, 4],
+                       "EVERYTHING with only this chain's own input playing → nothing to avoid (own receiver excluded) → all pass")
+    }
+
+    // ── Reference domain / octave ──────────────────────────────────────────────
+    func testKeyReferenceLocksToScale() {   // C11 (engine-only .key path)
+        XCTAssertEqual(avoidPCs([mkAvoid(kind: .key, lock: true, root: 0, scale: .major)], input: [60, 61, 62], refs: []), [0, 2],
+                       "LOCK to C major drops C# (out of key), keeps C & D")
+    }
+    func testReferenceIsOctaveAgnostic() {   // C12
+        XCTAssertTrue(avoidPCs([mkAvoid()], input: [48], refs: [(1, [0])]).isEmpty, "a C in octave 7 (the reference) blocks a C in octave 3 (the input) — pitch-class match")
+    }
+    func testLockMoveSnapsToReferenceEvenIfAbsentFromInput() {   // C13
+        XCTAssertEqual(avoidPCs([mkAvoid(lock: true, move: true)], input: [62], refs: [(1, [0, 4, 7])]), [0],
+                       "LOCK MOVE snaps D→C (nearest reference note) even though C was never in the input")
+    }
+    func testMoveNeverEmitsOutOfRange() {   // C14
+        let out = avoidRunE([mkAvoid(move: true)], input: [1, 3], refs: [(1, [1])]).ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        XCTAssertTrue(out.allSatisfy { $0 >= 0 && $0 <= 127 }, "MOVE near note 0 never emits an out-of-range note")
+    }
+
+    // ── Chain position — the heart of the felt inconsistency ───────────────────
+    func testAvoidRemoveIsPositionInvariantAroundADriver() {   // C23
+        let arp = ProcessorSlot(type: .arp)
+        XCTAssertEqual(avoidPCs([arp, mkAvoid()], input: [60, 64, 67], refs: [(1, [4])]), [0, 7], "[ARP→AVOID(remove)] drops E, arps C & G")
+        XCTAssertEqual(avoidPCs([mkAvoid(), arp], input: [60, 64, 67], refs: [(1, [4])]), [0, 7], "[AVOID(remove)→ARP] re-pools (drops E), arps C & G")
+    }
+    func testAvoidMoveDownstreamOfADriverSnapsInScale() {   // C17 — the B-1 FIX
+        let arp = ProcessorSlot(type: .arp)
+        let pcs = avoidPCs([arp, mkAvoid(move: true)], input: [60, 64, 67], refs: [(1, [4])])
+        XCTAssertFalse(pcs.contains(4), "E (blocked) never sounds")
+        XCTAssertFalse(pcs.isEmpty, "MOVE relocates E in-scale downstream of the arp (B-1 fix) — it does NOT degrade to DROP")
+        XCTAssertTrue(pcs.isSubset(of: [0, 7]), "the moved arp note lands on the chord's surviving notes (C/G), never a chromatic note")
+    }
+    func testLockMoveIsPositionInvariantDownstream() {   // C22
+        let arp = ProcessorSlot(type: .arp)
+        let pcs = avoidPCs([arp, mkAvoid(lock: true, move: true)], input: [60, 64, 67], refs: [(1, [0, 7])])
+        XCTAssertFalse(pcs.contains(4), "[ARP→LOCK(move)]: E (not in the lock set) is snapped away")
+        XCTAssertTrue(pcs.isSubset(of: [0, 7]) && !pcs.isEmpty, "LOCK MOVE snaps to the key even downstream of a driver (position-invariant)")
+    }
+    func testAvoidAsHoldTailAfterHarmonize() {   // C19
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [3, 0, 0]   // + minor third
+        let pcs = avoidPCs([harm, mkAvoid()], input: [60], refs: [(1, [3])])
+        XCTAssertEqual(pcs, [0], "[HARMONIZE→AVOID]: C harmonizes to {C, D#}, then the blocked D# is dropped — C alone")
+    }
+    func testAvoidBeforeAndAfterTheSameDriverBothRemove() {   // C21 (REMOVE is consistent both sides)
+        let arp = ProcessorSlot(type: .arp)
+        let pcs = avoidPCs([mkAvoid(), arp, mkAvoid()], input: [60, 64, 67], refs: [(1, [4])])
+        XCTAssertEqual(pcs, [0, 7], "[AVOID→ARP→AVOID] (both REMOVE): E removed upstream & downstream → C+G either way")
+    }
+
+    // ── Invariants ─────────────────────────────────────────────────────────────
+    func testAvoidNeverLeavesAStuckNote() {   // C24/C25
+        // A spread of configs, each must end with every voice released.
+        assertNothingLeftSounding(avoidRunE([mkAvoid()], input: [60, 62, 64], refs: [(1, [2])]))
+        assertNothingLeftSounding(avoidRunE([mkAvoid(move: true)], input: [60, 64, 67], refs: [(1, [4])]))
+        assertNothingLeftSounding(avoidRunE([mkAvoid(lock: true, move: true)], input: [60, 62], refs: [(1, [0, 7])]))
+        assertNothingLeftSounding(avoidRunE([ProcessorSlot(type: .arp), mkAvoid(move: true)], input: [60, 64, 67], refs: [(1, [4])]))
+        assertNothingLeftSounding(avoidRunE([mkAvoid(kind: .sounding, what: .clash2)], input: [60, 61, 62], refs: [(1, [0]), (2, [5])]))
+    }
     // The downstream passgate gates on the PASS the user sees (diag.pass): pass 0 closed (passes[0]=false) → the
     // whole first lap is silent even though later passes are open.
     func testArpThenPassgateGatesPassZero() {

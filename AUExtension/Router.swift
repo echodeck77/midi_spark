@@ -180,17 +180,22 @@ final class Router {
         }
         return m
     }
+    // The pitch classes a DOOR contributes as a reference: its latched/SCALE pool if frozen, else its live THRU input.
+    @inline(__always) private func doorRefMask(_ d: Int) -> UInt16 {
+        let latched = d >= 0 && d < latchedPools.count ? latchedPools[d].pitchClassMaskAll() : 0
+        return latched != 0 ? latched : doorLivePitchClassMask(d)
+    }
     /// The reference PITCH-CLASS set an AVOID/LOCK stage tests against: a declared KEY · another DOOR (its latched/SCALE
-    /// pool if present, else its LIVE input) · a WIRE's live output · ALL SOUNDING. Computed once per stage fold.
-    private func avoidRefMask(_ p: SnapParams) -> UInt16 {
+    /// pool if present, else its LIVE input) · a WIRE's live output · EVERYTHING = every OTHER input door (never this
+    /// chain's own receiver — Paul 2026-08-31: "everything except its own receiver"; input-domain, so it MATCHES the
+    /// editor piano's prediction and can never avoid itself). `ownDoor` = the AVOID cell's receiver. Computed once per fold.
+    private func avoidRefMask(_ p: SnapParams, ownDoor: Int) -> UInt16 {
         let base: UInt16
         switch p.avoidRefKind {
         case .key:      base = scalePitchClassMask(root: p.avoidRoot, scale: p.avoidScale)
-        case .door:     let i = max(0, min(3, p.avoidRefIndex))
-                        let latched = i < latchedPools.count ? latchedPools[i].pitchClassMaskAll() : 0
-                        base = latched != 0 ? latched : doorLivePitchClassMask(i)   // a latched/SCALE door → its frozen pool; a live THRU door → what it's playing NOW
-        case .wire:     base = soundingPitchClassMask(bus: max(0, min(3, p.avoidRefIndex)))
-        case .sounding: base = soundingPitchClassMask(bus: nil)
+        case .door:     base = doorRefMask(max(0, min(3, p.avoidRefIndex)))
+        case .wire:     base = soundingPitchClassMask(bus: max(0, min(3, p.avoidRefIndex)))   // engine-only (UI-dead): a specific emitter's live output
+        case .sounding: var m: UInt16 = 0; for d in 0..<4 where d != ownDoor { m |= doorRefMask(d) }; base = m   // EVERYTHING = the union of every OTHER input door
         }
         // WHAT (AVOID mode only): widen the avoided sphere to the CLASHING neighbours (ic1/ic2). LOCK keeps the exact set.
         return (!p.avoidLock && p.avoidClashSemis > 0) ? widenClashMask(base, semis: p.avoidClashSemis) : base
@@ -614,6 +619,11 @@ final class Router {
     // (where the live pool is in scope), then applied to every driven note in emitDriverNote.
     private var splitGateActive = false
     private var splitGateLo = 0, splitGateHi = 127, splitGateVF = 1, splitGateVC = 127
+    // AVOID+MOVE downstream ([driver→AVOID(move)]): the survivor pitch classes of the DRIVER's whole output pool, resolved
+    // once per cell in the row loop, so a blocked driven note snaps in-scale (like a standalone AVOID) instead of dropping.
+    // `Valid` is gated TRUE only around emitDriverNote's downstream fold — the upstream compose uses its own whole-set src.
+    private var avoidDriverSurvivor: UInt16 = 0
+    private var avoidDriverSurvivorValid = false
     private var prevForcedStep = Int.min   // last musical STEP seen while a column is HELD → re-arm strum each step (Paul 2026-08-15)
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
@@ -1479,6 +1489,17 @@ final class Router {
                         splitGateActive = true
                     }
                 }
+                // AVOID+MOVE downstream ([driver→AVOID(move)]): resolve the driver's whole output pool's SURVIVING classes
+                // (pool classes ∉ the avoided sphere), so a blocked driven note snaps to an in-scale survivor instead of
+                // dropping (B-1). Applied in emitDriverNote's fold (gated by avoidDriverSurvivorValid there). Paul 2026-08-31.
+                avoidDriverSurvivor = 0
+                if let ai = downstreamAvoidMoveIndex(cell, after: driver) {
+                    let ap = cell.procs[ai]
+                    let ep = effectivePool(for: cell, live: pool)
+                    let cnt = ep.srcCount(for: cell)
+                    let refMask = avoidRefMask(ap, ownDoor: Int(cell.resolvedReceiver))
+                    avoidDriverSurvivor = avoidSurvivors({ Int(ep.srcAscending($0, for: cell)) }, count: cnt, refMask: refMask)
+                }
                 switch driveP.type {
                 case .arp:
                     emitArpRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
@@ -1683,7 +1704,7 @@ final class Router {
                 ? chordSplitWindow(count: srcN, split: treat.a.splitSet,
                                    noteAt: { holdChain ? Int(chainScratch.srcAscending($0, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending($0, for: cell)) })
                 : (0, srcN)
-            let avoidHoldMask: UInt16 = mode == .avoid ? avoidRefMask(treatP) : 0   // AVOID/LOCK (standalone / hold-tail): the reference set, once per hold
+            let avoidHoldMask: UInt16 = mode == .avoid ? avoidRefMask(treatP, ownDoor: Int(cell.resolvedReceiver)) : 0   // AVOID/LOCK (standalone / hold-tail): the reference set, once per hold
             // The FINAL emitted note for rank k (base + the register/pool shift) — also the survivor scan's input.
             let holdFinalNote: (Int) -> Int = { k in
                 let b = holdChain ? Int(self.chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
@@ -3265,6 +3286,16 @@ final class Router {
         while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .split { found = j }; j += 1 }
         return found
     }
+    /// The FIRST non-bypassed AVOID slot after `driver` that is in AVOID+MOVE mode (the only downstream case that needs the
+    /// driver's whole pool as its in-scale MOVE survivor set — B-1 fix), or nil.
+    private func downstreamAvoidMoveIndex(_ cell: SnapCell, after driver: Int) -> Int? {
+        var j = driver + 1
+        while j < cell.procs.count {
+            if !cell.slotBypass[j], cell.procs[j].type == .avoid, !cell.procs[j].avoidLock, cell.procs[j].avoidMove { return j }
+            j += 1
+        }
+        return nil
+    }
     /// The FIRST non-bypassed GLIDE slot after `driver` (§7①: [driver→GLIDE] v2), or nil. When present, the driver's
     /// notes feed GLIDE's mono voice (emitGlideDriven) rather than sounding — the 303 line. v1: GLIDE is mono, so it
     /// consumes the driver's note directly; set-shapers between driver and GLIDE are ignored (a separate v2 concern).
@@ -3591,10 +3622,15 @@ final class Router {
                 if v >= vf && v <= vc { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .avoid:                                           // per-note PITCH filter — RE-POOL upstream / hold-tail: drop or snap each note vs the reference
-            let refMask = avoidRefMask(p)
+            let refMask = avoidRefMask(p, ownDoor: Int(cell.resolvedReceiver))
             let srcN = src.srcCount(filter: 0, cableMask: 0b1111)
-            // AVOID MOVE lands only on the input scale's SURVIVING notes (never a chromatic note outside the pool).
-            let survivorMask: UInt16 = (!p.avoidLock && p.avoidMove) ? avoidSurvivors({ Int(src.srcAscending($0, filter: 0, cableMask: 0b1111)) }, count: srcN, refMask: refMask) : 0
+            // AVOID MOVE lands only on the input scale's SURVIVING notes (never a chromatic note outside the pool). The
+            // survivor pool is `src` (the whole set upstream/hold-tail), OR the DRIVER's whole output pool when AVOID sits
+            // DOWNSTREAM of a driver and `src` is a single note (avoidDriverSurvivor, resolved per column — B-1 fix, so
+            // [ARP→AVOID(move)] snaps in-scale like a standalone AVOID instead of degrading to DROP). Paul 2026-08-31.
+            let survivorMask: UInt16 = (!p.avoidLock && p.avoidMove)
+                ? (avoidDriverSurvivorValid ? avoidDriverSurvivor : avoidSurvivors({ Int(src.srcAscending($0, filter: 0, cableMask: 0b1111)) }, count: srcN, refMask: refMask))
+                : 0
             for k in 0..<srcN {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
                 if let outN = avoidFilter(Int(n), p, refMask: refMask, survivorMask: survivorMask), outN >= 0, outN <= 127 { dst.noteOn(UInt8(outN), velocity: max(1, src.velocity(n)), channel: 0) }
@@ -3698,6 +3734,8 @@ final class Router {
         var echoP: SnapParams? = nil
         var lenP: SnapParams? = nil   // LENGTH downstream (last-writer wins): overrides each onset's gate by its slice
         var j = driver + 1
+        avoidDriverSurvivorValid = true   // downstream fold: a [driver→AVOID(move)] snaps onto the driver's whole-pool survivors (resolved above), not the single driven note (B-1)
+        defer { avoidDriverSurvivorValid = false }
         while j < cell.procs.count {
             if !cell.slotBypass[j] {   // true-bypass passes untouched
                 if cell.procs[j].type == .echo {
