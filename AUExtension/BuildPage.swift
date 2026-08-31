@@ -4953,8 +4953,13 @@ extension DiagView {
         let selGrey = greyUnlessSel && sel
         let fill = present ? (sel ? (selGrey ? Color(white: 0.84) : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)
         let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
+        // TASTEFUL CHEQUER (Paul 2026-08-31): the SELECT grid reads as a BOARD — a faint two-tone parity wash on every
+        // non-selected cell (the classic chessboard), subtle enough not to fight the roll. SELECT grid only (greyUnlessSel);
+        // the bright selected/focus cell stays clean.
+        let chequer = greyUnlessSel && !sel && ((i / 8 + i % 8) % 2 == 0)
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(fill)
+            if chequer { RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)) }   // the lighter square of the board
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
                 // The drift ANIMATES only while the chain is actually PLAYING (Paul 2026-08-30 bug): gating on `sel` alone kept
                 // the fingerprint looping after STOP on "play this midi chain" (MIDI stopped, animation didn't) — reads as still running.
