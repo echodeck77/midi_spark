@@ -85,6 +85,10 @@ struct BuildSnapshot {
     var selID: String?; var selReceiver: Int
     var colourReg: [String: [ProcessorSlot]]; var colourTranspose: [String: Int]; var hueOverride: [String: UInt32]
     var idCounter: Int
+    // THE ROOMS PLAY GRID (2026-08-31): the 10 parallel play-column arrays — added so play-grid edits (▲▼ swaps, ferries)
+    // are undoable. Was omitted → the play grid had NO undo coverage. (Persistence via BuildPlayGridData is orthogonal.)
+    var playCells: [[String?]]; var playSel: [Int]; var playColOn: [Bool]; var playColRecv: [Int]; var playColEmit: [Set<Bus>]
+    var playColLen: [Int]; var playColSteps: [[String?]]; var playColRate: [StepRate?]; var playColStepRecv: [[Int]]; var playColStepEmit: [[Set<Bus>]]
     var doc: PluginState
 }
 private let buildRollLife = 1.6   // seconds a note takes to cross the cell
@@ -1532,6 +1536,7 @@ extension DiagView {
         guard t >= 0 && t < 8 else { return }
         if roomsRoom == .part { roomsFlattenPartToPlay(t); return }           // PART page → FLATTEN the part into a multi-step pass (Paul 2026-08-30)
         guard let hit = buildGridSelStampSource() else { return }
+        buildRecordUndo()                                                    // the play grid is now in the undo snapshot → ferrying is undoable (2026-08-31)
         buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
         buildPlayColLen[t] = 1; buildPlayColSteps[t] = []; buildPlayColRate[t] = nil   // a SELECT single-cell ferry clears any prior multi-step pass on this column
         buildPlayColStepRecv[t] = []; buildPlayColStepEmit[t] = []
@@ -1563,6 +1568,7 @@ extension DiagView {
             return (rr >= 0 && c < buildStagingCells.count && rr < buildStagingCells[c].count) ? buildStagingCells[c][rr] : nil
         }
         guard let rep = steps.compactMap({ $0 }).first else { return }       // nothing selected in the part → nothing to flatten
+        buildRecordUndo()                                                    // flattening a part onto a play column is undoable (2026-08-31)
         buildGridSelStampRow = nil; buildGridSelStampAt = nil
         let r = (t < buildPlaySel.count && buildPlaySel[t] >= 0) ? buildPlaySel[t] : 0
         buildPlayColSteps[t] = steps
@@ -2741,6 +2747,9 @@ extension DiagView {
                       scenes: buildScenes, activeScene: buildActiveScene, row8Cells: buildRow8Cells, row8On: buildRow8On,
                       selID: buildSelID, selReceiver: buildSelReceiver, colourReg: buildColourReg,
                       colourTranspose: buildColourTranspose, hueOverride: colourHueOverride, idCounter: buildIDCounter,
+                      playCells: buildPlayCells, playSel: buildPlaySel, playColOn: buildPlayColOn, playColRecv: buildPlayColRecv,
+                      playColEmit: buildPlayColEmit, playColLen: buildPlayColLen, playColSteps: buildPlayColSteps,
+                      playColRate: buildPlayColRate, playColStepRecv: buildPlayColStepRecv, playColStepEmit: buildPlayColStepEmit,
                       doc: au?.documentSnapshot() ?? PluginState.makeInit())
     }
     /// Record the pre-action state. Call at the START of any authoring action. `coalesce` collapses a continuous gesture
@@ -2768,6 +2777,9 @@ extension DiagView {
         buildSelID = s.selID; buildSelReceiver = s.selReceiver
         buildColourReg = s.colourReg; buildColourTranspose = s.colourTranspose; colourHueOverride = s.hueOverride
         buildIDCounter = s.idCounter
+        buildPlayCells = s.playCells; buildPlaySel = s.playSel; buildPlayColOn = s.playColOn; buildPlayColRecv = s.playColRecv
+        buildPlayColEmit = s.playColEmit; buildPlayColLen = s.playColLen; buildPlayColSteps = s.playColSteps
+        buildPlayColRate = s.playColRate; buildPlayColStepRecv = s.playColStepRecv; buildPlayColStepEmit = s.playColStepEmit
         au?.restoreDocumentFromUndo(s.doc)          // the document (document-colour chains / receivers / rack) restored WITHOUT recording
         buildSyncColours()                          // push the ephemeral registry to the render
         buildPublishScene()                         // re-publish the composed scene
