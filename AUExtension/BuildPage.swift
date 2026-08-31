@@ -3737,7 +3737,13 @@ extension DiagView {
             let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
             if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) }
         }
-        return ids.map { colourColor($0) ?? buildCyan }
+        var out = ids.map { colourColor($0) ?? buildCyan }
+        // SELECT-grid CHAIN audition (ddSolo): the audition has no placed "cell", so the door it reads found no feed → it
+        // was showing the cyan no-feed fallback. Show the MACHINE hue instead (light grey on SELECT, matching the grid
+        // cells' inverse-grey playing look) so the receiver strip agrees with the machine box. (Paul 2026-08-31)
+        let auditionDoor = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        if ddSolo, door == auditionDoor, out.isEmpty { out.append(buildMachineHue(roomsRoom)) }
+        return out
     }
     // The colours of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
     // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
@@ -4721,18 +4727,18 @@ extension DiagView {
     // extrapolated beat the cell playheads use). Same colour scheme (the caller's `tint`).
     @ViewBuilder private func buildGridSelPianoRoll(_ bars: [GridSelBar], playing: Bool, tint: Color) -> some View {
         GeometryReader { g in
-            let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)   // one bar (8 steps) per full left→right sweep — the playhead cadence
+            let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)   // one bar (8 steps) per full sweep — the playhead cadence
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !playing || bars.isEmpty)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let raw = playing ? (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats : 0
-                let phase = raw < 0 ? raw + 1 : raw                      // 0…1, advances L→R with the beat; 0 (real positions) when idle
+                let phase = raw < 0 ? raw + 1 : raw                      // 0…1 with the beat; 0 (real positions) when idle
                 Canvas { ctx, size in
                     let laneH = max(1.5, size.height * 0.11)
                     for b in bars {
                         let w = max(1.5, (b.x1 - b.x0) * size.width)     // LENGTH
                         let y = b.y * (size.height - laneH)              // PITCH (high = top)
-                        let base = ((b.x0 + phase).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
-                        for k in (playing ? [0.0, -1.0] : [0.0]) {       // draw the note + its wrap copy while scrolling, so the flow is seamless
+                        let base = ((b.x0 - phase).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // RIGHT→LEFT scroll with the beat (Paul 2026-08-31)
+                        for k in (playing ? [-1.0, 0.0, 1.0] : [0.0]) {  // draw the note + its wrap copies while scrolling, so the flow is seamless either way
                             let rect = CGRect(x: (base + k) * size.width, y: y, width: w, height: laneH)
                             ctx.fill(Path(roundedRect: rect, cornerRadius: laneH / 2), with: .color(tint.opacity(0.35 + 0.55 * b.vel)))   // VELOCITY = opacity
                         }
