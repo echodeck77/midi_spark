@@ -8,10 +8,15 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-3
 ## ★★★ FERRY INTAKE 2026-08-31 — the ratified batch (DETAILED PLAN: `Docs/PLAN-incoming-2026-08-31.md`)
 Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes · listening-set · macro-lanes).
 `Docs/PLAN-incoming-2026-08-31.md` is the grounded, file:line implementation plan — read it before building any of these.
-- **RATIFIED, buildable (sequence + risk in the plan §J):** §A MIDI-tab scale label (minutes) · §B AVOID processor
-  (engine; reuses keyFilterNote; SPLIT-position law) · §C scale-aware IN strip (thin UI over §B) · §D MACRO LANES (needs a
-  render-time per-column macro path — the M1-bake→per-column change) · §E GRID 8|16 (⚠ gated by an Int8→Int16 cell-index
-  widening — the 64→128 playbook) · §F ▲▼ track-move + ghost previews (⚠ 10 parallel play arrays + NO play-grid undo today).
+- **RATIFIED, buildable (sequence + risk in the plan §J). PROGRESS 2026-08-31 (unattended):**
+  - ✅ **§A MIDI-tab scale label** — DONE (`Receiver.scaleLabel` shared helper; the tab shows "A MIXO" for a SCALE door; +test).
+  - ✅ **§5 play-grid undo** — DONE (the 10 play arrays added to BuildSnapshot; ferry/flatten now record undo).
+  - ✅ **§E GRID 8|16 stage 1** — DONE (Voice.cellIndex Int8→Int16, byte-identical, full suite green). STAGE 2 (the
+    cols=16 flip + mask/cellSounding/Snap.cols widening) is device-verified, Paul-present — see plan §E.
+  - ⏸ **§B AVOID** — HELD pending Paul's #1 confirm (SKIP is upstream re-pool; downstream = REST|SHIFT — explained).
+  - ⏸ **§C scale-aware IN strip** — after §B (thin UI over it).
+  - ⏸ **§D MACRO LANES** — blocked on #2 (render-time per-column macro path + part-scope).
+  - ⏸ **§F ▲▼ track-move** — the row-track model needs Paul on-glass (tracks are columns today); ghosts need the slot model.
 - **ALREADY BUILT (verified — do NOT rebuild):** the bazaar-muted select cells · scale-doors-name-themselves (on the
   receiver chip; only the MIDI-config tab bar is left = §A) · the room palette signatures (roomsField near-black PLAY,
   roomsDoorBar rainbow/amber/indigo/red, ▲PLAY indigo) · CHORDS/the dynamic reference.

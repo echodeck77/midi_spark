@@ -159,6 +159,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FERRY INTAKE 2026-08-31 + first ratified slices (on `main`, PUSHED; iOS builds, macOS 950 green; UI device-owed).
+  Read/merged/added the 5-doc design ferry (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes ·
+  listening-set · macro-lanes) + filed `Docs/PLAN-incoming-2026-08-31.md` (grounded file:line plan for the ratified batch,
+  §J sequencing, §K the 5 decisions Paul must settle). Then, unattended, built the APPROVED/unblocked slices: **§A** scale
+  doors name themselves on the MIDI-config tab (`Receiver.scaleLabel` shared helper + test) · **§5** the play grid joins
+  the BUILD undo snapshot (10 arrays added to BuildSnapshot; ferry/flatten record undo — was NO play-grid undo) · **§E
+  stage 1** `Voice.cellIndex` Int8→Int16 (byte-identical grid-8|16 groundwork; removes the flagged 127 ceiling). HELD for
+  Paul's word: §B AVOID (the #1 SKIP-position ruling — explained: SKIP=upstream re-pool, downstream REST|SHIFT), §D macro
+  lanes (#2), the §F ▲▼ gesture (the row-track model — tracks are columns today), the §E cols=16 FLIP (device). Room
+  palettes are mostly already built (bazaar-muted · scale-labels · roomsField/roomsDoorBar signatures); the remainder
+  (per-room chrome accent + the §4b bottom band) is device-owed colour work.**
 - **▶ HOUSEKEEPING SWEEP — dead code · 7-agent bug hunt · +8 tests · refactors (2026-08-30, on `main`; iOS builds, macOS
   suite green throughout — RouterTests 330 + the new tests). Paul: "long housekeeping, unattended — search for 30 bugs,
   add missing tests, investigate + perform refactors." Seven parallel read-only survey agents (4 bug-hunt: rooms-UI ·
