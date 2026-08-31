@@ -159,6 +159,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ROOMS STATE CONSOLIDATION — one machine-hue + one audition-owner model (2026-08-31, on `main`, `231ad6c`; iOS builds;
+  UI-only, DEVICE eye/ear owed). Paul reported two bugs and suspected scattered state that should be in a model — a 2-agent
+  read-only review confirmed TWO sources of truth for "the selected colour" + TWO independent voice booleans. **BUG 1 (card
+  colour ≠ machine box):** the machine strip used the room-aware `buildMachineHue` (grey on the SELECT audition) but every
+  CARD/EDITOR surface (buildProcessorPanel · buildTruthStrips · buildStageEyeView · ProcessorBox accent · buildProcessorPicker)
+  read RAW `buildSelHue` = colourColor(gsAud), the audition colour's palette hue (a multi-colour-select-grid throwback). FIX:
+  one `buildCardHue` accessor (routes through buildMachineHue) used by all 5 card sites. **BUG 2 (a ferry keeps playing after
+  you stop it):** the sound came from the SHARED select/part audition (ddSolo), not the play column — `buildSelectID`
+  re-injects the selection into the shared audition when ddSolo is on, so focusing a play-ferry pointed the audition at its
+  chain, and buildTogglePlayColumn-off only cleared buildPlayColOn. FIX: a SINGLE SOURCE OF TRUTH `buildVoiceOwner:
+  BuildWorkshopVoice` (none|chain|part); ddSolo/buildStagingPlaying are read-only COMPUTED MIRRORS (the ~40 reads untouched,
+  the ~11 writes all route through the owner — compiler-verified none missed) + 3 gates (PLAY room `.onAppear
+  roomsSyncVoice(.play)` · buildSelectPlayColumn sets owner .none before selecting · buildTogglePlayColumn clears the shared
+  audition on start). Stopping a ferry now always silences exactly its own voice. No engine/model/test file touched (955 suite stands).**
 - **▶ AVOID/LOCK (UNIFIED) + PLAY-FERRY ROW CURSOR (2026-08-31, on `main`, PUSHED `7c60dac`; iOS builds, macOS 953 green
   incl. fuzz; DEVICE ear/eye owed). Paul unified "avoid clashes" + "lock to key" into ONE processor — a per-note pitch
   filter (`keyFilterNote` as a chain stage): REFERENCE (KEY declared root+scale · DOOR 0–3 the receiver's latched/scale
