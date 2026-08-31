@@ -2635,36 +2635,39 @@ extension DiagView {
                 let recBeats = 3.0
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let lp = ((live / recBeats).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
-                // CLIP OUT only the POPULATED boxes → comets vanish behind a real processor's opaque face, flow through empties.
-                var boxesPath = Path()
-                for i in 0..<8 where populated[i] { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
-                if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
-                ctx.blendMode = .plusLighter
                 let nSeg = P.count - 1
                 let transit = max(0.03, stepBeats) / recBeats                  // circle → circle = ONE STEP
                 let segTime = transit / Double(nSeg)                          // per-segment flow time (so a comet propagates outward)
                 func stageAt(_ j: Int) -> Int { min(max(0, j - 1), stages.count - 1) }   // segment 0/1 = input · seg k = output of box k-2
-                func rhythmic(_ s: Int) -> Bool { stages[s].contains { $0.dur < 0.5 } }   // a stage with any SHORT note = rhythmic (arp etc.)
-                for j in 0..<nSeg {
-                    let a = P[j], b = P[j + 1], s = stageAt(j), rhy = rhythmic(s)
-                    for note in stages[s] {
+                // A stage is RHYTHMIC once a processor has broken the held chord into short notes (an arp, a ratchet, …). Each
+                // segment shows the character AT THAT POINT — so the note quality changes EXACTLY at the processor that changes it.
+                func rhythmic(_ s: Int) -> Bool { stages[s].contains { $0.dur < 0.5 } }
+                // PASS 1 — HARD LINES (UNCLIPPED, continuous) through every still-HELD stage: the line runs from the first
+                // circle THROUGH each pass-through processor (transpose, etc.) right up to the one that turns it rhythmic.
+                for j in 0..<nSeg where !rhythmic(stageAt(j)) && !stages[stageAt(j)].isEmpty {
+                    let vel = stages[stageAt(j)].map { $0.vel }.max() ?? 1
+                    var seg = Path(); seg.move(to: P[j]); seg.addLine(to: P[j + 1])
+                    ctx.stroke(seg, with: .color(hue.opacity(0.4 + 0.4 * vel)), style: StrokeStyle(lineWidth: 1.7 + 2.0 * CGFloat(vel), lineCap: .round, lineJoin: .round))
+                }
+                // PASS 2 — COMETS (clipped out of the boxes) for every RHYTHMIC stage: short comets flow outward from the
+                // processor that made them, propagating segment by segment.
+                var boxesPath = Path()
+                for i in 0..<8 where populated[i] { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
+                if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
+                ctx.blendMode = .plusLighter
+                for j in 0..<nSeg where rhythmic(stageAt(j)) {
+                    let a = P[j], b = P[j + 1]
+                    for note in stages[stageAt(j)] {
                         let r = 1.3 + 2.4 * CGFloat(note.vel)
-                        if note.dur >= 0.5 && !rhy {
-                            // HELD chord in a still-unchanged (input) stage → a HARD continuous LINE along this segment.
-                            var seg = Path(); seg.move(to: a); seg.addLine(to: b)
-                            ctx.stroke(seg, with: .color(hue.opacity(0.3 + 0.45 * note.vel)), style: StrokeStyle(lineWidth: 1.5 + 2.2 * CGFloat(note.vel), lineCap: .round))
-                        } else {
-                            // SHORT / rhythmic → a comet flowing along this segment, onset-timed + a per-segment delay so it flows outward.
-                            var t = lp - note.onset - Double(j) * segTime
-                            t = (t.truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
-                            let prog = t / segTime
-                            guard prog >= 0, prog <= 1 else { continue }
-                            let head = CGPoint(x: a.x + (b.x - a.x) * CGFloat(prog), y: a.y + (b.y - a.y) * CGFloat(prog))
-                            let tl = min(prog, 0.7)
-                            var tp = Path(); tp.move(to: CGPoint(x: a.x + (b.x - a.x) * CGFloat(prog - tl), y: a.y + (b.y - a.y) * CGFloat(prog - tl))); tp.addLine(to: head)
-                            ctx.stroke(tp, with: .color(hue.opacity(0.3 * note.vel)), style: StrokeStyle(lineWidth: r, lineCap: .round))
-                            ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * note.vel)))
-                        }
+                        var t = lp - note.onset - Double(j) * segTime
+                        t = (t.truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)
+                        let prog = t / segTime
+                        guard prog >= 0, prog <= 1 else { continue }
+                        let head = CGPoint(x: a.x + (b.x - a.x) * CGFloat(prog), y: a.y + (b.y - a.y) * CGFloat(prog))
+                        let tl = min(prog, 0.7)
+                        var tp = Path(); tp.move(to: CGPoint(x: a.x + (b.x - a.x) * CGFloat(prog - tl), y: a.y + (b.y - a.y) * CGFloat(prog - tl))); tp.addLine(to: head)
+                        ctx.stroke(tp, with: .color(hue.opacity(0.3 * note.vel)), style: StrokeStyle(lineWidth: r, lineCap: .round))
+                        ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * note.vel)))
                     }
                 }
             }
