@@ -1947,8 +1947,9 @@ extension DiagView {
                     roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW + gap + cw, h: lowerH)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)   // pin the column's content to the TOP of the GeometryReader (Paul 2026-09-01)
             .padding(pad)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)), alignment: .top)
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }

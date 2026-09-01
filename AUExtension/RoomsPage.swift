@@ -183,7 +183,7 @@ extension DiagView {
             let seamW = roomsGridCellW(gridW, cols: 10) * 0.5
             let chainW = avail - gridW - seamW
             let m = RoomsMetrics(height: g.size.height - 16)              // the ONE lattice for this room
-            HStack(spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {                          // TOP-align the columns (Paul 2026-09-01 — the default .center floated the right side)
                 roomsSeamColumn(to: .select, chevron: "◂", m: m).frame(width: seamW)   // the SEAM → SELECT, FAR LEFT (opposite the chain)
                 chainPanel(.part, m).frame(width: chainW)                  // the MACHINE box — its bands rhyme with the grid (1/3, middle)
                 roomsPartGrid(m: m).frame(width: gridW)                    // the GRID + its edge selectors (2/3, right)
