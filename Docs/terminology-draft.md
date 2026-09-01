@@ -61,9 +61,12 @@ voice, voice table, GHOST (a CLAIM reservation voice — why cells can't be
 ## The desk & modes
 - **THE DESK** — the panel column(s): PALETTE/COLOUR box, PROCESSOR
   (selector + SETTINGS), RECEIVERS, EMITTERS panels. 
-- **THE TABS** — the surfaces are tabs, one permanent address each:
-  BUILD · GRID · MIDI IN · MIDI OUT · MACROS · AUTOMATION (`AppTab`). ✂ the
-  retired "EDIT / PERFORM" toggle + "the two faces" — there are no faces now.
+- **THE ROOMS** — the sole UI is the BUILD surface, a set of ROOMS you switch
+  between via the nav doors: **SELECT** (browse/audition chains) · **PART**
+  (the sequencer) · **PLAY** (the continuous play grid) + the **REEL** (the pass
+  browser). (The retired six-tab `AppTab` shell — BUILD·GRID·MIDI IN·MIDI OUT·
+  MACROS·AUTOMATION — and the older "EDIT / PERFORM" toggle are both GONE; MIDI
+  IN/OUT + RACK are now reached from header buttons / the mixer.)
   **HOLD** — the global latch. **THE TIME MACHINE** — working title (rename
   at shipping).
 

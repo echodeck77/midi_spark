@@ -1,5 +1,5 @@
 # SPEC → Code — TAP (Paul, 2026-08-22: "MIDI exits the chain
-# midway" — captured for discussion, not ratified)
+# midway") — ✅ BUILT (2026-09-01 doc reconcile — the TAP processor shipped; see CLAUDE.md status)
 
 ## THE CARD
 **TAP** — a chain stage that EMITS the stream as-it-stands at its

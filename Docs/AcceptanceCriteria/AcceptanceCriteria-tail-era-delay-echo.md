@@ -1,6 +1,6 @@
 # AcceptanceCriteria — THE TAIL ERA: the tail class → DELAY → ECHO (captured 2026-08-05)
 
-**STATUS: CAPTURED, NOT BUILT (Paul's "go", but large).** From `BUILD-tail-era-delay-echo`, riding
+**STATUS: ✅ BUILT (2026-09-01 doc reconcile — the ECHO tail engine + phases shipped; see CLAUDE.md status).** From `BUILD-tail-era-delay-echo`, riding
 `ANALYSIS-tails-beyond-the-column`. Processors that extend BEYOND the cell/column. Build order: the engine class →
 DELAY (proving citizen) → ECHO (virtuoso).
 

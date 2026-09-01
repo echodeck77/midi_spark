@@ -1,6 +1,6 @@
 # AcceptanceCriteria — CONTROLLER ROUTING v1 (captured 2026-08-06)
 
-**STATUS: CAPTURED, NOT BUILT.** Design-side ruling of record (ferry `REPLY-audit-rulings-controllers.md`, §1②/⑦
+**STATUS: ✅ BUILT + DEVICE-VERIFIED (2026-09-01 doc reconcile — controller routing shipped; see CLAUDE.md status).** Design-side ruling of record (ferry `REPLY-audit-rulings-controllers.md`, §1②/⑦
 + CC123/120). Building it is render-input-path engine work + a device pass — deferred, not done blind. Paul can
 veto any of this.
 

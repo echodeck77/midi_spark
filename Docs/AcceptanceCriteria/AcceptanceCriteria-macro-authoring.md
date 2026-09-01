@@ -1,6 +1,6 @@
 # AcceptanceCriteria — THE MACRO AUTHORING FLOW (canonical) (captured 2026-08-06)
 
-**STATUS: CAPTURED, NOT BUILT.** Design-side + Paul (ferry `INSTRUCTIONS-macro-authoring-canonical.md`).
+**STATUS: ✅ BUILT (2026-09-01 doc reconcile — the macro authoring flow shipped; see CLAUDE.md status).** Design-side + Paul (ferry `INSTRUCTIONS-macro-authoring-canonical.md`).
 Supersedes the earlier `INSTRUCTIONS-processor-macro-flow.md` AND **retires the per-group `[AB]` popup** shipped as
 M4 (`AcceptanceCriteria-macro-ab-authoring.md`) — the authoring UI is replaced by this GENERIC control-group flow;
 the offset ENGINE underneath (M1 fold · M2 AU params · the 24 macro slots) is unchanged and carries over.

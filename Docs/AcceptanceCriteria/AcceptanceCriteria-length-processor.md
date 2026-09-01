@@ -5,7 +5,7 @@
 > downstream overrides each onset's gate by its slice. LENGTH-ROTATE shipped. (The 8×3 SHORT/LONG/MUTE grid became a
 > single-row 4-state paint grid, since PASS earned first-class status as the sustain/tie.)
 
-**STATUS: CAPTURED, NOT BUILT.** From `SPEC-length-processor`. The articulation family's DURATION axis (CHOP routes ·
+**STATUS: ✅ BUILT (see the banner above, `3d28fc6`).** From `SPEC-length-processor`. The articulation family's DURATION axis (CHOP routes ·
 GROOVE touches · LENGTH decides how long notes live). Kin widget: the shipped CHOP 8×3 grid, reused wholesale.
 
 ## CONTROLS

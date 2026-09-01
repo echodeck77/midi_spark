@@ -14,14 +14,14 @@ spec for unbuilt ones — currently the §5 rev 2 CELL EDITOR, the §6a
 channel-strip perform face, and undo/redo (CLAUDE.md a5–a7; v60 predates
 these revs — the delta wins).
 
-> Status in one line: the v3.0 graph-routing migration is DONE; fifteen processor
-> types, channels/outputs, graph routing, receivers (with LATCH + controller routing),
-> macros (with the authoring flow), the RACK, and audition (all types) are built and
-> DEVICE-VERIFIED, with a 600+-test off-device suite covering the render engine itself.
-> The UI is now a TAB shell (BUILD · GRID · MIDI IN · MIDI OUT · MACROS · AUTOMATION);
-> the BUILD page is the primary workshop and default landing tab — it superseded the old
-> DRAG&DROP + PROCESSORS/cell-edit pages. A/B-state morph was removed from the render.
-> See CLAUDE.md for live status; do not code from this README.
+> Status in one line: the v3.0 graph-routing migration is DONE (grid-chaining was since
+> RETIRED — cells route from four receiver DOORS); ~29 processor types, channels/outputs,
+> receivers (six door modes incl. SCALE, LATCH + controller routing), macros, the emitter
+> RACK, per-part clock, the reel pass browser, and audition (all types) are built, with a
+> ~980-test off-device suite covering the render engine itself. The UI is now the single
+> BUILD "rooms" surface (SELECT / PART / PLAY + the reel) — the six-tab shell and the old
+> DRAG&DROP + PROCESSORS/cell-edit pages were retired. A/B-state morph was removed from the
+> render. See CLAUDE.md for live status; do not code from this README.
 
 ## Setup — Path A (recommended): XcodeGen
 
@@ -75,8 +75,8 @@ AUExtension/
   Kernel.swift                       INPUT side + render boundary: transport/context derivation, incoming
                                      MIDI (source pool + passthrough + CC), param events, audition
                                      suppression → Router; hosts LiveMIDIEmitter (the one AudioToolbox user)
-  Router.swift                       OUTPUT side (§2/§7), Foundation-only: grid columns, v3.0 GRAPH routing
-                                     (receiver-picked references, reroute, cycles), all 15 processor types,
+  Router.swift                       OUTPUT side (§2/§7), Foundation-only: grid columns, four-DOOR routing
+                                     (grid-chaining retired), all ~29 processor types, per-part multi-clock,
                                      fan-out, the voice table + 5-cable collision refcount, AUDITION
   Emission.swift                     The MIDIEmitter seam (delta §7b): Router emits through this, not
                                      AudioToolbox → the whole engine unit-tests off-device
@@ -88,13 +88,13 @@ AUExtension/
   Diag.swift                         KernelDiag (pure) — render-side counters threaded through the pass
   Models.swift                       Spec §9 schema: Colour / Cell / SceneState / PluginState, Codable
   GridUI.swift                       The 8×8 grid + palette + PROCESSOR box + OUTPUTS (SwiftUI-only)
-  BuildPage.swift                    THE BUILD PAGE — the primary workshop + default tab (cast / part-staging /
-                                     PLAY grid / chain footer; SELECT·PLACE·MUTATE row modes; ephemeral colours)
+  BuildPage.swift                    THE BUILD "rooms" surface — the SOLE UI (SELECT / PART / PLAY rooms + the
+                                     reel; cast / part-staging / play grid / machine strip; ephemeral colours)
   SceneFactory.swift                 The sixteen factory scenes (Foundation-only; Docs/factory-scenes.md)
   TestSessions.swift                 T1–T17 canned patches (the in-app loader is retired; now dev-only)
-  AudioUnitViewController.swift      Extension UI host: the TAB shell (BUILD·GRID·MIDI IN·MIDI OUT·MACROS·
-                                     AUTOMATION) / grid / responsive DESK (4 Hz poll drives the playheads)
-Tests/                               Off-device unit tests (macOS MidiSparkTests target, 600+ tests over the
+  AudioUnitViewController.swift      Extension UI host: the BUILD rooms surface + responsive DESK
+                                     (the 4 Hz poll drives the playheads)
+Tests/                               Off-device unit tests (macOS MidiSparkTests target, ~980 tests over the
                                      pure core AND the render engine — first line of verification; green
                                      through every commit)
 Docs/                                Specs, migration plan, test playbook, factory scenes, UI guide, mockups
