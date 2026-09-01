@@ -2004,7 +2004,8 @@ extension DiagView {
                 default: buildMacroBindPanel()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)   // pin the panel content to the TOP (so it can't float / overlap the tabs when options appear)
+            .clipped()                                                                    // never spill over the tab bar or the piano roll above (Paul 2026-09-01)
         }
     }
     // small shared bits
@@ -2038,16 +2039,24 @@ extension DiagView {
             VStack(alignment: .leading, spacing: 3) {                        // 1 — PROCESSOR
                 macroColHead("PROCESSOR")
                 if chain.isEmpty { macroHint("add a machine") }
-                ForEach(Array(chain.enumerated()), id: \.offset) { (i, s) in
-                    macroLi(buildProcLabel(s), sel: i == procIdx) { buildMacroProc = i; buildMacroParam = nil; buildMacroSel = nil }
+                ScrollView(.vertical, showsIndicators: false) {             // long chains scroll rather than overflow the band
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(chain.enumerated()), id: \.offset) { (i, s) in
+                            macroLi(buildProcLabel(s), sel: i == procIdx) { buildMacroProc = i; buildMacroParam = nil; buildMacroSel = nil }
+                        }
+                    }
                 }
             }.frame(width: 92)
             VStack(alignment: .leading, spacing: 3) {                        // 2 — PARAMETER (of the selected processor)
                 macroColHead("PARAMETER")
-                ForEach(params, id: \.key) { p in
-                    macroLi(p.label, sel: p.key == buildMacroParam) {
-                        buildMacroParam = p.key; buildMacroSel = nil
-                        buildMacroAfter = chain.isEmpty ? 0 : (processorValues(chain[procIdx])[p.key] ?? 0)   // seed AFTER = current
+                ScrollView(.vertical, showsIndicators: false) {             // long param lists scroll within the band
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(params, id: \.key) { p in
+                            macroLi(p.label, sel: p.key == buildMacroParam) {
+                                buildMacroParam = p.key; buildMacroSel = nil
+                                buildMacroAfter = chain.isEmpty ? 0 : (processorValues(chain[procIdx])[p.key] ?? 0)   // seed AFTER = current
+                            }
+                        }
                     }
                 }
             }.frame(width: 110)
