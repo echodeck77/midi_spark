@@ -159,6 +159,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CHORDS — the diatonic-progression stage, FEATURE-COMPLETE (2026-09-01, on `main`, `64ed992`+`df5289c`+`2fd8d98`; iOS
+  builds, macOS 995 green incl. fuzz; DEVICE ear owed). Paul ratified all three modes; built C1→C5. A new HARMONY set-shaper
+  `ProcessorType.chords` — a held note TRIGGERS the diatonic chord for the current DEGREE, DERIVED from a stage-declared KEY
+  by RANK ARITHMETIC (degree n = pool-steps {n,n+2,n+4} — stacked thirds, quality falls out of the key; NO chord stored, so
+  one stencil plays in any key). Wired like harmonize/split/avoid — `applyStage` (composeChainSet folds it UPSTREAM →
+  `[CHORDS→ARP/STRUM/DRONE]` all play the progression) + `emitColumnHolds` (lone/tail hold). NOT a driver. **MODES:** PATTERN
+  (the authored 8-step degree matrix — empty column CARRIES, quality-aware Roman headers) · FOLLOW (the played note NAMES the
+  degree via `scaleDegreeOf`, off-scale snaps) · WALK (`chordsWalkDegreeAt` — a seeded gravity walk chained from the tonic,
+  recomputed per window → replay-exact, no accumulated RNG). **VOICING** TRIAD|7TH|ADD9 · **SPREAD** CLOSE|OPEN · `diatonicChord`
+  + `voiceLeadTowardPrevious` (nearest inversion) + `walkNextDegree` (7×7 gravity table) + `degreeLabel` — all pure/Foundation,
+  concept-derived tests. **C5 lone/tail fix:** a bare `[CHORDS]` was silent (only sang via a downstream, the AVOID hold-path
+  gap in CHORDS form); now `isHoldTailChain` recognises a `.chords` tail + `emitColumnHolds` composes the stage INTO
+  chainScratch (upto-inclusive) and emits it as a legato-adoptable hold (existing adopt/close machinery → no stuck notes;
+  forceColumnHold sustains via soloSustain). Full surface: CellMode `.chords` + emblem `pianokeys` + typeParams editor (MODE ·
+  KEY root+scale · quality-aware degree matrix via stateMatrixRadio · VOICING · SPREAD) + storefront card (HARMONY) + fuzz
+  roster/randomizer. **+11 tests** (4 Derivations pure-core + 7 Router: PATTERN in-key/transpose/V · FOLLOW G→V/C→I · WALK
+  seeded/valid/replay-exact · lone sounds V · VOICING 7TH reaches the engine · [CHORDS→ARP] pitch-class-clean). **C2b DEFERRED
+  (flagged, not blockers):** read the SCALE door's declared key (thread the receiver scale into the box — "plays in whatever
+  key D declares") · INVERT-toward-previous (needs per-cell last-chord memory across windows) · WINDOW ROW|BAR (span family).**
 - **▶ TIDE & EMBER COLOUR SCHEME + play-grid legibility + SELECT chequer/feedback + HOUSEKEEPING (2026-09-01, on `main`,
   `6537159`…`e32925b`; iOS builds, macOS 978 green; DEVICE eye/ear owed). Paul picked the **Tide & Ember** scheme with the
   **Even Dusk** play palette from a colour-study artifact. **PALETTE (`6537159`, GridUI + BuildPage tokens):** direction as

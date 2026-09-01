@@ -115,9 +115,19 @@ out of the key). No chord stored — progressions are DERIVED. Requires a scale-
   §2 "plays in whatever key D declares") is C2b (needs the receiver scale threaded into the box). (2) a LONE `[CHORDS]` with no
   downstream is SILENT — it works via `→STRUM/ARP/DRONE` (composeChainSet); a bare hold-path emission is a follow-up. (3) INVERT-
   toward-previous is deferred (needs a per-cell last-chord memory across windows). (4) WINDOW is CELL only (ROW|BAR later).
-- **C3 (FOLLOW mode):** the door-note → degree read via the pedal machinery (kin to AVOID's door-live ref) + CARRY. +test.
-- **C4 (WALK mode):** the seeded gravity walk (replay-exact, like the ratchet-coin seed). +test.
-- **C5 (voicing/window polish + downstream composition checks).**
+- ✅ **C3 (FOLLOW mode) — DONE (2026-09-01, `df5289c`):** `applyStage(.chords)` branches on `chordsMode`; FOLLOW reads the
+  held note's scale degree via the pure `scaleDegreeOf(note,root,scaleTones)` (off-scale snaps to nearest), so playing G in C
+  names the V. +2 tests (the pure degree-namer; a [CHORDS(follow)→drone] plays G→V / C→I). v1: the key is DECLARED on the
+  stage (the SCALE-door read stays C2b); no explicit CARRY control (a bare hold re-derives each window).
+- ✅ **C4 (WALK mode) — DONE (2026-09-01, `df5289c`):** `chordsWalkDegreeAt(step,seed)` chains `walkNextDegree` from the tonic,
+  recomputed each window from the base seed (no accumulated RNG → replay-exact). +2 tests (seeded/deterministic/gravitates;
+  a [CHORDS(walk)→drone] sounds a valid chord, replay-exact, nothing hung).
+- ✅ **C5 (lone/tail emission + voicing/downstream) — DONE (2026-09-01, `2fd8d98`):** a lone `[CHORDS]` (and a `[X→CHORDS]`
+  tail) now SOUND — `isHoldTailChain` recognises a `.chords` tail; `emitColumnHolds` admits `mode == .chords`, composes the
+  CHORDS stage INTO chainScratch (upto-inclusive) and emits it as a legato-adoptable hold (existing adopt/close machinery →
+  no stuck notes). +3 tests (lone sounds V; VOICING 7TH reaches the engine = C E G B; [CHORDS→ARP] arpeggiates only the
+  chord's pitch classes). **CHORDS COMPLETE.** Remaining C2b (flagged, not blockers): SCALE-door key read · INVERT-toward-
+  previous (needs per-cell last-chord memory) · WINDOW ROW|BAR (span family).
 
 ### Risks
 - FOLLOW inherits AVOID's L1 later-row caveat (read a door's live notes SO FAR this render → put CHORDS on a later row than

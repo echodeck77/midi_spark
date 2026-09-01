@@ -66,6 +66,13 @@ on the scale pool); the STATUS note says the three MODES + voicing await Paul's 
   modes RATIFIED** (FOLLOW·PATTERN·WALK + voicing). **LAYOUT:** the macro band = the bottom HALF of the PART grid (interior 8×8
   −50% height; ferry row · ▲▼ · STOP unchanged). **BUILD ORDER:** CHORDS C1 (pure core) → C2 PATTERN → C3 FOLLOW → C4 WALK;
   macro M1→M2 (the part-scoped amount grid) → M3–M6 (the 4 tabs).
+- **✅ CHORDS — DONE / FEATURE-COMPLETE (2026-09-01, `64ed992`+`df5289c`+`2fd8d98`; 995 green, iOS builds; DEVICE ear owed).**
+  C1 pure core → C2 PATTERN → C3 FOLLOW → C4 WALK → C5 lone/tail emission + voicing/downstream. All three modes + VOICING/SPREAD
+  + the quality-aware degree matrix ship; wired via applyStage (upstream fold) + emitColumnHolds (lone/tail hold, no stuck
+  notes). **REMAINING C2b (flagged, NOT blockers):** ① read the SCALE door's declared key (thread the receiver scale into the
+  box — the §2 "plays in whatever key D declares"; today the key is declared ON THE STAGE); ② INVERT-toward-previous (the pure
+  `voiceLeadTowardPrevious` exists + is tested, but wiring it needs a per-cell last-chord memory across windows); ③ WINDOW
+  CELL|ROW|BAR (the span family — CELL only today). **NEXT ON THIS FERRY: the macro-automation build** (M1→M6, PART-PAGE-ONLY).
 
 ## ★★★ FERRY INTAKE 2026-08-31 — the ratified batch (DETAILED PLAN: `Docs/PLAN-incoming-2026-08-31.md`)
 Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes · listening-set · macro-lanes).
