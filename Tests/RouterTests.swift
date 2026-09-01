@@ -784,6 +784,73 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [55, 59, 62], "a lone [CHORDS] sounds V = G B D directly")
     }
+    // REPRO the REAL select/ferry audition (Paul device 2026-09-01): a lone cell parked at col 0 of a row PINNED to
+    // column 0 (rowLane bit 0) — the continuous 1-step pass. A legato drone sustains here; the question is whether a
+    // non-legato set-shaper (CHORDS) sustains or dies after one column. Compares CHORDS against HARMONIZE on the SAME path.
+    private func pinnedAuditionOns(_ type: ProcessorType, configure: (inout ProcessorSlot) -> Void) -> (ons: Int, sustainedLate: Bool) {
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = type
+        let b = box(colours: cs) { s in
+            var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001   // PIN row 0 to column 0 (the audition pin)
+            s.rowLane = lane
+            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                var sl = ProcessorSlot(type: type); configure(&sl); x.processors = [sl]; return x }()
+        }
+        // Drive many windows with a chord HELD throughout (a latch-armed audition), NOT releasing until the very end.
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        let pool = chord([60])
+        var lateWindowStart = 0
+        while beat < 12.0 {   // ~ several passes' worth of frozen-pin time
+            if beat >= 8.0 && lateWindowStart == 0 { lateWindowStart = e.events.count }
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        // "sustained late" = a note is still open (more ons than offs) at beat 8+ — i.e. it didn't fall silent.
+        let onsLate = e.events[lateWindowStart...].filter { $0.status == 0x90 && $0.cable == 1 }.count
+        let offsLate = e.events[lateWindowStart...].filter { $0.status == 0x80 && $0.cable == 1 }.count
+        let stillOpen = e.events.filter { $0.status == 0x90 && $0.cable == 1 }.count - e.events.filter { $0.status == 0x80 && $0.cable == 1 }.count
+        _ = (onsLate, offsLate)
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        return (e.ons.filter { $0.cable == 1 }.count, stillOpen > 0)
+    }
+    func testPinnedAuditionSustainsChordsLikeADrone() {   // THE BUG (Paul): CHORDS must SOUND CONTINUOUSLY on the pinned audition, like a legato drone
+        let drone = pinnedAuditionOns(.drone) { $0.params.gate = 1.0 }   // a legato drone is the sustaining baseline
+        let chords = pinnedAuditionOns(.chords) { $0.params.chordsMode = .follow; $0.params.chordsRoot = 0; $0.params.chordsScale = .major }
+        XCTAssertTrue(drone.sustainedLate, "a drone sustains on the pinned audition (baseline)")
+        XCTAssertTrue(chords.sustainedLate, "CHORDS is STILL SOUNDING late in the pinned audition (got \(chords.ons) ons) — was 'nothing sounds', a dead audition")
+    }
+    func testPinnedAuditionChordsFollowsTheHeldNote() {   // "feed in midi → it responds", on the REAL (pinned) audition path
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        let b = box(colours: cs) { s in
+            var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // PIN row 0 (the audition)
+            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                var sl = ProcessorSlot(type: .chords); sl.params.chordsMode = .follow; sl.params.chordsRoot = 0; sl.params.chordsScale = .major
+                x.processors = [sl]; return x }()
+        }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func hold(_ note: UInt8?, beats: Double) {   // note = nil → NOTHING held (a silent stretch)
+            let end = beat + beats
+            while beat < end {
+                router.process(box: b, pool: note.map { chord([$0]) } ?? NotePool(), playing: true, beatPos: beat, tempo: tempo,
+                               sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+        }
+        hold(nil, beats: 3)   // audition running, nothing held yet (the "then I play" order — like arming the latch AFTER)
+        hold(67, beats: 5)    // play G → V (G B D)
+        hold(60, beats: 5)    // change to C → RESPONDS with I (C E G)
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertTrue(notes.isSuperset(of: [55, 59, 62]), "G played AFTER the audition started → V sounds (picks up late input)")
+        XCTAssertTrue(notes.isSuperset(of: [48, 52, 55]), "changing to C → RESPONDS with I — the audition follows the played note")
+    }
     func testChordsReadsTheKeyFromAScaleDoor() {   // C2b#1 (Paul device 2026-09-01): "derive its scale from a door set to SCALE"
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords

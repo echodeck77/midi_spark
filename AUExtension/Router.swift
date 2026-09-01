@@ -1706,7 +1706,12 @@ final class Router {
             // harmonize) as immortal+adopted so the machine plays CONTINUOUSLY; the frozen colStart makes the chance
             // dice + harmony stable, so the every-window re-run (reconcileOnly) adopts the identical set (no re-strike).
             let soloSustain = forceColumnHold && (bm & altMask) == 0
-            let legato = (bm & altMask) == 0 && ((mode == .identity && treat.a.phase == .legato) || mode == .drone || soloSustain)   // a DRONE is ALWAYS legato (sustains + adopts across drone columns; closes where no drone re-holds it)
+            // CHORDS is a SUSTAINED chord (Paul device 2026-09-01): legato like a drone, so on the continuous SELECT/PLAY
+            // audition (a row PINNED to one column → no re-firing transition) it SOUNDS continuously instead of striking
+            // once and gating off ("nothing sounds"). Re-derives + adopts each reconcile window (the pinned re-run below),
+            // so it follows a late-armed latch / a changing FOLLOW note; on a SWEEPING row it re-strikes only when the
+            // chord actually changes (same degree in consecutive columns sustains — more musical than a re-attack).
+            let legato = (bm & altMask) == 0 && ((mode == .identity && treat.a.phase == .legato) || mode == .drone || mode == .chords || soloSustain)
             if reconcileOnly && !legato { continue }   // frozen-column re-run: only the immortal holds reconcile
             // STRIKE PER SPAN (Paul 2026-08-27, the span ladder's other half): a legato hold (v1: DRONE) fires ONCE at
             // each span origin and HOLDS (adopts) through the rest — the multi-column pad. Off the same span-ladder
@@ -2098,7 +2103,7 @@ final class Router {
     private func emitColumnTransition(box: SnapshotBox, effCol: Int, prevEdge: Int, onlyRow: Int?,
                                       S: Double, a: Double, mNow: Double, pass: Int, tempo: Double,
                                       beatPos: Double, beatsPerSample: Double, windowStart: Int64, windowEnd: Int64,
-                                      heldActive: Bool, pool: NotePool, out: MIDIEmitter?, diag: inout KernelDiag) -> Int {
+                                      heldActive: Bool, pinned: Bool = false, pool: NotePool, out: MIDIEmitter?, diag: inout KernelDiag) -> Int {
         let savedPass = diag.pass
         diag.pass = pass
         defer { diag.pass = savedPass }
@@ -2118,8 +2123,11 @@ final class Router {
                            S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                            windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
             return effCol
-        } else if forceColumnHold {
-            // PLAY: THIS CELL — the column is FROZEN, so re-run the holds every window to SUSTAIN them (adopt, don't re-strike).
+        } else if forceColumnHold || pinned {
+            // PLAY: THIS CELL (forceColumnHold) OR a PINNED continuous row (the SELECT/PLAY audition, a single-column
+            // loop that never re-transitions) — re-run the holds every window to SUSTAIN the legato ones (adopt when
+            // unchanged, re-strike when the derived set CHANGES). This is what makes a legato CHORDS follow a late-armed
+            // latch / a changing FOLLOW note on the audition instead of striking once and gating off (Paul 2026-09-01).
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, reconcileOnly: true, onlyRow: onlyRow, diag: &diag)
@@ -2473,11 +2481,12 @@ final class Router {
                 if forceColumnHold { effColR = forceColumn }
                 let passR = Int((mNr / cycR).rounded(.down))
                 rowSBuf[r] = Sr; rowCycBuf[r] = cycR; rowMNowBuf[r] = mNr; rowEffColBuf[r] = effColR; rowPassBuf[r] = passR
+                let pinnedRow = rowHeld[r] != 0 && (rowHeld[r] & (rowHeld[r] &- 1)) == 0   // exactly one held column = a PINNED continuous row (audition / single play-cell) → sustain-reconcile its legato holds every window
                 prevEffColumnRow[r] = emitColumnTransition(box: box, effCol: effColR, prevEdge: prevEffColumnRow[r], onlyRow: r,
                                                            S: Sr, a: a, mNow: mNr, pass: passR, tempo: tempo,
                                                            beatPos: beatPos, beatsPerSample: beatsPerSample,
                                                            windowStart: windowStart, windowEnd: windowEnd,
-                                                           heldActive: rowHeld[r] != 0, pool: pool, out: out, diag: &diag)
+                                                           heldActive: rowHeld[r] != 0, pinned: pinnedRow, pool: pool, out: out, diag: &diag)
             }
             diag.pass = globalPass
             prevEffColumn = effColumn   // keep the GLOBAL edge current (echo dry now fires per-row above, on each row's own clock)
