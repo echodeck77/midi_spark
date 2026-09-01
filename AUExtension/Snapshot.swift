@@ -325,7 +325,7 @@ final class SnapshotBox {
     let receiverReplayMask: UInt8        // REPLAY (config-sheets stage 3): bit i = receiver i is in REPLAY mode (its input ring loops as living input)
     let receiverReplayPasses: [UInt8]    // REPLAY: per-receiver history length in passes (1·2·4·8) that loops
     let receiverFile: [SnapFileClip]     // FILE (config-sheets stage 4): per-door loaded .mid clip that loops as input (empty = none)
-    let macroValues: [Double]        // MACRO MODULATION: the 24 live macro values (0…1), index = macro slot. The derivation reads these; the per-cell targets ride on SnapCell (added with the offset term).
+    let macroValues: [Double]        // MACRO MODULATION: the 16 live macro values (0…1), index = macro slot (8 slider + 8 toggle; timelines retired §K3). The derivation reads these; the per-cell targets ride on SnapCell (added with the offset term).
     // PER-PART CLOCK (Paul 2026-08-19): the raw per-row step/len arrive as init params + are resolved below; only the
     // RESOLVED arrays are stored (the raw ones were write-only dead — removed 2026-08-25 housekeeping).
     let rowStep: [Double]            // RESOLVED per-row step (always Snap.rows long; falls back to `stepBeats`) — what the render reads
@@ -363,7 +363,7 @@ final class SnapshotBox {
          receiverExcludeDoor: [Int8] = [-1, -1, -1, -1], receiverExcludeOnly: UInt8 = 0, receiverExcludeSnap: UInt8 = 0,
          receiverReplayMask: UInt8 = 0, receiverReplayPasses: [UInt8] = [1, 1, 1, 1],
          receiverFile: [SnapFileClip] = [SnapFileClip(), SnapFileClip(), SnapFileClip(), SnapFileClip()],
-         macroValues: [Double] = Array(repeating: 0, count: 24),
+         macroValues: [Double] = Array(repeating: 0, count: 16),
          rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt8] = [],
          freezeActive: Bool = false, clockScale: Double = 1.0, busRemap: [UInt8] = [0, 1, 2, 3],
          broadcastActive: Bool = false, broadcastAll16: Bool = false) {

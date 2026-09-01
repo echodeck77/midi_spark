@@ -821,10 +821,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
 
     /// Set a macro's value. SLIDERS (0…7) route via the AU param tree so host automation / the CC rail / the in-app
-    /// panel stay in sync (the observer folds it into the document). BUTTONS/TIMELINES (8…23) aren't AU params —
-    /// write the document directly (still an OFFSET; bases untouched). Coalesced so a drag/hold isn't undo spam.
+    /// panel stay in sync (the observer folds it into the document). TOGGLES (8…15) aren't AU params — write the
+    /// document directly (still an OFFSET; bases untouched). Coalesced so a drag/hold isn't undo spam.
     func setMacroValue(_ index: Int, _ value: Double) {
-        guard (0..<24).contains(index) else { return }
+        guard (0..<PluginState.macroBankCount).contains(index) else { return }
         let v = max(0, min(1, value))
         if index < ParamAddress.macroSliderCount {
             _parameterTree.parameter(withAddress: ParamAddress.macro(index))?.value = AUValue(v)
@@ -835,11 +835,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             }
         }
     }
-    /// The 24 macros for the UI (panel / A/B authoring). Read-back; the values mirror the automatable sliders.
+    /// The 16 live macros for the UI (8 slider + 8 toggle; timelines retired §K3). Read-back; slider values mirror the automatable params.
     func uiMacros() -> [Macro] { document.macrosResolved }
     /// Macro NAME (document-level, not an AU param) — 12 chars max; "" = unset/invitation.
     func setMacroName(_ index: Int, _ name: String) {
-        guard (0..<24).contains(index) else { return }
+        guard (0..<PluginState.macroBankCount).contains(index) else { return }
         editDocument { d in
             if d.macros == nil { d.macros = d.macrosResolved }
             d.macros?[index].name = String(name.prefix(12))
@@ -847,7 +847,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     /// Macro PADLOCK — false = SPRING (release returns home) · true = FIXED (latched). Document-level.
     func setMacroFixed(_ index: Int, _ fixed: Bool) {
-        guard (0..<24).contains(index) else { return }
+        guard (0..<PluginState.macroBankCount).contains(index) else { return }
         editDocument { d in
             if d.macros == nil { d.macros = d.macrosResolved }
             d.macros?[index].fixed = fixed
@@ -858,7 +858,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// A/B AUTHORING: bind (append) offset targets to a macro — the delta vector (B − A per touched param). Overlaps
     /// on the same param SUM at derivation (the offset law), so appending is correct even across sections/cells.
     func addMacroTargets(_ index: Int, _ targets: [MacroTarget]) {
-        guard (0..<24).contains(index), !targets.isEmpty else { return }
+        guard (0..<PluginState.macroBankCount).contains(index), !targets.isEmpty else { return }
         editDocument { d in
             if d.macros == nil { d.macros = d.macrosResolved }
             d.macros?[index].targets.append(contentsOf: targets)
@@ -867,12 +867,12 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// A/B AUTHORING: remove a macro's binding to a cell — every target it holds on (col,row), or only those on a
     /// specific `slot` when given (the macro pop-up's per-slot "Remove from M{n}"). Reflected LIVE in the MIDI out.
     func removeMacroTargets(_ index: Int, col: Int, row: Int, slot: Int? = nil) {
-        guard (0..<24).contains(index), document.macros != nil else { return }
+        guard (0..<PluginState.macroBankCount).contains(index), document.macros != nil else { return }
         editDocument { d in d.macros?[index].targets.removeAll { $0.col == col && $0.row == row && (slot == nil || $0.slot == slot) } }
     }
     /// A/B AUTHORING (OUTPUT group): bind (append) per-emitter role-amount deltas to a macro.
     func addMacroEmitterTargets(_ index: Int, _ targets: [MacroEmitterTarget]) {
-        guard (0..<24).contains(index), !targets.isEmpty else { return }
+        guard (0..<PluginState.macroBankCount).contains(index), !targets.isEmpty else { return }
         editDocument { d in
             if d.macros == nil { d.macros = d.macrosResolved }
             d.macros?[index].emitterTargets.append(contentsOf: targets)
@@ -880,7 +880,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     /// A/B AUTHORING (OUTPUT group): clear a macro's OUTPUT bindings (the "remove OUTPUT" chip).
     func removeMacroEmitterTargets(_ index: Int) {
-        guard (0..<24).contains(index), document.macros != nil else { return }
+        guard (0..<PluginState.macroBankCount).contains(index), document.macros != nil else { return }
         editDocument { d in d.macros?[index].emitterTargets.removeAll() }
     }
     /// MACRO AUTHORING (canonical pop-up): restore the WHOLE macros vector — the pop-up's CANCEL reverts every

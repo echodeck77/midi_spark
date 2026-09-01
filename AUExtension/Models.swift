@@ -1225,9 +1225,15 @@ struct PluginState: Codable, Equatable {
     // (performance, not edit). Values are GLOBAL v1 (not per-scene). Persisted; Optional → old docs decode nil (no
     // macros), a clean instrument gets 24 unset macros via `macrosResolved`.
     var macros: [Macro]? = nil
-    /// The 24 macros, nil/short-array safe (missing ⇒ an unset `Macro`). Non-persisting read helper.
-    var macrosResolved: [Macro] { let a = macros ?? []; return (0..<24).map { $0 < a.count ? a[$0] : Macro() } }
-    /// The bank a macro index belongs to (0–7 sliders · 8–15 buttons · 16–23 timelines).
+    /// The LIVE macro bank (Paul §K3 2026-09-01): SIXTEEN named movements in TWO species — 8 SLIDER (0–7) + 8 TOGGLE
+    /// (8–15). The old 8 TIMELINE macros (16–23) are RETIRED: a doc that stored them still DECODES (the Codable
+    /// `macros` array is untouched → encode round-trips whatever is there), but only the first 16 are RESOLVED, so
+    /// their offsets simply stop applying (decode-safe retirement). Byte-identical for any doc that only used 0–15.
+    static let macroBankCount = 16
+    /// The live 16 macros, nil/short-array safe (missing ⇒ an unset `Macro`). Non-persisting read helper.
+    var macrosResolved: [Macro] { let a = macros ?? []; return (0..<Self.macroBankCount).map { $0 < a.count ? a[$0] : Macro() } }
+    /// The species a macro index belongs to: 0–7 SLIDER · 8–15 TOGGLE (the `.button` kind). The `.timeline` case is
+    /// kept for tolerance (16+ classify as timeline) but the live bank is 16, so nothing in the render/UI asks past 15.
     static func macroKind(_ i: Int) -> MacroKind { i < 8 ? .slider : (i < 16 ? .button : .timeline) }
     // master panel: MUTE — global emission kill (PERSISTED, document-level unlike the per-scene KEY). Optional
     // → old docs decode nil (not muted). The gate lives at the emission boundary (seam rule 3).

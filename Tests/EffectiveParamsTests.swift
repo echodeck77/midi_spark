@@ -12,19 +12,20 @@ final class EffectiveParamsTests: XCTestCase {
 
     // MARK: M0 — the macro state model
 
-    /// A clean instrument (no macros persisted) resolves to 24 unset macros, correctly banked.
-    func testMacrosResolveToTwentyFourUnsetByBank() {
+    /// A clean instrument (no macros persisted) resolves to 16 unset macros, correctly banked.
+    func testMacrosResolveToSixteenInTwoSpecies() {   // §K3 2026-09-01: 16 named movements = 8 SLIDER + 8 TOGGLE (timelines retired)
         let doc = self.doc()
         XCTAssertNil(doc.macros)                                   // nothing persisted on a clean instrument
         let m = doc.macrosResolved
-        XCTAssertEqual(m.count, 24)
+        XCTAssertEqual(m.count, 16)
+        XCTAssertEqual(PluginState.macroBankCount, 16)
         XCTAssertTrue(m.allSatisfy { $0.name.isEmpty && $0.value == 0 && !$0.fixed && $0.targets.isEmpty })
         XCTAssertEqual(PluginState.macroKind(0), .slider)
         XCTAssertEqual(PluginState.macroKind(7), .slider)
         XCTAssertEqual(PluginState.macroKind(8), .button)
         XCTAssertEqual(PluginState.macroKind(15), .button)
+        // 16+ still CLASSIFY as timeline (tolerance for an old-doc index) but the live bank is 16, so nothing resolves them.
         XCTAssertEqual(PluginState.macroKind(16), .timeline)
-        XCTAssertEqual(PluginState.macroKind(23), .timeline)
     }
 
     /// A short/partial macros array is padded (missing slots ⇒ unset) — forward/back compatible like the rack arrays.
@@ -33,7 +34,7 @@ final class EffectiveParamsTests: XCTestCase {
         doc.macros = [Macro(name: "FILT", value: 0.5, fixed: true,
                             targets: [MacroTarget(col: 1, row: 2, slot: 0, param: "gate", delta: 0.3)])]
         let m = doc.macrosResolved
-        XCTAssertEqual(m.count, 24)
+        XCTAssertEqual(m.count, 16)
         XCTAssertEqual(m[0].name, "FILT")
         XCTAssertEqual(m[0].value, 0.5)
         XCTAssertTrue(m[0].fixed)
@@ -49,17 +50,36 @@ final class EffectiveParamsTests: XCTestCase {
                                targets: [MacroTarget(col: 4, row: 5, slot: 1, param: "spread", delta: -0.4)])
         let data = try JSONEncoder().encode(doc)
         let back = try JSONDecoder().decode(PluginState.self, from: data)
-        XCTAssertEqual(back.macros?.count, 24)
+        XCTAssertEqual(back.macros?.count, 16)
         XCTAssertEqual(back.macrosResolved[3].name, "SWEEP")
         XCTAssertEqual(back.macrosResolved[3].targets.first?.delta, -0.4)
 
-        // An old document with no macros key: strip it, decode → nil, resolve → 24 unset.
+        // An old document with no macros key: strip it, decode → nil, resolve → 16 unset.
         var obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         obj.removeValue(forKey: "macros")
         let oldData = try JSONSerialization.data(withJSONObject: obj)
         let old = try JSONDecoder().decode(PluginState.self, from: oldData)
         XCTAssertNil(old.macros)
-        XCTAssertEqual(old.macrosResolved.count, 24)
+        XCTAssertEqual(old.macrosResolved.count, 16)
+    }
+
+    /// §K3 RETIREMENT decode-safety: a doc that stored the OLD 24-macro bank (with a TIMELINE macro at 16–23 carrying a
+    /// binding) must still DECODE without loss — the full stored array round-trips — but only the first 16 RESOLVE, so
+    /// the retired timeline's offset simply stops applying (no crash, no factory-reset). This is how old docs land soft.
+    func testOldTwentyFourMacroDocDecodesButOnlyResolvesSixteen() throws {
+        var doc = self.doc()
+        var full = [Macro](repeating: Macro(), count: 24)
+        full[8] = Macro(name: "TOG", value: 1, fixed: false,
+                        targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.2)])   // a LIVE toggle (bank 8–15)
+        full[20] = Macro(name: "OLDLANE", value: 1, fixed: false,
+                         targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.9)])  // a RETIRED timeline (16–23)
+        doc.macros = full
+        let data = try JSONEncoder().encode(doc)
+        let back = try JSONDecoder().decode(PluginState.self, from: data)
+        XCTAssertEqual(back.macros?.count, 24, "the stored array round-trips whole (decode-safe, no data loss)")
+        XCTAssertEqual(back.macrosResolved.count, 16, "but only 16 resolve — the timeline bank is retired")
+        XCTAssertEqual(back.macrosResolved[8].name, "TOG", "the live toggle survives")
+        XCTAssertFalse(back.macrosResolved.contains { $0.name == "OLDLANE" }, "the retired timeline macro is not in the live bank")
     }
 
     // REVIEW FIX 2026-08-26 (CR-8 class): a macro persisted BEFORE emitterTargets/laneOn/laneRate existed lacks those
@@ -94,11 +114,11 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(line.pulses, 5)
     }
 
-    /// The builder mirrors the 24 macro values into the snapshot (clamped 0…1); a clean doc yields 24 zeros.
+    /// The builder mirrors the 16 macro values into the snapshot (clamped 0…1); a clean doc yields 16 zeros.
     func testBuilderMirrorsMacroValuesClamped() {
         var doc = self.doc()
         let clean = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(clean.macroValues.count, 24)
+        XCTAssertEqual(clean.macroValues.count, 16)
         XCTAssertTrue(clean.macroValues.allSatisfy { $0 == 0 })
 
         doc.macros = doc.macrosResolved

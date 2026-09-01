@@ -375,13 +375,13 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(PluginState.resolved4([1, 2, 3, 4, 5, 6], 0, 0, 100), [1, 2, 3, 4], "over-long → exactly 4")
     }
 
-    /// `macrosResolved` truncates an over-long persisted array to exactly 24 (the short/nil path is covered in
-    /// EffectiveParamsTests; this locks the tail-drop).
+    /// `macrosResolved` truncates an over-long persisted array to exactly 16 — the LIVE bank (§K3: 8 slider + 8 toggle;
+    /// timelines retired). The short/nil path is covered in EffectiveParamsTests; this locks the tail-drop.
     func testMacrosResolvedTruncatesOverLong() {
         var d = PluginState(colours: [], scenes: [SceneState.empty()])
         d.macros = (0..<30).map { Macro(name: "M\($0)") }
-        XCTAssertEqual(d.macrosResolved.count, 24)
-        XCTAssertEqual(d.macrosResolved[23].name, "M23", "keeps the first 24, drops 24…29")
+        XCTAssertEqual(d.macrosResolved.count, 16)
+        XCTAssertEqual(d.macrosResolved[15].name, "M15", "keeps the first 16, drops 16…29 (the retired timelines + overflow)")
     }
 
     func testOldSchemaDocDecodesDefaultsNewFieldsAndIgnoresRemovedKeys() throws {
