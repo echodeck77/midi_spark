@@ -1898,38 +1898,58 @@ extension DiagView {
     // a LEFT seam sliver (◂ → SELECT, beside the left side buttons) · LEFT row-slots (the selection) · an 8×8 interior
     // (one rung/col + playhead) · a RIGHT row-selector rail · a top track-head row · a ▲PLAY sliver above it (over the
     // interior cols). NO loop keys, no padding between the nav slivers and the grid.
+    // PART-GRID PROPORTIONS (Paul 2026-09-01): the interior 8-row grid is SHRUNK below the header (ferry row + ▲PLAY nav +
+    // ▲▼/STOP stay their size) to free a LARGE PANEL below (the future macro band / part surface). Tunable — device-owed.
+    static let roomsPartInteriorFraction: CGFloat = 0.5   // interior cell height = this × the lattice cell height
     @ViewBuilder func roomsPartGrid(m: RoomsMetrics) -> some View {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad               // heights come from the shared lattice (m); width stays per-view
-            let cw = max(6, (g.size.width - 2 * pad - 9 * gap) / 10)          // 10 cols (leftRail + 8 interior + rightRail) → FILLS the width (seam moved out)
+            let cols = 8                                                     // the part-grid STEP count (→ 16 with the §E flip; the ferry row + rails follow)
+            let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 2))   // leftRail + `cols` interior + rightRail → FILLS the width
             let ch = m.ch, navH = m.navH
-            let interiorW = cw * 8 + gap * 7
-            let interiorH = m.interiorH
+            let partCH = max(6, ch * DiagView.roomsPartInteriorFraction)     // SHRUNK interior cell height (the header rows keep `ch`)
+            let interiorW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
+            let interiorH = partCH * 8 + gap * 7                            // 8 rungs at the shrunk height
             let leftInset = cw + gap                                        // leftRail → the interior's left edge
+            // The lower region = everything under the ferry row: [interior at partCH] + [the large panel filling the rest].
+            let lowerH = max(interiorH, g.size.height - 2 * pad - navH - gap - ch - gap)
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
                     Color.clear.frame(width: leftInset)
                     roomsPlayNavSliver(width: interiorW, height: navH)
                 }
-                HStack(spacing: gap) {                                      // the PLAY-ferry row — IDENTICAL to the select grid's (Paul 2026-08-29;
+                HStack(spacing: gap) {                                      // the PLAY-ferry row — stays FULL SIZE (Paul: ferry/▲▼/STOP unchanged)
                     roomsPlayFerryRowSelector().frame(width: cw, height: ch) //   the ▲▼ row cursor (shared with the select grid's)
-                    ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }
+                    ForEach(0..<cols, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }
                     Color.clear.frame(width: cw)
                 }
-                HStack(alignment: .top, spacing: gap) {                     // body: left rail | interior+playhead | right rail
-                    VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(width: cw, height: ch) } }
-                    ZStack(alignment: .topLeading) {
-                        VStack(spacing: gap) { ForEach(0..<8, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPartCell(c, r, w: cw, h: ch) } } } }
-                        roomsPartPlayhead(colW: cw, gap: gap, height: interiorH)
+                ZStack(alignment: .topLeading) {                           // the lower region: shrunk grid on top, the LARGE PANEL beneath
+                    VStack(alignment: .leading, spacing: gap) {
+                        HStack(alignment: .top, spacing: gap) {             // body: left rail | interior+playhead | right rail (all at partCH)
+                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(width: cw, height: partCH) } }
+                            ZStack(alignment: .topLeading) {
+                                VStack(spacing: gap) { ForEach(0..<8, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: partCH) } } } }
+                                roomsPartPlayhead(colW: cw, gap: gap, height: interiorH)
+                            }
+                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: cw, height: partCH) } }
+                        }
+                        roomsPartPanel().frame(maxWidth: .infinity, maxHeight: .infinity)   // THE LARGE PANEL — fills the freed space below the grid
                     }
-                    VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: cw, height: ch) } }
+                    // the processor-editor card, when open, covers the WHOLE lower region (grid + panel) so it keeps its room
+                    roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW + gap + cw, h: lowerH)
                 }
-                .overlay(alignment: .topLeading) { roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW + gap + cw, h: interiorH) }   // extend RIGHT over the row-selector rail (Paul 2026-08-29)
             }
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
+    }
+    // THE LARGE PANEL (Paul 2026-09-01): the reserved region below the shrunk part grid — placeholder for now (the macro band
+    // or a fuller part surface lands here). A recessed bordered area so the freed space reads as intentional, not empty.
+    @ViewBuilder func roomsPartPanel() -> some View {
+        RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.03))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
+            .overlay(Text("PANEL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.18)))
     }
     // SHARED grid-cell body (Paul 2026-08-30 colour language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
