@@ -58,7 +58,7 @@ enum BuildSelfTest {
     /// Drive a BUILD-style scene through the REAL engine and record its MIDI. laneMask 0 = a normal 8-column sweep
     /// (BUILD never laps). Mirrors Dice.evalRun / RouterTests.run — held chord in, emitted MIDI captured, then a
     /// STOP window flushes so no-stuck-note can be checked.
-    static func render(_ colours: [Colour], chord: [UInt8] = [60, 64, 67], beats: Double = 8, laneMask: UInt8 = 0,
+    static func render(_ colours: [Colour], chord: [UInt8] = [60, 64, 67], beats: Double = 8, laneMask: UInt16 = 0,
                        _ build: (inout SceneState) -> Void) -> SelfTestRecorder {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(colours: colours, scenes: [s]); st.busChannels = [1, 2, 3, 4]

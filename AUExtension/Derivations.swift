@@ -1172,7 +1172,7 @@ func columnSweepFraction(realBeat: Double, stepBeats: Double, swing: Int) -> Dou
 /// is warped; the true timeline is untouched (pass/passgate/swing all run off it). `laneMask == 0`
 /// (nothing held) passes `trueColumn` through unchanged. k∤8 gives the INTENDED polymeter rotation —
 /// the mapping is never reset at pass boundaries, so a k-cycle phases against the 8-step timeline.
-func lapColumn(laneMask: UInt8, absoluteStep: Int, trueColumn: Int) -> Int {
+func lapColumn(laneMask: UInt16, absoluteStep: Int, trueColumn: Int) -> Int {
     let k = laneMask.nonzeroBitCount
     guard k > 0 else { return trueColumn }
     let idx = ((absoluteStep % k) + k) % k          // 0..<k, negative-safe

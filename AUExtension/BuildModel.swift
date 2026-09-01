@@ -88,7 +88,7 @@ struct BuildSceneSnapshot: Codable, Equatable {
     var performPart: [Int]
     var performMute: Set<Int>
     var performStagingRow: [Int]
-    var performLane: UInt8
+    var performLane: UInt16
     var row8On: [Bool]                 // the scene's lit ROW 8 toggles (FREEZE/HALFTIME/… state)
     var name: String = ""
 }
@@ -139,7 +139,7 @@ extension BuildSceneSnapshot {
         performPart       = try c.decodeIfPresent([Int].self, forKey: .performPart) ?? Array(repeating: -1, count: 8)
         performMute       = try c.decodeIfPresent(Set<Int>.self, forKey: .performMute) ?? []
         performStagingRow = try c.decodeIfPresent([Int].self, forKey: .performStagingRow) ?? Array(repeating: -1, count: 8)
-        performLane       = try c.decodeIfPresent(UInt8.self, forKey: .performLane) ?? 0
+        performLane       = try c.decodeIfPresent(UInt16.self, forKey: .performLane) ?? 0
         row8On            = try c.decodeIfPresent([Bool].self, forKey: .row8On) ?? Array(repeating: false, count: 8)
         name              = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
     }

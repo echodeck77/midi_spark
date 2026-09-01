@@ -261,7 +261,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// §5b COLUMN-SUBSET LAP: the held column keys as a bitmask (bit i = column i). Ephemeral, never
     /// persisted; the PERFORM UI sets it while column keys are held and clears it (0) on release /
     /// transport stop / EDIT switch. `laneMask == 0` = no lap (playback follows the true column).
-    func setLaneMask(_ mask: UInt8) { kernel.setLaneMask(mask) }
+    func setLaneMask(_ mask: UInt16) { kernel.setLaneMask(mask) }
     func reelTouch() { kernel.reelTouch() }                 // THE REEL-TO-REEL: toggle record→replay / resume (Paul 2026-08-18)
     func uiReelState() -> Int { kernel.reelStateValue() }   // 0 off · 1 armed · 2 replaying
     func reelExportRangeFiles(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] { kernel.reelExportRange(fromPass: lo, toPass: hi, emitterMask: emitterMask) }   // pass RANGE × emitter selection

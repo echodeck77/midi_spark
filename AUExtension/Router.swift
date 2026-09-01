@@ -74,7 +74,7 @@ final class Router {
     private var busRemap: [UInt8] = [0, 1, 2, 3]      // ROW 8 REDIRECT/SWAP: per-bus output-wire remap (identity = no redirect), refreshed each process
     private var broadcastActive = false               // ROW 8 BROADCAST: mirror every emitted note to all 4 wires, refreshed each process
     private var broadcastAll16 = false                // ROW 8 BROADCAST (Paul 2026-08-26): also fan the ALL-cable copy across all 16 channels
-    private var heldColumns: UInt8 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
+    private var heldColumns: UInt16 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
     private var prevBusEnabledMask: UInt8 = 0b1111   // edge: a bus going enabled→disabled closes its notes
@@ -324,7 +324,7 @@ final class Router {
     private var rowCycBuf = [Double](repeating: 0, count: Snap.rows)     // per-row cycle beats (Lr · Sr)
     private var rowMNowBuf = [Double](repeating: 0, count: Snap.rows)    // per-row musical position
     private var rowPassBuf = [Int](repeating: 0, count: Snap.rows)       // per-row pass index
-    private var rowHeld = [UInt8](repeating: 0, count: Snap.rows)        // PER-ROW LAP: each row's effective loop mask (box.rowLaneMask[r], or the global ephemeral lap when the scene set none)
+    private var rowHeld = [UInt16](repeating: 0, count: Snap.rows)        // PER-ROW LAP: each row's effective loop mask (box.rowLaneMask[r], or the global ephemeral lap when the scene set none)
     // MULTI-SCENE S2b RESTART-the-pass: a beat offset shifting the WHOLE playing clock so the current moment
     // becomes column 0 ("take it from the top"). 0 = no restart (normal play is byte-identical). Reset on the
     // transport-start edge; captured = the raw beat at the restart. Shifts musicalOf + sampleOf together.
@@ -2155,7 +2155,7 @@ final class Router {
                  frameCount: UInt32,
                  audition: Int = -1,
                  forceColumn: Int = -1,   // PLAY: THIS CELL — freeze the effective column here (isolated ungated play), −1 = normal
-                 laneMask: UInt8 = 0,
+                 laneMask: UInt16 = 0,
                  velOverride: UInt32 = 0,
                  heldCell: Int = -1,
                  tapAltMask: UInt64 = 0,

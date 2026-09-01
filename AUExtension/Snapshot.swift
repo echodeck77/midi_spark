@@ -335,7 +335,7 @@ final class SnapshotBox {
     // RESOLVED arrays are stored (the raw ones were write-only dead — removed 2026-08-25 housekeeping).
     let rowStep: [Double]            // RESOLVED per-row step (always Snap.rows long; falls back to `stepBeats`) — what the render reads
     let rowLength: [Int]             // RESOLVED per-row loop length (always Snap.rows long; falls back to Snap.cols) — what the render reads
-    let rowLaneMask: [UInt8]         // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask; empty ⇒ use the EPHEMERAL global lap (laneMask) for every row (GRID tab = today). Non-empty (count Snap.rows) ⇒ each row laps its OWN columns (0 = no loop) — so the BUILD staging + perform grids loop independently.
+    let rowLaneMask: [UInt16]         // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask; empty ⇒ use the EPHEMERAL global lap (laneMask) for every row (GRID tab = today). Non-empty (count Snap.rows) ⇒ each row laps its OWN columns (0 = no loop) — so the BUILD staging + perform grids loop independently.
     // ROW 8 (Paul 2026-08-22): FREEZE + HALFTIME are toggle cells whose LIT state is scene-captured, so they flow through
     // the box (no ephemeral channel). freezeActive = any lit FREEZE cell (sustain sounding notes + pause derivation).
     // clockScale = the play-grid clock multiplier from a lit HALFTIME cell (÷2 ⇒ 2.0 = steps twice as long · ×2 ⇒ 0.5 · ×1/none ⇒ 1.0).
@@ -370,7 +370,7 @@ final class SnapshotBox {
          receiverReplayMask: UInt8 = 0, receiverReplayPasses: [UInt8] = [1, 1, 1, 1],
          receiverFile: [SnapFileClip] = [SnapFileClip(), SnapFileClip(), SnapFileClip(), SnapFileClip()],
          macroValues: [Double] = Array(repeating: 0, count: 16),
-         rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt8] = [],
+         rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt16] = [],
          freezeActive: Bool = false, clockScale: Double = 1.0, busRemap: [UInt8] = [0, 1, 2, 3],
          broadcastActive: Bool = false, broadcastAll16: Bool = false) {
         self.freezeActive = freezeActive

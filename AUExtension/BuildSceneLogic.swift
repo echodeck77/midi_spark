@@ -39,8 +39,8 @@ enum BuildSceneLogic {
         var stagingLen: Int? = nil                     // the CURRENT part's loop length
         // PER-ROW LAP (Paul 2026-08-19): the two grids' column-loop masks, kept SEPARATE — staging (current part) rows
         // lap `stagingLane`, piece rows lap `performLane`, so looping one grid never loops the other.
-        var stagingLane: UInt8 = 0                     // the CURRENT part's column-loop mask (staging grid)
-        var performLane: UInt8 = 0                     // the PIECE's column-loop mask (play grid)
+        var stagingLane: UInt16 = 0                     // the CURRENT part's column-loop mask (staging grid)
+        var performLane: UInt16 = 0                     // the PIECE's column-loop mask (play grid)
         // THE PLAY GRID (Paul 2026-08-29, "treat as new") — the independent 8×8 (buildPlayCells) with ONE rung per column
         // (playSel). Each column is a FULLY INDEPENDENT voice: it starts/stops on its own (playColOn) and carries the I/O
         // it was FERRIED WITH (playColRecv/playColEmit — the door + emitters the source was playing through). Cells arrive
@@ -52,7 +52,7 @@ enum BuildSceneLogic {
         var playColOn: [Bool] = []                     // per-column play state — ONLY started columns sound
         var playColRecv: [Int] = []                    // per-column input door (derived from the ferry source)
         var playColEmit: [Set<Bus>] = []               // per-column output emitters (derived from the ferry source; empty → [.a])
-        var playLane: UInt8 = 0                        // the play grid's column-loop mask
+        var playLane: UInt16 = 0                        // the play grid's column-loop mask
         // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part") — a play column can carry an N-STEP pass instead of a single
         // looped cell. playColLen[c] > 1 ⇒ playColSteps[c][step] (the flattened part's per-column colours) is laid across
         // cols 0..len-1 of the play-layer row and SWEPT+looped (rowLen); len ≤ 1 ⇒ the single-cell path (today, byte-identical).
@@ -200,7 +200,7 @@ enum BuildSceneLogic {
         // PER-ROW LAP (Paul 2026-08-19): each row takes the loop mask of whichever voice's cell landed on it — mirroring
         // the placement precedence above (piece first, staging overwrites), so the two grids' loops stay independent.
         if i.stagingLane != 0 || i.performLane != 0 || i.playLane != 0 || i.playPlaying || chainLaneRow != nil {
-            var rowLane = [UInt8](repeating: 0, count: Snap.rows)    // Snap.rows = 16 (rows 0–7 the visible grids, 8–15 the play layer)
+            var rowLane = [UInt16](repeating: 0, count: Snap.rows)    // Snap.rows = 16 (rows 0–7 the visible grids, 8–15 the play layer)
             if let cr = chainLaneRow, chainPinned { rowLane[cr] = 0b0000_0001 }   // P1: pin ONLY the single-cell audition; the fallback laid chain cells across cols 1..7 → leave rowLane 0 so the row SWEEPS (else the pin loops col 0, often ANOTHER voice's cell → the audition is silent)
             if i.performPlaying {
                 for c in 0..<8 { for r in 0..<8 {

@@ -865,7 +865,7 @@ struct SceneState: Codable, Equatable {
     var rowLen: [Int?]? = nil             // per-row loop length in columns 1…8 (nil ⇒ 8)
     // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask, so the BUILD staging + perform grids loop INDEPENDENTLY
     // in one combined scene. nil ⇒ no per-row lap (the render uses the ephemeral global lap, GRID-tab behaviour).
-    var rowLane: [UInt8]? = nil           // count Snap.cols when set; entry = that row's loop mask (0 = no loop)
+    var rowLane: [UInt16]? = nil           // count Snap.cols when set; entry = that row's loop mask (0 = no loop)
     // master panel: KEY — per-scene master transpose (semitones, clamp ±12), applied to every output note.
     // Optional (append-only) → old scenes decode nil (0). PERSISTED (the key is structure).
     var masterKey: Int? = nil

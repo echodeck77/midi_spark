@@ -43,7 +43,7 @@ final class RouterTests: XCTestCase {
     /// Drive the render engine across `beats` musical beats of PLAYING windows, then one STOP window
     /// (the transport edge flushes every voice). Mirrors how the Kernel calls it each render.
     private func run(_ box: SnapshotBox, _ pool: NotePool, beats: Double, into emitter: RecordingEmitter,
-                     laneMask: UInt8 = 0, soloCellMask: UInt64 = 0, releaseAtEnd: Bool = true,
+                     laneMask: UInt16 = 0, soloCellMask: UInt64 = 0, releaseAtEnd: Bool = true,
                      tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) {
         let router = Router()
         var diag = KernelDiag()
@@ -515,7 +515,7 @@ final class RouterTests: XCTestCase {
         // UNIFORM fast path and never actually lapped (a false positive). Use a full 16-entry lane, and assert a cell OFF the
         // lapped column stays SILENT — which the uniform sweep would have SOUNDED, so the test now genuinely exercises the lap.
         let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }   // arp → a VISITED column keeps sounding
-        var lane = [UInt8](repeating: 0, count: Snap.rows)
+        var lane = [UInt16](repeating: 0, count: Snap.rows)
         lane[0] = 0b1        // row 0 laps COLUMN 0 only
         lane[1] = 0b1_0000   // row 1 laps COLUMN 4 only (independently)
         let b = box(colours: cs) { s in
@@ -791,7 +791,7 @@ final class RouterTests: XCTestCase {
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = type
         let b = box(colours: cs) { s in
-            var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001   // PIN row 0 to column 0 (the audition pin)
+            var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001   // PIN row 0 to column 0 (the audition pin)
             s.rowLane = lane
             s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
                 var sl = ProcessorSlot(type: type); configure(&sl); x.processors = [sl]; return x }()
@@ -826,7 +826,7 @@ final class RouterTests: XCTestCase {
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
         let b = box(colours: cs) { s in
-            var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
+            var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
             s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
                 var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                 ch.params.chordsDegrees = [Int](repeating: 0, count: 8)
@@ -858,7 +858,7 @@ final class RouterTests: XCTestCase {
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
         let b = box(colours: cs) { s in
-            var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // PIN row 0 (the audition)
+            var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // PIN row 0 (the audition)
             s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
                 var sl = ProcessorSlot(type: .chords); sl.params.chordsMode = .follow; sl.params.chordsRoot = 0; sl.params.chordsScale = .major
                 x.processors = [sl]; return x }()
@@ -885,7 +885,7 @@ final class RouterTests: XCTestCase {
     }
     func testChordsSustainsFromALatchedReceiverOnThePinnedAudition() {   // Paul: "I set the receiver to a key / to some chords" — the latch feed
         var s = SceneState.empty()
-        var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition row
+        var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition row
         s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a]); x.inputReceiver = 0
             var sl = ProcessorSlot(type: .chords); sl.params.chordsMode = .pattern; sl.params.chordsRoot = 0; sl.params.chordsScale = .major
             sl.params.chordsDegrees = [Int](repeating: 0, count: 8); x.processors = [sl]; return x }()
@@ -933,7 +933,7 @@ final class RouterTests: XCTestCase {
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
         let b = box(colours: cs) { s in
-            var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
+            var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
             s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
                 var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                 ch.params.chordsDegrees = degrees; ch.params.chordsRate = rate; ch.params.chordsSteps = steps
@@ -4947,7 +4947,7 @@ final class RouterTests: XCTestCase {
         let b = box(colours: arpColours()) { _ in }
         let sr = 48_000.0, tempo = 120.0; let frames: UInt32 = 4096
         let windowBeats = Double(frames) * tempo / 60.0 / sr
-        func sweep(laneMask: UInt8) -> (cols: Set<Int>, steps: Set<Int>) {
+        func sweep(laneMask: UInt16) -> (cols: Set<Int>, steps: Set<Int>) {
             let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
             var beat = 0.0, ts = 0.0; var cols = Set<Int>(), steps = Set<Int>()
             for _ in 0..<80 {

@@ -67,14 +67,14 @@ struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Dou
 // BUILD UNDO (Paul 2026-08-27): one complete snapshot of the BUILD page's authoring @State + the document — every field a
 // user action can change, so a restore is whole (never partial). Value types only (cheap COW copies).
 struct BuildSnapshot {
-    var stagingCells: [[String?]]; var stagingSel: [Int]; var stagingLane: UInt8
+    var stagingCells: [[String?]]; var stagingSel: [Int]; var stagingLane: UInt16
     var parts: [BuildPart]; var currentPart: Int; var returnPart: Int?
     var partEmitters: Set<Bus>; var partRate: StepRate?; var partLen: Int?
     var partCast: [String]; var castSlots: [Int: String]; var rowUnder: [String?]
     var rowReceiver: [Int?]; var rowEmitters: [Set<Bus>?]
     var performCells: [[String?]]; var performChain: [[[ProcessorSlot]]]; var performRecv: [Int]
     var performEmit: [Set<Bus>]; var performPart: [Int]; var performMute: Set<Int>
-    var performStagingRow: [Int]; var performLane: UInt8
+    var performStagingRow: [Int]; var performLane: UInt16
     var scenes: [BuildSceneSnapshot]; var activeScene: Int; var row8Cells: [Row8Cell]; var row8On: [Bool]
     var selID: String?; var selReceiver: Int
     var colourReg: [String: [ProcessorSlot]]; var colourTranspose: [String: Int]; var hueOverride: [String: UInt32]

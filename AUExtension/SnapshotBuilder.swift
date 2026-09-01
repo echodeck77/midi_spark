@@ -265,7 +265,7 @@ enum SnapshotBuilder {
         }
         // PER-ROW LAP (Paul 2026-08-19): pass the per-row loop mask through when the scene set one (BUILD's two grids),
         // else empty ⇒ the render uses the ephemeral global lap for every row (GRID tab, byte-identical).
-        let rowLaneResolved: [UInt8] = (scene.rowLane?.count == Snap.rows) ? scene.rowLane! : []
+        let rowLaneResolved: [UInt16] = (scene.rowLane?.count == Snap.rows) ? scene.rowLane! : []
 
         // ROW 8 (Paul 2026-08-22): the toggle cells that flow through the box. A cell counts as ACTIVE when its scene
         // toggle (row8On) is lit. FREEZE ⇒ sustain + pause; HALFTIME ⇒ scale the play-grid clock (÷2 = 2.0 = slower).

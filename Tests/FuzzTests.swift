@@ -167,7 +167,7 @@ final class FuzzTests: XCTestCase {
         }
         // PER-ROW LAP (Paul 2026-08-19): per-row column-loop masks (the BUILD grids loop independently) — the per-row
         // path laps each row's OWN columns. Hammered for no-stuck-notes across every edge (rows lapping different subsets).
-        if r.chance(0.3) { scene.rowLane = (0..<8).map { _ in r.chance(0.5) ? UInt8(r.int(256)) : 0 } }
+        if r.chance(0.3) { scene.rowLane = (0..<8).map { _ in r.chance(0.5) ? UInt16(r.int(256)) : 0 } }
         if r.chance(0.5) { scene.masterKey = r.range(-12, 12) }        // KEY± under held chords
         var st = PluginState(colours: colours, scenes: [scene])
         if r.chance(0.2) { st.ladderMode = true }                     // LADDER (exclusive columns) resolves in the builder
@@ -313,7 +313,7 @@ final class FuzzTests: XCTestCase {
             let sceneFlush = r.chance(0.05)
             let panic = r.chance(0.02)
             let solo: UInt8 = r.chance(0.1) ? UInt8(r.int(16)) : 0
-            let lane: UInt8 = r.chance(0.1) ? UInt8(1 << r.int(8)) : 0
+            let lane: UInt16 = r.chance(0.1) ? UInt16(1 << r.int(8)) : 0
             let masterKill = r.chance(0.03)
             var pools = [NotePool](); if latchMask != 0 { pools = (0..<4).map { _ in let p = NotePool(); p.captureFiltered(from: pool, filter: 0, cableMask: 0b1111); return p } }
 

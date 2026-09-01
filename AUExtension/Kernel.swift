@@ -63,8 +63,8 @@ final class Kernel {
 
     // §5b COLUMN-SUBSET LAP: the held column keys (bit i = column i), set from the UI (PERFORM only),
     // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
-    private var laneMask: UInt8 = 0
-    func setLaneMask(_ mask: UInt8) { laneMask = mask }
+    private var laneMask: UInt16 = 0
+    func setLaneMask(_ mask: UInt16) { laneMask = mask }
     // EDIT PAGE "play this cell only" (user 2026-08-08): the solo SET (bits col*8+row). While non-empty, only these
     // cells sound. Ephemeral like laneMask; the UI sets it from the edit selection and clears it on OFF / leaving EDIT.
     private var soloCellMask: UInt64 = 0

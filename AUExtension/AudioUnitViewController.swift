@@ -416,9 +416,9 @@ struct DiagView: View {
     @State var swing = 50
     // MODELESS (2026-07-27): GRID CONTROLS — the verb palette. Radio-armed; INSPECT is functional in 1b, the
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
-    @State var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
-    @State var buildStagingLane: UInt8 = 0   // PER-ROW LAP (Paul 2026-08-19): the BUILD STAGING grid's own column-loop (independent of the play grid)
-    @State var buildPerformLane: UInt8 = 0   // PER-ROW LAP: the BUILD PLAY grid's own column-loop (baked into the composed scene per-row)
+    @State var laneMask: UInt16 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
+    @State var buildStagingLane: UInt16 = 0   // PER-ROW LAP (Paul 2026-08-19): the BUILD STAGING grid's own column-loop (independent of the play grid)
+    @State var buildPerformLane: UInt16 = 0   // PER-ROW LAP: the BUILD PLAY grid's own column-loop (baked into the composed scene per-row)
     @State var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
     @State var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
     @State var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set
