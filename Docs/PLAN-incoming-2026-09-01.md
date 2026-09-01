@@ -120,15 +120,19 @@ out of the key). No chord stored — progressions are DERIVED. Requires a scale-
 
 ## §J — SEQUENCING
 1. **Macro-automation M1→M2 first** (the per-cell value store is the one real engine change; land + test it before any tab UI).
-2. Then M3→M6 (the four tabs), device-verified per tab.
-3. **CHORDS only after Paul ratifies the three MODES** (§2 the degree matrix is canon; the modes/voicing await his word).
-   C1 (pure core + tests) is safe to land anytime — it's just the music theory, no surface.
+2. Then M3→M6 (the four tabs), device-verified per tab — **NO PLAY tab as a play-page thing** (K1 ruling: macros never touch the
+   PLAY page). The band's four tabs (BIND · PLAY-ride · PUNCH · SPAN) all live on the PART page; "PLAY" here = the hand-ride
+   surface INSIDE the part-page band, not the PLAY grid/room.
+3. **CHORDS is RATIFIED (all three modes) — buildable.** C1 (pure core + tests) first, then C2 PATTERN · C3 FOLLOW · C4 WALK.
 
-## §K — DECISIONS FOR PAUL
-- **K1 — the per-cell macro-value store (M2 shape):** (a) resolve into `SnapCell.macroValueOverride[16]` (builder fills from a
-  per-cell grid; render reads the box — cleaner, matches the state-matrix) vs (b) scale the per-cell targets' delta. Recommend (a).
-- **K2 — toggles' ON value:** is the bound offset (delta) the ON value (so `Macro.value` 0|1 suffices), or does a toggle need a
-  separate stored ON magnitude? (Likely the delta suffices.)
-- **K3 — retire the timeline macros (16–23)?** The spec says 16 movements. Keep the `MacroKind.timeline` case decode-safe for
-  old docs, but drop it from the UI/bank. Confirm.
-- **K4 — CHORDS modes ratification** (FOLLOW·PATTERN·WALK + voicing) — the §D "awaiting his word" gate. §2 matrix is canon.
+## §K — DECISIONS — ✅ ALL RESOLVED (Paul 2026-09-01)
+- **K1 — RESOLVED: macros are a PART-PAGE-only feature; NOT on the play page.** The per-cell amount grid (option **a**, my
+  recommendation — a per-cell value resolved into the cell, fed by PUNCH/SPAN, falling back to the ride amount) stands, **scoped
+  to the PART grid (rows 0–7)**. No macro store/UI/application reaches the PLAY grid (rows 8–15) or the SELECT grid. The amount
+  grid lives per-part (on `BuildPart` / the part model), not spread across every SnapCell.
+- **K2 — CONFIRMED: a toggle is a binary gate on the bound offset.** ON = base+offset · OFF = base; `Macro.value` ∈ {0,1}
+  suffices; no separate ON magnitude. One mechanism serves both species (a toggle is a slider pinned to {0,1}).
+- **K3 — RESOLVED: RETIRE the 8 timeline macros.** The bank is 16 (8 slider + 8 toggle). Keep `MacroKind.timeline` decode-safe
+  for old docs (no real doc holds timeline data — the species was never built), drop it from the bank/UI.
+- **K4 — RATIFIED: all three CHORDS modes** (FOLLOW · PATTERN · WALK) + voicing (TRIAD|7TH|ADD9 · CLOSE|OPEN · invert-toward-
+  previous). Build order C1→C2(PATTERN)→C3(FOLLOW)→C4(WALK).

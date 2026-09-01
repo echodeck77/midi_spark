@@ -59,7 +59,13 @@ CHORDS itself is RATIFIED (derive diatonic progressions from a key: FOLLOW·PATT
 on the scale pool); the STATUS note says the three MODES + voicing await Paul's ratifying word before build, §2 is canon.
 - **Read the grounded plan `Docs/PLAN-incoming-2026-09-01.md` before building either.** Macro-automation is the bigger lift
   (four tabs + the toggle/slider species + per-cell/per-span application). CHORDS reuses the SCALE-door pool + the state-matrix
-  + pedal machinery (kin to AVOID/§2 the degree matrix) — build after Paul ratifies the modes.
+  + pedal machinery (kin to AVOID/§2 the degree matrix).
+- **✅ §K RESOLVED (Paul 2026-09-01):** K1 — macros are **PART-PAGE-ONLY** (never the play page); the per-cell amount grid
+  (option a) is scoped to the part grid, lives per-part. K2 — a toggle is a binary gate on the bound offset (value ∈ {0,1}).
+  K3 — RETIRE the 8 timeline macros (bank = 16: 8 slider + 8 toggle; enum case kept decode-safe). K4 — **all three CHORDS
+  modes RATIFIED** (FOLLOW·PATTERN·WALK + voicing). **LAYOUT:** the macro band = the bottom HALF of the PART grid (interior 8×8
+  −50% height; ferry row · ▲▼ · STOP unchanged). **BUILD ORDER:** CHORDS C1 (pure core) → C2 PATTERN → C3 FOLLOW → C4 WALK;
+  macro M1→M2 (the part-scoped amount grid) → M3–M6 (the 4 tabs).
 
 ## ★★★ FERRY INTAKE 2026-08-31 — the ratified batch (DETAILED PLAN: `Docs/PLAN-incoming-2026-08-31.md`)
 Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes · listening-set · macro-lanes).

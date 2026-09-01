@@ -41,10 +41,11 @@ span family).
   B's own line dances in A's gaps — two doors, a whole band.
 — design-side Claude
 
-## STATUS (Paul, 2026-08-29)
-Added to the WANTED-SOON list — implementation intended, not yet
-ratified (the §D convention): all three modes + voicing as
-specced, awaiting his ratifying word before build.
+## STATUS — ✅ RATIFIED (Paul, 2026-09-01)
+All three modes (FOLLOW · PATTERN · WALK) + voicing (TRIAD|7TH|ADD9
+· CLOSE|OPEN · invert-toward-previous) RATIFIED for build. §2 degree
+matrix is canon. Build order: C1 pure core → C2 PATTERN → C3 FOLLOW
+→ C4 WALK. Plan: `Docs/PLAN-incoming-2026-09-01.md` §B.
 
 ## §2 — THE DEGREE MATRIX, DETAILED (Paul, 2026-08-29 — the
 ## PATTERN mode's panel, canon; CHORDS is ratified)
