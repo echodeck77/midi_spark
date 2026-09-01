@@ -1933,9 +1933,17 @@ extension DiagView {
                             }
                             VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: cw, height: partCH) } }
                         }
-                        roomsPartPanel().frame(maxWidth: .infinity, maxHeight: .infinity)   // THE LARGE PANEL — fills the freed space below the grid
+                        // SECTION 1 — the PIANO ROLL strip: aligned UNDER the interior columns, 4 cells tall. A STATIC MOCK of
+                        // the merged-lane notation (the real view will fold every row's output into one "what will play" roll).
+                        HStack(spacing: 0) {
+                            Color.clear.frame(width: leftInset)
+                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: partCH * 4 + gap * 3)
+                        }
+                        // SECTION 2 — the MACRO section: its header bars (the 4 tabs) + panel, filling the rest. Mocked (the
+                        // BIND/PLAY/PUNCH/SPAN engine lands overnight — M3–M6 over the proven M1/M2 fold).
+                        roomsPartMacroSection().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    // the processor-editor card, when open, covers the WHOLE lower region (grid + panel) so it keeps its room
+                    // the processor-editor card, when open, covers the WHOLE lower region (grid + roll + macro) so it keeps its room
                     roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW + gap + cw, h: lowerH)
                 }
             }
@@ -1944,12 +1952,49 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
-    // THE LARGE PANEL (Paul 2026-09-01): the reserved region below the shrunk part grid — placeholder for now (the macro band
-    // or a fuller part surface lands here). A recessed bordered area so the freed space reads as intentional, not empty.
-    @ViewBuilder func roomsPartPanel() -> some View {
-        RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.03))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
-            .overlay(Text("PANEL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.18)))
+    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-01): a STATIC MOCK for now. Intended as a read-only notation view that MERGES
+    // the notes of every lane (row) into one "what will play" roll, its x-axis aligned to the part grid's step columns above.
+    // Draws a fixed, pleasant phrase over faint step gridlines; not data-driven yet.
+    @ViewBuilder func roomsPartPianoRoll(cols: Int, colW: CGFloat, gap: CGFloat) -> some View {
+        GeometryReader { g in
+            let lanes = 14                                   // pitch lanes shown (mock)
+            let laneH = g.size.height / CGFloat(lanes)
+            let stepW = colW + gap                           // the SAME column pitch as the grid above → the steps line up
+            // a fixed merged-looking phrase: (startStep, pitchLane-from-top, lengthInSteps)
+            let notes: [(Int, Int, Int)] = [(0, 9, 2), (0, 6, 2), (0, 2, 4), (2, 10, 1), (3, 8, 1),
+                                            (4, 11, 2), (4, 5, 2), (4, 1, 4), (6, 9, 1), (7, 7, 1)]
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.20))
+                ForEach(1..<max(2, cols), id: \.self) { c in                     // step gridlines (aligned to the grid columns)
+                    Rectangle().fill(Color.white.opacity(0.06)).frame(width: 1).offset(x: CGFloat(c) * stepW)
+                }
+                ForEach(Array(notes.enumerated()), id: \.offset) { (_, n) in     // the merged notes (static)
+                    RoundedRectangle(cornerRadius: 2).fill(roomsAmber.opacity(0.75))
+                        .frame(width: max(3, CGFloat(n.2) * stepW - 2), height: max(2, laneH - 2))
+                        .offset(x: CGFloat(n.0) * stepW + 1, y: CGFloat(n.1) * laneH + 1)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
+        }
+    }
+    // SECTION 2 — THE MACRO SECTION (Paul 2026-09-01): its header bars (the 4 macro tabs) + panel. MOCKED — the BIND/PLAY/
+    // PUNCH/SPAN engine + interactions land overnight (M3–M6). For now: a lit tab row over a recessed panel placeholder.
+    @ViewBuilder func roomsPartMacroSection() -> some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 4) {                                                 // the header bars — the 4 tabs
+                ForEach(Array(["BIND", "PLAY", "PUNCH", "SPAN"].enumerated()), id: \.offset) { (i, t) in
+                    Text(t).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(i == 0 ? .black : .white.opacity(0.55))
+                        .frame(maxWidth: .infinity).frame(height: 22)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(i == 0 ? roomsAmber.opacity(0.85) : Color.white.opacity(0.06)))
+                }
+            }
+            RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03))    // the panel (content area, mocked)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
+                .overlay(Text("MACRO PANEL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.18)))
+                .frame(maxHeight: .infinity)
+        }
     }
     // SHARED grid-cell body (Paul 2026-08-30 colour language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
