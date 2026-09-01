@@ -216,10 +216,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   row is PINNED) into `soloSustain`, so a frozen-column preview (forceColumnHold OR the pinned audition) sustains EVERY hold —
   identity/harmonize/chance/split/avoid/octave/transpose/chords + a bypassed-driver tail. Byte-identical on a SWEEPING row
   (auditionSustain false unless pinned). +2 tests (1007 green): [CHORDS→bypassed arp] sustains; harmonize + chance sustain on
-  the audition. **C2b REMAINING (flagged, not blockers):** INVERT-toward-
-  previous (pure `voiceLeadTowardPrevious` exists+tested; wiring needs per-cell last-chord memory) · WINDOW ROW|BAR (span
-  family) · the editor still shows the card KEY picker when a SCALE door governs (inert then — a "(key from door)" caption is
-  a device-owed UI nicety).**
+  the audition. **SCALE FROM a REFERENCED door (`0ab1b00`):** Paul — the card KEY picker was confusing + WALK/FOLLOW should
+  reference a SCALE door (like AVOID's "listen to"). REMOVED the KEY picker; added **SCALE FROM ▸ — · A · B · C · D**
+  (`chordsScaleRef`) — a receiver set to SCALE supplies root+scale while the cell's OWN input stays the TRIGGER (FOLLOW names
+  the degree from the note you play; a separate door sets the key). No valid ref → C-major fallback (never keyless). Engine
+  reads `receiverScaleRoot/Type[chordsScaleRef]` (supersedes the own-receiver read). Editor shows a mode-appropriate body:
+  PATTERN keeps the matrix; FOLLOW/WALK get plain-language tells + WALK a RE-ROLL. +2 tests (referenced E major → E G# B; no
+  ref → C major), 1008 green. **C2b REMAINING (flagged, not blockers):** INVERT-toward-previous (pure `voiceLeadTowardPrevious`
+  exists+tested; wiring needs per-cell last-chord memory) · WINDOW ROW|BAR (span family) · the PATTERN degree-matrix headers
+  show major-quality Roman numerals (POSITION reference; the real quality follows the SCALE-FROM door at play — threading that
+  door's scale into the editor for live-accurate headers is a device-owed nicety).**
 - **▶ TIDE & EMBER COLOUR SCHEME + play-grid legibility + SELECT chequer/feedback + HOUSEKEEPING (2026-09-01, on `main`,
   `6537159`…`e32925b`; iOS builds, macOS 978 green; DEVICE eye/ear owed). Paul picked the **Tide & Ember** scheme with the
   **Even Dusk** play palette from a colour-study artifact. **PALETTE (`6537159`, GridUI + BuildPage tokens):** direction as
