@@ -2017,15 +2017,15 @@ extension DiagView {
         let paramKey = chain.isEmpty ? "" : autoResolvedParamKey(lane: lane, type: chain[procIdx].type, params: params)
         let param = params.first(where: { $0.key == paramKey })
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {                                              // AUTO 1–5 — tap a lane to ARM punch (tap again = off)
-                macroColHead("AUTO").frame(width: 42, alignment: .leading)
+            HStack(spacing: 3) {                                              // THE HEADER: NONE · AUTO 1–5 (span) · CLEAR (separate, right)
+                autoChip("NONE", on: buildAutoSel < 0, dot: false, wide: true) { buildAutoSel = -1 }   // NONE = disabled (left)
                 ForEach(0..<5, id: \.self) { i in
-                    autoChip("\(i + 1)", on: buildAutoArmed && i == buildAutoSel, dot: !lanes[i].cells.isEmpty, wide: false) {
-                        if i == buildAutoSel { buildAutoArmed.toggle() } else { buildAutoSel = i; buildAutoArmed = true }
-                    }
+                    autoChip("AUTO \(i + 1)", on: buildAutoSel == i, dot: !lanes[i].cells.isEmpty, wide: true) { buildAutoSel = i }   // select = ENABLE this lane (plays immediately)
+                        .frame(maxWidth: .infinity)                           // the five tabs SPAN the header width
                 }
-                Spacer(minLength: 0)
-                if buildAutoArmed && !lane.cells.isEmpty { autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { buildSetAutoLane { $0.cells = [] } } }
+                autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { if buildAutoSel >= 0 { buildSetAutoLane { $0.cells = [] } } }   // CLEAR — distinctly separate, right
+                    .opacity(buildAutoSel >= 0 && !lane.cells.isEmpty ? 1 : 0.35)
+                    .padding(.leading, 8)
             }
             if chain.isEmpty { macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity) }
             else {
@@ -2045,12 +2045,12 @@ extension DiagView {
                         }
                     } }
                 }
-                if buildAutoArmed, let p = param {
-                    Text("PUNCH · \(buildProcLabel(chain[procIdx])) · \(p.label) — drag the \(cid == ddSelectedColourID ? "lit" : "") cells")
+                if buildAutoSel >= 0, let p = param {
+                    Text("ON · \(buildProcLabel(chain[procIdx])) · \(p.label) — tap cells to set the range (plays live)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Text("tap an AUTO lane, then drag values onto the grid").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35)).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("NONE — automation off. Select an AUTO lane to enable it.").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35)).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Spacer(minLength: 0)
             }
@@ -2094,7 +2094,7 @@ extension DiagView {
     }
     // The currently-ARMED punch context (nil ⇒ punch off): the param + its continuous range for the main-grid value canvas.
     func buildAutoArmedParam() -> (param: MacroControlParam, lo: Double, hi: Double)? {
-        guard buildAutoArmed, let cid = ddSelectedColourID, !cid.isEmpty else { return nil }
+        guard buildAutoSel >= 0, let cid = ddSelectedColourID, !cid.isEmpty else { return nil }   // NONE (−1) = disabled
         let chain = buildFocusedChain(); guard !chain.isEmpty else { return nil }
         let lane = buildAutoLanesFor(cid)[max(0, min(4, buildAutoSel))]
         let procIdx = min(lane.slot, chain.count - 1)
