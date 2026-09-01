@@ -1632,6 +1632,7 @@ final class Router {
                                  beatsPerSample: Double, windowStart: Int64,
                                  windowEnd: Int64, tempo: Double, out: MIDIEmitter?,
                                  reconcileOnly: Bool = false,   // PLAY: THIS CELL frozen-column re-run — adopt/close the immortal holds only, never re-strike
+                                 auditionSustain: Bool = false, // PINNED continuous row (the SELECT/PLAY audition): sustain EVERY hold like forceColumnHold, so a frozen single-column preview rings continuously
                                  onlyRow: Int? = nil,           // PER-PART CLOCK: scope the hold reconcile + emit to ONE row
                                  diag: inout KernelDiag) {
         let colStart = columnStart(mNow, S)
@@ -1705,13 +1706,14 @@ final class Router {
             // gated hold — the cell would sound one column then die. Treat EVERY hold mode (identity / chance /
             // harmonize) as immortal+adopted so the machine plays CONTINUOUSLY; the frozen colStart makes the chance
             // dice + harmony stable, so the every-window re-run (reconcileOnly) adopts the identical set (no re-strike).
-            let soloSustain = forceColumnHold && (bm & altMask) == 0
-            // CHORDS is a SUSTAINED chord (Paul device 2026-09-01): legato like a drone, so on the continuous SELECT/PLAY
-            // audition (a row PINNED to one column → no re-firing transition) it SOUNDS continuously instead of striking
-            // once and gating off ("nothing sounds"). Re-derives + adopts each reconcile window (the pinned re-run below),
-            // so it follows a late-armed latch / a changing FOLLOW note; on a SWEEPING row it re-strikes only when the
-            // chord actually changes (same degree in consecutive columns sustains — more musical than a re-attack).
-            let legato = (bm & altMask) == 0 && ((mode == .identity && treat.a.phase == .legato) || mode == .drone || mode == .chords || soloSustain)
+            // A FROZEN-COLUMN preview sustains EVERY hold (Paul device 2026-09-01): PLAY THIS CELL (forceColumnHold) AND the
+            // continuous SELECT/PLAY audition (a row PINNED to one column → no re-firing transition, `auditionSustain`) treat
+            // every hold mode (identity / chance / harmonize / SPLIT / AVOID / OCTAVE / TRANSPOSE / CHORDS, incl. a bypassed-
+            // driver identity tail like [CHORDS→bypassed ARP]) as immortal+adopted, so the preview RINGS instead of striking
+            // once and gating off. The every-window reconcile below re-derives + adopts (tracks a late latch / a changing
+            // note). On a SWEEPING row nothing here fires — holds re-strike per column boundary as before (byte-identical).
+            let soloSustain = (forceColumnHold || auditionSustain) && (bm & altMask) == 0
+            let legato = (bm & altMask) == 0 && ((mode == .identity && treat.a.phase == .legato) || mode == .drone || soloSustain)
             if reconcileOnly && !legato { continue }   // frozen-column re-run: only the immortal holds reconcile
             // STRIKE PER SPAN (Paul 2026-08-27, the span ladder's other half): a legato hold (v1: DRONE) fires ONCE at
             // each span origin and HOLDS (adopts) through the rest — the multi-column pad. Off the same span-ladder
@@ -2118,7 +2120,7 @@ final class Router {
             else { for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min } }
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, onlyRow: onlyRow, diag: &diag)
+                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)   // pinned → strike immortal so the preview rings
             emitEchoColumn(box: box, column: effCol, pool: pool, pass: pass,   // ECHO: strike the dry + register the tail
                            S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                            windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
@@ -2130,7 +2132,7 @@ final class Router {
             // latch / a changing FOLLOW note on the audition instead of striking once and gating off (Paul 2026-09-01).
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, reconcileOnly: true, onlyRow: onlyRow, diag: &diag)
+                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, reconcileOnly: true, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)
         } else if heldActive && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
             // AUDIT B2: a single-column lap pins the column so no edge fires — reconcile now to close orphaned drones.
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,

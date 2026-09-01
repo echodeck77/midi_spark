@@ -822,6 +822,38 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(drone.sustainedLate, "a drone sustains on the pinned audition (baseline)")
         XCTAssertTrue(chords.sustainedLate, "CHORDS is STILL SOUNDING late in the pinned audition (got \(chords.ons) ons) — was 'nothing sounds', a dead audition")
     }
+    func testPinnedAuditionSustainsChordsThroughABypassedDriverTail() {   // Paul device 2026-09-01: [CHORDS→ARP] plays; BYPASS the arp → must still play the chords
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        let b = box(colours: cs) { s in
+            var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
+            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
+                ch.params.chordsDegrees = [Int](repeating: 0, count: 8)
+                var arp = ProcessorSlot(type: .arp); arp.bypassed = true                        // the BYPASSED driver → tail = identity passthrough
+                x.processors = [ch, arp]; return x }()
+        }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        let pool = chord([60])
+        while beat < 10.0 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let stillOpen = e.ons.filter { $0.cable == 1 }.count - e.offs.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(stillOpen, 0, "[CHORDS → BYPASSED arp] still SUSTAINS the chord on the audition (bypassing the driver must not silence CHORDS)")
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 }), [0, 4, 7], "the composed CHORDS chord (I = C E G) sounds through the bypassed tail")
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+    func testPinnedAuditionSustainsEveryHoldKind() {   // generalization (Paul: "extend to the other relevant processors")
+        let harm = pinnedAuditionOns(.harmonize) { $0.params.harmIntervals = [4, 7, 0] }
+        XCTAssertTrue(harm.sustainedLate, "HARMONIZE sustains on the pinned audition (got \(harm.ons) ons) — the fire-once bug is fixed for holds, not just CHORDS")
+        let chance = pinnedAuditionOns(.chance) { $0.params.probability = 1.0 }
+        XCTAssertTrue(chance.sustainedLate, "CHANCE sustains on the pinned audition (got \(chance.ons) ons)")
+    }
     func testPinnedAuditionChordsFollowsTheHeldNote() {   // "feed in midi → it responds", on the REAL (pinned) audition path
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
