@@ -510,17 +510,25 @@ final class RouterTests: XCTestCase {
     // laps column 4. With ONE global lap only a single column could loop, silencing one cell — the per-row lap lets
     // BOTH play continuously on their own column. Proves looping one grid doesn't loop the other.
     func testPerRowLapLoopsEachRowsOwnColumns() {
-        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }
+        // NB (Paul 2026-09-01): SnapshotBuilder forwards `rowLane` ONLY when its count == Snap.rows (16). The old version of
+        // this test passed an 8-entry array → the builder DISCARDED it → perRowLap was FALSE → the whole thing ran on the
+        // UNIFORM fast path and never actually lapped (a false positive). Use a full 16-entry lane, and assert a cell OFF the
+        // lapped column stays SILENT — which the uniform sweep would have SOUNDED, so the test now genuinely exercises the lap.
+        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }   // arp → a VISITED column keeps sounding
+        var lane = [UInt8](repeating: 0, count: Snap.rows)
+        lane[0] = 0b1        // row 0 laps COLUMN 0 only
+        lane[1] = 0b1_0000   // row 1 laps COLUMN 4 only (independently)
         let b = box(colours: cs) { s in
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])       // row 0's only cell — column 0
-            s.cells[4][1] = Cell(colourID: "orange", buses: [.b])     // row 1's only cell — column 4
-            s.rowLane = [0b1, 0b1_0000, 0, 0, 0, 0, 0, 0]             // row 0 laps col 0 · row 1 laps col 4 · independently
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])        // row 0 · col 0 (cable 1) — ON row 0's lap
+            s.cells[3][0] = Cell(colourID: "vermilion", buses: [.c])   // row 0 · col 3 (cable 3) — a col-0 lap NEVER visits it
+            s.cells[4][1] = Cell(colourID: "azure", buses: [.b])       // row 1 · col 4 (cable 2) — ON row 1's lap
+            s.rowLane = lane
         }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 8, "row 0's cell laps its own column 0 continuously")
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 8, "row 1's cell laps its own column 4 — independent of row 0's loop")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "row 0 laps its own column 0 → bus A sounds")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "row 1 laps its own column 4 → bus B sounds, independent of row 0")
+        XCTAssertEqual(e.ons.filter { $0.cable == 3 }.count, 0, "row 0's COL-0 lap NEVER visits col 3 → bus C is silent (the uniform sweep would have sounded it — the discriminating check)")
         assertNothingLeftSounding(e)
     }
     // REGRESSION (Paul 2026-08-19): a length-4 arp played PASS 1 then went silent — iterateTicks wrapped the tick's
@@ -644,6 +652,94 @@ final class RouterTests: XCTestCase {
         step(uni, empty, 8)     // RELEASE the chord, still PLAYING, NO transport stop → the glide must phrase-end
         XCTAssertGreaterThan(e.ons.count, 0, "the glide anchor sounded")
         assertNothingLeftSounding(e)   // no stop-flush ran → an orphaned anchor would show as a stuck ON
+    }
+    // PLAY-LAYER ROWS 8…15 (Paul 2026-09-01): the hidden play layer occupies engine rows 8…15 (Snap.playLayerRowBase); the
+    // multi-clock loops iterate all 16 rows and the tap/mute masks exempt rows ≥8 — but no RouterTest had ever placed a cell
+    // there. A slow part cell (row 0, bus A) + a fast play-layer cell (row 8, bus B, its own fast rate) → the play row fires
+    // far more, no A↔B cross-leak, nothing stuck (guards any latent rows-0–7 `%8`/`<8` assumption in the 16-row loops).
+    func testPlayLayerRowsRunOnTheirOwnClockWithoutLeak() {
+        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        let b = box(colours: cs) { s in
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])                     // part cell — row 0, bus A
+            while s.cells[0].count < Snap.rows { s.cells[0].append(nil) }           // extend the column so a play-layer row can hold a cell
+            s.cells[0][Snap.playLayerRowBase] = Cell(colourID: "azure", buses: [.b]) // play-layer cell — row 8, bus B
+            var rate = [StepRate?](repeating: nil, count: Snap.rows)
+            rate[0] = .r2_1                                                          // row 0 SLOW
+            rate[Snap.playLayerRowBase] = .r1_8                                      // row 8 FAST — its OWN clock
+            s.rowStepRate = rate
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)
+        let a = e.ons.filter { $0.cable == 1 }.count, playRow = e.ons.filter { $0.cable == 2 }.count
+        XCTAssertGreaterThan(a, 0, "the part row (row 0) sounds on bus A")
+        XCTAssertGreaterThan(playRow, 0, "the play-layer row (row 8) RENDERS on its OWN bus B — a cell in engine rows 8…15 runs in the multi-clock loop (the gap: no RouterTest had ever placed a cell there)")
+        assertNothingLeftSounding(e)
+    }
+    // onlyRow LEGATO reconcile vs a surviving DRONE (Paul 2026-09-01): the multi-clock path scopes the hold reconcile per row
+    // (onlyRow). A legato drone on a SLOW row must be ADOPTED (struck once per note, not re-struck) as a DIFFERENT fast row
+    // transitions — a regressed `% Snap.rows == onlyRow` guard would machine-gun the drone or strand it. Drone (row 0, bus A) +
+    // a fast CHANCE cell (row 1, bus B) → each drone note strikes exactly ONCE across the held span; nothing stuck.
+    func testOnlyRowLegatoDroneSurvivesAFastNeighbourRow() {
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!].type = .drone
+        cs[colourIDs.firstIndex(of: "azure")!].type = .chance   // a re-speaking fast neighbour (never immortal)
+        let b = box(colours: cs) { s in
+            for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }   // legato drone across the whole row 0
+            for c in 0..<8 { s.cells[c][1] = Cell(colourID: "azure", buses: [.b]) }  // fast CHANCE across row 1
+            var rate = [StepRate?](repeating: nil, count: Snap.rows)
+            rate[0] = .r2_1     // row 0 (drone) SLOW
+            rate[1] = .r1_8     // row 1 (chance) FAST — transitions often, must NOT disturb row 0's drone
+            s.rowStepRate = rate
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)
+        let onCounts = Dictionary(grouping: e.ons.filter { $0.cable == 1 }, by: { $0.note }).mapValues { $0.count }
+        XCTAssertEqual(Set(onCounts.keys), [60, 64, 67], "the drone sounds the held chord on bus A")
+        for n: UInt8 in [60, 64, 67] { XCTAssertEqual(onCounts[n], 1, "drone note \(n) strikes ONCE — adopted across the whole span, never re-struck by row 1's fast transitions") }
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 3, "the fast CHANCE row fires repeatedly on bus B")
+        assertNothingLeftSounding(e)
+    }
+    // PER-ROW GLIDE + MOD leave-disposition on the ROW's own clock (Paul 2026-09-01): only per-row ECHO was asserted. Two GLIDE
+    // cells (fast row vs slow row) → the fast row re-anchors far more often (its phrase-ends fire on its OWN clock, not the
+    // scene default); two MOD cells likewise emit their CC updates on each row's clock. Guards the onlyRow scoping of glide/mod.
+    func testPerRowGlideAndModFireOnTheRowsOwnClock() {
+        // GLIDE — fast row 0 vs slow row 1, each a single-slot glide on its own emitter.
+        var gcs = arpColours()
+        for id in ["gold", "azure"] { gcs[colourIDs.firstIndex(of: id)!].type = .glide }
+        func glideCell(_ id: String, _ bus: Bus) -> Cell {
+            var x = Cell(colourID: id, buses: [bus])
+            var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideTime = 0.05
+            x.processors = [g]; return x
+        }
+        let gb = box(colours: gcs) { s in
+            for c in 0..<8 { s.cells[c][0] = glideCell("gold", .a) }   // row 0 FAST glide (bus A)
+            for c in 0..<8 { s.cells[c][1] = glideCell("azure", .b) }  // row 1 SLOW glide (bus B)
+            var rate = [StepRate?](repeating: nil, count: Snap.rows); rate[0] = .r1_8; rate[1] = .r2_1; s.rowStepRate = rate
+        }
+        let ge = RecordingEmitter()
+        run(gb, chord([60, 64, 67]), beats: 16, into: ge)
+        let fastG = ge.events.filter { $0.cable == 1 && $0.status == 0x90 }.count   // row 0 anchors (fast → re-anchors more)
+        let slowG = ge.events.filter { $0.cable == 2 && $0.status == 0x90 }.count
+        XCTAssertGreaterThan(fastG, slowG, "the fast row's glide re-anchors far more than the slow row's — per-row phrase-end clock")
+        assertNothingLeftSounding(ge)
+
+        // MOD — a fast row vs a slow row, each a single-slot MOD emitting a CC; the fast row updates its CC far more often.
+        var mcs = arpColours()
+        for id in ["gold", "azure"] { let i = colourIDs.firstIndex(of: id)!; mcs[i].type = .mod; mcs[i].paramsA.modCC = 74 }
+        let mb = box(colours: mcs) { s in
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            s.cells[0][1] = Cell(colourID: "azure", buses: [.b])
+            var rate = [StepRate?](repeating: nil, count: Snap.rows); rate[0] = .r1_8; rate[1] = .r2_1; s.rowStepRate = rate
+        }
+        let me = RecordingEmitter()
+        run(mb, chord([60, 64, 67]), beats: 16, into: me)
+        let r0CC = me.events.filter { $0.cable == 1 && $0.status == 0xB0 }.count
+        let r1CC = me.events.filter { $0.cable == 2 && $0.status == 0xB0 }.count
+        // MOD emits its CC on a fixed control grid (not step-rate-proportional like ECHO/GLIDE), so this asserts each row's
+        // MOD runs INDEPENDENTLY on its own clock — both emit their CC on their own emitter (per-row onlyRow scoping works).
+        XCTAssertGreaterThan(r0CC, 0, "row 0's MOD emits its CC on bus A (its own clock)")
+        XCTAssertGreaterThan(r1CC, 0, "row 1's MOD emits its CC on bus B — both per-row MOD rows run, neither starves the other")
+        assertNothingLeftSounding(me)
     }
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).

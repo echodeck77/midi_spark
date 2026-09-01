@@ -14,11 +14,13 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-0
   (Left: `armLadderRung` (VC) + its ladder-cluster callees — a separate small cluster.)
 - **✅ DONE — BUG-HUNT Finding 4 (`9047463`):** MONO voice-steal now calls `forgetGlideAnchorAtSlot` when it closes a glide
   anchor (re-centre bend + clear the GlideVoice) so a reused slot can't be wrong-closed; +1 RouterTest (glide+MONO+steal path).
-- **PER-ROW ENGINE TEST GAPS (test-gap survey, HIGH value — silent stuck/dropped-note class):** (1) the per-row LAP test
-  `testPerRowLapLoopsEachRowsOwnColumns` is a FALSE POSITIVE — it builds an 8-entry `rowLane` that SnapshotBuilder discards
-  (only forwards count==16) → it never actually laps; fix to 16-entry + a discriminating assertion. (2) play-layer rows 8–15
-  have zero engine coverage. (3) `onlyRow` legato-hold reconcile vs a surviving drone. (4) per-row GLIDE phrase-end + per-row
-  MOD reset on the correct row's clock. (Clock-mode-switch #5 is now COVERED by the 2026-09-01 fix's test.)
+- **✅ DONE — PER-ROW ENGINE TEST GAPS (2026-09-01, +4 RouterTests):** (1) fixed the FALSE-POSITIVE lap test
+  (`testPerRowLapLoopsEachRowsOwnColumns` — now a 16-entry `rowLane` + a discriminating "a col-off-the-lap cell stays SILENT"
+  assertion the old uniform-sweep path would have failed). (2) `testPlayLayerRowsRunOnTheirOwnClockWithoutLeak` (a cell in
+  engine rows 8–15 renders on its own clock — first coverage). (3) `testOnlyRowLegatoDroneSurvivesAFastNeighbourRow` (a slow
+  legato drone strikes ONCE per note, adopted, while a fast neighbour row transitions — the onlyRow scoping). (4)
+  `testPerRowGlideAndModFireOnTheRowsOwnClock` (fast row's glide re-anchors more; both rows' MOD emit independently). The
+  clock-mode-switch #5 was already covered by the 2026-09-01 glide/mod-switch fix's test.
 - **DOCS — "needs-Paul" removals (agent-flagged, left to avoid dangling refs):** cited spent plans (PLAN-presentation-redesign,
   implementation-plan-btw-authoring, implementation-plan-cells-and-colour-desk, AcceptanceCriteria-emitter-page-pass1) + the
   dedupe pairs (scenes-v2-multigrids ⟷ AC-scenes-v2; INSTRUCTIONS-room-palettes ⟷ AC-room-palettes; OPEN-listening-set ⟷
@@ -101,7 +103,8 @@ Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/
     INPUTS|OUTPUTS × (one A–D | EVERYTHING). Effort: small engine + a UI axis + (for the honest piano) an emitter-output feed.
   - ⏸ **§C scale-aware IN strip** — the §6 SCALE-door IN readout + the "arm AVOID CLASHES from the strip" chip (thin UI over
     §B now that AVOID exists). Buildable next.
-  - ⏸ **§D MACRO LANES** — blocked on Paul's #2 (render-time per-column macro path + part-scope).
+  - ⛔ **§D MACRO LANES — SUPERSEDED (2026-09-01)** by the ratified `INSTRUCTIONS-macro-automation.md` (the 4-tab band; see
+    the 2026-09-01 intake + `PLAN-incoming-2026-09-01.md`). The old below-grid-lane framing is retired.
 - **ALREADY BUILT (verified — do NOT rebuild):** the bazaar-muted select cells · scale-doors-name-themselves (on the
   receiver chip; only the MIDI-config tab bar is left = §A) · the room palette signatures (roomsField near-black PLAY,
   roomsDoorBar rainbow/amber/indigo/red, ▲PLAY indigo) · CHORDS/the dynamic reference.
