@@ -1286,9 +1286,16 @@ extension DiagView {
     // Two BRIGHT shades that alternate each new SELECT pick (buildSelectGreyAlt flips on selection) so the machine section
     // visibly shifts even though the audition colour is always the same transient "gsAud" (Paul 2026-09-01).
     var buildSelectGrey: Color { Color(white: buildSelectGreyAlt ? 0.90 : 0.80) }
+    // THE MACHINE BINDING (Paul 2026-09-01, state-unification): the ONE truth for what the machine represents + its play
+    // state, gathered from the four @State axes into the pure BuildSceneLogic resolver. The machine hue, the play button,
+    // (and in a follow-up, every represented-cell indicator) all DERIVE from this so they can't diverge.
+    func buildMachineBinding(_ room: Room) -> BuildSceneLogic.MachineBinding {
+        BuildSceneLogic.machineBinding(selID: buildSelID, audID: buildGridSelAudID, onSelectPage: room == .select,
+                                       chainActive: buildDisplayVoice == .chain, partActive: buildDisplayVoice == .part,
+                                       selectedPlayCol: room == .select ? buildSelectedPlayCol : nil, playColOn: buildPlayColOn)
+    }
     func buildMachineHue(_ room: Room) -> Color {
-        if room == .part { return buildSelHue }
-        return buildSelID == buildGridSelAudID ? buildSelectGrey : buildSelHue   // SELECT: grey for the colourless audition, the ferry's real hue once one is selected
+        buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else the machine/ferry's own hue
     }
     // THE ONE HUE for every machine/card/editor surface (Paul 2026-08-31: the processor card was a DIFFERENT colour to the
     // machine box — a throwback to the multi-colour select grid, because the card read raw buildSelHue while the box read
@@ -1391,9 +1398,9 @@ extension DiagView {
         let voice: BuildWorkshopVoice = room == .part ? .part : .chain
         // If the SELECTED machine IS a play-ferry's chain, this button STARTS/STOPS THAT FERRY (its play column) — not a
         // separate isolated chain audition. "This MIDI chain IS the one of the ferry button." (Paul 2026-08-31)
-        let ferryCol: Int? = room == .select ? buildSelectedPlayCol : nil
-        let active = ferryCol.map { $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? (buildDisplayVoice == voice)
-        let hue: Color = buildMachineHue(room)   // SAME hue as the machine box + chain (grey on SELECT, machine colour on PART) — Paul 2026-08-30
+        let bind = buildMachineBinding(room)     // ONE source of truth for what the machine represents + its play state (Paul 2026-09-01)
+        let active = bind.playing
+        let hue: Color = bind.isGrey ? buildSelectGrey : buildSelHue   // SAME hue as the machine box + chain (grey on SELECT audition, the machine/ferry colour otherwise)
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
             if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when playing
@@ -1415,8 +1422,8 @@ extension DiagView {
         .shadow(color: active ? hue.opacity(0.6) : .clear, radius: active ? 5 : 0)   // hue glow when playing (ferry-style)
         .contentShape(Rectangle())
         .onTapGesture {
-            if let pc = ferryCol { buildTogglePlayColumn(pc) }              // the ferry's OWN play column (start/stop the ferry)
-            else { buildRequestWorkshopVoice(active ? .none : voice) }      // else the chain audition
+            if case let .playFerry(pc) = bind.kind { buildTogglePlayColumn(pc) }   // the ferry's OWN play column (start/stop the ferry)
+            else { buildRequestWorkshopVoice(active ? .none : voice) }             // else the chain/part audition
         }
     }
     // THE SELECT-MODE BUTTON (Paul 2026-08-31) — directly under the play button, SAME size/style. Toggles buildSelectMode: while

@@ -456,4 +456,40 @@ final class BuildSceneLogicTests: XCTestCase {
             XCTAssertTrue(v >= 0 && v <= 2 && v != 1, "option steps to a DIFFERENT in-range index")
         }
     }
+
+    // THE MACHINE BINDING (Paul 2026-09-01, state-unification): the ONE resolution the play button + hue + cell indicators
+    // all derive from. Locks the reproduced rules (play-button active, grey, ferry binding) so they can't silently diverge.
+    func testMachineBindingResolvesFerryAuditionAndGrey() {
+        let aud = "gsAud"
+        let on = [false, false, true, false, false, false, false, false]   // column 2 is playing
+
+        // 1. A play ferry the machine names (SELECT page) BINDS to that column — plays iff the column is on, never grey.
+        let ferry = BuildSceneLogic.machineBinding(selID: "c5", audID: aud, onSelectPage: true, chainActive: false,
+                                                   partActive: false, selectedPlayCol: 2, playColOn: on)
+        XCTAssertEqual(ferry.kind, .playFerry(2)); XCTAssertTrue(ferry.playing); XCTAssertFalse(ferry.isGrey)
+        let ferryOff = BuildSceneLogic.machineBinding(selID: "c5", audID: aud, onSelectPage: true, chainActive: false,
+                                                     partActive: false, selectedPlayCol: 5, playColOn: on)
+        XCTAssertEqual(ferryOff.kind, .playFerry(5)); XCTAssertFalse(ferryOff.playing, "column 5 is off")
+
+        // 2. The SELECT audition (selID == gsAud, no ferry) → GREY, plays iff chainActive.
+        let audOn = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: true,
+                                                  partActive: false, selectedPlayCol: nil, playColOn: on)
+        XCTAssertEqual(audOn.kind, .selectAudition); XCTAssertTrue(audOn.isGrey); XCTAssertTrue(audOn.playing)
+        let audOff = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: false,
+                                                   partActive: false, selectedPlayCol: nil, playColOn: on)
+        XCTAssertTrue(audOff.isGrey); XCTAssertFalse(audOff.playing, "not auditioning → stopped")
+
+        // 3. A REAL colour on SELECT (a browsed/ferried cell) → NOT grey; PART page → NEVER grey, play state = partActive.
+        let realSel = BuildSceneLogic.machineBinding(selID: "c3", audID: aud, onSelectPage: true, chainActive: true,
+                                                    partActive: false, selectedPlayCol: nil, playColOn: on)
+        XCTAssertFalse(realSel.isGrey, "a real colour is never grey")
+        let part = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: false, chainActive: false,
+                                                 partActive: true, selectedPlayCol: nil, playColOn: on)
+        XCTAssertEqual(part.kind, .partRow); XCTAssertFalse(part.isGrey, "PART wears its colour, never grey"); XCTAssertTrue(part.playing)
+
+        // 4. Nothing selected + nothing playing → .none.
+        let none = BuildSceneLogic.machineBinding(selID: nil, audID: aud, onSelectPage: true, chainActive: false,
+                                                 partActive: false, selectedPlayCol: nil, playColOn: on)
+        XCTAssertEqual(none.kind, .none); XCTAssertFalse(none.playing)
+    }
 }

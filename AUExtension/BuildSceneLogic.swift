@@ -294,4 +294,34 @@ enum BuildSceneLogic {
             return r
         }
     }
+
+    // ── THE MACHINE BINDING (Paul 2026-09-01, the state-unification refactor) ─────────────────────────────────────────
+    // The machine (box + MIDI chain + play button) ALWAYS represents exactly ONE thing, and its play/stop drives THAT
+    // thing. Today that binding is re-derived independently at ~5 sites (the play button's `active`, the hue's `isGrey`,
+    // each cell's "playing") off four @State axes (buildVoiceOwner · buildPlayColOn · buildSelID · buildGridSelSel), so
+    // they desync. This is the ONE pure resolution they all derive from — data in, data out, unit-tested. The shell
+    // (BuildPage) gathers the axes into these primitives (Room/BuildWorkshopVoice live in UIKit files, out of the test
+    // target, so the inputs are Bool/Int/String).
+    enum MachineKind: Equatable { case none, selectAudition, partRow, playFerry(Int) }
+    struct MachineBinding: Equatable { var kind: MachineKind; var isGrey: Bool; var playing: Bool }
+
+    /// Resolve what the machine represents + whether it is playing.
+    ///  - selID: the machine identity (ddSelectedColourID) · audID: the transient SELECT-audition colour ("gsAud").
+    ///  - onSelectPage: room == .select — only there can the machine bind to a play ferry (the SELECT grid owns them).
+    ///  - chainActive / partActive: the DISPLAYED audition voice (buildDisplayVoice == .chain / .part).
+    ///  - selectedPlayCol: the play column selID names (buildSelectedPlayCol), or nil · playColOn: per-column play state.
+    /// Reproduces roomsVerticalPlay's `ferryCol.map{playColOn} ?? (displayVoice==voice)` + buildMachineHue's grey rule.
+    static func machineBinding(selID: String?, audID: String, onSelectPage: Bool,
+                               chainActive: Bool, partActive: Bool,
+                               selectedPlayCol: Int?, playColOn: [Bool]) -> MachineBinding {
+        // A play ferry the machine names (SELECT page only) BINDS to that column — its play state is the column's OWN, and
+        // it wears the cell's real colour (never grey).
+        if onSelectPage, let c = selectedPlayCol, c >= 0, c < playColOn.count {
+            return MachineBinding(kind: .playFerry(c), isGrey: false, playing: playColOn[c])
+        }
+        let grey = onSelectPage && (selID == audID)         // grey ONLY on the colourless SELECT audition (PART wears its colour)
+        let playing = onSelectPage ? chainActive : partActive
+        let kind: MachineKind = (selID == nil && !playing) ? .none : (onSelectPage ? .selectAudition : .partRow)
+        return MachineBinding(kind: kind, isGrey: grey, playing: playing)
+    }
 }
