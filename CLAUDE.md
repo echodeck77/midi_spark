@@ -159,6 +159,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TIDE & EMBER COLOUR SCHEME + play-grid legibility + SELECT chequer/feedback + HOUSEKEEPING (2026-09-01, on `main`,
+  `6537159`…`e32925b`; iOS builds, macOS 978 green; DEVICE eye/ear owed). Paul picked the **Tide & Ember** scheme with the
+  **Even Dusk** play palette from a colour-study artifact. **PALETTE (`6537159`, GridUI + BuildPage tokens):** direction as
+  temperature — `receiverHues`/`receiverGreys` → COOL (IN), `emitterHexes` → WARM red·orange·gold·magenta (OUT), `playHexes`
+  → EVEN DUSK (8 evenly-spread muted hues, fixing the old dusk set that collapsed together), `roomsAmber`/`roomsIndigo` →
+  warm-ember/cool-tide signatures (roomsIndigo keeps its NAME but now holds a sea-blue — also flows to the STOP + ▲▼ ferry
+  buttons), `roomsRainbowHues` → warm→cool span. The 16 machine `colourHexes` were LEFT a full vivid spectrum (a warm-only
+  set would lose machine differentiability; PART character comes via the amber door). SELECT nav stays the rainbow (no muted-
+  nav pick made). **UI:** SELECT-grid cells get a tasteful two-tone CHEQUER (`fab29ac`); the ▲▼ ferry-row cursor is ONE solid
+  indigo block, not two buttons (`711cfd7`); the SELECT machine grey ALTERNATES between two bright shades on each new pick
+  (`cdf1345` — `buildSelectGrey`/`buildSelectGreyAlt`, flips on `buildGridSelSel` change) so a new selection visibly shifts
+  even though the audition is always the transient `gsAud`; STOP + ▲▼ restyled to the play-nav indigo (`898e8c3`). **HOUSEKEEPING
+  (`e32925b`, 3 read-only survey agents, every finding re-verified):** ① the CC120/123 forward path COMPLETED the 2026-08-31
+  HOLD fix — an incoming all-notes-off was still FORWARDED to the synth while a HOLD/LATCH is armed, silencing the held chord
+  DOWNSTREAM though it survived internally; now suppressed while `effectiveLatchMask != 0` (device-owed, Kernel isn't unit-
+  tested). ② dead-code sweep, net −149 lines (7 dead @State + `BuildGridMode` + `roomsPlayHeader` + `spanLadderFreeField` +
+  the old editor tab-overwrite cluster `buildColourTab`→`buildTabNowPlaying`/`buildPulseOverlay`/`buildEditorOverwriteRow` +
+  AU orphans `setCellsChain`/`forkCellToColour`/`setRow8OnRadioSetup`/`punchCC`/`sendProgramChange`/`editColour`/`uiExcludeDoor`).
+  ③ +1 test (`DoorRing.loadLoopParallel` round-trips == `loadLoop` + ragged-array clamp). ④ fixed the last stale `column*8+row`
+  comment (`Router.topCell`). Bug-hunt cleared all this session's changes (CC123-internal, focus-note feed, ferry duplicate).**
 - **▶ AVOID HARDENING — pianos redesign · EVERYTHING semantics · MOVE-in-scale-downstream · 20 tests (2026-08-31, on
   `main`, `15965eb`+`512c154`; iOS builds, macOS 974 green incl. fuzz; DEVICE eye/ear owed). Paul: the processor "feels
   inconsistent." A thorough 3-agent-informed end-to-end investigation (MIDI in → MIDI out) found + fixed two real

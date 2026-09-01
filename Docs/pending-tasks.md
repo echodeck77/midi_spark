@@ -3,7 +3,21 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-31._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-01._
+
+## DEVICE-OWED (2026-09-01) — Tide & Ember colour scheme + housekeeping (landed `6537159`…`e32925b`)
+- **EYE** — the **Tide & Ember** scheme + **Even Dusk** play palette on device: do the 8 play columns now read as DISTINCT
+  (the whole point — the old dusk set blurred)? Cool receivers / warm emitters / sea-blue PLAY door / ember PART door /
+  warm→cool SELECT strip. Plus the SELECT-grid CHEQUER, the solid-block ▲▼ ferry cursor, and the alternating-bright-grey
+  machine feedback on each new SELECT pick.
+- **EAR** — the CC120/123 fix: with a HOLD/LATCH armed, a source app spamming all-notes-off (chord release / between phrases)
+  must NOT cut the held chord at the SYNTH now (previously survived internally but was silenced downstream). Verify a legato/
+  drone HOLD keeps sounding through a source's CC123, and that a real panic (nothing armed) still passes through.
+- **OPEN colour follow-ups (Paul's call, from the colour study artifact — NOT built):** ① a muted "opposite-of-a-rainbow"
+  SELECT nav (Graphite/Slate/Blueprint/Paper) — a one-line `roomsRainbowHues` swap; ② the disposable-sketchpad SELECT
+  material + the colour-blooms-on-commit "reveal"; ③ raise the cell hue WASH/frame opacity so the play hue reads more boldly
+  (independent of palette); ④ warm-shift the 16 machine `colourHexes` (left a full spectrum — only if Paul wants it).
+
 
 ## ★★★ FERRY INTAKE 2026-08-31 — the ratified batch (DETAILED PLAN: `Docs/PLAN-incoming-2026-08-31.md`)
 Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes · listening-set · macro-lanes).
