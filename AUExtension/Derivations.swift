@@ -672,6 +672,97 @@ func widenClashMask(_ mask: UInt16, semis: Int) -> UInt16 {
     }
     return out
 }
+// MARK: - CHORDS (ratified 2026-09-01) — diatonic progressions DERIVED from a key by rank arithmetic. Pure core.
+
+/// The CHORDS voicing/spread (SPEC-chords-stage §1).
+enum ChordVoicing: String, Codable, CaseIterable { case triad, seventh, add9 }
+enum ChordSpread: String, Codable, CaseIterable { case close, open }
+
+/// A DIATONIC chord on `degree` (0=I … 6=vii) as STACKED THIRDS over a scale — pool-steps {deg, deg+2, deg+4} (+deg+6 for a
+/// 7th · +deg+8 for add9). No chord is stored: quality falls out of the key (SPEC-chords-stage). `scaleTones` = the scale's
+/// intervals from the root, ascending (e.g. major [0,2,4,5,7,9,11] = `ScaleType.intervals`); `rootNote` = the key-root MIDI
+/// note (the octave anchor). Degrees past the top wrap by octave (rank arithmetic). Returns absolute MIDI notes, ascending,
+/// clamped 0…127. `open` lifts the middle voice an octave (a spread voicing). Pure/testable.
+func diatonicChord(degree deg: Int, scaleTones: [Int], rootNote: Int,
+                   voicing: ChordVoicing = .triad, spread: ChordSpread = .close) -> [Int] {
+    let n = scaleTones.count
+    guard n > 0 else { return [] }
+    func tone(_ k: Int) -> Int {                                    // the k-th scale degree (wraps by octave)
+        let idx = ((k % n) + n) % n
+        let oct = Int(floor(Double(k) / Double(n)))
+        return rootNote + scaleTones[idx] + 12 * oct
+    }
+    var steps = [deg, deg + 2, deg + 4]                             // the triad — stacked thirds
+    if voicing == .seventh || voicing == .add9 { steps.append(deg + 6) }
+    if voicing == .add9 { steps.append(deg + 8) }
+    var notes = steps.map(tone)
+    if spread == .open && notes.count >= 3 { notes[1] += 12 }       // OPEN: octave-lift the middle voice
+    return notes.map { max(0, min(127, $0)) }.sorted()
+}
+
+/// Voice-lead `chord` toward `previous` (SPEC-chords-stage §1 INVERT): pick the octave-rotation (inversion) whose notes sit
+/// NEAREST the previous chord's register — the least total leap. Smooth by construction. `previous` empty ⇒ `chord` unchanged.
+/// Pure/testable.
+func voiceLeadTowardPrevious(_ chord: [Int], previous: [Int]) -> [Int] {
+    guard !previous.isEmpty, chord.count >= 2 else { return chord.sorted() }
+    func cost(_ c: [Int]) -> Int {                                  // total distance = each note to its nearest previous note
+        c.reduce(0) { acc, note in acc + (previous.map { abs($0 - note) }.min() ?? 0) }
+    }
+    var best = chord.sorted(), bestCost = cost(best), cur = best
+    for _ in 1..<chord.count {                                      // each inversion: lift the current lowest an octave
+        cur = (Array(cur.dropFirst()) + [cur[0] + 12]).sorted()
+        let c = cost(cur)
+        if c < bestCost { bestCost = c; best = cur }
+    }
+    return best
+}
+
+/// The next degree in a functional random WALK (SPEC-chords-stage §1 WALK — "the gravity dice"): SEEDED (replay-exact, no
+/// accumulated state — the caller passes the step ordinal as `seed`), weighted by tonal gravity. From `prev` (0…6) the draw
+/// favours resolution — V/vii° pull to I, I opens outward, ii/IV wander toward the dominant. Returns 0…6. Pure/testable.
+func walkNextDegree(prev: Int, seed: UInt64) -> Int {
+    // per-from transition weights over degrees I ii iii IV V vi vii (functional gravity; rows sum-agnostic — we normalise).
+    let W: [[Int]] = [
+        [1, 3, 2, 4, 5, 3, 1],   // I  → opens out (mostly to IV/V/ii/vi)
+        [1, 1, 1, 2, 6, 1, 3],   // ii → predominant → V (or vii°)
+        [3, 1, 1, 3, 2, 4, 1],   // iii→ to vi/IV/I
+        [4, 3, 1, 1, 6, 2, 2],   // IV → to V (or ii, I)
+        [8, 1, 1, 1, 1, 3, 1],   // V  → resolves HOME to I (vi = deceptive)
+        [2, 4, 1, 4, 3, 1, 1],   // vi → predominant wander
+        [8, 1, 1, 1, 2, 1, 1],   // vii°→ resolves HOME to I
+    ]
+    let p = ((prev % 7) + 7) % 7
+    let row = W[p]
+    let total = row.reduce(0, +)
+    let r = Int(splitmix64Mix(seed) % UInt64(max(1, total)))
+    var acc = 0
+    for (i, w) in row.enumerated() { acc += w; if r < acc { return i } }
+    return 0
+}
+
+/// The quality-aware Roman-numeral label for `degree` in a scale (SPEC-chords-stage §2 — self-updating headers). Reads the
+/// ACTUAL third + fifth from `scaleTones` (rank arithmetic) so the case + glyph track the real quality: MAJ = upper (I),
+/// MIN = lower (ii), DIM = lower + ° (vii°), AUG = upper + + (III+). Pure/testable.
+func degreeLabel(degree deg: Int, scaleTones: [Int]) -> String {
+    let n = scaleTones.count
+    guard n > 0 else { return "" }
+    func iv(_ k: Int) -> Int {                                      // interval (semitones) of the k-th degree above the chord root
+        let base = scaleTones[((deg % n) + n) % n]
+        let idx = ((k % n) + n) % n, oct = Int(floor(Double(k) / Double(n)))
+        return scaleTones[idx] + 12 * oct - base
+    }
+    let third = ((iv(deg + 2) % 12) + 12) % 12, fifth = ((iv(deg + 4) % 12) + 12) % 12
+    let numerals = ["I", "II", "III", "IV", "V", "VI", "VII"]
+    let base = numerals[((deg % 7) + 7) % 7]
+    switch (third, fifth) {
+    case (4, 7): return base                    // MAJOR — uppercase
+    case (3, 7): return base.lowercased()       // minor — lowercase
+    case (3, 6): return base.lowercased() + "°" // diminished
+    case (4, 8): return base + "+"              // augmented
+    default:     return base                    // exotic scale → default to the numeral
+    }
+}
+
 /// THE KEY FILTER (ratified scale-door §3): map an input note through a reference PITCH-CLASS set. `only` = keep only the
 /// set's classes (ONLY / intersection — in-key) vs drop them (MINUS / complement). `snap` = an out-of-set note remaps to the
 /// NEAREST legal note (SNAP — the jam-proof keyboard) vs drops (BLOCK — the strict gate). Returns the note (possibly

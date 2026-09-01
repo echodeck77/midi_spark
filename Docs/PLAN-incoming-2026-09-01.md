@@ -103,8 +103,9 @@ out of the key). No chord stored — progressions are DERIVED. Requires a scale-
    **WINDOW** CELL|ROW|BAR (the span family). Additive-Optional SnapParams; nil ⇒ a sensible default so a fresh CHORDS plays.
 
 ### Increments
-- **C1 (pure core + tests):** `diatonicChord` + `walkNextDegree` + the quality-aware degree label — no engine wiring; the
-  music theory is locked first (the AVOID/oracle pattern).
+- ✅ **C1 (pure core + tests) — DONE (2026-09-01):** `diatonicChord` (stacked thirds · 7th/add9 · close/open) +
+  `voiceLeadTowardPrevious` (nearest inversion) + `walkNextDegree` (seeded gravity dice) + `degreeLabel` (quality-aware Roman
+  numerals) in `Derivations.swift`, +4 concept-derived DerivationsTests (988 green). No engine wiring yet — the theory is locked.
 - **C2 (PATTERN mode):** the state-matrix degree panel + `applyStage`/hold integration reading the SCALE-door pool → a drawn
   progression plays in any key. +RouterTest (the same matrix plays Cm vs F correctly).
 - **C3 (FOLLOW mode):** the door-note → degree read via the pedal machinery (kin to AVOID's door-live ref) + CARRY. +test.

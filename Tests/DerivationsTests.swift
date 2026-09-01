@@ -978,6 +978,50 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(keyFilterNote(61, refMask: justC, only: false, snap: false), 61, "SAME: C# is not C → kept")
         XCTAssertEqual(keyFilterNote(61, refMask: widenClashMask(justC, semis: 1), only: false, snap: false), nil, "CLASH: C# rubs against C → removed")
     }
+
+    // CHORDS C1 (2026-09-01) — the pure diatonic-progression core, derived FROM THE CONCEPT (music theory), no engine read.
+    func testDiatonicChordStacksThirdsInTheKey() {
+        let maj = ScaleType.major.intervals   // [0,2,4,5,7,9,11]
+        // C major, root C = MIDI 60.
+        XCTAssertEqual(diatonicChord(degree: 0, scaleTones: maj, rootNote: 60), [60, 64, 67], "I = C E G")
+        XCTAssertEqual(diatonicChord(degree: 1, scaleTones: maj, rootNote: 60), [62, 65, 69], "ii = D F A")
+        XCTAssertEqual(diatonicChord(degree: 4, scaleTones: maj, rootNote: 60), [67, 71, 74], "V = G B D (D wraps to the next octave)")
+        XCTAssertEqual(diatonicChord(degree: 0, scaleTones: maj, rootNote: 60, voicing: .seventh), [60, 64, 67, 71], "Imaj7 = C E G B")
+        XCTAssertEqual(diatonicChord(degree: 0, scaleTones: maj, rootNote: 60, voicing: .add9), [60, 64, 67, 71, 74], "Imaj9 = C E G B D")
+        XCTAssertEqual(diatonicChord(degree: 0, scaleTones: maj, rootNote: 60, spread: .open), [60, 67, 76], "OPEN lifts the middle voice (E) an octave → C G E")
+        // The SAME degrees play in ANY key — the point of deriving. F major (root 65):
+        XCTAssertEqual(diatonicChord(degree: 0, scaleTones: maj, rootNote: 65), [65, 69, 72], "I in F = F A C")
+    }
+    func testDegreeLabelIsQualityAware() {
+        let maj = ScaleType.major.intervals
+        XCTAssertEqual(degreeLabel(degree: 0, scaleTones: maj), "I",   "major triad → uppercase")
+        XCTAssertEqual(degreeLabel(degree: 1, scaleTones: maj), "ii",  "minor triad → lowercase")
+        XCTAssertEqual(degreeLabel(degree: 4, scaleTones: maj), "V",   "dominant is major")
+        XCTAssertEqual(degreeLabel(degree: 6, scaleTones: maj), "vii°", "leading-tone triad is diminished")
+        // A different key: natural minor's i is minor, its V is minor (bVII major etc.) — the label tracks the scale.
+        let min = ScaleType.naturalMinor.intervals
+        XCTAssertEqual(degreeLabel(degree: 0, scaleTones: min), "i", "natural-minor tonic is minor")
+    }
+    func testWalkNextDegreeIsSeededAndGravitates() {
+        // Deterministic: same (prev, seed) → same next.
+        XCTAssertEqual(walkNextDegree(prev: 4, seed: 12345), walkNextDegree(prev: 4, seed: 12345), "replay-exact")
+        for s in 0..<200 { XCTAssertTrue((0..<7).contains(walkNextDegree(prev: s % 7, seed: UInt64(s))), "always a valid degree 0…6") }
+        // Gravity: from V, I (the resolution) is by far the most common landing.
+        var toI = 0
+        for s: UInt64 in 0..<300 where walkNextDegree(prev: 4, seed: s) == 0 { toI += 1 }
+        XCTAssertGreaterThan(toI, 300 / 3, "V resolves HOME to I far more often than chance (weight 8 of 18)")
+    }
+    func testVoiceLeadPicksTheNearestInversion() {
+        let maj = ScaleType.major.intervals
+        let prev = diatonicChord(degree: 0, scaleTones: maj, rootNote: 72)   // C an octave up: [72,76,79]
+        let g = diatonicChord(degree: 4, scaleTones: maj, rootNote: 60)      // G low: [67,71,74]
+        let led = voiceLeadTowardPrevious(g, previous: prev)
+        func pcs(_ c: [Int]) -> Set<Int> { Set(c.map { (($0 % 12) + 12) % 12 }) }
+        XCTAssertEqual(pcs(led), pcs(g), "voice-leading preserves the chord's pitch classes (it only re-octaves)")
+        func cost(_ c: [Int]) -> Int { c.reduce(0) { acc, note in acc + (prev.map { abs($0 - note) }.min() ?? 0) } }
+        XCTAssertLessThanOrEqual(cost(led), cost(g.sorted()), "the chosen inversion is no farther from the previous chord than root position")
+        XCTAssertEqual(voiceLeadTowardPrevious(g, previous: []), g.sorted(), "no previous → unchanged")
+    }
     // A SCALE door names itself ("A MIXO") — the chip-never-lies label shared by the receiver chip + the MIDI tab. (2026-08-31)
     func testScaleDoorLabel() {
         var r = Receiver(); XCTAssertNil(r.scaleLabel, "a non-scale door has no key label")
