@@ -435,6 +435,9 @@ struct DiagView: View {
     @State private var chaosStatus = "OK"             // live oracle readout (should-output check)
     @State private var chaosRecvMask: UInt8 = 0b0001  // which receivers chaos fuzzes (default R1 only)
     @State private var chaosEditMode = false          // false = PERFORM desk, true = EDIT screen
+    @State private var autoPilot = AutoPilot()         // AUTO-RUN (debug-only): a CALM self-player — plays a chord loop by itself (not a fuzzer)
+    @State private var autoOn = false
+    @State private var autoStatus = "OK"
     #endif
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
@@ -820,6 +823,7 @@ struct DiagView: View {
             buildPersistTick()   // BUILD: keep the saved unassigned part current + restore a just-loaded one (no-op off BUILD)
             #if DEBUG
             if chaosOn { let s = "\(chaos.oracleFlag) · \(chaos.eventCount)e"; if s != chaosStatus { chaosStatus = s } }   // CHAOS oracle readout
+            if autoOn { let s = "\(autoPilot.status) · \(autoPilot.chordCount)c"; if s != autoStatus { autoStatus = s } }   // AUTO-RUN readout
             #endif
             // Write @State ONLY when a DISPLAYED value changed — an unconditional write re-renders the
             // whole grid every 0.25s (which used to tear down in-progress press-holds). When STOPPED
@@ -1251,6 +1255,7 @@ struct DiagView: View {
                 buildSelfTestView
                 stuckNoteMonitor
                 chaosRow
+                autoRow
             }
             .padding(18)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.10, green: 0.11, blue: 0.14)))
@@ -1282,6 +1287,31 @@ struct DiagView: View {
                 chaosBtn(chaosEditMode ? "EDIT" : "PERF", active: chaosEditMode) { chaosEditMode.toggle() }   // what chaos fuzzes
                 chaosBtn("▶ SIM", active: false) { startChaos(.simulated) }        // chaos plays its own spell-MIDI
                 chaosBtn("▶ LIVE", active: false) { startChaos(.live) }             // MIDI from the host; chaos fuzzes controls
+            }
+            Spacer()
+        }
+        #endif
+    }
+    // AUTO-RUN — a CALM self-player (Paul 2026-09-01): the app plays a musical chord loop by itself (free-run on) so it can
+    // be left running on device to hear + soak. NOT a fuzzer (that's chaosRow) and NOT a test — it never touches controls.
+    @ViewBuilder var autoRow: some View {
+        #if DEBUG
+        let green = UI.green
+        HStack(spacing: 8) {
+            if autoOn {
+                Button("⏹ AUTO", action: { autoPilot.stop(); autoOn = false })
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                    .padding(.vertical, 5).padding(.horizontal, 10)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(green))
+                Text(autoStatus).font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(autoStatus.hasPrefix("⚠") ? UI.red : .white.opacity(0.6))
+            } else {
+                Button("▶ AUTO-RUN", action: { if let au = au { autoPilot.start(au: au); autoOn = true } })
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(green)
+                    .padding(.vertical, 5).padding(.horizontal, 10)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
+                Text("plays a chord loop by itself (free-run)").font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.4))
             }
             Spacer()
         }
