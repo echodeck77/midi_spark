@@ -108,12 +108,13 @@ struct DiagView: View {
     @State var buildPlaceArmed: Bool = false         // PLAY-grid PLACE mode — a standalone toggle (NOT the staging radio); armed from the left PLACE button
     @State var buildPlaceMsg: String? = nil          // the processor pop-up's PLACE feedback line ("added to row 6 — 2 remaining")
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
-    // PART MACRO BAND (Paul 2026-09-01): the 4-tab band + the BIND drill-down selection.
-    @State var buildMacroTab: Int = 0           // 0 BIND · 1 PLAY · 2 PUNCH · 3 SPAN
-    @State var buildMacroProc: Int = 0          // BIND: the selected processor slot (index into the selected colour's chain)
-    @State var buildMacroParam: String? = nil   // BIND: the selected parameter key (nil ⇒ before/after + chips hidden — the calm resting view)
-    @State var buildMacroSel: Int? = nil        // BIND: the chosen macro slot 0–15 (8 slider + 8 toggle) for the current binding
-    @State var buildMacroAfter: Double = 0      // BIND: the AFTER value for the selected param (BEFORE = its current value; delta = after − before)
+    // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
+    // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-colour.
+    @State var buildAutoSel: Int = 0            // which Auto lane (0–4)
+    @State var buildAutoProc: Int = 0           // the selected processor slot
+    @State var buildAutoParam: String? = nil    // the selected param key (nil ⇒ before/after/span/apply hidden — calm at rest)
+    @State var buildAutoArmed: Bool = false      // APPLY armed → painting the extent on the grid; press again commits
+    @State var buildAutoLanes: [String: [AutoLane]] = [:]   // per colourID → its 5 Auto lanes
     @State var buildBypassHeld: Int? = nil      // HOLD-BYPASS A/B (idea 23): the slot momentarily bypassed while the BYPASS button is held
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
     // DRAG-TO-REORDER the chain (Paul 2026-08-25): a custom finger-track (native .onDrag doesn't survive the AU host).
