@@ -949,23 +949,32 @@ struct ProcessorBox: View {
             Text("Plays YOUR held notes (WHAT) timed by the wire (WHEN). Put it on a later row than what it listens to.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
-        case .chords: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // HARMONY — a held note triggers the diatonic chord for the current degree; drawn once, plays in any key
-            let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-            let tones = (p.chordsScale ?? .major).intervals
-            heroField("MODE") { seg(["PATTERN", "FOLLOW", "WALK"], sel: (p.chordsMode ?? .pattern).rawValue.uppercased()) { i in setParam { $0.chordsMode = ChordsMode.allCases[i] } } }
-            field("KEY") { HStack(spacing: 6) {   // v1: the key is declared here; a SCALE door will override it (C2b)
-                numPair(p.chordsRoot ?? 0, 0...11, wrap: true, format: { names[(($0 % 12) + 12) % 12] }) { r in setParam { $0.chordsRoot = r } }
-                seg(ScaleType.allCases.map { $0.rawValue }, sel: (p.chordsScale ?? .major).rawValue) { i in setParam { $0.chordsScale = ScaleType.allCases[i] } }
-            } }
-            // THE DEGREE MATRIX (PATTERN): rows I…vii + REST · radio-per-column · quality-aware headers from the declared key.
-            stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7],
-                header: { (opt: Int) in AnyView(Text(opt == 7 ? "REST" : degreeLabel(degree: opt, scaleTones: tones)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))) },
-                onRotate: { d in setParam { $0.chordsRotate = ((($0.chordsRotate ?? 0) + d) % 8 + 8) % 8 } },
-                selected: { c in let a = p.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; let v = c < a.count ? a[c] : 0; return (v >= 0 && v <= 7) ? v : 0 },
-                set: { c, opt in setParam { var a = $0.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; while a.count < 8 { a.append(-1) }; if c < 8 { a[c] = opt }; $0.chordsDegrees = a } })
+        case .chords: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // HARMONY — a held note triggers the diatonic chord for the current degree; the KEY comes from a SCALE door
+            let mode = p.chordsMode ?? .pattern
+            let refIdx = p.chordsScaleRef ?? -1
+            let letters = ["A", "B", "C", "D"]
+            heroField("MODE") { seg(["PATTERN", "FOLLOW", "WALK"], sel: mode.rawValue.uppercased()) { i in setParam { $0.chordsMode = ChordsMode.allCases[i] } } }
+            // SCALE FROM (Paul 2026-09-01): the KEY is read from a RECEIVER set to SCALE — point at it here (— = none → C major).
+            // The cell's OWN input stays the TRIGGER (FOLLOW names the degree from the note you play); this door only sets the key.
+            heroField("SCALE FROM") { seg(["—", "A", "B", "C", "D"], sel: refIdx < 0 ? "—" : letters[max(0, min(3, refIdx))]) { i in setParam { $0.chordsScaleRef = i == 0 ? nil : i - 1 } } }
+            // MODE body — only PATTERN authors a degree lane; FOLLOW/WALK derive the degrees, so they show a plain-language tell.
+            if mode == .pattern {
+                // THE DEGREE MATRIX: rows I…vii + REST · radio-per-column. Headers use a major reference for POSITION (the real
+                // quality follows the SCALE-FROM door's scale at play time — the editor can't see that door's mode).
+                stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7],
+                    header: { (opt: Int) in AnyView(Text(opt == 7 ? "REST" : degreeLabel(degree: opt, scaleTones: ScaleType.major.intervals)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))) },
+                    onRotate: { d in setParam { $0.chordsRotate = ((($0.chordsRotate ?? 0) + d) % 8 + 8) % 8 } },
+                    selected: { c in let a = p.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; let v = c < a.count ? a[c] : 0; return (v >= 0 && v <= 7) ? v : 0 },
+                    set: { c, opt in setParam { var a = $0.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; while a.count < 8 { a.append(-1) }; if c < 8 { a[c] = opt }; $0.chordsDegrees = a } })
+            } else if mode == .follow {
+                Text("FOLLOW — the note you PLAY names the degree, in the SCALE-FROM key. Play the 5th → the V chord; the 2nd → ii. Change the note, the chord follows.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {   // walk
+                field("WALK") { seg(["⟳ RE-ROLL"], sel: "") { _ in setParam { $0.chordsWalkSeed = ($0.chordsWalkSeed ?? 0) &+ 1 } } }
+                Text("WALK — an evolving progression from one held trigger: a gravity wander through the SCALE-FROM key that leans home. RE-ROLL for a different wander.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             field("VOICING") { seg(["TRIAD", "7TH", "ADD9"], sel: (p.chordsVoicing ?? .triad) == .triad ? "TRIAD" : ((p.chordsVoicing ?? .triad) == .seventh ? "7TH" : "ADD9")) { i in setParam { $0.chordsVoicing = [ChordVoicing.triad, .seventh, .add9][i] } } }
             field("SPREAD") { seg(["CLOSE", "OPEN"], sel: (p.chordsSpread ?? .close) == .close ? "CLOSE" : "OPEN") { i in setParam { $0.chordsSpread = i == 0 ? .close : .open } } }
-            Text("Feed it a scale channel + follow it with STRUM / ARP / DRONE.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Point SCALE FROM at a receiver set to SCALE — that door's key governs the chords. Follow with STRUM / ARP / DRONE.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         case .avoid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // FILTER — compares your notes against another source and keeps clear of it (AVOID) or locks onto it (LOCK)
             // LISTEN-TO source: INPUT = another MIDI input's live notes (.door) · EVERYTHING = every note now playing (.sounding).

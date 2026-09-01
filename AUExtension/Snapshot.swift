@@ -255,6 +255,7 @@ struct SnapParams {
     var chordsSpread: ChordSpread = .close
     var chordsRotate: Int = 0
     var chordsWalkSeed: Int = 0
+    var chordsScaleRef: Int = -1                          // SCALE FROM: 0…3 = the door supplying the key; −1 = none → C-major fallback
 }
 
 struct SnapColour {

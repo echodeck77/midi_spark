@@ -909,22 +909,35 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
-    func testChordsReadsTheKeyFromAScaleDoor() {   // C2b#1 (Paul device 2026-09-01): "derive its scale from a door set to SCALE"
+    func testChordsReadsTheKeyFromAReferencedScaleDoor() {   // C2b (Paul 2026-09-01): "SCALE FROM ▸" — the key comes from a REFERENCED door, not the card
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
         var s = SceneState.empty()
-        s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a]); x.inputReceiver = 0
+        s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a]); x.inputReceiver = 0   // OWN input = receiver 0 (the trigger — a normal door)
             var ch = ProcessorSlot(type: .chords)
-            ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major   // the CARD says C major…
+            ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major   // the CARD fallback says C major…
             ch.params.chordsDegrees = [Int](repeating: 0, count: 8)   // degree I everywhere
+            ch.params.chordsScaleRef = 1   // …but SCALE FROM ▸ B (receiver 1), a SCALE door
             x.processors = [ch]; return x }()
         var st = PluginState(colours: cs, scenes: [s])
-        var door = Receiver(name: "S"); door.doorMode = .scale; door.scaleRoot = 4; door.scaleType = .major   // …but receiver 0 DECLARES E major
-        st.receivers = [door, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        var scaleDoor = Receiver(name: "B"); scaleDoor.doorMode = .scale; scaleDoor.scaleRoot = 4; scaleDoor.scaleType = .major   // receiver 1 DECLARES E major
+        st.receivers = [Receiver(name: "1"), scaleDoor, Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
-        let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e); assertNothingLeftSounding(e)
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e); assertNothingLeftSounding(e)   // trigger on receiver 0 (OMNI)
         let pcs = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 })
-        XCTAssertEqual(pcs, [4, 8, 11], "I in the DOOR's key (E major = E G# B), not the card's C major (would be C E G = {0,4,7})")
+        XCTAssertEqual(pcs, [4, 8, 11], "I in the REFERENCED door's key (E major = E G# B), not the card fallback C major ({0,4,7})")
+    }
+    func testChordsNoScaleRefFallsBackToCMajor() {   // SCALE FROM = none → C major, so a fresh CHORDS is never keyless/silent
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        let b = box(colours: cs) { s in
+            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern
+                ch.params.chordsDegrees = [Int](repeating: 0, count: 8)   // chordsScaleRef nil (no reference)
+                x.processors = [ch]; return x }()
+        }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e); assertNothingLeftSounding(e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 }), [0, 4, 7], "no SCALE FROM → C major fallback (I = C E G)")
     }
     func testChordsFollowRespondsToAChangingHeldNoteUnderAudition() {   // REPRO (Paul device 2026-09-01): "feed in midi, it doesn't respond"
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!

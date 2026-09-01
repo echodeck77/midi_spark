@@ -3697,12 +3697,13 @@ final class Router {
             if cCnt > 0 {                                       // no input = no trigger → silent
                 let lo = src.srcAscending(0, filter: 0, cableMask: 0b1111)   // the lowest input note (the trigger)
                 let step = S > 0 ? Int((columnStart(m, S) / S).rounded()) : 0
-                // C2b#1 (Paul 2026-09-01): if this cell's RECEIVER is a SCALE door, it DECLARES the key — CHORDS reads
-                // its root+scale ("plays in whatever key D declares"); else the card's own KEY picker governs.
-                let rcv = Int(cell.resolvedReceiver)
-                let doorScale = (rcv >= 0 && rcv < receiverScaleRoot.count && receiverScaleRoot[rcv] >= 0)
-                let root = doorScale ? receiverScaleRoot[rcv] : p.chordsRoot
-                let scaleTones = doorScale ? receiverScaleType[rcv].intervals : p.chordsScale.intervals
+                // C2b (Paul 2026-09-01): CHORDS reads its KEY from the REFERENCED door — SCALE FROM ▸A–D, a receiver set to
+                // SCALE. The cell's OWN input is the TRIGGER (FOLLOW names the degree from the note you play); this separate
+                // door supplies root+scale. No valid scale reference ⇒ the C-major fallback (p.chordsRoot/Scale, default C).
+                let ref = p.chordsScaleRef   // −1 = none
+                let doorScale = (ref >= 0 && ref < receiverScaleRoot.count && receiverScaleRoot[ref] >= 0)
+                let root = doorScale ? receiverScaleRoot[ref] : p.chordsRoot
+                let scaleTones = doorScale ? receiverScaleType[ref].intervals : p.chordsScale.intervals
                 var deg = 0, rest = false
                 switch p.chordsMode {                           // WHERE the degree comes from
                 case .pattern: (deg, rest) = chordsDegreeAt(step: step, degrees: p.chordsDegrees, rotate: p.chordsRotate)

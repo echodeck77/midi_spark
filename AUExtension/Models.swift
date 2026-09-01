@@ -374,6 +374,8 @@ struct ColourParams: Codable, Equatable {
     var chordsSpread: ChordSpread? = nil        // CLOSE | OPEN
     var chordsRotate: Int? = nil                // rotate the PATTERN matrix ◀n▶
     var chordsWalkSeed: Int? = nil              // WALK: the base seed (RE-ROLL = new seed) — C4
+    var chordsScaleRef: Int? = nil              // C2b (Paul 2026-09-01): SCALE FROM ▸ 0…3 = the receiver door (A–D) that declares the key; nil/-1 = none → C-major fallback. The cell's OWN input stays the TRIGGER (FOLLOW reads it); this door supplies the KEY.
+    var chordsScaleRefResolved: Int { let r = chordsScaleRef ?? -1; return (r >= 0 && r <= 3) ? r : -1 }
     var chordsModeResolved: ChordsMode { chordsMode ?? .pattern }
     var chordsRootResolved: Int { let r = chordsRoot ?? 0; return (r % 12 + 12) % 12 }
     var chordsScaleResolved: ScaleType { chordsScale ?? .major }
