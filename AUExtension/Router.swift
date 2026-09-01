@@ -545,6 +545,8 @@ final class Router {
     private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]
     private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]
     private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
+    private var receiverScaleRoot: [Int] = [-1, -1, -1, -1]       // CHORDS C2b#1: per-receiver declared scale root (−1 = not a scale door), this render
+    private var receiverScaleType: [ScaleType] = [.major, .major, .major, .major]
     private var passEmitterMask: [UInt8] = [0, 0, 0, 0]   // NO-MACHINE WIRE: per door, the union of passthrough cells' emitters (reconcileBypass injects the door's input to them in realtime)
     private var bypassDesired = [Bool](repeating: false, count: 128)   // scratch: desired source notes this render
     private var bypassScratch = [UInt8](repeating: 0, count: 128)      // scratch: the desired notes, read once
@@ -2182,6 +2184,7 @@ final class Router {
         self.receiverDisabledMask = box.receiverDisabledMask   // INPUT ENABLE: disabled doors block their cells' live read
         self.receiverChannels = box.receiverChannels; self.receiverCables = box.receiverCables   // BYPASS: per-receiver admission for the direct-injection pass
         self.receiverRangeLo = box.receiverRangeLo; self.receiverRangeHi = box.receiverRangeHi
+        self.receiverScaleRoot = box.receiverScaleRoot; self.receiverScaleType = box.receiverScaleType   // CHORDS C2b#1: a SCALE door declares the key
         self.avoidLivePool = pool   // AVOID: a DOOR-referenced filter reads another receiver's LIVE notes this render (valid only during process)
         self.passEmitterMask = box.passEmitterMask
 
@@ -3683,15 +3686,21 @@ final class Router {
             if cCnt > 0 {                                       // no input = no trigger → silent
                 let lo = src.srcAscending(0, filter: 0, cableMask: 0b1111)   // the lowest input note (the trigger)
                 let step = S > 0 ? Int((columnStart(m, S) / S).rounded()) : 0
+                // C2b#1 (Paul 2026-09-01): if this cell's RECEIVER is a SCALE door, it DECLARES the key — CHORDS reads
+                // its root+scale ("plays in whatever key D declares"); else the card's own KEY picker governs.
+                let rcv = Int(cell.resolvedReceiver)
+                let doorScale = (rcv >= 0 && rcv < receiverScaleRoot.count && receiverScaleRoot[rcv] >= 0)
+                let root = doorScale ? receiverScaleRoot[rcv] : p.chordsRoot
+                let scaleTones = doorScale ? receiverScaleType[rcv].intervals : p.chordsScale.intervals
                 var deg = 0, rest = false
                 switch p.chordsMode {                           // WHERE the degree comes from
                 case .pattern: (deg, rest) = chordsDegreeAt(step: step, degrees: p.chordsDegrees, rotate: p.chordsRotate)
-                case .follow:  deg = scaleDegreeOf(Int(lo), root: p.chordsRoot, scaleTones: p.chordsScale.intervals)   // the played note NAMES the degree
+                case .follow:  deg = scaleDegreeOf(Int(lo), root: root, scaleTones: scaleTones)   // the played note NAMES the degree (in the door's key if declared)
                 case .walk:    deg = chordsWalkDegreeAt(step: step, seed: UInt64(bitPattern: Int64(p.chordsWalkSeed)))  // seeded gravity dice
                 }
                 if !rest {
                     let vel = max(1, src.velocity(lo))          // the trigger's velocity
-                    for n in diatonicChord(degree: deg, scaleTones: p.chordsScale.intervals, rootNote: 48 + p.chordsRoot,
+                    for n in diatonicChord(degree: deg, scaleTones: scaleTones, rootNote: 48 + root,
                                            voicing: p.chordsVoicing, spread: p.chordsSpread) where n >= 0 && n <= 127 {
                         dst.noteOn(UInt8(n), velocity: vel, channel: 0)
                     }

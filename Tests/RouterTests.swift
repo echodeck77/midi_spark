@@ -784,6 +784,74 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [55, 59, 62], "a lone [CHORDS] sounds V = G B D directly")
     }
+    func testChordsReadsTheKeyFromAScaleDoor() {   // C2b#1 (Paul device 2026-09-01): "derive its scale from a door set to SCALE"
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        var s = SceneState.empty()
+        s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a]); x.inputReceiver = 0
+            var ch = ProcessorSlot(type: .chords)
+            ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major   // the CARD says C major…
+            ch.params.chordsDegrees = [Int](repeating: 0, count: 8)   // degree I everywhere
+            x.processors = [ch]; return x }()
+        var st = PluginState(colours: cs, scenes: [s])
+        var door = Receiver(name: "S"); door.doorMode = .scale; door.scaleRoot = 4; door.scaleType = .major   // …but receiver 0 DECLARES E major
+        st.receivers = [door, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e); assertNothingLeftSounding(e)
+        let pcs = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 })
+        XCTAssertEqual(pcs, [4, 8, 11], "I in the DOOR's key (E major = E G# B), not the card's C major (would be C E G = {0,4,7})")
+    }
+    func testChordsFollowRespondsToAChangingHeldNoteUnderAudition() {   // REPRO (Paul device 2026-09-01): "feed in midi, it doesn't respond"
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        let b = box(colours: cs) { s in
+            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                var ch = ProcessorSlot(type: .chords)
+                ch.params.chordsMode = .follow; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
+                x.processors = [ch]; return x }()
+        }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func hold(_ note: UInt8, beats: Double) {   // audition = forceColumn 0 (a frozen continuous pass)
+            let end = beat + beats
+            while beat < end {
+                router.process(box: b, pool: chord([note]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+        }
+        hold(67, beats: 6)   // play G → should sound V (G B D)
+        hold(60, beats: 6)   // change to C → should RESPOND, sounding I (C E G)
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertTrue(notes.isSuperset(of: [55, 59, 62]), "played G → V sounds (G B D)")
+        XCTAssertTrue(notes.isSuperset(of: [48, 52, 55]), "changing to C → RESPONDS with I (C E G) — not stuck on one chord")
+    }
+    func testChordsPatternPlaysTheProgressionAcrossAFilledRow() {   // PATTERN "playing": a CHORDS colour across a ROW walks the degrees per column
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        let b = box(colours: cs) { s in
+            for c in 0..<8 {   // the same CHORDS cell in ALL 8 columns of row 0 (a stamped row) → the progression sweeps
+                s.cells[c][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                    var ch = ProcessorSlot(type: .chords)
+                    ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
+                    ch.params.chordsDegrees = [0, 1, 2, 3, 4, 5, 6, 0]   // I ii iii IV V vi vii I — one per column
+                    x.processors = [ch]; return x }()
+            }
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 8, into: e)   // ≥ one full pass, a note held throughout
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 }
+        let distinctOnsets = Set(ons.map { $0.sample }).count
+        XCTAssertGreaterThanOrEqual(distinctOnsets, 3, "a chord strikes per column as the playhead sweeps (got \(distinctOnsets) onsets, \(ons.count) note-ons) — not one chord then silence")
+        // The chords DIFFER across the pass — a non-tonic degree appears alongside I, proving a real progression.
+        let pcs = Set(ons.map { Int($0.note) % 12 })
+        XCTAssertTrue(pcs.isSuperset(of: [0, 4, 7]), "I = C E G appears")
+        XCTAssertTrue(pcs.contains(2) || pcs.contains(5) || pcs.contains(9) || pcs.contains(11), "a non-tonic degree (ii/iii/IV/…) appears too — a real progression, not one repeated chord")
+    }
     func testChordsVoicingSeventhReachesTheEngineAndComposesDownstream() {   // C5 — VOICING 7TH is 4 notes; [CHORDS→ARP] arpeggiates the chord
         func lone7th() -> [UInt8] {
             var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!

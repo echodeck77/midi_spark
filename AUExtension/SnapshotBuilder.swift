@@ -232,6 +232,9 @@ enum SnapshotBuilder {
         // the per-cell window resolved above).
         let receiverRangeLo = doc.receiversResolved.map { $0.rangeLoResolved }
         let receiverRangeHi = doc.receiversResolved.map { $0.rangeHiResolved }
+        // CHORDS C2b#1: a SCALE-mode door DECLARES the key; CHORDS reads it (root −1 ⇒ not a scale door → CHORDS uses its own card key).
+        let receiverScaleRoot = doc.receiversResolved.map { $0.doorModeResolved == .scale ? $0.scaleRootResolved : -1 }
+        let receiverScaleType = doc.receiversResolved.map { $0.scaleTypeResolved }
         let receiverControllerMask = doc.receiversResolved.map { $0.controllerMaskResolved }   // CONTROLLER ROUTING: per-door emitter forward mask
         let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH + SCALE: doors whose frozen pool is a derived set (keyboard-tapped OR scale-picked)
         // THE SCALE DOOR (ratified §1): a SCALE door feeds the KEYS pipeline, but its notes are DERIVED from root+scale+range
@@ -319,6 +322,8 @@ enum SnapshotBuilder {
                            receiverDisabledMask: receiverDisabledMask,
                            receiverRangeLo: receiverRangeLo,
                            receiverRangeHi: receiverRangeHi,
+                           receiverScaleRoot: receiverScaleRoot,
+                           receiverScaleType: receiverScaleType,
                            passEmitterMask: passEmit,
                            receiverControllerMask: receiverControllerMask,
                            receiverPianoMask: receiverPianoMask,
