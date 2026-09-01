@@ -437,6 +437,8 @@ enum SnapshotBuilder {
         if let v = p.chordsRotate { out.chordsRotate = ((v % 8) + 8) % 8 }
         if let v = p.chordsWalkSeed { out.chordsWalkSeed = v }
         out.chordsScaleRef = p.chordsScaleRefResolved
+        out.chordsRateBeats = p.chordsRateResolved.beats
+        out.chordsSteps = p.chordsStepsResolved
         if let v = p.rtcMode { out.rtcMode = v }
         if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
         if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }

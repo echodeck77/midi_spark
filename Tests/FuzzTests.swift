@@ -100,13 +100,16 @@ final class FuzzTests: XCTestCase {
                 c.paramsA.avoidMode = r.chance(0.5) ? .lock : .avoid; c.paramsA.avoidAction = r.chance(0.5) ? .move : .remove
                 c.paramsA.avoidWhat = AvoidWhat.allCases[r.int(AvoidWhat.allCases.count)]   // SAME | CLASH(ic1) | CLASH+(ic2) — the widened avoided sphere
             }
-            if c.type == .chords && r.chance(0.8) {   // CHORDS — random key × drawn degrees (incl. REST/CARRY) × voicing; hammered so the set-replace never strands a note
-                c.paramsA.chordsMode = .pattern
+            if c.type == .chords && r.chance(0.8) {   // CHORDS — random mode × key × drawn degrees × voicing × STEPS/RATE; hammered so the set-replace never strands a note
+                c.paramsA.chordsMode = ChordsMode.allCases[r.int(ChordsMode.allCases.count)]   // PATTERN | FOLLOW | WALK
                 c.paramsA.chordsRoot = r.int(12); c.paramsA.chordsScale = ScaleType.allCases[r.int(ScaleType.allCases.count)]
-                c.paramsA.chordsDegrees = (0..<8).map { _ in r.int(9) - 1 }   // −1 CARRY · 0…6 degree · 7 REST
+                c.paramsA.chordsDegrees = (0..<16).map { _ in r.int(9) - 1 }   // −1 CARRY · 0…6 degree · 7 REST (up to 16 = the STEPS ceiling)
                 c.paramsA.chordsVoicing = ChordVoicing.allCases[r.int(ChordVoicing.allCases.count)]
                 c.paramsA.chordsSpread = ChordSpread.allCases[r.int(ChordSpread.allCases.count)]
                 c.paramsA.chordsRotate = r.int(8)
+                c.paramsA.chordsSteps = 1 + r.int(16)                                         // 1…16 (odd loop lengths → polymeter)
+                c.paramsA.chordsRate = StepRate.allCases[r.int(StepRate.allCases.count)]       // the progression clock
+                if r.chance(0.4) { c.paramsA.chordsScaleRef = r.int(4) }                       // sometimes reference a door for the key
             }
             if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)

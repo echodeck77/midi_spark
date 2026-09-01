@@ -256,6 +256,8 @@ struct SnapParams {
     var chordsRotate: Int = 0
     var chordsWalkSeed: Int = 0
     var chordsScaleRef: Int = -1                          // SCALE FROM: 0…3 = the door supplying the key; −1 = none → C-major fallback
+    var chordsRateBeats: Double = 4                       // the progression clock in beats (default 1/1 = 4 = one chord per bar)
+    var chordsSteps: Int = 8                              // the PATTERN matrix length (1…16); the progression loops every N
 }
 
 struct SnapColour {

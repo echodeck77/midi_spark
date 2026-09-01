@@ -1729,8 +1729,11 @@ final class Router {
             // unchanged when the cell has no chop, so this is a no-op for ordinary holds. (Tick cells chop per-tick.)
             let hbm = chopMask(cell, m: colStart, S: S, base: bm)
             let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
-            if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: chordsHold ? tailIdx : tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }   // CHORDS tail: include the stage so chainScratch holds the derived chord
-            else if chordsHold { composeChainSet(cell: cell, pool: cellPool, upto: 0, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }   // lone [CHORDS]: fold the single stage
+            // CHORDS reads its progression clock from the RAW beat (mNow), NOT the grid-quantized colStart — else the rate
+            // step is sampled only at column boundaries and aliases to one degree (Paul 2026-09-01). Other holds keep colStart.
+            let composeM = chordsHold ? mNow : colStart
+            if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: chordsHold ? tailIdx : tailIdx - 1, m: composeM, S: S, cycleBeats: Double(Snap.cols) * S) }   // CHORDS tail: include the stage so chainScratch holds the derived chord
+            else if chordsHold { composeChainSet(cell: cell, pool: cellPool, upto: 0, m: composeM, S: S, cycleBeats: Double(Snap.cols) * S) }   // lone [CHORDS]: fold the single stage
             let srcN = readScratch ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter (CHORDS reads the composed chord)
             // §2 POOL-STEP UNITS (standalone/hold): TRANSPOSE steps the note by pool DEGREES; HARMONIZE voices in degrees.
             // The pool mask = the SOURCE set's pitch classes (the scale/chord feeding the cell). procShift = the processor's
@@ -3696,7 +3699,11 @@ final class Router {
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
             if cCnt > 0 {                                       // no input = no trigger → silent
                 let lo = src.srcAscending(0, filter: 0, cableMask: 0b1111)   // the lowest input note (the trigger)
-                let step = S > 0 ? Int((columnStart(m, S) / S).rounded()) : 0
+                // STEPS+RATE (Paul 2026-09-01): the progression advances on its OWN clock (chordsRateBeats), NOT per grid
+                // column — so it steps at a musical tempo and plays THROUGH even on a frozen/pinned audition (m keeps
+                // advancing). `step` = the free-running rate-tick index; PATTERN loops it over chordsSteps.
+                let rateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
+                let step = Int((m / rateBeats).rounded(.down))
                 // C2b (Paul 2026-09-01): CHORDS reads its KEY from the REFERENCED door — SCALE FROM ▸A–D, a receiver set to
                 // SCALE. The cell's OWN input is the TRIGGER (FOLLOW names the degree from the note you play); this separate
                 // door supplies root+scale. No valid scale reference ⇒ the C-major fallback (p.chordsRoot/Scale, default C).
@@ -3706,9 +3713,12 @@ final class Router {
                 let scaleTones = doorScale ? receiverScaleType[ref].intervals : p.chordsScale.intervals
                 var deg = 0, rest = false
                 switch p.chordsMode {                           // WHERE the degree comes from
-                case .pattern: (deg, rest) = chordsDegreeAt(step: step, degrees: p.chordsDegrees, rotate: p.chordsRotate)
+                case .pattern:                                  // the drawn matrix, its ACTIVE length = chordsSteps (variable — loops every N)
+                    let steps = max(1, min(16, p.chordsSteps))
+                    let degs = (0..<steps).map { $0 < p.chordsDegrees.count ? p.chordsDegrees[$0] : -1 }
+                    (deg, rest) = chordsDegreeAt(step: step, degrees: degs, rotate: p.chordsRotate)
                 case .follow:  deg = scaleDegreeOf(Int(lo), root: root, scaleTones: scaleTones)   // the played note NAMES the degree (in the door's key if declared)
-                case .walk:    deg = chordsWalkDegreeAt(step: step, seed: UInt64(bitPattern: Int64(p.chordsWalkSeed)))  // seeded gravity dice
+                case .walk:    deg = chordsWalkDegreeAt(step: step, seed: UInt64(bitPattern: Int64(p.chordsWalkSeed)))  // seeded gravity dice (advances on the rate clock)
                 }
                 if !rest {
                     let vel = max(1, src.velocity(lo))          // the trigger's velocity

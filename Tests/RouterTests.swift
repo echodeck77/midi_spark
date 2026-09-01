@@ -927,6 +927,43 @@ final class RouterTests: XCTestCase {
         let pcs = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 })
         XCTAssertEqual(pcs, [4, 8, 11], "I in the REFERENCED door's key (E major = E G# B), not the card fallback C major ({0,4,7})")
     }
+    // STEPS + RATE (Paul device 2026-09-01): the progression advances on its OWN clock (chordsRate), not per grid column, so
+    // it plays THROUGH even on the frozen/pinned audition. Drives a pinned CHORDS and returns every emitted note pitch-class.
+    private func chordsPinnedPCs(steps: Int?, rate: StepRate, degrees: [Int]) -> Set<Int> {
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        let b = box(colours: cs) { s in
+            var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
+            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
+                ch.params.chordsDegrees = degrees; ch.params.chordsRate = rate; ch.params.chordsSteps = steps
+                x.processors = [ch]; return x }()
+        }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        let pool = chord([60])
+        while beat < 16.0 {   // several bars → the rate clock steps the progression through
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 })
+    }
+    func testChordsRateStepsTheProgression() {   // RATE — the progression advances (multiple chords over time), not one frozen chord
+        let pcs = chordsPinnedPCs(steps: 8, rate: .r1_8, degrees: [0, 4, 3, 5, 0, 4, 3, 5])   // I V IV vi …
+        // A single frozen chord = 3 pitch classes; a stepped progression through I/V/IV/vi visits many more.
+        XCTAssertGreaterThan(pcs.count, 3, "the progression STEPS on its rate clock — more than one chord's worth of notes (got \(pcs.sorted()))")
+    }
+    func testChordsStepsBoundsTheLoopLength() {   // STEPS — the pattern loops every N; degrees past N never play
+        // steps = 2 → only degrees[0]=I (C E G) and degrees[1]=IV (F A C) play; degrees[2]=ii (D F A, pc 2 = D) is EXCLUDED.
+        let pcs = chordsPinnedPCs(steps: 2, rate: .r1_8, degrees: [0, 3, 1, 1, 1, 1, 1, 1])
+        XCTAssertFalse(pcs.contains(2), "STEPS=2 loops the first two degrees — degree ii (D, pc 2) past the loop never plays (got \(pcs.sorted()))")
+        XCTAssertTrue(pcs.contains(4), "I (E, pc 4) plays")
+        XCTAssertTrue(pcs.contains(5), "IV (F, pc 5) plays")
+    }
     func testChordsNoScaleRefFallsBackToCMajor() {   // SCALE FROM = none → C major, so a fresh CHORDS is never keyless/silent
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords

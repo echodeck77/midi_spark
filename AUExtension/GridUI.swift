@@ -958,19 +958,27 @@ struct ProcessorBox: View {
             // The cell's OWN input stays the TRIGGER (FOLLOW names the degree from the note you play); this door only sets the key.
             heroField("SCALE FROM") { seg(["—", "A", "B", "C", "D"], sel: refIdx < 0 ? "—" : letters[max(0, min(3, refIdx))]) { i in setParam { $0.chordsScaleRef = i == 0 ? nil : i - 1 } } }
             // MODE body — only PATTERN authors a degree lane; FOLLOW/WALK derive the degrees, so they show a plain-language tell.
+            let steps = max(1, min(16, p.chordsSteps ?? 8))
+            let rateNames = StepRate.allCases.map { $0.rawValue }
             if mode == .pattern {
-                // THE DEGREE MATRIX: rows I…vii + REST · radio-per-column. Headers use a major reference for POSITION (the real
-                // quality follows the SCALE-FROM door's scale at play time — the editor can't see that door's mode).
-                stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7],
+                // STEPS (pattern length 1…16) · RATE (the progression clock — a chord per rate-tick, not per grid column).
+                field("STEPS · RATE") { HStack(spacing: 6) {
+                    numPair(steps, 1...16) { n in setParam { $0.chordsSteps = n } }
+                    seg(rateNames, sel: (p.chordsRate ?? .r1_1).rawValue) { i in setParam { $0.chordsRate = StepRate.allCases[i] } }
+                } }
+                // THE DEGREE MATRIX (width = STEPS): rows I…vii + REST · radio-per-column. Headers use a major reference for
+                // POSITION (the real quality follows the SCALE-FROM door's scale at play time — the editor can't see it).
+                stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7], steps: steps,
                     header: { (opt: Int) in AnyView(Text(opt == 7 ? "REST" : degreeLabel(degree: opt, scaleTones: ScaleType.major.intervals)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))) },
-                    onRotate: { d in setParam { $0.chordsRotate = ((($0.chordsRotate ?? 0) + d) % 8 + 8) % 8 } },
+                    onRotate: { d in setParam { $0.chordsRotate = ((($0.chordsRotate ?? 0) + d) % steps + steps) % steps } },
                     selected: { c in let a = p.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; let v = c < a.count ? a[c] : 0; return (v >= 0 && v <= 7) ? v : 0 },
-                    set: { c, opt in setParam { var a = $0.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; while a.count < 8 { a.append(-1) }; if c < 8 { a[c] = opt }; $0.chordsDegrees = a } })
+                    set: { c, opt in setParam { var a = $0.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; while a.count < steps { a.append(-1) }; if c < steps { a[c] = opt }; $0.chordsDegrees = a } })
             } else if mode == .follow {
                 Text("FOLLOW — the note you PLAY names the degree, in the SCALE-FROM key. Play the 5th → the V chord; the 2nd → ii. Change the note, the chord follows.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             } else {   // walk
+                field("RATE") { seg(rateNames, sel: (p.chordsRate ?? .r1_1).rawValue) { i in setParam { $0.chordsRate = StepRate.allCases[i] } } }   // how fast the walk advances
                 field("WALK") { seg(["⟳ RE-ROLL"], sel: "") { _ in setParam { $0.chordsWalkSeed = ($0.chordsWalkSeed ?? 0) &+ 1 } } }
-                Text("WALK — an evolving progression from one held trigger: a gravity wander through the SCALE-FROM key that leans home. RE-ROLL for a different wander.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text("WALK — an evolving progression from one held trigger: a gravity wander through the SCALE-FROM key that leans home, advancing at RATE. RE-ROLL for a different wander.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             field("VOICING") { seg(["TRIAD", "7TH", "ADD9"], sel: (p.chordsVoicing ?? .triad) == .triad ? "TRIAD" : ((p.chordsVoicing ?? .triad) == .seventh ? "7TH" : "ADD9")) { i in setParam { $0.chordsVoicing = [ChordVoicing.triad, .seventh, .add9][i] } } }
             field("SPREAD") { seg(["CLOSE", "OPEN"], sel: (p.chordsSpread ?? .close) == .close ? "CLOSE" : "OPEN") { i in setParam { $0.chordsSpread = i == 0 ? .close : .open } } }
@@ -1177,15 +1185,16 @@ struct ProcessorBox: View {
     /// brush, no dead first touch). Row headers (left edge) carry the option's glyph + name — permanent and positional;
     /// the whole pattern reads as geometry. One reusable widget for LENGTH · RATCHET PATTERN · TUTTI PATTERN · … .
     @ViewBuilder private func stateMatrixRadio<Opt: Hashable>(
-        _ options: [Opt], header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
+        _ options: [Opt], steps: Int = 8, header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
         selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
     ) -> some View {
+        let cols = max(1, min(16, steps))   // CHORDS STEPS (Paul 2026-09-01): a variable matrix width; other callers default to 8
         let grid = VStack(spacing: 3) {
             ForEach(Array(options.enumerated()), id: \.offset) { (_, opt) in
                 HStack(spacing: 3) {
-                    if eFill { EBrushButton(steps: 8, accent: accent) { pat in for s in 0..<8 { set(s, pat[s] ? opt : options[0]) } } }   // §5 E-BRUSH: fill this state on K columns, rest = the default (options[0])
+                    if eFill { EBrushButton(steps: cols, accent: accent) { pat in for s in 0..<cols { set(s, pat[s] ? opt : options[0]) } } }   // §5 E-BRUSH: fill this state on K columns, rest = the default (options[0])
                     header(opt).frame(width: 64, alignment: .leading)
-                    ForEach(0..<8, id: \.self) { step in
+                    ForEach(0..<cols, id: \.self) { step in
                         let on = selected(step) == opt
                         let live = step == liveStep                       // PLAYHEAD (idea 15): the live grid column
                         RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(live ? 0.14 : 0.06))

@@ -376,6 +376,10 @@ struct ColourParams: Codable, Equatable {
     var chordsWalkSeed: Int? = nil              // WALK: the base seed (RE-ROLL = new seed) — C4
     var chordsScaleRef: Int? = nil              // C2b (Paul 2026-09-01): SCALE FROM ▸ 0…3 = the receiver door (A–D) that declares the key; nil/-1 = none → C-major fallback. The cell's OWN input stays the TRIGGER (FOLLOW reads it); this door supplies the KEY.
     var chordsScaleRefResolved: Int { let r = chordsScaleRef ?? -1; return (r >= 0 && r <= 3) ? r : -1 }
+    var chordsRate: StepRate? = nil             // STEPS+RATE (Paul 2026-09-01): the PROGRESSION clock — a chord per rate-tick (PATTERN/WALK advance on this, NOT per grid column). Default 1/1 = one chord per bar.
+    var chordsSteps: Int? = nil                 // the PATTERN matrix length 1…16 (the progression loops every N); default 8. FOLLOW ignores it.
+    var chordsRateResolved: StepRate { chordsRate ?? .r1_1 }
+    var chordsStepsResolved: Int { max(1, min(16, chordsSteps ?? 8)) }
     var chordsModeResolved: ChordsMode { chordsMode ?? .pattern }
     var chordsRootResolved: Int { let r = chordsRoot ?? 0; return (r % 12 + 12) % 12 }
     var chordsScaleResolved: ScaleType { chordsScale ?? .major }
