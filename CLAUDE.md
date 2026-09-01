@@ -222,7 +222,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   the degree from the note you play; a separate door sets the key). No valid ref → C-major fallback (never keyless). Engine
   reads `receiverScaleRoot/Type[chordsScaleRef]` (supersedes the own-receiver read). Editor shows a mode-appropriate body:
   PATTERN keeps the matrix; FOLLOW/WALK get plain-language tells + WALK a RE-ROLL. +2 tests (referenced E major → E G# B; no
-  ref → C major), 1008 green. **C2b REMAINING (flagged, not blockers):** INVERT-toward-previous (pure `voiceLeadTowardPrevious`
+  ref → C major), 1008 green. **STEPS + RATE (`0cd2b17`):** Paul — "we need steps and rate on chord." RATE (StepRate 2/1…1/8,
+  default 1/1) gives the progression its OWN clock (a chord per rate-tick, not per grid column) so it steps musically AND plays
+  THROUGH on the frozen/pinned audition (the beat advances even when the column is pinned); STEPS (1…16, default 8) is the
+  PATTERN matrix length (loops every N; the editor matrix is now variable-width). PATTERN+WALK step on RATE; FOLLOW is
+  continuous. KEY FIX: the rate step reads the RAW beat (mNow), not the grid-quantized colStart the hold path passes (else it
+  aliases to one frozen degree). +3 tests (progression steps; STEPS=2 loops the first two degrees; regressions hold), fuzz
+  randomizes mode/rate/steps/scaleRef, 1010 green. **C2b REMAINING (flagged, not blockers):** INVERT-toward-previous (pure `voiceLeadTowardPrevious`
   exists+tested; wiring needs per-cell last-chord memory) · WINDOW ROW|BAR (span family) · the PATTERN degree-matrix headers
   show major-quality Roman numerals (POSITION reference; the real quality follows the SCALE-FROM door at play — threading that
   door's scale into the editor for live-accurate headers is a device-owed nicety).**
