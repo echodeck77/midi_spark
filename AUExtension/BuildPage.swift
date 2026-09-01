@@ -47,12 +47,8 @@ private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 // PART AUTOMATION (Paul 2026-09-01): each chain (colour) gets FIVE Auto lanes — a DIRECT param automation (macros dropped
 // to v2). A lane picks a processor param, sets its BEFORE→AFTER, a SPAN that shapes the curve/repeat WITHIN the painted
 // extent (disabled for binary params), and an EXTENT of grid cells (painted via APPLY). Baked per-cell at build (rides the
-// M2 substrate). Per-colour (shared across the colour's cells). `extent`/engine fold are the next stage.
-struct AutoLane: Equatable {
-    var slot: Int = 0                       // the processor slot in the colour's chain
-    var param: String = ""                  // the param this lane automates ("" ⇒ the processor's pre-mapped useful default)
-    var cells: Set<Int> = []                // PUNCH = toggle (Paul 2026-09-01): the cells (col*Snap.rows+row) in the automation's EXTENT; the param RANGE is displayed as a ramp swept across them
-}
+// M2 substrate). Per-colour (shared across the colour's cells). `AutoLane`/`PartAutoColour` live in BuildModel.swift
+// (Foundation-only, in the test target + Codable so the automation travels with the document).
 private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
@@ -1994,12 +1990,25 @@ extension DiagView {
     // (each param + BEFORE/AFTER — a lane alters MULTIPLE params as a GROUP), + a right stack MERGE · RATE · APPLY. Macros
     // dropped (v2). Per-colour lanes. FLAGGED next stage: the APPLY grid-paint of the extent + the per-cell engine fold.
     func buildAutoLanesFor(_ cid: String) -> [AutoLane] {
-        let a = buildAutoLanes[cid] ?? []
+        let a = buildAutoLanes[cid]?.lanes ?? []
         return (0..<5).map { $0 < a.count ? a[$0] : AutoLane() }
     }
+    // The ACTIVE lane of the FOCUSED colour (−1 = NONE). Per-colour (each colour's automation is independent).
+    func buildAutoActive() -> Int { buildAutoLanes[ddSelectedColourID ?? ""]?.activeLane ?? -1 }
+    func buildAutoSetActive(_ i: Int) {
+        let cid = ddSelectedColourID ?? ""; guard !cid.isEmpty else { return }
+        var pa = buildAutoLanes[cid] ?? PartAutoColour()
+        if pa.lanes.count < 5 { pa.lanes += Array(repeating: AutoLane(), count: 5 - pa.lanes.count) }
+        pa.activeLane = i; buildAutoLanes[cid] = pa
+        buildPublishScene()   // P3: selecting a lane ENABLES it → republish so it plays immediately
+    }
     func buildSetAutoLane(_ mutate: (inout AutoLane) -> Void) {
-        let cid = ddSelectedColourID ?? ""; var a = buildAutoLanesFor(cid)
-        mutate(&a[max(0, min(4, buildAutoSel))]); buildAutoLanes[cid] = a
+        let cid = ddSelectedColourID ?? ""; guard !cid.isEmpty else { return }
+        var pa = buildAutoLanes[cid] ?? PartAutoColour()
+        if pa.lanes.count < 5 { pa.lanes += Array(repeating: AutoLane(), count: 5 - pa.lanes.count) }
+        let li = pa.activeLane >= 0 ? pa.activeLane : 0
+        mutate(&pa.lanes[max(0, min(4, li))]); buildAutoLanes[cid] = pa
+        buildPublishScene()   // P3: any lane edit (param/machine/extent) republishes → plays live
     }
     // THE AUTO FLOW (Paul 2026-09-01, rev 2): two selector buttons (AUTO lane · PROCESSOR) over a PARAMETER TABLE — every
     // param + its BEFORE/AFTER, so a lane alters MULTIPLE params as a GROUP — with a right-side stack MERGE · RATE · APPLY.
@@ -2010,21 +2019,22 @@ extension DiagView {
     @ViewBuilder func roomsPartMacroSection() -> some View {
         let cid = ddSelectedColourID ?? ""
         let chain = buildFocusedChain()
+        let active = buildAutoActive()
         let lanes = buildAutoLanesFor(cid)
-        let lane = lanes[max(0, min(4, buildAutoSel))]
+        let lane = lanes[max(0, min(4, active))]
         let procIdx = chain.isEmpty ? 0 : min(lane.slot, chain.count - 1)
         let params = chain.isEmpty ? [] : macroParamsForProcessor(chain[procIdx].type)
         let paramKey = chain.isEmpty ? "" : autoResolvedParamKey(lane: lane, type: chain[procIdx].type, params: params)
         let param = params.first(where: { $0.key == paramKey })
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 3) {                                              // THE HEADER: NONE · AUTO 1–5 (span) · CLEAR (separate, right)
-                autoChip("NONE", on: buildAutoSel < 0, dot: false, wide: true) { buildAutoSel = -1 }   // NONE = disabled (left)
+                autoChip("NONE", on: active < 0, dot: false, wide: true) { buildAutoSetActive(-1) }   // NONE = disabled (left)
                 ForEach(0..<5, id: \.self) { i in
-                    autoChip("AUTO \(i + 1)", on: buildAutoSel == i, dot: !lanes[i].cells.isEmpty, wide: true) { buildAutoSel = i }   // select = ENABLE this lane (plays immediately)
+                    autoChip("AUTO \(i + 1)", on: active == i, dot: !lanes[i].cells.isEmpty, wide: true) { buildAutoSetActive(i) }   // select = ENABLE this lane (plays immediately)
                         .frame(maxWidth: .infinity)                           // the five tabs SPAN the header width
                 }
-                autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { if buildAutoSel >= 0 { buildSetAutoLane { $0.cells = [] } } }   // CLEAR — distinctly separate, right
-                    .opacity(buildAutoSel >= 0 && !lane.cells.isEmpty ? 1 : 0.35)
+                autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { if active >= 0 { buildSetAutoLane { $0.cells = [] } } }   // CLEAR — distinctly separate, right
+                    .opacity(active >= 0 && !lane.cells.isEmpty ? 1 : 0.35)
                     .padding(.leading, 8)
             }
             if chain.isEmpty { macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity) }
@@ -2045,7 +2055,7 @@ extension DiagView {
                         }
                     } }
                 }
-                if buildAutoSel >= 0, let p = param {
+                if active >= 0, let p = param {
                     Text("ON · \(buildProcLabel(chain[procIdx])) · \(p.label) — tap cells to set the range (plays live)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2075,28 +2085,16 @@ extension DiagView {
     }
     // The useful default param for a processor (Paul 2026-09-01: "length for arp"). Falls to the lane's chosen param, else
     // the curated primary if present, else the first param. Curation mirrors the "order params by usefulness" intent.
-    private func autoPrimaryKey(_ type: ProcessorType) -> String {
-        switch type {
-        case .arp:       return "gate"        // note length
-        case .riff:      return "gate"
-        case .ratchet:   return "gate"
-        case .strum:     return "spread"      // rake width
-        case .chance:    return "probability" // density
-        case .harmonize: return "harmVelScale"
-        default:         return ""             // else the first param (curation to extend, per "order by usefulness")
-        }
-    }
+    // The resolved param key for a lane — delegates to the SHARED pure logic (single source of truth, testable).
     private func autoResolvedParamKey(lane: AutoLane, type: ProcessorType, params: [MacroControlParam]) -> String {
-        if !lane.param.isEmpty, params.contains(where: { $0.key == lane.param }) { return lane.param }   // the lane's chosen param
-        let prim = autoPrimaryKey(type)
-        if !prim.isEmpty, params.contains(where: { $0.key == prim }) { return prim }                     // the curated useful default
-        return params.first?.key ?? ""                                                                   // else the first
+        BuildSceneLogic.autoResolvedParamKey(type, laneParam: lane.param)
     }
     // The currently-ARMED punch context (nil ⇒ punch off): the param + its continuous range for the main-grid value canvas.
     func buildAutoArmedParam() -> (param: MacroControlParam, lo: Double, hi: Double)? {
-        guard buildAutoSel >= 0, let cid = ddSelectedColourID, !cid.isEmpty else { return nil }   // NONE (−1) = disabled
+        let active = buildAutoActive()
+        guard active >= 0, let cid = ddSelectedColourID, !cid.isEmpty else { return nil }   // NONE (−1) = disabled
         let chain = buildFocusedChain(); guard !chain.isEmpty else { return nil }
-        let lane = buildAutoLanesFor(cid)[max(0, min(4, buildAutoSel))]
+        let lane = buildAutoLanesFor(cid)[max(0, min(4, active))]
         let procIdx = min(lane.slot, chain.count - 1)
         let params = macroParamsForProcessor(chain[procIdx].type)
         let key = autoResolvedParamKey(lane: lane, type: chain[procIdx].type, params: params)
@@ -2109,12 +2107,12 @@ extension DiagView {
         buildSetAutoLane { if $0.cells.contains(idx) { $0.cells.remove(idx) } else { $0.cells.insert(idx) } }
     }
     func buildAutoInExtent(_ idx: Int) -> Bool {
-        buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoSel))].cells.contains(idx)
+        buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoActive()))].cells.contains(idx)
     }
     // The RANGE displayed across the extent: a cell's ramp position (0…1) by its rank among the toggled cells in
     // column→row order — so the toggled cells read as a ramp (the param sweeping low→high across the extent). nil = not in.
     func buildAutoRampFrac(_ idx: Int) -> Double? {
-        let cells = buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoSel))].cells
+        let cells = buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoActive()))].cells
         guard cells.contains(idx) else { return nil }
         let ordered = cells.sorted { ($0 / Snap.rows, $0 % Snap.rows) < ($1 / Snap.rows, $1 % Snap.rows) }
         guard ordered.count > 1, let rank = ordered.firstIndex(of: idx) else { return 1 }
@@ -3252,6 +3250,7 @@ extension DiagView {
             guard len > 1, c < buildPlayColSteps.count else { return [] }
             return buildPlayColSteps[c].map { cid in cid.map { buildColourChain($0) } ?? [] }
         }
+        input.partAuto = buildAutoLanes                                       // PART AUTOMATION (Paul 2026-09-02): bake the active AUTO lanes per cell
         let composed = BuildSceneLogic.composeSceneMeta(input)
         au?.setBuildStagingScene(composed.scene)
         buildChainAuditionRow = composed.auditionRow                          // #5: the engine row the audition parked on → the aimed ferry reads its LIVE strikes there
@@ -3561,15 +3560,24 @@ extension DiagView {
         buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
         buildPublishScene()   // republish so restored STARTED columns sound at once
     }
+    // PART AUTOMATION (Paul 2026-09-02): capture the per-colour AUTO lanes for the save (prune colours with no active
+    // lane AND no extents, so the map stays sparse). nil when nothing's armed → byte-identical fullState.
+    func buildCaptureAuto() -> [String: PartAutoColour]? {
+        let live = buildAutoLanes.filter { $0.value.activeLane >= 0 || $0.value.lanes.contains(where: { !$0.cells.isEmpty }) }
+        return live.isEmpty ? nil : live
+    }
+    func buildRestoreAuto(_ d: [String: PartAutoColour]) { buildAutoLanes = d; buildPublishScene() }
     // The per-poll persistence tick (BUILD active only): restore a just-loaded part ONCE, then keep the save-state current.
     func buildPersistTick() {
         guard activeTab == .build else { return }
         if let u = au?.consumeBuildUnassigned() { buildRestoreUnassigned(u) }   // a host load happened while on BUILD
         if let sc = au?.consumeBuildScenes() { buildRestoreScenes(sc.scenes, active: sc.active) }   // SCENES V2: restore the saved play-grid arrangements
         if let pg = au?.consumeBuildPlayGrid() { buildRestorePlayGrid(pg) }     // ROOMS PLAY GRID: restore the play columns + passes
+        if let pa = au?.consumePartAuto() { buildRestoreAuto(pa) }              // PART AUTOMATION: restore the AUTO lanes
         au?.setBuildUnassigned(buildCaptureUnassigned())                         // keep fullState's copy fresh
         au?.setBuildScenes(buildCaptureScenes(), active: buildActiveScene)       // …and the scenes — cheap (COW refcount bumps, not a deep copy), so no dirty-gate needed
         au?.setBuildPlayGrid(buildCapturePlayGrid())                             // …and the play grid
+        au?.setPartAuto(buildCaptureAuto())                                      // …and the AUTO lanes
     }
     // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter colours, one per processor type (arp/ratchet/euclid/echo
     // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in

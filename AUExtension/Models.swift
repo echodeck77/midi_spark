@@ -1282,6 +1282,9 @@ struct PluginState: Codable, Equatable {
     // BUILD-authoring arrangements that compose into them.)
     var buildScenes: [BuildSceneSnapshot]? = nil
     var buildScenesActive: Int? = nil
+    // PART AUTOMATION (Paul 2026-09-02): the AUTO lanes, keyed by colourID. Additive-Optional → old saves decode nil
+    // (byte-identical: with no active lane, nothing bakes). Captured from BUILD @State each poll; restored on load.
+    var partAuto: [String: PartAutoColour]? = nil
     // receiver strip: the THRU pip — a PERSISTED one-of-4 radio (structure persists). Passthrough (CC/PB/AT +
     // stopped-note soundcheck) follows THIS receiver, superseding the hardwired follows-R1 rule. Optional so
     // old docs decode nil ⇒ default R1 (index 0). Mirrors claimEmitter's persist-and-radio shape.

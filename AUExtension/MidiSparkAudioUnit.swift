@@ -1181,6 +1181,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         d.buildScenes = pendingBuildScenes ?? document.buildScenes
         d.buildScenesActive = pendingBuildScenesActive ?? document.buildScenesActive
         d.buildPlayGrid = pendingBuildPlayGrid ?? document.buildPlayGrid
+        d.partAuto = pendingPartAuto ?? document.partAuto
         return d
     }
     /// Apply a preset's document — ONE undoable step (§3), voices closed via the transition machinery. No host
@@ -1318,11 +1319,20 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Drop the OUTGOING session's stale BUILD pending fields on every load — the loaded doc carries its OWN (restored
     /// via consume*), so the next save doesn't re-encode the previous session's part/scenes/play grid over the new one
     /// (K2/CR-10, 2026-08-30: was applied only in `fullState.set`; the factory/preset/test load paths leaked pending).
-    private func clearPendingBuild() { pendingBuildUnassigned = nil; pendingBuildScenes = nil; pendingBuildScenesActive = nil; pendingBuildPlayGrid = nil }
+    private func clearPendingBuild() { pendingBuildUnassigned = nil; pendingBuildScenes = nil; pendingBuildScenesActive = nil; pendingBuildPlayGrid = nil; pendingPartAuto = nil }
     /// On load, hand BUILD the restored play grid ONCE (then clear it so it isn't re-restored).
     func consumeBuildPlayGrid() -> BuildPlayGridData? {
         let d = document.buildPlayGrid
         if d != nil { document.buildPlayGrid = nil }   // not render-relevant → no rebuild; a one-shot transport
+        return d
+    }
+    // PART AUTOMATION (Paul 2026-09-02): the per-colour AUTO lanes travel with the save. Baked at BUILD time (composeScene),
+    // so it's not render-relevant — a plain pending/consume transport like the play grid (no rebuild).
+    private var pendingPartAuto: [String: PartAutoColour]? = nil
+    func setPartAuto(_ d: [String: PartAutoColour]?) { pendingPartAuto = d }
+    func consumePartAuto() -> [String: PartAutoColour]? {
+        let d = document.partAuto
+        if d != nil { document.partAuto = nil }
         return d
     }
 

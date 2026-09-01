@@ -62,6 +62,9 @@ enum BuildSceneLogic {
         var playColRate: [StepRate?] = []              // per-column pass step rate (captured from the flattened part; nil ⇒ scene default)
         var playColStepRecv: [[Int]] = []              // per-column [step] → the step's OWN input door (the part row it came from); short ⇒ playColRecv
         var playColStepEmit: [[Set<Bus>]] = []         // per-column [step] → the step's OWN output emitters; empty/short ⇒ playColEmit
+        // PART AUTOMATION (Paul 2026-09-02): per-colour AUTO lanes. A colour's active lane ramps a param across its
+        // EXTENT of part cells, baked per-cell here (applyAuto). Empty ⇒ byte-identical.
+        var partAuto: [String: PartAutoColour] = [:]
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -71,6 +74,73 @@ enum BuildSceneLogic {
     /// A play column's pass length, clamped to [1, Snap.cols] (out-of-range / short array → a single cell). Shared by
     /// the composer + BuildPage's sweep-index helper so the clamp lives in ONE place. (refactor 2026-08-30)
     static func passLen(_ arr: [Int], _ c: Int) -> Int { c < arr.count ? max(1, min(Snap.cols, arr[c])) : 1 }
+
+    // MARK: PART AUTOMATION (the AUTO lanes, Paul 2026-09-02) — pure, testable, single source of truth for the band + the bake.
+    /// The pre-mapped USEFUL default param per processor (Paul: "length for arp"). "" ⇒ fall to the first param.
+    static func autoPrimaryKey(_ type: ProcessorType) -> String {
+        switch type {
+        case .arp, .riff, .ratchet: return "gate"        // note length
+        case .strum:    return "spread"                  // rake width
+        case .chance:   return "probability"             // density
+        case .harmonize: return "harmVelScale"
+        default:        return ""
+        }
+    }
+    /// The param a lane automates: the lane's chosen key if valid, else the curated default, else the first param.
+    static func autoResolvedParamKey(_ type: ProcessorType, laneParam: String) -> String {
+        let params = macroParamsForProcessor(type)
+        if !laneParam.isEmpty, params.contains(where: { $0.key == laneParam }) { return laneParam }
+        let prim = autoPrimaryKey(type)
+        if !prim.isEmpty, params.contains(where: { $0.key == prim }) { return prim }
+        return params.first?.key ?? ""
+    }
+    /// The musical SUB-RANGE the ramp sweeps for a param (Paul 2026-09-02: a sub-range, not the full param range — a
+    /// fresh lane must sound musical). Curated for the common continuous params; a generic continuous trims the dead
+    /// bottom fifth; discrete params sweep their whole discrete range (applyProcessorValues rounds/snaps).
+    static func autoSubRange(_ key: String, _ kind: MacroControlKind) -> (lo: Double, hi: Double) {
+        switch key {
+        case "gate":            return (0.3, 1.0)
+        case "spread":          return (0.1, 1.0)
+        case "probability":     return (0.2, 1.0)
+        case "harmVelScale":    return (0.35, 1.0)
+        case "curve", "velTilt": return (-1.0, 1.0)      // bipolar — full sweep
+        default: break
+        }
+        switch kind {
+        case .continuous(let lo, let hi): return (lo + 0.2 * (hi - lo), hi)   // trim the dead bottom fifth
+        case .toggle:                     return (0.0, 1.0)
+        case .option(let opts):           return (0.0, Double(max(0, opts.count - 1)))
+        case .stepper(let lo, let hi):    return (Double(lo), Double(hi))
+        case .mask(let bits):             return (0.0, Double((1 << max(0, bits)) - 1))
+        }
+    }
+    /// The ramped value at a cell = its rank in the extent (column→row order) → sub-range low→high. A single cell = the
+    /// top (full effect). Pure — the ramp is derived from the extent, nothing stored per cell.
+    static func autoRamp(_ lo: Double, _ hi: Double, rank: Int, count: Int) -> Double {
+        guard count > 1 else { return hi }
+        return lo + (Double(rank) / Double(count - 1)) * (hi - lo)
+    }
+    /// Fold a colour's active AUTO lane onto a cell's chain at (col,row): if the lane's extent includes this cell, set
+    /// its resolved param to the ramped value. Returns the chain unchanged when there's no active lane / this cell isn't
+    /// in the extent / the slot is out of range → BYTE-IDENTICAL when no automation is armed. (Baked at build, invariant 1.)
+    static func applyAuto(_ chain: [ProcessorSlot], colourID: String?, col: Int, row: Int,
+                          partAuto: [String: PartAutoColour]) -> [ProcessorSlot] {
+        guard let cid = colourID, let pa = partAuto[cid], pa.activeLane >= 0, pa.activeLane < 5,
+              pa.activeLane < pa.lanes.count else { return chain }
+        let lane = pa.lanes[pa.activeLane]
+        let idx = col * Snap.rows + row
+        guard lane.cells.contains(idx), lane.slot >= 0, lane.slot < chain.count else { return chain }
+        let type = chain[lane.slot].type
+        let key = autoResolvedParamKey(type, laneParam: lane.param)
+        guard !key.isEmpty, let p = macroParamsForProcessor(type).first(where: { $0.key == key }) else { return chain }
+        let (lo, hi) = autoSubRange(key, p.kind)
+        let ordered = lane.cells.sorted { ($0 / Snap.rows, $0 % Snap.rows) < ($1 / Snap.rows, $1 % Snap.rows) }
+        let rank = ordered.firstIndex(of: idx) ?? 0
+        let value = autoRamp(lo, hi, rank: rank, count: ordered.count)
+        var out = chain
+        out[lane.slot] = applyProcessorValues([key: value], to: out[lane.slot])
+        return out
+    }
     static func composeScene(_ i: Input) -> SceneState? { composeSceneMeta(i).scene }
     /// As `composeScene`, but also returns the engine ROW the SELECT/chain audition parked on (col 0) — so the UI can read
     /// its LIVE strike feed at `idx = col0*Snap.rows + auditionRow` and drift the aimed ferry's real notes (Paul 2026-08-30,
@@ -123,7 +193,7 @@ enum BuildSceneLogic {
                 var cell = Cell(colourID: cid, buses: emit)
                 cell.inputReceiver = max(0, min(3, r < i.performRecv.count ? i.performRecv[r] : 0))
                 let chain = (c < i.performChain.count && r < i.performChain[c].count) ? i.performChain[c][r] : []
-                cell.processors = chain                             // EXPLICIT (Paul 2026-08-23): performChain is the RESOLVED machine ([] = no-machine → passthrough wire), never nil-delegated to a stale template
+                cell.processors = applyAuto(chain, colourID: cid, col: c, row: r, partAuto: i.partAuto)   // PART AUTOMATION bake
                 s.setCell(c, r, cell)
             } }
         }
@@ -142,7 +212,7 @@ enum BuildSceneLogic {
                 let recv = max(0, min(3, r < i.rowReceiver.count ? i.rowReceiver[r] : i.selReceiver))
                 var cell = Cell(colourID: cid, buses: buses)
                 cell.inputReceiver = recv
-                cell.processors = chain                             // EXPLICIT (Paul 2026-08-23): rowChain is the RESOLVED machine, never nil-delegated to a stale template
+                cell.processors = applyAuto(chain, colourID: cid, col: c, row: r, partAuto: i.partAuto)   // PART AUTOMATION bake
                 s.setCell(c, r, cell)                               // the audition sits in front on a slot collision
             }
         }

@@ -92,6 +92,59 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(BuildSceneLogic.composeScene(BuildSceneLogic.Input()), "no active voice → no scene")
     }
 
+    // MARK: PART AUTOMATION — the AUTO lanes (Paul 2026-09-02). A colour's ACTIVE lane ramps a param across its EXTENT
+    // of part cells (sub-range low→high, column→row order), baked per-cell at build via applyAuto.
+
+    func testAutoLaneRampsParamAcrossExtent() {
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 2, "gold"), (1, 2, "gold"), (2, 2, "gold")])
+        i.stagingSel = [2, 2, 2, -1, -1, -1, -1, -1]          // three gold cells play (rung 2)
+        var base = ProcessorSlot(type: .arp); base.params.gate = 0.5   // a distinct base gate to override
+        i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
+        // AUTO 1 on slot 0's GATE (param "" ⇒ the pre-mapped default = gate), extent = (0,2) and (2,2)
+        let e0 = 0 * Snap.rows + 2, e2 = 2 * Snap.rows + 2
+        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", cells: [e0, e2])])]
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "rank 0 → the sub-range LOW")
+        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6, "rank 1 → the sub-range HIGH")
+        XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "outside the extent → the base value, untouched")
+    }
+
+    func testAutoNoneLaneIsByteIdentical() {
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 2, "gold")])
+        i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
+        var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
+        i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
+        // NONE (activeLane −1) even though a lane HAS an extent → nothing bakes (byte-identical)
+        i.partAuto = ["gold": PartAutoColour(activeLane: -1, lanes: [AutoLane(slot: 0, param: "gate", cells: [0 * Snap.rows + 2])])]
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "NONE → the base value untouched")
+    }
+
+    func testAutoSubRangeAndRampEndpoints() {
+        XCTAssertEqual(BuildSceneLogic.autoSubRange("gate", .continuous(lo: 0.05, hi: 1)).lo, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(BuildSceneLogic.autoSubRange("gate", .continuous(lo: 0.05, hi: 1)).hi, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(BuildSceneLogic.autoRamp(0.3, 1.0, rank: 0, count: 1), 1.0, accuracy: 1e-9, "a single cell = the top (full effect)")
+        XCTAssertEqual(BuildSceneLogic.autoRamp(0.3, 1.0, rank: 0, count: 3), 0.3, accuracy: 1e-9)
+        XCTAssertEqual(BuildSceneLogic.autoRamp(0.3, 1.0, rank: 1, count: 3), 0.65, accuracy: 1e-9)
+        XCTAssertEqual(BuildSceneLogic.autoRamp(0.3, 1.0, rank: 2, count: 3), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(BuildSceneLogic.autoResolvedParamKey(.arp, laneParam: ""), "gate", "the pre-mapped useful default")
+        XCTAssertEqual(BuildSceneLogic.autoResolvedParamKey(.strum, laneParam: ""), "spread")
+    }
+
+    func testPartAutoDocumentRoundTrips() throws {
+        var d = PluginState.makeInit()
+        d.partAuto = ["gold": PartAutoColour(activeLane: 2, lanes: [AutoLane(slot: 1, param: "spread", cells: [3, 19, 35])])]
+        let data = try JSONEncoder().encode(d)
+        let back = try JSONDecoder().decode(PluginState.self, from: data)
+        XCTAssertEqual(back.partAuto?["gold"]?.activeLane, 2)
+        XCTAssertEqual(back.partAuto?["gold"]?.lanes.first?.param, "spread")
+        XCTAssertEqual(back.partAuto?["gold"]?.lanes.first?.cells, [3, 19, 35])
+    }
+
     func testPartHonoursSelectionAndIsSilentWhereDeselected() {
         var i = BuildSceneLogic.Input()
         i.stagingPlaying = true

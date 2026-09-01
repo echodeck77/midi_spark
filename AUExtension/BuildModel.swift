@@ -27,6 +27,23 @@ struct BuildPart: Codable, Equatable {
     var length: Int? = nil            // the part's LOOP length in columns 1…8 (nil ⇒ 8; < 8 = a shorter loop, a future step)
 }
 
+// PART AUTOMATION (Paul 2026-09-02) — the AUTO lanes. Per colour, FIVE lanes; one is ACTIVE at a time (activeLane,
+// −1 = NONE/off). A lane picks a processor slot + a param and an EXTENT of grid cells (col*Snap.rows+row); the param
+// RAMPS across the extent (low→high, column→row order) over a per-param musical SUB-RANGE, baked per-cell at build
+// (rides the M2 substrate — the render is unchanged). `cells` is the extent SET (tap-toggle, Paul: no sliding).
+// Foundation-only + Codable so the automation travels with the document (additive-Optional on PluginState).
+struct AutoLane: Codable, Equatable {
+    var slot: Int = 0                       // the processor slot in the colour's chain
+    var param: String = ""                  // the param this lane automates ("" ⇒ the processor's pre-mapped useful default)
+    var cells: Set<Int> = []                // the cells (col*Snap.rows+row) in the automation's EXTENT; the RANGE is a ramp swept across them
+}
+
+// A colour's automation: which lane is ON (activeLane, −1 = NONE) + its five lanes. One active lane per colour (Paul).
+struct PartAutoColour: Codable, Equatable {
+    var activeLane: Int = -1                // −1 = NONE (off) · 0–4 = the enabled lane (plays immediately)
+    var lanes: [AutoLane] = []              // up to 5 (padded on read)
+}
+
 // The single UNASSIGNED part saved WITH THE DOCUMENT (Paul 2026-08-16, "saving = committing"): the part plus the
 // EPHEMERAL colours it references (their machine + custom hue), so the half-built piece reconstructs on reload.
 // Canonical document colours are NOT bundled — they're always present. Persisted as an additive-Optional field on

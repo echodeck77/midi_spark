@@ -110,8 +110,9 @@ struct DiagView: View {
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
     // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-colour.
-    @State var buildAutoSel: Int = -1           // the active Auto lane: −1 = NONE (automation OFF) · 0–4 = lane i (enabled, plays)
-    @State var buildAutoLanes: [String: [AutoLane]] = [:]   // per colourID → its 5 Auto lanes
+    // PART AUTOMATION (Paul 2026-09-02): per colourID → its automation (which lane is active + its 5 lanes). The ACTIVE
+    // lane is per-colour (each colour's automation is independent); the focused colour's active lane drives the band.
+    @State var buildAutoLanes: [String: PartAutoColour] = [:]
     @State var buildBypassHeld: Int? = nil      // HOLD-BYPASS A/B (idea 23): the slot momentarily bypassed while the BYPASS button is held
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
     // DRAG-TO-REORDER the chain (Paul 2026-08-25): a custom finger-track (native .onDrag doesn't survive the AU host).
