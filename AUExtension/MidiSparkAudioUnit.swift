@@ -169,10 +169,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setColourChain(_ colourID: String, _ chain: [ProcessorSlot]) {
         storeColourChainClearingOverrides(colourID, chain)
     }
-    /// Set the per-cell chain of `targets` to EXACTLY `chain` (empty allowed = explicit passthrough). PROCESSORS tab.
-    func setCellsChain(_ targets: [(col: Int, row: Int)], _ chain: [ProcessorSlot]) {
-        editScene { s in for t in targets where s.inBounds(t.col, t.row) { s.cells[t.col][t.row]?.processors = chain } }
-    }
     func addSlotColour(_ id: String, type: ProcessorType = .passgate) { withChainColour(id) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
     func removeSlotColour(_ id: String, slot: Int) { withChainColour(id) { if slot < $0.count { $0.remove(at: slot) } } }
     func editSlotColour(_ id: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withChainColour(id) { if slot < $0.count { mutate(&$0[slot]) } } }
@@ -182,32 +178,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// fields (receiver / emitters / chop are stored on the Cell, not the Colour, so "edit the colour" fans out to
     /// all its cells). Used by the DRAG&DROP page so a receiver/emitter pick pushes to every instance. ONE undoable
     /// document edit. (user 2026-08-09)
-    /// FORK a grid cell into a FRESH colour (DRAG&DROP grid → empty palette slot): the new colour BECOMES the source
-    /// cell's machine. Materialise the source's RESOLVED chain (per-cell override → old colour's template → legacy) onto
-    /// the new colour's templateChain, mark it defined, and recolour the cell — clearing its per-cell override so it
-    /// inherits the new template. Without this the new colour had NO template, so the colour-scoped editor read the
-    /// legacy A face (default arp) and the processor "jumped" to unrelated settings. Routing (buses/receiver/chop) stays
-    /// on the cell. ONE undoable edit. (user 2026-08-09)
-    func forkCellToColour(col: Int, row: Int, colourIndex ci: Int) {
-        guard ci >= 0 && ci < colourIDs.count else { return }
-        let id = colourIDs[ci]
-        guard let src = document.scenes[document.activeSceneResolved].cellAt(col, row) else { return }
-        let machine = materializedChain(src)
-        let stored = machine.isEmpty ? [passthroughTemplateSlot()] : machine
-        editDocument { doc in
-            if ci < doc.colours.count { doc.colours[ci].defined = true; doc.colours[ci].templateChain = stored }
-            for si in doc.scenes.indices {                    // clear any stale per-cell override of the new colour → inherit the template
-                for c in doc.scenes[si].cells.indices {
-                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.colourID == id {
-                        doc.scenes[si].cells[c][r]?.processors = nil
-                    }
-                }
-            }
-            let asi = doc.activeSceneResolved                 // recolour the source cell → inherits the new template
-            doc.scenes[asi].cells[col][row]?.colourID = id
-            doc.scenes[asi].cells[col][row]?.processors = nil
-        }
-    }
     func editCellsOfColour(_ colourID: String, _ mutate: (inout Cell) -> Void) {
         editDocument { doc in
             for si in doc.scenes.indices {
@@ -454,7 +424,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
     // KEYS EXCLUDE (Paul 2026-08-22): the complement door — subtract door `d`'s live notes (by pitch class) from this
     // door's typed KEYS pool. -1 = OFF; never self. UI offers the three doors that aren't this one.
-    func uiExcludeDoor(_ i: Int) -> Int { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].excludeDoorResolved : -1 }
     func setExcludeDoor(_ i: Int, _ d: Int) { editReceiver(i) { $0.excludeDoor = (d >= 0 && d <= 3 && d != i) ? d : -1 } }
     func setReceiverExcludeMode(_ i: Int, _ m: ExcludeMode) { editReceiver(i) { $0.excludeMode = m } }     // §3: MINUS (complement) | ONLY (in-key)
     func setReceiverExcludeReject(_ i: Int, _ r: ExcludeReject) { editReceiver(i) { $0.excludeReject = r } }  // §3: BLOCK (silence) | SNAP (nearest legal)
@@ -805,17 +774,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             s.row8On = o
         }
     }
-    /// SETUP cells are a radio among themselves (spec): lighting one clears the others. Called by the perform strip.
-    func setRow8OnRadioSetup(_ i: Int) {
-        guard i >= 0, i < 8 else { return }
-        let cells = document.row8Resolved
-        editScene(record: false) { s in
-            var o = s.row8On ?? [Bool](repeating: false, count: 8)
-            while o.count < 8 { o.append(false) }
-            for j in 0..<8 where cells[j].type == .setup { o[j] = (j == i) }
-            s.row8On = o
-        }
-    }
     func setRow8Cell(_ i: Int, _ cell: Row8Cell) {
         guard i >= 0, i < 8 else { return }
         editDocument { d in
@@ -828,9 +786,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
     func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
     func masterPanic() { kernel.panic() }
-    // ROW 8 CC-PUNCH / PC-SEND (Paul 2026-08-24): send a control message on the emitter wires (the app's outputs).
-    func punchCC(_ cc: Int, _ value: Int) { kernel.queueControl(type: 0, d1: cc, d2: value) }
-    func sendProgramChange(_ program: Int) { kernel.queueControl(type: 1, d1: program, d2: 0) }
 
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
@@ -838,16 +793,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     /// Read-only Colours (type + params) so the grid can render each cell's type glyph + params text.
     func uiColours() -> [Colour] { document.colours }
-
-    /// Edit a Colour's NON-AUParameter fields (type, pattern, rate, octaves, gate, phase, count,
-    /// passes, strum, chance, harmonize) → rebuild. Transpose/morph are AUParameters — use the
-    /// dedicated setters below so host automation stays in sync.
-    func editColour(_ index: Int, _ mutate: (inout Colour) -> Void) {
-        guard index >= 0, index < document.colours.count else { return }
-        undoStack.record(document)                              // a6: discrete Colour edit
-        mutate(&document.colours[index])
-        scheduleRebuild()
-    }
 
     /// Switch a Colour's processor type, isolating transpose/morph per type (spec revision). The type
     /// change is a document edit; the restored transpose/morph are pushed to the AUParameter tree (with

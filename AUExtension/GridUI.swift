@@ -1842,12 +1842,6 @@ struct ProcessorBox: View {
     // SPAN with a FREE end (Paul 2026-08-27, the universal re-sync model): 0 = FREE (free-run, no re-anchor — the
     // pattern phases against the grid forever) · 1·2·3·4·6·8·×2·×4 = re-sync the pattern to phase 0 every N columns.
     // An odd pattern length against an aligning span = drift then snap back. RIFF is the first card to adopt it.
-    @ViewBuilder private func spanLadderFreeField(_ current: Int, _ set: @escaping (Int) -> Void) -> some View {
-        let vals = [0] + spanLadderValues
-        field("SPAN — re-sync the stencil every N columns  (FREE = phase forever · odd = drift then resync)") {
-            seg(vals.map { $0 == 0 ? "FREE" : spanLadderLabel($0) }, sel: current == 0 ? "FREE" : spanLadderLabel(current)) { i in set(vals[i]) }
-        }
-    }
     // RIFF §5 (Paul 2026-08-26): a per-step TOGGLE lane (ACCENT · TIE · SLIDE), aligned under the rank matrix (16pt rank
     // gutter + 30pt SET gutter). `on(step)` reads the lit state; `tap(step)` flips it.
     private func riffToggleLane(_ label: String, steps: Int, on: @escaping (Int) -> Bool, accent: Color, glyph: String, _ tap: @escaping (Int) -> Void) -> some View {

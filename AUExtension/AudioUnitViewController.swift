@@ -106,7 +106,6 @@ struct DiagView: View {
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
     @State var buildRowMode: BuildRowMode = .select  // STAGING grid: what its left row buttons do (SELECT · MUTATE; PLACE retired from the centre column — Paul 2026-08-17)
     @State var buildPlaceArmed: Bool = false         // PLAY-grid PLACE mode — a standalone toggle (NOT the staging radio); armed from the left PLACE button
-    @State var buildFlattenMode: Bool = false        // FLATTEN toggle (default OFF): ON = the valve/part-button play grid · OFF = plain row-master chevrons + hidden right column
     @State var buildPlaceMsg: String? = nil          // the processor pop-up's PLACE feedback line ("added to row 6 — 2 remaining")
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     @State var buildBypassHeld: Int? = nil      // HOLD-BYPASS A/B (idea 23): the slot momentarily bypassed while the BYPASS button is held
@@ -124,7 +123,6 @@ struct DiagView: View {
     @State var buildIOHoldMsg: String? = nil
     @State var buildIOHoldPressing = false
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
-    @State var buildPlayMode: BuildGridMode = .edit      // the play grid's PLAY/EDIT radio
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
     @State var buildStagingSel: [Int] = Array(repeating: -1, count: 8)   // the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
     @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
@@ -165,8 +163,6 @@ struct DiagView: View {
     // absolute pass number (main-thread; captured at each pass boundary from the 4 Hz poll). Selecting a pass can RESTORE it.
     @State var reelStateRing: [Int: BuildSceneSnapshot] = [:]
     @State var reelLastPassCounter = -1
-    @State var buildRandomizing = false                  // the grid RANDOMIZE is computing (disable its button)
-    @State var buildMutating = false                     // the grid MUTATE is computing (disable its button)
     // PER-ROW I/O (Paul 2026-08-18): each staging row can override the part's default door/emitters; nil = inherit.
     @State var buildRowReceiver: [Int?] = Array(repeating: nil, count: 8)
     @State var buildRowEmitters: [Set<Bus>?] = Array(repeating: nil, count: 8)
@@ -183,7 +179,6 @@ struct DiagView: View {
     @State var buildPerformStagingRow: [Int] = Array(repeating: -1, count: 8)   // play grid: each MULTI-rung grid row ← its source staging row (−1 = single-rung/none). Maps play-grid rung selection back to the part's stagingSel (Paul 2026-08-15)
     @State var buildRow8Cells: [Row8Cell] = Row8Cell.factoryDeck   // ROW 8 (Paul 2026-08-22): the authored action cells (refreshed from the document)
     @State var buildRow8On: [Bool] = Array(repeating: false, count: 8)   // ROW 8: the active scene's lit TOGGLE state
-    @State var buildRow8HeldSlots: Set<Int> = []  // ROW 8: the momentary HELD-mover cells currently pressed (a SET → multi-touch can't strand one — review fix 2026-08-26)
     @State var buildRow8EditOpen: Bool = false   // ROW 8: the EDIT PAGE (authoring) overlay
     @State var buildRow8EditSlot: Int = -1       // ROW 8 EDIT: which cell the page is authoring (−1 = the cell grid)
     // SCENES V2 (Paul 2026-08-12): in-memory play-grid arrangements. buildScenes holds the SAVED arrangements; index 0 is
@@ -191,7 +186,6 @@ struct DiagView: View {
     // parts/colours/master are shared). v1: not persisted, instant switch.
     @State var buildScenes: [BuildSceneSnapshot] = []
     @State var buildActiveScene: Int = 0
-    @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildMidiConfigOpen: Bool = false   // BUILD [MIDI CONFIG] → the MIDI INPUTS sheet (config-sheets stage 5, Paul 2026-08-20)
     @State var buildMidiConfigTab: Int = 0         // MIDI INPUTS: which door (A–D) tab is shown (Paul 2026-08-23)
     @State var buildRackConfigOpen: Bool = false   // BUILD [RACK CONFIG] → the OUTPUT CHAIN sheet (config-sheets §6, Paul 2026-08-21)
@@ -199,7 +193,6 @@ struct DiagView: View {
     @State var buildFileImportDoor: Int? = nil     // FILE import: which door is picking a .mid (nil = closed)
     @State var buildRangeKbdDoor: Int? = nil       // RANGE picker: which door's keyboard is open (nil = closed)
     @State var buildRangeSetHi: Bool = false       // RANGE picker: setting the MAX bound (else MIN)
-    @State var buildGridPopup: Int? = nil        // BUILD grid eye → a full-screen grid pop-up (0 = staging, 1 = perform; nil = closed)
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the
     // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a colour here.
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)

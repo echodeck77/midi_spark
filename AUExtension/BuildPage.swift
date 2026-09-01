@@ -97,7 +97,6 @@ private let buildRollLife = 1.6   // seconds a note takes to cross the cell
 private let buildPartInk = Color(white: 1).opacity(0.9)  // §2 BRIGHTNESS = WHICH PART: a NEUTRAL bright accent (no second hue) — the part's presence across bench + stage
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
-enum BuildGridMode: String { case play = "PLAY", edit = "EDIT" }   // the per-grid PLAY/EDIT radio (play grid only now; the part grid's EDIT mode was retired 2026-08-16)
 // The part grid's ROW-BUTTON mode (Paul 2026-08-16): a radio that changes what the left row buttons DO — SELECT the
 // whole row's rung · PLACE the selected colour · MUTATE a value-tweaked variant of it.
 enum BuildRowMode: String, CaseIterable { case select = "SELECT", place = "PLACE", mutate = "MUTATE" }
@@ -1384,12 +1383,6 @@ extension DiagView {
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
     // bottom line up exactly with the ferry buttons. SELECT plays the CHAIN audition, PART plays the PART. (Paul 2026-08-29)
-    @ViewBuilder func roomsPlayHeader(_ room: Room) -> some View {
-        let partRoom = room == .part
-        let voice: BuildWorkshopVoice = partRoom ? .part : .chain
-        buildColumnButton(partRoom ? "PLAY THIS PART" : "PLAY THIS MIDI CHAIN", active: buildDisplayVoice == voice, fill: .grid, fillHeight: true,
-                          action: { buildRequestWorkshopVoice(buildDisplayVoice == voice ? .none : voice) })
-    }
     // THE VERTICAL PLAY BUTTON + PLAYHEAD (Paul 2026-08-29) — a tall thin play/stop toggle beside the MIDI chain, on the
     // OPPOSITE side from the verb buttons. Its PLAYHEAD is a TOP→BOTTOM fill running the chain's play duration (buildHeaderFill).
     // THE PLAY BUTTON — now a SQUARE (~one MIDI-chain box) with a LEFT→RIGHT playhead sweep (Paul 2026-08-30, was a tall
@@ -2485,78 +2478,6 @@ extension DiagView {
                 }
             } else { withAnimation { buildIOHoldMsg = nil } }
         })
-    }
-    @ViewBuilder private func buildColourTab(_ n: Int, w: CGFloat, cell: CGFloat, inEditor: Bool = false) -> some View {
-        let cid = buildRowColour(n)                              // tab N's colour = the colour on part-grid row N
-        let selected = cid != nil && cid == ddSelectedColourID
-        let tint = cid.flatMap { colourColor($0) }              // the tab's own colour (nil = empty)
-        // Styled like the part-grid ROW buttons: the muted RAIL (light grey on dark grey) when empty or unselected;
-        // a populated tab shows its colour as the NUMBER's text; the SELECTED tab keeps its solid-colour look. (Paul 2026-08-18)
-        // §banking chip states (design 2026-08-17): in the EDITOR strip, OCCUPIED rows read FILLED, EMPTY rows HOLLOW
-        // (dashed) — what a tap would destroy is visible before the tap; the current row (EDITING) keeps the white mark.
-        let editorEmpty = inEditor && cid == nil
-        RoundedRectangle(cornerRadius: 6)
-            .fill(selected ? (tint ?? buildRowButtonFill) : (inEditor && cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
-            .frame(width: w, height: cell)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : (tint ?? (editorEmpty ? Color.clear : buildEdge)), lineWidth: (selected || tint != nil) ? 2 : 1))   // SELECTED = white; populated = its colour outline; empty = the faint edge
-            .overlay { if editorEmpty { RoundedRectangle(cornerRadius: 6).stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(buildEdge) } }   // HOLLOW empty
-            .overlay { if buildPendingTab == n { buildPulseOverlay() } }   // PENDING (copied, unedited) → pulses
-            .overlay { if cid != nil { buildTabNowPlaying(n).clipShape(RoundedRectangle(cornerRadius: 6)) } }   // NOW-PLAYING animation when this row sounds
-            .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                .foregroundColor(selected ? .black.opacity(0.7) : (tint ?? .white.opacity(0.7))))   // populated → the colour's TEXT; empty → grey; selected → black on the fill
-            .contentShape(Rectangle())
-            .onTapGesture { buildTapColourTab(n) }   // TAP = select/visit that row's colour (never stamps — Paul 2026-08-20)
-            .onLongPressGesture(minimumDuration: 0.35) { if inEditor { buildEditorOverwriteRow(n) } }   // in the editor, HOLD = apply a COPY of the current machine to that row
-    }
-    // NOW-PLAYING (Paul 2026-08-19): a gentle left→right shimmer on the row-selector tab whose row is the active rung in
-    // the playing column. Cheap: 3 soft marks in one Canvas, only while that row plays.
-    @ViewBuilder private func buildTabNowPlaying(_ n: Int) -> some View {
-        let playing = d.playing && buildStagingPlaying && d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == n   // only when the PART is the sounding voice (not the play grid)
-        if playing {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                Canvas { ctx, size in
-                    let t = tl.date.timeIntervalSinceReferenceDate
-                    for k in 0..<3 {
-                        let phase = (t * 0.55 + Double(k) / 3.0).truncatingRemainder(dividingBy: 1.0)
-                        let x = CGFloat(phase) * size.width
-                        let a = sin(phase * .pi) * 0.45                      // fade in at the left, out at the right
-                        let rect = CGRect(x: x - 1.5, y: size.height * 0.28, width: 3, height: size.height * 0.44)
-                        ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(.white.opacity(max(0, a))))
-                    }
-                }
-            }.allowsHitTesting(false)
-        }
-    }
-    // PROCESSOR EDITOR — a row-selector tab OVERWRITES that row with the CURRENT edits, KEEPS the original settings on the
-    // source colour (reverts it to the open-snapshot), then FOLLOWS to the new row (everything switches). (Paul 2026-08-19)
-    private func buildEditorOverwriteRow(_ n: Int) {
-        guard let srcCid = ddSelectedColourID else { return }
-        let cur = selectedColourChain()                                     // the current edited chain
-        if let snapCid = buildEditorSnapCid, snapCid == srcCid {            // 1. keep the ORIGINAL on the source colour
-            buildWriteColourMachine(srcCid, buildEditorSnapshot)
-        }
-        let targetID: String
-        if let tgt = buildRowColour(n) {                                    // 2a. row n populated → overwrite its chain
-            buildWriteColourMachine(tgt, cur); targetID = tgt
-        } else {                                                            // 2b. row n empty → mint a colour carrying cur
-            let y = buildNewTabColour(n, machine: cur)
-            buildPartCast.append(y); buildSetRow(n, to: y)
-            if n < buildRowReceiver.count { buildRowReceiver[n] = ddStickyReceiver; buildRowEmitters[n] = ddStickyBuses }
-            targetID = y
-        }
-        for c in 0..<8 { buildStagingSel[c] = n }
-        buildSelectID(targetID)                                            // 3. FOLLOW to the new row
-        buildEditorSnapCid = targetID; buildEditorSnapshot = cur           // re-snapshot: further edits/cancel apply to the target
-        buildPendingTab = nil
-        buildStagingSyncIfPlaying()
-        buildFlashPromote("ROW \(n + 1) ✓")                               // §banking: the STAMP TELL — confirm the deal (design 2026-08-17)
-    }
-    // A breathing white pulse (the pending-tab / previewed-row highlight).
-    @ViewBuilder private func buildPulseOverlay() -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-            let ph = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 3.4)
-            RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.12 + 0.32 * ph)).allowsHitTesting(false)
-        }
     }
     private func buildTapColourTab(_ n: Int) {
         if let cid = buildRowColour(n) {                         // a SET tab → SELECT its colour ONLY (does NOT set the playing rung — Paul 2026-08-20)

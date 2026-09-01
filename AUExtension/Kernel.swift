@@ -1113,7 +1113,12 @@ final class Kernel {
         if isForwardableController(bytes[0]), let out = midiOut {
             for i in 0..<4 { hearingScratch[i] = receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable) && receiverHearsMask(receiverChanMask[i], channel: channel) }   // CR-16: reused scratch (no per-event alloc)
             let fwd = controllerForwardMask(hearing: hearingScratch, masks: receiverControllerMask)
-            if fwd != 0 {
+            // CC120/123 (all-sound/all-notes-off): while a HOLD/LATCH is armed, do NOT relay it to the synth — it would kill
+            // the deliberately-held chord DOWNSTREAM even though we now keep it internally (completes the 2026-08-31 HOLD fix:
+            // the held sound must survive a source's all-notes-off at the synth too, not just in our voice table). Other CCs
+            // forward normally; with nothing armed the panic passthrough is unchanged. Device-owed (Kernel isn't unit-tested). (Paul 2026-09-01)
+            let suppressAllOff = (bytes[0] & 0xF0) == 0xB0 && length >= 2 && (bytes[1] == 120 || bytes[1] == 123) && effectiveLatchMask != 0
+            if fwd != 0 && !suppressAllOff {
                 let n = min(length, 3)
                 for i in 0..<n { passthroughScratch[i] = bytes[i] }
                 var m = fwd
