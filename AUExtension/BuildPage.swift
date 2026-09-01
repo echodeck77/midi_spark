@@ -1937,7 +1937,7 @@ extension DiagView {
                         // the merged-lane notation (the real view will fold every row's output into one "what will play" roll).
                         HStack(spacing: 0) {
                             Color.clear.frame(width: leftInset)
-                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: partCH * 4 + gap * 3)
+                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: partCH * 2 + gap)   // 2 cells tall (halved, Paul 2026-09-01)
                         }
                         // SECTION 2 — the MACRO section: its header bars (the 4 tabs) + panel, filling the rest. Mocked (the
                         // BIND/PLAY/PUNCH/SPAN engine lands overnight — M3–M6 over the proven M1/M2 fold).
