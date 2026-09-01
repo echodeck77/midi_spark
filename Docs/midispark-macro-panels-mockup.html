@@ -1,0 +1,361 @@
+<style>
+  :root{
+    --ground:#131110; --band:#1b1815; --panel:#201c18; --recess:#17140f;
+    --line:#2c2823; --line2:#3a352d;
+    --ink:#cabfb2; --dim:#8a8073; --faint:#5c554b;
+    --amber:#e8973d; --amber-hi:#f2ab5a; --amber-dim:#7a5a30;
+    --tide:#4e8fa8; --green:#7fae7a;
+    --r:7px;
+    font-family: ui-monospace,'SF Mono','Menlo',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;}
+  .wrap{
+    background:var(--ground); color:var(--ink);
+    min-height:100vh; padding:28px 20px 56px;
+    display:flex; flex-direction:column; align-items:center; gap:18px;
+  }
+  .title{ text-align:center; max-width:960px;}
+  .title h1{ font-size:15px; letter-spacing:.18em; font-weight:700; margin:0 0 6px; color:var(--ink);}
+  .title h1 b{ color:var(--amber);}
+  .title p{ font-size:12px; line-height:1.55; color:var(--dim); margin:0; letter-spacing:.02em;}
+  .title .note{ color:var(--faint); font-size:11px; margin-top:6px;}
+
+  /* the device band */
+  .band{
+    width:100%; max-width:960px; background:var(--band);
+    border:1px solid var(--line); border-radius:12px;
+    box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 18px 40px -24px #000;
+    overflow:hidden;
+  }
+  /* a faux shrunk part grid + piano roll, to place the band in context */
+  .context{ padding:12px 12px 0; }
+  .ctxlabel{ font-size:9.5px; letter-spacing:.2em; color:var(--faint); margin:0 2px 6px; }
+  .minigrid{ display:grid; grid-template-columns:repeat(8,1fr); gap:3px; margin-bottom:3px;}
+  .minigrid .cell{ height:9px; border-radius:2px; background:#241f19; border:1px solid #2c2620;}
+  .minigrid .cell.on{ background:var(--amber-dim); border-color:var(--amber);}
+  .roll{ height:34px; border-radius:5px; background:#0e0c0a; border:1px solid var(--line);
+         position:relative; margin-bottom:12px; overflow:hidden;}
+  .roll .n{ position:absolute; height:4px; border-radius:1px; background:var(--amber); opacity:.75;}
+  .roll .g{ position:absolute; top:0; bottom:0; width:1px; background:rgba(255,255,255,.05);}
+
+  /* tab header */
+  .tabs{ display:flex; gap:4px; padding:0 12px; }
+  .tab{
+    flex:1; text-align:center; padding:9px 4px; font-size:11px; letter-spacing:.14em; font-weight:700;
+    color:var(--dim); background:var(--recess); border:1px solid var(--line); border-bottom:none;
+    border-radius:6px 6px 0 0; cursor:pointer; user-select:none; transition:.12s;
+  }
+  .tab:hover{ color:var(--ink); }
+  .tab.active{ color:#171310; background:var(--amber); border-color:var(--amber-hi); }
+  .tab .sub{ display:block; font-size:8.5px; letter-spacing:.06em; font-weight:400; opacity:.7; margin-top:2px;}
+  .tab.active .sub{ opacity:.85; color:#3a2c18;}
+
+  .panel{ display:none; padding:16px 14px 18px; border-top:1px solid var(--amber); }
+  .panel.active{ display:block; }
+  .panel .lead{ font-size:11px; color:var(--dim); line-height:1.5; margin:0 0 14px; letter-spacing:.02em;}
+  .panel .lead b{ color:var(--amber); font-weight:700;}
+  .colhead{ font-size:9px; letter-spacing:.22em; color:var(--faint); margin:0 0 8px;}
+
+  /* generic chips */
+  .chip{ display:inline-flex; align-items:center; gap:5px; padding:4px 9px; border-radius:5px; font-size:10.5px;
+         border:1px solid var(--line2); background:#241f19; color:var(--ink); cursor:default;}
+  .chip.arm{ border-color:var(--amber); color:var(--amber-hi); background:#2a2013; box-shadow:0 0 0 1px var(--amber-dim);}
+  .chip.mut{ color:var(--dim); }
+  .dot{ width:6px; height:6px; border-radius:50%; background:var(--faint);}
+  .dot.on{ background:var(--amber);}
+
+  /* BIND layout */
+  .bindgrid{ display:grid; grid-template-columns: 1.15fr 1fr; gap:20px; }
+  @media(max-width:680px){ .bindgrid{ grid-template-columns:1fr; } }
+  .chain{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:14px;}
+  .chain .stage{ padding:6px 11px; border-radius:6px; font-size:11px; font-weight:700; letter-spacing:.06em;
+                 border:1px solid var(--line2); background:#241f19; color:var(--dim); cursor:pointer;}
+  .chain .stage.sel{ color:var(--amber-hi); border-color:var(--amber); background:#2a2013;}
+  .chain .arrow{ color:var(--faint); font-size:11px;}
+  .ctrls{ display:flex; flex-direction:column; gap:6px; }
+  .ctrl{ display:flex; align-items:center; justify-content:space-between; padding:7px 10px; border-radius:5px;
+         background:var(--recess); border:1px solid var(--line);}
+  .ctrl .nm{ font-size:11px; color:var(--ink);}
+  .ctrl .nm span{ color:var(--faint); font-size:10px; margin-left:8px;}
+  .ctrl .bind{ font-size:9.5px; letter-spacing:.08em; color:var(--amber); border:1px solid var(--amber-dim);
+               border-radius:4px; padding:3px 8px; cursor:pointer;}
+  .ctrl.bound .bind{ color:#171310; background:var(--amber); border-color:var(--amber);}
+
+  .macrolist{ display:flex; flex-direction:column; gap:5px; }
+  .mrow{ display:flex; align-items:center; gap:9px; padding:6px 9px; border-radius:5px; background:var(--recess);
+         border:1px solid var(--line);}
+  .mrow .tag{ font-size:10px; font-weight:700; width:30px; text-align:center; border-radius:4px; padding:3px 0;
+              letter-spacing:.04em;}
+  .mrow .tag.sl{ color:var(--amber); border:1px solid var(--amber-dim);}
+  .mrow .tag.tg{ color:var(--tide); border:1px solid #35525e;}
+  .mrow .mname{ font-size:11px; color:var(--ink); min-width:66px;}
+  .mrow .tgts{ font-size:9.5px; color:var(--dim); letter-spacing:.02em;}
+  .mrow.empty .mname,.mrow.empty .tgts{ color:var(--faint);}
+  .addbind{ margin-top:10px; text-align:center; font-size:10px; letter-spacing:.16em; color:var(--amber);
+            border:1px dashed var(--amber-dim); border-radius:6px; padding:9px; cursor:pointer;}
+
+  /* BIND — redesign: processor → parameter → before/after → macro (Paul 2026-09-01) */
+  .bindflow{ display:grid; grid-template-columns:104px 132px 1fr 176px; gap:14px; align-items:start;}
+  @media(max-width:720px){ .bindflow{ grid-template-columns:1fr 1fr; gap:12px;} }
+  .bcol .colhead .tbd{ color:var(--faint); letter-spacing:.04em; margin-left:6px; font-size:8px;}
+  .list{ display:flex; flex-direction:column; gap:3px;}
+  .li{ padding:7px 10px; border-radius:5px; font-size:11px; letter-spacing:.04em; cursor:pointer;
+       background:var(--recess); border:1px solid var(--line); color:var(--dim);}
+  .li:hover{ color:var(--ink);}
+  .li.sel{ color:var(--amber-hi); border-color:var(--amber); background:#2a2013;}
+  .li.head{ background:transparent; border:none; color:var(--faint); font-size:8.5px; letter-spacing:.2em;
+            padding:8px 2px 3px; cursor:default;}
+  /* the detail (before/after) — the pane that appears once a param is picked */
+  .bcol.detail{ background:var(--recess); border:1px solid var(--line); border-radius:7px; padding:11px 12px;}
+  .ba{ margin-bottom:12px;}
+  .ba:last-child{ margin-bottom:0;}
+  .balabel{ font-size:8.5px; letter-spacing:.2em; color:var(--faint); margin-bottom:5px;}
+  .balabel.aft{ color:var(--amber);}
+  .baslider{ position:relative; height:9px; border-radius:5px; background:#0e0c0a; border:1px solid var(--line);}
+  .bafill{ position:absolute; left:-1px; top:-1px; bottom:-1px; border-radius:5px; background:var(--faint);}
+  .bafill.aft{ background:linear-gradient(90deg,var(--amber),var(--amber-hi));}
+  .bathumb{ position:absolute; top:50%; width:14px; height:14px; border-radius:50%; transform:translate(-50%,-50%);
+            background:var(--ink); box-shadow:0 1px 3px #000;}
+  .baval{ font-size:11px; color:var(--ink); text-align:right; margin-top:5px; font-variant-numeric:tabular-nums;}
+  .badelta{ margin-top:10px; padding-top:9px; border-top:1px solid var(--line); font-size:9.5px; color:var(--dim);}
+  .badelta b{ color:var(--amber);}
+  /* macro selectors — compact */
+  .mcolhead{ font-size:8px; letter-spacing:.2em; color:var(--faint); margin:2px 0 5px;}
+  .mchips{ display:grid; grid-template-columns:repeat(4,1fr); gap:4px; margin-bottom:11px;}
+  .mc{ font-size:9px; font-weight:700; text-align:center; padding:6px 0; border-radius:4px; cursor:pointer;
+       background:var(--recess); border:1px solid var(--line); color:var(--faint);}
+  .mc.set{ color:var(--dim); border-color:var(--line2);}          /* has a binding already */
+  .mc.sel.sl{ color:#171310; background:var(--amber); border-color:var(--amber-hi);}
+  .mc.sel.tg{ color:#0e1418; background:var(--tide); border-color:#6fb3cc;}
+
+  /* PLAY layout */
+  .play{ display:grid; grid-template-columns:auto 1fr; gap:26px; align-items:start;}
+  @media(max-width:680px){ .play{ grid-template-columns:1fr; gap:20px;} }
+  .faders{ display:flex; gap:12px; }
+  .fader{ display:flex; flex-direction:column; align-items:center; gap:6px; width:34px;}
+  .fader .track{ width:8px; height:110px; border-radius:4px; background:var(--recess); border:1px solid var(--line);
+                 position:relative; }
+  .fader .fill{ position:absolute; left:-1px; right:-1px; bottom:-1px; border-radius:4px;
+                background:linear-gradient(var(--amber-hi),var(--amber)); }
+  .fader .thumb{ position:absolute; left:50%; transform:translateX(-50%); width:20px; height:5px; border-radius:2px;
+                 background:var(--ink); box-shadow:0 1px 2px #000;}
+  .fader .lab{ font-size:9px; color:var(--dim); text-align:center; line-height:1.2;}
+  .fader .lab b{ display:block; color:var(--amber); font-size:9.5px;}
+  .pads{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .pad{ aspect-ratio:1.6/1; border-radius:6px; background:var(--recess); border:1px solid var(--line);
+        display:flex; flex-direction:column; justify-content:center; align-items:center; gap:3px;}
+  .pad.on{ background:#2a2013; border-color:var(--amber); box-shadow:0 0 10px -3px var(--amber);}
+  .pad .pn{ font-size:9px; color:var(--faint); letter-spacing:.06em;}
+  .pad.on .pn{ color:var(--amber);}
+  .pad .pv{ font-size:11px; font-weight:700; color:var(--dim);}
+  .pad.on .pv{ color:var(--amber-hi);}
+
+  /* PUNCH / SPAN shared */
+  .armrow{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; align-items:center;}
+  .toolrow{ display:flex; gap:8px; align-items:center; margin-top:14px;}
+  .btn{ font-size:9.5px; letter-spacing:.1em; padding:6px 12px; border-radius:5px; border:1px solid var(--line2);
+        background:#241f19; color:var(--dim); cursor:pointer;}
+  .btn.eb{ color:var(--amber); border-color:var(--amber-dim);}
+  .punchgrid{ display:grid; grid-template-columns:repeat(8,1fr); gap:4px; }
+  .punchgrid .pc{ aspect-ratio:1/1; border-radius:3px; background:var(--recess); border:1px solid var(--line);
+                  display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--faint);}
+  /* value heat for punch */
+  .punchgrid .pc[data-v]{ color:#171310; font-weight:700;}
+  .ladder{ display:flex; gap:5px; flex-wrap:wrap; margin:4px 0 16px;}
+  .rung{ padding:6px 11px; border-radius:5px; font-size:11px; font-weight:700; border:1px solid var(--line2);
+         background:#241f19; color:var(--dim); cursor:pointer;}
+  .rung.sel{ color:#171310; background:var(--amber); border-color:var(--amber-hi);}
+  .spanview{ margin-top:6px; }
+  .spanview .cols{ display:grid; grid-template-columns:repeat(8,1fr); gap:4px; align-items:end; height:96px;}
+  .spanview .bar{ background:linear-gradient(var(--amber-hi),var(--amber)); border-radius:3px 3px 0 0; opacity:.85;}
+  .spanview .axis{ display:grid; grid-template-columns:repeat(8,1fr); gap:4px; margin-top:5px; font-size:8px;
+                   color:var(--faint); text-align:center;}
+  .legend{ margin-top:16px; font-size:10px; color:var(--faint); line-height:1.55; letter-spacing:.02em;
+           border-top:1px solid var(--line); padding-top:12px;}
+  .legend b{ color:var(--dim); font-weight:700;}
+</style>
+
+<div class="wrap">
+  <div class="title">
+    <h1>8×8 STATE — the <b>PART · MACRO BAND</b></h1>
+    <p>The bottom half of the part grid. Sixteen macros in two species — <b style="color:var(--amber)">8&nbsp;SLIDER</b> · <b style="color:var(--tide)">8&nbsp;TOGGLE</b>. Each OFFSETS its bound targets (base ⊕ offset), boundary-deferred; drawn values are config. Four collapsible tabs.</p>
+    <p class="note">Static mockup of the panel controls · click a tab · engine M1+M2 already built (bank + per-cell store) · M3–M6 wire these panels</p>
+  </div>
+
+  <div class="band">
+    <!-- context: the shrunk grid + piano roll above the band -->
+    <div class="context">
+      <div class="ctxlabel">◀ PART GRID (shrunk) + PIANO ROLL — the band sits below ▶</div>
+      <div class="minigrid" id="ctxgrid"></div>
+      <div class="minigrid" id="ctxgrid2"></div>
+      <div class="roll" id="ctxroll"></div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-t="bind" onclick="pick(this)">BIND<span class="sub">assign a macro</span></div>
+      <div class="tab" data-t="play" onclick="pick(this)">PLAY<span class="sub">ride it live</span></div>
+      <div class="tab" data-t="punch" onclick="pick(this)">PUNCH<span class="sub">draw per-cell</span></div>
+      <div class="tab" data-t="span" onclick="pick(this)">SPAN<span class="sub">sweep an extent</span></div>
+    </div>
+
+    <!-- BIND (redesign) -->
+    <div class="panel active" data-p="bind">
+      <p class="lead">Drill in: a <b>processor</b> → a <b>parameter</b> → set its <b>BEFORE</b> and <b>AFTER</b> → attach a <b>macro</b>. The last two regions reveal only once a parameter is picked, so it stays calm until you're authoring.</p>
+      <div class="bindflow">
+        <div class="bcol">
+          <div class="colhead">PROCESSOR</div>
+          <div class="list">
+            <div class="li sel">CHORDS</div>
+            <div class="li">ARP</div>
+            <div class="li">ECHO</div>
+          </div>
+        </div>
+        <div class="bcol">
+          <div class="colhead">PARAMETER<span class="tbd">order TBD</span></div>
+          <div class="list">
+            <div class="li">MODE</div>
+            <div class="li sel">GATE</div>
+            <div class="li">RATE</div>
+            <div class="li">VOICING</div>
+            <div class="li">SPREAD</div>
+          </div>
+        </div>
+        <div class="bcol detail">
+          <div class="colhead">CHORDS · GATE</div>
+          <div class="ba">
+            <div class="balabel">BEFORE</div>
+            <div class="baslider"><div class="bafill" style="width:60%"></div><div class="bathumb" style="left:60%"></div></div>
+            <div class="baval">0.60</div>
+          </div>
+          <div class="ba">
+            <div class="balabel aft">AFTER</div>
+            <div class="baslider"><div class="bafill aft" style="width:100%"></div><div class="bathumb" style="left:100%"></div></div>
+            <div class="baval">1.00</div>
+          </div>
+          <div class="badelta">macro rides <b>0.60 → 1.00</b> — a slider morphs it, a toggle snaps it</div>
+        </div>
+        <div class="bcol">
+          <div class="colhead">MACRO</div>
+          <div class="mcolhead">SLIDERS · 1–8</div>
+          <div class="mchips" id="slchips"></div>
+          <div class="mcolhead">TOGGLES · 1–8</div>
+          <div class="mchips" id="tgchips"></div>
+        </div>
+      </div>
+      <div class="legend"><b>BEFORE/AFTER</b> = the base value and the target; the macro stores the delta and OFFSETS the base (never rewrites it). A slider macro morphs continuously; a toggle snaps. Bindings survive mutate / randomize.</div>
+    </div>
+
+    <!-- PLAY -->
+    <div class="panel" data-p="play">
+      <p class="lead">Hand-ride the macros live. <b>Faders</b> ride the 8 sliders (0…1); <b>pads</b> toggle the 8 toggles (OFF = base · ON = the bound offset). The grid keeps playing.</p>
+      <div class="play">
+        <div>
+          <div class="colhead">SLIDERS · M1–M8</div>
+          <div class="faders" id="faders"></div>
+        </div>
+        <div>
+          <div class="colhead">TOGGLES · T1–T8</div>
+          <div class="pads" id="pads"></div>
+        </div>
+      </div>
+      <div class="legend"><b>Automatable</b> — the 8 sliders are host params (400+i). Spring / FIXED padlock per macro. Reuses the FineSlider + haptics.</div>
+    </div>
+
+    <!-- PUNCH -->
+    <div class="panel" data-p="punch">
+      <p class="lead">Arm a macro, then tap <b>cells</b> to draw a per-cell value or state — so a macro's drive varies across the part. The armed chip glows.</p>
+      <div class="armrow">
+        <span class="chip arm"><span class="dot on"></span>M1 FILTER</span>
+        <span class="chip mut"><span class="dot"></span>M2 DRIVE</span>
+        <span class="chip mut"><span class="dot"></span>T1 OPEN</span>
+        <span style="font-size:9.5px;color:var(--faint);margin-left:6px;">← armed = you're drawing this one</span>
+      </div>
+      <div class="colhead">PART GRID — TAP TO DRAW M1</div>
+      <div class="punchgrid" id="punchgrid"></div>
+      <div class="toolrow">
+        <span class="btn eb">ε E-BRUSH</span>
+        <span class="btn">CLEAR</span>
+        <span style="font-size:9.5px;color:var(--faint);">tap the armed chip again to stop drawing</span>
+      </div>
+      <div class="legend"><b>The one new engine bit</b> (M2, built): per-cell values fold as <b>override ?? global</b> at build — a drawn cell shifts its own params, not its neighbours. Byte-identical when empty.</div>
+    </div>
+
+    <!-- SPAN -->
+    <div class="panel" data-p="span">
+      <p class="lead">Arm a macro, pick a <b>span</b>, and its value sweeps across that extent — a drawn ramp for sliders, or multi-pass breathing with the ×2 / ×4 rungs.</p>
+      <div class="armrow">
+        <span class="chip arm"><span class="dot on"></span>M1 FILTER</span>
+        <span class="chip mut"><span class="dot"></span>M2 DRIVE</span>
+      </div>
+      <div class="colhead">SPAN</div>
+      <div class="ladder">
+        <span class="rung">1</span><span class="rung">2</span><span class="rung">3</span>
+        <span class="rung sel">4</span><span class="rung">6</span><span class="rung">8</span>
+        <span class="rung">×2</span><span class="rung">×4</span>
+      </div>
+      <div class="colhead">SWEEP ACROSS 4 COLUMNS</div>
+      <div class="spanview">
+        <div class="cols" id="spancols"></div>
+        <div class="axis"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+      </div>
+      <div class="toolrow"><span class="btn eb">↺ REVERSE</span><span class="btn">CLEAR</span></div>
+      <div class="legend">Reuses the <b>span ladder</b> (spanLadderField). Writes the same per-cell store as PUNCH — sweeps are just a computed fill.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function pick(el){
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelector('.panel[data-p="'+el.dataset.t+'"]').classList.add('active');
+  }
+  // context grid (which rungs are the selected sequence)
+  const g1=document.getElementById('ctxgrid'), g2=document.getElementById('ctxgrid2');
+  const seq=[2,5,1,6,3,7,0,4];
+  for(let c=0;c<8;c++){ const d=document.createElement('div'); d.className='cell'+(seq[c]%3===0?' on':''); g1.appendChild(d); }
+  for(let c=0;c<8;c++){ const d=document.createElement('div'); d.className='cell'+(seq[c]%2===0?' on':''); g2.appendChild(d); }
+  // context piano roll
+  const roll=document.getElementById('ctxroll');
+  for(let c=1;c<8;c++){ const gg=document.createElement('div'); gg.className='g'; gg.style.left=(c*12.5)+'%'; roll.appendChild(gg); }
+  [[0,10,25],[0,20,25],[0,6,50],[25,14,12],[37,18,12],[50,4,25],[50,22,25],[75,12,12]].forEach(([x,y,w])=>{
+    const n=document.createElement('div'); n.className='n'; n.style.left=x+'%'; n.style.top=(y+4)+'px'; n.style.width='calc('+w+'% - 3px)'; roll.appendChild(n);
+  });
+  // BIND macro chips — M1–M8 sliders (M1 = the chosen binding target), T1–T8 toggles; some already "set"
+  const SL=document.getElementById('slchips'), TG=document.getElementById('tgchips');
+  const slSet=[1,2], slSel=1, tgSet=[1], tgSel=0;
+  for(let i=1;i<=8;i++){ const c=document.createElement('div'); c.className='mc sl'+(i===slSel?' sel':(slSet.includes(i)?' set':'')); c.textContent='M'+i; SL.appendChild(c);}
+  for(let i=1;i<=8;i++){ const c=document.createElement('div'); c.className='mc tg'+(i===tgSel?' sel':(tgSet.includes(i)?' set':'')); c.textContent='T'+i; TG.appendChild(c);}
+  // faders
+  const fv=[62,88,30,50,74,20,58,44], fn=['FILTER','DRIVE','—','WIDTH','TONE','—','LEVEL','AIR'];
+  const F=document.getElementById('faders');
+  fv.forEach((v,i)=>{
+    const wrap=document.createElement('div'); wrap.className='fader';
+    wrap.innerHTML='<div class="track"><div class="fill" style="height:'+v+'%"></div><div class="thumb" style="bottom:calc('+v+'% - 2px)"></div></div>'+
+      '<div class="lab"><b>M'+(i+1)+'</b>'+fn[i]+'</div>';
+    F.appendChild(wrap);
+  });
+  // pads
+  const pon=[1,0,0,1,0,1,0,0], pn=['OPEN','—','—','LIFT','—','FREEZE','—','—'];
+  const P=document.getElementById('pads');
+  pon.forEach((on,i)=>{
+    const p=document.createElement('div'); p.className='pad'+(on?' on':'');
+    p.innerHTML='<div class="pn">T'+(i+1)+'</div><div class="pv">'+(pn[i]==='—'?'·':pn[i])+'</div>';
+    P.appendChild(p);
+  });
+  // punch grid — a per-cell value heat for the armed macro
+  const PG=document.getElementById('punchgrid');
+  const heat=[0,0,.3,.6,.9,.6,.3,0, 0,.2,.5,.8,1,.8,.5,.2, 0,0,.2,.4,.6,.4,.2,0];
+  for(let i=0;i<24;i++){
+    const c=document.createElement('div'); c.className='pc';
+    const v=heat[i];
+    if(v>0){ c.style.background='rgba(232,151,61,'+(0.18+v*0.72)+')'; c.setAttribute('data-v','1'); c.textContent=Math.round(v*100); }
+    PG.appendChild(c);
+  }
+  // span sweep bars
+  const SC=document.getElementById('spancols');
+  const sw=[18,42,68,96,18,42,68,96]; // ramps then repeats past the 4-span
+  sw.forEach((h,i)=>{ const b=document.createElement('div'); b.className='bar'; b.style.height=h+'%'; if(i>=4)b.style.opacity='.5'; SC.appendChild(b); });
+</script>

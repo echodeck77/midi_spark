@@ -1978,23 +1978,184 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
         }
     }
-    // SECTION 2 — THE MACRO SECTION (Paul 2026-09-01): its header bars (the 4 macro tabs) + panel. MOCKED — the BIND/PLAY/
-    // PUNCH/SPAN engine + interactions land overnight (M3–M6). For now: a lit tab row over a recessed panel placeholder.
+    // SECTION 2 — THE MACRO SECTION (Paul 2026-09-01): the 4-tab band. BIND (the ratified drill-down: processor →
+    // parameter → BEFORE/AFTER → macro) + PLAY (ride the 8 sliders + 8 toggles) are LIVE; PUNCH/SPAN are still stubs
+    // (they need the per-cell drawing gestures — M4/M5). Wiring is DEVICE-owed; the bind-COMMIT is flagged (needs the
+    // colour→cell target resolution). Reuses MacroAuthoring (macroParamsForProcessor / processorValues) + the AU macro API.
     @ViewBuilder func roomsPartMacroSection() -> some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 4) {                                                 // the header bars — the 4 tabs
+        VStack(spacing: 5) {
+            HStack(spacing: 4) {                                                 // the header bars — real tab switching
                 ForEach(Array(["BIND", "PLAY", "PUNCH", "SPAN"].enumerated()), id: \.offset) { (i, t) in
                     Text(t).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(i == 0 ? .black : .white.opacity(0.55))
+                        .foregroundColor(i == buildMacroTab ? .black : .white.opacity(0.55))
                         .frame(maxWidth: .infinity).frame(height: 22)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(i == 0 ? roomsAmber.opacity(0.85) : Color.white.opacity(0.06)))
+                        .background(RoundedRectangle(cornerRadius: 5).fill(i == buildMacroTab ? roomsAmber.opacity(0.9) : Color.white.opacity(0.06)))
+                        .contentShape(Rectangle()).onTapGesture { buildMacroTab = i }
                 }
             }
-            RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03))    // the panel (content area, mocked)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
-                .overlay(Text("MACRO PANEL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.18)))
-                .frame(maxHeight: .infinity)
+            Group {
+                switch buildMacroTab {
+                case 1: buildMacroPlayPanel()
+                case 2: buildMacroSoonPanel("PUNCH", "arm a macro, then tap grid cells to draw a per-cell value — the M2 per-cell store.")
+                case 3: buildMacroSoonPanel("SPAN", "arm a macro, pick a span (1·2·3·4·6·8·×2·×4), sweep its value across the extent.")
+                default: buildMacroBindPanel()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+    // small shared bits
+    @ViewBuilder private func macroColHead(_ t: String) -> some View {
+        Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.32))
+    }
+    @ViewBuilder private func macroHint(_ t: String) -> some View {
+        Text(t).font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.28)).frame(maxWidth: .infinity, alignment: .center)
+    }
+    @ViewBuilder private func macroLi(_ t: String, sel: Bool, _ tap: @escaping () -> Void) -> some View {
+        Text(t).font(.system(size: 11, design: .monospaced)).foregroundColor(sel ? roomsAmber : .white.opacity(0.6))
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 9).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 5).fill(sel ? roomsAmber.opacity(0.14) : Color.white.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(sel ? roomsAmber.opacity(0.8) : Color.white.opacity(0.08), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+    private func macroFmt(_ p: MacroControlParam, _ v: Double) -> String {
+        switch p.kind {
+        case .continuous:      return String(format: "%.2f", v)
+        case .toggle:          return v > 0.5 ? "ON" : "OFF"
+        case .option(let o):   let i = max(0, min(o.count - 1, Int(v.rounded()))); return o.isEmpty ? "\(Int(v))" : o[i]
+        case .stepper, .mask:  return "\(Int(v.rounded()))"
+        }
+    }
+    // BIND — the drill-down (processor → parameter → BEFORE/AFTER → macro)
+    @ViewBuilder func buildMacroBindPanel() -> some View {
+        let chain = selectedColourChain()
+        let procIdx = chain.isEmpty ? 0 : min(buildMacroProc, chain.count - 1)
+        let params = chain.isEmpty ? [] : macroParamsForProcessor(chain[procIdx].type)
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {                        // 1 — PROCESSOR
+                macroColHead("PROCESSOR")
+                if chain.isEmpty { macroHint("add a machine") }
+                ForEach(Array(chain.enumerated()), id: \.offset) { (i, s) in
+                    macroLi(buildProcLabel(s), sel: i == procIdx) { buildMacroProc = i; buildMacroParam = nil; buildMacroSel = nil }
+                }
+            }.frame(width: 92)
+            VStack(alignment: .leading, spacing: 3) {                        // 2 — PARAMETER (of the selected processor)
+                macroColHead("PARAMETER")
+                ForEach(params, id: \.key) { p in
+                    macroLi(p.label, sel: p.key == buildMacroParam) {
+                        buildMacroParam = p.key; buildMacroSel = nil
+                        buildMacroAfter = chain.isEmpty ? 0 : (processorValues(chain[procIdx])[p.key] ?? 0)   // seed AFTER = current
+                    }
+                }
+            }.frame(width: 110)
+            if let pk = buildMacroParam, let p = params.first(where: { $0.key == pk }), !chain.isEmpty {
+                let before = processorValues(chain[procIdx])[pk] ?? 0        // 3 — BEFORE/AFTER (revealed on param-select)
+                buildMacroBeforeAfter(p, before: before)
+                buildMacroChips(p)                                          // 4 — the macro selectors
+            } else {
+                macroHint("pick a parameter →").frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+    @ViewBuilder private func buildMacroBeforeAfter(_ p: MacroControlParam, before: Double) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            macroColHead(p.label.uppercased())
+            VStack(alignment: .leading, spacing: 4) {
+                Text("BEFORE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.35))
+                macroValueBar(p, value: before, editable: false) { _ in }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("AFTER").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(roomsAmber)
+                macroValueBar(p, value: buildMacroAfter, editable: true) { v in buildMacroAfter = v }
+            }
+            Text("rides \(macroFmt(p, before)) → \(macroFmt(p, buildMacroAfter))")
+                .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    @ViewBuilder private func macroValueBar(_ p: MacroControlParam, value: Double, editable: Bool, _ set: @escaping (Double) -> Void) -> some View {
+        if case .continuous(let lo, let hi) = p.kind {
+            GeometryReader { g in
+                let frac = hi > lo ? max(0, min(1, (value - lo) / (hi - lo))) : 0
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.4))
+                    RoundedRectangle(cornerRadius: 5).fill(editable ? roomsAmber.opacity(0.85) : Color.white.opacity(0.3)).frame(width: g.size.width * CGFloat(frac))
+                }
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { val in
+                    guard editable, g.size.width > 0 else { return }
+                    set(lo + max(0, min(1, Double(val.location.x / g.size.width))) * (hi - lo))
+                })
+            }.frame(height: 13)
+        } else {   // discrete kinds — display for now (option/toggle/stepper editors are device-owed)
+            Text(macroFmt(p, value)).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(editable ? roomsAmber : .white.opacity(0.6))
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 3)
+        }
+    }
+    @ViewBuilder private func buildMacroChips(_ p: MacroControlParam) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            macroColHead("MACRO")
+            let cols = [GridItem](repeating: GridItem(.flexible(), spacing: 4), count: 4)
+            Text("SLIDERS · 1–8").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.3))
+            LazyVGrid(columns: cols, spacing: 4) { ForEach(0..<8, id: \.self) { i in macroChip(i, label: "M\(i + 1)", tide: false) } }
+            Text("TOGGLES · 1–8").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.3))
+            LazyVGrid(columns: cols, spacing: 4) { ForEach(8..<16, id: \.self) { i in macroChip(i, label: "T\(i - 7)", tide: true) } }
+        }.frame(width: 168)
+    }
+    @ViewBuilder private func macroChip(_ i: Int, label: String, tide: Bool) -> some View {
+        let sel = buildMacroSel == i
+        let accent = tide ? roomsIndigo : roomsAmber
+        Text(label).font(.system(size: 9, weight: .bold, design: .monospaced))
+            .foregroundColor(sel ? .black : .white.opacity(0.5))
+            .frame(maxWidth: .infinity).frame(height: 22)
+            .background(RoundedRectangle(cornerRadius: 4).fill(sel ? accent : Color.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(sel ? accent : Color.white.opacity(0.1), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { buildMacroSel = i }   // v1: SELECT the macro; the bind-COMMIT (addMacroTargets over the colour's cells) is the next wiring step (device-owed)
+    }
+    // PLAY — ride the 16 macros live (8 sliders + 8 toggles)
+    @ViewBuilder func buildMacroPlayPanel() -> some View {
+        let macros = au?.uiMacros() ?? []
+        HStack(alignment: .top, spacing: 22) {
+            VStack(alignment: .leading, spacing: 6) {
+                macroColHead("SLIDERS · M1–M8")
+                HStack(spacing: 8) { ForEach(0..<8, id: \.self) { i in buildMacroFader(i, value: i < macros.count ? macros[i].value : 0) } }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                macroColHead("TOGGLES · T1–T8")
+                let cols = [GridItem](repeating: GridItem(.flexible(), spacing: 6), count: 4)
+                LazyVGrid(columns: cols, spacing: 6) { ForEach(8..<16, id: \.self) { i in buildMacroPad(i, on: (i < macros.count ? macros[i].value : 0) > 0.5) } }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    @ViewBuilder private func buildMacroFader(_ i: Int, value: Double) -> some View {
+        VStack(spacing: 4) {
+            GeometryReader { g in
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06))
+                    RoundedRectangle(cornerRadius: 4).fill(roomsAmber.opacity(0.85)).frame(height: g.size.height * CGFloat(max(0, min(1, value))))
+                }
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { val in
+                    guard g.size.height > 0 else { return }
+                    au?.setMacroValue(i, max(0, min(1, 1 - Double(val.location.y / g.size.height))))
+                })
+            }.frame(width: 16)
+            Text("M\(i + 1)").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber.opacity(0.85))
+        }
+    }
+    @ViewBuilder private func buildMacroPad(_ i: Int, on: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 6).fill(on ? roomsIndigo.opacity(0.55) : Color.white.opacity(0.06))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? roomsIndigo : Color.white.opacity(0.12), lineWidth: 1))
+            .overlay(Text("T\(i - 7)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(on ? .white : .white.opacity(0.4)))
+            .frame(height: 26).contentShape(Rectangle()).onTapGesture { au?.setMacroValue(i, on ? 0 : 1) }
+    }
+    @ViewBuilder private func buildMacroSoonPanel(_ title: String, _ desc: String) -> some View {
+        VStack(spacing: 8) {
+            Text(title).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(3).foregroundColor(roomsAmber.opacity(0.7))
+            Text(desc).font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.35)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            Text("coming — M4 / M5").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.2))
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 24)
     }
     // SHARED grid-cell body (Paul 2026-08-30 colour language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
