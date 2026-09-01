@@ -56,14 +56,28 @@ are current as of this date; re-grep before editing. Read this before building e
    travels with the document, like `BuildPlayGridData`).
 
 ### Increments (each build+test)
-- **M1 (model tidy):** formalize 16-macro/2-species (retire timeline in the UI; keep the enum case decode-safe); +tests.
-- **M2 (per-cell value store, engine):** the `SnapCell.macroValueOverride` fold + builder fill + a Router/builder test
-  (a PUNCH-drawn per-cell value shifts one cell's param, not its neighbours). Byte-identical when unset. **This is the load-
-  bearing increment** — do it first + test hard.
-- **M3 (BIND + PLAY tabs):** the band shell + BIND (tap-to-assign, gang, ON-value) + PLAY (pads+faders). UI, device-owed.
-- **M4 (PUNCH):** arm→tap-cells→draw per-cell (reads M2), CLEAR, e-brush.
-- **M5 (SPAN):** arm→ladder→sweep/×-pass (reads M2 + spanLadder), CLEAR.
-- **M6 (persistence + mutate/randomize survival).**
+- ✅ **M1 (model tidy) — DONE (2026-09-01, `2aa17ed`):** the LIVE bank is 16 (`PluginState.macroBankCount`) in two species —
+  8 SLIDER (0–7) + 8 TOGGLE (8–15); the 8 timelines (16–23) are RETIRED. Decode-safe: a stored 24-macro doc round-trips whole
+  but only the first 16 resolve (a retired timeline's offset stops applying — no crash). `SnapshotBox.macroValues` 24→16; the
+  AU setter guards narrowed 0..<24 → 0..<macroBankCount (they do `d.macros = d.macrosResolved` then index → a 24-guard would
+  trap). +tests (996 green): the bank is 16 in two species; short/over-long pad/truncate; the 24-doc decode-safe retirement.
+- ✅ **M2 (per-cell value store, engine) — DONE (2026-09-01, `f157ef8`):** the LOAD-BEARING bit. `MacroCellValue { col·row·
+  macro·value }` + `PluginState.macroCellValues` (sparse, additive-Optional). The builder folds `override[macro] ?? global`
+  per cell — NO SnapCell field / NO render change (macros already bake into `sc.procs` at BUILD time, so the fold is builder-
+  side; the render still reads only the baked box, invariant 1). +tests (999 green): a per-cell override shifts one cell's
+  param, its neighbour (same target, no override) stays at base; empty store byte-identical; round-trips + old-doc decodes nil.
+  Persistence is FREE (the field is on `PluginState` → travels in fullState — so M6's model half is already done).
+- **M3 (BIND + PLAY tabs) — NEXT, UI/device-owed.** The band shell + the layout split (part-grid interior −50% height, the
+  freed bottom half = the collapsible 4-tab band; ferry row · ▲▼ · STOP stay full size — hook `roomsPartGrid` @ BuildPage.swift
+  ~1901, which sits in `roomsPart`'s 2/3-width column, RoomsPage.swift:189). BIND (tap-to-assign, gang, ON-value; reuse
+  `MacroAuthoring` + `addMacroTargets`) + PLAY (8 pads + 8 faders → `setMacroValue` / param 400+i; reuse `FineSlider`). **Held
+  for Paul's device eye** — a large blind UI surface with real layout-interpretation room (band chrome, tab collapse, STOP
+  placement); the engine it drives (M1+M2) is done + tested, so the band is pure presentation over a proven fold.
+- **M4 (PUNCH):** arm→tap-cells→draw per-cell (writes `macroCellValues`, reads M2's fold), CLEAR, e-brush.
+- **M5 (SPAN):** arm→ladder→sweep/×-pass (writes `macroCellValues` across the extent + spanLadder), CLEAR.
+- **M6 (mutate/randomize survival + BUILD-@State ↔ document sync for `macroCellValues`).** The PluginState field already
+  persists in fullState; M6 is the capture/restore into the rooms @State (like `BuildPlayGridData`) + the roll-changes-base-
+  not-the-macro-layer guarantee.
 
 ### Risks
 - The per-cell value store (M2) is the only real engine change; everything else is UI over the existing offset fold. Keep the

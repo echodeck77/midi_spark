@@ -72,7 +72,15 @@ on the scale pool); the STATUS note says the three MODES + voicing await Paul's 
   notes). **REMAINING C2b (flagged, NOT blockers):** ① read the SCALE door's declared key (thread the receiver scale into the
   box — the §2 "plays in whatever key D declares"; today the key is declared ON THE STAGE); ② INVERT-toward-previous (the pure
   `voiceLeadTowardPrevious` exists + is tested, but wiring it needs a per-cell last-chord memory across windows); ③ WINDOW
-  CELL|ROW|BAR (the span family — CELL only today). **NEXT ON THIS FERRY: the macro-automation build** (M1→M6, PART-PAGE-ONLY).
+  CELL|ROW|BAR (the span family — CELL only today).
+- **✅ MACRO-AUTOMATION M1+M2 — DONE (2026-09-01, `2aa17ed`+`f157ef8`; 999 green, iOS builds; engine-only). M1** = the 16-macro/
+  two-species bank (8 slider + 8 toggle; timelines retired §K3, decode-safe). **M2** = the per-cell value store
+  (`MacroCellValue` + `PluginState.macroCellValues`; builder-side fold `override ?? global`; no render change; persistence free).
+  **NEXT = M3–M6 (the 4-tab band UI, PART-PAGE-ONLY, DEVICE-OWED):** M3 the band shell + layout split (part-grid interior −50%,
+  the freed bottom half = the collapsible band; ferry/▲▼/STOP unchanged — `roomsPartGrid`) + BIND (tap-to-assign, reuse
+  `MacroAuthoring`) + PLAY (8 pads + 8 faders → `setMacroValue`); M4 PUNCH (arm→tap cells→draw per-cell, writes `macroCellValues`);
+  M5 SPAN (arm→ladder→sweep/×-pass); M6 mutate/randomize survival + rooms-@State ↔ document sync. Held for Paul's device eye —
+  a large blind UI surface with layout-interpretation room; the engine it drives is proven + tested.
 
 ## ★★★ FERRY INTAKE 2026-08-31 — the ratified batch (DETAILED PLAN: `Docs/PLAN-incoming-2026-08-31.md`)
 Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes · listening-set · macro-lanes).

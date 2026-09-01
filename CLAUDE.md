@@ -159,6 +159,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MACRO AUTOMATION M1+M2 — the engine foundation (2026-09-01, on `main`, `2aa17ed`+`f157ef8`; iOS builds, macOS 999 green;
+  engine-only, no UI yet). The ratified macro-automation build (§K settled) begins with its two ENGINE increments — the parts
+  that build+test off-device with confidence; M3–M6 (the 4-tab part-page band) are the device-owed UI remainder. **M1 (model
+  tidy, `2aa17ed`):** the LIVE bank is now SIXTEEN in TWO species — 8 SLIDER (0–7) + 8 TOGGLE (8–15); the 8 TIMELINE macros
+  (16–23) are RETIRED (§K3). Decode-safe by construction: a doc that stored the old 24-bank still DECODES whole (the Codable
+  `macros` array is untouched → encode round-trips), but only the first 16 RESOLVE (`PluginState.macroBankCount`), so a retired
+  timeline's offset simply stops applying — no crash, no factory-reset; byte-identical for any doc that used 0–15. `SnapshotBox.
+  macroValues` 24→16; the AU setter guards narrowed `0..<24`→`0..<macroBankCount` (REQUIRED — they do `d.macros = d.macrosResolved`
+  (now 16) then index, so a 24-guard would trap). **M2 (the per-cell value store, `f157ef8`) — the ONLY real engine change:**
+  `MacroCellValue { col·row·macro·value }` + `PluginState.macroCellValues` (sparse, additive-Optional). Today a macro has ONE
+  global value; PUNCH/SPAN need the DRIVING value to vary per cell. The builder folds `override[macro] ?? global` per cell —
+  NO SnapCell field, NO render change (macros already bake into `sc.procs` at BUILD time → the fold is builder-side; the render
+  still reads only the baked box, invariant 1). The macro's TARGETS stay shared; only the value is per-cell. Byte-identical when
+  the store is empty/nil; persistence FREE (the field is on PluginState → fullState). **+6 tests** (M1: bank-is-16-two-species,
+  short/over-long pad-truncate, the 24-doc decode-safe retirement, builder mirrors 16; M2: per-cell override shifts one cell not
+  its neighbour, empty-store byte-identity, round-trip + old-doc-nil). **NEXT: M3–M6 — the 4-tab band (BIND · PLAY · PUNCH ·
+  SPAN) as the bottom HALF of the PART grid (interior −50% height; ferry/▲▼/STOP unchanged), PART-PAGE-ONLY. Device-owed UI over
+  the proven M1/M2 fold — held for Paul's device eye (band chrome / tab collapse / STOP placement have real interpretation room).**
 - **▶ CHORDS — the diatonic-progression stage, FEATURE-COMPLETE (2026-09-01, on `main`, `64ed992`+`df5289c`+`2fd8d98`; iOS
   builds, macOS 995 green incl. fuzz; DEVICE ear owed). Paul ratified all three modes; built C1→C5. A new HARMONY set-shaper
   `ProcessorType.chords` — a held note TRIGGERS the diatonic chord for the current DEGREE, DERIVED from a stage-declared KEY
