@@ -50,12 +50,8 @@ private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 // M2 substrate). Per-colour (shared across the colour's cells). `extent`/engine fold are the next stage.
 struct AutoLane: Equatable {
     var slot: Int = 0                       // the processor slot in the colour's chain
-    var before: [String: Double] = [:]      // per-param BEFORE — a param is in the GROUP iff it has an entry (Paul 2026-09-01: a lane alters MULTIPLE params together)
-    var after: [String: Double] = [:]       // per-param AFTER (a binary param just flips before|after — RATE disabled)
-    var rate: Int = 4                        // RATE — shapes the curve/repeat within the painted extent (1·2·3·4·6·8·×2·×4)
-    var merge: Int = 0                       // MERGE mode — placeholder (semantics TBC): how the group applies
-    var extent: Set<Int> = []                // the painted grid cells (col*rows+row) — stage 2
-    var live: Bool = false                   // committed (has an extent + a group)
+    var param: String = ""                  // the param this lane automates ("" ⇒ the processor's pre-mapped useful default)
+    var cells: [Int: Double] = [:]          // IMMEDIATE PUNCH (Paul 2026-09-01): per grid-cell value (col*Snap.rows+row → the param's native value), punched on the main grid
 }
 private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
@@ -2007,39 +2003,58 @@ extension DiagView {
     }
     // THE AUTO FLOW (Paul 2026-09-01, rev 2): two selector buttons (AUTO lane · PROCESSOR) over a PARAMETER TABLE — every
     // param + its BEFORE/AFTER, so a lane alters MULTIPLE params as a GROUP — with a right-side stack MERGE · RATE · APPLY.
+    // THE AUTO FLOW (Paul 2026-09-01, rev 3 — IMMEDIATE PUNCH): a thin selector — AUTO 1–5 · MACHINE · PARAM (pre-mapped
+    // useful default) — then you PUNCH values straight onto the main part grid (drag a cell = its value for that param),
+    // felt with the fewest steps. Tap a lane to arm; the grid becomes a value canvas for the selected colour's cells.
+    // (before/after/merge/span/apply all dropped.) FLAGGED next: bake the punched per-cell values into the render (audible).
     @ViewBuilder func roomsPartMacroSection() -> some View {
+        let cid = ddSelectedColourID ?? ""
         let chain = buildFocusedChain()
-        let lanes = buildAutoLanesFor(ddSelectedColourID ?? "")
+        let lanes = buildAutoLanesFor(cid)
         let lane = lanes[max(0, min(4, buildAutoSel))]
         let procIdx = chain.isEmpty ? 0 : min(lane.slot, chain.count - 1)
         let params = chain.isEmpty ? [] : macroParamsForProcessor(chain[procIdx].type)
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {                                          // the two selector buttons (AUTO shorter · PROCESSOR longer)
-                    autoSelectButton("AUTO \(buildAutoSel + 1)", width: 78, live: lane.live) { buildAutoSel = (buildAutoSel + 1) % 5; buildAutoArmed = false }
-                    autoSelectButton(chain.isEmpty ? "— no machine —" : buildProcLabel(chain[procIdx]), width: nil, live: false) {
-                        guard !chain.isEmpty else { return }; buildSetAutoLane { $0.slot = (procIdx + 1) % chain.count }
+        let paramKey = chain.isEmpty ? "" : autoResolvedParamKey(lane: lane, type: chain[procIdx].type, params: params)
+        let param = params.first(where: { $0.key == paramKey })
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {                                              // AUTO 1–5 — tap a lane to ARM punch (tap again = off)
+                macroColHead("AUTO").frame(width: 42, alignment: .leading)
+                ForEach(0..<5, id: \.self) { i in
+                    autoChip("\(i + 1)", on: buildAutoArmed && i == buildAutoSel, dot: !lanes[i].cells.isEmpty, wide: false) {
+                        if i == buildAutoSel { buildAutoArmed.toggle() } else { buildAutoSel = i; buildAutoArmed = true }
                     }
                 }
-                if chain.isEmpty { macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity) }
-                else {
-                    HStack(spacing: 6) {                                     // the table header
-                        Text("PARAMETER").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.3)).frame(width: 96, alignment: .leading)
-                        Text("BEFORE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.3)).frame(maxWidth: .infinity, alignment: .leading)
-                        Text("AFTER").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(roomsAmber.opacity(0.7)).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 4) { ForEach(params, id: \.key) { p in autoParamRow(p, lane: lane, procIdx: procIdx, chain: chain) } }
-                    }
-                }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            VStack(alignment: .leading, spacing: 8) {                         // the RIGHT STACK — merge · rate · apply, on top of each other
-                autoMergeControl(lane: lane)
-                autoRateControl(lane: lane)
                 Spacer(minLength: 0)
-                autoApplyControl()
-            }.frame(width: 118)
-        }
+                if buildAutoArmed && !lane.cells.isEmpty { autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { buildSetAutoLane { $0.cells = [:] } } }
+            }
+            if chain.isEmpty { macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else {
+                HStack(spacing: 4) {                                          // MACHINE — the chain's stages (direct)
+                    macroColHead("MACHINE").frame(width: 58, alignment: .leading)
+                    ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
+                        ForEach(Array(chain.enumerated()), id: \.offset) { (i, s) in
+                            autoChip(buildProcLabel(s), on: i == procIdx, dot: false, wide: true) { buildSetAutoLane { $0.slot = i; $0.param = "" } }
+                        }
+                    } }
+                }
+                HStack(spacing: 4) {                                          // PARAM — pre-mapped useful default leads; tap to change
+                    macroColHead("PARAM").frame(width: 58, alignment: .leading)
+                    ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
+                        ForEach(params, id: \.key) { p in
+                            autoChip(p.label, on: p.key == paramKey, dot: false, wide: true) { buildSetAutoLane { $0.param = p.key } }
+                        }
+                    } }
+                }
+                if buildAutoArmed, let p = param {
+                    Text("PUNCH · \(buildProcLabel(chain[procIdx])) · \(p.label) — drag the \(cid == ddSelectedColourID ? "lit" : "") cells")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("tap an AUTO lane, then drag values onto the grid").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35)).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Spacer(minLength: 0)
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     @ViewBuilder private func macroColHead(_ t: String) -> some View {
         Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.32))
@@ -2047,113 +2062,61 @@ extension DiagView {
     @ViewBuilder private func macroHint(_ t: String) -> some View {
         Text(t).font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.28)).frame(maxWidth: .infinity, alignment: .center)
     }
-    @ViewBuilder private func autoSelectButton(_ t: String, width: CGFloat?, live: Bool, _ tap: @escaping () -> Void) -> some View {
-        let body = HStack(spacing: 5) {
-            if live { Circle().fill(roomsAmber).frame(width: 5, height: 5) }
-            Text(t).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber).lineLimit(1)
-            Spacer(minLength: 2)
-            Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundColor(.white.opacity(0.3))
+    @ViewBuilder private func autoChip(_ t: String, on: Bool, dot: Bool, wide: Bool, red: Bool = false, _ tap: @escaping () -> Void) -> some View {
+        let accent = red ? buildRed : roomsAmber
+        HStack(spacing: 4) {
+            if dot { Circle().fill(roomsAmber).frame(width: 4, height: 4) }
+            Text(t).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1)
         }
-        .padding(.horizontal, 9).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(0.5), lineWidth: 1))
+        .padding(.horizontal, wide ? 9 : 0).frame(minWidth: wide ? 0 : 26, minHeight: 24).frame(height: 24)
+        .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? accent : Color.white.opacity(0.12), lineWidth: 1))
         .contentShape(Rectangle()).onTapGesture(perform: tap)
-        Group { if let w = width { body.frame(width: w) } else { body.frame(maxWidth: .infinity) } }
     }
-    private func macroFmt(_ p: MacroControlParam, _ v: Double) -> String {
-        switch p.kind {
-        case .continuous:      return String(format: "%.2f", v)
-        case .toggle:          return v > 0.5 ? "ON" : "OFF"
-        case .option(let o):   let i = max(0, min(o.count - 1, Int(v.rounded()))); return o.isEmpty ? "\(Int(v))" : o[i]
-        case .stepper, .mask:  return "\(Int(v.rounded()))"
+    // The useful default param for a processor (Paul 2026-09-01: "length for arp"). Falls to the lane's chosen param, else
+    // the curated primary if present, else the first param. Curation mirrors the "order params by usefulness" intent.
+    private func autoPrimaryKey(_ type: ProcessorType) -> String {
+        switch type {
+        case .arp:       return "gate"        // note length
+        case .riff:      return "gate"
+        case .ratchet:   return "gate"
+        case .strum:     return "spread"      // rake width
+        case .chance:    return "probability" // density
+        case .harmonize: return "harmVelScale"
+        default:         return ""             // else the first param (curation to extend, per "order by usefulness")
         }
     }
-    private func autoIsBinary(_ p: MacroControlParam) -> Bool { if case .toggle = p.kind { return true }; return false }
-    // one PARAMETER row: name · BEFORE · AFTER. In the GROUP iff both are set and differ (a lit name). Continuous → bars; binary → OFF|ON.
-    @ViewBuilder private func autoParamRow(_ p: MacroControlParam, lane: AutoLane, procIdx: Int, chain: [ProcessorSlot]) -> some View {
-        let cur = procIdx < chain.count ? (processorValues(chain[procIdx])[p.key] ?? 0) : 0
-        let before = lane.before[p.key] ?? cur
-        let after = lane.after[p.key] ?? cur
-        let inGroup = lane.before[p.key] != nil && lane.after[p.key] != nil && before != after
-        HStack(spacing: 6) {
-            Text(p.label).font(.system(size: 10, design: .monospaced)).foregroundColor(inGroup ? roomsAmber : .white.opacity(0.55))
-                .frame(width: 96, alignment: .leading).lineLimit(1)
-            autoValueBar(p, value: before) { v in buildSetAutoLane { $0.before[p.key] = v; if $0.after[p.key] == nil { $0.after[p.key] = after } } }
-            autoValueBar(p, value: after) { v in buildSetAutoLane { $0.after[p.key] = v; if $0.before[p.key] == nil { $0.before[p.key] = before } } }
-        }
+    private func autoResolvedParamKey(lane: AutoLane, type: ProcessorType, params: [MacroControlParam]) -> String {
+        if !lane.param.isEmpty, params.contains(where: { $0.key == lane.param }) { return lane.param }   // the lane's chosen param
+        let prim = autoPrimaryKey(type)
+        if !prim.isEmpty, params.contains(where: { $0.key == prim }) { return prim }                     // the curated useful default
+        return params.first?.key ?? ""                                                                   // else the first
     }
-    @ViewBuilder private func autoValueBar(_ p: MacroControlParam, value: Double, _ set: @escaping (Double) -> Void) -> some View {
-        if case .continuous(let lo, let hi) = p.kind {
-            GeometryReader { g in
-                let frac = hi > lo ? max(0, min(1, (value - lo) / (hi - lo))) : 0
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.4))
-                    RoundedRectangle(cornerRadius: 4).fill(roomsAmber.opacity(0.8)).frame(width: g.size.width * CGFloat(frac))
-                }
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onChanged { val in guard g.size.width > 0 else { return }; set(lo + max(0, min(1, Double(val.location.x / g.size.width))) * (hi - lo)) })
-            }.frame(maxWidth: .infinity).frame(height: 15)
-        } else if case .toggle = p.kind {
-            HStack(spacing: 3) {
-                ForEach([("OFF", 0.0), ("ON", 1.0)], id: \.0) { (lab, v) in
-                    Text(lab).font(.system(size: 8, weight: .bold, design: .monospaced))
-                        .foregroundColor(abs(value - v) < 0.5 ? .black : .white.opacity(0.5))
-                        .frame(maxWidth: .infinity).frame(height: 18)
-                        .background(RoundedRectangle(cornerRadius: 3).fill(abs(value - v) < 0.5 ? roomsAmber : Color.white.opacity(0.06)))
-                        .contentShape(Rectangle()).onTapGesture { set(v) }
-                }
-            }
-        } else {
-            Text(macroFmt(p, value)).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
-        }
+    // The currently-ARMED punch context (nil ⇒ punch off): the param + its continuous range for the main-grid value canvas.
+    func buildAutoArmedParam() -> (param: MacroControlParam, lo: Double, hi: Double)? {
+        guard buildAutoArmed, let cid = ddSelectedColourID, !cid.isEmpty else { return nil }
+        let chain = buildFocusedChain(); guard !chain.isEmpty else { return nil }
+        let lane = buildAutoLanesFor(cid)[max(0, min(4, buildAutoSel))]
+        let procIdx = min(lane.slot, chain.count - 1)
+        let params = macroParamsForProcessor(chain[procIdx].type)
+        let key = autoResolvedParamKey(lane: lane, type: chain[procIdx].type, params: params)
+        guard let p = params.first(where: { $0.key == key }) else { return nil }
+        if case .continuous(let lo, let hi) = p.kind { return (p, lo, hi) }
+        return (p, 0, 1)   // binary/discrete punch as 0…1 for now
     }
-    // RIGHT STACK — MERGE (placeholder: how the group applies · semantics TBC) · RATE (the sweep ladder) · APPLY.
-    @ViewBuilder private func autoMergeControl(lane: AutoLane) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            macroColHead("MERGE")
-            HStack(spacing: 4) {
-                ForEach(Array(["ADD", "SET"].enumerated()), id: \.offset) { (i, t) in
-                    Text(t).font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(lane.merge == i ? .black : .white.opacity(0.5))
-                        .frame(maxWidth: .infinity).frame(height: 22)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(lane.merge == i ? roomsAmber : Color.white.opacity(0.06)))
-                        .contentShape(Rectangle()).onTapGesture { buildSetAutoLane { $0.merge = i } }
-                }
-            }
-        }
+    // The punched value at grid cell `idx` as a 0…1 fraction (stored value, else the param's current value).
+    func buildAutoPunchFrac(_ idx: Int, _ ctx: (param: MacroControlParam, lo: Double, hi: Double)) -> Double {
+        let chain = buildFocusedChain()
+        let lane = buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoSel))]
+        let procIdx = chain.isEmpty ? 0 : min(lane.slot, chain.count - 1)
+        let cur = chain.isEmpty ? ctx.lo : (processorValues(chain[procIdx])[ctx.param.key] ?? ctx.lo)
+        let v = lane.cells[idx] ?? cur
+        return ctx.hi > ctx.lo ? max(0, min(1, (v - ctx.lo) / (ctx.hi - ctx.lo))) : 0
     }
-    @ViewBuilder private func autoRateControl(lane: AutoLane) -> some View {
-        let vals = [1, 2, 3, 4, 6, 8, 16, 32], labs = ["1", "2", "3", "4", "6", "8", "×2", "×4"]
-        VStack(alignment: .leading, spacing: 4) {
-            macroColHead("RATE")
-            let cols = [GridItem](repeating: GridItem(.flexible(), spacing: 4), count: 4)
-            LazyVGrid(columns: cols, spacing: 4) {
-                ForEach(Array(vals.enumerated()), id: \.offset) { (i, v) in
-                    let sel = lane.rate == v
-                    Text(labs[i]).font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(sel ? .black : .white.opacity(0.5))
-                        .frame(maxWidth: .infinity).frame(height: 20)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(sel ? roomsAmber : Color.white.opacity(0.05)))
-                        .contentShape(Rectangle()).onTapGesture { buildSetAutoLane { $0.rate = v } }
-                }
-            }
-        }
-    }
-    @ViewBuilder private func autoApplyControl() -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(buildAutoArmed ? "COMMIT" : "APPLY")
-                .font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1)
-                .foregroundColor(buildAutoArmed ? .black : roomsAmber)
-                .frame(maxWidth: .infinity).frame(height: 32)
-                .background(RoundedRectangle(cornerRadius: 6).fill(buildAutoArmed ? roomsAmber : Color.white.opacity(0.05)))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(roomsAmber.opacity(buildAutoArmed ? 1 : 0.5), lineWidth: 1))
-                .contentShape(Rectangle()).onTapGesture {
-                    if buildAutoArmed { buildSetAutoLane { $0.live = true }; buildAutoArmed = false } else { buildAutoArmed = true }
-                }
-            Text(buildAutoArmed ? "tap grid cells for the extent, then COMMIT" : "APPLY, then paint the cells this covers")
-                .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.3)).fixedSize(horizontal: false, vertical: true)
-        }
+    // PUNCH the value at grid cell `idx` from a 0…1 fraction → the param's native value, stored on the lane.
+    func buildAutoPunch(_ idx: Int, frac: Double, _ ctx: (param: MacroControlParam, lo: Double, hi: Double)) {
+        let f = max(0, min(1, frac))
+        buildSetAutoLane { $0.cells[idx] = ctx.lo + f * (ctx.hi - ctx.lo) }
     }
     // SHARED grid-cell body (Paul 2026-08-30 colour language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
@@ -2179,14 +2142,38 @@ extension DiagView {
     @ViewBuilder private func roomsPartCell(_ c: Int, _ r: Int, w: CGFloat, h: CGFloat) -> some View {
         let id = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil   // Rooms4: bounds-safe against a ragged decoded doc
         let selected = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r   // the ONE selected rung for column c
-        roomsGridCellBody(id: id, selected: selected,
-                          sweep: { buildNoteSweep(idx: c * Snap.rows + r, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
-            .frame(width: w, height: h)                                   // fixed size so the playhead pitch is exact
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if buildSelectMode { if let cid = id { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this cell's colour, then end SELECT (Paul 2026-08-31)
-                else { buildStagingTap(c, r) }                                  // else: one rung per column, toggle (the old-gui logic)
-            }
+        let idx = c * Snap.rows + r
+        // AUTO PUNCH (Paul 2026-09-01): when a lane is armed, THIS colour's cells become a value canvas — a bottom-up
+        // amber fill = the punched param value, and a vertical DRAG punches it. Other-colour cells dim (not this lane).
+        let punch = buildAutoArmedParam()
+        let punchable = punch != nil && id != nil && id == ddSelectedColourID
+        let cellBody = roomsGridCellBody(id: id, selected: selected,
+                          sweep: { buildNoteSweep(idx: idx, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
+        if punchable, let ctx = punch {
+            let frac = buildAutoPunchFrac(idx, ctx)
+            cellBody
+                .overlay(alignment: .bottom) {
+                    GeometryReader { g in
+                        VStack(spacing: 0) { Spacer(minLength: 0); Rectangle().fill(roomsAmber.opacity(0.55)).frame(height: g.size.height * CGFloat(frac)) }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 5)).allowsHitTesting(false)
+                }
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber, lineWidth: 1.5))
+                .frame(width: w, height: h).contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                    guard h > 0 else { return }
+                    buildAutoPunch(idx, frac: 1 - Double(v.location.y / h), ctx)   // top = max, bottom = min
+                })
+        } else {
+            cellBody
+                .frame(width: w, height: h).opacity(punch != nil ? 0.4 : 1)   // armed-but-other-colour cells recede
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if punch != nil { return }                                  // punch armed elsewhere → ignore stray taps
+                    if buildSelectMode { if let cid = id { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this cell's colour
+                    else { buildStagingTap(c, r) }                                  // else: one rung per column, toggle
+                }
+        }
     }
     // The RIGHT rail — selects the ENTIRE row (every column → this row), like the old gui's row-select. Lights when the
     // whole row is the current per-column selection. (Paul 2026-08-28)
