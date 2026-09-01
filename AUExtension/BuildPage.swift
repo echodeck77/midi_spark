@@ -4510,6 +4510,7 @@ extension DiagView {
                 C("DRONE", "Holds the chord as a sustained pad.", .drone),
                 C("LOCK TO KEY", "Plays only the notes another input is playing — point it at a scale channel to stay in its key.", .avoid) { $0.avoidRefKind = .door; $0.avoidRefIndex = 1; $0.avoidMode = .lock; $0.avoidAction = .move },
                 C("AVOID CLASHES", "Keeps clear of everything already playing — its notes and the semitones that clash with them.", .avoid) { $0.avoidRefKind = .sounding; $0.avoidMode = .avoid; $0.avoidAction = .remove; $0.avoidWhat = .clash },
+                C("CHORDS", "Turns a held note into a diatonic chord progression, in key — draw it once, plays in any key. Follow with STRUM / ARP / DRONE.", .chords) { $0.chordsMode = .pattern },
             ]),
             BuildCardGroup(title: "RHYTHM", note: nil, cards: [
                 C("RATCHET", "Re-strikes the whole chord in fast rolls, every step.", .ratchet) { $0.rtcMode = .all },

@@ -106,8 +106,15 @@ out of the key). No chord stored — progressions are DERIVED. Requires a scale-
 - ✅ **C1 (pure core + tests) — DONE (2026-09-01):** `diatonicChord` (stacked thirds · 7th/add9 · close/open) +
   `voiceLeadTowardPrevious` (nearest inversion) + `walkNextDegree` (seeded gravity dice) + `degreeLabel` (quality-aware Roman
   numerals) in `Derivations.swift`, +4 concept-derived DerivationsTests (988 green). No engine wiring yet — the theory is locked.
-- **C2 (PATTERN mode):** the state-matrix degree panel + `applyStage`/hold integration reading the SCALE-door pool → a drawn
-  progression plays in any key. +RouterTest (the same matrix plays Cm vs F correctly).
+- ✅ **C2 (PATTERN mode) — DONE (2026-09-01):** `ProcessorType.chords` + CellMode + the full param surface (mode · key ·
+  8-step degree matrix · voicing · spread · rotate) + `applyStage(.chords)` — a held note TRIGGERS the diatonic chord for the
+  current degree, DERIVED from a stage-declared KEY (rank arithmetic), which `composeChainSet` folds upstream so
+  `[CHORDS→ARP/STRUM/DRONE]` all play the progression. Editor = MODE · KEY (root+scale) · the quality-aware degree matrix
+  (stateMatrixRadio) · VOICING · SPREAD; storefront card in HARMONY; +RouterTest (I in C = C E G · I in F transposes · V = G B D)
+  + fuzz roster. **v1 LIMITS (flag / C2b):** (1) the key is DECLARED ON THE STAGE — reading the SCALE door's declared key (the
+  §2 "plays in whatever key D declares") is C2b (needs the receiver scale threaded into the box). (2) a LONE `[CHORDS]` with no
+  downstream is SILENT — it works via `→STRUM/ARP/DRONE` (composeChainSet); a bare hold-path emission is a follow-up. (3) INVERT-
+  toward-previous is deferred (needs a per-cell last-chord memory across windows). (4) WINDOW is CELL only (ROW|BAR later).
 - **C3 (FOLLOW mode):** the door-note → degree read via the pedal machinery (kin to AVOID's door-live ref) + CARRY. +test.
 - **C4 (WALK mode):** the seeded gravity walk (replay-exact, like the ratchet-coin seed). +test.
 - **C5 (voicing/window polish + downstream composition checks).**

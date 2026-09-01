@@ -67,7 +67,8 @@ final class FuzzTests: XCTestCase {
                                       .riff,     // DRIVER — the rank stencil; hammered so wrap/oct/rest never strand a note
                                       .tap,                  // ROUTING — the mid-chain send; hammered so a parallel copy never strands a note
                                       .hocket,               // DRIVER — the wire-listening gate (GAPS/TRADE); hammered so the gate never strands a note across every edge
-                                      .avoid]                // FILTER — the per-note pitch filter (drop/snap vs a reference); hammered as head/upstream/downstream/hold for no stuck notes
+                                      .avoid,                // FILTER — the per-note pitch filter (drop/snap vs a reference); hammered as head/upstream/downstream/hold for no stuck notes
+                                      .chords]               // HARMONY — a held trigger → a derived diatonic chord; hammered (random key/degrees/voicing) so the set-replace never strands a note
         // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -98,6 +99,14 @@ final class FuzzTests: XCTestCase {
                 c.paramsA.avoidRoot = r.int(12); c.paramsA.avoidScale = ScaleType.allCases[r.int(ScaleType.allCases.count)]
                 c.paramsA.avoidMode = r.chance(0.5) ? .lock : .avoid; c.paramsA.avoidAction = r.chance(0.5) ? .move : .remove
                 c.paramsA.avoidWhat = AvoidWhat.allCases[r.int(AvoidWhat.allCases.count)]   // SAME | CLASH(ic1) | CLASH+(ic2) — the widened avoided sphere
+            }
+            if c.type == .chords && r.chance(0.8) {   // CHORDS — random key × drawn degrees (incl. REST/CARRY) × voicing; hammered so the set-replace never strands a note
+                c.paramsA.chordsMode = .pattern
+                c.paramsA.chordsRoot = r.int(12); c.paramsA.chordsScale = ScaleType.allCases[r.int(ScaleType.allCases.count)]
+                c.paramsA.chordsDegrees = (0..<8).map { _ in r.int(9) - 1 }   // −1 CARRY · 0…6 degree · 7 REST
+                c.paramsA.chordsVoicing = ChordVoicing.allCases[r.int(ChordVoicing.allCases.count)]
+                c.paramsA.chordsSpread = ChordSpread.allCases[r.int(ChordSpread.allCases.count)]
+                c.paramsA.chordsRotate = r.int(8)
             }
             if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)

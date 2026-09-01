@@ -1608,8 +1608,8 @@ final class Router {
                             box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                             S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .echo, .identity, .chance, .harmonize, .split, .avoid, .octave, .transpose:
-                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (SPLIT/AVOID filters · OCTAVE/TRANSPOSE shift) emit at the transition
+            case .echo, .identity, .chance, .harmonize, .split, .avoid, .chords, .octave, .transpose:
+                break   // echo's dry fired at the transition (repeats drain per-window); the set-shapers (CHANCE/HARMONIZE/SPLIT/AVOID/CHORDS · OCTAVE/TRANSPOSE shift) emit via the compose/hold path, not per-tick
             case .tutti:
                 if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
                     emitTuttiPatternRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
@@ -3670,6 +3670,19 @@ final class Router {
                 if iv0 != 0 { let v = harmVoice(base, iv0); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
                 if iv1 != 0 { let v = harmVoice(base, iv1); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
                 if iv2 != 0 { let v = harmVoice(base, iv2); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
+            }
+        case .chords:                                          // HARMONY — a held note TRIGGERS; the derived diatonic chord for the current degree REPLACES the set
+            let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
+            if cCnt > 0 {                                       // no input = no trigger → silent
+                let step = S > 0 ? Int((columnStart(m, S) / S).rounded()) : 0
+                let (deg, rest) = chordsDegreeAt(step: step, degrees: p.chordsDegrees, rotate: p.chordsRotate)
+                if !rest {
+                    let vel = max(1, src.velocity(src.srcAscending(0, filter: 0, cableMask: 0b1111)))   // the trigger's velocity (lowest input note)
+                    for n in diatonicChord(degree: deg, scaleTones: p.chordsScale.intervals, rootNote: 48 + p.chordsRoot,
+                                           voicing: p.chordsVoicing, spread: p.chordsSpread) where n >= 0 && n <= 127 {
+                        dst.noteOn(UInt8(n), velocity: vel, channel: 0)
+                    }
+                }
             }
         case .split:                                           // set-membership filter — RE-POOL when upstream of a driver
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)

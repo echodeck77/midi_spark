@@ -699,6 +699,33 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 3, "the fast CHANCE row fires repeatedly on bus B")
         assertNothingLeftSounding(e)
     }
+    // CHORDS C2 — PATTERN mode (2026-09-01): a held note TRIGGERS the diatonic chord for the current degree, DERIVED from the
+    // declared key (not the held pitch). Tested via [CHORDS → DRONE]: composeChainSet folds .chords upstream, DRONE holds the
+    // derived chord. Proves the derivation + "plays in any key" + different degrees.
+    func testChordsPatternDerivesTheDegreeInKey() {
+        func emitted(root: Int, scale: ScaleType, degree: Int) -> Set<UInt8> {
+            var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+            cs[ci].type = .chords
+            let b = box(colours: cs) { s in
+                s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                    var ch = ProcessorSlot(type: .chords)
+                    ch.params.chordsMode = .pattern; ch.params.chordsRoot = root; ch.params.chordsScale = scale
+                    ch.params.chordsDegrees = [Int](repeating: degree, count: 8)   // every column the same degree
+                    let dr = ProcessorSlot(type: .drone)
+                    x.processors = [ch, dr]; return x }()
+            }
+            let e = RecordingEmitter()
+            run(b, chord([60]), beats: 4, into: e)   // a single held trigger note (60) — CHORDS ignores its PITCH
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        }
+        // I in C major = C E G at the anchor octave (48), regardless of the held trigger (60).
+        XCTAssertEqual(emitted(root: 0, scale: .major, degree: 0), [48, 52, 55], "I in C = C E G (derived from the key, NOT the held 60)")
+        // The SAME degree in a different key transposes (plays in any key).
+        XCTAssertEqual(emitted(root: 5, scale: .major, degree: 0), [53, 57, 60], "I in F = F A C")
+        // A different degree — V in C = G B D (D wraps up an octave).
+        XCTAssertEqual(emitted(root: 0, scale: .major, degree: 4), [55, 59, 62], "V in C = G B D")
+    }
     // PER-ROW GLIDE + MOD leave-disposition on the ROW's own clock (Paul 2026-09-01): only per-row ECHO was asserted. Two GLIDE
     // cells (fast row vs slow row) → the fast row re-anchors far more often (its phrase-ends fire on its OWN clock, not the
     // scene default); two MOD cells likewise emit their CC updates on each row's clock. Guards the onlyRow scoping of glide/mod.

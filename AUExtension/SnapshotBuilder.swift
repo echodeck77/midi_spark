@@ -407,6 +407,15 @@ enum SnapshotBuilder {
         if let v = p.tapLevel { out.tapLevel = max(0, min(2, v)) }
         if let v = p.tapTo { out.tapTo = clamp(v, 0, 4) }
         if let v = p.tapMute { out.tapMute = v }
+        // CHORDS (ratified 2026-09-01)
+        if let v = p.chordsMode { out.chordsMode = v }
+        out.chordsRoot = p.chordsRootResolved
+        out.chordsScale = p.chordsScaleResolved
+        out.chordsDegrees = p.chordsDegreesResolved.map { clamp($0, -1, 7) }
+        out.chordsVoicing = p.chordsVoicingResolved
+        out.chordsSpread = p.chordsSpreadResolved
+        if let v = p.chordsRotate { out.chordsRotate = ((v % 8) + 8) % 8 }
+        if let v = p.chordsWalkSeed { out.chordsWalkSeed = v }
         if let v = p.rtcMode { out.rtcMode = v }
         if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
         if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }

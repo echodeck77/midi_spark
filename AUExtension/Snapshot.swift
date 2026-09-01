@@ -246,6 +246,15 @@ struct SnapParams {
     var tapLevel: Double = 1.0
     var tapTo: Int = 0                                    // 0 = THIS WIRE · 1–4 = emitter A–D
     var tapMute: Bool = false
+    // CHORDS (ratified 2026-09-01) — resolved. v1 (C2) = PATTERN, stage-declared key.
+    var chordsMode: ChordsMode = .pattern
+    var chordsRoot: Int = 0                               // 0…11 declared KEY root
+    var chordsScale: ScaleType = .major
+    var chordsDegrees: [Int] = [0, 0, 5, 5, 3, 3, 4, 4]   // 8-step matrix: −1 CARRY · 0…6 degree · 7 REST (default I–vi–IV–V)
+    var chordsVoicing: ChordVoicing = .triad
+    var chordsSpread: ChordSpread = .close
+    var chordsRotate: Int = 0
+    var chordsWalkSeed: Int = 0
 }
 
 struct SnapColour {

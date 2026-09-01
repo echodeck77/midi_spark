@@ -32,6 +32,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case tap = "TAP"           // ROUTING (AcceptanceCriteria-tap-processor, ratified): emits the stream AS-IT-STANDS at its chain position (LEVEL-scaled, to THIS wire | A–D) AND passes it onward unchanged — layered parallel outputs
     case hocket = "HOCKET"     // DRIVER (AcceptanceCriteria-hocket-processor, v1): plays its pool (WHAT) timed by LISTENING to another emitter wire (WHEN) — GAPS answers in its silences, TRADE hit-for-hit. The chains converse.
     case avoid = "AVOID"       // FILTER (unified 2026-08-31): a per-note pitch filter — the DOOR key-filter as a chain stage. REFERENCE (KEY · DOOR · WIRE · ALL SOUNDING) × MODE (LOCK keep-in | AVOID remove-in) × ACTION (REMOVE drop | MOVE snap). Placeable anywhere; masks clashes / locks to key. Politeness, not counterpoint.
+    case chords = "CHORDS"     // HARMONY (ratified 2026-09-01): derive a diatonic progression from a key by rank arithmetic — a held trigger → the chord for the current degree (PATTERN matrix · FOLLOW door-note · WALK gravity dice). A set-shaper like HARMONIZE, never a driver. No chord stored; plays in any key.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 // AVOID / LOCK (unified 2026-08-31, Paul) — one processor covers "avoid clashing with X" AND "lock to key": a per-note
@@ -363,7 +364,26 @@ struct ColourParams: Codable, Equatable {
     var tapLevel: Double? = 1.0                 // velocity scale on the tapped copy (the send fader; 0…1+)
     var tapTo: Int? = 0                         // 0 = THIS WIRE (layer on the cell's output) · 1–4 = emitter A–D (a parallel out)
     var tapMute: Bool? = false                  // silence the tap without removing it (A/B the layers)
+    // CHORDS (ratified 2026-09-01): derive a diatonic progression from a key. v1 (C2) = PATTERN — the drawn degree matrix,
+    // in a stage-declared key. C2b reads the SCALE door's declared key; C3 FOLLOW · C4 WALK. See SPEC-chords-stage.md.
+    var chordsMode: ChordsMode? = nil           // PATTERN (the drawn matrix) · FOLLOW (door note → degree) · WALK (gravity dice)
+    var chordsRoot: Int? = nil                  // 0…11 = the declared KEY root (v1; C2b prefers a SCALE door's root)
+    var chordsScale: ScaleType? = nil           // the declared KEY scale
+    var chordsDegrees: [Int]? = nil             // the 8-step PATTERN matrix: per step −1 = CARRY (empty) · 0…6 = degree I…vii · 7 = REST
+    var chordsVoicing: ChordVoicing? = nil      // TRIAD | 7TH | ADD9
+    var chordsSpread: ChordSpread? = nil        // CLOSE | OPEN
+    var chordsRotate: Int? = nil                // rotate the PATTERN matrix ◀n▶
+    var chordsWalkSeed: Int? = nil              // WALK: the base seed (RE-ROLL = new seed) — C4
+    var chordsModeResolved: ChordsMode { chordsMode ?? .pattern }
+    var chordsRootResolved: Int { let r = chordsRoot ?? 0; return (r % 12 + 12) % 12 }
+    var chordsScaleResolved: ScaleType { chordsScale ?? .major }
+    var chordsVoicingResolved: ChordVoicing { chordsVoicing ?? .triad }
+    var chordsSpreadResolved: ChordSpread { chordsSpread ?? .close }
+    /// The 8-step degree matrix, resolved — defaults to a I–vi–IV–V loop (0,0,5,5,3,3,4,4) so a fresh CHORDS plays.
+    var chordsDegreesResolved: [Int] { let d = chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; return d.count == 8 ? d : (d + [Int](repeating: -1, count: 8)).prefix(8).map { $0 } }
 }
+// CHORDS mode (SPEC-chords-stage §1): where the degree comes from.
+enum ChordsMode: String, Codable, CaseIterable { case pattern, follow, walk }
 // TIMING LANE (Paul 2026-08-22 §5): NUDGE's second mode — FIXED = one offset · LANE = a per-column pocket (a centred SLIDER LANE).
 enum NudgeMode: String, Codable, CaseIterable { case fixed = "FIXED", lane = "LANE" }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets

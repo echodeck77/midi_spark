@@ -1321,7 +1321,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, riff, hocket, avoid, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, riff, hocket, avoid, chords, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -1544,6 +1544,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .hocket:    return .hocket                           // DRIVER — plays its pool timed by listening to another wire (GAPS/TRADE)
     case .split:     return .split                            // set-membership filter — keep a subset of the chord (a HOLD transform / set filter)
     case .avoid:     return .avoid                            // per-note PITCH filter — re-pool upstream, punch/shift downstream (like SPLIT, but by pitch-class vs a reference)
+    case .chords:    return .chords                          // HARMONY — a held trigger → the diatonic chord for the current degree (a set-shaper like harmonize)
     case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
     case .channel, .nudge, .dest, .muteMatrix, .tap: return .identity   // UTILITY/ROUTING — note-transparent; the emit-side effect (channel/timing/emitter override · TAP's mid-chain send) applies elsewhere
@@ -1734,7 +1735,26 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .tap:       return "arrow.turn.up.right"          // ROUTING — the mid-chain send (the stream turns off to a parallel wire)
     case .hocket:    return "ear"                           // DRIVER — listens to a wire; plays in its gaps / trades with it
     case .avoid:     return "hand.raised"                   // FILTER — the per-note pitch filter (avoid clashes / lock to key)
+    case .chords:    return "pianokeys"                     // HARMONY — the derived diatonic progression
     }
+}
+
+/// CHORDS PATTERN (SPEC-chords-stage §2): the DEGREE at grid step `step` from the drawn matrix. −1 = CARRY (empty column →
+/// hold the previous chord) · 0…6 = degree I…vii · 7 = REST (explicit silence). CARRY scans back to the last real degree
+/// (wrapping the 8-step loop once); an all-carry matrix ⇒ REST. `rotate` strides the matrix. Returns (degree, isRest). Pure.
+func chordsDegreeAt(step: Int, degrees: [Int], rotate: Int) -> (degree: Int, rest: Bool) {
+    let n = degrees.count
+    guard n > 0 else { return (0, true) }
+    func at(_ s: Int) -> Int { degrees[((s + rotate) % n + n) % n] }
+    let here = at(step)
+    if here == 7 { return (0, true) }                       // explicit REST
+    if here >= 0 { return (here, false) }                   // a real degree
+    for back in 1...n {                                     // CARRY: walk back to the last non-empty column
+        let d = at(step - back)
+        if d == 7 { return (0, true) }                      // a rest holds the silence
+        if d >= 0 { return (d, false) }
+    }
+    return (0, true)                                        // all-carry ⇒ nothing to hold → rest
 }
 
 // MARK: - GENERATORS (user 2026-08-08) — pure pattern derivations, testable off-device.

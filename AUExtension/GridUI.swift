@@ -318,6 +318,7 @@ struct ProcessorBox: View {
         case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
         case .hocket:    return "play your notes in another synth's gaps — or trade hits with it (listen to a wire)"
         case .avoid:     return "remove or move notes that clash with a reference — or lock them to a key"
+        case .chords:    return "turn a held note into a diatonic chord progression, in key"
         }
     }
 
@@ -947,6 +948,24 @@ struct ProcessorBox: View {
             field("RATE — its decision grid", \.hocketRate) { seg(ArpRate.allCases.map(\.rawValue), sel: (p.hocketRate ?? .r1_8).rawValue) { i in setParam { $0.hocketRate = ArpRate.allCases[i] } } }
             Text("Plays YOUR held notes (WHAT) timed by the wire (WHEN). Put it on a later row than what it listens to.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        })
+        case .chords: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // HARMONY — a held note triggers the diatonic chord for the current degree; drawn once, plays in any key
+            let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+            let tones = (p.chordsScale ?? .major).intervals
+            heroField("MODE") { seg(["PATTERN", "FOLLOW", "WALK"], sel: (p.chordsMode ?? .pattern).rawValue.uppercased()) { i in setParam { $0.chordsMode = ChordsMode.allCases[i] } } }
+            field("KEY") { HStack(spacing: 6) {   // v1: the key is declared here; a SCALE door will override it (C2b)
+                numPair(p.chordsRoot ?? 0, 0...11, wrap: true, format: { names[(($0 % 12) + 12) % 12] }) { r in setParam { $0.chordsRoot = r } }
+                seg(ScaleType.allCases.map { $0.rawValue }, sel: (p.chordsScale ?? .major).rawValue) { i in setParam { $0.chordsScale = ScaleType.allCases[i] } }
+            } }
+            // THE DEGREE MATRIX (PATTERN): rows I…vii + REST · radio-per-column · quality-aware headers from the declared key.
+            stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7],
+                header: { (opt: Int) in AnyView(Text(opt == 7 ? "REST" : degreeLabel(degree: opt, scaleTones: tones)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))) },
+                onRotate: { d in setParam { $0.chordsRotate = ((($0.chordsRotate ?? 0) + d) % 8 + 8) % 8 } },
+                selected: { c in let a = p.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; let v = c < a.count ? a[c] : 0; return (v >= 0 && v <= 7) ? v : 0 },
+                set: { c, opt in setParam { var a = $0.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; while a.count < 8 { a.append(-1) }; if c < 8 { a[c] = opt }; $0.chordsDegrees = a } })
+            field("VOICING") { seg(["TRIAD", "7TH", "ADD9"], sel: (p.chordsVoicing ?? .triad) == .triad ? "TRIAD" : ((p.chordsVoicing ?? .triad) == .seventh ? "7TH" : "ADD9")) { i in setParam { $0.chordsVoicing = [ChordVoicing.triad, .seventh, .add9][i] } } }
+            field("SPREAD") { seg(["CLOSE", "OPEN"], sel: (p.chordsSpread ?? .close) == .close ? "CLOSE" : "OPEN") { i in setParam { $0.chordsSpread = i == 0 ? .close : .open } } }
+            Text("Feed it a scale channel + follow it with STRUM / ARP / DRONE.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         case .avoid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // FILTER — compares your notes against another source and keeps clear of it (AVOID) or locks onto it (LOCK)
             // LISTEN-TO source: INPUT = another MIDI input's live notes (.door) · EVERYTHING = every note now playing (.sounding).
