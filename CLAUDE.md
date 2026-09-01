@@ -210,7 +210,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   cell) RE-RECONCILES every window like forceColumnHold (reconcileOnly), so a legato CHORDS follows a LATE-armed latch + a
   changing FOLLOW note instead of freezing at window 1. +3 RouterTests (sustains on the pinned audition like a drone; FOLLOW
   picks up a note played AFTER the audition starts; sustains from a LATCHED receiver with no live keys). 1005 green, fuzz +
-  per-row-lap + no-stuck all green. **C2b REMAINING (flagged, not blockers):** INVERT-toward-
+  per-row-lap + no-stuck all green. **GENERALIZED (Paul: [CHORDS→ARP] plays, BYPASS the arp → silence; "extend to the other
+  relevant processors" — `bb59b20`):** bypassing the driver makes the tail a non-legato identity passthrough → the SAME fire-
+  once bug, but the CHORDS-scoped fix missed it. Reverted the CHORDS-only legato hack; folded a new `auditionSustain` (set when a
+  row is PINNED) into `soloSustain`, so a frozen-column preview (forceColumnHold OR the pinned audition) sustains EVERY hold —
+  identity/harmonize/chance/split/avoid/octave/transpose/chords + a bypassed-driver tail. Byte-identical on a SWEEPING row
+  (auditionSustain false unless pinned). +2 tests (1007 green): [CHORDS→bypassed arp] sustains; harmonize + chance sustain on
+  the audition. **C2b REMAINING (flagged, not blockers):** INVERT-toward-
   previous (pure `voiceLeadTowardPrevious` exists+tested; wiring needs per-cell last-chord memory) · WINDOW ROW|BAR (span
   family) · the editor still shows the card KEY picker when a SCALE door governs (inert then — a "(key from door)" caption is
   a device-owed UI nicety).**
