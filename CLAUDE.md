@@ -189,6 +189,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   resolver for what the machine represents + its play state (was 5 independent derivations off 4 @State axes that desync).
   `buildMachineHue` + the play button now DERIVE from it (+test). INCREMENT 2 (per-cell indicator adoption; visible D1/D3/D5
   fixes) is device-owed — see pending-tasks.**
+- **▶ LONG HOUSEKEEPING (4-survey) + AUTO-RUN self-player (2026-09-01, on `main`, `618eac5`…`9b0d285`; iOS builds, macOS 980
+  green; DEVICE eye/ear owed). Paul: "long housekeeping · an on-device automated run (not tests) · update the docs + remove
+  what's out of date." **AUTO-RUN (`618eac5`, DEBUG):** `AutoPilot` — a CALM self-player (distinct from ChaosDriver's
+  adversarial fuzzer): holds/releases a fixed musical chord loop via `chaosInjectMIDI` + turns on the free-run clock, so the
+  app plays ITSELF on device (hear + soak, no controller). Toggle: cog → DEV → "▶ AUTO-RUN"; os_log heartbeat (category
+  autorun) + a light stuck-note oracle. Never fuzzes/panics/edits. **HOUSEKEEPING (4 read-only survey agents — dead-code ·
+  adversarial bug-hunt · test-gap/refactor · docs — every finding re-verified):** ① ENGINE, a CONFIRMED stuck note
+  (`9b0d285`): a LIVE uniform↔multi clock switch (per-part-rate edit / lap toggle) orphaned an IMMORTAL glide anchor
+  (+ hung MOD CC) → now the switch phrase-ends every glide voice + flushes mod (both directions), holds stay seamless; +1
+  RouterTest (first coverage of the switch path). ② ragged-decode OOB hardening (`buildNormalizeStaging` at the load
+  boundary). ③ DEAD CODE net −~200 lines (routing-viz cluster · colourCensus · buildChainStageSets/BuildChainDot · 9 BuildPage/
+  VC/EditPage privates · a dead test helper). ④ REFACTOR: `DoorRing.notesSoundingAt` no longer allocs per render (reused
+  scratch, invariant 3); stale `% 8`→`% Snap.rows` comment. ⑤ DOCS: README (15→~29 types · tab-shell→rooms · 600+→~980 tests),
+  feature-status 27→29, terminology THE TABS→THE ROOMS, 4 false "NOT BUILT" AC banners → BUILT + length-processor self-
+  contradiction, removed 3 spent zero-citation docs. **DEFERRED (flagged in pending-tasks):** the big GridView/flowDiagram/
+  DragDropPage dead-code CASCADE (~520 lines, entangled — needs GridPos extraction, a dedicated pass); bug-hunt Finding 4
+  (PLAUSIBLE MONO+glide slot-reuse); the remaining per-row test gaps (play-layer rows 8–15 · the false-positive lap test with
+  8-entry rowLane · onlyRow legato · per-row glide/mod); the docs "needs-Paul" removals (cited spent PLANs + dedupe pairs).**
 - **▶ AVOID HARDENING — pianos redesign · EVERYTHING semantics · MOVE-in-scale-downstream · 20 tests (2026-08-31, on
   `main`, `15965eb`+`512c154`; iOS builds, macOS 974 green incl. fuzz; DEVICE eye/ear owed). Paul: the processor "feels
   inconsistent." A thorough 3-agent-informed end-to-end investigation (MIDI in → MIDI out) found + fixed two real
