@@ -51,7 +51,7 @@ private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 struct AutoLane: Equatable {
     var slot: Int = 0                       // the processor slot in the colour's chain
     var param: String = ""                  // the param this lane automates ("" ⇒ the processor's pre-mapped useful default)
-    var cells: [Int: Double] = [:]          // IMMEDIATE PUNCH (Paul 2026-09-01): per grid-cell value (col*Snap.rows+row → the param's native value), punched on the main grid
+    var cells: Set<Int> = []                // PUNCH = toggle (Paul 2026-09-01): the cells (col*Snap.rows+row) in the automation's EXTENT; the param RANGE is displayed as a ramp swept across them
 }
 private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
@@ -2025,7 +2025,7 @@ extension DiagView {
                     }
                 }
                 Spacer(minLength: 0)
-                if buildAutoArmed && !lane.cells.isEmpty { autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { buildSetAutoLane { $0.cells = [:] } } }
+                if buildAutoArmed && !lane.cells.isEmpty { autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { buildSetAutoLane { $0.cells = [] } } }
             }
             if chain.isEmpty { macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity) }
             else {
@@ -2104,19 +2104,21 @@ extension DiagView {
         if case .continuous(let lo, let hi) = p.kind { return (p, lo, hi) }
         return (p, 0, 1)   // binary/discrete punch as 0…1 for now
     }
-    // The punched value at grid cell `idx` as a 0…1 fraction (stored value, else the param's current value).
-    func buildAutoPunchFrac(_ idx: Int, _ ctx: (param: MacroControlParam, lo: Double, hi: Double)) -> Double {
-        let chain = buildFocusedChain()
-        let lane = buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoSel))]
-        let procIdx = chain.isEmpty ? 0 : min(lane.slot, chain.count - 1)
-        let cur = chain.isEmpty ? ctx.lo : (processorValues(chain[procIdx])[ctx.param.key] ?? ctx.lo)
-        let v = lane.cells[idx] ?? cur
-        return ctx.hi > ctx.lo ? max(0, min(1, (v - ctx.lo) / (ctx.hi - ctx.lo))) : 0
+    // PUNCH = TOGGLE (Paul 2026-09-01): tap flips a cell in/out of the current lane's EXTENT.
+    func buildAutoToggle(_ idx: Int) {
+        buildSetAutoLane { if $0.cells.contains(idx) { $0.cells.remove(idx) } else { $0.cells.insert(idx) } }
     }
-    // PUNCH the value at grid cell `idx` from a 0…1 fraction → the param's native value, stored on the lane.
-    func buildAutoPunch(_ idx: Int, frac: Double, _ ctx: (param: MacroControlParam, lo: Double, hi: Double)) {
-        let f = max(0, min(1, frac))
-        buildSetAutoLane { $0.cells[idx] = ctx.lo + f * (ctx.hi - ctx.lo) }
+    func buildAutoInExtent(_ idx: Int) -> Bool {
+        buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoSel))].cells.contains(idx)
+    }
+    // The RANGE displayed across the extent: a cell's ramp position (0…1) by its rank among the toggled cells in
+    // column→row order — so the toggled cells read as a ramp (the param sweeping low→high across the extent). nil = not in.
+    func buildAutoRampFrac(_ idx: Int) -> Double? {
+        let cells = buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoSel))].cells
+        guard cells.contains(idx) else { return nil }
+        let ordered = cells.sorted { ($0 / Snap.rows, $0 % Snap.rows) < ($1 / Snap.rows, $1 % Snap.rows) }
+        guard ordered.count > 1, let rank = ordered.firstIndex(of: idx) else { return 1 }
+        return Double(rank) / Double(ordered.count - 1)
     }
     // SHARED grid-cell body (Paul 2026-08-30 colour language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
@@ -2149,21 +2151,20 @@ extension DiagView {
         let punchable = punch != nil && id != nil && id == ddSelectedColourID
         let cellBody = roomsGridCellBody(id: id, selected: selected,
                           sweep: { buildNoteSweep(idx: idx, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
-        if punchable, let ctx = punch {
-            let frac = buildAutoPunchFrac(idx, ctx)
+        if punchable {
+            let ramp = buildAutoRampFrac(idx)   // nil = not in the extent; else its ramp position 0…1
             cellBody
                 .overlay(alignment: .bottom) {
-                    GeometryReader { g in
-                        VStack(spacing: 0) { Spacer(minLength: 0); Rectangle().fill(roomsAmber.opacity(0.55)).frame(height: g.size.height * CGFloat(frac)) }
+                    if let f = ramp {            // in the extent → a bottom-up fill whose height ramps across the toggled cells (the RANGE)
+                        GeometryReader { g in
+                            VStack(spacing: 0) { Spacer(minLength: 0); Rectangle().fill(roomsAmber.opacity(0.6)).frame(height: g.size.height * CGFloat(0.15 + 0.85 * f)) }
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 5)).allowsHitTesting(false)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 5)).allowsHitTesting(false)
                 }
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber, lineWidth: 1.5))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(ramp != nil ? 1 : 0.45), lineWidth: ramp != nil ? 1.5 : 1))
                 .frame(width: w, height: h).contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onChanged { v in
-                    guard h > 0 else { return }
-                    buildAutoPunch(idx, frac: 1 - Double(v.location.y / h), ctx)   // top = max, bottom = min
-                })
+                .onTapGesture { buildAutoToggle(idx) }   // TAP = toggle this cell in/out of the extent
         } else {
             cellBody
                 .frame(width: w, height: h).opacity(punch != nil ? 0.4 : 1)   // armed-but-other-colour cells recede
