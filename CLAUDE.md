@@ -200,7 +200,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   chord; PATTERN/WALK picked in the editor); ② C2b#1 DONE — CHORDS reads the KEY from a receiver door in SCALE mode
   (`receiverScaleRoot`/`Type` threaded box→Router→applyStage; −1 = not a scale door → card key, byte-identical), so it "plays
   in whatever key D declares." +3 RouterTests (FOLLOW tracks a changing held note under audition; a filled row plays a real
-  progression; a CHORDS on an E-major SCALE door sounds E G# B). **C2b REMAINING (flagged, not blockers):** INVERT-toward-
+  progression; a CHORDS on an E-major SCALE door sounds E G# B). **THE REAL "NOTHING SOUNDS" FIX (Paul pushed back — 2nd pass,
+  `0091e2b`):** the default-mode answer DODGED the bug. The SELECT/ferry audition parks the cell at col 0 of a row PINNED to
+  that column (rowLane single bit) — a row that NEVER re-transitions, so `emitColumnHolds` fires exactly ONCE. A legato drone
+  survives (immortal voice never closes); a NON-legato hold (CHORDS — and in fact HARMONIZE/CHANCE) strikes once, gates off at
+  the column end, never re-fires → "nothing sounds / one chord." (The earlier forceColumn test used a DIFFERENT path and masked
+  it.) FIX (scoped to CHORDS): ① CHORDS is now a LEGATO hold (sustains + adopts; a SWEEPING row re-strikes only when the chord
+  CHANGES — same degree in consecutive columns sustains); ② a PINNED continuous row (single held column — audition / single play
+  cell) RE-RECONCILES every window like forceColumnHold (reconcileOnly), so a legato CHORDS follows a LATE-armed latch + a
+  changing FOLLOW note instead of freezing at window 1. +3 RouterTests (sustains on the pinned audition like a drone; FOLLOW
+  picks up a note played AFTER the audition starts; sustains from a LATCHED receiver with no live keys). 1005 green, fuzz +
+  per-row-lap + no-stuck all green. **C2b REMAINING (flagged, not blockers):** INVERT-toward-
   previous (pure `voiceLeadTowardPrevious` exists+tested; wiring needs per-cell last-chord memory) · WINDOW ROW|BAR (span
   family) · the editor still shows the card KEY picker when a SCALE door governs (inert then — a "(key from door)" caption is
   a device-owed UI nicety).**

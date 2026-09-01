@@ -851,6 +851,32 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(notes.isSuperset(of: [55, 59, 62]), "G played AFTER the audition started → V sounds (picks up late input)")
         XCTAssertTrue(notes.isSuperset(of: [48, 52, 55]), "changing to C → RESPONDS with I — the audition follows the played note")
     }
+    func testChordsSustainsFromALatchedReceiverOnThePinnedAudition() {   // Paul: "I set the receiver to a key / to some chords" — the latch feed
+        var s = SceneState.empty()
+        var lane = [UInt8](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition row
+        s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a]); x.inputReceiver = 0
+            var sl = ProcessorSlot(type: .chords); sl.params.chordsMode = .pattern; sl.params.chordsRoot = 0; sl.params.chordsScale = .major
+            sl.params.chordsDegrees = [Int](repeating: 0, count: 8); x.processors = [sl]; return x }()
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .chords
+        var st = PluginState(colours: cs, scenes: [s])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let frozen = NotePool(); frozen.noteOn(60, velocity: 100, channel: 0, cable: 1); frozen.rebuildSorted()   // the latched "key/chord" on R1
+        let pools = [frozen, NotePool(), NotePool(), NotePool()]
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        for _ in 0..<40 {   // LIVE pool EMPTY (no keys), R1 ARMED → CHORDS must sound from the FROZEN pool, continuously
+            router.process(box: b, pool: NotePool(), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, latchMask: 0b0001, latchedPools: pools, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let stillOpen = e.ons.filter { $0.cable == 1 }.count - e.offs.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(stillOpen, 0, "a latch-armed CHORDS SUSTAINS on the pinned audition with no live keys (I in C = C E G)")
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 }), [0, 4, 7], "the chord derives from the latched key — I = C E G")
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
     func testChordsReadsTheKeyFromAScaleDoor() {   // C2b#1 (Paul device 2026-09-01): "derive its scale from a door set to SCALE"
         var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
