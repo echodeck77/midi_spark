@@ -1911,8 +1911,11 @@ extension DiagView {
             let interiorW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
             let interiorH = partCH * 8 + gap * 7                            // 8 rungs at the shrunk height
             let leftInset = cw + gap                                        // leftRail → the interior's left edge
-            // The lower region = everything under the ferry row: [interior at partCH] + [the large panel filling the rest].
+            // The lower region = everything under the ferry row. FIXED heights that sum EXACTLY to the column (like the
+            // SELECT grid — no maxHeight:.infinity, which floated the content): [interior] + [piano roll] + [macro].
             let lowerH = max(interiorH, g.size.height - 2 * pad - navH - gap - ch - gap)
+            let pianoH = partCH * 2 + gap                                   // the piano-roll strip = 2 cells (halved)
+            let macroH = max(0, lowerH - interiorH - pianoH - 2 * gap)      // the macro section fills the remainder EXACTLY
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
                     Color.clear.frame(width: leftInset)
@@ -1937,19 +1940,18 @@ extension DiagView {
                         // the merged-lane notation (the real view will fold every row's output into one "what will play" roll).
                         HStack(spacing: 0) {
                             Color.clear.frame(width: leftInset)
-                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: partCH * 2 + gap)   // 2 cells tall (halved, Paul 2026-09-01)
+                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: pianoH)   // 2 cells tall (halved, Paul 2026-09-01)
                         }
                         // SECTION 2 — the MACRO section: its header bars (the 4 tabs) + panel, filling the rest. Mocked (the
                         // BIND/PLAY/PUNCH/SPAN engine lands overnight — M3–M6 over the proven M1/M2 fold).
-                        roomsPartMacroSection().frame(maxWidth: .infinity, maxHeight: .infinity)
+                        roomsPartMacroSection().frame(maxWidth: .infinity).frame(height: macroH)
                     }
                     // the processor-editor card, when open, covers the WHOLE lower region (grid + roll + macro) so it keeps its room
                     roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW + gap + cw, h: lowerH)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)   // pin the column's content to the TOP of the GeometryReader (Paul 2026-09-01)
             .padding(pad)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)), alignment: .top)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
