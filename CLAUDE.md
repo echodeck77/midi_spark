@@ -193,9 +193,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   forceColumnHold sustains via soloSustain). Full surface: CellMode `.chords` + emblem `pianokeys` + typeParams editor (MODE ·
   KEY root+scale · quality-aware degree matrix via stateMatrixRadio · VOICING · SPREAD) + storefront card (HARMONY) + fuzz
   roster/randomizer. **+11 tests** (4 Derivations pure-core + 7 Router: PATTERN in-key/transpose/V · FOLLOW G→V/C→I · WALK
-  seeded/valid/replay-exact · lone sounds V · VOICING 7TH reaches the engine · [CHORDS→ARP] pitch-class-clean). **C2b DEFERRED
-  (flagged, not blockers):** read the SCALE door's declared key (thread the receiver scale into the box — "plays in whatever
-  key D declares") · INVERT-toward-previous (needs per-cell last-chord memory across windows) · WINDOW ROW|BAR (span family).**
+  seeded/valid/replay-exact · lone sounds V · VOICING 7TH reaches the engine · [CHORDS→ARP] pitch-class-clean). **DEVICE-FIX
+  PASS (2026-09-01, `a038a68`; Paul: "doesn't respond to midi; one chord on play"):** NOT a stuck-note bug — the storefront
+  seeded PATTERN, which IGNORES the played pitch (authored degree lane) and under the SELECT audition's frozen column shows
+  only degree[0] = "no response, one chord." TWO fixes: ① DEFAULT → FOLLOW (the responsive mode: play a note → its diatonic
+  chord; PATTERN/WALK picked in the editor); ② C2b#1 DONE — CHORDS reads the KEY from a receiver door in SCALE mode
+  (`receiverScaleRoot`/`Type` threaded box→Router→applyStage; −1 = not a scale door → card key, byte-identical), so it "plays
+  in whatever key D declares." +3 RouterTests (FOLLOW tracks a changing held note under audition; a filled row plays a real
+  progression; a CHORDS on an E-major SCALE door sounds E G# B). **C2b REMAINING (flagged, not blockers):** INVERT-toward-
+  previous (pure `voiceLeadTowardPrevious` exists+tested; wiring needs per-cell last-chord memory) · WINDOW ROW|BAR (span
+  family) · the editor still shows the card KEY picker when a SCALE door governs (inert then — a "(key from door)" caption is
+  a device-owed UI nicety).**
 - **▶ TIDE & EMBER COLOUR SCHEME + play-grid legibility + SELECT chequer/feedback + HOUSEKEEPING (2026-09-01, on `main`,
   `6537159`…`e32925b`; iOS builds, macOS 978 green; DEVICE eye/ear owed). Paul picked the **Tide & Ember** scheme with the
   **Even Dusk** play palette from a colour-study artifact. **PALETTE (`6537159`, GridUI + BuildPage tokens):** direction as

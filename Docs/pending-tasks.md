@@ -69,10 +69,11 @@ on the scale pool); the STATUS note says the three MODES + voicing await Paul's 
 - **✅ CHORDS — DONE / FEATURE-COMPLETE (2026-09-01, `64ed992`+`df5289c`+`2fd8d98`; 995 green, iOS builds; DEVICE ear owed).**
   C1 pure core → C2 PATTERN → C3 FOLLOW → C4 WALK → C5 lone/tail emission + voicing/downstream. All three modes + VOICING/SPREAD
   + the quality-aware degree matrix ship; wired via applyStage (upstream fold) + emitColumnHolds (lone/tail hold, no stuck
-  notes). **REMAINING C2b (flagged, NOT blockers):** ① read the SCALE door's declared key (thread the receiver scale into the
-  box — the §2 "plays in whatever key D declares"; today the key is declared ON THE STAGE); ② INVERT-toward-previous (the pure
-  `voiceLeadTowardPrevious` exists + is tested, but wiring it needs a per-cell last-chord memory across windows); ③ WINDOW
-  CELL|ROW|BAR (the span family — CELL only today).
+  notes). **DEVICE-FIX PASS (2026-09-01, `a038a68`; Paul "doesn't respond / one chord"):** default → FOLLOW (responsive: play →
+  chord) + C2b#1 DONE (CHORDS reads the key from a receiver door in SCALE mode). **REMAINING C2b (flagged, NOT blockers):**
+  ① INVERT-toward-previous (the pure `voiceLeadTowardPrevious` exists + is tested, but wiring it needs a per-cell last-chord
+  memory across windows); ② WINDOW CELL|ROW|BAR (the span family — CELL only today); ③ the editor still shows the card KEY
+  picker even when a SCALE door governs (inert — a "(key from door)" caption is a device-owed UI nicety).
 - **✅ MACRO-AUTOMATION M1+M2 — DONE (2026-09-01, `2aa17ed`+`f157ef8`; 999 green, iOS builds; engine-only). M1** = the 16-macro/
   two-species bank (8 slider + 8 toggle; timelines retired §K3, decode-safe). **M2** = the per-cell value store
   (`MacroCellValue` + `PluginState.macroCellValues`; builder-side fold `override ?? global`; no render change; persistence free).
