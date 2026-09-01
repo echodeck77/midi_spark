@@ -2,19 +2,9 @@ import SwiftUI
 // The DRAG&DROP page (and all its drag/palette/grid/machinery/dice code) was REMOVED (user 2026-08-13) — the BUILD
 // page superseded it. This file now holds ONLY the colour-management cluster still shared with BUILD (ddSelectColour/
 // ddCreateColour/ddColourShown/ddColourIsPlaced/ddRepresentativeCell/ddEngageSolo/ddEnsureSelection/ddSelectedColourID
-// + their internals) and `ddZone` (used by EditPage's flowDiagram).
-
-// Drop-zone frames for ddZone (still used by EditPage's flowDiagram to measure the last processor slot).
-struct DDZonePref: PreferenceKey {
-    static var defaultValue: [String: CGRect] = [:]
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { $1 } }
-}
+// + their internals). (The `ddZone`/`DDZonePref` drop-frame plumbing went with the flowDiagram, 2026-09-01.)
 
 extension DiagView {
-    // A cell/swatch reports its frame (in "dd" space) so a drag's end point can be hit-tested to a landing.
-    func ddZone(_ key: String) -> some View {   // internal so flowDiagram (EditPage.swift) can measure the last processor slot for the action-box line
-        GeometryReader { g in Color.clear.preference(key: DDZonePref.self, value: [key: g.frame(in: .named("dd"))]) }
-    }
     var ddSelectedColourID: String? {
         if let b = buildSelID { return b }   // BUILD's ID-based selection wins (supports ephemeral colours beyond the 16)
         if ddColourSel >= 0 && ddColourSel < colourIDs.count { return colourIDs[ddColourSel] }
@@ -39,9 +29,9 @@ extension DiagView {
         ddColourSel = i
         ddScopeToColour(colourIDs[i], anchor: nil)
     }
-    private func ddColourCells(_ id: String) -> [GridView.GridPos] {
-        var out: [GridView.GridPos] = []
-        for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { out.append(GridView.GridPos(col: c, row: r)) } }
+    private func ddColourCells(_ id: String) -> [GridPos] {
+        var out: [GridPos] = []
+        for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { out.append(GridPos(col: c, row: r)) } }
         return out
     }
     /// THE PER-COLOUR MODEL (user 2026-08-09): a colour IS a machine — selecting one scopes the edit to EVERY cell of
@@ -72,7 +62,7 @@ extension DiagView {
         ddStickyBuses = c.buses.isEmpty ? [.a] : c.buses
     }
     /// The placed cells of a colour — the cross-file-visible read `editPointedCell` uses to detect an unplaced colour.
-    func ddColourCellsPublic(_ id: String) -> [GridView.GridPos] { ddColourCells(id) }
+    func ddColourCellsPublic(_ id: String) -> [GridPos] { ddColourCells(id) }
     /// UNPLACED-colour routing: apply a cell mutation to a synthetic cell carrying the current sticky routing, then
     /// read the result back into the sticky — so a receiver/emitter tap on a not-yet-placed colour sticks + shows.
     func ddApplyStickyRoutingMutation(_ id: String, _ mutate: (inout Cell) -> Void) {
