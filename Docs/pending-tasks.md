@@ -5,18 +5,15 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-01._
 
-## ★ HOUSEKEEPING FLAGS — 2026-09-01 (surveyed + verified; DEFERRED, need a dedicated/careful pass)
-- **BIG DEAD-CODE CASCADE (the old-UI orphans, ~520+ lines):** `GridView` (whole perform-grid view, GridUI.swift — 0
-  instantiations) + its private subtree (cellView/pianoRollFace/rollAccumulate/RollNote/sealLayout/sealNodePoints/drawSeal/
-  GridGeometry/liveBeat) + `flowDiagram` subtree (EditPage.swift — 0 callers: cellChain/editColourScoped/rcx/slotOrGhost/
-  flowSlot/receiverBox/emitterBox/splitAffordance/flowGhost/mainDestHue/toggleMainBus/editPointedCell/dinMark/DINPins/DINPlug)
-  + `DragDropPage.swift` (whole file — DDZonePref/ddZone, ddZone's only caller is flowDiagram). Order: remove flowDiagram +
-  DragDropPage.swift first (orphans ddZone), THEN re-grep `GridView.GridPos` — if it's then only used inside GridView, remove
-  GridView WHOLESALE; else extract GridPos to a standalone type. Compile-verified, device-independent (nothing rendered), but
-  an entangled cluster → its OWN commit with a full build+test. `armLadderRung` (VC) + its ladder-cluster callees left too.
-- **BUG-HUNT Finding 4 (PLAUSIBLE):** MONO voice-steal closes an immortal glide anchor's slot without clearing
-  `glideVoices[…].slot` → a later glide update can wrong-close a REUSED slot (spurious off). Needs `[GLIDE]`+MONO on one
-  emitter + slot-reuse timing. Fix locus: clear the glide bookkeeping when MONO steals a glide-anchor voice. Verify carefully.
+## ★ HOUSEKEEPING FLAGS — 2026-09-01 (surveyed + verified)
+- **✅ DONE — BIG DEAD-CODE CASCADE (`7b9d160`, ~820 lines):** removed the orphaned `GridView` (0 instantiations) + its
+  subtree + the GridView-only seal render island + GridGeometry + accentCyan/cellBg/cellEdge (GridUI −604); the `flowDiagram`
+  render subtree + the DIN-icon cluster (EditPage −211); the dead `DDZonePref`/`ddZone` (DragDropPage). `GridPos` was EXTRACTED
+  to a standalone top-level struct (still used by EditSelection + colour-scope helpers). Per-symbol verified — the survey's
+  cascade list was imprecise (cellChain is live via the AU; DragDropPage is mostly the live shared colour cluster). iOS builds.
+  (Left: `armLadderRung` (VC) + its ladder-cluster callees — a separate small cluster.)
+- **✅ DONE — BUG-HUNT Finding 4 (`9047463`):** MONO voice-steal now calls `forgetGlideAnchorAtSlot` when it closes a glide
+  anchor (re-centre bend + clear the GlideVoice) so a reused slot can't be wrong-closed; +1 RouterTest (glide+MONO+steal path).
 - **PER-ROW ENGINE TEST GAPS (test-gap survey, HIGH value — silent stuck/dropped-note class):** (1) the per-row LAP test
   `testPerRowLapLoopsEachRowsOwnColumns` is a FALSE POSITIVE — it builds an 8-entry `rowLane` that SnapshotBuilder discards
   (only forwards count==16) → it never actually laps; fix to 16-entry + a discriminating assertion. (2) play-layer rows 8–15

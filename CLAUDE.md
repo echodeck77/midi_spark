@@ -207,6 +207,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   DragDropPage dead-code CASCADE (~520 lines, entangled — needs GridPos extraction, a dedicated pass); bug-hunt Finding 4
   (PLAUSIBLE MONO+glide slot-reuse); the remaining per-row test gaps (play-layer rows 8–15 · the false-positive lap test with
   8-entry rowLane · onlyRow legato · per-row glide/mod); the docs "needs-Paul" removals (cited spent PLANs + dedupe pairs).**
+- **▶ FOLLOW-UP: the GridView cascade + MONO+glide, both DONE (2026-09-01, on `main`, `9047463`+`7b9d160`; iOS builds, macOS
+  981 green). Paul: "do the gridView/flowdiagram/dragdroppage dead code cascade and the mono+glide issue." **MONO+GLIDE
+  (`9047463`, engine):** the RACK MONO steal could close an IMMORTAL glide anchor without telling the glide subsystem →
+  `glideVoices[k].slot` dangled at a reused slot → a later glide update wrong-closed it (spurious off). The steal now calls
+  `forgetGlideAnchorAtSlot` (re-centre bend + clear the GlideVoice); +1 RouterTest (glide+MONO+steal path). **CASCADE
+  (`7b9d160`, ~820 lines dead UI):** removed the orphaned `GridView` (0 instantiations) + subtree + its seal render island +
+  GridGeometry + theme tokens (GridUI −604) · the `flowDiagram` subtree + DIN-icon cluster (EditPage −211) · the dead
+  `DDZonePref`/`ddZone` (DragDropPage). `GridPos` EXTRACTED to a standalone type (live via EditSelection). Per-symbol verified
+  — the survey's list was imprecise (cellChain is live via the AU; DragDropPage is mostly the live shared colour cluster).**
 - **▶ AVOID HARDENING — pianos redesign · EVERYTHING semantics · MOVE-in-scale-downstream · 20 tests (2026-08-31, on
   `main`, `15965eb`+`512c154`; iOS builds, macOS 974 green incl. fuzz; DEVICE eye/ear owed). Paul: the processor "feels
   inconsistent." A thorough 3-agent-informed end-to-end investigation (MIDI in → MIDI out) found + fixed two real
