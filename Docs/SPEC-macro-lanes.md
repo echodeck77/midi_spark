@@ -1,3 +1,10 @@
+> ⛔ SUPERSEDED + RETIRED (Paul, 2026-08-29; ferried to code 2026-09-01). The macro system is now
+> `Docs/INSTRUCTIONS-macro-automation.md` (RATIFIED): 16 macros in two species (8 toggle + 8 slider),
+> four tabs BIND · PLAY · PUNCH · SPAN. The grid-as-canvas + ×-spans cover this band's whole job
+> (LFO-style passes = slider SPANs), so a separate below-grid lane band would duplicate the surface.
+> Kept only as the design paper-trail. The wave-chip idea (sine/tri/ramp fills) survives as a
+> possible SPAN-tab fill brush (uncommissioned).
+
 # SPEC → Code — THE MACRO LANES (Paul, 2026-08-29: "below the
 # grid — macros, LFO-style passes" — captured, awaiting his word;
 # pairs with the 16-STEP grid setting)

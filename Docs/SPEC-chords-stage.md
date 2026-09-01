@@ -45,3 +45,20 @@ span family).
 Added to the WANTED-SOON list — implementation intended, not yet
 ratified (the §D convention): all three modes + voicing as
 specced, awaiting his ratifying word before build.
+
+## §2 — THE DEGREE MATRIX, DETAILED (Paul, 2026-08-29 — the
+## PATTERN mode's panel, canon; CHORDS is ratified)
+- **EIGHT ROWS = the seven degrees + REST** (the house geometry).
+  Columns = steps; radio-per-column; **empty column = CARRY the
+  previous chord** (progressions hold by default); REST = the
+  explicit silence row.
+- **QUALITY-AWARE HEADERS**: the rows label themselves from the
+  DECLARED key — I · ii · iii°… with the right maj/min/dim
+  glyphs for the actual scale, self-updating on key change
+  (teach-in-place doing the theory).
+- VOICING chips beneath (§1's set: TRIAD|7TH|ADD9 · CLOSE|OPEN ·
+  invert-toward-previous) · WINDOW = the hold span · ROTATE
+  ◀n▶ · the e-brush legal on the matrix as everywhere.
+- The setup named: receiver D = SCALE → a D-fed chain →
+  [CHORDS → STRUM/ARP/DRONE…] — the progression drawn once,
+  playing in whatever key D declares.

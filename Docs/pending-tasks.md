@@ -46,6 +46,19 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-0
   (independent of palette); ④ warm-shift the 16 machine `colourHexes` (left a full spectrum — only if Paul wants it).
 
 
+## ★★★ FERRY INTAKE 2026-09-01 — macro-automation (RATIFIED) + CHORDS §2 (canon) — PLAN: `Docs/PLAN-incoming-2026-09-01.md`
+Two docs read + merged from `_dear_claude_code/` (inbox cleared): **`INSTRUCTIONS-macro-automation.md`** (NEW, RATIFIED — the
+one automation currency; 16 macros in TWO SPECIES = 8 TOGGLE + 8 SLIDER; four collapsible tabs on the part page: BIND · PLAY ·
+PUNCH · SPAN; base⊕offset, boundary-deferred, drawn=config; overrides survive mutate/randomize). **SUPERSEDES `SPEC-macro-lanes.md`**
+(now tombstoned — the grid-as-canvas + ×-spans cover the band's whole job; the wave-chip = a possible uncommissioned SPAN fill).
+And **`SPEC-chords-stage.md`** grew a **§2 DEGREE MATRIX (canon)** — 8 rows (I–VII + REST) · radio-per-column · empty column =
+CARRY the previous chord · quality-aware self-updating headers (I·ii·iii°…) from the declared key · VOICING/WINDOW/ROTATE chips.
+CHORDS itself is RATIFIED (derive diatonic progressions from a key: FOLLOW·PATTERN·WALK modes; no chord stored — rank arithmetic
+on the scale pool); the STATUS note says the three MODES + voicing await Paul's ratifying word before build, §2 is canon.
+- **Read the grounded plan `Docs/PLAN-incoming-2026-09-01.md` before building either.** Macro-automation is the bigger lift
+  (four tabs + the toggle/slider species + per-cell/per-span application). CHORDS reuses the SCALE-door pool + the state-matrix
+  + pedal machinery (kin to AVOID/§2 the degree matrix) — build after Paul ratifies the modes.
+
 ## ★★★ FERRY INTAKE 2026-08-31 — the ratified batch (DETAILED PLAN: `Docs/PLAN-incoming-2026-08-31.md`)
 Five docs merged/added (interface-redesign +§8/§8b/§9 · scale-door +§6/§7/§7b · room-palettes · listening-set · macro-lanes).
 `Docs/PLAN-incoming-2026-08-31.md` is the grounded, file:line implementation plan — read it before building any of these.
