@@ -5633,6 +5633,29 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MONO stealing a GLIDE anchor (Paul 2026-09-01 bug-hunt Finding 4): a MONO voice-steal can close an IMMORTAL glide
+    // anchor; the glide subsystem must FORGET that slot (forgetGlideAnchorAtSlot), else a later glide update wrong-closes the
+    // now-reused slot (a spurious off). Put an ARP (strikes changing notes → repeatedly steals under MONO) AND a [GLIDE] on
+    // the SAME emitter (bus A) with MONO armed, hold a chord across many windows, release, stop → the churn must leave nothing
+    // stuck AND stay deterministic (a stale-slot wrong-close is order-sensitive). First coverage of the glide+MONO+steal path.
+    func testMonoStealingAGlideAnchorLeavesNoStuckNotes() {
+        func makeBox() -> SnapshotBox {
+            var cs = arpColours(); cs[colourIDs.firstIndex(of: "orange")!].type = .glide
+            var s = SceneState.empty()
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])                     // ARP on A — changing notes steal under MONO
+            s.cells[0][1] = { var x = Cell(colourID: "orange", buses: [.a])         // GLIDE on A — its anchor is the immortal voice MONO steals
+                var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12
+                g.params.glidePriority = .last; g.params.glideTime = 0.1; x.processors = [g]; return x }()
+            var st = PluginState(colours: cs, scenes: [s]); st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0]   // MONO LAST on A
+            return SnapshotBuilder.build(from: st)
+        }
+        let e = RecordingEmitter(); run(makeBox(), chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.count, 0, "notes sounded on A")
+        assertNothingLeftSounding(e)
+        let e2 = RecordingEmitter(); run(makeBox(), chord([60, 64, 67]), beats: 16, into: e2)
+        XCTAssertEqual(e.events.count, e2.events.count, "deterministic under the glide+MONO churn (a stale-slot wrong-close would vary)")
+    }
+
     // MARK: - THE RACK — POCKET (per-emitter timing feel)
 
     func testPocketLagDelaysOnsetAndIsRackGated() {

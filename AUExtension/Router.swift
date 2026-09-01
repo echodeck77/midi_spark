@@ -1348,6 +1348,7 @@ final class Router {
                 }
                 if !wins { return -1 }
                 for i in voices.indices where voices[i].active && !voices[i].silent && voices[i].bus == UInt8(bus) && voices[i].note != note {
+                    if voices[i].glideAnchor { forgetGlideAnchorAtSlot(i, atSample: onSample, out: out) }   // MONO stole a glide anchor → drop the glide's stale slot ref (else a reused slot is wrong-closed later)
                     closeVoice(i, atSample: onSample, out: out)
                 }
             }
@@ -2710,6 +2711,17 @@ final class Router {
     private func glidePhraseEndColumn(_ column: Int, atSample: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
         guard column >= 0 && column < Snap.cols else { return }
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r { glidePhraseEnd(column * Snap.rows + r, atSample: atSample, out: out) }
+    }
+    /// An EXTERNAL closer (MONO voice-steal) just closed the voice at `slot`. If that voice was a GLIDE anchor, the glide
+    /// subsystem still holds `glideVoices[k].slot == slot` — a dangling reference to a now-freed (and possibly REUSED) slot,
+    /// so a later glide update would wrong-close whatever voice took the slot (a spurious note-off). Forget the bookkeeping:
+    /// re-centre the anchor's bend/CC (else it's left off-centre) + clear the GlideVoice. The note-off itself was already
+    /// emitted by the external closer. (Paul 2026-09-01 bug-hunt Finding 4.)
+    private func forgetGlideAnchorAtSlot(_ slot: Int, atSample: Int64, out: MIDIEmitter?) {
+        for k in glideVoices.indices where glideVoices[k].anchor >= 0 && Int(glideVoices[k].slot) == slot {
+            resetGlideControllers(glideVoices[k], atSample: atSample, out: out)
+            glideVoices[k] = GlideVoice()
+        }
     }
     /// Transport/scene/panic flush: the immortal glide notes are closed by allNotesOff — just forget the state.
     private func flushGlide(atSample: Int64 = renderSampleImmediate, out: MIDIEmitter? = nil) {
