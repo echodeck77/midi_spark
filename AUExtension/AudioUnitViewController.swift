@@ -256,7 +256,6 @@ struct DiagView: View {
     @State var buildSelectGreyAlt: Bool = false          // SELECT machine grey ALTERNATES between two bright shades on each new selection, so a new pick visibly shifts even though the audition stays "gsAud" (Paul 2026-09-01)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
     @State var buildGridSelQuantStep = false             // §2 QUANTIZE: INSTANT (default — snappy switching) | STEP
-    @State var buildChainStages: [[BuildChainDot]] = []   // the selected chain's per-processor OUTPUT note sets → the comets flowing along the machine chain (Paul 2026-08-31)
     @State var buildGridSelActiveRoll: [GridSelBar] = []  // the auditioning chain's piano-roll (offline render, shown on the active cell + right column)
     @State var buildGridSelCellRoll: [Int: [GridSelBar]] = [:]   // per-CELL piano-roll fingerprints (bg-computed per deal/tab) — the drifting note face on every present cell (Paul 2026-08-26)
     @State var buildGridSelRowRoll: [Int: [GridSelBar]] = [:]    // per-ROW-chip piano-roll fingerprints (bg-computed on open) — the row selectors get the same drifting face
@@ -307,7 +306,6 @@ struct DiagView: View {
     // (release = done). No latch/toggle. Nil = taps are triggers.
     // /btw ①: the SESSION CLIPBOARD — COPY captures a cell here; it PERSISTS after the hold releases; PASTE
     // stamps it (PASTE is disabled while this is nil). Replaces the old per-hold moveSource/copySource.
-    @State var clipboard: Cell? = nil
     // PLACE toggle-with-restore (user 2026-07-28): re-tapping a cell placed this hold undoes it — placed-on-empty
     // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
     @State var selCol = -1
@@ -452,7 +450,6 @@ struct DiagView: View {
     // §5b COLUMN-SUBSET LAP: the PERFORM multi-column hold reports the held-set bitmask here. Push it to
     // the engine (ephemeral, never persisted) and keep a copy for the key LOOP highlight. Cleared to 0
     // on release (the overlay reports empty) and on the EDIT switch (see the mode toggle).
-    func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
 

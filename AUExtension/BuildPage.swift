@@ -42,14 +42,6 @@ private enum BuildGeom {
 }
 
 // Placeholder cast hues (mockup palette). Real colours come from the part's cast when the palette is wired.
-private let buildHues: [Color] = [
-    Color(red: 0.91, green: 0.70, blue: 0.23),   // amber
-    Color(red: 0.19, green: 0.83, blue: 0.91),   // cyan
-    Color(red: 0.29, green: 0.49, blue: 1.00),   // blue
-    Color(red: 0.91, green: 0.36, blue: 0.44),   // red
-    Color(red: 0.35, green: 0.84, blue: 0.48),   // green
-    Color(red: 0.69, green: 0.42, blue: 0.91),   // purple
-]
 private let buildPanel = Color(red: 0.08, green: 0.09, blue: 0.11)
 private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 private let buildDim   = Color(white: 0.36)
@@ -94,7 +86,6 @@ struct BuildSnapshot {
     var doc: PluginState
 }
 private let buildRollLife = 1.6   // seconds a note takes to cross the cell
-private let buildPartInk = Color(white: 1).opacity(0.9)  // §2 BRIGHTNESS = WHICH PART: a NEUTRAL bright accent (no second hue) — the part's presence across bench + stage
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
 // The part grid's ROW-BUTTON mode (Paul 2026-08-16): a radio that changes what the left row buttons DO — SELECT the
@@ -2570,10 +2561,6 @@ extension DiagView {
     }
     // A structural signature of the selected chain (type + bypass per slot + which colour) — the comets recompute when it
     // changes. (Param-only edits keep the same signature; the comets refresh on the next structural change / reselect — v1.)
-    private var buildChainStructSig: String {
-        selectedColourChain().map { "\($0.type.rawValue)\($0.bypassed ? "b" : "")" }.joined(separator: "|") + "@" + (ddSelectedColourID ?? "")
-            + "#" + buildChainLiveChord.map(String.init).joined(separator: ",")   // recompute when the live input chord changes
-    }
     // NOTE COMETS along the MIDI chain (Paul 2026-08-31): a CIRCLE at each end (the door entry, aligned with the input/A
     // side + the top chain row · the wire exit, aligned with the D side), and comets flowing DOOR ┈▶ slot 0 ┈▶ … ┈▶ slot 7
     // ┈▶ WIRE. Each SEGMENT carries that stage's real MIDI (buildChainStages: the offline OUTPUT after each processor), so a
@@ -3188,10 +3175,6 @@ extension DiagView {
     }
     // The row button's background: normally the muted rail; but in PLACE/MUTATE, if the SELECTED colour (the icon
     // colour) is DARK, invert to a light button so the icon still reads. (Paul 2026-08-16)
-    private var buildRowButtonFill: Color {
-        if buildRowMode != .select, let cid = ddSelectedColourID, buildIsDark(buildBaseHex(cid)) { return Color.white.opacity(0.9) }
-        return Color.white.opacity(0.11)
-    }
 
 
 
@@ -3255,11 +3238,29 @@ extension DiagView {
     private func buildIsEmptySlot(_ s: ProcessorSlot) -> Bool { s.type == .passgate && s.bypassed }
     private func buildPassthroughSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }
 
+    // Normalise a decoded staging grid to EXACTLY 8×8 (Paul 2026-09-01 bug-hunt Finding 3): a corrupt / truncated / hand-
+    // edited saved doc can decode stagingCells/Sel with < 8 columns or short columns (BuildPart.init only substitutes the
+    // default when the KEY is absent, not when it's present-but-ragged). The write/tap siblings (buildStagingTap / buildSetRow
+    // / buildSelectRow / buildPopulateTab / buildPasteChain / buildSeedTab1) index [c][r] UNGUARDED → a trap. Pad/clamp on the
+    // load boundary so every downstream write is in-bounds (the read siblings were already ragged-safe).
+    private func buildNormalizeStaging(_ cells: [[String?]], _ sel: [Int]) -> (cells: [[String?]], sel: [Int]) {
+        var c = cells
+        if c.count > 8 { c = Array(c.prefix(8)) }
+        while c.count < 8 { c.append(Array(repeating: nil, count: 8)) }
+        for i in c.indices {
+            if c[i].count > 8 { c[i] = Array(c[i].prefix(8)) }
+            while c[i].count < 8 { c[i].append(nil) }
+        }
+        var s = sel
+        if s.count > 8 { s = Array(s.prefix(8)) }
+        while s.count < 8 { s.append(-1) }
+        return (c, s)
+    }
     private func buildLoadPart(_ i: Int) {
         guard i >= 0, i < buildParts.count else { return }
         buildCurrentPart = i
         let p = buildParts[i]
-        buildStagingCells = p.stagingCells; buildStagingSel = p.stagingSel
+        let ns = buildNormalizeStaging(p.stagingCells, p.stagingSel); buildStagingCells = ns.cells; buildStagingSel = ns.sel
         buildRowChain = p.rowChain; buildRowShade = p.rowShade; buildRowUnder = p.rowUnder
         buildSelID = p.selID; ddColourSel = p.selID.flatMap { colourIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast; buildCastSlots = p.castSlots
         buildRowReceiver = p.rowReceiver ?? Array(repeating: nil, count: 8)   // PER-ROW I/O — old parts have nil → all rows inherit (Paul 2026-08-18)
@@ -3452,16 +3453,6 @@ extension DiagView {
     // Long-pressing an empty cast cell CLONES the last-used colour: a brand-new colour carrying the SAME machine
     // (settings) as the currently-selected colour — the last one placed or whose settings were changed — under a
     // fresh unique hue. Falls back to a blank colour when nothing is selected yet. (Paul 2026-08-17)
-    private func buildCloneLastColour(atSlot slot: Int? = nil) {
-        guard let src = buildSelID else { buildAddCastColour(atSlot: slot); return }
-        buildRecordUndo()   // BUILD UNDO: record BEFORE minting so undo reverts the whole clone, not just the slot placement (U6 fix 2026-08-27)
-        let id = buildNewColour(hex: buildDistinctHue(), machine: buildColourMachine(src))   // SAME settings, a genuinely DIFFERENT colour (never reuse the source hue)
-        if !buildPartCast.contains(id) { buildPartCast.append(id) }
-        buildPlaceCastSlot(id, slot)                                                          // land it on the LONG-PRESSED cell (else first-free)
-        buildEnforceCastHues()                                                                // strong rule: never two alike in the cast
-        buildPulseColourID = nil                                                              // the clone IS the commit — never leave the SOURCE strobing
-        buildSelectID(id)
-    }
     private func buildAddCastColour(atSlot slot: Int? = nil) {
         buildRecordUndo()   // BUILD UNDO: record BEFORE minting so undo reverts the new colour + its placement (U6 fix 2026-08-27)
         let id: String
@@ -3487,15 +3478,6 @@ extension DiagView {
     // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette colour (carrying its machine); an existing
     // colour is simply selected. Either way the colour is SELECTED (its machine loads into the footer) — and THE TARGET
     // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
-    private func buildCommitPulse() {
-        guard let pid = buildPulseColourID else { buildPulseColourID = nil; return }
-        buildRecordUndo()   // BUILD UNDO: committing the pulsing candidate into the cast (U6 fix 2026-08-27 — buildPlaceCastSlot no longer self-records)
-        if !buildPartCast.contains(pid) { buildPartCast.append(pid); buildPlaceCastSlot(pid, nil); buildEnforceCastHues() }   // LAST TOUCHED promotes the colour INTO the cast (first-free slot)
-        if pid == buildAuditionID { buildAuditionID = nil }           // it graduated from candidate to a real cast colour
-        buildSelectID(pid)                                             // select it (loads its machine into the footer)
-        buildPulseColourID = nil; buildPulseChain = []
-        refreshFromDocument()
-    }
     // Create a colour on BUILD as a PASSTHROUGH machine (empty chain → unprocessed MIDI). A bare `defined` colour
     // has a nil templateChain, which the engine resolves via the LEGACY A-face — and every default colour is type
     // .arp, so it would play an arp the user can't see in the (empty) chain. Store a passthrough placeholder so the
@@ -4021,18 +4003,6 @@ extension DiagView {
         let raw = period > 0 ? (musical / period).truncatingRemainder(dividingBy: 1) : 0
         return CGFloat(max(0, min(1, raw < 0 ? raw + 1 : raw)))
     }
-    @ViewBuilder private func buildIOChip(_ s: String, on: Bool = false, keys: Bool = false, fill: Bool = false, action: (() -> Void)? = nil) -> some View {
-        Text(s).font(.system(size: 9, weight: on ? .heavy : .regular, design: .monospaced))
-            .foregroundColor(on ? Color.black : (keys ? buildCyan : buildDim))
-            .padding(.horizontal, 7)
-            .frame(maxWidth: fill ? .infinity : nil).frame(height: 48)   // fill → the row spreads evenly to the cast width; height doubled (24→48)
-            .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))   // ON keeps the accent (armed); idle mutes
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))   // §0: neutral border when idle (was standing cyan)
-            .contentShape(Rectangle())
-            .onTapGesture { action?() }
-    }
-
-
     // CANCEL: revert the CURRENT target colour to the snapshot taken when the editor opened, then close. (Exit any other
     // way = SAVE the live edits.) After an overwrite-and-follow the snapshot is the target's committed chain (a no-op).
     private func buildEditorCancel() {
@@ -5043,41 +5013,6 @@ extension DiagView {
 
 // One note of a GRID SELECTOR chain's piano-roll fingerprint — normalized 0…1 (x = time, y = pitch, w = gate).
 struct GridSelBar: Equatable { let x0: Double; let x1: Double; let y: Double; let vel: Double }
-// One note EVENT flowing through the chain as a comet: its ONSET + DURATION (0…1 over the loop), pitch LANE (0 top …
-// 1 bottom, normalised across the whole chain) and velocity. Grouped per SEGMENT of the flow (index 0 = the input to
-// slot 0 · index k = the OUTPUT of slot k−1). So a held chord = a long-duration comet, an arp = short rhythmic ones. (Paul 2026-08-31)
-struct BuildChainDot: Equatable { let onset: Double; let dur: Double; let lane: Double; let vel: Double }
-// The chain's per-stage note EVENTS, computed offline: the source chord, then the real MIDI OUTPUT after each processor slot
-// (Dice.runRecorder on the chain PREFIX 1…8 — so `stages[k]` is exactly what leaves slot k−1), each note paired on→off for
-// its onset + duration + velocity. Lanes are normalised across all stages so a note keeps its height as it flows. Empty/
-// short chains pad with bypassed passthroughs. (Paul 2026-08-31)
-func buildChainStageSets(_ chain: [ProcessorSlot], chord: [Int]) -> [[BuildChainDot]] {
-    // NO INPUT → NO COMETS (Paul 2026-08-31): the comets reflect the MIDI ACTUALLY COMING THROUGH — the live held chord —
-    // so a generator (RIFF/ARP) shows nothing until something is held, and the notes match what's really fed in.
-    guard !chain.isEmpty, !chord.isEmpty else { return [] }
-    var padded = chain
-    while padded.count < 8 { var s = ProcessorSlot(type: .passgate); s.bypassed = true; padded.append(s) }
-    // Each stage → (note, onset01, end01, vel01). Stage 0 = the input chord, held across the whole loop.
-    let src = chord.sorted()
-    var raw: [[(note: Int, on: Double, end: Double, vel: Double)]] = [src.map { (note: $0, on: 0.0, end: 1.0, vel: 1.0) }]
-    let srcChord = chord.map { UInt8(clamping: $0) }
-    for k in 1...8 {
-        let rec = Dice.runRecorder(Array(padded.prefix(k)), chord: srcChord)
-        let ons = rec.ons.filter { $0.cable == 1 }
-        let maxS = Double(max(Int64(1), max(ons.map { $0.sample }.max() ?? 1, rec.offs.map { $0.sample }.max() ?? 1)))
-        var ev: [(note: Int, on: Double, end: Double, vel: Double)] = []
-        for on in ons {
-            let off = rec.offs.filter { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }.map { $0.sample }.min()
-            let o = Double(on.sample) / maxS
-            let e = off.map { Double($0) / maxS } ?? min(1.0, o + 0.06)
-            ev.append((Int(on.note), o, max(o + 0.02, min(1.0, e)), Double(on.vel) / 127.0))
-        }
-        raw.append(ev)
-    }
-    let all = raw.flatMap { $0.map { $0.note } }
-    let lo = all.min() ?? 60, hi = all.max() ?? 72, span = max(1, hi - lo)
-    return raw.map { stage in stage.map { BuildChainDot(onset: $0.on, dur: max(0.02, $0.end - $0.on), lane: 1.0 - Double($0.note - lo) / Double(span), vel: $0.vel) } }
-}
 
 // The piano-roll fingerprint of a chain: an OFFLINE render (Dice.runRecorder vs a standard chord) → its emitter-A notes
 // as normalized bars. Pure + Foundation-only, so it runs off the main thread during a deal. Empty for a silent chain.

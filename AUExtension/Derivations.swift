@@ -1608,19 +1608,6 @@ func placeHoldDecision(placedColumns: Set<Int>, retoggle: Bool, col: Int) -> Pla
     return placedColumns.contains(col) ? .blockedColumnUsed : .allowed
 }
 
-/// Multi-cell routing (AcceptanceCriteria 2026-07-29): the per-column route-FOCUS map. A column contributes a
-/// focus ONLY if EXACTLY ONE of the given cells is in it (2+ in a column is ambiguous → no focus there; ⑥ keeps
-/// PLACE from ever hitting that, but SELECT can). Pure so the focus rule is unit-tested independent of SwiftUI.
-/// Input = (col,row) pairs, already occupancy-filtered. Returns col → focus row.
-func routeFociByColumn(_ cells: [(col: Int, row: Int)]) -> [Int: Int] {
-    var byCol: [Int: [Int]] = [:]
-    for c in cells { byCol[c.col, default: []].append(c.row) }
-    return byCol.compactMapValues { $0.count == 1 ? $0[0] : nil }
-}
-
-// (Removed 2026-07-30: `placedCellRouting`/`PlacedRouting` — freshly placed cells no longer inherit or nudge
-// any routing. A new cell is created with the model defaults: MIDI-IN + emitter A, wired by hand afterwards.)
-
 // MARK: - Visual overhaul: EMBLEMS (cells & colour desk, AcceptanceCriteria 2026-07-29)
 
 /// ONE static glyph per processor type — the "emblem" drawn on the cell face + the desk title. Placeholder
@@ -1849,14 +1836,6 @@ func sealFit(_ geo: SealGeometry) -> SealFit {
     return SealFit(fractions: fractions, rangeX: rangeX, rangeY: rangeY)
 }
 
-/// D3: the CENSUS — how many painted cells use each Colour, across all scenes. Census > 0 protects a Colour
-/// from deletion (scenes-are-precious). Pure/testable.
-func colourCensus(_ scenes: [SceneState]) -> [String: Int] {
-    var n: [String: Int] = [:]
-    for s in scenes { for col in s.cells { for cell in col { if let id = cell?.colourID { n[id, default: 0] += 1 } } } }
-    return n
-}
-
 /// The cell-face TRIGGER glyph — deviation-shown. The bottom-right glyph comes from the ON-TAP action; a
 /// non-default ON-HOLD action rings it. Both default ⇒ nil (no mark). Placeholder SF Symbols. Pure/testable.
 func triggerTapGlyph(_ t: OnTap) -> String? {
@@ -1885,38 +1864,6 @@ func triggerMark(_ on: OnConfig) -> (glyph: String, ring: Bool)? {
     if let t = triggerTapGlyph(on.tap) { return (t, triggerHoldGlyph(on.hold) != nil) }
     if let h = triggerHoldGlyph(on.hold) { return (h, true) }
     return nil
-}
-
-// MARK: - Routing visualisation graph (the while-wiring overlay)
-
-struct RouteCell: Hashable { let col: Int; let row: Int }
-enum RouteAnchor: Equatable { case receiver(Int), cell(RouteCell), emitter(Int) }
-struct RouteEdge: Equatable { let from: RouteAnchor; let to: RouteAnchor; let lit: Bool }
-
-/// The routing graph to draw while a verb is held: for every occupied cell, an INPUT edge (from its receiver if
-/// MIDI-IN, else from its parent cell) and one OUTPUT edge per emitter it feeds. An edge is `lit` when its cell
-/// sits on a path that runs through a SELECTED cell — i.e. the selected cell's connected input/output chain
-/// (chains are per-column via `inputRow`). Pure so the graph is unit-testable; the view maps anchors → points.
-func routingEdges(cells: [[Cell?]], selected: Set<RouteCell>) -> [RouteEdge] {
-    func occupied(_ col: Int, _ row: Int) -> Bool { col < cells.count && row >= 0 && row < cells[col].count && cells[col][row] != nil }
-
-    // lit = the selected cells themselves (grid-chaining retired → there is no cross-cell chain to trace).
-    let lit = Set(selected.filter { occupied($0.col, $0.row) })
-
-    var edges: [RouteEdge] = []
-    for col in cells.indices {
-        for row in cells[col].indices {
-            guard let c = cells[col][row] else { continue }
-            let here = RouteCell(col: col, row: row), on = lit.contains(here)
-            if let rcv = c.inputReceiver {                     // MIDI-IN: receiver → this cell (nil receiver = unrouted → no edge)
-                edges.append(RouteEdge(from: .receiver(rcv), to: .cell(here), lit: on))
-            }
-            for b in Bus.allCases where c.buses.contains(b) { // this cell → each emitter it feeds
-                edges.append(RouteEdge(from: .cell(here), to: .emitter(Int(b.cable)), lit: on))
-            }
-        }
-    }
-    return edges
 }
 
 // MARK: - THE ROOM LATTICE (rooms interface, Docs/INSTRUCTIONS-layout-lattice.md)

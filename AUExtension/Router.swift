@@ -1092,7 +1092,7 @@ final class Router {
         for v in voices where v.active { return true }
         return false
     }
-    /// PER-PART CLOCK: any active voice belonging to ROW `r` (cellIndex row = index % 8) — the per-row transition gate.
+    /// PER-PART CLOCK: any active voice belonging to ROW `r` (cellIndex row = index % Snap.rows) — the per-row transition gate.
     private func anyVoiceActiveInRow(_ r: Int) -> Bool {
         for v in voices where v.active && v.cellIndex >= 0 && Int(v.cellIndex) % Snap.rows == r { return true }
         return false
@@ -2425,6 +2425,19 @@ final class Router {
         let uniformClock = box.rowStep.allSatisfy { $0 * clockScale == S } && box.rowLength.allSatisfy { $0 == Snap.cols }   // HALFTIME scales S + each rowStep alike, so a uniform doc stays on the fast path
         let uniformFast = uniformClock && !perRowLap   // a per-row lap (BUILD's two grids) forces the per-row path too
 
+        // CLOCK-MODE SWITCH stuck-note fix (Paul 2026-09-01 bug-hunt): a LIVE uniform↔multi flip (a per-part-rate edit,
+        // or entering/leaving a per-row lap) moves glide/mod's per-row tracker slot (onlyRow r ↔ nil → glideLastColumn/
+        // modLastColumn), orphaning an IMMORTAL glide anchor / a mod-reset leave-disposition at its OLD column → the glide
+        // never phrase-ends (a stuck drone) / the CC hangs. The per-row reconcile below (prevEffColumnRow re-seed) keeps
+        // HOLDS seamless across the switch; glide/mod need their own close. So on a genuine mode CHANGE (not a flush edge —
+        // those already flushed + returned), phrase-END every glide voice (emits its note-off) + send the mod leave-resets
+        // + clear the glide trackers, so both re-establish cleanly on the new clock this same window. Covers BOTH directions
+        // (the line-2440 prevEffColumnRow re-seed only handles uniform→multi).
+        if prevEffColumn != -1 && uniformFast != prevUniformFast {
+            for i in 0..<Snap.cells { glidePhraseEnd(i, atSample: windowStart, out: out) }
+            flushMod(box: box, atSample: windowStart, out: out)
+            for i in glideLastColumn.indices { glideLastColumn[i] = -1 }
+        }
         // ---- column transition (§7): active column changed → truncate all voices at the boundary
         //      (truncate-at-boundary tails), then emit the new column's HELD content once. A
         //      relocation/loop is the same edge, no special case. ----

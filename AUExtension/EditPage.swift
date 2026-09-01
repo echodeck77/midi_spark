@@ -96,10 +96,6 @@ extension DiagView {
     // MODE ROW — the selection set's helpers. The ANCHOR is `sel.anchor`: it drives the inspector (selCol/selRow)
     // and the breadcrumb, and is protected from a stray tap (long-press to drop). Edits write through to `sel`.
     var editSelTargets: [(col: Int, row: Int)] { sel.targets }
-    func syncAnchor() {
-        if let a = sel.anchor { selCol = a.col; selRow = a.row; brush = scene.cellAt(a.col, a.row)?.colourID ?? brush }
-        else { selCol = -1; selRow = -1 }
-    }
     /// Remove a cell from the group and REVERT it to its original state: a cell created this session is deleted;
     /// a populated cell adopted into the group is restored from its pre-adopt stash.
     func syncSingleModeActivation() {

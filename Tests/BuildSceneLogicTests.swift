@@ -11,8 +11,6 @@ final class BuildSceneLogicTests: XCTestCase {
         for (c, r, id) in pairs { g[c][r] = id }
         return g
     }
-    private func colourIDsAt(_ s: SceneState, row: Int) -> [String?] { (0..<8).map { s.cellAt($0, row)?.colourID } }
-
     // MARK: reconcileStagingSel (bug C1)
 
     func testReconcilePreservesExplicitDeselect() {

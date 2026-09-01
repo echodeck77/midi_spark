@@ -282,6 +282,11 @@ final class DoorRing {
     private(set) var loopN = 0
     private(set) var loopLen = 0.0                        // the loop length in beats (0 ⇒ nothing captured)
     var hasLoop: Bool { loopLen > 0 }
+    // Reused scratch for notesSoundingAt (Paul 2026-09-01 refactor): it's a per-render call (Kernel.updateLatchedPools for
+    // every engaged REPLAY/FILE door) — hoist its two 128-slot tables off the stack to avoid a per-render heap alloc
+    // (invariant 3). Render-thread-only (loopRoll, the 4 Hz reader, uses its own local dict), reset at the top of each call.
+    private var soundVelScratch = [Int16](repeating: -1, count: 128)
+    private var soundChanScratch = [UInt8](repeating: 0, count: 128)
 
     /// Append a live note event at absolute `beat` (evict-oldest when full). CHANNEL-PRESERVING (Paul 2026-08-22): the
     /// note's incoming channel is recorded so replay re-emits it on its ORIGINAL channel — matching the live latch
@@ -365,18 +370,18 @@ final class DoorRing {
     /// The notes SOUNDING at loop `phase` ∈ [0, loopLen): each note's LAST on/off at or before `phase` wins (on ⇒
     /// sounding). Events are time-ordered (recorded in arrival order). Writes into `outNote`/`outVel`, returns the count.
     @discardableResult func notesSoundingAt(_ phase: Double, outNote: inout [UInt8], outVel: inout [UInt8], outChan: inout [UInt8]) -> Int {
-        var velByNote = [Int16](repeating: -1, count: 128)   // -1 = not sounding
-        var chanByNote = [UInt8](repeating: 0, count: 128)   // the sounding note's ORIGINAL channel (replay re-emits it)
+        // Mutate the reused instance scratch DIRECTLY (a local `var` copy would trigger COW = the alloc we're avoiding).
+        for i in 0..<128 { soundVelScratch[i] = -1; soundChanScratch[i] = 0 }   // -1 = not sounding
         for i in 0..<loopN {
             let e = loop[i]
             if e.beat > phase { break }
             if e.note < 128 {
-                if e.on && e.vel > 0 { velByNote[Int(e.note)] = Int16(e.vel); chanByNote[Int(e.note)] = e.chan } else { velByNote[Int(e.note)] = -1 }
+                if e.on && e.vel > 0 { soundVelScratch[Int(e.note)] = Int16(e.vel); soundChanScratch[Int(e.note)] = e.chan } else { soundVelScratch[Int(e.note)] = -1 }
             }
         }
         var k = 0
-        for n in 0..<128 where velByNote[n] >= 0 && k < outNote.count {
-            outNote[k] = UInt8(n); outVel[k] = UInt8(velByNote[n]); if k < outChan.count { outChan[k] = chanByNote[n] }; k += 1
+        for n in 0..<128 where soundVelScratch[n] >= 0 && k < outNote.count {
+            outNote[k] = UInt8(n); outVel[k] = UInt8(soundVelScratch[n]); if k < outChan.count { outChan[k] = soundChanScratch[n] }; k += 1
         }
         return k
     }

@@ -607,6 +607,44 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(fast, slow, "the fast row re-enters its column far more often → far more echo strikes (per-row clock)")
         assertNothingLeftSounding(e)
     }
+    // CLOCK-MODE SWITCH stuck-note (Paul 2026-09-01 bug-hunt Finding 1): a LIVE uniform↔multi clock flip (a per-part-rate
+    // edit / entering-leaving a lap) must not orphan an IMMORTAL glide anchor. Drive a single-slot [GLIDE] under a uniform
+    // clock (the anchor sounds), switch the SAME router to a multi-clock box (a per-row rate) and back, then RELEASE the
+    // chord while still PLAYING — with NO transport-stop flush. Without the switch-flush an anchor tracked on the now-
+    // unscanned slot never phrase-ends → its last wire event stays a note-ON (stuck). The fix phrase-ends every glide
+    // voice on the switch + re-anchors on the new clock, so the release closes it cleanly. (Also the first coverage of the
+    // uniform↔multi switch — the fuzz never flips rowStepRate live.)
+    func testClockModeSwitchDoesNotOrphanAGlideVoice() {
+        func glideBox(multi: Bool) -> SnapshotBox {
+            box(colours: colourIDs.map { Colour(colourID: $0, type: .glide) }) { s in
+                for c in 0..<8 {                                             // glide across every column so the anchor is live whatever the effective column
+                    s.cells[c][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                        var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12
+                        g.params.glidePriority = .last; g.params.glideTime = 0.1; x.processors = [g]; return x }()
+                }
+                if multi { s.rowStepRate = [.r2_1, nil, nil, nil, nil, nil, nil, nil] }   // row 0 slow → NON-uniform → the multi-clock path
+            }
+        }
+        let uni = glideBox(multi: false), multi = glideBox(multi: true)
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let held = chord([60, 64, 67]), empty = NotePool()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func step(_ b: SnapshotBox, _ pool: NotePool, _ n: Int) {
+            for _ in 0..<n {
+                router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+        }
+        step(uni, held, 24)     // uniform: the glide anchor sounds + the column advances
+        step(multi, held, 24)   // LIVE SWITCH → multi-clock (the fix phrase-ends + re-anchors here)
+        step(uni, held, 24)     // and BACK → uniform (the other switch direction)
+        step(uni, empty, 8)     // RELEASE the chord, still PLAYING, NO transport stop → the glide must phrase-end
+        XCTAssertGreaterThan(e.ons.count, 0, "the glide anchor sounded")
+        assertNothingLeftSounding(e)   // no stop-flush ran → an orphaned anchor would show as a stuck ON
+    }
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
     func testArpInheritsSourceVelocity() {
