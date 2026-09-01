@@ -36,8 +36,13 @@ are current as of this date; re-grep before editing. Read this before building e
    box, invariant 1), or (b) keep macro values global + let PUNCH/SPAN write the per-cell *targets'* delta scale. (a) is
    cleaner + matches the state-matrix pattern; **flag as §K1**. Boundary-deferred + drawn=config already hold (the box is
    published on the boundary; the drawn grid is deterministic).
-3. **The four tabs** (the part page's bottom band, collapsible — hook by `roomsRoom == .part`, near `roomsPartGrid`
-   `BuildPage.swift:1901`):
+3. **LAYOUT (Paul 2026-09-01):** the whole macro section is **the bottom HALF of the PART grid** — the part grid's INTERIOR
+   (the 8×8 cells) is reduced **50% in height**, and the freed bottom half becomes the 4-tab macro band. The **ferry buttons
+   (top row), the ▲▼ row cursor, and the STOP button stay at their CURRENT size** (only the interior 8×8 shrinks). So the PART
+   page becomes: [ferry row · ▲▼ · STOP — unchanged] → [part 8×8 at 50% height] → [macro band: the collapsible 4 tabs]. Hook in
+   `roomsPartGrid` (`BuildPage.swift:1901`) — split its interior height ~50/50 (part cells vs the band); the band only shows on
+   `roomsRoom == .part`. The SELECT/PLAY grids are untouched.
+4. **The four tabs** (the part-page macro band, collapsible):
    - **BIND** — the chain list, stages self-named (reuse `buildProcLabel`); tap a control → assign to a macro (species+slot;
      toggles set ON here). Reuses `MacroAuthoring` (`macroSparseDelta`/`macroSlotBindings`) + AU `addMacroTargets`. ADD BINDING;
      bindings listed per macro.
@@ -47,7 +52,7 @@ are current as of this date; re-grep before editing. Read this before building e
      undo). e-brush legal (reuse `EBrushButton`).
    - **SPAN** — arm a macro → the ladder chip (1…16·×2·×4, reuse `spanLadderField`) → apply across the extent (slider spans =
      drawn sweeps; ×-spans = multi-pass breathing). Same glow/exit/CLEAR.
-4. **Overrides survive mutate/randomize** (the roll changes the base, not the macro layer) + persistence (the per-cell store
+5. **Overrides survive mutate/randomize** (the roll changes the base, not the macro layer) + persistence (the per-cell store
    travels with the document, like `BuildPlayGridData`).
 
 ### Increments (each build+test)
