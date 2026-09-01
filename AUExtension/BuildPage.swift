@@ -2012,7 +2012,7 @@ extension DiagView {
     }
     @ViewBuilder func roomsPartMacroSection() -> some View {
         let cid = ddSelectedColourID ?? ""
-        let chain = selectedColourChain()
+        let chain = buildFocusedChain()   // the focused colour's chain (built chain, else its A-face) — Paul 2026-09-01
         let lanes = buildAutoLanesFor(cid)
         let lane = lanes[max(0, min(4, buildAutoSel))]
         let procIdx = chain.isEmpty ? 0 : min(lane.slot, chain.count - 1)
@@ -3467,6 +3467,17 @@ extension DiagView {
         var chain = buildColourMachine(cid)
         while let last = chain.last, buildIsEmptySlot(last) { chain.removeLast() }
         return chain
+    }
+    // The FOCUSED machine's chain for the AUTO flow (Paul 2026-09-01): the selected colour's built chain, else its A-FACE
+    // as a single slot. A canonical/factory colour stores its machine as `type`+`paramsA` (not a templateChain), which
+    // buildColourMachine doesn't surface — the SnapshotBuilder resolves exactly this fallback, so mirror it here so the
+    // PROCESSOR list populates for ANY focused colour that actually has a processor (was empty for A-face colours).
+    func buildFocusedChain() -> [ProcessorSlot] {
+        let c = selectedColourChain()
+        if !c.isEmpty { return c }
+        guard let cid = ddSelectedColourID, let col = docColours.first(where: { $0.colourID == cid }) else { return [] }
+        var s = ProcessorSlot(type: col.type); s.params = col.paramsA
+        return buildIsEmptySlot(s) ? [] : [s]
     }
     // An EMPTY processor box = a passthrough placeholder (a bypassed PASSGATE — a true no-op the engine passes through).
     private func buildIsEmptySlot(_ s: ProcessorSlot) -> Bool { s.type == .passgate && s.bypassed }
