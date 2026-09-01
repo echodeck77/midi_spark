@@ -1607,7 +1607,7 @@ extension DiagView {
                 } }
                 .overlay { if set { buildNoteSweep(indices: buildPlayColSweepIndices(t), active: on, id: id, emitter: t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a]).padding(2) } }   // live drift in the EMITTER colour (a multi-step pass gathers all its steps)
                 .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
-                .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height) }   // the rising white fill + post-ferry confirm (overwrite warning)
+                .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this ferry's hue
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING or SELECTED
                 .overlay { if buildSelectMode && set { RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
@@ -1857,7 +1857,7 @@ extension DiagView {
                     if let li = liveIdx { buildNoteSweep(idx: li, active: true, id: buildRowColour(n), emitter: buildRowEmittersResolved(n)) }
                 }
             } }
-            .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height) }   // the rising white fill + post-copy confirm
+            .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this row's hue
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : buildEdge,
                                                               lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING
@@ -4999,16 +4999,20 @@ extension DiagView {
         buildGridSelStampCommit(n)
     }
     // The rising WHITE fill while a row is held (fraction = elapsed / stampDur), then a full-white → fade CONFIRM once stamped.
-    @ViewBuilder private func buildGridSelStampSweep(_ n: Int, height: CGFloat) -> some View {
+    @ViewBuilder private func buildGridSelStampSweep(_ n: Int, height: CGFloat, hue: Color = .white) -> some View {
         if buildGridSelStampRow == n, let start = buildGridSelStampAt {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let f = min(1.0, max(0.0, tl.date.timeIntervalSince(start) / buildGridSelStampDur))
-                Rectangle().fill(Color.white.opacity(0.9)).frame(height: max(0, height * CGFloat(f)))
+                Rectangle().fill(Color.white.opacity(0.9)).frame(height: max(0, height * CGFloat(f)))   // rising WHITE progress while held
             }
         } else if buildGridSelStampFlashRow == n, let fs = buildGridSelStampFlashAt {
+            // THE REVEAL (Paul 2026-09-01): on COMMIT the cell BLOOMS its real machine COLOUR — a saturated wash of `hue`
+            // eases out over ~0.6s, settling to the now-populated cell. The disposable grey draft "becomes real" in its own
+            // colour (colour = kept). Was a plain white flash — invisible as a colour payoff on these mostly-dark cells.
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let a = max(0.0, 0.9 * (1 - tl.date.timeIntervalSince(fs) / 0.5))   // full white → clear over ~0.5s
-                Rectangle().fill(Color.white.opacity(a))
+                let raw = min(1.0, tl.date.timeIntervalSince(fs) / 0.6)
+                let e = 1 - (1 - raw) * (1 - raw)                                   // ease-out
+                Rectangle().fill(hue.opacity(0.9 * (1 - e)))                        // full colour → clear (the bloom)
             }
         }
     }
