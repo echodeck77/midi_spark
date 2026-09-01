@@ -1757,6 +1757,34 @@ func chordsDegreeAt(step: Int, degrees: [Int], rotate: Int) -> (degree: Int, res
     return (0, true)                                        // all-carry ⇒ nothing to hold → rest
 }
 
+/// CHORDS FOLLOW (SPEC-chords-stage §1 — "the bounce"): the scale DEGREE (0-based) a played `note` NAMES, by pitch class in
+/// the scale (root + tones). A note NOT in the scale snaps to the nearest degree (down-ties). So a bassline names the
+/// progression: play the tonic → I, the fifth → V. Pure/testable.
+func scaleDegreeOf(_ note: Int, root: Int, scaleTones: [Int]) -> Int {
+    let n = scaleTones.count
+    guard n > 0 else { return 0 }
+    let pc = (((note - root) % 12) + 12) % 12               // pitch class relative to the root
+    for (i, iv) in scaleTones.enumerated() where ((iv % 12) + 12) % 12 == pc { return i }
+    var best = 0, bestD = 99                                // off-scale → nearest degree by pitch-class distance
+    for (i, iv) in scaleTones.enumerated() {
+        let ivpc = ((iv % 12) + 12) % 12
+        let d = min((((ivpc - pc) % 12) + 12) % 12, (((pc - ivpc) % 12) + 12) % 12)
+        if d < bestD { bestD = d; best = i }
+    }
+    return best
+}
+
+/// CHORDS WALK (SPEC-chords-stage §1 — "the gravity dice"): the degree at grid step `step`, chaining `walkNextDegree` from
+/// the tonic at step 0. Recomputed each window from the base `seed` (per-step salt) so it's REPLAY-EXACT with NO accumulated
+/// cross-render state; bounded (the grid loops). Pure/testable.
+func chordsWalkDegreeAt(step: Int, seed: UInt64) -> Int {
+    var deg = 0
+    let s = max(0, min(64, step))                           // bound the recompute (the grid loops; 64 is ample)
+    var i = 0
+    while i < s { deg = walkNextDegree(prev: deg, seed: seed &+ UInt64(i) &* 0x9E3779B97F4A7C15); i += 1 }
+    return deg
+}
+
 // MARK: - GENERATORS (user 2026-08-08) — pure pattern derivations, testable off-device.
 
 /// EUCLID — the K-of-N euclidean rhythm: `pulses` hits spread as evenly as possible across `steps`, a hit on step 0

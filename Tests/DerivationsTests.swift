@@ -1022,6 +1022,23 @@ final class DerivationsTests: XCTestCase {
         XCTAssertLessThanOrEqual(cost(led), cost(g.sorted()), "the chosen inversion is no farther from the previous chord than root position")
         XCTAssertEqual(voiceLeadTowardPrevious(g, previous: []), g.sorted(), "no previous → unchanged")
     }
+    func testScaleDegreeOfNamesTheDegree() {   // CHORDS FOLLOW — the played note names the degree
+        let maj = ScaleType.major.intervals
+        XCTAssertEqual(scaleDegreeOf(60, root: 0, scaleTones: maj), 0, "C in C major → I (degree 0)")
+        XCTAssertEqual(scaleDegreeOf(67, root: 0, scaleTones: maj), 4, "G → V (degree 4)")
+        XCTAssertEqual(scaleDegreeOf(71, root: 0, scaleTones: maj), 6, "B → vii (degree 6)")
+        XCTAssertEqual(scaleDegreeOf(48, root: 0, scaleTones: maj), 0, "octave-invariant — low C is still I")
+        let cSharp = scaleDegreeOf(61, root: 0, scaleTones: maj)   // C# not in C major → snaps to a neighbour (C=0 or D=1)
+        XCTAssertTrue(cSharp == 0 || cSharp == 1, "an off-scale note snaps to the nearest degree")
+    }
+    func testChordsWalkIsSeededAndDeterministic() {   // CHORDS WALK — the gravity dice, replay-exact
+        XCTAssertEqual(chordsWalkDegreeAt(step: 0, seed: 42), 0, "the walk starts on the tonic")
+        for s in 0..<32 { XCTAssertTrue((0..<7).contains(chordsWalkDegreeAt(step: s, seed: 42)), "always a valid degree") }
+        let a = (0..<8).map { chordsWalkDegreeAt(step: $0, seed: 99) }
+        let b = (0..<8).map { chordsWalkDegreeAt(step: $0, seed: 99) }
+        XCTAssertEqual(a, b, "same seed → identical walk (replay-exact)")
+        XCTAssertNotEqual((0..<8).map { chordsWalkDegreeAt(step: $0, seed: 1) }, (0..<8).map { chordsWalkDegreeAt(step: $0, seed: 2) }, "a different seed → a different walk")
+    }
     // A SCALE door names itself ("A MIXO") — the chip-never-lies label shared by the receiver chip + the MIDI tab. (2026-08-31)
     func testScaleDoorLabel() {
         var r = Receiver(); XCTAssertNil(r.scaleLabel, "a non-scale door has no key label")

@@ -726,6 +726,49 @@ final class RouterTests: XCTestCase {
         // A different degree — V in C = G B D (D wraps up an octave).
         XCTAssertEqual(emitted(root: 0, scale: .major, degree: 4), [55, 59, 62], "V in C = G B D")
     }
+    func testChordsFollowNamesTheDegreeFromTheHeldNote() {   // CHORDS FOLLOW — the played note picks the degree
+        func emitted(root: Int, heldNote: UInt8) -> Set<UInt8> {
+            var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+            cs[ci].type = .chords
+            let b = box(colours: cs) { s in
+                s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                    var ch = ProcessorSlot(type: .chords)
+                    ch.params.chordsMode = .follow; ch.params.chordsRoot = root; ch.params.chordsScale = .major
+                    let dr = ProcessorSlot(type: .drone)
+                    x.processors = [ch, dr]; return x }()
+            }
+            let e = RecordingEmitter()
+            run(b, chord([heldNote]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        }
+        // FOLLOW reads the PITCH — playing G in C major names the V, whose chord is G B D.
+        XCTAssertEqual(emitted(root: 0, heldNote: 67), [55, 59, 62], "FOLLOW: G in C → V = G B D")
+        // Playing the tonic names the I.
+        XCTAssertEqual(emitted(root: 0, heldNote: 60), [48, 52, 55], "FOLLOW: C in C → I = C E G")
+    }
+    func testChordsWalkPlaysAValidChordDeterministicallyWithNoStuckNotes() {   // CHORDS WALK — the seeded gravity walk, replay-safe
+        func run1(seed: Int) -> [RecordingEmitter.Ev] {
+            var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+            cs[ci].type = .chords
+            let b = box(colours: cs) { s in
+                s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                    var ch = ProcessorSlot(type: .chords)
+                    ch.params.chordsMode = .walk; ch.params.chordsRoot = 0; ch.params.chordsScale = .major; ch.params.chordsWalkSeed = seed
+                    let dr = ProcessorSlot(type: .drone)
+                    x.processors = [ch, dr]; return x }()
+            }
+            let e = RecordingEmitter()
+            run(b, chord([60]), beats: 4, into: e)
+            assertNothingLeftSounding(e)   // WALK leaves nothing hung across boundaries
+            return e.ons.filter { $0.cable == 1 }
+        }
+        let a = run1(seed: 7)
+        XCTAssertFalse(a.isEmpty, "WALK sounds a chord")
+        XCTAssertTrue(a.allSatisfy { (36...84).contains(Int($0.note)) }, "every walked note stays in the anchored range")
+        let b = run1(seed: 7)
+        XCTAssertEqual(a.map { $0.note }, b.map { $0.note }, "same seed → identical walk (replay-exact)")
+    }
     // PER-ROW GLIDE + MOD leave-disposition on the ROW's own clock (Paul 2026-09-01): only per-row ECHO was asserted. Two GLIDE
     // cells (fast row vs slow row) → the fast row re-anchors far more often (its phrase-ends fire on its OWN clock, not the
     // scene default); two MOD cells likewise emit their CC updates on each row's clock. Guards the onlyRow scoping of glide/mod.

@@ -3674,10 +3674,16 @@ final class Router {
         case .chords:                                          // HARMONY — a held note TRIGGERS; the derived diatonic chord for the current degree REPLACES the set
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
             if cCnt > 0 {                                       // no input = no trigger → silent
+                let lo = src.srcAscending(0, filter: 0, cableMask: 0b1111)   // the lowest input note (the trigger)
                 let step = S > 0 ? Int((columnStart(m, S) / S).rounded()) : 0
-                let (deg, rest) = chordsDegreeAt(step: step, degrees: p.chordsDegrees, rotate: p.chordsRotate)
+                var deg = 0, rest = false
+                switch p.chordsMode {                           // WHERE the degree comes from
+                case .pattern: (deg, rest) = chordsDegreeAt(step: step, degrees: p.chordsDegrees, rotate: p.chordsRotate)
+                case .follow:  deg = scaleDegreeOf(Int(lo), root: p.chordsRoot, scaleTones: p.chordsScale.intervals)   // the played note NAMES the degree
+                case .walk:    deg = chordsWalkDegreeAt(step: step, seed: UInt64(bitPattern: Int64(p.chordsWalkSeed)))  // seeded gravity dice
+                }
                 if !rest {
-                    let vel = max(1, src.velocity(src.srcAscending(0, filter: 0, cableMask: 0b1111)))   // the trigger's velocity (lowest input note)
+                    let vel = max(1, src.velocity(lo))          // the trigger's velocity
                     for n in diatonicChord(degree: deg, scaleTones: p.chordsScale.intervals, rootNote: 48 + p.chordsRoot,
                                            voicing: p.chordsVoicing, spread: p.chordsSpread) where n >= 0 && n <= 127 {
                         dst.noteOn(UInt8(n), velocity: vel, channel: 0)
