@@ -199,6 +199,62 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(sealHash(cell, colours: docNoMacro.colours), sealWith)   // macro presence never moves the seal
     }
 
+    /// M2 — the PER-CELL value store (§A2 PUNCH/SPAN): ONE macro targets TWO cells with the same delta; a per-cell
+    /// override raises the DRIVING value on cell (0,0) only, so its param shifts while the neighbour (1,0) stays at
+    /// base (the global value 0). This is the load-bearing engine bit — a PUNCH-drawn cell is independent.
+    func testPerCellMacroValueShiftsOneCellNotItsNeighbour() {
+        var s = SceneState.empty()
+        func gateCell() -> Cell { var c = Cell(colourID: "gold"); var sl = ProcessorSlot(type: .arp); sl.params.gate = 0.5; c.processors = [sl]; return c }
+        s.cells[0][0] = gateCell()
+        s.cells[1][0] = gateCell()
+        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        doc.macros = doc.macrosResolved
+        doc.macros?[0] = Macro(name: "GATE", value: 0, fixed: false,   // GLOBAL value 0 → no shift anywhere by default
+                               targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4),
+                                         MacroTarget(col: 1, row: 0, slot: 0, param: "gate", delta: 0.4)])
+        // No overrides yet → both cells sit at base (global 0 × 0.4 = 0).
+        let base = SnapshotBuilder.build(from: doc)
+        XCTAssertEqual(base.cells[0 * Snap.rows + 0].procs[0].gate, 0.5, accuracy: 1e-9, "no override → base")
+        XCTAssertEqual(base.cells[1 * Snap.rows + 0].procs[0].gate, 0.5, accuracy: 1e-9, "neighbour → base")
+
+        // PUNCH cell (0,0) to full value → its gate shifts by the full delta; (1,0) untouched.
+        doc.macroCellValues = [MacroCellValue(col: 0, row: 0, macro: 0, value: 1.0)]
+        let box = SnapshotBuilder.build(from: doc)
+        XCTAssertEqual(box.cells[0 * Snap.rows + 0].procs[0].gate, 0.9, accuracy: 1e-9, "(0,0) drives at value 1 → 0.5 + 1×0.4")
+        XCTAssertEqual(box.cells[1 * Snap.rows + 0].procs[0].gate, 0.5, accuracy: 1e-9, "(1,0) has NO override → stays at the global (0) → base")
+    }
+
+    /// M2 byte-identity: an empty per-cell store changes nothing (the whole macroCellValues path is inert when unused).
+    func testEmptyPerCellStoreIsByteIdentical() {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold"); var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5; cell.processors = [slot]
+        s.cells[0][0] = cell
+        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        doc.macros = doc.macrosResolved
+        doc.macros?[0] = Macro(name: "G", value: 0.5, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4)])
+        let a = SnapshotBuilder.build(from: doc)
+        doc.macroCellValues = []                             // present but empty
+        let b = SnapshotBuilder.build(from: doc)
+        XCTAssertEqual(a.cells[0].procs[0].gate, b.cells[0].procs[0].gate, "an empty override store is a no-op (0.5 + 0.5×0.4 = 0.7 both ways)")
+        XCTAssertEqual(b.cells[0].procs[0].gate, 0.7, accuracy: 1e-9)
+    }
+
+    /// M2 — the per-cell store travels with the document (Codable, additive-Optional); an old doc decodes nil.
+    func testPerCellMacroValuesRoundTripAndOldDocDecodesNil() throws {
+        var doc = self.doc()
+        doc.macroCellValues = [MacroCellValue(col: 2, row: 3, macro: 5, value: 0.6),
+                               MacroCellValue(col: 0, row: 0, macro: 12, value: 1.0)]
+        let data = try JSONEncoder().encode(doc)
+        let back = try JSONDecoder().decode(PluginState.self, from: data)
+        XCTAssertEqual(back.macroCellValues?.count, 2)
+        XCTAssertEqual(back.macroCellValues?.first, MacroCellValue(col: 2, row: 3, macro: 5, value: 0.6))
+
+        var obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        obj.removeValue(forKey: "macroCellValues")
+        let old = try JSONDecoder().decode(PluginState.self, from: try JSONSerialization.data(withJSONObject: obj))
+        XCTAssertNil(old.macroCellValues, "an old doc with no key decodes nil (byte-identical)")
+    }
+
     /// Macro at 0 through the builder is home — the resolved chain equals the un-macro'd build.
     func testBuilderMacroAtZeroMatchesNoMacro() {
         var s = SceneState.empty()

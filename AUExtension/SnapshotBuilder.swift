@@ -43,6 +43,15 @@ enum SnapshotBuilder {
                 macroMods[(t.col * Snap.rows + t.row) * 64 + t.slot, default: []].append(MacroMod(macro: mi, param: param, delta: t.delta))
             }
         }
+        // PER-CELL macro VALUES (§A2 PUNCH/SPAN): a sparse map (col·row) → [macro: value]. A cell with an override
+        // uses `override[macro] ?? global` as the DRIVING value in its macro fold — so a PUNCH-drawn cell shifts its
+        // OWN params without touching its neighbours. Empty (old/clean doc) ⇒ the map is empty ⇒ byte-identical.
+        var macroCellVals: [Int: [Int: Double]] = [:]
+        for v in doc.macroCellValues ?? [] {
+            guard v.col >= 0, v.col < Snap.cols, v.row >= 0, v.row < Snap.rows,
+                  v.macro >= 0, v.macro < PluginState.macroBankCount else { continue }
+            macroCellVals[v.col * Snap.rows + v.row, default: [:]][v.macro] = max(0, min(1, v.value))
+        }
         var cells = [SnapCell](repeating: SnapCell(), count: Snap.cols * Snap.rows)
         for c in 0..<Snap.cols {
             let ladderActive = ladderOn ? scene.ladderActiveRow(c) : nil   // the one speaking rung this column (topmost-occupied default)
@@ -108,11 +117,17 @@ enum SnapshotBuilder {
                     sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // legacy / no receivers
                     let f = sc.inputChannel; sc.inputChanMask = f == 0 ? 0xFFFF : (f >= 1 && f <= 16 ? (UInt16(1) << UInt16(f - 1)) : 0)
                 }
-                // MACRO MODULATION: fold any macro offsets targeting this cell's slots into the resolved chain.
+                // MACRO MODULATION: fold any macro offsets targeting this cell's slots into the resolved chain. When
+                // this cell has PER-CELL values (§A2 PUNCH/SPAN), the driving value is `override ?? global` per macro
+                // (a fresh 16-vector, main-thread build → alloc is fine); else the shared global vector.
                 if !macroMods.isEmpty {
+                    let cellVals: [Double] = {
+                        guard let ov = macroCellVals[c * Snap.rows + r] else { return macroVals }
+                        return (0..<macroVals.count).map { ov[$0] ?? macroVals[$0] }
+                    }()
                     for k in sc.procs.indices {
                         if let mods = macroMods[(c * Snap.rows + r) * 64 + k] {
-                            sc.procs[k] = applyMacros(sc.procs[k], mods: mods, values: macroVals)
+                            sc.procs[k] = applyMacros(sc.procs[k], mods: mods, values: cellVals)
                         }
                     }
                 }

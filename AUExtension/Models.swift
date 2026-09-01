@@ -950,6 +950,17 @@ struct MacroEmitterTarget: Codable, Equatable {
     var delta: Double        // B − A, in the amount's native units (LEAK/DUCK %, CURVE −100…100, POCKET ms)
 }
 
+/// PER-CELL macro VALUE (macro-automation §A2, Paul §K1 2026-09-01): PUNCH draws a per-cell value/state and SPAN a
+/// sweep, so a macro's *value* can vary per grid cell instead of the one global PLAY value. Sparse (a short list of
+/// drawn cells, like `MacroTarget`); the builder folds `override ?? global` into the cell's macro fold. The macro's
+/// TARGETS (which params, what delta) are shared — only the driving VALUE is per-cell.
+struct MacroCellValue: Codable, Equatable {
+    var col: Int             // the grid column (0–7)
+    var row: Int             // the grid row
+    var macro: Int           // which macro (0–15)
+    var value: Double        // the per-cell override value (0…1) — replaces the global macroValues[macro] for this cell
+}
+
 /// One macro slot: a modulator that OFFSETS its targets (never rewrites their bases). Value 0 = home (nothing to
 /// revert). `fixed` toggles the padlock: false = SPRING (release returns home / to the lane), true = FIXED (latched).
 struct Macro: Codable, Equatable {
@@ -1225,6 +1236,11 @@ struct PluginState: Codable, Equatable {
     // (performance, not edit). Values are GLOBAL v1 (not per-scene). Persisted; Optional → old docs decode nil (no
     // macros), a clean instrument gets 24 unset macros via `macrosResolved`.
     var macros: [Macro]? = nil
+    // PER-CELL macro VALUES (macro-automation §A2 / §K1, Paul 2026-09-01): the PUNCH/SPAN store — a sparse list of
+    // per-cell overrides for a macro's driving value (the TARGETS stay shared on the Macro; only the value varies per
+    // cell). Additive-Optional → old docs decode nil (no overrides = the global PLAY value everywhere, byte-identical).
+    // Baked at build time like every macro offset (v1 bake-at-publish). Travels with the document.
+    var macroCellValues: [MacroCellValue]? = nil
     /// The LIVE macro bank (Paul §K3 2026-09-01): SIXTEEN named movements in TWO species — 8 SLIDER (0–7) + 8 TOGGLE
     /// (8–15). The old 8 TIMELINE macros (16–23) are RETIRED: a doc that stored them still DECODES (the Codable
     /// `macros` array is untouched → encode round-trips whatever is there), but only the first 16 are RESOLVED, so
