@@ -1682,8 +1682,13 @@ final class Router {
             let mode = cellMode(type: effectiveType(treat),
                                 bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
                                 passMask: effectivePassMask(treat), pass: pass)
-            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split || mode == .avoid || mode == .octave || mode == .transpose else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT/AVOID = SET/pitch filters; OCTAVE/TRANSPOSE = pitch SHIFTS (Paul 2026-08-22)
+            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split || mode == .avoid || mode == .octave || mode == .transpose || mode == .chords else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT/AVOID = SET/pitch filters; OCTAVE/TRANSPOSE = pitch SHIFTS (Paul 2026-08-22); CHORDS = a diatonic SET-REPLACE (a lone/tail hold sounds the derived chord — Paul 2026-09-01)
             if mode == .tutti && !holdChain && treat.a.tuttiMode == .pattern { continue }   // PATTERN standalone re-articulates per slice in the tick loop, not here
+            // CHORDS (Paul 2026-09-01): the stage REPLACES the set with a derived diatonic chord. Compose it INTO
+            // chainScratch (upto the CHORDS slot INCLUSIVE) and read the emission source from chainScratch — so a lone
+            // [CHORDS] and a [X→CHORDS] tail both SOUND the chord as a plain (legato-adoptable) hold, no per-rank map.
+            let chordsHold = (mode == .chords)
+            let readScratch = holdChain || chordsHold
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
                           + holdShift(treatP, mode: mode)                // UTILITY: OCTAVE (±12·n) / TRANSPOSE (±semitones) shift the held (composed) set
@@ -1715,8 +1720,9 @@ final class Router {
             // unchanged when the cell has no chop, so this is a no-op for ordinary holds. (Tick cells chop per-tick.)
             let hbm = chopMask(cell, m: colStart, S: S, base: bm)
             let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
-            if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
-            let srcN = holdChain ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter
+            if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: chordsHold ? tailIdx : tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }   // CHORDS tail: include the stage so chainScratch holds the derived chord
+            else if chordsHold { composeChainSet(cell: cell, pool: cellPool, upto: 0, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }   // lone [CHORDS]: fold the single stage
+            let srcN = readScratch ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter (CHORDS reads the composed chord)
             // §2 POOL-STEP UNITS (standalone/hold): TRANSPOSE steps the note by pool DEGREES; HARMONIZE voices in degrees.
             // The pool mask = the SOURCE set's pitch classes (the scale/chord feeding the cell). procShift = the processor's
             // own shift (register offsets stay semitone). Mask computed once per hold (no render alloc).
@@ -1745,14 +1751,14 @@ final class Router {
             let avoidSurvivorMask: UInt16 = (mode == .avoid && !treatP.avoidLock && treatP.avoidMove && avoidHoldMask != 0)
                 ? avoidSurvivors(holdFinalNote, count: srcN, refMask: avoidHoldMask) : 0   // AVOID MOVE lands only on the input scale's surviving notes
             for k in 0..<srcN where !holdEchoMute {                  // ECHO MUTE: the dry is suppressed (echoes-only); tails still register below
-                let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
+                let base = readScratch ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
                 var n = poolTrans ? poolStepMask(base, steps: procShift, pcMask: holdPoolMask) + regShift : base + transpose
                 if mode == .avoid {                                   // AVOID/LOCK filter (standalone/hold-tail): drop (REMOVE) or remap (MOVE)
                     guard let f = avoidFilter(n, treatP, refMask: avoidHoldMask, survivorMask: avoidSurvivorMask) else { continue }
                     n = f
                 }
                 guard n >= 0 && n <= 127 else { continue }
-                let vel0 = max(1, holdChain ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
+                let vel0 = max(1, readScratch ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
                 let vel = droneScale < 1.0 ? clampVel(Int((Double(vel0) * droneScale).rounded())) : vel0   // DRONE scales by GATE
                 if mode == .chance && !chancePassesPool(beat: colStart, note: n, rank: k, count: srcN, probability: prob, tilt: treat.a.chanceTilt, constantDensity: treat.a.chanceDensity) { continue }   // POOL-AWARE chance (user 2026-08-11)
                 if mode == .tutti && tuttiSolo >= 0 && k != tuttiSolo { continue }   // TUTTI SOLO step: only the PICK-chosen rank sounds
@@ -3415,6 +3421,7 @@ final class Router {
         case .split: return true                                         // SPLIT tail = a set-membership FILTER over the composed hold ([HARMONIZE → SPLIT] keeps a subset)
         case .avoid: return true                                         // AVOID/LOCK tail = a per-note pitch FILTER over the composed hold ([HARMONIZE → AVOID] drops/snaps clashes)
         case .octave, .transpose: return true                            // UTILITY pitch-shift tail = a per-note SHIFT of the composed hold ([HARMONIZE → OCTAVE])
+        case .chords: return true                                        // CHORDS tail = a diatonic SET-REPLACE over the composed hold ([SPLIT → CHORDS] etc.); emitColumnHolds composes it in and sounds the chord
         case .tutti: return last.tuttiMode == .coin                      // TUTTI COIN tail = a per-step SET roll over the composed hold; PATTERN re-articulates (tick loop)
         case .tap: return chainDriverIndex(cell) < 0                     // TAP tail = a held passthrough + its parallel send, but ONLY with no driver ([HARMONIZE→TAP]); [ARP→TAP] stays driver-folded (Paul 2026-08-26)
         default: return false

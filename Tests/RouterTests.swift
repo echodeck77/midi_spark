@@ -769,6 +769,52 @@ final class RouterTests: XCTestCase {
         let b = run1(seed: 7)
         XCTAssertEqual(a.map { $0.note }, b.map { $0.note }, "same seed → identical walk (replay-exact)")
     }
+    func testLoneChordsSoundsTheChordWithNoDownstream() {   // C5 — a bare [CHORDS] card (no →STRUM/ARP/DRONE) must emit
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        let b = box(colours: cs) { s in
+            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                var ch = ProcessorSlot(type: .chords)
+                ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
+                ch.params.chordsDegrees = [Int](repeating: 4, count: 8)   // V everywhere
+                x.processors = [ch]; return x }()   // LONE — one slot, nothing downstream
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 4, into: e)
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [55, 59, 62], "a lone [CHORDS] sounds V = G B D directly")
+    }
+    func testChordsVoicingSeventhReachesTheEngineAndComposesDownstream() {   // C5 — VOICING 7TH is 4 notes; [CHORDS→ARP] arpeggiates the chord
+        func lone7th() -> [UInt8] {
+            var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+            cs[ci].type = .chords
+            let b = box(colours: cs) { s in
+                s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                    var ch = ProcessorSlot(type: .chords)
+                    ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
+                    ch.params.chordsDegrees = [Int](repeating: 0, count: 8); ch.params.chordsVoicing = .seventh
+                    x.processors = [ch]; return x }()
+            }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e); assertNothingLeftSounding(e)
+            return Array(Set(e.ons.filter { $0.cable == 1 }.map { $0.note })).sorted()
+        }
+        XCTAssertEqual(lone7th(), [48, 52, 55, 59], "I7 in C = C E G B (VOICING 7TH reaches the engine)")
+        // [CHORDS→ARP]: composeChainSet folds the chord upstream → the arp walks ITS notes (never the raw held 60).
+        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        cs[ci].type = .chords
+        let b = box(colours: cs) { s in
+            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                var ch = ProcessorSlot(type: .chords)
+                ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
+                ch.params.chordsDegrees = [Int](repeating: 0, count: 8)   // I = C E G
+                let arp = ProcessorSlot(type: .arp)
+                x.processors = [ch, arp]; return x }()
+        }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e); assertNothingLeftSounding(e)
+        let played = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertFalse(played.isEmpty, "[CHORDS→ARP] arpeggiates")
+        XCTAssertTrue(played.allSatisfy { [0, 4, 7].contains(Int($0) % 12) }, "the arp walks ONLY the I chord's pitch classes C·E·G (any octave), never the raw held 60 escaping the chord")
+    }
     // PER-ROW GLIDE + MOD leave-disposition on the ROW's own clock (Paul 2026-09-01): only per-row ECHO was asserted. Two GLIDE
     // cells (fast row vs slow row) → the fast row re-anchors far more often (its phrase-ends fire on its OWN clock, not the
     // scene default); two MOD cells likewise emit their CC updates on each row's clock. Guards the onlyRow scoping of glide/mod.
