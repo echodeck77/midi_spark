@@ -179,6 +179,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   AU orphans `setCellsChain`/`forkCellToColour`/`setRow8OnRadioSetup`/`punchCC`/`sendProgramChange`/`editColour`/`uiExcludeDoor`).
   ③ +1 test (`DoorRing.loadLoopParallel` round-trips == `loadLoop` + ragged-array clamp). ④ fixed the last stale `column*8+row`
   comment (`Router.topCell`). Bug-hunt cleared all this session's changes (CC123-internal, focus-note feed, ferry duplicate).**
+- **▶ COLOUR REVEAL + STATE-UNIFICATION inc.1 (2026-09-01, on `main`, `1a1fc1f`+`121c997`; iOS builds, macOS 979 green; DEVICE
+  eye owed). Paul picked both from the ideas menu. **REVEAL (`1a1fc1f`, UI):** the disposable-sketchpad payoff — committing a
+  SELECT draft (ferry → part side-button / play column) BLOOMS the destination's real machine COLOUR (a saturated wash of the
+  cell's hue easing out ~0.6s, settling to the populated cell); `buildGridSelStampSweep` gained a `hue:` param, both commit
+  sites pass mHue. Replaces the white confirm flash (no colour payoff on the mostly-dark cells). Audition stays grey (the
+  cdf1345 alternating feedback) — colour = KEPT. **UNIFICATION inc.1 (`121c997`, the ★★★ top-priority housekeeping, behaviour-
+  preserving + tested):** `BuildSceneLogic.machineBinding(...)` → `MachineBinding { kind, isGrey, playing }` — the ONE pure
+  resolver for what the machine represents + its play state (was 5 independent derivations off 4 @State axes that desync).
+  `buildMachineHue` + the play button now DERIVE from it (+test). INCREMENT 2 (per-cell indicator adoption; visible D1/D3/D5
+  fixes) is device-owed — see pending-tasks.**
 - **▶ AVOID HARDENING — pianos redesign · EVERYTHING semantics · MOVE-in-scale-downstream · 20 tests (2026-08-31, on
   `main`, `15965eb`+`512c154`; iOS builds, macOS 974 green incl. fuzz; DEVICE eye/ear owed). Paul: the processor "feels
   inconsistent." A thorough 3-agent-informed end-to-end investigation (MIDI in → MIDI out) found + fixed two real

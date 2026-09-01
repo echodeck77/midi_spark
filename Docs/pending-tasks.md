@@ -5,7 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-01._
 
-## DEVICE-OWED (2026-09-01) — Tide & Ember colour scheme + housekeeping (landed `6537159`…`e32925b`)
+## DEVICE-OWED (2026-09-01) — Tide & Ember colour scheme + housekeeping + reveal + unification inc.1 (landed `6537159`…`121c997`)
+- **EYE — the colour REVEAL (`1a1fc1f`):** committing a SELECT draft (ferry → part side-button / play column) now BLOOMS the
+  destination's real machine colour (a saturated wash easing out ~0.6s, settling to the cell) — was a white flash. Verify the
+  bloom reads as "it became this colour" on the mostly-dark part/play cells.
+- **EYE — MachineBinding inc.1 (`121c997`):** the play button + machine hue now derive from one resolver (behaviour-preserving —
+  should look identical). Confirm no regression in the machine box/play-button state as you select select-cells / ferries / parts.
 - **EYE** — the **Tide & Ember** scheme + **Even Dusk** play palette on device: do the 8 play columns now read as DISTINCT
   (the whole point — the old dusk set blurred)? Cool receivers / warm emitters / sea-blue PLAY door / ember PART door /
   warm→cool SELECT strip. Plus the SELECT-grid CHEQUER, the solid-block ▲▼ ferry cursor, and the alternating-bright-grey
@@ -472,6 +477,13 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
   if that feature sees use). Device factors outside us: AUM's audio buffer size + whatever else is running.
 
 ## ★★★ HOUSEKEEPING — TOP PRIORITY (Paul 2026-08-31): UNIFY THE MACHINE↔CELL PLAYBACK/SELECTION MODEL
+- **PROGRESS 2026-09-01 — INCREMENT 1 LANDED (`121c997`, behaviour-preserving + tested):** the pure `BuildSceneLogic.machineBinding(...)`
+  → `MachineBinding { kind: .none|.selectAudition|.partRow|.playFerry(c), isGrey, playing }` (primitive inputs so it's in the
+  test target; +testMachineBindingResolvesFerryAuditionAndGrey). `buildMachineBinding(room)` gathers the four axes; `buildMachineHue`
+  AND the play button (`roomsVerticalPlay` active/hue/tap) now DERIVE from it → the machine's play state == the represented cell's
+  by construction. **INCREMENT 2 (OPEN, device-owed):** route the remaining PER-CELL indicators through the same binding —
+  `roomsSideChip` (D3), `roomsPlayFerry`/`roomsPlayCell` `on`, `buildGridSelCell` roll (D1's extra `!buildChainLiveChord.isEmpty`
+  term) — and reconcile D5's second "grey" (the cell selGrey vs the machine grey). This CHANGES on-screen state → verify on device.
 - **The problem (Paul's device report):** the machine (box + play button) is meant to ALWAYS represent exactly one cell —
   a select-grid cell (light grey), a part cell, or a ferry (its colour) — and its play/stop must drive THAT cell, with the
   cell reflecting the play state (and vice-versa). Today there's a disconnect: the machine can be playing while no cell shows
