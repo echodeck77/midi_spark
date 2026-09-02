@@ -18,6 +18,7 @@ enum MacroControlKind: Equatable {
     case mask(bits: Int)                      // packed bit-toggles — value = the packed integer
 
     var isDiscrete: Bool { if case .continuous = self { return false }; return true }
+    var isToggle: Bool { if case .toggle = self { return true }; return false }
 }
 
 /// One authorable control — the descriptor the authoring page renders MAIN/ALT instances from and the binding keys

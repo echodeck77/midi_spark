@@ -2093,6 +2093,16 @@ extension DiagView {
                         autoRangeFader("FROM", value: lane.lo ?? sub.lo, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.lo = v } }
                         autoRangeFader("TO",   value: lane.hi ?? sub.hi, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.hi = v } }
                     }
+                    if !p.kind.isToggle {                                     // SPAN — re-anchor the sweep every N cells; disabled for binary params
+                        HStack(spacing: 4) {
+                            macroColHead("SPAN").frame(width: 58, alignment: .leading)
+                            let curSpan = lane.span ?? 0
+                            autoChip("FULL", on: curSpan < 2, dot: false, wide: true) { buildSetAutoLane { $0.span = nil } }
+                            ForEach([2, 3, 4, 6, 8], id: \.self) { n in
+                                autoChip("\(n)", on: curSpan == n, dot: false, wide: true) { buildSetAutoLane { $0.span = n } }
+                            }
+                        }
+                    }
                     Text("tap cells on the grid — the sweep plays FROM→TO across them (live)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2222,26 +2232,20 @@ extension DiagView {
         let id = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil   // Rooms4: bounds-safe against a ragged decoded doc
         let selected = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r   // the ONE selected rung for column c
         let idx = c * Snap.rows + r
-        // AUTO PUNCH (Paul 2026-09-01): when a lane is armed, THIS colour's cells become a value canvas — a bottom-up
-        // amber fill = the punched param value, and a vertical DRAG punches it. Other-colour cells dim (not this lane).
+        // AUTO PUNCH (Paul 2026-09-02): when a lane is armed, THIS colour's cells become a SELECT canvas — a cell is simply
+        // IN the extent (amber wash + bright border) or OUT (faint border). BINARY, no ramp/slider on the grid — the SWEEP's
+        // FROM→TO faders + the piano roll show the range; the grid just picks WHICH cells the sweep covers. Other-colour cells recede.
         let punch = buildAutoArmedParam()
         let punchable = punch != nil && id != nil && id == ddSelectedColourID
         let cellBody = roomsGridCellBody(id: id, selected: selected,
                           sweep: { buildNoteSweep(idx: idx, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
         if punchable {
-            let ramp = buildAutoRampFrac(idx)   // nil = not in the extent; else its ramp position 0…1
+            let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent (selected)
             cellBody
-                .overlay(alignment: .bottom) {
-                    if let f = ramp {            // in the extent → a bottom-up fill whose height ramps across the toggled cells (the RANGE)
-                        GeometryReader { g in
-                            VStack(spacing: 0) { Spacer(minLength: 0); Rectangle().fill(roomsAmber.opacity(0.6)).frame(height: g.size.height * CGFloat(0.15 + 0.85 * f)) }
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 5)).allowsHitTesting(false)
-                    }
-                }
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(ramp != nil ? 1 : 0.45), lineWidth: ramp != nil ? 1.5 : 1))
+                .overlay { if inExtent { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.32)) } }   // SELECTED = a flat amber wash (binary)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(inExtent ? 1 : 0.4), lineWidth: inExtent ? 2 : 1))
                 .frame(width: w, height: h).contentShape(Rectangle())
-                .onTapGesture { buildAutoToggle(idx) }   // TAP = toggle this cell in/out of the extent
+                .onTapGesture { buildAutoToggle(idx) }   // TAP = select / unselect this cell in the extent
         } else {
             cellBody
                 .frame(width: w, height: h).opacity(punch != nil ? 0.4 : 1)   // armed-but-other-colour cells recede

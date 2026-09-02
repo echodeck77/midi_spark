@@ -51,12 +51,12 @@ the recording `MIDIEmitter` double + the real engine, so it can NEVER drift from
 - Pitch-range auto-fit with a stable window (avoid the lanes jumping as notes change).
 - A per-emitter legend / filter if a part uses several emitters.
 
-## Open decisions (need Paul)
-1. **Reference chord** — a plain C-major triad, or a richer 4-note voicing? (Tunable; affects how arps/chords/harmonize
-   render.) Should it follow the part's KEY/SCALE door if one is set, or always a fixed C? (Rule 4 says exclude live
-   INPUT, but a SCALE door is a setup, not input — could honor it.)
-2. **Colour** — by EMITTER (the output, my read of rule 3) or by the cell's COLOUR? Emitter reads as "what plays where".
-3. **Recompute cadence** — on every scene change (debounced), or only when the strip is visible / the part is stopped?
+## Decisions (settled, Paul 2026-09-02)
+1. **Reference chord** — a fixed **C major** triad (C-E-G). Deterministic, excludes live input.
+2. **Colour** — the note bar is drawn in the **EMITTER** colour (`emitterHexes[cable]`); behind it, the lane/cell region
+   is tinted by the **CELL** colour (`colourColor(cid)`) as a faint background. So: cell colour = the backdrop, emitter
+   colour = the note itself.
+3. **Recompute cadence** — internal; recompute on scene change, debounced, off-thread (no user decision needed).
 
 ## Sequence
 Increment 1 (offline renderer + tests) → Increment 2 (wire + draw) → device ear/eye check → Increment 3 polish.

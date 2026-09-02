@@ -42,6 +42,9 @@ struct AutoLane: Codable, Equatable {
     // The extent (cells) is WHERE; these are the value RANGE the ramp sweeps between (FROM at the first cell → TO at the last).
     var lo: Double? = nil
     var hi: Double? = nil
+    // SPAN (Paul 2026-09-02): the sweep RE-ANCHORS every `span` extent cells (a repeating sawtooth FROM→TO). nil / <2 ⇒
+    // FULL — ONE sweep across the whole extent. Disabled for binary (toggle) params.
+    var span: Int? = nil
 }
 
 // A colour's automation: which lane is ON (activeLane, −1 = NONE) + its five lanes. One active lane per colour (Paul).

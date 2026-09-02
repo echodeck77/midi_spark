@@ -143,7 +143,9 @@ enum BuildSceneLogic {
         let lo = lane.lo ?? subLo, hi = lane.hi ?? subHi   // FROM → TO: the lane's set endpoints, else the curated sub-range
         let ordered = lane.cells.sorted { ($0 / Snap.rows, $0 % Snap.rows) < ($1 / Snap.rows, $1 % Snap.rows) }
         let rank = ordered.firstIndex(of: idx) ?? 0
-        let value = autoRamp(lo, hi, rank: rank, count: ordered.count)
+        // SPAN: re-anchor the sweep every `span` extent cells (a repeating FROM→TO sawtooth); nil/<2 ⇒ one sweep across all.
+        let span = (lane.span ?? 0) >= 2 ? lane.span! : ordered.count
+        let value = autoRamp(lo, hi, rank: rank % max(1, span), count: span)
         var out = chain
         out[lane.slot] = applyProcessorValues([key: value], to: out[lane.slot])
         return out
