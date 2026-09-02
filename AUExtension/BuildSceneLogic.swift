@@ -186,7 +186,7 @@ enum BuildSceneLogic {
         }
 
         if i.performPlaying {                                        // THE PIECE — deployed cells, mute + active-rung honoured
-            for c in 0..<8 { for r in 0..<8 {
+            for c in 0..<Snap.maxCols { for r in 0..<8 {   // §E: 16-wide part columns × 8 visible rows
                 guard c < i.performCells.count, r < i.performCells[c].count, let cid = i.performCells[c][r],
                       !i.performMute.contains(c * 8 + r), i.performActiveRung(c, r) else { continue }
                 let emit: Set<Bus> = (r < i.performEmit.count && !i.performEmit[r].isEmpty) ? i.performEmit[r] : [.a]
@@ -200,7 +200,7 @@ enum BuildSceneLogic {
 
         if i.stagingPlaying {                                       // THE PART — the staging selection, ALONGSIDE the piece; each ROW carries its OWN I/O (Paul 2026-08-18)
             let dfltBuses: Set<Bus> = i.partEmitters.isEmpty ? [.a] : i.partEmitters
-            for c in 0..<8 {
+            for c in 0..<Snap.maxCols {   // §E: 16-wide part
                 let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
                 guard r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, let cid = i.stagingCells[c][r] else { continue }
                 let chain = r < i.rowChain.count ? i.rowChain[r] : []
@@ -240,7 +240,7 @@ enum BuildSceneLogic {
         var rowLen = [Int?](repeating: nil, count: Snap.rows)
         var clockClaimed = [Bool](repeating: false, count: 8)   // rows the STAGING (front) voice owns — the piece never overrides these
         if i.stagingPlaying {
-            for c in 0..<8 {
+            for c in 0..<Snap.maxCols {   // §E: 16-wide part
                 let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
                 if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
                     rowStepRate[r] = i.stagingRate; rowLen[r] = i.stagingLen; clockClaimed[r] = true
@@ -273,7 +273,7 @@ enum BuildSceneLogic {
             var rowLane = [UInt16](repeating: 0, count: Snap.rows)    // Snap.rows = 16 (rows 0–7 the visible grids, 8–15 the play layer)
             if let cr = chainLaneRow, chainPinned { rowLane[cr] = 0b0000_0001 }   // P1: pin ONLY the single-cell audition; the fallback laid chain cells across cols 1..7 → leave rowLane 0 so the row SWEEPS (else the pin loops col 0, often ANOTHER voice's cell → the audition is silent)
             if i.performPlaying {
-                for c in 0..<8 { for r in 0..<8 {
+                for c in 0..<Snap.maxCols { for r in 0..<8 {   // §E: 16-wide part columns × 8 visible rows
                     guard c < i.performCells.count, r < i.performCells[c].count, i.performCells[c][r] != nil,
                           !i.performMute.contains(c * 8 + r), i.performActiveRung(c, r) else { continue }
                     rowLane[r] = i.performLane
@@ -289,7 +289,7 @@ enum BuildSceneLogic {
                 }
             }
             if i.stagingPlaying {
-                for c in 0..<8 {
+                for c in 0..<Snap.maxCols {   // §E: 16-wide part
                     let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
                     if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
                         rowLane[r] = i.stagingLane                  // staging is in front → its loop wins the row
@@ -353,7 +353,8 @@ enum BuildSceneLogic {
     }
 
     static func reconcileStagingSel(_ sel: [Int], cells: [[String?]]) -> [Int] {
-        (0..<8).map { c in
+        (0..<Snap.maxCols).map { c in   // §E: 16-wide part
+
             let r = c < sel.count ? sel[c] : -1
             if r < 0 { return -1 }                                  // explicit deselect → keep it silent
             guard c < cells.count else { return -1 }

@@ -129,7 +129,7 @@ struct DiagView: View {
     @State var buildIOHoldPressing = false
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
-    @State var buildStagingSel: [Int] = Array(repeating: -1, count: 8)   // the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
+    @State var buildStagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)   // §E: 16-wide; the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
     @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
     @State var buildRowShade: [Double] = Array(repeating: 0, count: 8)   // STAGE THE GRID: per-row shade of the selected colour (+lighter … −darker), by output complexity
     @State var buildPulseColourID: String? = nil   // a touched grid cell's colour, offered as a PULSING candidate in the last free palette slot (nil = none)
@@ -174,8 +174,8 @@ struct DiagView: View {
     @State var buildPendingSource: [ProcessorSlot] = []  // the chain the pending tab was copied from — diverge = PLACED
     // THE PIECE — the perform (play) grid: deployed parts, ONE ROW per part (deployment order). Each cell keeps its
     // colourID + optional variation chain + the deploying part's I/O, so START/STOP THE PLAY GRID plays the assembly.
-    @State var buildPerformCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
-    @State var buildPerformChain: [[[ProcessorSlot]]] = Array(repeating: Array(repeating: [], count: 8), count: 8)
+    @State var buildPerformCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
+    @State var buildPerformChain: [[[ProcessorSlot]]] = Array(repeating: Array(repeating: [], count: 8), count: Snap.maxCols)
     @State var buildPerformRecv: [Int] = Array(repeating: 0, count: 8)          // per perform-ROW input door
     @State var buildPerformEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)  // per perform-ROW emitters
     @State var buildPerformPlaying: Bool = false                                // the PIECE is the active voice
@@ -200,7 +200,7 @@ struct DiagView: View {
     @State var buildRangeSetHi: Bool = false       // RANGE picker: setting the MAX bound (else MIN)
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the
     // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a colour here.
-    @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
+    @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
     // THE PLAY GRID (Paul 2026-08-29) — its OWN arrangement, INDEPENDENT of the part's buildStagingCells so the SELECT
     // top-button assign lands only on PLAY (was writing the shared staging → it wrongly lit the part-grid side buttons).
     // [column][row]; one selected rung per column (buildPlaySel, default ROW 1 = 0). Populated by the top-button ferry.

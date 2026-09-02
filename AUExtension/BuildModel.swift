@@ -7,8 +7,10 @@ import Foundation
 // staging grid + variations, its cast selection, and its PART-OWNED I/O (one input door + a set of output emitters,
 // shared across every colour/cell of the part). `deployed` christens it (PART n) on first assignment to the play grid.
 struct BuildPart: Codable, Equatable {
-    var stagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
-    var stagingSel: [Int] = Array(repeating: -1, count: 8)
+    // §E 16-STEP (Paul 2026-09-02): the STAGING columns are now maxCols(16)-wide (was 8). `length` is the part's active
+    // width/loop 1…16 (nil ⇒ the 8-wide default → byte-identical). Old 8-col saves decode short + are padded on restore.
+    var stagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)
+    var stagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)
     var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)
     var rowShade: [Double] = Array(repeating: 0, count: 8)
     var rowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: what a row REVERTS to when its colour is stamped elsewhere
@@ -120,8 +122,8 @@ struct BuildSceneSnapshot: Codable, Equatable {
 extension BuildPart {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        stagingCells = try c.decodeIfPresent([[String?]].self, forKey: .stagingCells) ?? Array(repeating: Array(repeating: nil, count: 8), count: 8)
-        stagingSel   = try c.decodeIfPresent([Int].self, forKey: .stagingSel) ?? Array(repeating: -1, count: 8)
+        stagingCells = Snap.padCols(try c.decodeIfPresent([[String?]].self, forKey: .stagingCells) ?? [], Array(repeating: nil, count: 8))   // §E: pad an old 8-col save to 16
+        stagingSel   = Snap.padCols(try c.decodeIfPresent([Int].self, forKey: .stagingSel) ?? [], -1)
         rowChain     = try c.decodeIfPresent([[ProcessorSlot]].self, forKey: .rowChain) ?? Array(repeating: [], count: 8)
         rowShade     = try c.decodeIfPresent([Double].self, forKey: .rowShade) ?? Array(repeating: 0, count: 8)
         rowUnder     = try c.decodeIfPresent([String?].self, forKey: .rowUnder) ?? Array(repeating: nil, count: 8)
@@ -149,8 +151,8 @@ extension BuildUnassignedData {
 extension BuildSceneSnapshot {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        performCells      = try c.decodeIfPresent([[String?]].self, forKey: .performCells) ?? Array(repeating: Array(repeating: nil, count: 8), count: 8)
-        performChain      = try c.decodeIfPresent([[[ProcessorSlot]]].self, forKey: .performChain) ?? Array(repeating: Array(repeating: [], count: 8), count: 8)
+        performCells      = Snap.padCols(try c.decodeIfPresent([[String?]].self, forKey: .performCells) ?? [], Array(repeating: nil, count: 8))   // §E: 16-col part grid, old 8-col saves padded
+        performChain      = Snap.padCols(try c.decodeIfPresent([[[ProcessorSlot]]].self, forKey: .performChain) ?? [], Array(repeating: [], count: 8))
         performRecv       = try c.decodeIfPresent([Int].self, forKey: .performRecv) ?? Array(repeating: 0, count: 8)
         performEmit       = try c.decodeIfPresent([Set<Bus>].self, forKey: .performEmit) ?? Array(repeating: [.a], count: 8)
         performPart       = try c.decodeIfPresent([Int].self, forKey: .performPart) ?? Array(repeating: -1, count: 8)

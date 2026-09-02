@@ -874,6 +874,7 @@ extension DiagView {
         HStack(alignment: .center, spacing: 8) {
             if !reelShowPopup {
                 buildRateControl()                              // the per-part rate
+                buildStepsControl()                             // §E: the per-part STEP count (8 | 16)
                 buildConfigButton("MIDI IN")  { buildMidiConfigOpen = true }    // the MIDI-IN doors sheet
                 buildConfigButton("MIDI OUT") { buildMidiOutConfigOpen = true } // the emitter stamp-channels sheet
                 buildConfigButton("RACK")     { buildRackConfigOpen = true }    // the rack / OUTPUT CHAIN sheet (config-sheets §6)
@@ -952,6 +953,29 @@ extension DiagView {
     func buildSetPartRate(_ r: StepRate?) {
         buildPartRate = r
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative for performRate mapping
+        buildPublishScene()
+    }
+    // §E 16-STEP (Paul 2026-09-02): the CURRENT part's STEP COUNT (its active width = loop length). nil ⇒ the 8-wide
+    // default (byte-identical); 16 ⇒ the part grid renders + loops 16 columns. A compact 8|16 menu beside the rate pill.
+    @ViewBuilder private func buildStepsControl() -> some View {
+        Menu {
+            Button { buildSetPartLen(nil) } label: { Label("8 STEPS", systemImage: buildPartCols <= 8 ? "checkmark" : "circle") }
+            Button { buildSetPartLen(16) }  label: { Label("16 STEPS", systemImage: buildPartCols == 16 ? "checkmark" : "circle") }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "rectangle.split.2x1").font(.system(size: 10, weight: .semibold))
+                Text("\(buildPartCols) STEP").font(.system(size: 10, weight: .heavy, design: .monospaced))
+            }
+            .foregroundColor(buildCyan)
+            .padding(.horizontal, 8).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+            .contentShape(Rectangle())
+        }
+    }
+    func buildSetPartLen(_ n: Int?) {
+        buildPartLen = n
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = n }   // keep buildParts authoritative for performLen mapping
+        buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)            // keep the selection valid across the new width
         buildPublishScene()
     }
 
@@ -1681,7 +1705,7 @@ extension DiagView {
     // pass (playColSteps/Len/Rate). The play layer then sweeps + loops that pass at the part's tempo, disjoint from the part
     // rows. v1: one output (the part's default door + emitters) for the whole pass; per-step I/O is a follow-up.
     private func roomsFlattenPartToPlay(_ t: Int) {
-        let len = max(1, min(Snap.cols, buildPartLen ?? Snap.cols))
+        let len = max(1, min(Snap.maxCols, buildPartLen ?? Snap.cols))   // §E: flatten up to 16 steps
         let steps: [String?] = (0..<len).map { c in
             let rr = c < buildStagingSel.count ? buildStagingSel[c] : -1
             return (rr >= 0 && c < buildStagingCells.count && rr < buildStagingCells[c].count) ? buildStagingCells[c][rr] : nil
@@ -1906,10 +1930,13 @@ extension DiagView {
     // PART-GRID PROPORTIONS (Paul 2026-09-01): the interior 8-row grid is SHRUNK below the header (ferry row + ▲PLAY nav +
     // ▲▼/STOP stay their size) to free a LARGE PANEL below (the future macro band / part surface). Tunable — device-owed.
     static let roomsPartInteriorFraction: CGFloat = 0.5   // interior cell height = this × the lattice cell height
+    // §E 16-STEP (Paul 2026-09-02): the part's ACTIVE WIDTH = its loop length (buildPartLen, 1…16; nil ⇒ the 8-wide
+    // default). The grid renders this many STEP columns (cells shrink to fit), the engine loops them (rowLength).
+    var buildPartCols: Int { max(1, min(Snap.maxCols, buildPartLen ?? Snap.cols)) }
     @ViewBuilder func roomsPartGrid(m: RoomsMetrics) -> some View {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad               // heights come from the shared lattice (m); width stays per-view
-            let cols = 8                                                     // the part-grid STEP count (→ 16 with the §E flip; the ferry row + rails follow)
+            let cols = buildPartCols                                         // §E: the part-grid STEP count = the active width (8 or up to 16)
             let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 2))   // leftRail + `cols` interior + rightRail → FILLS the width
             let ch = m.ch, navH = m.navH
             let partCH = max(6, ch * DiagView.roomsPartInteriorFraction)     // SHRUNK interior cell height (the header rows keep `ch`)
@@ -2189,8 +2216,8 @@ extension DiagView {
     @ViewBuilder private func roomsPartPlayhead(colW: CGFloat, gap: CGFloat, height: CGFloat) -> some View {
         if d.playing && buildStagingPlaying {
             let sb = buildPartRate?.beats ?? stepBeats
-            let cols = buildPartLen ?? Snap.cols
-            let width = colW * 8 + gap * 7
+            let cols = buildPartCols                                        // §E: the active width
+            let width = colW * CGFloat(cols) + gap * CGFloat(cols - 1)
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
@@ -2710,7 +2737,7 @@ extension DiagView {
         buildPartCast.append(y)
         buildSetRow(n, to: y)                                    // placed on part-grid row n
         if n < buildRowReceiver.count { buildRowReceiver[n] = ddStickyReceiver; buildRowEmitters[n] = ddStickyBuses }   // DEFAULT the new row's I/O to the LAST-USED receivers/emitters (Paul 2026-08-18/25)
-        for c in 0..<8 { buildStagingSel[c] = n }
+        for c in 0..<Snap.maxCols { buildStagingSel[c] = n }   // §E: the 16-col staging storage (width governs view/play)
         buildSelectID(y)
         buildPendingTab = n
         buildPendingSource = selectedColourChain()               // == [] here; buildApplyChain clears the flash once the chain diverges
@@ -3193,7 +3220,7 @@ extension DiagView {
         // RESOLVE the effective chain per PERFORM cell (Paul 2026-08-23): a per-cell VARIATION if it has one, else the
         // colour's OWN machine (buildColourChain → [] for a NO-MACHINE colour). composeScene then passes it EXPLICITLY,
         // so a no-machine cell is a passthrough (live wire) in the play grid too — not only via PLAY THIS MIDI CHAIN.
-        input.performChain = (0..<8).map { c in (0..<8).map { r -> [ProcessorSlot] in
+        input.performChain = (0..<Snap.maxCols).map { c in (0..<8).map { r -> [ProcessorSlot] in   // §E: 16 part columns × 8 rows
             let v = (c < buildPerformChain.count && r < buildPerformChain[c].count) ? buildPerformChain[c][r] : []
             let cid = (c < buildPerformCells.count && r < buildPerformCells[c].count) ? buildPerformCells[c][r] : nil
             return v.isEmpty ? buildColourChain(cid ?? "") : v
@@ -3432,7 +3459,7 @@ extension DiagView {
         if row < buildRowUnder.count { buildRowUnder[row] = nil }   // an empty row displaces nothing
         buildSetRow(row, to: newID)
         buildSelectID(newID)                               // focus the pasted colour
-        for c in 0..<8 { buildStagingSel[c] = row }        // select the whole new row (like PLACE/MUTATE)
+        for c in 0..<Snap.maxCols { buildStagingSel[c] = row }        // select the whole new row (like PLACE/MUTATE) — §E 16-col
         buildStagingSyncIfPlaying()
     }
 
@@ -3466,16 +3493,16 @@ extension DiagView {
     // / buildSelectRow / buildPopulateTab / buildPasteChain / buildSeedTab1) index [c][r] UNGUARDED → a trap. Pad/clamp on the
     // load boundary so every downstream write is in-bounds (the read siblings were already ragged-safe).
     private func buildNormalizeStaging(_ cells: [[String?]], _ sel: [Int]) -> (cells: [[String?]], sel: [Int]) {
-        var c = cells
-        if c.count > 8 { c = Array(c.prefix(8)) }
-        while c.count < 8 { c.append(Array(repeating: nil, count: 8)) }
+        var c = cells                                       // §E: normalize to maxCols(16) COLUMNS × 8 visible ROWS (was 8×8 — truncated 16-wide parts)
+        if c.count > Snap.maxCols { c = Array(c.prefix(Snap.maxCols)) }
+        while c.count < Snap.maxCols { c.append(Array(repeating: nil, count: 8)) }
         for i in c.indices {
             if c[i].count > 8 { c[i] = Array(c[i].prefix(8)) }
             while c[i].count < 8 { c[i].append(nil) }
         }
         var s = sel
-        if s.count > 8 { s = Array(s.prefix(8)) }
-        while s.count < 8 { s.append(-1) }
+        if s.count > Snap.maxCols { s = Array(s.prefix(Snap.maxCols)) }
+        while s.count < Snap.maxCols { s.append(-1) }
         return (c, s)
     }
     private func buildLoadPart(_ i: Int) {
@@ -3599,7 +3626,7 @@ extension DiagView {
     // (tap a tab / RANDOMIZE) when ready. (Was: TAB 1 seeded with a default passthrough colour.)
     private func buildSeedTab1() {
         buildPartCast = []; buildCastSlots = [:]
-        for c in 0..<8 { buildStagingSel[c] = -1 }                 // nothing selected → nothing plays until a colour is added
+        for c in 0..<Snap.maxCols { buildStagingSel[c] = -1 }                 // nothing selected → nothing plays until a colour is added (§E 16-col)
         buildSelID = nil; ddColourSel = -1
     }
     // Seed the workshop ONCE, on first BUILD appear. (Was: 8×4 default cast; now the single TAB 1.) §2.
@@ -3737,9 +3764,9 @@ extension DiagView {
         buildStagingSyncIfPlaying()
     }
 
-    private func buildRowColour(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<8).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe against a ragged decoded doc (buildRowColour is called all over the rooms UI)
+    private func buildRowColour(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<Snap.maxCols).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe; §E: scan all 16 columns
     private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one colour
-        for c in 0..<8 { buildStagingCells[c][r] = cid }
+        for c in 0..<Snap.maxCols { buildStagingCells[c][r] = cid }   // §E: fill the whole 16-col row (width governs view/play)
         if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the colour's OWN machine (no per-row variation override)
         if r < buildRowShade.count { buildRowShade[r] = 0 }
         buildDeletedRows[r] = nil
@@ -3749,7 +3776,7 @@ extension DiagView {
     // SELECT mode: make this row the selected rung in EVERY column — the whole-row equivalent of tapping a cell.
     private func buildSelectRow(_ row: Int) {
         guard row >= 0, row < 8 else { return }
-        for c in 0..<8 { buildStagingSel[c] = row }
+        for c in 0..<Snap.maxCols { buildStagingSel[c] = row }   // §E 16-col
         buildStagingSyncIfPlaying()
     }
 
@@ -4138,7 +4165,7 @@ extension DiagView {
             bands.append(MeterBand(color: color ?? colourColor(cid) ?? buildCyan, energy: false))    // emitters keep the flat fill (energy is receivers-only)
         }
         if buildStagingPlaying {                                                                     // PART: the selected rungs that emit on e
-            for c in 0..<8 { let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
+            for c in 0..<Snap.maxCols { let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
                 if r >= 0, buildRowColour(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowColour(r)) } }
         }
         // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette colour. (Paul 2026-08-31)

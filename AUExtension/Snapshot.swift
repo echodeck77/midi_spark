@@ -28,6 +28,8 @@ enum Snap {
     // delta §9 item 11: a source filter ≥17 matches no held note (NotePool.matches never sees chan ≥16),
     // so it is the render-free way to express a MUTED receiver — its subscribers read an empty pool.
     static let mutedSourceFilter: UInt8 = 17
+    // §E 16-step: pad a per-COLUMN array up to maxCols (an old 8-col save decodes short) so 16-wide indexing is safe.
+    static func padCols<T>(_ a: [T], _ fill: T) -> [T] { a.count >= maxCols ? a : a + Array(repeating: fill, count: maxCols - a.count) }
     // Ladders shared by builder and kernel. Order MUST match the enums' allCases (§8: stable).
     static let arpRateBeats: [Double] = ArpRate.allCases.map(\.beats)
     static let stepRateBeats: [Double] = StepRate.allCases.map(\.beats)
