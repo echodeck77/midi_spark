@@ -2000,64 +2000,62 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
-    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-02, rev 2 — a REAL roll): draws the TRUE LIVE output captured with real
-    // note geometry (partRollNotes: start/end BEAT · pitch · emitter cable · cell colour, from the PartRollDeck tap). A
-    // proper roll: one lane per SEMITONE across the used range, octave (C) gridlines + black-key shading, real-DURATION
-    // bars at their exact beat×pitch, in the EMITTER colour over a faint CELL-colour backing, velocity → brightness. A
-    // playhead sweeps; each note BLOOMS as the playhead crosses it, resting DIM otherwise / when no input (a ghost).
-    // No keyboard gutter (Paul's pick). 8/16-aware (the x-axis spans the part cycle). Onset→off pairs give true lengths.
+    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-02, rev 3 — PER-STEP CELLS): the roll is a row of framed cells, ONE per grid
+    // column (aligned under it). Each cell shows the notes SOUNDING during THAT step (a sustain appears in every step it
+    // spans, clipped to the step) and AUTO-FITS its OWN vertical pitch scale to that step's notes — floored to 1.5 OCTAVES
+    // (18 semitones), re-scaled every step. So each cell is a self-zoomed snapshot of what plays there (the pitch axis is
+    // per-step, not continuous). True LIVE output (partRollNotes / the PartRollDeck tap): EMITTER colour over a faint CELL
+    // backing, velocity → brightness; the live step's cell is highlighted (white frame + bright) — the playhead.
     @ViewBuilder func roomsPartPianoRoll(cols: Int, colW: CGFloat, gap: CGFloat) -> some View {
-        GeometryReader { g in
+        GeometryReader { _ in
             let notes = partRollNotes
             let sb = buildPartRate?.beats ?? stepBeats
-            let cyc = max(0.0001, Double(max(1, cols)) * sb)             // the pass length in beats (8 or 16 columns × the part step)
+            let cyc = max(0.0001, Double(max(1, cols)) * sb)
             let swingA = max(1.0, Double(swing) / 50.0)
-            // A STABLE pitch window from the notes (≥ one octave, padded); C4=60 fallback when empty so gridlines still read.
-            let lo0 = notes.map { Int($0.note) }.min() ?? 59, hi0 = notes.map { Int($0.note) }.max() ?? 71
-            let pLo = max(0, min(lo0, hi0) - 2)
-            let span = max(12, max(lo0, hi0) + 2 - pLo)                  // at least an octave of lanes
+            let stepW = colW + gap                                       // one cell per grid column, same pitch as the grid above
+            let minWin = 18                                             // 1.5 octaves — the MINIMUM window per step (Paul 2026-09-02)
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: swingA)
-                let phase = (musical.truncatingRemainder(dividingBy: cyc) + cyc).truncatingRemainder(dividingBy: cyc)   // beat within the pass
+                let phase = (musical.truncatingRemainder(dividingBy: cyc) + cyc).truncatingRemainder(dividingBy: cyc)
                 let playing = d.playing && buildStagingPlaying
-                ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.26))
-                    Canvas { ctx, size in
-                        let laneH = size.height / CGFloat(span + 1)
-                        func laneY(_ p: Int) -> CGFloat { size.height - CGFloat(p - pLo + 1) * laneH }   // low pitch bottom · high top
-                        // PITCH grid: a faint shade on black-key rows, a brighter line at each C (octave)
-                        for p in pLo...(pLo + span) {
-                            let yy = laneY(p)
-                            let pc = ((p % 12) + 12) % 12
-                            if pc == 0 { ctx.fill(Path(CGRect(x: 0, y: yy + laneH - 0.5, width: size.width, height: 1)), with: .color(.white.opacity(0.13))) }
-                            else if [1, 3, 6, 8, 10].contains(pc) { ctx.fill(Path(CGRect(x: 0, y: yy, width: size.width, height: laneH)), with: .color(.white.opacity(0.028))) }
-                        }
-                        // COLUMN grid (even beat divisions, aligned to the pass)
-                        for c in 1..<max(2, cols) { let x = CGFloat(c) / CGFloat(cols) * size.width; ctx.fill(Path(CGRect(x: x, y: 0, width: 1, height: size.height)), with: .color(.white.opacity(0.06))) }
-                        // NOTES — real bars at (start→end beat) × pitch lane
-                        for n in notes {
+                let liveStep = playing ? Int(phase / sb) : -1            // the step the playhead is on (the highlighted cell)
+                Canvas { ctx, size in
+                    let cellH = size.height
+                    for c in 0..<cols {
+                        let x = CGFloat(c) * stepW
+                        let s0 = Double(c) * sb, s1 = Double(c + 1) * sb                     // this step's beat window
+                        let inStep = notes.filter { $0.start < s1 && $0.end > s0 }           // notes SOUNDING during this step (overlap)
+                        // per-step pitch window: fit this step's notes, centred, floored to 1.5 octaves
+                        let ps = inStep.map { Int($0.note) }
+                        let lo = ps.min(), hi = ps.max()
+                        let centre = (lo != nil && hi != nil) ? (lo! + hi!) / 2 : 60
+                        let win = max(minWin, (hi ?? 60) - (lo ?? 60))
+                        let winLo = centre - win / 2
+                        let laneH = cellH / CGFloat(win + 1)
+                        func laneY(_ p: Int) -> CGFloat { cellH - CGFloat(p - winLo + 1) * laneH }
+                        let onStep = c == liveStep
+                        let cellHue = inStep.first.map { Color(hex: $0.colour) } ?? Color.white
+                        let frame = CGRect(x: x + 0.5, y: 0.5, width: colW - 1, height: cellH - 1)
+                        ctx.fill(Path(roundedRect: frame, cornerRadius: 4), with: .color(.black.opacity(0.30)))              // the cell's dark ground
+                        // notes in this step, clipped to the step's x-window, at the cell's OWN pitch scale
+                        for n in inStep {
                             let cable = Int(n.cable)
                             let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
-                            let x0 = CGFloat(n.start / cyc) * size.width
-                            let x1 = CGFloat(min(n.end, cyc) / cyc) * size.width
-                            let rect = CGRect(x: x0 + 0.5, y: laneY(Int(n.note)) + 0.5, width: max(3, x1 - x0 - 1), height: max(2.5, laneH - 1.5))
+                            let nx0 = x + CGFloat((max(n.start, s0) - s0) / sb) * colW
+                            let nx1 = x + CGFloat((min(n.end, s1) - s0) / sb) * colW
+                            let rect = CGRect(x: nx0 + 1.5, y: laneY(Int(n.note)) + 0.5, width: max(2.5, nx1 - nx0 - 2), height: max(2, laneH - 1))
                             let vel = Double(n.vel) / 127.0
-                            // BLOOM: bright for a beat after the playhead crosses the note's onset; dim ghost otherwise / when stopped
-                            let d0 = phase - n.start
-                            let crossed = playing && d0 >= -0.03 && d0 < 0.6
-                            let bright = playing ? (crossed ? 1.0 : 0.46) : 0.4
-                            if n.colour != 0 { ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(Color(hex: n.colour).opacity(0.16 + 0.14 * bright))) }   // faint CELL-colour backing
-                            ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity((0.34 + 0.5 * vel) * bright)))                                   // the EMITTER-coloured note
-                            if crossed { ctx.stroke(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(.white.opacity(0.6)), lineWidth: 1) }                          // a crisp edge as it plays
+                            let bright = playing ? (onStep ? 1.0 : 0.5) : 0.42
+                            if n.colour != 0 { ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color(hex: n.colour).opacity(0.14 + 0.14 * bright))) }   // faint CELL backing
+                            ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(emit.opacity((0.34 + 0.5 * vel) * bright)))                                  // the EMITTER note
                         }
-                    }
-                    if playing {                                             // the PLAYHEAD
-                        Rectangle().fill(Color.white.opacity(0.55)).frame(width: 1.5).offset(x: CGFloat(phase / cyc) * g.size.width)
+                        // the cell FRAME — tinted by this step's colour, bright white on the live (playhead) step
+                        ctx.stroke(Path(roundedRect: frame, cornerRadius: 4),
+                                   with: .color(onStep ? .white.opacity(0.6) : cellHue.opacity(inStep.isEmpty ? 0.10 : 0.30)),
+                                   lineWidth: onStep ? 1.5 : 1)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
             }
         }
     }
