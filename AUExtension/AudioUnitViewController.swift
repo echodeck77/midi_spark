@@ -382,6 +382,7 @@ struct DiagView: View {
     // SEAL comet note-on/off GATE: which cells are currently SOUNDING (from au.pollCellSounding), and when each
     // last went SILENT. The spark travels for exactly as long as the note is held, then fades ~0.45s from release.
     @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL (Paul 2026-09-02): the true live output of the current part cycle, for the piano roll
+    @State var buildPartDragLast: Int? = nil   // PART GRID (Paul 2026-09-02): the last cell touched in the current tap/drag selection (nil = no active drag)
     @State var cellSounding = [Bool](repeating: false, count: Snap.cells)
     @State var cellReleasedAt = [Date](repeating: .distantPast, count: Snap.cells)
     @State var cellStrikeSeq = [Int](repeating: 0, count: Snap.cells)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)

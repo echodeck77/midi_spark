@@ -1964,8 +1964,13 @@ extension DiagView {
                             VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(width: cw, height: partCH) } }
                             ZStack(alignment: .topLeading) {
                                 VStack(spacing: gap) { ForEach(0..<8, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: partCH) } } } }
-                                roomsPartPlayhead(colW: cw, gap: gap, height: interiorH)
+                                roomsPartPlayhead(colW: cw, gap: gap, height: interiorH).allowsHitTesting(false)
                             }
+                            .contentShape(Rectangle())
+                            .coordinateSpace(name: "partInt")
+                            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
+                                .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: partCH, gap: gap, cols: cols) }
+                                .onEnded { _ in buildPartDragLast = nil })
                             VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: cw, height: partCH) } }
                         }
                         // SECTION 1 — the PIANO ROLL strip: aligned UNDER the interior columns, 4 cells tall. A STATIC MOCK of
@@ -2262,36 +2267,52 @@ extension DiagView {
                                                               lineWidth: focused ? 2.5 : (selected ? 2 : 1)))   // MACHINE-HUE FRAME: dim → BRIGHT on focus
             .overlay { if buildSelectMode && id != nil { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
     }
-    // A PART interior cell — ONE RUNG PER COLUMN (old-gui buildStagingTap): tap selects that rung for its column; tap the
-    // selected rung to UNSELECT it (that column falls silent). Dark stage + machine-hue frame; the selected rung brighter.
+    // A PART interior cell — RENDERING ONLY (Paul 2026-09-02): the whole grid is DIMMED except the SELECTED rung; taps +
+    // DRAGS are handled by ONE gesture on the interior (buildPartGridDrag), so empty cells are selectable and a drag paints
+    // the selection. Selected = a bright WHITE outline (works for empty OR populated). Punch mode keeps its amber extent look.
     @ViewBuilder private func roomsPartCell(_ c: Int, _ r: Int, w: CGFloat, h: CGFloat) -> some View {
         let id = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil   // Rooms4: bounds-safe against a ragged decoded doc
         let selected = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r   // the ONE selected rung for column c
         let idx = c * Snap.rows + r
-        // AUTO PUNCH (Paul 2026-09-02): when a lane is armed, THIS colour's cells become a SELECT canvas — a cell is simply
-        // IN the extent (amber wash + bright border) or OUT (faint border). BINARY, no ramp/slider on the grid — the SWEEP's
-        // FROM→TO faders + the piano roll show the range; the grid just picks WHICH cells the sweep covers. Other-colour cells recede.
         let punch = buildAutoArmedParam()
         let punchable = punch != nil && id != nil && id == ddSelectedColourID
         let cellBody = roomsGridCellBody(id: id, selected: selected,
                           sweep: { buildNoteSweep(idx: idx, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
         if punchable {
-            let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent (selected)
+            let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent
             cellBody
-                .overlay { if inExtent { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.32)) } }   // SELECTED = a flat amber wash (binary)
+                .overlay { if inExtent { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.32)) } }   // in the extent = amber wash (binary)
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(inExtent ? 1 : 0.4), lineWidth: inExtent ? 2 : 1))
-                .frame(width: w, height: h).contentShape(Rectangle())
-                .onTapGesture { buildAutoToggle(idx) }   // TAP = select / unselect this cell in the extent
+                .frame(width: w, height: h)
         } else {
             cellBody
-                .frame(width: w, height: h).opacity(punch != nil ? 0.4 : 1)   // armed-but-other-colour cells recede
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if punch != nil { return }                                  // punch armed elsewhere → ignore stray taps
-                    if buildSelectMode { if let cid = id { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this cell's colour
-                    else { buildStagingTap(c, r) }                                  // else: one rung per column, toggle
-                }
+                .overlay { if selected { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2) } }   // the SELECTED rung — a bright outline (empty or populated)
+                .frame(width: w, height: h)
+                .opacity(punch != nil ? 0.3 : (selected ? 1.0 : 0.32))   // DIM everything except the selected rung (Paul 2026-09-02)
         }
+    }
+    // THE PART GRID GESTURE (Paul 2026-09-02): ONE drag over the interior handles tap AND drag selection — so empty cells
+    // select too and a drag PAINTS the per-column rung. Maps the finger to (col,row); acts once per cell entered. Punch mode
+    // toggles this colour's extent; SELECT mode focuses; otherwise the FIRST cell tap-toggles the rung (deselect if it was
+    // the selected one) and subsequent dragged cells paint-select. (buildPartDragLast @State lives in the VC struct.)
+    func buildPartGridDrag(_ loc: CGPoint, cw: CGFloat, ch: CGFloat, gap: CGFloat, cols: Int) {
+        let c = Int(loc.x / (cw + gap)), r = Int(loc.y / (ch + gap))
+        guard c >= 0, c < cols, r >= 0, r < 8 else { return }
+        let key = c * 100 + r
+        let first = buildPartDragLast == nil
+        guard key != buildPartDragLast else { return }                  // act ONCE per cell entered
+        buildPartDragLast = key
+        let cid = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil
+        if buildAutoArmedParam() != nil {                               // PUNCH: toggle THIS colour's cell in the extent
+            if let cid, cid == ddSelectedColourID { buildAutoToggle(c * Snap.rows + r) }
+            return
+        }
+        if buildSelectMode { if let cid { buildSelectID(cid) }; buildSelectMode = false; return }   // SELECT MODE: focus
+        buildPartTouched = true
+        if first && (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r {                     // TAP the selected rung → deselect (column silent)
+            if c < buildStagingSel.count { buildStagingSel[c] = -1 }
+        } else if c < buildStagingSel.count { buildStagingSel[c] = r }                               // else select / paint this rung
+        buildStagingSyncIfPlaying()
     }
     // The RIGHT rail — selects the ENTIRE row (every column → this row), like the old gui's row-select. Lights when the
     // whole row is the current per-column selection. (Paul 2026-08-28)
