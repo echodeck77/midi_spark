@@ -624,7 +624,7 @@ final class Kernel {
         if box.masterMute || masterKill { diag.routedPath = false; return }   // master mute / fader-kill silences ALL output → expected
         // Only the CURRENT column can sound right now — a routed cell in some OTHER column is not why this instant is
         // silent. Scan effColumn only, gated on this pass, so the verdict tracks what the playhead is actually over.
-        let col = min(max(0, diag.effColumn), Snap.cols - 1)
+        let col = min(max(0, diag.effColumn), Snap.maxCols - 1)
         var path = false
         for row in 0..<Snap.rows {
             let c = box.cells[col * Snap.rows + row]
@@ -1059,7 +1059,7 @@ final class Kernel {
     /// passthrough so the held chord is still audible).
     private func auditionCellSounds(_ box: SnapshotBox, _ target: Int) -> Bool {
         let col = target / Snap.rows, row = target % Snap.rows
-        guard col >= 0, col < Snap.cols, row >= 0, row < Snap.rows else { return false }
+        guard col >= 0, col < Snap.maxCols, row >= 0, row < Snap.rows else { return false }
         let cell = box.cells[col * Snap.rows + row]
         return cell.colourIndex >= 0 && !cell.muted && !cell.bypassed && cell.busMask != 0
     }

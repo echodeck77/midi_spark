@@ -794,7 +794,7 @@ final class Router {
     // index = column*Snap.rows + row (128 cells; Snapshot.swift). Muted cells produce nothing (§6.2).
     @inline(__always)
     private func topCell(in column: Int, _ box: SnapshotBox) -> (row: Int, cell: SnapCell)? {
-        let c = ((column % Snap.cols) + Snap.cols) % Snap.cols
+        let c = ((column % Snap.maxCols) + Snap.maxCols) % Snap.maxCols   // §E: wrap over the full 16-col storage so a 16-wide column reads its OWN cell (not col%8)
         for row in 0..<Snap.rows {
             let cell = box.cells[c * Snap.rows + row]
             if cell.colourIndex >= 0 && !cell.muted { return (row, cell) }
@@ -2414,7 +2414,7 @@ final class Router {
         let trueColumn = min(Snap.cols - 1, max(0, Int(posInCycle / S)))
         let absoluteStep = Int((mNow / S).rounded(.down))          // global step counter (derived)
         var effColumn = lapColumn(laneMask: heldColumns, absoluteStep: absoluteStep, trueColumn: trueColumn)
-        forceColumnHold = forceColumn >= 0 && forceColumn < Snap.cols
+        forceColumnHold = forceColumn >= 0 && forceColumn < Snap.maxCols
         if forceColumnHold { effColumn = forceColumn }   // PLAY: THIS CELL — hold the soloed cell's column so its machine plays every window, ungated (user 2026-08-09)
         diag.effColumn = effColumn
         diag.absoluteStep = absoluteStep                           // LADDER commit signal: increments EACH step even during a column LAP (effColumn stays put)
@@ -2633,7 +2633,7 @@ final class Router {
         }
         let entryBeat = modColumnEntryBeat[slot]
         if masterMute && !previewMode { return }                  // master MUTE kills all output
-        guard column >= 0 && column < Snap.cols else { return }
+        guard column >= 0 && column < Snap.maxCols else { return }
         let bEnd = beatPos + windowBeats
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
@@ -2667,7 +2667,7 @@ final class Router {
     }
     /// Reset every MOD cell in `column` whose modReset is ON to its default (0) — the CC-pollution guard. Stateless.
     private func emitModResets(box: SnapshotBox, column: Int, atSample: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
-        guard column >= 0 && column < Snap.cols, !(masterMute && !previewMode) else { return }
+        guard column >= 0 && column < Snap.maxCols, !(masterMute && !previewMode) else { return }
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 { continue }
@@ -2732,7 +2732,7 @@ final class Router {
         glideVoices[cellIdx] = GlideVoice()
     }
     private func glidePhraseEndColumn(_ column: Int, atSample: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
-        guard column >= 0 && column < Snap.cols else { return }
+        guard column >= 0 && column < Snap.maxCols else { return }
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r { glidePhraseEnd(column * Snap.rows + r, atSample: atSample, out: out) }
     }
     /// An EXTERNAL closer (MONO voice-steal) just closed the voice at `slot`. If that voice was a GLIDE anchor, the glide
@@ -2797,7 +2797,7 @@ final class Router {
             glideLastColumn[slot] = Int32(column)
         }
         if masterMute && !previewMode { return }
-        guard column >= 0 && column < Snap.cols else { return }
+        guard column >= 0 && column < Snap.maxCols else { return }
         let bEnd = beatPos + windowBeats
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cellIdx = column * Snap.rows + r
@@ -2915,7 +2915,7 @@ final class Router {
     /// only runs for the ACTIVE column's cell. Single-emitter (the cell's lowest bus) — fan-out stays a v2 item.
     private func emitGlideDriven(box: SnapshotBox, column: Int, row r: Int, beatPos: Double, windowBeats: Double,
                                  beatsPerSample: Double, windowStart: Int64, S: Double, a: Double, out: MIDIEmitter?) {
-        guard column >= 0 && column < Snap.cols else { return }
+        guard column >= 0 && column < Snap.maxCols else { return }
         if masterMute && !previewMode { return }
         let cellIdx = column * Snap.rows + r
         let cell = box.cells[cellIdx]
@@ -4515,7 +4515,7 @@ final class Router {
         }
         guard target >= 0 else { return }
         let col = target / Snap.rows, row = target % Snap.rows
-        guard col >= 0, col < Snap.cols, row >= 0, row < Snap.rows else { return }
+        guard col >= 0, col < Snap.maxCols, row >= 0, row < Snap.rows else { return }
         let cell = box.cells[col * Snap.rows + row]
         guard cell.colourIndex >= 0, !cell.muted, cell.busMask != 0, !cell.bypassed else { return }
         guard pool.count > 0 else { return }          // no held notes → silence (soundcheck)

@@ -915,7 +915,7 @@ final class CellRelocationTests: XCTestCase {
         var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold")
         s.swapCells((0, 0), (0, 0))                    // self → no-op
         XCTAssertEqual(s.cells[0][0]?.colourID, "gold")
-        s.swapCells((0, 0), (9, 9))                    // out of range → no-op
+        s.swapCells((0, 0), (99, 99))                  // out of range (past the 16×16 grid) → no-op
         XCTAssertEqual(s.cells[0][0]?.colourID, "gold")
     }
 }

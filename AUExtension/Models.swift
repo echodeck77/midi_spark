@@ -897,7 +897,7 @@ struct SceneState: Codable, Equatable {
     }
 
     static func empty() -> SceneState {
-        SceneState(cells: Array(repeating: Array(repeating: nil, count: Snap.rows), count: Snap.cols))   // Snap.rows = 16: rows 0–7 visible, 8–15 the hidden play layer
+        SceneState(cells: Array(repeating: Array(repeating: nil, count: Snap.rows), count: Snap.maxCols))   // §E: maxCols(16) columns × Snap.rows(16) — rows 0–7 visible, 8–15 the hidden play layer; cols 8–15 empty until a part is 16-wide
     }
 
     /// A scene with no placed cells — the sparse "+" slot on the strip (never destroyed; just absent).

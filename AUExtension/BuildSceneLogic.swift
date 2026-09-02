@@ -73,7 +73,7 @@ enum BuildSceneLogic {
     /// grid's per-column rules; it only goes gappy when all 8 rows are full.
     /// A play column's pass length, clamped to [1, Snap.cols] (out-of-range / short array → a single cell). Shared by
     /// the composer + BuildPage's sweep-index helper so the clamp lives in ONE place. (refactor 2026-08-30)
-    static func passLen(_ arr: [Int], _ c: Int) -> Int { c < arr.count ? max(1, min(Snap.cols, arr[c])) : 1 }
+    static func passLen(_ arr: [Int], _ c: Int) -> Int { c < arr.count ? max(1, min(Snap.maxCols, arr[c])) : 1 }   // §E: a play pass can be up to 16 steps
 
     // MARK: PART AUTOMATION (the AUTO lanes, Paul 2026-09-02) — pure, testable, single source of truth for the band + the bake.
     /// The pre-mapped USEFUL default param per processor (Paul: "length for arp"). "" ⇒ fall to the first param.

@@ -39,7 +39,7 @@ enum SnapshotBuilder {
         for (mi, macro) in doc.macrosResolved.enumerated() {
             for t in macro.targets {
                 guard let param = MacroParam(rawValue: t.param), t.delta != 0,
-                      t.col >= 0, t.col < Snap.cols, t.row >= 0, t.row < Snap.rows, t.slot >= 0, t.slot < 64 else { continue }
+                      t.col >= 0, t.col < Snap.maxCols, t.row >= 0, t.row < Snap.rows, t.slot >= 0, t.slot < 64 else { continue }
                 macroMods[(t.col * Snap.rows + t.row) * 64 + t.slot, default: []].append(MacroMod(macro: mi, param: param, delta: t.delta))
             }
         }
@@ -48,12 +48,12 @@ enum SnapshotBuilder {
         // OWN params without touching its neighbours. Empty (old/clean doc) ⇒ the map is empty ⇒ byte-identical.
         var macroCellVals: [Int: [Int: Double]] = [:]
         for v in doc.macroCellValues ?? [] {
-            guard v.col >= 0, v.col < Snap.cols, v.row >= 0, v.row < Snap.rows,
+            guard v.col >= 0, v.col < Snap.maxCols, v.row >= 0, v.row < Snap.rows,
                   v.macro >= 0, v.macro < PluginState.macroBankCount else { continue }
             macroCellVals[v.col * Snap.rows + v.row, default: [:]][v.macro] = max(0, min(1, v.value))
         }
-        var cells = [SnapCell](repeating: SnapCell(), count: Snap.cols * Snap.rows)
-        for c in 0..<Snap.cols {
+        var cells = [SnapCell](repeating: SnapCell(), count: Snap.maxCols * Snap.rows)   // §E: allocate the full 16-col storage (col 8–15 stay empty until a part is 16-wide → byte-identical)
+        for c in 0..<Snap.maxCols {
             let ladderActive = ladderOn ? scene.ladderActiveRow(c) : nil   // the one speaking rung this column (topmost-occupied default)
             for r in 0..<Snap.rows {
                 guard c < scene.cells.count, r < scene.cells[c].count,
@@ -142,7 +142,7 @@ enum SnapshotBuilder {
         for r in 0..<Snap.rows {
             var runStart = -1
             var runColour: Int16 = -1   // CR-13a: SnapCell.colourIndex is Int16 (a doc colour index can exceed 127)
-            for c in 0..<Snap.cols {
+            for c in 0..<Snap.maxCols {
                 let idx = c * Snap.rows + r
                 let ci = cells[idx].colourIndex
                 if ci >= 0 && !cells[idx].dormant {
@@ -261,7 +261,7 @@ enum SnapshotBuilder {
             (scene.rowStepRate.flatMap { arr -> StepRate? in r < arr.count ? arr[r] : nil })?.beats ?? scene.stepRate.beats
         }
         let rowLenResolved: [Int] = (0..<Snap.rows).map { r in
-            (scene.rowLen.flatMap { arr -> Int? in r < arr.count ? arr[r] : nil }).map { max(1, min(Snap.cols, $0)) } ?? Snap.cols
+            (scene.rowLen.flatMap { arr -> Int? in r < arr.count ? arr[r] : nil }).map { max(1, min(Snap.maxCols, $0)) } ?? Snap.cols   // CLAMP allows 16; UNSET ⇒ the 8-wide default (byte-identical)
         }
         // PER-ROW LAP (Paul 2026-08-19): pass the per-row loop mask through when the scene set one (BUILD's two grids),
         // else empty ⇒ the render uses the ephemeral global lap for every row (GRID tab, byte-identical).

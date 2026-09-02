@@ -18,8 +18,12 @@ enum Snap {
     // HIDDEN PLAY LAYER — 8 continuous "play cells" that need their own rows (a per-row lane pins each to a column, so they
     // can't share a row with the sequenced part). This gives the play layer + the sequenced part DISJOINT engine rows on the
     // part page (was: both crammed into 8 rows → they collided in column 0). Cell index stays `col * Snap.rows + row`.
-    static let cols = 8, rows = 16, colours = 16
-    static var cells: Int { cols * rows }   // 128 — the per-cell array/feed size (index = col*rows + row)
+    // §E 16-STEP FLIP (Paul 2026-09-02): `cols` is the DEFAULT/uniform BAR width (8 — one bar = 8 steps; the whole cycle
+    // math + uniform fast path key on it, so it STAYS 8 and the default part is byte-identical). `maxCols` is the
+    // ALLOCATION ceiling — the widest a part's loop can be (16). Cell storage + column loops + per-row loop-length CLAMPS
+    // use maxCols; a part whose rowLength > cols is non-uniform → the proven multi-clock per-row path plays its 16 columns.
+    static let cols = 8, rows = 16, colours = 16, maxCols = 16
+    static var cells: Int { maxCols * rows }   // 256 — the per-cell array/feed size (index = col*rows + row, col 0…15)
     static let playLayerRowBase = 8         // the hidden play layer occupies engine rows 8…15 (row 8+c = play column c)
     // delta §9 item 11: a source filter ≥17 matches no held note (NotePool.matches never sees chan ≥16),
     // so it is the render-free way to express a MUTED receiver — its subscribers read an empty pool.
@@ -432,7 +436,7 @@ final class SnapshotBox {
         self.macroValues = macroValues
         // PER-PART CLOCK helpers: resolve a row's step + loop length, falling back to the global values (uniform = today).
         func resolvedStep(_ r: Int) -> Double { (r >= 0 && r < rowStepBeats.count && rowStepBeats[r] > 0) ? rowStepBeats[r] : stepBeats }
-        func resolvedLen(_ r: Int) -> Int { (r >= 0 && r < rowLen.count && rowLen[r] >= 1) ? min(Snap.cols, rowLen[r]) : Snap.cols }
+        func resolvedLen(_ r: Int) -> Int { (r >= 0 && r < rowLen.count && rowLen[r] >= 1) ? min(Snap.maxCols, rowLen[r]) : Snap.cols }   // CLAMP to maxCols (allow a 16-wide loop); UNSET ⇒ the default bar (Snap.cols = 8, byte-identical)
         self.rowStep = (0..<Snap.rows).map(resolvedStep)
         self.rowLength = (0..<Snap.rows).map(resolvedLen)
     }
