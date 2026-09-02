@@ -131,7 +131,7 @@ extension DiagView {
                 buildHandleFileImport(result)                                                                // FILE import onto the picking door
             }
             .onChange(of: activeSceneIdx) { _ in buildSyncSceneSwitch(activeSceneIdx) }                       // scene chips → swap the play-grid arrangement
-            .onChange(of: d.playing) { playing in if !playing { buildStopAllOnTransportStop() } }             // HOST TRANSPORT STOPPED → stop everything (Paul 2026-08-31)
+            .onChange(of: d.playing) { playing in buildTransportEdge(playing) }                               // HOST TRANSPORT: STOP halts (keeps cells armed) · START resumes in sync (Paul 2026-09-02)
     }
     // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
     // output while playing, so it reads as RECORDING — red with a pulsing record dot; GREEN while a pass replays; dim stopped.
@@ -2403,7 +2403,7 @@ extension DiagView {
         buildPlayColOn[c].toggle()
         // Starting a play column: the play LAYER is the voice — the shared select/part audition must be OFF, else it would
         // keep sounding this chain on rows 0…7 and this column's own stop (buildPlayColOn) could never silence it (Paul 2026-08-31).
-        if buildPlayColOn[c] { buildVoiceOwner = .none; au?.clearColourSolo() }
+        if buildPlayColOn[c] { buildVoiceOwner = .none; au?.clearColourSolo(); buildHostHalted = false }   // an explicit start re-enables free-run after a host halt
         buildPublishScene()
     }
     // SELECT a play column's cell → the machine strip + the I/O toggles reflect it (Paul 2026-08-30: play-ferry selection,
@@ -2431,7 +2431,7 @@ extension DiagView {
     func buildTogglePlayGrid() {
         let anyOn = buildPlayColOn.contains(true)
         for c in 0..<8 { buildPlayColOn[c] = anyOn ? false : buildPlayColHasContent(c) }
-        if !anyOn { buildVoiceOwner = .none; au?.clearColourSolo() }   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02)
+        if !anyOn { buildVoiceOwner = .none; au?.clearColourSolo(); buildHostHalted = false }   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02) + re-enables free-run after a host halt
         buildPublishScene()
     }
     // Column c has a populated selected rung (something to sound).
@@ -3192,6 +3192,7 @@ extension DiagView {
         }
     }
     private func buildApplyWorkshopVoice(_ v: BuildWorkshopVoice) {
+        if v != .none { buildHostHalted = false }   // an explicit PLAY re-enables free-run (audition while the host is stopped after a halt)
         switch v {
         case .chain: buildSelectMachineVoice()
         case .part:  buildSelectStagingVoice()
@@ -3413,10 +3414,10 @@ extension DiagView {
         // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
         // FREE-RUN GATE (Paul 2026-08-31): "when I press play, start playing." Pressing a PLAY control in 8x8 arms a voice
         // (ddSolo chain audition · buildStagingPlaying part · a play column), and THAT drives the internal clock so it sounds
-        // even while the host transport is stopped — an explicit play starts playback. Nothing auto-plays (roomsSyncVoice no
-        // longer auto-auditions), and a HOST transport-stop edge still clears the armed voices (buildStopAllOnTransportStop),
-        // so a stopped host with nothing pressed stays silent.
-        au?.setFreeRunEnabled(ddSolo || buildStagingPlaying || buildPerformPlaying || buildPlayPlaying)
+        // even while the host transport is stopped. HOST TRANSPORT SYNC (Paul 2026-09-02): a host-transport STOP does NOT
+        // de-arm — it sets buildHostHalted, gating free-run OFF (halt/silence) while the cells stay armed; the host START
+        // edge clears it so the armed voices RESUME in sync. An explicit BUILD play also clears it (audition while stopped).
+        au?.setFreeRunEnabled((ddSolo || buildStagingPlaying || buildPerformPlaying || buildPlayPlaying) && !buildHostHalted)   // halted (host stopped after playing) → NO free-run, the voices resume when the host does
     }
     // TRANSPORT STOPPED → stop everything (Paul 2026-08-31). Clears the shared audition + every play column and republishes,
     // so the machine play button, the ferries, the cells and the comets/rolls all read STOPPED. Called on the d.playing
@@ -3428,6 +3429,17 @@ extension DiagView {
         for i in buildPlayColOn.indices where buildPlayColOn[i] { buildPlayColOn[i] = false; changed = true }
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
         if changed { au?.clearColourSolo(); buildPublishScene() }
+    }
+    // THE HOST TRANSPORT drives 8×8's playback (Paul 2026-09-02): hitting STOP in the host HALTS play (silence) but does
+    // NOT de-arm any cell — the armed state (owner + play columns + rung selections) is kept, so PLAY resumes IN SYNC with
+    // the host. `buildHostHalted` gates free-run OFF while the host is stopped-after-playing (so it truly halts, not
+    // free-runs); it's cleared on host START (host drives) and on any explicit BUILD play (a deliberate stopped audition).
+    func buildTransportEdge(_ playing: Bool) {
+        if playing {
+            if buildHostHalted { buildHostHalted = false; buildPublishScene() }   // RESUME: host drives the armed voices, in sync
+        } else {
+            buildHostHalted = true; buildPublishScene()                           // HALT: keep every cell armed, suppress free-run → silence until the host resumes (the VC's own stop-edge commits any pending voice switch)
+        }
     }
     // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
     private var buildSelectedRow: Int? {
