@@ -2054,18 +2054,21 @@ extension DiagView {
         let paramKey = chain.isEmpty ? "" : autoResolvedParamKey(lane: lane, type: chain[procIdx].type, params: params)
         let param = params.first(where: { $0.key == paramKey })
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 3) {                                              // THE HEADER: NONE · AUTO 1–5 (span) · CLEAR (separate, right)
-                autoChip("NONE", on: active < 0, dot: false, wide: true) { buildAutoSetActive(-1) }   // NONE = disabled (left)
+            HStack(spacing: 0) {                                              // THE TAB STRIP: NONE · AUTO 1–5 (span) · CLEAR (separate, right)
+                autoTab("NONE", on: active < 0, dot: false) { buildAutoSetActive(-1) }.frame(maxWidth: .infinity)   // NONE = disabled (left)
                 ForEach(0..<5, id: \.self) { i in
-                    autoChip("AUTO \(i + 1)", on: active == i, dot: !lanes[i].cells.isEmpty, wide: true) { buildAutoSetActive(i) }   // select = ENABLE this lane (plays immediately)
+                    autoTab("AUTO \(i + 1)", on: active == i, dot: !lanes[i].cells.isEmpty) { buildAutoSetActive(i) }   // select = ENABLE this lane (plays immediately)
                         .frame(maxWidth: .infinity)                           // the five tabs SPAN the header width
                 }
                 autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { if active >= 0 { buildSetAutoLane { $0.cells = [] } } }   // CLEAR — distinctly separate, right
                     .opacity(active >= 0 && !lane.cells.isEmpty ? 1 : 0.35)
                     .padding(.leading, 8)
             }
-            if chain.isEmpty { macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else {
+            if active < 0 {                                                  // NONE → hide the controls entirely (a calm invitation)
+                macroHint("Automation off — pick an AUTO tab to sweep a parameter across the grid").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if chain.isEmpty {
+                macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
                 HStack(spacing: 4) {                                          // MACHINE — the chain's stages (direct)
                     macroColHead("MACHINE").frame(width: 58, alignment: .leading)
                     ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
@@ -2082,16 +2085,30 @@ extension DiagView {
                         }
                     } }
                 }
-                if active >= 0, let p = param {
+                if let p = param {
                     Text("ON · \(buildProcLabel(chain[procIdx])) · \(p.label) — tap cells to set the range (plays live)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("NONE — automation off. Select an AUTO lane to enable it.").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35)).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Spacer(minLength: 0)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    // §AUTO TAB (Paul 2026-09-02): the AUTO 1–5 + NONE selector reads as TABS — a top-rounded cell with a bottom ACCENT
+    // underline (amber when active, a faint baseline when not), sitting over the controls it reveals. The active-cell dot
+    // marks a lane that already holds an extent.
+    @ViewBuilder private func autoTab(_ t: String, on: Bool, dot: Bool, _ tap: @escaping () -> Void) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                if dot { Circle().fill(roomsAmber).frame(width: 4, height: 4) }
+                Text(t).font(.system(size: 10, weight: on ? .heavy : .semibold, design: .monospaced))
+                    .foregroundColor(on ? roomsAmber : .white.opacity(0.5)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity).frame(height: 22)
+            .background(UnevenRoundedRectangle(topLeadingRadius: 5, topTrailingRadius: 5).fill(on ? roomsAmber.opacity(0.16) : Color.white.opacity(0.04)))
+            Rectangle().fill(on ? roomsAmber : Color.white.opacity(0.12)).frame(height: on ? 2 : 1)   // the tab underline / baseline
+        }
+        .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
     @ViewBuilder private func macroColHead(_ t: String) -> some View {
         Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.32))
