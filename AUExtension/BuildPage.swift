@@ -1987,54 +1987,60 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
-    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-02): the TRUE LIVE output. Reads the real emitted-note feed (buildCellRoll,
-    // the same feed the drift sweeps use — REAL pitches, not a simulation), laid on the pass timeline. Per COLUMN, the
-    // SELECTED rung's cell's emitted notes are drawn at that column, in the EMITTER colour over a faint CELL-colour
-    // background. A note is BRIGHT when freshly emitted (as the playhead passes it) and fades DIM as it ages / when no
-    // input is coming out. A deselected column / a cell with no emitter (no output) shows nothing. Honors 8 + 16 width.
+    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-02, rev 2 — a REAL roll): draws the TRUE LIVE output captured with real
+    // note geometry (partRollNotes: start/end BEAT · pitch · emitter cable · cell colour, from the PartRollDeck tap). A
+    // proper roll: one lane per SEMITONE across the used range, octave (C) gridlines + black-key shading, real-DURATION
+    // bars at their exact beat×pitch, in the EMITTER colour over a faint CELL-colour backing, velocity → brightness. A
+    // playhead sweeps; each note BLOOMS as the playhead crosses it, resting DIM otherwise / when no input (a ghost).
+    // No keyboard gutter (Paul's pick). 8/16-aware (the x-axis spans the part cycle). Onset→off pairs give true lengths.
     @ViewBuilder func roomsPartPianoRoll(cols: Int, colW: CGFloat, gap: CGFloat) -> some View {
         GeometryReader { g in
-            let stepW = colW + gap                           // the SAME column pitch as the grid above → the steps line up
-            let swingA = max(1.0, Double(swing) / 50.0)
+            let notes = partRollNotes
             let sb = buildPartRate?.beats ?? stepBeats
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let now = tl.date
+            let cyc = max(0.0001, Double(max(1, cols)) * sb)             // the pass length in beats (8 or 16 columns × the part step)
+            let swingA = max(1.0, Double(swing) / 50.0)
+            // A STABLE pitch window from the notes (≥ one octave, padded); C4=60 fallback when empty so gridlines still read.
+            let lo0 = notes.map { Int($0.note) }.min() ?? 59, hi0 = notes.map { Int($0.note) }.max() ?? 71
+            let pLo = max(0, min(lo0, hi0) - 2)
+            let span = max(12, max(lo0, hi0) + 2 - pLo)                  // at least an octave of lanes
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let musical = musicalOf(live, stepBeats: sb, a: swingA)
+                let phase = (musical.truncatingRemainder(dividingBy: cyc) + cyc).truncatingRemainder(dividingBy: cyc)   // beat within the pass
+                let playing = d.playing && buildStagingPlaying
                 ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.20))
-                    ForEach(1..<max(2, cols), id: \.self) { c in                 // step gridlines (aligned to the grid columns)
-                        Rectangle().fill(Color.white.opacity(0.06)).frame(width: 1).offset(x: CGFloat(c) * stepW)
-                    }
+                    RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.26))
                     Canvas { ctx, size in
-                        for c in 0..<cols {                                      // each column → its SELECTED rung's live output
-                            let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
-                            guard r >= 0, r < 8, c < buildStagingCells.count, r < buildStagingCells[c].count,
-                                  let cid = buildStagingCells[c][r] else { continue }   // deselected / empty → nothing (rule 3)
-                            let emit = buildRowEmittersResolved(r)
-                            guard !emit.isEmpty else { continue }                // no output selected → nothing (rule 3)
-                            let x0 = CGFloat(c) * stepW
-                            let cellHue = colourColor(cid) ?? buildCell          // CELL colour = the column backdrop
-                            let emitHue = emitterHue(emit)                       // EMITTER colour = the note
-                            ctx.fill(Path(CGRect(x: x0, y: 0, width: colW, height: size.height)), with: .color(cellHue.opacity(0.09)))
-                            let idx = c * Snap.rows + r
-                            let notes = idx < buildCellRoll.count ? buildCellRoll[idx] : []
-                            for n in notes {
-                                let age = now.timeIntervalSince(n.born)
-                                if age < 0 || age > buildRollLife { continue }
-                                let fresh = max(0.0, 1.0 - age / buildRollLife)  // 1 = just emitted (playhead here) → 0 = aged out
-                                let bright = 0.28 + 0.72 * fresh                 // DIM floor when no fresh input; FULL as the playhead passes
-                                let y = CGFloat(1 - n.lane) * size.height        // lane = pitch (high = top)
-                                let barH = max(2.5, size.height * 0.09)
-                                let rect = CGRect(x: x0 + 1, y: y - barH / 2, width: max(2, colW - 2), height: barH)
-                                ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(emitHue.opacity(bright * (0.5 + 0.5 * n.vel))))
-                            }
+                        let laneH = size.height / CGFloat(span + 1)
+                        func laneY(_ p: Int) -> CGFloat { size.height - CGFloat(p - pLo + 1) * laneH }   // low pitch bottom · high top
+                        // PITCH grid: a faint shade on black-key rows, a brighter line at each C (octave)
+                        for p in pLo...(pLo + span) {
+                            let yy = laneY(p)
+                            let pc = ((p % 12) + 12) % 12
+                            if pc == 0 { ctx.fill(Path(CGRect(x: 0, y: yy + laneH - 0.5, width: size.width, height: 1)), with: .color(.white.opacity(0.13))) }
+                            else if [1, 3, 6, 8, 10].contains(pc) { ctx.fill(Path(CGRect(x: 0, y: yy, width: size.width, height: laneH)), with: .color(.white.opacity(0.028))) }
+                        }
+                        // COLUMN grid (even beat divisions, aligned to the pass)
+                        for c in 1..<max(2, cols) { let x = CGFloat(c) / CGFloat(cols) * size.width; ctx.fill(Path(CGRect(x: x, y: 0, width: 1, height: size.height)), with: .color(.white.opacity(0.06))) }
+                        // NOTES — real bars at (start→end beat) × pitch lane
+                        for n in notes {
+                            let cable = Int(n.cable)
+                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
+                            let x0 = CGFloat(n.start / cyc) * size.width
+                            let x1 = CGFloat(min(n.end, cyc) / cyc) * size.width
+                            let rect = CGRect(x: x0 + 0.5, y: laneY(Int(n.note)) + 0.5, width: max(3, x1 - x0 - 1), height: max(2.5, laneH - 1.5))
+                            let vel = Double(n.vel) / 127.0
+                            // BLOOM: bright for a beat after the playhead crosses the note's onset; dim ghost otherwise / when stopped
+                            let d0 = phase - n.start
+                            let crossed = playing && d0 >= -0.03 && d0 < 0.6
+                            let bright = playing ? (crossed ? 1.0 : 0.46) : 0.4
+                            if n.colour != 0 { ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(Color(hex: n.colour).opacity(0.16 + 0.14 * bright))) }   // faint CELL-colour backing
+                            ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity((0.34 + 0.5 * vel) * bright)))                                   // the EMITTER-coloured note
+                            if crossed { ctx.stroke(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(.white.opacity(0.6)), lineWidth: 1) }                          // a crisp edge as it plays
                         }
                     }
-                    if d.playing && buildStagingPlaying {                        // the PLAYHEAD sweeping the roll (notes light as it passes)
-                        let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                        let colF = sb > 0 ? musicalOf(live, stepBeats: sb, a: swingA) / sb : 0
-                        let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
-                        let p = wrapped < 0 ? wrapped + Double(cols) : wrapped
-                        Rectangle().fill(Color.white.opacity(0.5)).frame(width: 1.5).offset(x: CGFloat(p) * stepW)
+                    if playing {                                             // the PLAYHEAD
+                        Rectangle().fill(Color.white.opacity(0.55)).frame(width: 1.5).offset(x: CGFloat(phase / cyc) * g.size.width)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))

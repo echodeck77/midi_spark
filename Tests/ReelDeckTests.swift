@@ -311,3 +311,29 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(rec2.events[0].b0 & 0xF0, 0x90, "the ON plays [1,4)")
     }
 }
+
+// THE PART ROLL (Paul 2026-09-02): the live per-part-cycle note capture for the part-page piano roll.
+final class PartRollDeckTests: XCTestCase {
+    func testPairsOnOffIntoNotesWithRealDurations() {
+        let d = PartRollDeck()
+        d.record(beat: 0.0, cable: 1, colour: 0xAABBCC, 0x90, 60, 100)   // C on at beat 0
+        d.record(beat: 1.0, cable: 1, colour: 0,         0x80, 60, 0)     // C off at beat 1
+        d.record(beat: 2.0, cable: 2, colour: 0x112233, 0x90, 67, 80)    // G on at beat 2 (emitter B), left open
+        d.endCycle()                                                     // the cycle completes → becomes the drawn roll
+        let notes = d.roll(cycleBeats: 4.0).sorted { $0.start < $1.start }
+        XCTAssertEqual(notes.count, 2)
+        XCTAssertEqual(notes[0].note, 60); XCTAssertEqual(notes[0].cable, 1)
+        XCTAssertEqual(notes[0].start, 0.0, accuracy: 1e-9); XCTAssertEqual(notes[0].end, 1.0, accuracy: 1e-9, "real duration")
+        XCTAssertEqual(notes[0].colour, 0xAABBCC, "the note carries the sounding cell's colour")
+        XCTAssertEqual(notes[1].note, 67); XCTAssertEqual(notes[1].cable, 2)
+        XCTAssertEqual(notes[1].end, 4.0, accuracy: 1e-9, "a note open at cycle end holds to cycleBeats")
+    }
+    func testEmptyCycleKeepsThePreviousRollAsAGhost() {
+        let d = PartRollDeck()
+        d.record(beat: 0.0, cable: 1, colour: 0, 0x90, 60, 100); d.record(beat: 1.0, cable: 1, colour: 0, 0x80, 60, 0)
+        d.endCycle()                                                     // pattern captured
+        XCTAssertEqual(d.roll(cycleBeats: 4.0).count, 1)
+        d.endCycle()                                                     // an EMPTY cycle (no input) → keep the ghost
+        XCTAssertEqual(d.roll(cycleBeats: 4.0).count, 1, "no input keeps the last pattern as a dim ghost, not blank")
+    }
+}

@@ -381,6 +381,7 @@ struct DiagView: View {
     @State var cellHitVel = [Double](repeating: 0, count: Snap.cells)
     // SEAL comet note-on/off GATE: which cells are currently SOUNDING (from au.pollCellSounding), and when each
     // last went SILENT. The spark travels for exactly as long as the note is held, then fades ~0.45s from release.
+    @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL (Paul 2026-09-02): the true live output of the current part cycle, for the piano roll
     @State var cellSounding = [Bool](repeating: false, count: Snap.cells)
     @State var cellReleasedAt = [Date](repeating: .distantPast, count: Snap.cells)
     @State var cellStrikeSeq = [Int](repeating: 0, count: Snap.cells)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)
@@ -827,6 +828,11 @@ struct DiagView: View {
         .onReceive(timer) { _ in
             guard uiAppeared, let au else { return }   // CR-17: don't drain the render→main feeds while the view is hidden/backgrounded (perf + narrows CR-1's race window). buildPersistTick resumes on re-appear — a load restores then.
             buildPersistTick()   // BUILD: keep the saved unassigned part current + restore a just-loaded one (no-op off BUILD)
+            // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
+            let partRollOn = activeTab == .build && roomsRoom == .part && buildStagingPlaying
+            au.setPartRoll(active: partRollOn, cycleBeats: Double(max(1, buildPartCols)) * (buildPartRate?.beats ?? stepBeats))
+            let pr = partRollOn ? au.pollPartRoll() : []
+            if pr != partRollNotes { partRollNotes = pr }
             #if DEBUG
             if chaosOn { let s = "\(chaos.oracleFlag) · \(chaos.eventCount)e"; if s != chaosStatus { chaosStatus = s } }   // CHAOS oracle readout
             if autoOn { let s = "\(autoPilot.status) · \(autoPilot.chordCount)c"; if s != autoStatus { autoStatus = s } }   // AUTO-RUN readout

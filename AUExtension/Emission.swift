@@ -269,6 +269,67 @@ final class ReelTap: MIDIEmitter {
     }
 }
 
+// MARK: - THE PART ROLL (Paul 2026-09-02) — a live per-PART-cycle tape of the emitted output, for the part-page piano
+// roll. Distinct from ReelDeck (the global RECORD tape, gated on host-play + a fixed 8-bar cycle → dead during the BUILD
+// free-run audition). This one records the CURRENT part audition, pass-relative to the PART's OWN cycle, so the roll is
+// true + aligned for both 8 and 16 width. A completed non-empty cycle becomes the stable drawn roll (`last`); an empty
+// cycle leaves the previous roll as a dim GHOST (so "no input" shows the last pattern dim, not blank). Foundation-only,
+// unit-testable. Read on the main thread (benign staleness, like the reel readers).
+final class PartRollDeck {
+    struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var colour: UInt32 = 0 }
+    static let cap = 4096
+    private var cur = [Ev](repeating: Ev(), count: cap); private var curN = 0
+    private var last = [Ev](repeating: Ev(), count: cap); private(set) var lastN = 0
+    func record(beat: Double, cable: UInt8, colour: UInt32, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+        if curN < PartRollDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, colour: colour); curN += 1 }
+    }
+    /// A part cycle just completed: a non-empty cycle becomes the stable `last` (the drawn roll); an empty cycle keeps
+    /// the previous `last` (the dim ghost). Either way, reset `cur` for the next cycle.
+    func endCycle() { if curN > 0 { for i in 0..<curN { last[i] = cur[i] }; lastN = curN }; curN = 0 }
+    func clear() { curN = 0; lastN = 0 }
+    struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var colour: UInt32 = 0 }
+    /// Pair on/off in the last completed cycle → drawable notes over [0, cycleBeats]. A note still open at cycle end
+    /// holds to `cycleBeats` (the loop wraps it). Cables 1–4 only (0 = the All duplicate). (Mirrors ReelDeck.selectedRoll.)
+    func roll(cycleBeats: Double) -> [Note] {
+        var out: [Note] = []
+        var open: [Int: (start: Double, vel: UInt8, colour: UInt32)] = [:]   // key = cable<<8 | note
+        for i in 0..<lastN {
+            let e = last[i]
+            guard e.cable >= 1, e.cable <= 4 else { continue }
+            let key = Int(e.cable) << 8 | Int(e.b1)
+            let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
+            let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
+            if isOn { open[key] = (e.beat, e.b2, e.colour) }
+            else if isOff, let o = open.removeValue(forKey: key) {
+                out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, e.beat), colour: o.colour))
+            }
+        }
+        for (key, o) in open {
+            out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, cycleBeats), colour: o.colour))
+        }
+        return out
+    }
+}
+// The part-roll's emit tap — wraps the live emitter (or the reel tap), records each emitted event to a PartRollDeck with
+// a PART-cycle-relative beat, forwards downstream. `markColour` carries the sounding cell's colour AND forwards it on.
+final class PartTap: MIDIEmitter {
+    weak var out: MIDIEmitter?
+    weak var deck: PartRollDeck?
+    var recording = false
+    var base = 0.0, beatsPerSample = 0.0, cycleBeats = 1.0
+    var windowStart: Int64 = 0
+    private var pendingColour: UInt32 = 0
+    func markColour(_ hue: UInt32) { pendingColour = hue; out?.markColour(hue) }   // forward so the reel still gets the colour
+    func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+        if recording, cycleBeats > 0, let deck {
+            var beat = base + Double(sampleTime - windowStart) * beatsPerSample
+            beat -= (beat / cycleBeats).rounded(.down) * cycleBeats           // → PART-cycle-relative
+            deck.record(beat: beat, cable: cable, colour: pendingColour, b0, b1, b2)
+        }
+        out?.emit(sampleTime: sampleTime, cable: cable, b0, b1, b2)
+    }
+}
+
 // MARK: - THE DOOR RING (config-sheets REPLAY, Paul 2026-08-20) — a per-door ring of INCOMING note events.
 // The input-side twin of ReelDeck. A door records its live input CONTINUOUSLY (retro-capture — never arm). In REPLAY
 // mode the last N passes are CAPTURED as a loop that cycles back as the door's living input: each render asks
