@@ -1914,7 +1914,7 @@ extension DiagView {
         buildGridSelStampFire(n)
         guard did else { return }
         buildRoomsSetActiveSide(n)                                       // the TARGET side button is now the active selection
-        if buildRowColour(n) != nil { part ? buildSelectRow(n) : buildGridSelAimRow(n); buildTapColourTab(n) }   // reflect its chain (+ on PART, play that row)
+        if buildRowColour(n) != nil { if part { buildPartTouched = true; buildSelectRow(n) } else { buildGridSelAimRow(n) }; buildTapColourTab(n) }   // reflect its chain (+ on PART, play that row — user edit)
     }
     // TAP a SELECT side button — a POPULATED one becomes the active selection + stamp source (and auditions its chain); an
     // EMPTY one only AIMS (targets a future stamp) — it must not read as selected when the user hasn't committed. (Paul 2026-08-29)
@@ -2222,6 +2222,7 @@ extension DiagView {
     }
     // PUNCH = TOGGLE (Paul 2026-09-01): tap flips a cell in/out of the current lane's EXTENT.
     func buildAutoToggle(_ idx: Int) {
+        buildPartTouched = true   // punching an AUTO cell is a part-grid edit
         buildSetAutoLane { if $0.cells.contains(idx) { $0.cells.remove(idx) } else { $0.cells.insert(idx) } }
     }
     func buildAutoInExtent(_ idx: Int) -> Bool {
@@ -2294,7 +2295,7 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(rowSel ? Color.white.opacity(0.6) : buildEdge, lineWidth: 1))
             .overlay(Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.7)))   // same as the old gui's right rail
             .contentShape(Rectangle())
-            .onTapGesture { buildSelectRow(n) }                          // select the WHOLE row for playback
+            .onTapGesture { buildPartTouched = true; buildSelectRow(n) }  // select the WHOLE row for playback (user edit)
     }
     // THE PART PLAYHEAD — a 2pt line sweeping the 8 interior columns, phase-locked to the beat (reuses the buildPlayhead
     // math: extrapolated beat → musical/swung column progress → x). Flexible-cell variant for the rooms grid.
@@ -2325,11 +2326,17 @@ extension DiagView {
     // last-selected SELECT side button, else the first) + reflect its chain; if NO rung is selected anywhere, seed one
     // rung per column from a populated row; refresh the side faces. (Paul 2026-08-28)
     func roomsPartSetup() {
+        // The row CURRENTLY PLAYING coming in from SELECT = the part row holding the auditioned colour (Paul 2026-09-02).
+        let playingRow = ddSelectedColourID.flatMap { cid in (0..<8).first { buildRowColour($0) == cid } }
         buildGridSelComputeRowRolls()                                  // the side buttons' part-chain fingerprints
-        let focus = buildGridSelStampSourceRow ?? 0                    // the always-one selected LEFT button (from SELECT, else first)
+        let focus = playingRow ?? buildGridSelStampSourceRow ?? 0      // prefer the playing row; else the carried SELECT focus, else first
         buildRoomsSetActiveSide(focus)
         if buildRowColour(focus) != nil { buildTapColourTab(focus) }   // reflect the focused slot's chain
-        if buildStagingSel.allSatisfy({ $0 < 0 }) {                    // no rung selected anywhere → seed one-per-column with a default row
+        // ENTRY DEFAULT: until the user has EDITED the part grid, default the selected row to the one CURRENTLY PLAYING
+        // (the SELECT audition's row), else the first populated row. Once touched, the user's own selection is respected.
+        if !buildPartTouched, let pr = playingRow ?? (0..<8).first(where: { buildRowColour($0) != nil }) {
+            buildSelectRow(pr)                                         // programmatic — does NOT mark touched
+        } else if buildStagingSel.allSatisfy({ $0 < 0 }) {            // (edited but nothing selected) → seed one-per-column with a default row
             let row = buildRowColour(focus) != nil ? focus : ((0..<8).first { buildRowColour($0) != nil } ?? focus)
             buildSelectRow(row)
         }
@@ -3603,6 +3610,7 @@ extension DiagView {
         buildReslotCast()                                       // migrate old parts + backfill any extra colour missing a slot
         buildEnforceCastHues()                                  // strong rule: no two palette colours share a hue
         buildPulseColourID = nil; buildAuditionID = nil; buildDeletedRows = [:]   // transient — never crosses a part
+        buildPartTouched = !buildStagingSel.allSatisfy { $0 < 0 }   // a part that already has a selection is "touched" (respect it); an empty part re-defaults on PART entry
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
     }
@@ -3713,6 +3721,7 @@ extension DiagView {
         buildPartCast = []; buildCastSlots = [:]
         for c in 0..<Snap.maxCols { buildStagingSel[c] = -1 }                 // nothing selected → nothing plays until a colour is added (§E 16-col)
         buildSelID = nil; ddColourSel = -1
+        buildPartTouched = false                                             // a fresh part re-defaults its row to the playing one on PART entry
     }
     // Seed the workshop ONCE, on first BUILD appear. (Was: 8×4 default cast; now the single TAB 1.) §2.
     func buildSeedCastIfNeeded() {
@@ -3839,6 +3848,7 @@ extension DiagView {
     // A staging cell tap. In PLAY mode the verbs are DISABLED — a tap on a STOCKED cell just makes it the active
     // (playing) cell for its column. In EDIT mode: PLACE stocks the selected colour, DELETE clears, etc.
     private func buildStagingTap(_ c: Int, _ r: Int) {
+        buildPartTouched = true                                   // a cell tap is a part-grid edit → stop auto-defaulting the row on entry
         if let id = buildStagingCells[c][r] {                     // touching a STOCKED cell offers its colour+settings as a PULSING palette candidate
             buildPulseColourID = id
             buildPulseChain = (r < buildRowChain.count && !buildRowChain[r].isEmpty) ? buildRowChain[r] : []
