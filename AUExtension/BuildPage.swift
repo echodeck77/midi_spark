@@ -1914,7 +1914,7 @@ extension DiagView {
         buildGridSelStampFire(n)
         guard did else { return }
         buildRoomsSetActiveSide(n)                                       // the TARGET side button is now the active selection
-        if buildRowColour(n) != nil { if part { buildPartTouched = true; buildSelectRow(n) } else { buildGridSelAimRow(n) }; buildTapColourTab(n) }   // reflect its chain (+ on PART, play that row — user edit)
+        if buildRowColour(n) != nil { if !part { buildGridSelAimRow(n) }; buildTapColourTab(n) }   // reflect its chain — PART: FOCUS only, never selects a grid rung (Paul 2026-09-02)
     }
     // TAP a SELECT side button — a POPULATED one becomes the active selection + stamp source (and auditions its chain); an
     // EMPTY one only AIMS (targets a future stamp) — it must not read as selected when the user hasn't committed. (Paul 2026-08-29)
@@ -1953,10 +1953,10 @@ extension DiagView {
                     Color.clear.frame(width: leftInset)
                     roomsPlayNavSliver(width: interiorW, height: navH)
                 }
-                HStack(spacing: gap) {                                      // the PLAY-ferry row — stays FULL SIZE (Paul: ferry/▲▼/STOP unchanged)
-                    roomsPlayFerryRowSelector().frame(width: cw, height: ch) //   the ▲▼ row cursor (shared with the select grid's)
+                HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
+                    buildStopAllButton().frame(width: cw, height: ch)        //   STOP — top-LEFT of the grid (Paul 2026-09-02, like the SELECT grid's)
                     ForEach(0..<cols, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }
-                    Color.clear.frame(width: cw)
+                    roomsPlayFerryRowSelector().frame(width: cw, height: ch) //   the ▲▼ row cursor — moved to the top-RIGHT (Paul 2026-09-02)
                 }
                 ZStack(alignment: .topLeading) {                           // the lower region: shrunk grid on top, the LARGE PANEL beneath
                     VStack(alignment: .leading, spacing: gap) {
@@ -4221,26 +4221,6 @@ extension DiagView {
                 buildReceiverControl(i, height: height, spanner: { roomsMixerSel = i; roomsMixerOpen = true }).frame(maxWidth: .infinity)   // spanner → the MIXER, this door (IN) selected
             }
         }
-    }
-    // PART MACHINE SELECTOR (Paul 2026-09-02): a header of 8 buttons above the receiver strip — pick WHICH row's machine
-    // is IN VIEW, WITHOUT the cell-select touch (VIEW-ONLY: it loads the machine into the box but never changes which rung
-    // plays). The in-view one is BRIGHT, the rest DIM; it reflects whatever machine is currently in view, so tapping a
-    // cell / side button updates it too. An empty row's button is dim; tapping it focuses that row (to add a machine).
-    @ViewBuilder func roomsPartMachineSelector(height: CGFloat) -> some View {
-        HStack(spacing: 3) {
-            ForEach(0..<8, id: \.self) { n in
-                let cid = buildRowColour(n)
-                let inView = cid != nil && cid == ddSelectedColourID
-                let hue = cid.flatMap { colourColor($0) } ?? buildCell
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(cid == nil ? Color.white.opacity(0.05) : hue.opacity(inView ? 0.92 : 0.26))                                   // in view = bright · others = dim
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(inView ? Color.white.opacity(0.85) : hue.opacity(cid == nil ? 0.12 : 0.4), lineWidth: inView ? 2 : 1))
-                    .overlay(Text("\(n + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(inView ? .black : .white.opacity(cid == nil ? 0.3 : 0.55)))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if let cid { buildSelectID(cid) } else { buildRoomsSetActiveSide(n) } }   // load the machine into view (view-only) / focus an empty row
-            }
-        }.frame(height: height)
     }
     @ViewBuilder func roomsColumnEmitters(height: CGFloat) -> some View {
         HStack(spacing: 4) {
