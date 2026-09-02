@@ -33,15 +33,19 @@ targets:
         # whose version differs from its container fails embedded-binary validation.
         # The extension plist is hand-maintained, so bump BOTH together.
         CFBundleShortVersionString: "0.1.0"
-        # LANDSCAPE-ONLY (Paul 2026-08-24): the container app is landscape-only. iOS only honours a restricted
-        # orientation set when UIRequiresFullScreen is YES, so set both. (The AUv3 view in a host like AUM is sized by
-        # the HOST — the in-plugin UI also forces the landscape layout, buildPage.) These live HERE, not in App/Info.plist —
-        # XcodeGen regenerates that file from these properties, so a direct plist edit would be clobbered.
-        UIRequiresFullScreen: true
+        # ALL ORIENTATIONS (Paul 2026-09-03): Apple is about to IGNORE UIRequiresFullScreen and REQUIRE support for all
+        # orientations, so we declare all four and drop UIRequiresFullScreen (its two deprecation warnings clear). The AUv3
+        # view in a host like AUM is sized by the HOST (orientation here is moot for the plugin); the container app is only a
+        # minimal shell/standalone stub, and the in-plugin UI is responsive (buildPage adapts portrait/landscape). These live
+        # HERE, not in App/Info.plist — XcodeGen regenerates that file from these properties, so a direct edit is clobbered.
         "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
     dependencies:
