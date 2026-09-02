@@ -170,3 +170,25 @@ extension BuildSceneSnapshot {
         name              = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
     }
 }
+// AUTO-LANE persistence (Paul 2026-09-03 housekeeping, job 2): the same decode-tolerant guard as the BUILD types above.
+// partAuto rides PluginState as a `[String: PartAutoColour]?` — a dictionary VALUE that throws propagates to the WHOLE
+// PluginState decode (session factory-reset, the CR-8 class). These are the NEWEST persisted types (added 2026-09-02) and
+// were synthesized-only; add the tolerant init NOW so a field added to either later never fails an older partAuto save.
+extension AutoLane {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        slot  = try c.decodeIfPresent(Int.self, forKey: .slot) ?? 0
+        param = try c.decodeIfPresent(String.self, forKey: .param) ?? ""
+        cells = try c.decodeIfPresent(Set<Int>.self, forKey: .cells) ?? []
+        lo    = try c.decodeIfPresent(Double.self, forKey: .lo)
+        hi    = try c.decodeIfPresent(Double.self, forKey: .hi)
+        span  = try c.decodeIfPresent(Int.self, forKey: .span)
+    }
+}
+extension PartAutoColour {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        activeLane = try c.decodeIfPresent(Int.self, forKey: .activeLane) ?? -1
+        lanes      = try c.decodeIfPresent([AutoLane].self, forKey: .lanes) ?? []
+    }
+}

@@ -145,6 +145,26 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(back.partAuto?["gold"]?.lanes.first?.cells, [3, 19, 35])
     }
 
+    // JOB 2 (Paul 2026-09-03): AutoLane/PartAutoColour are decode-TOLERANT — a MISSING key (a field added after a save
+    // shipped, or a hand-truncated doc) falls back to the default instead of throwing. Guards the CR-8 data-loss class:
+    // partAuto is a PluginState dict, so a throw here would reset the WHOLE session.
+    func testAutoLaneDecodesWithMissingKeys() throws {
+        let full = try JSONDecoder().decode(AutoLane.self, from: "{}".data(using: .utf8)!)   // every key absent
+        XCTAssertEqual(full.slot, 0); XCTAssertEqual(full.param, ""); XCTAssertTrue(full.cells.isEmpty)
+        XCTAssertNil(full.lo); XCTAssertNil(full.hi); XCTAssertNil(full.span)
+        let partial = try JSONDecoder().decode(AutoLane.self, from: #"{"slot":3,"param":"LENGTH","span":4}"#.data(using: .utf8)!)
+        XCTAssertEqual(partial.slot, 3); XCTAssertEqual(partial.param, "LENGTH"); XCTAssertEqual(partial.span, 4)
+        XCTAssertTrue(partial.cells.isEmpty); XCTAssertNil(partial.lo)     // absent optional/collection keys → defaults, no throw
+    }
+    func testPartAutoColourDecodesWithMissingKeys() throws {
+        let empty = try JSONDecoder().decode(PartAutoColour.self, from: "{}".data(using: .utf8)!)
+        XCTAssertEqual(empty.activeLane, -1); XCTAssertTrue(empty.lanes.isEmpty)
+        // an OLD document with NO partAuto at all decodes to nil (additive-Optional) — no reset
+        var d = PluginState.makeInit(); d.partAuto = nil
+        let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
+        XCTAssertNil(back.partAuto)
+    }
+
     // §E 16-STEP (Paul 2026-09-02): a 16-wide part composes cells past column 7 and the row loops 16.
     func testSixteenWidePartComposesColumnsPastEight() {
         var i = BuildSceneLogic.Input()
