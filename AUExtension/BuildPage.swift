@@ -1937,12 +1937,15 @@ extension DiagView {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad               // heights come from the shared lattice (m); width stays per-view
             let cols = buildPartCols                                         // §E: the part-grid STEP count = the active width (8 or up to 16)
-            let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 2))   // leftRail + `cols` interior + rightRail → FILLS the width
+            // HALF-WIDTH SIDE RAILS (Paul 2026-09-02): the left/right rails (+ the ferry-row STOP/▲▼ that cap them) are HALF
+            // an interior cell wide. Interior = `cols` cells; the two half-rails + their gaps take one cell's worth of width.
+            let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 1))   // interior cell width (halved rails → cols+1, not cols+2)
+            let railW = max(3, cw / 2)                                       // the side rails + the STOP/▲▼ header slots
             let ch = m.ch, navH = m.navH
             let partCH = max(6, ch * DiagView.roomsPartInteriorFraction)     // SHRUNK interior cell height (the header rows keep `ch`)
             let interiorW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
             let interiorH = partCH * 8 + gap * 7                            // 8 rungs at the shrunk height
-            let leftInset = cw + gap                                        // leftRail → the interior's left edge
+            let leftInset = railW + gap                                     // half-rail → the interior's left edge
             // The lower region = everything under the ferry row. FIXED heights that sum EXACTLY to the column (like the
             // SELECT grid — no maxHeight:.infinity, which floated the content): [interior] + [piano roll] + [macro].
             let lowerH = max(interiorH, g.size.height - 2 * pad - navH - gap - ch - gap)
@@ -1954,14 +1957,14 @@ extension DiagView {
                     roomsPlayNavSliver(width: interiorW, height: navH)
                 }
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
-                    buildStopAllButton().frame(width: cw, height: ch)        //   STOP — top-LEFT of the grid (Paul 2026-09-02, like the SELECT grid's)
+                    buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the half-width left rail (Paul 2026-09-02)
                     ForEach(0..<cols, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }
-                    roomsPlayFerryRowSelector().frame(width: cw, height: ch) //   the ▲▼ row cursor — moved to the top-RIGHT (Paul 2026-09-02)
+                    roomsPlayFerryRowSelector().frame(width: railW, height: ch) // the ▲▼ row cursor — top-RIGHT, over the half-width right rail
                 }
                 ZStack(alignment: .topLeading) {                           // the lower region: shrunk grid on top, the LARGE PANEL beneath
                     VStack(alignment: .leading, spacing: gap) {
                         HStack(alignment: .top, spacing: gap) {             // body: left rail | interior+playhead | right rail (all at partCH)
-                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(width: cw, height: partCH) } }
+                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: partCH) } }
                             ZStack(alignment: .topLeading) {
                                 VStack(spacing: gap) { ForEach(0..<8, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: partCH) } } } }
                                 roomsPartPlayhead(colW: cw, gap: gap, height: interiorH).allowsHitTesting(false)
@@ -1971,7 +1974,7 @@ extension DiagView {
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
                                 .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: partCH, gap: gap, cols: cols) }
                                 .onEnded { _ in buildPartDragLast = nil })
-                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: cw, height: partCH) } }
+                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: partCH) } }
                         }
                         // SECTION 1 — the PIANO ROLL strip: aligned UNDER the interior columns, 4 cells tall. A STATIC MOCK of
                         // the merged-lane notation (the real view will fold every row's output into one "what will play" roll).
