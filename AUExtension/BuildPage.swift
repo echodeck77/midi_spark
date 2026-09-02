@@ -2000,9 +2000,9 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
-    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-02, rev 5 — 4-STEP SCROLLING + a CAMERA vertical axis): the accurate continuous
+    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-03, rev 6 — 8-STEP SCROLLING + a CAMERA vertical axis): the accurate continuous
     // roll (true LIVE output from partRollNotes / the PartRollDeck tap — real note geometry, real-duration horizontal bars),
-    // ZOOMED to a WINDOW 4 STEPS wide that SCROLLS with a CENTRED playhead (2 steps back, 2 ahead; notes wrap across the loop
+    // ZOOMED to a WINDOW 8 STEPS wide that SCROLLS with a CENTRED playhead (4 steps back, 4 ahead; notes wrap across the loop
     // so it's seamless). The vertical axis is a CAMERA that smoothly PANS + ZOOMS to fit the notes in view: the centre is the
     // weighted-mean pitch, the zoom the weighted spread (each note weighted by how much it overlaps the window). Because that's
     // a continuous function of the scroll, the axis is STILL on a sustained chord and eases to re-frame only when the pitch
@@ -2033,7 +2033,7 @@ extension DiagView {
             let notes = partRollNotes
             let sb = buildPartRate?.beats ?? stepBeats
             let cyc = max(0.0001, Double(max(1, cols)) * sb)
-            let winBeats = 4.0 * sb                                      // the VISIBLE window = 4 steps (Paul 2026-09-02)
+            let winBeats = 8.0 * sb                                      // the VISIBLE window = 8 steps — wider = it scrolls slower (Paul 2026-09-03)
             let swingA = max(1.0, Double(swing) / 50.0)
             let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // FRAME each step in the SELECTED cell's colour
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
@@ -2055,9 +2055,9 @@ extension DiagView {
                         var oct = Int((pLoF / 12).rounded(.up)) * 12
                         while Double(oct) <= pLoF + win { ctx.fill(Path(CGRect(x: 0, y: cy(Double(oct)), width: size.width, height: 1)), with: .color(.white.opacity(0.10))); oct += 12 }
                         // STEP FRAMES — each visible step boxed in the SELECTED cell's colour, scrolling with the window
-                        let stepW = size.width / 4                       // one step = a quarter of the 4-step window
+                        let stepW = size.width / 8                       // one step = an eighth of the 8-step window
                         let firstStep = Int(floor(winStart / sb))
-                        for st in firstStep...(firstStep + 4) {
+                        for st in firstStep...(firstStep + 8) {
                             let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
                             ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(selHue.opacity(0.42)), lineWidth: 1)
                         }
