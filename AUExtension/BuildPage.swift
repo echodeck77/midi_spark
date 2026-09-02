@@ -2000,79 +2000,75 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
-    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-02, rev 3 — PER-STEP CELLS): the roll is a row of framed cells, ONE per grid
-    // column (aligned under it). Each cell shows the notes SOUNDING during THAT step (a sustain appears in every step it
-    // spans, clipped to the step) and AUTO-FITS its OWN vertical pitch scale to that step's notes — floored to 1.5 OCTAVES
-    // (18 semitones), re-scaled every step. So each cell is a self-zoomed snapshot of what plays there (the pitch axis is
-    // per-step, not continuous). True LIVE output (partRollNotes / the PartRollDeck tap): EMITTER colour over a faint CELL
-    // backing, velocity → brightness; the live step's cell is highlighted (white frame + bright) — the playhead.
+    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-02, rev 4 — 2-STEP SCROLLING): the accurate continuous roll (true LIVE output
+    // from partRollNotes / the PartRollDeck tap — real note geometry: start/end beat · pitch · emitter cable · cell colour,
+    // one continuous semitone pitch axis, real-duration bars), but ZOOMED to a WINDOW 2 STEPS wide that SCROLLS with the
+    // playhead (kept CENTRED — one step of history, one ahead). Notes wrap across the loop so the scroll is seamless. Each
+    // visible STEP is framed in the SELECTED cell's colour. EMITTER colour over a faint CELL backing, velocity → brightness;
+    // a note BLOOMS while the playhead is inside it. No keyboard gutter.
     @ViewBuilder func roomsPartPianoRoll(cols: Int, colW: CGFloat, gap: CGFloat) -> some View {
-        GeometryReader { _ in
+        GeometryReader { g in
             let notes = partRollNotes
             let sb = buildPartRate?.beats ?? stepBeats
             let cyc = max(0.0001, Double(max(1, cols)) * sb)
+            let winBeats = 2.0 * sb                                      // the VISIBLE window = 2 steps (Paul 2026-09-02)
             let swingA = max(1.0, Double(swing) / 50.0)
-            let stepW = colW + gap                                       // one cell per grid column, same pitch as the grid above
-            let minWin = 18                                             // 1.5 octaves — the MINIMUM window per step (Paul 2026-09-02)
+            // STABLE continuous pitch axis (from all the pass's notes, ≥ 1.5 octaves), as the accurate roll — only X zooms.
+            let lo0 = notes.map { Int($0.note) }.min() ?? 59, hi0 = notes.map { Int($0.note) }.max() ?? 71
+            let pLo = max(0, min(lo0, hi0) - 2)
+            let span = max(18, max(lo0, hi0) + 2 - pLo)
+            let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // FRAME each step in the SELECTED cell's colour
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: swingA)
                 let phase = (musical.truncatingRemainder(dividingBy: cyc) + cyc).truncatingRemainder(dividingBy: cyc)
                 let playing = d.playing && buildStagingPlaying
-                let liveStep = playing ? Int(phase / sb) : -1            // the step the playhead is on (the highlighted cell)
-                Canvas { ctx, size in
-                    let cellH = size.height
-                    // PER-STEP WINDOW: each step fits its OWN notes, centred, floored to 1.5 octaves — precomputed so the
-                    // MERGE can tell where the scale is stable (a note spanning same-scale steps = ONE rectangle).
-                    var winLo = [Int](repeating: 60 - minWin / 2, count: cols)
-                    var win   = [Int](repeating: minWin, count: cols)
-                    var stepNotes = [[PartRollDeck.Note]](repeating: [], count: cols)
-                    for c in 0..<cols {
-                        let s0 = Double(c) * sb, s1 = Double(c + 1) * sb
-                        let ns = notes.filter { $0.start < s1 && $0.end > s0 }               // notes SOUNDING during this step (overlap)
-                        stepNotes[c] = ns
-                        let ps = ns.map { Int($0.note) }
-                        if let lo = ps.min(), let hi = ps.max() { let w = max(minWin, hi - lo); win[c] = w; winLo[c] = (lo + hi) / 2 - w / 2 }
-                    }
-                    func laneRect(_ p: Int, _ c: Int) -> (y: CGFloat, h: CGFloat) {
-                        let laneH = cellH / CGFloat(win[c] + 1)
-                        return (cellH - CGFloat(p - winLo[c] + 1) * laneH, max(2, laneH - 1))
-                    }
-                    // 1) the cell FRAMES (per step): dark ground + a border tinted by the step's colour, bright on the live step
-                    for c in 0..<cols {
-                        let frame = CGRect(x: CGFloat(c) * stepW + 0.5, y: 0.5, width: colW - 1, height: cellH - 1)
-                        ctx.fill(Path(roundedRect: frame, cornerRadius: 4), with: .color(.black.opacity(0.30)))
-                        let hue = stepNotes[c].first.map { Color(hex: $0.colour) } ?? Color.white
-                        ctx.stroke(Path(roundedRect: frame, cornerRadius: 4),
-                                   with: .color(c == liveStep ? .white.opacity(0.6) : hue.opacity(stepNotes[c].isEmpty ? 0.10 : 0.30)),
-                                   lineWidth: c == liveStep ? 1.5 : 1)
-                    }
-                    // 2) the NOTES — a note appears in EVERY step it sounds; contiguous steps that share the SAME scale MERGE
-                    // into ONE rectangle spanning those cells (a genuine chord change breaks it, where the scale shifts).
-                    for n in notes {
-                        let p = Int(n.note)
-                        let steps = (0..<cols).filter { stepNotes[$0].contains(n) }
-                        let cable = Int(n.cable)
-                        let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
-                        let cellBack = n.colour != 0 ? Color(hex: n.colour) : nil
-                        let vel = Double(n.vel) / 127.0
-                        var i = 0
-                        while i < steps.count {
-                            var j = i
-                            while j + 1 < steps.count, steps[j + 1] == steps[j] + 1,
-                                  winLo[steps[j + 1]] == winLo[steps[i]], win[steps[j + 1]] == win[steps[i]] { j += 1 }   // extend the merge while contiguous + same scale
-                            let a = steps[i], b = steps[j]
-                            let x0 = CGFloat(a) * stepW, x1 = CGFloat(b) * stepW + colW        // span the run's cells (crossing the inter-cell gaps → merged)
-                            let ly = laneRect(p, a)
-                            let onRun = liveStep >= a && liveStep <= b
-                            let bright = playing ? (onRun ? 1.0 : 0.5) : 0.42
-                            let rect = CGRect(x: x0 + 1.5, y: ly.y + 0.5, width: max(2.5, x1 - x0 - 3), height: ly.h)
-                            if let cellBack { ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(cellBack.opacity(0.14 + 0.14 * bright))) }   // faint CELL backing
-                            ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(emit.opacity((0.34 + 0.5 * vel) * bright)))                     // the EMITTER-coloured note
-                            i = j + 1
+                let head = playing ? phase : sb                          // stopped → park at step 0-2 (head one step in)
+                let winStart = head - sb                                 // 2-step window, playhead CENTRED
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.26))
+                    Canvas { ctx, size in
+                        let laneH = size.height / CGFloat(span + 1)
+                        func laneY(_ p: Int) -> CGFloat { size.height - CGFloat(p - pLo + 1) * laneH }
+                        func xOf(_ beat: Double) -> CGFloat { CGFloat((beat - winStart) / winBeats) * size.width }
+                        // PITCH grid: a bright line at each C (octave), faint shade on black-key rows
+                        for p in pLo...(pLo + span) {
+                            let yy = laneY(p); let pc = ((p % 12) + 12) % 12
+                            if pc == 0 { ctx.fill(Path(CGRect(x: 0, y: yy + laneH - 0.5, width: size.width, height: 1)), with: .color(.white.opacity(0.12))) }
+                            else if [1, 3, 6, 8, 10].contains(pc) { ctx.fill(Path(CGRect(x: 0, y: yy, width: size.width, height: laneH)), with: .color(.white.opacity(0.025))) }
+                        }
+                        // STEP FRAMES — each visible step boxed in the SELECTED cell's colour, scrolling with the window
+                        let stepW = size.width / 2                       // one step = half the 2-step window
+                        let firstStep = Int(floor(winStart / sb))
+                        for st in firstStep...(firstStep + 2) {
+                            let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
+                            ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(selHue.opacity(0.42)), lineWidth: 1)
+                        }
+                        // NOTES — real bars; drawn at ±loop so the scroll is seamless across the pass boundary; clipped to the window
+                        for n in notes {
+                            let cable = Int(n.cable)
+                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
+                            let cellBack = n.colour != 0 ? Color(hex: n.colour) : nil
+                            let vel = Double(n.vel) / 127.0
+                            for off in [-cyc, 0, cyc] {
+                                let ns = n.start + off, ne = n.end + off
+                                if ne <= winStart || ns >= winStart + winBeats { continue }   // outside the 2-step window
+                                let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
+                                let onNow = playing && ns <= phase && ne > phase
+                                let bright = playing ? (onNow ? 1.0 : 0.55) : 0.45
+                                let rect = CGRect(x: x0 + 0.5, y: laneY(Int(n.note)) + 0.5, width: max(3, x1 - x0 - 1), height: max(2.5, laneH - 1.5))
+                                if let cellBack { ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(cellBack.opacity(0.15 + 0.13 * bright))) }   // faint CELL backing
+                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity((0.34 + 0.5 * vel) * bright)))                     // the EMITTER note
+                                if onNow { ctx.stroke(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(.white.opacity(0.6)), lineWidth: 1) }               // a crisp edge as it plays
+                            }
                         }
                     }
+                    if playing {                                          // the PLAYHEAD — centred
+                        Rectangle().fill(Color.white.opacity(0.6)).frame(width: 1.5).offset(x: g.size.width / 2)
+                    }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
             }
         }
     }
@@ -2311,7 +2307,7 @@ extension DiagView {
             cellBody
                 .overlay { if selected { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2) } }   // the SELECTED rung — a bright outline (empty or populated)
                 .frame(width: w, height: h)
-                .opacity(punch != nil ? 0.3 : (selected ? 1.0 : 0.32))   // DIM everything except the selected rung (Paul 2026-09-02)
+                .opacity(punch != nil ? 0.3 : (selected ? 1.0 : 0.55))   // DIM everything except the selected rung — but muted cells stay legible (Paul 2026-09-02)
         }
     }
     // THE PART GRID GESTURE (Paul 2026-09-02): ONE drag over the interior handles tap AND drag selection — so empty cells
