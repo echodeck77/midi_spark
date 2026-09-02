@@ -1937,15 +1937,15 @@ extension DiagView {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad               // heights come from the shared lattice (m); width stays per-view
             let cols = buildPartCols                                         // §E: the part-grid STEP count = the active width (8 or up to 16)
-            // HALF-WIDTH SIDE RAILS (Paul 2026-09-02): the left/right rails (+ the ferry-row STOP/▲▼ that cap them) are HALF
-            // an interior cell wide. Interior = `cols` cells; the two half-rails + their gaps take one cell's worth of width.
-            let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 1))   // interior cell width (halved rails → cols+1, not cols+2)
-            let railW = max(3, cw / 2)                                       // the side rails + the STOP/▲▼ header slots
+            // FULL-WIDTH SIDE RAILS (Paul 2026-09-02): the left/right rails (+ the ferry-row STOP/▲▼ that cap them) are ONE
+            // interior cell wide — same as the play/ferry cells. Width = `cols` interior cells + 2 rails (cols+2 cells worth).
+            let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 2))   // cell width (cols interior + 2 full-width rails)
+            let railW = cw                                                   // the side rails + the STOP/▲▼ header slots = a full cell (Paul 2026-09-02)
             let ch = m.ch, navH = m.navH
             let partCH = max(6, ch * DiagView.roomsPartInteriorFraction)     // SHRUNK interior cell height (the header rows keep `ch`)
             let interiorW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
             let interiorH = partCH * 8 + gap * 7                            // 8 rungs at the shrunk height
-            let leftInset = railW + gap                                     // half-rail → the interior's left edge
+            let leftInset = railW + gap                                     // full rail → the interior's left edge
             // The lower region = everything under the ferry row. FIXED heights that sum EXACTLY to the column (like the
             // SELECT grid — no maxHeight:.infinity, which floated the content): [interior] + [piano roll] + [macro].
             let lowerH = max(interiorH, g.size.height - 2 * pad - navH - gap - ch - gap)
@@ -1962,9 +1962,9 @@ extension DiagView {
                     roomsPlayNavSliver(width: interiorW, height: navH)
                 }
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
-                    buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the half-width left rail (Paul 2026-09-02)
+                    buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the full-width left rail (Paul 2026-09-02)
                     ForEach(0..<cols, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }
-                    roomsPlayFerryRowSelector().frame(width: railW, height: ch) // the ▲▼ row cursor — top-RIGHT, over the half-width right rail
+                    roomsPlayFerryRowSelector().frame(width: railW, height: ch) // the ▲▼ row cursor — top-RIGHT, over the full-width right rail
                 }
                 ZStack(alignment: .topLeading) {                           // the lower region: shrunk grid on top, the LARGE PANEL beneath
                     VStack(alignment: .leading, spacing: gap) {
