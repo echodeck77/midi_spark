@@ -2061,23 +2061,35 @@ extension DiagView {
                             let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
                             ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(selHue.opacity(0.42)), lineWidth: 1)
                         }
-                        // NOTES — real bars; drawn at ±loop so the scroll is seamless; clipped to the window; y pinned to the edge if outside the camera
+                        // NOTES — each a pill FRAMED in the selected cell's colour with an inset (matted) fill. The fill is
+                        // SPLIT at the playhead: the part already PLAYED (behind, ≤ head) glows in its EMITTER colour, the part
+                        // still to come (IN FRONT of the playhead) sits NEUTRAL grey → a note lights up as the playhead sweeps
+                        // it. Drawn at ±loop so the scroll is seamless; clipped to the window; y pinned to the edge if outside.
+                        let xHead = size.width / 2                        // the (centred) playhead x — the played/future divide
+                        let neutral = Color(white: 0.62)
                         for n in notes {
                             let cable = Int(n.cable)
                             let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
-                            let cellBack = n.colour != 0 ? Color(hex: n.colour) : nil
                             let vel = Double(n.vel) / 127.0
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
+                            let vpad = min(2.0, (barH - 1) / 2)           // stylish padding — clamp so thin bars don't invert
                             for off in [-cyc, 0, cyc] {
                                 let ns = n.start + off, ne = n.end + off
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
-                                let onNow = playing && ns <= phase && ne > phase
-                                let bright = playing ? (onNow ? 1.0 : 0.55) : 0.45
-                                let rect = CGRect(x: x0 + 0.5, y: yTop, width: max(3, x1 - x0 - 1), height: barH)
-                                if let cellBack { ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(cellBack.opacity(0.15 + 0.13 * bright))) }   // faint CELL backing
-                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity((0.34 + 0.5 * vel) * bright)))                     // the EMITTER note
-                                if onNow { ctx.stroke(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(.white.opacity(0.6)), lineWidth: 1) }               // a crisp edge as it plays
+                                let outer = CGRect(x: x0 + 0.5, y: yTop, width: max(4, x1 - x0 - 1), height: barH)
+                                // the matted FILL, inset from the frame; split at the playhead into played (emitter) / future (neutral)
+                                let inner = outer.insetBy(dx: 2, dy: vpad)
+                                let split = playing ? min(max(inner.minX, xHead), inner.maxX) : inner.maxX   // stopped → all "played" (emitter)
+                                if split - inner.minX > 0.5 {             // PLAYED — emitter colour, brightening with velocity
+                                    let r = CGRect(x: inner.minX, y: inner.minY, width: split - inner.minX, height: inner.height)
+                                    ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(emit.opacity(0.55 + 0.4 * vel)))
+                                }
+                                if inner.maxX - split > 0.5 {             // FUTURE (in front of the playhead) — neutral grey ghost
+                                    let r = CGRect(x: split, y: inner.minY, width: inner.maxX - split, height: inner.height)
+                                    ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(neutral.opacity(0.28)))
+                                }
+                                ctx.stroke(Path(roundedRect: outer, cornerRadius: 3), with: .color(selHue.opacity(0.9)), lineWidth: 1.5)   // FRAME in the selected cell's colour
                             }
                         }
                     }
@@ -2324,8 +2336,7 @@ extension DiagView {
         } else {
             cellBody
                 .overlay { if selected { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2) } }   // the SELECTED rung — a bright outline (empty or populated)
-                .frame(width: w, height: h)
-                .opacity(punch != nil ? 0.3 : (selected ? 1.0 : 0.55))   // DIM everything except the selected rung — but muted cells stay legible (Paul 2026-09-02)
+                .frame(width: w, height: h)   // NO dimming on the part grid (Paul 2026-09-03) — the selected rung is marked by its white outline alone
         }
     }
     // THE PART GRID GESTURE (Paul 2026-09-02): ONE drag over the interior handles tap AND drag selection — so empty cells
