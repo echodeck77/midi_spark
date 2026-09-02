@@ -21,7 +21,13 @@ Per COLUMN `c` (0…buildPartCols−1): the selected rung `buildStagingSel[c]` �
 cell's live emitted pitches (the feed) + its EMITTER (`buildRowEmittersResolved(row)`) + its CELL colour
 (`buildRowColour(row)`). A note emitted there is drawn at column `c`'s x, at its pitch lane.
 
-## Increment 1 — the live pass-roll accumulator + draw (replaces the mock)
+## Increment 1 — the live pass-roll accumulator + draw (replaces the mock) — ✅ BUILT (2026-09-02)
+Landed in `roomsPartPianoRoll`: per column, the SELECTED rung's cell's live `buildCellRoll` notes drawn at that column
+(EMITTER colour over a faint CELL-colour background), brightness = freshness (0.28 dim floor → full as the playhead
+passes), a playhead sweeping the roll; deselected column / no-emitter → nothing; honors buildPartCols (8/16). Onset-based
+(each note a mark at its column+pitch lane). Device-eye owed.
+
+### Original increment-1 sketch
 - A per-pass buffer keyed by (column, pitch): when a column's cell emits a pitch (from the poll feed, stamped with the
   effective beat so it maps to the pass position), record it with a freshness timestamp + its emitter + velocity.
   Persist across the pass; a note re-lights when re-emitted. (Onset-based — the feed is note-ONS; each note fills its

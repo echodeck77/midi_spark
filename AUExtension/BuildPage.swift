@@ -1987,30 +1987,59 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
         }
     }
-    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-01): a STATIC MOCK for now. Intended as a read-only notation view that MERGES
-    // the notes of every lane (row) into one "what will play" roll, its x-axis aligned to the part grid's step columns above.
-    // Draws a fixed, pleasant phrase over faint step gridlines; not data-driven yet.
+    // SECTION 1 — THE PIANO ROLL (Paul 2026-09-02): the TRUE LIVE output. Reads the real emitted-note feed (buildCellRoll,
+    // the same feed the drift sweeps use — REAL pitches, not a simulation), laid on the pass timeline. Per COLUMN, the
+    // SELECTED rung's cell's emitted notes are drawn at that column, in the EMITTER colour over a faint CELL-colour
+    // background. A note is BRIGHT when freshly emitted (as the playhead passes it) and fades DIM as it ages / when no
+    // input is coming out. A deselected column / a cell with no emitter (no output) shows nothing. Honors 8 + 16 width.
     @ViewBuilder func roomsPartPianoRoll(cols: Int, colW: CGFloat, gap: CGFloat) -> some View {
         GeometryReader { g in
-            let lanes = 14                                   // pitch lanes shown (mock)
-            let laneH = g.size.height / CGFloat(lanes)
             let stepW = colW + gap                           // the SAME column pitch as the grid above → the steps line up
-            // a fixed merged-looking phrase: (startStep, pitchLane-from-top, lengthInSteps)
-            let notes: [(Int, Int, Int)] = [(0, 9, 2), (0, 6, 2), (0, 2, 4), (2, 10, 1), (3, 8, 1),
-                                            (4, 11, 2), (4, 5, 2), (4, 1, 4), (6, 9, 1), (7, 7, 1)]
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.20))
-                ForEach(1..<max(2, cols), id: \.self) { c in                     // step gridlines (aligned to the grid columns)
-                    Rectangle().fill(Color.white.opacity(0.06)).frame(width: 1).offset(x: CGFloat(c) * stepW)
+            let swingA = max(1.0, Double(swing) / 50.0)
+            let sb = buildPartRate?.beats ?? stepBeats
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let now = tl.date
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.20))
+                    ForEach(1..<max(2, cols), id: \.self) { c in                 // step gridlines (aligned to the grid columns)
+                        Rectangle().fill(Color.white.opacity(0.06)).frame(width: 1).offset(x: CGFloat(c) * stepW)
+                    }
+                    Canvas { ctx, size in
+                        for c in 0..<cols {                                      // each column → its SELECTED rung's live output
+                            let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
+                            guard r >= 0, r < 8, c < buildStagingCells.count, r < buildStagingCells[c].count,
+                                  let cid = buildStagingCells[c][r] else { continue }   // deselected / empty → nothing (rule 3)
+                            let emit = buildRowEmittersResolved(r)
+                            guard !emit.isEmpty else { continue }                // no output selected → nothing (rule 3)
+                            let x0 = CGFloat(c) * stepW
+                            let cellHue = colourColor(cid) ?? buildCell          // CELL colour = the column backdrop
+                            let emitHue = emitterHue(emit)                       // EMITTER colour = the note
+                            ctx.fill(Path(CGRect(x: x0, y: 0, width: colW, height: size.height)), with: .color(cellHue.opacity(0.09)))
+                            let idx = c * Snap.rows + r
+                            let notes = idx < buildCellRoll.count ? buildCellRoll[idx] : []
+                            for n in notes {
+                                let age = now.timeIntervalSince(n.born)
+                                if age < 0 || age > buildRollLife { continue }
+                                let fresh = max(0.0, 1.0 - age / buildRollLife)  // 1 = just emitted (playhead here) → 0 = aged out
+                                let bright = 0.28 + 0.72 * fresh                 // DIM floor when no fresh input; FULL as the playhead passes
+                                let y = CGFloat(1 - n.lane) * size.height        // lane = pitch (high = top)
+                                let barH = max(2.5, size.height * 0.09)
+                                let rect = CGRect(x: x0 + 1, y: y - barH / 2, width: max(2, colW - 2), height: barH)
+                                ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(emitHue.opacity(bright * (0.5 + 0.5 * n.vel))))
+                            }
+                        }
+                    }
+                    if d.playing && buildStagingPlaying {                        // the PLAYHEAD sweeping the roll (notes light as it passes)
+                        let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                        let colF = sb > 0 ? musicalOf(live, stepBeats: sb, a: swingA) / sb : 0
+                        let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
+                        let p = wrapped < 0 ? wrapped + Double(cols) : wrapped
+                        Rectangle().fill(Color.white.opacity(0.5)).frame(width: 1.5).offset(x: CGFloat(p) * stepW)
+                    }
                 }
-                ForEach(Array(notes.enumerated()), id: \.offset) { (_, n) in     // the merged notes (static)
-                    RoundedRectangle(cornerRadius: 2).fill(roomsAmber.opacity(0.75))
-                        .frame(width: max(3, CGFloat(n.2) * stepW - 2), height: max(2, laneH - 2))
-                        .offset(x: CGFloat(n.0) * stepW + 1, y: CGFloat(n.1) * laneH + 1)
-                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
         }
     }
     // SECTION 2 — THE AUTO FLOW (Paul 2026-09-01, rev 2): AUTO-lane + PROCESSOR selector buttons over a PARAMETER TABLE
