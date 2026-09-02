@@ -2073,7 +2073,7 @@ extension DiagView {
                     macroColHead("MACHINE").frame(width: 58, alignment: .leading)
                     ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
                         ForEach(Array(chain.enumerated()), id: \.offset) { (i, s) in
-                            autoChip(buildProcLabel(s), on: i == procIdx, dot: false, wide: true) { buildSetAutoLane { $0.slot = i; $0.param = "" } }
+                            autoChip(buildProcLabel(s), on: i == procIdx, dot: false, wide: true) { buildSetAutoLane { $0.slot = i; $0.param = ""; $0.lo = nil; $0.hi = nil } }   // new machine → reset the sweep
                         }
                     } }
                 }
@@ -2081,12 +2081,19 @@ extension DiagView {
                     macroColHead("PARAM").frame(width: 58, alignment: .leading)
                     ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
                         ForEach(params, id: \.key) { p in
-                            autoChip(p.label, on: p.key == paramKey, dot: false, wide: true) { buildSetAutoLane { $0.param = p.key } }
+                            autoChip(p.label, on: p.key == paramKey, dot: false, wide: true) { buildSetAutoLane { $0.param = p.key; $0.lo = nil; $0.hi = nil } }   // new param → reset the sweep to its default range
                         }
                     } }
                 }
-                if let p = param {
-                    Text("ON · \(buildProcLabel(chain[procIdx])) · \(p.label) — tap cells to set the range (plays live)")
+                if let p = param {                                            // THE SWEEP — FROM → TO faders (the "before/after" the ramp travels between)
+                    let full = BuildSceneLogic.autoParamFullRange(p.kind)
+                    let sub = BuildSceneLogic.autoSubRange(paramKey, p.kind)
+                    HStack(spacing: 8) {
+                        macroColHead("SWEEP").frame(width: 58, alignment: .leading)
+                        autoRangeFader("FROM", value: lane.lo ?? sub.lo, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.lo = v } }
+                        autoRangeFader("TO",   value: lane.hi ?? sub.hi, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.hi = v } }
+                    }
+                    Text("tap cells on the grid — the sweep plays FROM→TO across them (live)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -2109,6 +2116,34 @@ extension DiagView {
             Rectangle().fill(on ? roomsAmber : Color.white.opacity(0.12)).frame(height: on ? 2 : 1)   // the tab underline / baseline
         }
         .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+    // §SWEEP FADER (Paul 2026-09-02): a compact FROM/TO endpoint fader — drag anywhere to set the value across the param's
+    // FULL range; the label reads the value formatted per the param kind. (NumPair/FineSlider are private to GridUI.)
+    @ViewBuilder private func autoRangeFader(_ label: String, value: Double, lo: Double, hi: Double, p: MacroControlParam, _ set: @escaping (Double) -> Void) -> some View {
+        let span = max(1e-9, hi - lo)
+        let frac = min(1, max(0, (value - lo) / span))
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.42))
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06))
+                    RoundedRectangle(cornerRadius: 4).fill(roomsAmber.opacity(0.55)).frame(width: max(3, g.size.width * frac))
+                    Text(autoFmt(value, p)).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).padding(.leading, 6)
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { gg in set(lo + min(1, max(0, gg.location.x / max(1, g.size.width))) * span) })
+            }.frame(height: 24)
+        }.frame(maxWidth: .infinity)
+    }
+    // Format a sweep-endpoint value for its param kind (continuous → 2dp for small ranges, else int; toggle → ON/OFF;
+    // option → its label; stepper/mask → int).
+    private func autoFmt(_ v: Double, _ p: MacroControlParam) -> String {
+        switch p.kind {
+        case .continuous(let lo, let hi): return (hi - lo) <= 2 ? String(format: "%.2f", v) : String(Int(v.rounded()))
+        case .toggle: return v >= 0.5 ? "ON" : "OFF"
+        case .option(let opts): let i = min(opts.count - 1, max(0, Int(v.rounded()))); return opts.indices.contains(i) ? opts[i] : "\(i)"
+        case .stepper, .mask: return String(Int(v.rounded()))
+        }
     }
     @ViewBuilder private func macroColHead(_ t: String) -> some View {
         Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.32))

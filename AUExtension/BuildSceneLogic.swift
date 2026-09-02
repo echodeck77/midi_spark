@@ -114,6 +114,12 @@ enum BuildSceneLogic {
         case .mask(let bits):             return (0.0, Double((1 << max(0, bits)) - 1))
         }
     }
+    /// The param's FULL value range (the FROM/TO faders' bounds — the user can set the sweep anywhere in it). Continuous
+    /// returns the raw range (autoSubRange TRIMS it for the default); discrete = the whole discrete range.
+    static func autoParamFullRange(_ kind: MacroControlKind) -> (lo: Double, hi: Double) {
+        if case .continuous(let lo, let hi) = kind { return (lo, hi) }
+        return autoSubRange("", kind)   // discrete: autoSubRange already returns the full discrete range
+    }
     /// The ramped value at a cell = its rank in the extent (column→row order) → sub-range low→high. A single cell = the
     /// top (full effect). Pure — the ramp is derived from the extent, nothing stored per cell.
     static func autoRamp(_ lo: Double, _ hi: Double, rank: Int, count: Int) -> Double {
@@ -133,7 +139,8 @@ enum BuildSceneLogic {
         let type = chain[lane.slot].type
         let key = autoResolvedParamKey(type, laneParam: lane.param)
         guard !key.isEmpty, let p = macroParamsForProcessor(type).first(where: { $0.key == key }) else { return chain }
-        let (lo, hi) = autoSubRange(key, p.kind)
+        let (subLo, subHi) = autoSubRange(key, p.kind)
+        let lo = lane.lo ?? subLo, hi = lane.hi ?? subHi   // FROM → TO: the lane's set endpoints, else the curated sub-range
         let ordered = lane.cells.sorted { ($0 / Snap.rows, $0 % Snap.rows) < ($1 / Snap.rows, $1 % Snap.rows) }
         let rank = ordered.firstIndex(of: idx) ?? 0
         let value = autoRamp(lo, hi, rank: rank, count: ordered.count)

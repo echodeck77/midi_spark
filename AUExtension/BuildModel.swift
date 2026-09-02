@@ -38,6 +38,10 @@ struct AutoLane: Codable, Equatable {
     var slot: Int = 0                       // the processor slot in the colour's chain
     var param: String = ""                  // the param this lane automates ("" ⇒ the processor's pre-mapped useful default)
     var cells: Set<Int> = []                // the cells (col*Snap.rows+row) in the automation's EXTENT; the RANGE is a ramp swept across them
+    // FROM → TO (Paul 2026-09-02): the sweep endpoints (the "before/after"). nil ⇒ the param's curated musical sub-range.
+    // The extent (cells) is WHERE; these are the value RANGE the ramp sweeps between (FROM at the first cell → TO at the last).
+    var lo: Double? = nil
+    var hi: Double? = nil
 }
 
 // A colour's automation: which lane is ON (activeLane, −1 = NONE) + its five lanes. One active lane per colour (Paul).
