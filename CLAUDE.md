@@ -159,6 +159,39 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ 16-STEP GRID — the §E flip, DONE (2026-09-02, on `main`, Stage A `bf6ccaa` + Stage B `e696f07`; iOS builds, macOS
+  1015 green; the part-grid UI is DEVICE-EYE owed). Paul: "the 16 step grid." A part's grid can now be 8 OR 16 columns.
+  **STAGE A (engine substrate, byte-identical):** the safe framing — `Snap.cols` STAYS 8 (the DEFAULT/uniform BAR width;
+  ALL cycle math, ROW-span, and the uniform fast-path key on it → the default part is UNTOUCHED), and a new `Snap.maxCols`
+  = 16 is the ALLOCATION ceiling. `Snap.cells` = maxCols·rows (128→256); SceneState.empty + SnapshotBuilder allocate/scan
+  maxCols; the per-row loop-length CLAMP widens to maxCols (a part loops 16), the UNSET fallback stays Snap.cols=8. So a
+  16-wide part is NON-uniform → the proven, fuzzed MULTI-CLOCK per-row path (cycR = Lr·Sr) plays its 16 columns; an
+  8-wide part stays uniform-fast, byte-identical. Router emission/index guards + topCell wrap → maxCols (≤7 identical).
+  **STAGE B (authoring):** BuildPart.stagingCells/stagingSel + BuildSceneSnapshot.performCells/Chain + the @State mirrors
+  are 16-wide (old 8-col saves decode short + are padded — `Snap.padCols`; `buildNormalizeStaging` normalizes to 16×8,
+  was 8×8-TRUNCATING); composeScene builds staging+perform across maxCols (play grid stays 8 columns, each a ≤16-step
+  pass via passLen→maxCols); `reconcileStagingSel` → 16; `roomsPartGrid` renders `buildPartCols` (= buildPartLen 1…16,
+  nil⇒8) columns (cells shrink); a NEW header STEPS **8 | 16** control sets the part width (`buildSetPartLen` →
+  stagingLen → rowLength). Drift feedback (buildNoteSweep) covers 16 for free (Snap.cells=256). **+2 tests** (a 16-wide
+  part composes col 12 + row loops 16; the ramp/clamp updated); 4 pre-existing 8-assumption tests re-pointed (rowLen
+  clamp 1…16, swap out-of-range past 16×16, 2 reconcile counts). **FLAGGED (device/deferred):** ROW-span processors
+  (tutti/length) use the 8-wide bar → in a 16-wide part they repeat every 8 columns (polymeter, not full-span — a v1
+  semantic); the old-grid cellSounding/tap/solo masks aren't widened (rooms uses the Snap.cells drift feed, not them);
+  the piano-roll mock doesn't scale to 16; the STEPS control placement + 16-col legibility are device-eye owed.**
+- **▶ PART AUTOMATION — the AUTO lanes now PLAY + persist (2026-09-02, on `main`, `b7d82e5`+`8d2837a`; iOS builds, macOS
+  1014 green; the band is DEVICE-EYE owed). The part-page AUTO band became AUDIBLE. Per colour, FIVE lanes + NONE; ONE
+  active lane (per-colour `activeLane`, −1=NONE). Paul's 4 rulings: per-param SUB-RANGE · one active lane per colour ·
+  low→high column-order single sweep · extent = the colour's own cells. **MODEL:** `AutoLane`/`PartAutoColour` moved to
+  BuildModel.swift (Foundation-only, Codable, in the test target); `PluginState.partAuto` (additive-Optional, keyed by
+  colourID). **ENGINE BAKE:** `BuildSceneLogic` gained the pure core (autoPrimaryKey/autoResolvedParamKey/autoSubRange/
+  autoRamp/applyAuto) + composeScene folds the active lane onto each part cell via `applyProcessorValues` — a cell in the
+  extent gets its param set to the ramped sub-range value (rank/(count−1), column→row). Baked at BUILD time → the render
+  is unchanged (invariant 1), like the macro/M2 fold. Byte-identical when no lane armed. **LIVE:** selecting a lane /
+  editing / punching a cell republishes (buildPublishScene). Persistence rides the play-grid pattern (pending/consume +
+  buildPersistTick). **HEADER:** NONE (left) · AUTO 1–5 (span) · CLEAR (separate, right); select = enable. **+4 tests**
+  (ramp across the extent, NONE = base untouched, sub-range/ramp endpoints, doc round-trip). Plan:
+  `Docs/PLAN-part-automation.md`. DEFERRED (P4, if wanted): configurable BEFORE/AFTER + a RATE/curve within the extent.
+  Macros are SHELVED to v2 (the AUTO flow replaces them). DEVICE-OWED: the whole band + the punch-on-grid feel.**
 - **▶ MACRO AUTOMATION M1+M2 — the engine foundation (2026-09-01, on `main`, `2aa17ed`+`f157ef8`; iOS builds, macOS 999 green;
   engine-only, no UI yet). The ratified macro-automation build (§K settled) begins with its two ENGINE increments — the parts
   that build+test off-device with confidence; M3–M6 (the 4-tab part-page band) are the device-owed UI remainder. **M1 (model
