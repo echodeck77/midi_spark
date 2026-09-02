@@ -4222,6 +4222,26 @@ extension DiagView {
             }
         }
     }
+    // PART MACHINE SELECTOR (Paul 2026-09-02): a header of 8 buttons above the receiver strip — pick WHICH row's machine
+    // is IN VIEW, WITHOUT the cell-select touch (VIEW-ONLY: it loads the machine into the box but never changes which rung
+    // plays). The in-view one is BRIGHT, the rest DIM; it reflects whatever machine is currently in view, so tapping a
+    // cell / side button updates it too. An empty row's button is dim; tapping it focuses that row (to add a machine).
+    @ViewBuilder func roomsPartMachineSelector(height: CGFloat) -> some View {
+        HStack(spacing: 3) {
+            ForEach(0..<8, id: \.self) { n in
+                let cid = buildRowColour(n)
+                let inView = cid != nil && cid == ddSelectedColourID
+                let hue = cid.flatMap { colourColor($0) } ?? buildCell
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(cid == nil ? Color.white.opacity(0.05) : hue.opacity(inView ? 0.92 : 0.26))                                   // in view = bright · others = dim
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(inView ? Color.white.opacity(0.85) : hue.opacity(cid == nil ? 0.12 : 0.4), lineWidth: inView ? 2 : 1))
+                    .overlay(Text("\(n + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(inView ? .black : .white.opacity(cid == nil ? 0.3 : 0.55)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if let cid { buildSelectID(cid) } else { buildRoomsSetActiveSide(n) } }   // load the machine into view (view-only) / focus an empty row
+            }
+        }.frame(height: height)
+    }
     @ViewBuilder func roomsColumnEmitters(height: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(0..<4, id: \.self) { i in
