@@ -2022,38 +2022,55 @@ extension DiagView {
                 let liveStep = playing ? Int(phase / sb) : -1            // the step the playhead is on (the highlighted cell)
                 Canvas { ctx, size in
                     let cellH = size.height
+                    // PER-STEP WINDOW: each step fits its OWN notes, centred, floored to 1.5 octaves — precomputed so the
+                    // MERGE can tell where the scale is stable (a note spanning same-scale steps = ONE rectangle).
+                    var winLo = [Int](repeating: 60 - minWin / 2, count: cols)
+                    var win   = [Int](repeating: minWin, count: cols)
+                    var stepNotes = [[PartRollDeck.Note]](repeating: [], count: cols)
                     for c in 0..<cols {
-                        let x = CGFloat(c) * stepW
-                        let s0 = Double(c) * sb, s1 = Double(c + 1) * sb                     // this step's beat window
-                        let inStep = notes.filter { $0.start < s1 && $0.end > s0 }           // notes SOUNDING during this step (overlap)
-                        // per-step pitch window: fit this step's notes, centred, floored to 1.5 octaves
-                        let ps = inStep.map { Int($0.note) }
-                        let lo = ps.min(), hi = ps.max()
-                        let centre = (lo != nil && hi != nil) ? (lo! + hi!) / 2 : 60
-                        let win = max(minWin, (hi ?? 60) - (lo ?? 60))
-                        let winLo = centre - win / 2
-                        let laneH = cellH / CGFloat(win + 1)
-                        func laneY(_ p: Int) -> CGFloat { cellH - CGFloat(p - winLo + 1) * laneH }
-                        let onStep = c == liveStep
-                        let cellHue = inStep.first.map { Color(hex: $0.colour) } ?? Color.white
-                        let frame = CGRect(x: x + 0.5, y: 0.5, width: colW - 1, height: cellH - 1)
-                        ctx.fill(Path(roundedRect: frame, cornerRadius: 4), with: .color(.black.opacity(0.30)))              // the cell's dark ground
-                        // notes in this step, clipped to the step's x-window, at the cell's OWN pitch scale
-                        for n in inStep {
-                            let cable = Int(n.cable)
-                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
-                            let nx0 = x + CGFloat((max(n.start, s0) - s0) / sb) * colW
-                            let nx1 = x + CGFloat((min(n.end, s1) - s0) / sb) * colW
-                            let rect = CGRect(x: nx0 + 1.5, y: laneY(Int(n.note)) + 0.5, width: max(2.5, nx1 - nx0 - 2), height: max(2, laneH - 1))
-                            let vel = Double(n.vel) / 127.0
-                            let bright = playing ? (onStep ? 1.0 : 0.5) : 0.42
-                            if n.colour != 0 { ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color(hex: n.colour).opacity(0.14 + 0.14 * bright))) }   // faint CELL backing
-                            ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(emit.opacity((0.34 + 0.5 * vel) * bright)))                                  // the EMITTER note
-                        }
-                        // the cell FRAME — tinted by this step's colour, bright white on the live (playhead) step
+                        let s0 = Double(c) * sb, s1 = Double(c + 1) * sb
+                        let ns = notes.filter { $0.start < s1 && $0.end > s0 }               // notes SOUNDING during this step (overlap)
+                        stepNotes[c] = ns
+                        let ps = ns.map { Int($0.note) }
+                        if let lo = ps.min(), let hi = ps.max() { let w = max(minWin, hi - lo); win[c] = w; winLo[c] = (lo + hi) / 2 - w / 2 }
+                    }
+                    func laneRect(_ p: Int, _ c: Int) -> (y: CGFloat, h: CGFloat) {
+                        let laneH = cellH / CGFloat(win[c] + 1)
+                        return (cellH - CGFloat(p - winLo[c] + 1) * laneH, max(2, laneH - 1))
+                    }
+                    // 1) the cell FRAMES (per step): dark ground + a border tinted by the step's colour, bright on the live step
+                    for c in 0..<cols {
+                        let frame = CGRect(x: CGFloat(c) * stepW + 0.5, y: 0.5, width: colW - 1, height: cellH - 1)
+                        ctx.fill(Path(roundedRect: frame, cornerRadius: 4), with: .color(.black.opacity(0.30)))
+                        let hue = stepNotes[c].first.map { Color(hex: $0.colour) } ?? Color.white
                         ctx.stroke(Path(roundedRect: frame, cornerRadius: 4),
-                                   with: .color(onStep ? .white.opacity(0.6) : cellHue.opacity(inStep.isEmpty ? 0.10 : 0.30)),
-                                   lineWidth: onStep ? 1.5 : 1)
+                                   with: .color(c == liveStep ? .white.opacity(0.6) : hue.opacity(stepNotes[c].isEmpty ? 0.10 : 0.30)),
+                                   lineWidth: c == liveStep ? 1.5 : 1)
+                    }
+                    // 2) the NOTES — a note appears in EVERY step it sounds; contiguous steps that share the SAME scale MERGE
+                    // into ONE rectangle spanning those cells (a genuine chord change breaks it, where the scale shifts).
+                    for n in notes {
+                        let p = Int(n.note)
+                        let steps = (0..<cols).filter { stepNotes[$0].contains(n) }
+                        let cable = Int(n.cable)
+                        let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
+                        let cellBack = n.colour != 0 ? Color(hex: n.colour) : nil
+                        let vel = Double(n.vel) / 127.0
+                        var i = 0
+                        while i < steps.count {
+                            var j = i
+                            while j + 1 < steps.count, steps[j + 1] == steps[j] + 1,
+                                  winLo[steps[j + 1]] == winLo[steps[i]], win[steps[j + 1]] == win[steps[i]] { j += 1 }   // extend the merge while contiguous + same scale
+                            let a = steps[i], b = steps[j]
+                            let x0 = CGFloat(a) * stepW, x1 = CGFloat(b) * stepW + colW        // span the run's cells (crossing the inter-cell gaps → merged)
+                            let ly = laneRect(p, a)
+                            let onRun = liveStep >= a && liveStep <= b
+                            let bright = playing ? (onRun ? 1.0 : 0.5) : 0.42
+                            let rect = CGRect(x: x0 + 1.5, y: ly.y + 0.5, width: max(2.5, x1 - x0 - 3), height: ly.h)
+                            if let cellBack { ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(cellBack.opacity(0.14 + 0.14 * bright))) }   // faint CELL backing
+                            ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(emit.opacity((0.34 + 0.5 * vel) * bright)))                     // the EMITTER-coloured note
+                            i = j + 1
+                        }
                     }
                 }
             }
