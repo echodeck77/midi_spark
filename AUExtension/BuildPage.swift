@@ -886,7 +886,7 @@ extension DiagView {
     // The global STOP — stops every playing voice (chain audition · part · every play column). Lives in the SELECT grid's
     // top-right EMPTY corner cell (Paul 2026-08-31). Cell-sized; red + lit when anything plays.
     @ViewBuilder func buildStopAllButton() -> some View {
-        let anyPlaying = buildDisplayVoice != .none || buildPlayColOn.contains(true)
+        let anyPlaying = buildDisplayVoice != .none || buildPerformPlaying || buildPlayColOn.contains(true)
         Image(systemName: "stop.fill").font(.system(size: 15, weight: .black))
             .foregroundColor(roomsDoorInk(to: .play))                                             // white ink — like the nav buttons (Paul 2026-08-31)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1424,7 +1424,7 @@ extension DiagView {
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
             if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when playing
-            if active && d.playing {                                    // the PLAYHEAD — a fill sweeping LEFT→RIGHT over the chain's duration
+            if active {                                                 // the PLAYHEAD — a fill sweeping LEFT→RIGHT (beat-anchor driven, so it runs under FREE-RUN too, matching the cell/ferry playheads — Paul 2026-09-02; was gated on d.playing → froze while the host was stopped)
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     GeometryReader { g in
                         RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.34))
@@ -1949,8 +1949,13 @@ extension DiagView {
             // The lower region = everything under the ferry row. FIXED heights that sum EXACTLY to the column (like the
             // SELECT grid — no maxHeight:.infinity, which floated the content): [interior] + [piano roll] + [macro].
             let lowerH = max(interiorH, g.size.height - 2 * pad - navH - gap - ch - gap)
-            let pianoH = partCH * 2 + gap                                   // the piano-roll strip = 2 cells (halved)
-            let macroH = max(0, lowerH - interiorH - pianoH - 2 * gap)      // the macro section fills the remainder EXACTLY
+            // AUTO FOOTER-UNTIL-TOUCHED (Paul 2026-09-02): with no lane selected the AUTO section is just its tab strip (a
+            // one-cell FOOTER) and the freed height goes to the PIANO ROLL — a more spacious part page. Touch a tab → the
+            // panel opens (macro takes the remainder, the roll returns to 2 cells).
+            let autoOpen = buildAutoActive() >= 0
+            let normalPianoH = partCH * 2 + gap                            // the piano-roll strip = 2 cells (halved)
+            let macroH = autoOpen ? max(ch, lowerH - interiorH - normalPianoH - 2 * gap) : ch   // open → the panel · closed → a one-cell footer
+            let pianoH = max(normalPianoH, lowerH - interiorH - macroH - 2 * gap)   // closed → the roll fills the freed space
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
                     Color.clear.frame(width: leftInset)
@@ -2107,8 +2112,8 @@ extension DiagView {
                     .opacity(active >= 0 && !lane.cells.isEmpty ? 1 : 0.35)
                     .padding(.leading, 8)
             }
-            if active < 0 {                                                  // NONE → hide the controls entirely (a calm invitation)
-                macroHint("Automation off — pick an AUTO tab to sweep a parameter across the grid").frame(maxWidth: .infinity, maxHeight: .infinity)
+            if active < 0 {                                                  // NONE → FOOTER ONLY (Paul 2026-09-02): just the tab strip, no panel — a spacious part page. Touch a tab → the panel appears.
+                EmptyView()
             } else if chain.isEmpty {
                 macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -2426,6 +2431,7 @@ extension DiagView {
     func buildTogglePlayGrid() {
         let anyOn = buildPlayColOn.contains(true)
         for c in 0..<8 { buildPlayColOn[c] = anyOn ? false : buildPlayColHasContent(c) }
+        if !anyOn { buildVoiceOwner = .none; au?.clearColourSolo() }   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02)
         buildPublishScene()
     }
     // Column c has a populated selected rung (something to sound).
@@ -3418,6 +3424,7 @@ extension DiagView {
     func buildStopAllOnTransportStop() {
         var changed = false
         if buildVoiceOwner != .none { buildVoiceOwner = .none; changed = true }
+        if buildPerformPlaying { buildPerformPlaying = false; changed = true }   // the PIECE is a free-run gate term too — STOP must clear it (else free-run stays enabled with no lit button)
         for i in buildPlayColOn.indices where buildPlayColOn[i] { buildPlayColOn[i] = false; changed = true }
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
         if changed { au?.clearColourSolo(); buildPublishScene() }
