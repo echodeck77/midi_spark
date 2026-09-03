@@ -2326,15 +2326,18 @@ extension DiagView {
         // the real colour, never light focused during ferry editing even though the card is editing them.
         let mirrorCid = buildFerryMirrorRow.flatMap { buildRowColour($0) }
         let focused = id != nil && (id == ddSelectedColourID || (mirrorCid != nil && id == mirrorCid))
-        // fade=false (the PART grid, Paul 2026-09-03: NOTHING dimmed) → EVERY populated cell reads at FULL brightness; the
-        // selected rung is marked by its white outline alone (added by the caller), never by dimming the others.
+        // fade=false = the PART grid's UNIFORM look (Paul 2026-09-03): NOTHING is dimmed AND the machine-in-view FOCUS
+        // highlight is suppressed — EVERY populated cell reads at full brightness; the ONLY per-cell mark is the selected
+        // rung's white outline (added by the caller). So focusing a machine (e.g. tapping the numbered side rail) loads it
+        // into the editor/strip WITHOUT lighting its cells on the grid.
         let lit = selected || !fade
+        let showFocus = fade && focused
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
             .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(id == nil ? 0 : (lit ? 0.30 : 0.13))))   // machine-hue identity wash
             .overlay { sweep() }                                        // the EMITTER-coloured drift
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(id == nil ? buildEdge : mHue.opacity(focused ? 1.0 : (lit ? 0.7 : 0.4)),
-                                                              lineWidth: focused ? 2.5 : (lit ? 2 : 1)))   // MACHINE-HUE FRAME: BRIGHT on focus
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(id == nil ? buildEdge : mHue.opacity(showFocus ? 1.0 : (lit ? 0.7 : 0.4)),
+                                                              lineWidth: showFocus ? 2.5 : (lit ? 2 : 1)))   // MACHINE-HUE FRAME: BRIGHT on focus (not on the part grid)
             .overlay { if buildSelectMode && id != nil { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
     }
     // A PART interior cell — RENDERING ONLY (Paul 2026-09-02): the whole grid is DIMMED except the SELECTED rung; taps +
