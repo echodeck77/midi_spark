@@ -1484,15 +1484,33 @@ extension DiagView {
     // tab; each interior cell reuses buildGridSelCell (the drifting-note fingerprint face + tap-to-audition), verbatim.
     // Idempotent — safe to call on every SELECT-room appear. (Paul 2026-08-28)
     func roomsSelectSetup() {
+        let carryFromPart = buildVoiceOwner == .part                         // the PART was AUDITIONING → carry the playing cell onto SELECT
         buildEnsureGridSelOpen()                                              // opens the selector (loads library summaries + deals), guarded — no-op if already open
         if buildGridSelTab != 1 {                                            // SELECT shows MY LIBRARY, not the DEALT bank
-            buildGridSelStopAudition()
+            buildGridSelStopAudition()                                       // (no-op while owner == .part — its guard needs a chain/browse voice)
             buildGridSelTab = 1
             buildGridSelComputeCellRolls()                                    // the library cells' drifting faces
         }
-        // No startup randomization (Paul 2026-08-29): the corpus is split into deterministic PAGES via the left rail
-        // (page 0 = row 1 default). A cell auditions only when the user taps it.
-        roomsSyncVoice(.select)                                              // part→chain (nothing from PART plays here)
+        // CARRY THE PLAYING PART CELL (Paul 2026-09-03): part→select while the part is PLAYING keeps that cell sounding on
+        // the SELECT grid — a ONE-row (uniform) selection carries that exact cell; a MULTI-row selection carries the LAST-
+        // selected side ferry (the active side button). Play ferries are a separate persistent layer and continue regardless.
+        if carryFromPart, let row = buildPartCarryRow(), let cid = buildRowColour(row) {
+            buildSelectID(cid)                                              // the SELECT audition target = the playing part cell's colour
+            buildApplyWorkshopVoice(.chain)                                 // continue it as the SELECT chain audition (seamless)
+        } else {
+            // No startup randomization (Paul 2026-08-29): the corpus is split into deterministic PAGES via the left rail
+            // (page 0 = row 1 default). A cell auditions only when the user taps it.
+            roomsSyncVoice(.select)                                          // normal entry — chain iff a browse cell is selected, else none
+        }
+    }
+    // The PART row to CARRY into the SELECT audition on a part→select switch (Paul 2026-09-03): ONE distinct selected row
+    // across the active columns → that exact cell; MULTIPLE distinct rows → the LAST-selected SIDE FERRY (the active side
+    // button); nil if nothing populated carries. Used only when the part was playing (roomsSelectSetup).
+    private func buildPartCarryRow() -> Int? {
+        let distinct = Set(buildStagingSel.prefix(buildPartCols).filter { $0 >= 0 })
+        if distinct.count == 1, let r = distinct.first, buildRowColour(r) != nil { return r }   // ONE row → the same cell
+        if let s = buildGridSelStampSourceRow, buildRowColour(s) != nil { return s }             // MULTIPLE → the last selected side ferry
+        return distinct.first { buildRowColour($0) != nil }                                      // fallback: any populated selected row
     }
 
     // ── NEW INTERFACE — the PROCESSOR CARD overlay. A populated chain box opens its editor (buildProcessorPanel) as a
