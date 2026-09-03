@@ -159,6 +159,31 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ OVERNIGHT BATCH — 7 queued jobs (2026-09-03, on `main`, `9010ca1`…`64330ae`; iOS builds, macOS 1023 green incl.
+  fuzz; part-roll/AVOID-seg DEVICE-owed). Paul: "queue ten high-value jobs that don't need my involvement." Landed the
+  safe, off-device-verifiable ones; flagged the two needing his semantic ruling. **Job 1 (`9010ca1`)** Info.plist — all
+  four orientations + dropped `UIRequiresFullScreen` (clears the two Xcode deprecation warnings Paul flagged; project.yml
+  → regen App/Info.plist; AU UI is host-sized so inert for the plugin). **Job 2 (`36834d1`)** decode-tolerant
+  `AutoLane`/`PartAutoColour` — the newest persisted types were synthesized-Codable with non-Optional fields; partAuto is
+  a PluginState dict, so a future field would throw → whole-session reset (CR-8 class). Added the tolerant inits + 2 tests.
+  **Job 3 (`7b93b2e`)** THREE read-only bug-hunt agents (AUTO bake · 16-step · CHORDS · AVOID · macro fold · part-roll) —
+  NO stuck-note/determinism bugs; fixed 4 confirmed: (a) **PartRollDeck render↔main RACE** — render wrote cur/last while
+  the 4 Hz poll read them (violates the value-copy invariant, garbles the roll) → double-buffered publish (render writes
+  the inactive of two flat buffers + flips a scalar; roll() snapshots the active by value); (b) **AUTO lane default →
+  BYPASS** for the ~12 types w/o a curated autoPrimaryKey (params.first is always bypass) → falls back to the first
+  NON-bypass param; (c) **CHORDS WALK froze after 64 rate-ticks** (free-running step, clamped) → loops mod 64; (d) an
+  unguarded receiverRangeLo read. +3 tests. **Job 4 (`0abf896`)** dead-code + refactors — removed the inert ladder/old-EDIT
+  tap machinery (armLadderRung/ladderPending/ladderBlink/playCellOnly/setEditSolo/editSelTargets — grep-proven inert, the
+  old-UI triggers are deleted; syncSingleModeActivation stays live for LADDER presets) + dead `chordsModeResolved`; added a
+  `posMod` helper, hoisted RATCHET's legal-repeats literal, fixed a DEBUG cell-coord (i/8→i/Snap.rows). **Job 9 (`dfb46c9`)**
+  fuzz the 16-WIDE multi-clock path (was only ≤8-col) — ~30% of docs now widen to maxCols + loop >8 → non-uniform; all 8
+  fuzz scenarios green. **Job 7 (`64330ae`)** AVOID §G "EVERYTHING OUT" (ratified) — `AvoidRefKind.soundingOut` = all
+  emitter output minus this cell's own buses (self-exclude by bus); avoidRefMask gains ownBusMask (threaded ×3). +1
+  RouterTest + fuzz allCases. **FLAGGED for Paul (in pending-tasks): job 5** (16-wide ROW-span procs — polymeter-every-8
+  vs full-span, a v1 SEMANTIC), **job 6** (CHORDS invert-toward-previous — voice-leading is path-dependent vs the replay-
+  exact rule), and the deferred perf/cosmetic items (CHORDS render-path alloc; 16-wide sounding/solo mask widening; the
+  editMode/EditPageMode residue; the AVOID §G editor seg + OUTPUT-ref piano). Job 8 (coverage) folded — the AUTO/macro/
+  16-step surfaces were already test-thorough.**
 - **▶ 16-STEP GRID — the §E flip, DONE (2026-09-02, on `main`, Stage A `bf6ccaa` + Stage B `e696f07`; iOS builds, macOS
   1015 green; the part-grid UI is DEVICE-EYE owed). Paul: "the 16 step grid." A part's grid can now be 8 OR 16 columns.
   **STAGE A (engine substrate, byte-identical):** the safe framing — `Snap.cols` STAYS 8 (the DEFAULT/uniform BAR width;

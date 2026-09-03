@@ -3,7 +3,31 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-01._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-03._
+
+## ★ OVERNIGHT BATCH 2026-09-03 — landed + FLAGGED deferrals (needs Paul / a dedicated pass)
+Seven queued jobs LANDED (`9010ca1`…`64330ae`; macOS 1023 green; see CLAUDE.md status). What's DEFERRED, and why:
+- **JOB 5 — 16-wide ROW-span processors (SEMANTIC, needs Paul).** In a 16-wide part, ROW-span procs (tutti/length,
+  the 8-slice patterns) use the 8-wide bar → they repeat every 8 columns (polymeter). Making them span the FULL part
+  width (16) is a behaviour choice — polymeter vs full-span. NOT built (Paul rules which).
+- **JOB 6 — CHORDS invert-toward-previous (NEEDS A DESIGN CALL).** `voiceLeadTowardPrevious` is pure + tested, but
+  wiring it means voice-leading each chord toward the previous → PATH-DEPENDENT, which fights the "derived, never
+  accumulated / replay-exact" rule (for FOLLOW it's genuinely cross-render memory). Needs Paul's ruling on the
+  accumulated-state exception. NOT built.
+- **CHORDS render-path allocation (MED, invariant 3; bug-hunt B#1 + refactor A).** `applyStage`/`emitColumnHolds` `.chords`
+  allocate per fold: the PATTERN `(0..<steps).map` (Router ~3718) + `diatonicChord`'s internal arrays (Derivations ~686).
+  The sibling harmonize case is hand-unrolled with fixed buffers. Fix = pre-allocated scratch through diatonicChord +
+  chordsDegreeAt-takes-raw-array. Perf/invariant, NOT a functional bug — a focused tested pass (don't rush).
+- **16-WIDE sounding/solo MASK widening (LOW, cosmetic/16-wide; bug-hunt A#2/A#3).** `snapshotCellSounding` (2×UInt64=128)
+  + `cellSoloedOut/Forced/tapMuted` (`col*8+row` into UInt64) don't cover cellIndex 128–255, so a 16-wide part's cols
+  8–15 drop from the SEAL feed (no light) and get force-silenced under PLAY-THIS-CELL solo. No crash (smart shift → 0).
+  Widen to 4×UInt64 / a fixed [UInt64]. Device-owed (the 16-step grid is device-owed anyway).
+- **editMode / EditPageMode residue (dead-in-effect, deferred by job 4).** `editMode` is a constant `.addEdit`; the
+  `.move/.mute/.clear` cases are unreferenced. Left because removal touches the live `syncSingleModeActivation` guard for
+  marginal value — a dedicated pass.
+- **AVOID §G editor seg + OUTPUT-ref piano (DEVICE-owed).** The engine (`.soundingOut`) landed job 7; the LISTEN-TO seg
+  (offer the OUTPUT domain: IN ▸ · EVERY IN · OUT ▸ · EVERY OUT) + the OUTPUT-ref illustration piano (needs a per-emitter
+  output feed to stay honest) are device-owed — .soundingOut is engine/fuzz/test-reachable but not yet user-selectable.
 
 ## ★ HOUSEKEEPING FLAGS — 2026-09-01 (surveyed + verified)
 - **✅ DONE — BIG DEAD-CODE CASCADE (`7b9d160`, ~820 lines):** removed the orphaned `GridView` (0 instantiations) + its
