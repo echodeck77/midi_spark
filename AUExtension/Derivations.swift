@@ -268,6 +268,18 @@ final class NotePool {
         playedCount = 0
     }
 
+    /// A VALUE snapshot of the held state (Paul 2026-09-03) — for the OFFLINE part-roll render: the caller clones the live
+    /// pool on the main thread (a benign torn read of the flat UInt8 arrays, the 2026-08-10 class) and runs a fresh Router
+    /// against the stable copy, so a mid-run change on the render thread can't garble the pass.
+    func clone() -> NotePool {
+        let p = NotePool()
+        p.omniRead = omniRead
+        for i in 0..<128 { p.vel[i] = vel[i]; p.chan[i] = chan[i]; p.cbl[i] = cbl[i]; p.order[i] = order[i] }
+        p.count = count; p.playedCount = playedCount
+        p.rebuildSorted()
+        return p
+    }
+
     func noteOn(_ note: UInt8, velocity: UInt8, channel: UInt8, cable: UInt8 = 0) {
         let n = Int(note)
         if velocity > 0 {

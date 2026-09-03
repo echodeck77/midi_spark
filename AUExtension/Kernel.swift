@@ -653,6 +653,14 @@ final class Kernel {
         if !active { partDeck.clear(); prevPartCycleIdx = Int.min }
     }
     func pollPartRoll() -> [PartRollDeck.Note] { partDeck.roll(cycleBeats: partRollCycle) }
+    /// OFFLINE PART ROLL (Paul 2026-09-03): the DETERMINISTIC, no-lag feed — replaces the live capture. Snapshot the input
+    /// (clone the live + latched pools; a benign torn read of value arrays, the 2026-08-10 class) and run the CURRENT box
+    /// for one pass. Main-thread control call (heavier than a poll — the VC recomputes only when the input/selection changes).
+    func offlinePartRoll(cyc: Double) -> [PartRollDeck.Note] {
+        guard let box = store?.acquire() else { return [] }
+        return renderOfflinePartRoll(box: box, pool: pool.clone(), latched: latchedPools.map { $0.clone() },
+                                     latchMask: effectiveLatchMask, cyc: cyc)
+    }
     private var reelToggle = false
     private var reelExitFlush = false
     private var reelLastPass = Int.min

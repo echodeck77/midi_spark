@@ -393,6 +393,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // PART ROLL (Paul 2026-09-02): the live per-part-cycle emitted-note capture for the part-page piano roll.
     func setPartRoll(active: Bool, cycleBeats: Double) { kernel.setPartRoll(active: active, cycleBeats: cycleBeats) }
     func pollPartRoll() -> [PartRollDeck.Note] { kernel.pollPartRoll() }
+    func offlinePartRoll(cyc: Double) -> [PartRollDeck.Note] { kernel.offlinePartRoll(cyc: cyc) }   // the deterministic no-lag feed
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes (latch-aware meter)
     func pollReceiverSoundingNotes() -> [[UInt8]] { kernel.pollReceiverSoundingNotes() }   // PITCHES held per door (REPLAY roll)

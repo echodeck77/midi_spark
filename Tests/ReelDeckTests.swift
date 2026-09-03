@@ -374,3 +374,27 @@ final class PartRollDeckTests: XCTestCase {
         XCTAssertEqual(d.roll(cycleBeats: 4).first?.cell, 37, "the note keeps the cell it was emitted from")
     }
 }
+
+// The OFFLINE PART ROLL (Paul 2026-09-03) — the deterministic, no-lag feed that replaces the live audio capture.
+final class OfflinePartRollTests: XCTestCase {
+    func testCloneIsAnIndependentValueCopy() {
+        let p = NotePool(); p.noteOn(60, velocity: 90, channel: 2); p.noteOn(67, velocity: 100, channel: 2); p.rebuildSorted()
+        let c = p.clone()
+        XCTAssertEqual(c.count, 2); XCTAssertEqual(c.velocity(60), 90); XCTAssertEqual(c.velocity(67), 100)
+        p.noteOff(60)   // mutating the ORIGINAL must not touch the clone (thread-safe snapshot)
+        XCTAssertEqual(c.velocity(60), 90, "the clone is an independent value copy")
+    }
+    func testOfflinePartRollRendersTheHeldChordDeterministically() {
+        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        st.colours[0].templateChain = [ProcessorSlot(type: .arp)]
+        var s = SceneState.empty(); var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0; s.cells[0][0] = cell
+        st.scenes = [s]; st.busChannels = [1, 2, 3, 4]; st.synthesizeReceiversIfNeeded()
+        let box = SnapshotBuilder.build(from: st)
+        let pool = NotePool(); for n: UInt8 in [60, 64, 67] { pool.noteOn(n, velocity: 100, channel: 0) }; pool.rebuildSorted()
+        let notes = renderOfflinePartRoll(box: box, pool: pool.clone(), latched: [], latchMask: 0, cyc: 4.0)
+        XCTAssertFalse(notes.isEmpty, "the arp cell renders the held chord OFFLINE — no live audio, no cycle lag")
+        XCTAssertTrue(Set(notes.map { Int($0.note) % 12 }).isSubset(of: [0, 4, 7]), "only the held chord's pitch classes (C/E/G) — accurate")
+        XCTAssertEqual(notes, renderOfflinePartRoll(box: box, pool: pool.clone(), latched: [], latchMask: 0, cyc: 4.0), "deterministic (same input → same notes)")
+        XCTAssertTrue(renderOfflinePartRoll(box: box, pool: NotePool(), latched: [], latchMask: 0, cyc: 4.0).isEmpty, "no input → nothing playing → empty (accurate, not a fake pattern)")
+    }
+}

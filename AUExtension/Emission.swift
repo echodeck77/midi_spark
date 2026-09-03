@@ -354,6 +354,30 @@ final class PartTap: MIDIEmitter {
     }
 }
 
+/// OFFLINE PART ROLL (Paul 2026-09-03): run the REAL Router over `box` for ONE pass against a held-input snapshot, recording
+/// each emitted note with its emitting-cell tag. DETERMINISTIC + IMMEDIATE — the part's exact output for `held`, with NO
+/// cycle lag and no dependence on live audio (fixes the "shows nothing / octave-vs-notation lag" class). Foundation-only,
+/// unit-testable (Kernel-free). The caller CLONES the live pools first (thread-safe). Returns paired notes over [0, cyc].
+func renderOfflinePartRoll(box: SnapshotBox, pool: NotePool, latched: [NotePool], latchMask: UInt8, cyc: Double) -> [PartRollDeck.Note] {
+    guard cyc > 0 else { return [] }
+    let router = Router(); var diag = KernelDiag()
+    let deck = PartRollDeck(); let tap = PartTap()
+    tap.deck = deck; tap.recording = true; tap.cycleBeats = cyc; tap.base = 0; tap.windowStart = 0
+    let sr = 48_000.0, tempo = 120.0
+    let bps = tempo / 60.0 / sr
+    tap.beatsPerSample = bps
+    let frames: UInt32 = 1024                         // blocks small enough to advance columns; onsets stay sample-accurate
+    let wb = Double(frames) * bps
+    var beat = 0.0, ts = 0.0
+    while beat < cyc {
+        router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, latchMask: latchMask, latchedPools: latched, out: tap, diag: &diag)
+        beat += wb; ts += Double(frames)
+    }
+    deck.endCycle()
+    return deck.roll(cycleBeats: cyc)
+}
+
 // MARK: - THE DOOR RING (config-sheets REPLAY, Paul 2026-08-20) — a per-door ring of INCOMING note events.
 // The input-side twin of ReelDeck. A door records its live input CONTINUOUSLY (retro-capture — never arm). In REPLAY
 // mode the last N passes are CAPTURED as a loop that cycles back as the door's living input: each render asks

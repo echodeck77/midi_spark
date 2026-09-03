@@ -370,7 +370,9 @@ struct DiagView: View {
     @State var cellHitVel = [Double](repeating: 0, count: Snap.cells)
     // SEAL comet note-on/off GATE: which cells are currently SOUNDING (from au.pollCellSounding), and when each
     // last went SILENT. The spark travels for exactly as long as the note is held, then fades ~0.45s from release.
-    @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL (Paul 2026-09-02): the true live output of the current part cycle, for the piano roll
+    @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL: the part's exact output (the OFFLINE feed, recomputed on input/selection/edit change — no lag)
+    @State var partRollSig: String = ""                  // the recompute key (input · selection · rate · edit generation) — skip identical recomputes
+    @State var buildPartRollGen: Int = 0                 // bumped by buildPublishScene so a CELL/CHAIN edit forces an offline recompute (even if the selection didn't change)
     @State var buildPartDragLast: Int? = nil   // PART GRID (Paul 2026-09-02): the last cell touched in the current tap/drag selection (nil = no active drag)
     @State var buildHostHalted: Bool = false   // TRANSPORT (Paul 2026-09-02): the host stopped while we were following it → HALT (free-run off), cells stay armed; cleared on host START or an explicit BUILD play
     @State var cellSounding = [Bool](repeating: false, count: Snap.cells)
@@ -785,10 +787,7 @@ struct DiagView: View {
             guard uiAppeared, let au else { return }   // CR-17: don't drain the render→main feeds while the view is hidden/backgrounded (perf + narrows CR-1's race window). buildPersistTick resumes on re-appear — a load restores then.
             buildPersistTick()   // BUILD: keep the saved unassigned part current + restore a just-loaded one (no-op off BUILD)
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
-            let partRollOn = activeTab == .build && roomsRoom == .part && buildStagingPlaying
-            au.setPartRoll(active: partRollOn, cycleBeats: Double(max(1, buildPartCols)) * (buildPartRate?.beats ?? stepBeats))
-            let pr = partRollOn ? au.pollPartRoll() : []
-            if pr != partRollNotes { partRollNotes = pr }
+            au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)
             #if DEBUG
             if chaosOn { let s = "\(chaos.oracleFlag) · \(chaos.eventCount)e"; if s != chaosStatus { chaosStatus = s } }   // CHAOS oracle readout
             if autoOn { let s = "\(autoPilot.status) · \(autoPilot.chordCount)c"; if s != autoStatus { autoStatus = s } }   // AUTO-RUN readout
@@ -878,6 +877,18 @@ struct DiagView: View {
             let notes = au.pollReceiverSoundingNotes()
             let prevHeld = recvHeldNotes
             if notes != recvHeldNotes { recvHeldNotes = notes }
+            // PART ROLL — the OFFLINE feed (Paul 2026-09-03): recompute the part's EXACT output deterministically (no lag)
+            // when on the part page and the input / selection / part-edit generation changed. Runs after recvHeldNotes so it
+            // reads the fresh input; the offline render reads the live pool + current box, so the notes are always current.
+            if activeTab == .build && roomsRoom == .part {
+                let cyc = Double(max(1, buildPartCols)) * (buildPartRate?.beats ?? stepBeats)
+                let sig = "\(recvHeldNotes)|\(buildStagingSel)|\(cyc)|\(buildPartRollGen)"
+                if sig != partRollSig {
+                    partRollSig = sig
+                    let pr = au.offlinePartRoll(cyc: cyc)
+                    if pr != partRollNotes { partRollNotes = pr }
+                }
+            } else if !partRollNotes.isEmpty { partRollNotes = []; partRollSig = "" }
             if buildMidiConfigOpen {
                 var roll = recvInputRoll
                 for i in 0..<4 {

@@ -3481,6 +3481,7 @@ extension DiagView {
         input.partAuto = buildAutoLanes                                       // PART AUTOMATION (Paul 2026-09-02): bake the active AUTO lanes per cell
         let composed = BuildSceneLogic.composeSceneMeta(input)
         au?.setBuildStagingScene(composed.scene)
+        buildPartRollGen &+= 1                                                // the box changed → force an OFFLINE part-roll recompute (picks up cell/chain edits)
         buildChainAuditionRow = composed.auditionRow                          // #5: the engine row the audition parked on → the aimed ferry reads its LIVE strikes there
         // (The reference-chord fallback was REMOVED 2026-08-23, Paul: PLAY THIS MIDI CHAIN now sounds ONLY real input —
         // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
