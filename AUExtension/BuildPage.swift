@@ -2319,19 +2319,22 @@ extension DiagView {
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
     // colour is the one FOCUSED in the machine strip/card (abundantly-clear cell↔machine pairing). The rung-SELECTED state
     // reads as a brighter wash + a medium frame (it's the one that plays — the drift already confirms it).
-    @ViewBuilder private func roomsGridCellBody<S: View>(id: String?, selected: Bool, @ViewBuilder sweep: () -> S) -> some View {
+    @ViewBuilder private func roomsGridCellBody<S: View>(id: String?, selected: Bool, fade: Bool = true, @ViewBuilder sweep: () -> S) -> some View {
         let mHue = id.flatMap { colourColor($0) } ?? buildCell            // the machine's identity hue
         // FOCUS = the machine shown in the strip/card. While a SELECT ferry is aimed the shown machine is the transient
         // gsAud, so ALSO pair the MIRRORED part row's REAL colour (#6, Paul 2026-08-30) — else that row's cells, whose id is
         // the real colour, never light focused during ferry editing even though the card is editing them.
         let mirrorCid = buildFerryMirrorRow.flatMap { buildRowColour($0) }
         let focused = id != nil && (id == ddSelectedColourID || (mirrorCid != nil && id == mirrorCid))
+        // fade=false (the PART grid, Paul 2026-09-03: NOTHING dimmed) → EVERY populated cell reads at FULL brightness; the
+        // selected rung is marked by its white outline alone (added by the caller), never by dimming the others.
+        let lit = selected || !fade
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
-            .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(id == nil ? 0 : (selected ? 0.30 : 0.13))))   // faint machine-hue identity wash
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(id == nil ? 0 : (lit ? 0.30 : 0.13))))   // machine-hue identity wash
             .overlay { sweep() }                                        // the EMITTER-coloured drift
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(id == nil ? buildEdge : mHue.opacity(focused ? 1.0 : (selected ? 0.7 : 0.4)),
-                                                              lineWidth: focused ? 2.5 : (selected ? 2 : 1)))   // MACHINE-HUE FRAME: dim → BRIGHT on focus
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(id == nil ? buildEdge : mHue.opacity(focused ? 1.0 : (lit ? 0.7 : 0.4)),
+                                                              lineWidth: focused ? 2.5 : (lit ? 2 : 1)))   // MACHINE-HUE FRAME: BRIGHT on focus
             .overlay { if buildSelectMode && id != nil { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
     }
     // A PART interior cell — RENDERING ONLY (Paul 2026-09-02): the whole grid is DIMMED except the SELECTED rung; taps +
@@ -2343,7 +2346,7 @@ extension DiagView {
         let idx = c * Snap.rows + r
         let punch = buildAutoArmedParam()
         let punchable = punch != nil && id != nil && id == ddSelectedColourID
-        let cellBody = roomsGridCellBody(id: id, selected: selected,
+        let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
                           sweep: { buildNoteSweep(idx: idx, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
         if punchable {
             let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent
