@@ -2052,6 +2052,7 @@ extension DiagView {
             // keep it iff its row IS this column's selected rung. Excludes the play layer (rows 8–15), ferries, and any other
             // sounding cell — the roll shows exactly the part's sequenced output, nothing else.
             let notes = partRollNotes.filter { n in
+                guard n.cable >= 1 && n.cable <= 4 else { return false }   // keep the per-emitter cables A–D; drop the All (0) duplicate so nothing draws grey
                 let col = n.cell / Snap.rows
                 return n.cell >= 0 && col < buildStagingSel.count && buildStagingSel[col] == n.cell % Snap.rows
             }
@@ -2088,9 +2089,9 @@ extension DiagView {
                             ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.10)), lineWidth: 1)
                         }
                         // NOTES (Paul 2026-09-03): the NOTE itself is the EMITTER's colour — a bright bar, so you read the
-                        // destination emitter at a glance. Behind it sits a stylish CELL-colour backing: a soft, gently-
-                        // breathing halo + a crisp border in the producing cell's own colour, so every note also carries
-                        // where it came from. Drawn at ±loop so the scroll is seamless; y pinned to the edge if outside.
+                        // destination emitter at a glance. Around it, a generous CELL-colour AURA (the backing) in the
+                        // producing cell's own colour — sized so it stays clearly visible at thin bar heights. Both colours
+                        // read distinctly. Drawn at ±loop so the scroll is seamless; y pinned to the edge if outside.
                         for n in notes {
                             let cable = Int(n.cable)
                             let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the EMITTER colour = the note
@@ -2103,10 +2104,13 @@ extension DiagView {
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
                                 let rect = CGRect(x: x0 + 0.5, y: yTop + vpad, width: max(3, x1 - x0 - 1), height: max(2, barH - 2 * vpad))
-                                let halo = rect.insetBy(dx: -2, dy: -2)
-                                ctx.fill(Path(roundedRect: halo, cornerRadius: 4.5), with: .color(cellHue.opacity(0.20 + 0.16 * breath)))     // CELL-colour halo — the stylish, breathing backing
-                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity(0.72 + 0.26 * vel)))            // the NOTE = the EMITTER colour (bright, by velocity)
-                                ctx.stroke(Path(roundedRect: halo, cornerRadius: 4.5), with: .color(cellHue.opacity(0.85)), lineWidth: 1.3)    // CELL-colour border — crisp definition of the source
+                                // The bars are thin (a whole octave shares little height), so the CELL colour is a generous AURA
+                                // that clearly surrounds the note — never a hairline that vanishes. The EMITTER note is a bright,
+                                // solid core on top. Both colours read at a glance; the aura glows gently for life.
+                                let halo = rect.insetBy(dx: -3.5, dy: -3.5)
+                                ctx.fill(Path(roundedRect: halo, cornerRadius: 5), with: .color(cellHue.opacity(0.44 + 0.14 * breath)))       // CELL-colour AURA — the backing (always clearly visible, gently glowing)
+                                ctx.stroke(Path(roundedRect: halo, cornerRadius: 5), with: .color(cellHue.opacity(0.95)), lineWidth: 1.4)      // crisp CELL-colour edge
+                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(emit.opacity(0.85 + 0.15 * vel)))              // the NOTE = the EMITTER colour (bright, solid core)
                             }
                         }
                     }
