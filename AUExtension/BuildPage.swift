@@ -2057,60 +2057,66 @@ extension DiagView {
             }
             let sb = buildPartRate?.beats ?? stepBeats
             let cyc = max(0.0001, Double(max(1, cols)) * sb)
+            let winBeats = 8.0 * sb                                       // the SCROLLING window = 8 steps (restored, Paul 2026-09-03)
             let swingA = max(1.0, Double(swing) / 50.0)
-            let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // the SELECTED cell's colour
-            let cam = partRollCamera(notes, winStart: 0, winEnd: cyc, cyc: cyc)               // fit the WHOLE pass vertically (min 2.5 oct)
-            let pLoF = cam.pLoF, win = cam.win
+            let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // the CURRENT cell's colour (its animated outline)
+            let focusRow = buildGridSelStampSourceRow ?? -1              // the CURRENT (focused) cell = the active side button's row
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: swingA)
-                let phase = (musical.truncatingRemainder(dividingBy: cyc) + cyc).truncatingRemainder(dividingBy: cyc)   // 0…cyc within the pass
+                let phase = (musical.truncatingRemainder(dividingBy: cyc) + cyc).truncatingRemainder(dividingBy: cyc)
                 let playing = d.playing && buildStagingPlaying
-                let headFrac = playing ? phase / cyc : 0                  // the playhead sweeps LEFT→RIGHT, STARTING at the LEFT (Paul 2026-09-03)
+                let head = playing ? phase : winBeats / 2                // SCROLLING window, playhead CENTRED — notes flow R→L past it
+                let winStart = head - winBeats / 2, winEnd = head + winBeats / 2
+                let cam = partRollCamera(notes, winStart: winStart, winEnd: winEnd, cyc: cyc)   // the smooth CAMERA pan/zoom (boxes move with the notes)
+                let pLoF = cam.pLoF, win = cam.win
+                let ants = (tl.date.timeIntervalSinceReferenceDate * 16).truncatingRemainder(dividingBy: 6)   // the marching-ants dash phase — the outline "walks"
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.26))
                     Canvas { ctx, size in
                         func cy(_ p: Double) -> CGFloat { size.height * CGFloat(1 - (p - pLoF) / win) }   // centre y of a pitch (continuous axis)
-                        func xOf(_ beat: Double) -> CGFloat { CGFloat(beat / cyc) * size.width }           // the WHOLE pass across the width (fixed, not scrolling)
+                        func xOf(_ beat: Double) -> CGFloat { CGFloat((beat - winStart) / winBeats) * size.width }   // SCROLLING window
                         let barH = max(2.5, size.height / CGFloat(win) - 1.5)
-                        let xHead = CGFloat(headFrac) * size.width
-                        // OCTAVE gridlines
+                        // OCTAVE gridlines — glide + zoom with the camera
                         var oct = Int((pLoF / 12).rounded(.up)) * 12
                         while Double(oct) <= pLoF + win { ctx.fill(Path(CGRect(x: 0, y: cy(Double(oct)), width: size.width, height: 1)), with: .color(.white.opacity(0.10))); oct += 12 }
-                        // STEP BOXES — the whole pass, one box per step (fixed; the playhead sweeps across them). A faint fill +
-                        // a clear border so the note SECTIONS read as boxes (Paul 2026-09-03: "where are the boxes?").
-                        let stepW = size.width / CGFloat(max(1, cols))
-                        for st in 0..<cols {
-                            let frame = CGRect(x: CGFloat(st) * stepW + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
-                            ctx.fill(Path(roundedRect: frame, cornerRadius: 4), with: .color(selHue.opacity(0.05)))
-                            ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(selHue.opacity(0.6)), lineWidth: 1.2)
+                        // STEP BOXES — one per step, SCROLLING with the window (the "boxes moving with the notes"); subtle so they
+                        // don't compete with the current-cell highlight.
+                        let stepW = size.width / 8
+                        let firstStep = Int(floor(winStart / sb))
+                        for st in firstStep...(firstStep + 8) {
+                            let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
+                            ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.10)), lineWidth: 1)
                         }
-                        // NOTES — placed across the fixed pass; SPLIT at the playhead → PLAYED (left of it) in the CELL's own
-                        // colour, FUTURE (right) neutral grey; framed in the cell's colour. A note lights up as the playhead
-                        // sweeps over it. y pinned to the edge if outside the camera.
-                        let neutral = Color(white: 0.62)
+                        // NOTES — the whole part sequence in NEUTRAL grey; the CURRENT (focused) cell's notes POP: filled in their
+                        // EMITTER colour + a stylish ANIMATED marching-ants OUTLINE in the CELL's colour (Paul 2026-09-03). Drawn
+                        // at ±loop so the scroll is seamless; y pinned to the edge if outside the camera.
+                        let neutral = Color(white: 0.5)
                         for n in notes {
+                            let isCurrent = focusRow >= 0 && (n.cell % Snap.rows) == focusRow
+                            let cable = Int(n.cable)
+                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
                             let cellHue = n.colour != 0 ? Color(hex: n.colour) : selHue
                             let vel = Double(n.vel) / 127.0
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
-                            let vpad = min(2.0, (barH - 1) / 2)           // stylish padding — clamp so thin bars don't invert
-                            let x0 = max(0, xOf(n.start)), x1 = min(size.width, xOf(min(n.end, cyc)))
-                            let outer = CGRect(x: x0 + 0.5, y: yTop, width: max(4, x1 - x0 - 1), height: barH)
-                            let inner = outer.insetBy(dx: 2, dy: vpad)
-                            let split = playing ? min(max(inner.minX, xHead), inner.maxX) : inner.maxX   // stopped → all "played"
-                            if split - inner.minX > 0.5 {                // PLAYED — the cell's colour, brightening with velocity
-                                let r = CGRect(x: inner.minX, y: inner.minY, width: split - inner.minX, height: inner.height)
-                                ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(cellHue.opacity(0.55 + 0.4 * vel)))
+                            let vpad = min(1.5, (barH - 1) / 2)
+                            for off in [-cyc, 0, cyc] {
+                                let ns = n.start + off, ne = min(n.end + off, winEnd)
+                                if ne <= winStart || ns >= winEnd { continue }
+                                let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
+                                let rect = CGRect(x: x0 + 0.5, y: yTop + vpad, width: max(3, x1 - x0 - 1), height: max(2, barH - 2 * vpad))
+                                if isCurrent {
+                                    ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity(0.5 + 0.45 * vel)))   // the EMITTER colour
+                                    ctx.stroke(Path(roundedRect: rect.insetBy(dx: -0.5, dy: -0.5), cornerRadius: 3), with: .color(cellHue.opacity(0.95)),
+                                               style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [3.5, 2.5], dashPhase: ants))     // ANIMATED marching-ants outline in the CELL colour
+                                } else {
+                                    ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(neutral.opacity(0.22 + 0.18 * vel)))   // NEUTRAL — every other note
+                                }
                             }
-                            if inner.maxX - split > 0.5 {                // FUTURE (in front of the playhead) — neutral grey ghost
-                                let r = CGRect(x: split, y: inner.minY, width: inner.maxX - split, height: inner.height)
-                                ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(neutral.opacity(0.28)))
-                            }
-                            ctx.stroke(Path(roundedRect: outer, cornerRadius: 3), with: .color(cellHue.opacity(0.85)), lineWidth: 1.5)   // FRAME in the cell's colour
                         }
                     }
-                    if playing {                                          // the PLAYHEAD — sweeps L→R from the LEFT edge
-                        Rectangle().fill(Color.white.opacity(0.6)).frame(width: 1.5).offset(x: CGFloat(headFrac) * g.size.width)
+                    if playing {                                          // the PLAYHEAD — centred
+                        Rectangle().fill(Color.white.opacity(0.6)).frame(width: 1.5).offset(x: g.size.width / 2)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))
