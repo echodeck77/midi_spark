@@ -5353,21 +5353,36 @@ extension DiagView {
     @ViewBuilder private func buildGridSelPianoRoll(_ bars: [GridSelBar], playing: Bool, tint: Color) -> some View {
         GeometryReader { g in
             let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)   // one bar (8 steps) per full sweep — the playhead cadence
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !playing || bars.isEmpty)) { tl in
-                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                let raw = playing ? (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats : 0
-                let phase = raw < 0 ? raw + 1 : raw                      // 0…1 with the beat; 0 (real positions) when idle
-                Canvas { ctx, size in
-                    let laneH = max(1.5, size.height * 0.11)
-                    let inset = size.height * 0.16                       // PADDING above + below the notes (Paul 2026-08-31)
-                    for b in bars {
-                        let w = max(1.5, (b.x1 - b.x0) * size.width)     // LENGTH
-                        let y = inset + b.y * (size.height - laneH - 2 * inset)   // PITCH (high = top), inset from the cell edges
-                        let base = ((b.x0 - phase).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // RIGHT→LEFT scroll with the beat (Paul 2026-08-31)
-                        for k in (playing ? [-1.0, 0.0, 1.0] : [0.0]) {  // draw the note + its wrap copies while scrolling, so the flow is seamless either way
-                            let rect = CGRect(x: (base + k) * size.width, y: y, width: w, height: laneH)
-                            ctx.fill(Path(roundedRect: rect, cornerRadius: laneH / 2), with: .color(tint.opacity(0.35 + 0.55 * b.vel)))   // VELOCITY = opacity
+            // ONLY the PLAYING (selected + chain) cell animates (Paul 2026-09-03: no animation on anything but the selected
+            // cell). A NON-selected / idle cell draws a purely STATIC Canvas with NO TimelineView — so it can never flash on
+            // the grid's step-boundary re-renders (a paused per-cell timeline still re-evaluated + could blink), and it's 63
+            // fewer live timelines. Static = the notes at their real positions (phase 0).
+            if playing && !animationsPaused && !bars.isEmpty {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                    let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                    let raw = (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats
+                    let phase = raw < 0 ? raw + 1 : raw                  // 0…1 with the beat
+                    Canvas { ctx, size in
+                        let laneH = max(1.5, size.height * 0.11)
+                        let inset = size.height * 0.16                   // PADDING above + below the notes (Paul 2026-08-31)
+                        for b in bars {
+                            let w = max(1.5, (b.x1 - b.x0) * size.width)  // LENGTH
+                            let y = inset + b.y * (size.height - laneH - 2 * inset)   // PITCH (high = top)
+                            let base = ((b.x0 - phase).truncatingRemainder(dividingBy: 1.0) + 1).truncatingRemainder(dividingBy: 1.0)   // RIGHT→LEFT scroll with the beat
+                            for k in [-1.0, 0.0, 1.0] {                   // the note + its wrap copies → a seamless scroll
+                                ctx.fill(Path(roundedRect: CGRect(x: (base + k) * size.width, y: y, width: w, height: laneH), cornerRadius: laneH / 2), with: .color(tint.opacity(0.35 + 0.55 * b.vel)))   // VELOCITY = opacity
+                            }
                         }
+                    }
+                }
+            } else {
+                Canvas { ctx, size in                                    // STATIC — real note positions, no timeline (a non-selected cell never animates)
+                    let laneH = max(1.5, size.height * 0.11)
+                    let inset = size.height * 0.16
+                    for b in bars {
+                        let w = max(1.5, (b.x1 - b.x0) * size.width)
+                        let y = inset + b.y * (size.height - laneH - 2 * inset)
+                        ctx.fill(Path(roundedRect: CGRect(x: b.x0 * size.width, y: y, width: w, height: laneH), cornerRadius: laneH / 2), with: .color(tint.opacity(0.35 + 0.55 * b.vel)))
                     }
                 }
             }
