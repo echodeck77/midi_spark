@@ -365,4 +365,12 @@ final class PartRollDeckTests: XCTestCase {
         d.record(beat: 0, cable: 1, colour: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 64, 0); d.endCycle()
         XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [64], "beginRecording discarded the pre-edge 62; only the fresh cycle publishes")
     }
+    // (Paul 2026-09-03): each note carries its emitting CELL index through record→roll, so the part roll can filter to the
+    // selected rung per column (the display filter lives in the UI; here we lock the plumbing that feeds it).
+    func testRollCarriesTheEmittingCellIndex() {
+        let d = PartRollDeck()
+        d.record(beat: 0, cable: 1, colour: 0, cell: 37, 0x90, 60, 100); d.record(beat: 1, cable: 1, colour: 0, cell: 37, 0x80, 60, 0)
+        d.endCycle()
+        XCTAssertEqual(d.roll(cycleBeats: 4).first?.cell, 37, "the note keeps the cell it was emitted from")
+    }
 }

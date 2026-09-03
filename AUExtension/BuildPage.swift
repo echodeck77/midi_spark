@@ -2043,12 +2043,18 @@ extension DiagView {
         }
         let mu = msum / wsum
         let sd = max(0, m2 / wsum - mu * mu).squareRoot()
-        let win = min(48.0, max(18.0, 4.0 * sd + 6.0))
+        let win = min(54.0, max(30.0, 4.0 * sd + 6.0))   // min 2.5 octaves (less zoomed-in — Paul 2026-09-03), cap 4.5
         return (mu, mu - win / 2, win)
     }
     @ViewBuilder func roomsPartPianoRoll(cols: Int, colW: CGFloat, gap: CGFloat) -> some View {
         GeometryReader { g in
-            let notes = partRollNotes
+            // STRICTLY only the SELECTED rung per column (Paul 2026-09-03): each note carries its emitting cell (col·rows+row);
+            // keep it iff its row IS this column's selected rung. Excludes the play layer (rows 8–15), ferries, and any other
+            // sounding cell — the roll shows exactly the part's sequenced output, nothing else.
+            let notes = partRollNotes.filter { n in
+                let col = n.cell / Snap.rows
+                return n.cell >= 0 && col < buildStagingSel.count && buildStagingSel[col] == n.cell % Snap.rows
+            }
             let sb = buildPartRate?.beats ?? stepBeats
             let cyc = max(0.0001, Double(max(1, cols)) * sb)
             let winBeats = 8.0 * sb                                      // the VISIBLE window = 8 steps — wider = it scrolls slower (Paul 2026-09-03)
@@ -2086,8 +2092,7 @@ extension DiagView {
                         let xHead = size.width / 2                        // the (centred) playhead x — the played/future divide
                         let neutral = Color(white: 0.62)
                         for n in notes {
-                            let cable = Int(n.cable)
-                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
+                            let cellHue = n.colour != 0 ? Color(hex: n.colour) : selHue   // the SELECTED cell's OWN colour
                             let vel = Double(n.vel) / 127.0
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
                             let vpad = min(2.0, (barH - 1) / 2)           // stylish padding — clamp so thin bars don't invert
@@ -2096,18 +2101,20 @@ extension DiagView {
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
                                 let outer = CGRect(x: x0 + 0.5, y: yTop, width: max(4, x1 - x0 - 1), height: barH)
-                                // the matted FILL, inset from the frame; split at the playhead into played (emitter) / future (neutral)
+                                // the matted FILL, inset from the frame; SPLIT at the playhead — the part already PLAYED (behind)
+                                // fills in the SELECTED cell's colour, the part still to come (IN FRONT) sits NEUTRAL grey → a
+                                // note lights up in its cell's colour as the playhead sweeps over it (Paul 2026-09-03).
                                 let inner = outer.insetBy(dx: 2, dy: vpad)
-                                let split = playing ? min(max(inner.minX, xHead), inner.maxX) : inner.maxX   // stopped → all "played" (emitter)
-                                if split - inner.minX > 0.5 {             // PLAYED — emitter colour, brightening with velocity
+                                let split = playing ? min(max(inner.minX, xHead), inner.maxX) : inner.maxX   // stopped → all "played"
+                                if split - inner.minX > 0.5 {             // PLAYED — the cell's colour, brightening with velocity
                                     let r = CGRect(x: inner.minX, y: inner.minY, width: split - inner.minX, height: inner.height)
-                                    ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(emit.opacity(0.55 + 0.4 * vel)))
+                                    ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(cellHue.opacity(0.55 + 0.4 * vel)))
                                 }
                                 if inner.maxX - split > 0.5 {             // FUTURE (in front of the playhead) — neutral grey ghost
                                     let r = CGRect(x: split, y: inner.minY, width: inner.maxX - split, height: inner.height)
                                     ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(neutral.opacity(0.28)))
                                 }
-                                ctx.stroke(Path(roundedRect: outer, cornerRadius: 3), with: .color(selHue.opacity(0.9)), lineWidth: 1.5)   // FRAME in the selected cell's colour
+                                ctx.stroke(Path(roundedRect: outer, cornerRadius: 3), with: .color(cellHue.opacity(0.85)), lineWidth: 1.5)   // FRAME in the cell's colour
                             }
                         }
                     }

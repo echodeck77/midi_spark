@@ -838,6 +838,7 @@ final class Router {
             if let b = curBox, currentColourIndex >= 0, Int(currentColourIndex) < b.colours.count {
                 out.markColour(b.colours[Int(currentColourIndex)].hue)
             }
+            out.markCell(currentCellIndex)   // CELL TAG: the PART roll filters to the selected rung per column (Paul 2026-09-03)
             out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
             if refcount[idx] == 0 { distinctSounding += 1 }
             refcount[idx] += 1
