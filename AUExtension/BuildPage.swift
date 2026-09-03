@@ -2059,8 +2059,7 @@ extension DiagView {
             let cyc = max(0.0001, Double(max(1, cols)) * sb)
             let winBeats = 8.0 * sb                                       // the SCROLLING window = 8 steps (restored, Paul 2026-09-03)
             let swingA = max(1.0, Double(swing) / 50.0)
-            let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // the CURRENT cell's colour (its animated outline)
-            let currentCid = ddSelectedColourID                          // the CURRENTLY-SELECTED machine — its notes get the animated cell-colour outline
+            let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // fallback cell colour if a note carries no tag
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: swingA)
@@ -2070,7 +2069,7 @@ extension DiagView {
                 let winStart = head - winBeats / 2, winEnd = head + winBeats / 2
                 let cam = partRollCamera(notes, winStart: winStart, winEnd: winEnd, cyc: cyc)   // the smooth CAMERA pan/zoom (boxes move with the notes)
                 let pLoF = cam.pLoF, win = cam.win
-                let ants = (tl.date.timeIntervalSinceReferenceDate * 16).truncatingRemainder(dividingBy: 6)   // the marching-ants dash phase — the outline "walks"
+                let breath = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 1.9)   // gentle 0…1 pulse — the cell-colour halo breathes
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.26))
                     Canvas { ctx, size in
@@ -2088,17 +2087,14 @@ extension DiagView {
                             let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
                             ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.10)), lineWidth: 1)
                         }
-                        // NOTES — TWO colours per note (Paul 2026-09-03): the FILL is the EMITTER colour (which emitter it goes
-                        // to) and the BORDER is the CELL's colour (which cell produced it). The CURRENTLY-SELECTED machine's
-                        // notes POP (brighter fill) and their cell border becomes a stylish ANIMATED marching-ants outline.
-                        // Drawn at ±loop so the scroll is seamless; y pinned to the edge if outside the camera.
+                        // NOTES (Paul 2026-09-03): the NOTE itself is the EMITTER's colour — a bright bar, so you read the
+                        // destination emitter at a glance. Behind it sits a stylish CELL-colour backing: a soft, gently-
+                        // breathing halo + a crisp border in the producing cell's own colour, so every note also carries
+                        // where it came from. Drawn at ±loop so the scroll is seamless; y pinned to the edge if outside.
                         for n in notes {
-                            let col = n.cell / Snap.rows, row = n.cell % Snap.rows
-                            let cellCid = (col >= 0 && col < buildStagingCells.count && row >= 0 && row < buildStagingCells[col].count) ? buildStagingCells[col][row] : nil
-                            let isCurrent = currentCid != nil && cellCid == currentCid   // this note is from the SELECTED machine
                             let cable = Int(n.cable)
-                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the EMITTER colour
-                            let cellHue = n.colour != 0 ? Color(hex: n.colour) : selHue
+                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the EMITTER colour = the note
+                            let cellHue = n.colour != 0 ? Color(hex: n.colour) : selHue                            // the producing CELL's colour = the backing
                             let vel = Double(n.vel) / 127.0
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
                             let vpad = min(1.5, (barH - 1) / 2)
@@ -2107,13 +2103,10 @@ extension DiagView {
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
                                 let rect = CGRect(x: x0 + 0.5, y: yTop + vpad, width: max(3, x1 - x0 - 1), height: max(2, barH - 2 * vpad))
-                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity(isCurrent ? (0.6 + 0.35 * vel) : (0.32 + 0.2 * vel))))   // FILL = the EMITTER colour (which emitter it goes to)
-                                if isCurrent {
-                                    ctx.stroke(Path(roundedRect: rect.insetBy(dx: -0.5, dy: -0.5), cornerRadius: 3), with: .color(cellHue.opacity(0.95)),
-                                               style: StrokeStyle(lineWidth: 1.7, lineCap: .round, dash: [3.5, 2.5], dashPhase: ants))     // SELECTED cell → ANIMATED marching-ants outline in the CELL colour
-                                } else {
-                                    ctx.stroke(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(cellHue.opacity(0.85)), lineWidth: 1.2)   // BORDER = the CELL's colour (which cell produced it) — on EVERY note
-                                }
+                                let halo = rect.insetBy(dx: -2, dy: -2)
+                                ctx.fill(Path(roundedRect: halo, cornerRadius: 4.5), with: .color(cellHue.opacity(0.20 + 0.16 * breath)))     // CELL-colour halo — the stylish, breathing backing
+                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity(0.72 + 0.26 * vel)))            // the NOTE = the EMITTER colour (bright, by velocity)
+                                ctx.stroke(Path(roundedRect: halo, cornerRadius: 4.5), with: .color(cellHue.opacity(0.85)), lineWidth: 1.3)    // CELL-colour border — crisp definition of the source
                             }
                         }
                     }
