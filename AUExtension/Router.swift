@@ -173,7 +173,7 @@ final class Router {
     private weak var avoidLivePool: NotePool?
     private func doorLivePitchClassMask(_ r: Int) -> UInt16 {
         guard let pool = avoidLivePool, r >= 0, r < receiverChannels.count else { return 0 }
-        let filter = receiverChannels[r], cable = Int(receiverCables[r]), lo = receiverRangeLo[r], hi = r < receiverRangeHi.count ? receiverRangeHi[r] : 127
+        let filter = receiverChannels[r], cable = Int(receiverCables[r]), lo = r < receiverRangeLo.count ? receiverRangeLo[r] : 0, hi = r < receiverRangeHi.count ? receiverRangeHi[r] : 127
         var m: UInt16 = 0
         for k in 0..<pool.srcCount(filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi) {
             m |= UInt16(1) << UInt16(Int(pool.srcAscending(k, filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)) % 12)

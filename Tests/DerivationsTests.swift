@@ -1039,6 +1039,15 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(a, b, "same seed → identical walk (replay-exact)")
         XCTAssertNotEqual((0..<8).map { chordsWalkDegreeAt(step: $0, seed: 1) }, (0..<8).map { chordsWalkDegreeAt(step: $0, seed: 2) }, "a different seed → a different walk")
     }
+    // JOB 3 (bug-hunt B-2): the RATE clock is free-running, so `step` grows unbounded; the walk must LOOP (period 64),
+    // not FREEZE at step 64 (the old clamp returned step-64's degree forever). Loops + stays valid + replay-exact.
+    func testChordsWalkLoopsAndDoesNotFreezeAfter64() {
+        for s in 0..<8 { XCTAssertEqual(chordsWalkDegreeAt(step: 64 + s, seed: 7), chordsWalkDegreeAt(step: s, seed: 7), "loops every 64 rate-ticks") }
+        XCTAssertEqual(chordsWalkDegreeAt(step: 130, seed: 7), chordsWalkDegreeAt(step: 2, seed: 7), "130 % 64 == 2")
+        for s in [64, 65, 100, 200, 999] { XCTAssertTrue((0..<7).contains(chordsWalkDegreeAt(step: s, seed: 7)), "still a valid degree past 64 (no freeze/garbage)") }
+        // it did NOT collapse to a single frozen degree — the loop actually varies
+        XCTAssertGreaterThan(Set((64..<128).map { chordsWalkDegreeAt(step: $0, seed: 7) }).count, 1, "the progression keeps moving past step 64")
+    }
     // A SCALE door names itself ("A MIXO") — the chip-never-lies label shared by the receiver chip + the MIDI tab. (2026-08-31)
     func testScaleDoorLabel() {
         var r = Receiver(); XCTAssertNil(r.scaleLabel, "a non-scale door has no key label")

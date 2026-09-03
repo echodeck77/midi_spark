@@ -1779,7 +1779,10 @@ func scaleDegreeOf(_ note: Int, root: Int, scaleTones: [Int]) -> Int {
 /// cross-render state; bounded (the grid loops). Pure/testable.
 func chordsWalkDegreeAt(step: Int, seed: UInt64) -> Int {
     var deg = 0
-    let s = max(0, min(64, step))                           // bound the recompute (the grid loops; 64 is ample)
+    // The RATE clock is free-running (m/rate keeps advancing on a pinned/frozen audition), so `step` is unbounded. LOOP
+    // the walk every 64 rate-ticks rather than CLAMPing (the old clamp froze the progression at step 64 forever). Modulo
+    // keeps the recompute bounded AND replay-exact (pure fn of step) while the walk keeps evolving (a long 64-chord loop).
+    let s = ((step % 64) + 64) % 64
     var i = 0
     while i < s { deg = walkNextDegree(prev: deg, seed: seed &+ UInt64(i) &* 0x9E3779B97F4A7C15); i += 1 }
     return deg

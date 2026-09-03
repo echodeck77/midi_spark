@@ -278,23 +278,41 @@ final class ReelTap: MIDIEmitter {
 final class PartRollDeck {
     struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var colour: UInt32 = 0 }
     static let cap = 4096
+    // THREAD MODEL (the 2026-08-10 flat-value-array lesson — no shared reference array crosses threads): the RENDER thread
+    // owns `cur`/`curN` for the in-progress cycle. On endCycle a completed cycle is PUBLISHED into the INACTIVE of two flat
+    // buffers, then `pubSel` flips (render is the SOLE writer of pubSel). `roll()` runs on the MAIN thread (the 4 Hz poll):
+    // it reads the ACTIVE buffer via a VALUE snapshot first, so render never writes a buffer main is reading (double-buffer
+    // SPSC). The only cross-thread scalar is `pubSel` (a stale-by-one-cycle read is benign; a torn Int read can't happen on
+    // an aligned 64-bit store). This closes the render↔main data race on the drawn roll.
     private var cur = [Ev](repeating: Ev(), count: cap); private var curN = 0
-    private var last = [Ev](repeating: Ev(), count: cap); private(set) var lastN = 0
-    func record(beat: Double, cable: UInt8, colour: UInt32, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+    private var pubA = [Ev](repeating: Ev(), count: cap); private var pubAN = 0
+    private var pubB = [Ev](repeating: Ev(), count: cap); private var pubBN = 0
+    private var pubSel = 0                                                    // 0 → A is the published cycle, 1 → B
+    func record(beat: Double, cable: UInt8, colour: UInt32, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {   // RENDER
         if curN < PartRollDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, colour: colour); curN += 1 }
     }
-    /// A part cycle just completed: a non-empty cycle becomes the stable `last` (the drawn roll); an empty cycle keeps
-    /// the previous `last` (the dim ghost). Either way, reset `cur` for the next cycle.
-    func endCycle() { if curN > 0 { for i in 0..<curN { last[i] = cur[i] }; lastN = curN }; curN = 0 }
-    func clear() { curN = 0; lastN = 0 }
+    /// A part cycle just completed: PUBLISH a non-empty cycle into the inactive buffer then flip; an empty cycle keeps the
+    /// previous published cycle (the dim ghost). Reset `cur`. RENDER thread — never writes the buffer main is reading.
+    func endCycle() {                                                        // RENDER
+        if curN > 0 {
+            if pubSel == 0 { for i in 0..<curN { pubB[i] = cur[i] }; pubBN = curN; pubSel = 1 }
+            else           { for i in 0..<curN { pubA[i] = cur[i] }; pubAN = curN; pubSel = 0 }
+        }
+        curN = 0
+    }
+    func clear() { curN = 0; pubAN = 0; pubBN = 0 }                          // MAIN (recording already off → no live writer)
     struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var colour: UInt32 = 0 }
-    /// Pair on/off in the last completed cycle → drawable notes over [0, cycleBeats]. A note still open at cycle end
-    /// holds to `cycleBeats` (the loop wraps it). Cables 1–4 only (0 = the All duplicate). (Mirrors ReelDeck.selectedRoll.)
-    func roll(cycleBeats: Double) -> [Note] {
+    /// Pair on/off in the last PUBLISHED cycle → drawable notes over [0, cycleBeats]. A note still open at cycle end holds
+    /// to `cycleBeats` (the loop wraps it). Cables 1–4 only (0 = the All duplicate). MAIN thread: snapshots the active buffer
+    /// by VALUE first (render only ever writes the inactive one) → no torn read. (Mirrors ReelDeck.selectedRoll.)
+    func roll(cycleBeats: Double) -> [Note] {                               // MAIN
+        let s = pubSel                                                       // pick the published buffer (single scalar read)
+        let n = s == 0 ? pubAN : pubBN
+        var snap = [Ev](); snap.reserveCapacity(n)
+        if s == 0 { for i in 0..<n { snap.append(pubA[i]) } } else { for i in 0..<n { snap.append(pubB[i]) } }
         var out: [Note] = []
         var open: [Int: (start: Double, vel: UInt8, colour: UInt32)] = [:]   // key = cable<<8 | note
-        for i in 0..<lastN {
-            let e = last[i]
+        for e in snap {
             guard e.cable >= 1, e.cable <= 4 else { continue }
             let key = Int(e.cable) << 8 | Int(e.b1)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0

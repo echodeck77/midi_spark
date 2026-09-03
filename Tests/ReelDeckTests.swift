@@ -336,4 +336,20 @@ final class PartRollDeckTests: XCTestCase {
         d.endCycle()                                                     // an EMPTY cycle (no input) → keep the ghost
         XCTAssertEqual(d.roll(cycleBeats: 4.0).count, 1, "no input keeps the last pattern as a dim ghost, not blank")
     }
+    // JOB 3 (bug-hunt B-1): the render↔main race fix double-buffers the published cycle (render writes the inactive
+    // buffer, flips pubSel; main reads the active one). Verify the flip works across ≥2 cycles — roll() always reads
+    // the LATEST completed cycle, not a stale or mixed one (the A↔B alternation is the whole point).
+    func testDoubleBufferPublishReadsTheLatestCycleAcrossFlips() {
+        let d = PartRollDeck()
+        // cycle 1 → note 60
+        d.record(beat: 0, cable: 1, colour: 0, 0x90, 60, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 60, 0); d.endCycle()
+        XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [60])
+        // cycle 2 → note 62 (flips to the other buffer)
+        d.record(beat: 0, cable: 1, colour: 0, 0x90, 62, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 62, 0); d.endCycle()
+        XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [62], "reads the latest cycle after the first flip")
+        // cycle 3 → note 64 (flips BACK to the first buffer — proves both directions)
+        d.record(beat: 0, cable: 1, colour: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 64, 0); d.endCycle()
+        XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [64], "reads the latest cycle after flipping back")
+        d.clear(); XCTAssertTrue(d.roll(cycleBeats: 4).isEmpty, "clear blanks both buffers")
+    }
 }

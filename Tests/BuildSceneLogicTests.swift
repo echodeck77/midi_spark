@@ -165,6 +165,20 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(back.partAuto)
     }
 
+    // JOB 3 (Paul 2026-09-03, bug-hunt A-1): a fresh AUTO lane (empty param) must resolve to a MUSICAL param, never
+    // BYPASS — BYPASS is always macroParamsForProcessor's FIRST entry, so a plain `.first` fallback ramped a mute gate
+    // for every type without a curated autoPrimaryKey (drone/euclid/mod/glide/…). Now it prefers the first non-bypass.
+    func testAutoDefaultParamIsNeverBypassWhenAMusicalParamExists() {
+        for t in [ProcessorType.euclid, .mod, .glide, .burst, .cascade, .length] {
+            let key = BuildSceneLogic.autoResolvedParamKey(t, laneParam: "")
+            XCTAssertFalse(key.isEmpty, "\(t) resolves a param")
+            XCTAssertNotEqual(key, "bypass", "\(t): a fresh lane sweeps a musical param, not the BYPASS gate")
+        }
+        // a curated type keeps its musical default; an explicit valid choice is honoured
+        XCTAssertEqual(BuildSceneLogic.autoResolvedParamKey(.arp, laneParam: ""), "gate")
+        XCTAssertEqual(BuildSceneLogic.autoResolvedParamKey(.arp, laneParam: "bypass"), "bypass", "an EXPLICIT bypass choice is still allowed")
+    }
+
     // §E 16-STEP (Paul 2026-09-02): a 16-wide part composes cells past column 7 and the row loops 16.
     func testSixteenWidePartComposesColumnsPastEight() {
         var i = BuildSceneLogic.Input()

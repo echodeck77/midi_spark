@@ -86,13 +86,16 @@ enum BuildSceneLogic {
         default:        return ""
         }
     }
-    /// The param a lane automates: the lane's chosen key if valid, else the curated default, else the first param.
+    /// The param a lane automates: the lane's chosen key if valid, else the curated default, else the first NON-BYPASS
+    /// param (never BYPASS — it's always params.first, so a plain fallback would ramp a mute gate for the ~12 types
+    /// without a curated default; a fresh lane must sweep something musical, Paul 2026-09-02). Only a bypass-ONLY type
+    /// (no automatable param) falls to bypass, unavoidably.
     static func autoResolvedParamKey(_ type: ProcessorType, laneParam: String) -> String {
         let params = macroParamsForProcessor(type)
         if !laneParam.isEmpty, params.contains(where: { $0.key == laneParam }) { return laneParam }
         let prim = autoPrimaryKey(type)
         if !prim.isEmpty, params.contains(where: { $0.key == prim }) { return prim }
-        return params.first?.key ?? ""
+        return params.first(where: { $0.key != "bypass" })?.key ?? params.first?.key ?? ""
     }
     /// The musical SUB-RANGE the ramp sweeps for a param (Paul 2026-09-02: a sub-range, not the full param range — a
     /// fresh lane must sound musical). Curated for the common continuous params; a generic continuous trims the dead
