@@ -1207,6 +1207,15 @@ struct DiagView: View {
         }
     }
 
+    // The BINARY's build datetime — the extension executable's link/modification time. A quick "am I actually on the
+    // fresh build?" tell in the hidden loader (the AUv3 host can cache the old plugin). Computed once from the extension
+    // bundle (Bundle(for:) on the AU class → the extension binary, not the host app).
+    static let buildStamp: String = {
+        guard let exe = Bundle(for: MidiSparkAudioUnit.self).executableURL,
+              let date = (try? FileManager.default.attributesOfItem(atPath: exe.path))?[.modificationDate] as? Date
+        else { return "—" }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; return f.string(from: date)
+    }()
     // Dev-build only: the hidden overlay revealed by a long-press on the logotype — the canned T-session
     // loader + the stuck-note monitor, for device passes. Tap the scrim (or ✕) to dismiss. Never in release.
     var devLoaderOverlay: some View {
@@ -1219,6 +1228,7 @@ struct DiagView: View {
                     Text("✕").font(.system(size: 16, weight: .heavy)).foregroundColor(.white.opacity(0.7))
                         .padding(.horizontal, 8).contentShape(Rectangle()).onTapGesture { showDevLoader = false }
                 }
+                Text("BUILD \(Self.buildStamp)").font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.5))   // the running binary's build time
                 buildSelfTestView
                 stuckNoteMonitor
                 chaosRow
