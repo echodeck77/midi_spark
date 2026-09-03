@@ -55,7 +55,7 @@ extension DiagView {
     func syncSingleModeActivation() {
         // Drives the LADDER active rung from the selection (LADDER factory presets set ladderMode; the old in-grid tap
         // machinery is gone). NOT on the DRAG&DROP page — there the selection is the whole colour (2026-08-09 bug).
-        guard ladderMode, editMode == .addEdit, let au else { return }
+        guard ladderMode, let au else { return }
         var topByColumn: [Int: Int] = [:]
         for p in sel.cells { topByColumn[p.col] = min(topByColumn[p.col] ?? p.row, p.row) }
         guard !topByColumn.isEmpty else { return }

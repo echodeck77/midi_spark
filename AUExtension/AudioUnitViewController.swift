@@ -44,11 +44,6 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 /// verb → release = done (no armed state). Long-press a verb = LATCH (tap again releases). No verb held → taps
 /// are TRIGGERS. HOLD (the 6th button) is the §5c gesture-latch, not a grid verb.
 
-/// The EDIT page's tap modes. ADD/EDIT builds a live-edited selection set (the ONLY mode with APPLY/CANCEL
-/// staging); MOVE drags cells to new positions; MUTE toggles per-cell mute; CLEAR removes a cell (re-tap the
-/// empty slot to reinstate, while still in CLEAR). Everything except ADD/EDIT is IMMEDIATE + undo/redo.
-enum EditPageMode { case addEdit, move, mute, clear }
-
 /// LAYOUT v2 (2026-08-05): the permanent surface addresses — a tab per surface, replacing the PERFORM/EDIT toggle
 /// and the in-grid overlays. GRID = the perform desk · PROCESSORS = the cell edit page · RECEIVERS = per-door config
 /// (from the cog) · EMITTERS = the RACK matrix · MACROS/AUTOMATION = dimmed 'coming' seats (phase 2+).
@@ -323,9 +318,6 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State var editArmed = false
-    // MODE ROW: the EDIT page's tap modes. ADD/EDIT builds a selection set + edits it live under APPLY/CANCEL
-    // staging (the ONLY mode that stages). MOVE drags cells; MUTE toggles mute; CLEAR removes — all IMMEDIATE + undo/redo.
-    @State var editMode: EditPageMode = .addEdit
     // MODE ROW — ADD/EDIT mode's multi-SELECT set (ordered; the FIRST member is the ANCHOR). Edits apply live to every
     // member; a tapped cell's TWINS auto-JOIN the set (user 2026-08-07 — history: auto-edit → pulse-only → join).
     // ADD/EDIT SELECTION (extracted 2026-08-07): one cohesive value — the selected cells + the per-session

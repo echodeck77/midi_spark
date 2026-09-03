@@ -970,7 +970,9 @@ final class Kernel {
         // PART ROLL: tap in front of the reel tap, recording pass-relative to the PART's cycle at the EFFECTIVE beat (so the
         // free-run audition is captured). At each part-cycle boundary, promote the completed cycle to the drawn roll.
         partTap.out = reelTap; partTap.deck = partDeck
+        let wasRecording = partTap.recording
         partTap.recording = partRollActive
+        if partRollActive && !wasRecording { partDeck.beginRecording() }   // RENDER resets its own scratch on the rising edge (main never writes curN → no clear()/record() race)
         partTap.base = rBeat; partTap.beatsPerSample = reelBps; partTap.cycleBeats = partRollCycle; partTap.windowStart = reelWinStart
         if partRollActive, partRollCycle > 0, rPlaying {
             let idx = Int((rBeat / partRollCycle).rounded(.down))

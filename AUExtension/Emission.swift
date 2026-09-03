@@ -300,7 +300,8 @@ final class PartRollDeck {
         }
         curN = 0
     }
-    func clear() { curN = 0; pubAN = 0; pubBN = 0 }                          // MAIN (recording already off → no live writer)
+    func beginRecording() { curN = 0 }                                      // RENDER — reset the in-progress scratch on the recording rising edge (so MAIN never writes curN)
+    func clear() { pubAN = 0; pubBN = 0 }                                    // MAIN — blank the PUBLISHED buffers only; `cur`/`curN` are RENDER-owned (reset by beginRecording), so no thread ever writes them concurrently. endCycle is gated off (partRollActive false) while this runs, so the pub zero can't race a publish.
     struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var colour: UInt32 = 0 }
     /// Pair on/off in the last PUBLISHED cycle → drawable notes over [0, cycleBeats]. A note still open at cycle end holds
     /// to `cycleBeats` (the loop wraps it). Cables 1–4 only (0 = the All duplicate). MAIN thread: snapshots the active buffer

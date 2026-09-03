@@ -1048,6 +1048,12 @@ final class DerivationsTests: XCTestCase {
         // it did NOT collapse to a single frozen degree — the loop actually varies
         XCTAssertGreaterThan(Set((64..<128).map { chordsWalkDegreeAt(step: $0, seed: 7) }).count, 1, "the progression keeps moving past step 64")
     }
+    // HOUSEKEEPING (2026-09-03): posMod's negative branch (its whole reason to exist over a bare %) — every live caller
+    // passes x ≥ 0, so lock the wrap here.
+    func testPosModWrapsNegatives() {
+        XCTAssertEqual(posMod(-1, 64), 63); XCTAssertEqual(posMod(-64, 64), 0); XCTAssertEqual(posMod(-65, 64), 63)
+        XCTAssertEqual(posMod(5, 64), 5); XCTAssertEqual(posMod(64, 64), 0)   // non-negative unchanged
+    }
     // A SCALE door names itself ("A MIXO") — the chip-never-lies label shared by the receiver chip + the MIDI tab. (2026-08-31)
     func testScaleDoorLabel() {
         var r = Receiver(); XCTAssertNil(r.scaleLabel, "a non-scale door has no key label")

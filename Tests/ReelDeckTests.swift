@@ -352,4 +352,17 @@ final class PartRollDeckTests: XCTestCase {
         XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [64], "reads the latest cycle after flipping back")
         d.clear(); XCTAssertTrue(d.roll(cycleBeats: 4).isEmpty, "clear blanks both buffers")
     }
+    // HOUSEKEEPING (2026-09-03): the race-hardened ownership — clear() (MAIN) blanks only the PUBLISHED buffers; the
+    // render scratch is reset by beginRecording() on the recording rising edge (so MAIN never writes curN). Verify a
+    // partial pre-edge cycle is DISCARDED by beginRecording and doesn't bleed into the next published cycle.
+    func testBeginRecordingDiscardsPartialCycleAfterClear() {
+        let d = PartRollDeck()
+        d.record(beat: 0, cable: 1, colour: 0, 0x90, 60, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 60, 0); d.endCycle()
+        d.clear()
+        XCTAssertTrue(d.roll(cycleBeats: 4).isEmpty, "clear blanks the published roll")
+        d.record(beat: 0, cable: 1, colour: 0, 0x90, 62, 100)   // a PARTIAL in-progress cycle (an orphaned in-flight record)
+        d.beginRecording()                                       // the rising edge → discard the scratch
+        d.record(beat: 0, cable: 1, colour: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 64, 0); d.endCycle()
+        XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [64], "beginRecording discarded the pre-edge 62; only the fresh cycle publishes")
+    }
 }

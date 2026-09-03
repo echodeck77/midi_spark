@@ -124,6 +124,47 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "NONE → the base value untouched")
     }
 
+    // HOUSEKEEPING (2026-09-03): the AUTO lane's SPAN sawtooth (re-anchor every N cells) was untested.
+    func testAutoSpanSawtoothReAnchorsEveryNCells() {
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 2, "gold"), (1, 2, "gold"), (2, 2, "gold"), (3, 2, "gold")])
+        i.stagingSel = [2, 2, 2, 2, -1, -1, -1, -1]
+        var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
+        i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
+        let cells = Set((0..<4).map { $0 * Snap.rows + 2 })
+        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", cells: cells, span: 2)])]
+        let s = BuildSceneLogic.composeScene(i)!
+        // SPAN 2 → the FROM→TO sweep RE-ANCHORS every 2 cells: [lo, hi, lo, hi] (gate sub-range 0.3…1.0), not a monotone ramp.
+        XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6)
+        XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
+        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "re-anchored to LOW at the 3rd cell")
+        XCTAssertEqual(s.cellAt(3, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
+    }
+    // HOUSEKEEPING: the lane's explicit FROM/TO (lo/hi) endpoints override the curated sub-range — was untested.
+    func testAutoExplicitFromToOverridesTheSubRange() {
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 2, "gold"), (1, 2, "gold"), (2, 2, "gold")])
+        i.stagingSel = [2, 2, 2, -1, -1, -1, -1, -1]
+        var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
+        i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
+        let cells = Set((0..<3).map { $0 * Snap.rows + 2 })
+        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", cells: cells, lo: 0.5, hi: 0.9)])]
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "FROM overrides the gate sub-range low (0.3)")
+        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 0.9, accuracy: 1e-6, "TO overrides the sub-range high (1.0)")
+    }
+    // HOUSEKEEPING: autoParamFullRange (the FROM/TO fader BOUNDS) returns the RAW range — distinct from autoSubRange's trim.
+    func testAutoParamFullRangeIsRawNotTrimmed() {
+        let cont = BuildSceneLogic.autoParamFullRange(.continuous(lo: 0.05, hi: 1))
+        XCTAssertEqual(cont.lo, 0.05, accuracy: 1e-9, "full range is the RAW low (autoSubRange trims to 0.24)")
+        XCTAssertEqual(cont.hi, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(BuildSceneLogic.autoParamFullRange(.option(["a", "b", "c"])).hi, 2.0, accuracy: 1e-9, "option → 0…count-1")
+        let st = BuildSceneLogic.autoParamFullRange(.stepper(lo: 1, hi: 16))
+        XCTAssertEqual(st.lo, 1.0, accuracy: 1e-9); XCTAssertEqual(st.hi, 16.0, accuracy: 1e-9)
+    }
+
     func testAutoSubRangeAndRampEndpoints() {
         XCTAssertEqual(BuildSceneLogic.autoSubRange("gate", .continuous(lo: 0.05, hi: 1)).lo, 0.3, accuracy: 1e-9)
         XCTAssertEqual(BuildSceneLogic.autoSubRange("gate", .continuous(lo: 0.05, hi: 1)).hi, 1.0, accuracy: 1e-9)

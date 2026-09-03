@@ -291,7 +291,7 @@ final class SnapshotBox {
     let swing: Double                // 50…75 (§4 v2.3)
     let morphMaster: Double          // §13.5, parameter #35
     let colours: [SnapColour]        // ≥16 — sized to the document (BUILD ephemeral colours append beyond the 16)
-    let cells: [SnapCell]            // 64, index = column * 8 + row
+    let cells: [SnapCell]            // Snap.cells (256 = maxCols·rows), index = column * Snap.rows + row
     let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
     let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output
     let claimMask: UInt8             // delta §6a CLAIM v2: bit i = emitter i claims (SHARED tier); 0 = no claim
