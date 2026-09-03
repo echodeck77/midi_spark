@@ -2095,7 +2095,11 @@ extension DiagView {
                         for n in notes {
                             let cable = Int(n.cable)
                             let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the EMITTER colour = the note
-                            let cellHue = n.colour != 0 ? Color(hex: n.colour) : selHue                            // the producing CELL's colour = the backing
+                            // The CELL colour resolved the SAME way the grid cell paints it (buildStagingCells → colourColor),
+                            // so the aura always matches the cell you see; the emit tag is the fallback.
+                            let pc = n.cell / Snap.rows, pr = n.cell % Snap.rows
+                            let cellID = (pc >= 0 && pc < buildStagingCells.count && pr >= 0 && pr < buildStagingCells[pc].count) ? buildStagingCells[pc][pr] : nil
+                            let cellHue = cellID.flatMap { colourColor($0) } ?? (n.colour != 0 ? Color(hex: n.colour) : selHue)
                             let vel = Double(n.vel) / 127.0
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
                             let vpad = min(1.5, (barH - 1) / 2)
