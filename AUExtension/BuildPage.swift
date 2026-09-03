@@ -1875,7 +1875,7 @@ extension DiagView {
         let active = buildGridSelStampSourceRow == n                      // THE active side button
         let mHue = Color(hex: colourHexes[n % 16])                        // MACHINE identity (the row's predetermined colour)
         let eHue = emitterHue(buildRowEmittersResolved(n))               // EMITTER colour (routing)
-        let selectedVis = active && populated
+        let selectedVis = active && (populated || part)   // PART rail: an EMPTY slot can be selected too (Paul 2026-09-03), so it highlights when active
         // IS THIS ROW'S CELL SOUNDING? PART grid → the SEQUENCER's active rung; SELECT→part ferry → the AIMED audition
         // (the select page's extra voice; the sequenced part does NOT run on select).
         let ec = max(0, min(7, d.effColumn))
@@ -1904,8 +1904,8 @@ extension DiagView {
             } }
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this row's hue
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : buildEdge,
-                                                              lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : (selectedVis ? Color.white.opacity(0.7) : buildEdge),
+                                                              lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING (an empty SELECTED slot gets a white ring)
             .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
             .overlay(alignment: .topTrailing) { if populated { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
             .overlay {
@@ -2057,69 +2057,60 @@ extension DiagView {
             }
             let sb = buildPartRate?.beats ?? stepBeats
             let cyc = max(0.0001, Double(max(1, cols)) * sb)
-            let winBeats = 8.0 * sb                                      // the VISIBLE window = 8 steps — wider = it scrolls slower (Paul 2026-09-03)
             let swingA = max(1.0, Double(swing) / 50.0)
-            let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // FRAME each step in the SELECTED cell's colour
+            let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // the SELECTED cell's colour
+            let cam = partRollCamera(notes, winStart: 0, winEnd: cyc, cyc: cyc)               // fit the WHOLE pass vertically (min 2.5 oct)
+            let pLoF = cam.pLoF, win = cam.win
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: swingA)
-                let phase = (musical.truncatingRemainder(dividingBy: cyc) + cyc).truncatingRemainder(dividingBy: cyc)
+                let phase = (musical.truncatingRemainder(dividingBy: cyc) + cyc).truncatingRemainder(dividingBy: cyc)   // 0…cyc within the pass
                 let playing = d.playing && buildStagingPlaying
-                let head = playing ? phase : winBeats / 2                // stopped → park at the window's start; head is CENTRED
-                let winStart = head - winBeats / 2, winEnd = head + winBeats / 2
-                let cam = partRollCamera(notes, winStart: winStart, winEnd: winEnd, cyc: cyc)   // smooth pan/zoom fit
-                let pLoF = cam.pLoF, win = cam.win
+                let headFrac = playing ? phase / cyc : 0                  // the playhead sweeps LEFT→RIGHT, STARTING at the LEFT (Paul 2026-09-03)
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.26))
                     Canvas { ctx, size in
                         func cy(_ p: Double) -> CGFloat { size.height * CGFloat(1 - (p - pLoF) / win) }   // centre y of a pitch (continuous axis)
-                        func xOf(_ beat: Double) -> CGFloat { CGFloat((beat - winStart) / winBeats) * size.width }
+                        func xOf(_ beat: Double) -> CGFloat { CGFloat(beat / cyc) * size.width }           // the WHOLE pass across the width (fixed, not scrolling)
                         let barH = max(2.5, size.height / CGFloat(win) - 1.5)
-                        // OCTAVE gridlines — a faint line at each C in view; glides + zooms with the camera
+                        let xHead = CGFloat(headFrac) * size.width
+                        // OCTAVE gridlines
                         var oct = Int((pLoF / 12).rounded(.up)) * 12
                         while Double(oct) <= pLoF + win { ctx.fill(Path(CGRect(x: 0, y: cy(Double(oct)), width: size.width, height: 1)), with: .color(.white.opacity(0.10))); oct += 12 }
-                        // STEP FRAMES — each visible step boxed in the SELECTED cell's colour, scrolling with the window
-                        let stepW = size.width / 8                       // one step = an eighth of the 8-step window
-                        let firstStep = Int(floor(winStart / sb))
-                        for st in firstStep...(firstStep + 8) {
-                            let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
-                            ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(selHue.opacity(0.42)), lineWidth: 1)
+                        // STEP BOXES — the whole pass, one box per step (fixed; the playhead sweeps across them). A faint fill +
+                        // a clear border so the note SECTIONS read as boxes (Paul 2026-09-03: "where are the boxes?").
+                        let stepW = size.width / CGFloat(max(1, cols))
+                        for st in 0..<cols {
+                            let frame = CGRect(x: CGFloat(st) * stepW + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
+                            ctx.fill(Path(roundedRect: frame, cornerRadius: 4), with: .color(selHue.opacity(0.05)))
+                            ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(selHue.opacity(0.6)), lineWidth: 1.2)
                         }
-                        // NOTES — each a pill FRAMED in the selected cell's colour with an inset (matted) fill. The fill is
-                        // SPLIT at the playhead: the part already PLAYED (behind, ≤ head) glows in its EMITTER colour, the part
-                        // still to come (IN FRONT of the playhead) sits NEUTRAL grey → a note lights up as the playhead sweeps
-                        // it. Drawn at ±loop so the scroll is seamless; clipped to the window; y pinned to the edge if outside.
-                        let xHead = size.width / 2                        // the (centred) playhead x — the played/future divide
+                        // NOTES — placed across the fixed pass; SPLIT at the playhead → PLAYED (left of it) in the CELL's own
+                        // colour, FUTURE (right) neutral grey; framed in the cell's colour. A note lights up as the playhead
+                        // sweeps over it. y pinned to the edge if outside the camera.
                         let neutral = Color(white: 0.62)
                         for n in notes {
-                            let cellHue = n.colour != 0 ? Color(hex: n.colour) : selHue   // the SELECTED cell's OWN colour
+                            let cellHue = n.colour != 0 ? Color(hex: n.colour) : selHue
                             let vel = Double(n.vel) / 127.0
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
                             let vpad = min(2.0, (barH - 1) / 2)           // stylish padding — clamp so thin bars don't invert
-                            for off in [-cyc, 0, cyc] {
-                                let ns = n.start + off, ne = n.end + off
-                                if ne <= winStart || ns >= winEnd { continue }
-                                let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
-                                let outer = CGRect(x: x0 + 0.5, y: yTop, width: max(4, x1 - x0 - 1), height: barH)
-                                // the matted FILL, inset from the frame; SPLIT at the playhead — the part already PLAYED (behind)
-                                // fills in the SELECTED cell's colour, the part still to come (IN FRONT) sits NEUTRAL grey → a
-                                // note lights up in its cell's colour as the playhead sweeps over it (Paul 2026-09-03).
-                                let inner = outer.insetBy(dx: 2, dy: vpad)
-                                let split = playing ? min(max(inner.minX, xHead), inner.maxX) : inner.maxX   // stopped → all "played"
-                                if split - inner.minX > 0.5 {             // PLAYED — the cell's colour, brightening with velocity
-                                    let r = CGRect(x: inner.minX, y: inner.minY, width: split - inner.minX, height: inner.height)
-                                    ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(cellHue.opacity(0.55 + 0.4 * vel)))
-                                }
-                                if inner.maxX - split > 0.5 {             // FUTURE (in front of the playhead) — neutral grey ghost
-                                    let r = CGRect(x: split, y: inner.minY, width: inner.maxX - split, height: inner.height)
-                                    ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(neutral.opacity(0.28)))
-                                }
-                                ctx.stroke(Path(roundedRect: outer, cornerRadius: 3), with: .color(cellHue.opacity(0.85)), lineWidth: 1.5)   // FRAME in the cell's colour
+                            let x0 = max(0, xOf(n.start)), x1 = min(size.width, xOf(min(n.end, cyc)))
+                            let outer = CGRect(x: x0 + 0.5, y: yTop, width: max(4, x1 - x0 - 1), height: barH)
+                            let inner = outer.insetBy(dx: 2, dy: vpad)
+                            let split = playing ? min(max(inner.minX, xHead), inner.maxX) : inner.maxX   // stopped → all "played"
+                            if split - inner.minX > 0.5 {                // PLAYED — the cell's colour, brightening with velocity
+                                let r = CGRect(x: inner.minX, y: inner.minY, width: split - inner.minX, height: inner.height)
+                                ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(cellHue.opacity(0.55 + 0.4 * vel)))
                             }
+                            if inner.maxX - split > 0.5 {                // FUTURE (in front of the playhead) — neutral grey ghost
+                                let r = CGRect(x: split, y: inner.minY, width: inner.maxX - split, height: inner.height)
+                                ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(neutral.opacity(0.28)))
+                            }
+                            ctx.stroke(Path(roundedRect: outer, cornerRadius: 3), with: .color(cellHue.opacity(0.85)), lineWidth: 1.5)   // FRAME in the cell's colour
                         }
                     }
-                    if playing {                                          // the PLAYHEAD — centred
-                        Rectangle().fill(Color.white.opacity(0.6)).frame(width: 1.5).offset(x: g.size.width / 2)
+                    if playing {                                          // the PLAYHEAD — sweeps L→R from the LEFT edge
+                        Rectangle().fill(Color.white.opacity(0.6)).frame(width: 1.5).offset(x: CGFloat(headFrac) * g.size.width)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -2435,15 +2426,20 @@ extension DiagView {
         // The row CURRENTLY PLAYING coming in from SELECT = the part row holding the auditioned colour (Paul 2026-09-02).
         let playingRow = ddSelectedColourID.flatMap { cid in (0..<8).first { buildRowColour($0) == cid } }
         buildGridSelComputeRowRolls()                                  // the side buttons' part-chain fingerprints
-        let focus = playingRow ?? buildGridSelStampSourceRow ?? 0      // prefer the playing row; else the carried SELECT focus, else first
-        buildRoomsSetActiveSide(focus)
-        if buildRowColour(focus) != nil { buildTapColourTab(focus) }   // reflect the focused slot's chain
+        // FOCUS IS USER-DRIVEN (Paul 2026-09-03: "the 1-8 buttons change focus by itself — fix"). Only set a default on the
+        // FIRST entry (nothing focused yet); NEVER override the user's own pick on a re-entry. The side buttons are the sole
+        // way focus changes (a plain tap selects any slot — populated or empty; long-press still copies).
+        if buildGridSelStampSourceRow == nil {
+            let focus = playingRow ?? (0..<8).first { buildRowColour($0) != nil } ?? 0
+            buildRoomsSetActiveSide(focus)
+            if buildRowColour(focus) != nil { buildTapColourTab(focus) }
+        }
         // ENTRY DEFAULT: until the user has EDITED the part grid, default the selected row to the one CURRENTLY PLAYING
         // (the SELECT audition's row), else the first populated row. Once touched, the user's own selection is respected.
         if !buildPartTouched, let pr = playingRow ?? (0..<8).first(where: { buildRowColour($0) != nil }) {
             buildSelectRow(pr)                                         // programmatic — does NOT mark touched
         } else if buildStagingSel.allSatisfy({ $0 < 0 }) {            // (edited but nothing selected) → seed one-per-column with a default row
-            let row = buildRowColour(focus) != nil ? focus : ((0..<8).first { buildRowColour($0) != nil } ?? focus)
+            let row = (0..<8).first { buildRowColour($0) != nil } ?? (buildGridSelStampSourceRow ?? 0)
             buildSelectRow(row)
         }
         roomsSyncVoice(.part)                                          // chain→part (nothing from SELECT plays here)
