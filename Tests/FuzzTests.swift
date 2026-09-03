@@ -134,9 +134,9 @@ final class FuzzTests: XCTestCase {
             return c
         }
         var scene = SceneState.empty()
-        let occupied = r.range(1, 40)
-        for _ in 0..<occupied {
-            let col = r.int(8), row = r.int(8)
+        let wide = r.chance(0.3)                    // §E 16-STEP: ~30% of docs are 16-WIDE parts → cells past col 7 + a >8 loop
+        for _ in 0..<r.range(1, 40) {               // length force NON-uniform → the multi-clock 16-col render path gets hammered.
+            let col = r.int(wide ? Snap.maxCols : 8), row = r.int(8)
             var cell = Cell(colourID: ids[r.int(ids.count)], buses: randomBuses(&r))
             if r.chance(0.7) { cell.inputReceiver = r.int(4) }        // most cells subscribe to a receiver
             if r.chance(0.4) {                                        // some carry a short chain
@@ -163,7 +163,10 @@ final class FuzzTests: XCTestCase {
         // quiescence across every transport + snapshot edge (rows drifting in and out of phase must never strand a voice).
         if r.chance(0.5) {
             scene.rowStepRate = (0..<8).map { _ in r.chance(0.6) ? StepRate.allCases[r.int(StepRate.allCases.count)] : nil }
-            scene.rowLen = (0..<8).map { _ in r.chance(0.3) ? r.range(1, 8) : nil }   // some rows loop shorter than the bar
+            scene.rowLen = (0..<8).map { _ in r.chance(wide ? 0.6 : 0.3) ? r.range(1, wide ? Snap.maxCols : 8) : nil }   // §E: a 16-wide part loops up to 16 (non-uniform → multi-clock); else ≤8
+        }
+        if wide && scene.rowLen == nil {            // ensure a WIDE doc is actually non-uniform (else the uniform fast-path skips the 16-col logic)
+            scene.rowLen = (0..<8).map { _ in r.chance(0.5) ? r.range(9, Snap.maxCols) : nil }
         }
         // PER-ROW LAP (Paul 2026-08-19): per-row column-loop masks (the BUILD grids loop independently) — the per-row
         // path laps each row's OWN columns. Hammered for no-stuck-notes across every edge (rows lapping different subsets).
