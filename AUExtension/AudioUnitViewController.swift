@@ -323,7 +323,6 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State var editArmed = false
-    @State var playCellOnly = false                                          // EDIT: "play this cell only" vs "play from grid" (user 2026-08-08)
     // MODE ROW: the EDIT page's tap modes. ADD/EDIT builds a selection set + edits it live under APPLY/CANCEL
     // staging (the ONLY mode that stages). MOVE drags cells; MUTE toggles mute; CLEAR removes — all IMMEDIATE + undo/redo.
     @State var editMode: EditPageMode = .addEdit
@@ -372,9 +371,7 @@ struct DiagView: View {
     @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (button removed 2026-08-05; localized holds pending)
     @State private var contentOverflows = false   // whole-UI scroll: the content column is taller than the viewport → wrap header+tabs+body in ONE ScrollView
-    @State var ladderMode = false            // LADDER: exclusive-columns mode (mirror of au.uiLadderMode)
-    @State var ladderPending: [Int: Int] = [:]   // LADDER: armed rung switches (column → row) — fire at the column's next entry
-    @State var ladderBlink = false           // LADDER: the armed-cell blink (beat-toggled, like the scene arm)
+    @State var ladderMode = false            // LADDER: exclusive-columns mode (mirror of au.uiLadderMode; LADDER factory presets)
     // SEAL comet: per-cell last-strike time + velocity (index = col*Snap.rows+row), stamped from the 4 Hz poll of
     // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
     @State var cellHitAt = [Date](repeating: .distantPast, count: Snap.cells)   // Snap.cells = 128 (rows 0–15; index = col*Snap.rows+row)
@@ -490,36 +487,8 @@ struct DiagView: View {
         emitterOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setEmitterOctave(i, 0) }
     }
 
-    /// LADDER tap (user 2026-08-03): tapping the ACTIVE rung toggles its MUTE (the column goes silent, dimmed like
-    /// the dormant rungs; tap again restores). Tapping a DORMANT rung makes it the active one — but BLINK-arm (commit
-    /// at the column's next entry) ONLY if the playhead is sounding this column right now; otherwise flip instantly.
-    func armLadderRung(_ col: Int, _ row: Int) {
-        if scene.cellAt(col, row)?.muted == true {       // BUG FIX (user 2026-08-08): a MULTI/edit-muted cell was
-            au?.editScene { $0.cells[col][row]?.muted = false }   // un-clearable in SINGLE (the tap only armed a rung, never
-            au?.editScene(record: false) { s in          // touched `muted`). Now tapping a muted cell UNMUTES it AND makes
-                var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
-                ar[col] = row; s.activeRow = ar          // it the active rung (so it plays) — the single-mode path to clear a stuck mute.
-            }
-            ladderPending[col] = nil; refreshFromDocument(); return
-        }
-        if row == scene.ladderActiveRow(col) {           // re-tap the active rung → DESELECT: nothing speaks this column
-            au?.editScene(record: false) { s in          // (a −1 sentinel — SINGLE never touches `muted`, so MULTI's mutes are preserved)
-                var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
-                ar[col] = -1; s.activeRow = ar
-            }
-            ladderPending[col] = nil; refreshFromDocument(); return
-        }
-        let armed = d.playing && d.effColumn == col      // playhead on THIS column → arm (avoid cutting the sounding note); else instant
-        au?.editScene(record: false) { s in              // set the active rung ONLY — `muted` stays MULTI's domain (a MULTI-muted rung stays silent)
-            if !armed {
-                var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
-                ar[col] = row; s.activeRow = ar
-            }
-        }
-        ladderPending[col] = armed ? row : nil
-        refreshFromDocument()
-    }
-    // (ladderDim — the retired in-grid LADDER's dimmed-rung set — was removed 2026-08-27, zero references.)
+    // (armLadderRung + ladderDim — the retired in-grid LADDER's arm-and-blink tap machinery — removed 2026-09-03, zero
+    //  callers after the GridView/old-UI cascade. LADDER factory presets still drive active rows via syncSingleModeActivation.)
     /// The blinking cells while a SINGLE switch/mute is pending (commits at the column's next entry). The CURRENTLY
     /// ACTIVE cell flashes to show it's about to DEACTIVATE (user 2026-08-07 — whether the touched cell is populated
     /// or empty); an incoming POPULATED rung also flashes to show where the column is going (an empty rung shows nothing).
@@ -806,19 +775,12 @@ struct DiagView: View {
         .environmentObject(helpTracker)         // the in-app manual: controls report their anchor via `.helpAnchor`
         .onChange(of: sel.cells) { _ in                       // SINGLE-mode editing: the selection drives the ladder's
             syncSingleModeActivation()                        // ACTIVE rung (ferry 2026-08-06); no-op in MULTI or outside ADD/EDIT
-            if playCellOnly { au?.setEditSolo(editSelTargets) }   // "play this cell only" follows the selection
         }
-        .onChange(of: d.absoluteStep) { _ in                  // LADDER commit: the armed column's current STEP just finished → set the new
-            buildCommitPendingVoice()                          // BUILD: apply an armed CHAIN⟷PART voice switch on the cell boundary (Paul 2026-08-14)
-            guard !ladderPending.isEmpty else { return }      // rung for its next entry. absoluteStep increments each step EVEN when the
-            for (col, row) in ladderPending { au?.setActiveRow(col, row) }   // playhead is LOOPING one column (a lap) — where effColumn never changes, so
-            ladderPending = [:]; refreshFromDocument()         // the old effColumn-change trigger never fired and the arm just blinked forever.
+        .onChange(of: d.absoluteStep) { _ in                  // BUILD: apply an armed CHAIN⟷PART voice switch on the cell boundary
+            buildCommitPendingVoice()                          // (Paul 2026-08-14). absoluteStep increments each step EVEN during a column lap.
         }
         .onChange(of: d.playing) { playing in                 // transport stopped mid-arm → apply the pending voice switch now (no boundary will come)
             if !playing { buildCommitPendingVoice() }
-        }
-        .onChange(of: d.beat) { _ in                          // LADDER: blink the armed rungs (beat-driven, like the scene arm)
-            if !ladderPending.isEmpty { ladderBlink.toggle() } else if ladderBlink { ladderBlink = false }
         }
         .onReceive(meterTimer) { _ in
             guard uiAppeared, let au else { return }   // ~30fps peak metering → the velocity indicators track live (not the 4Hz poll)
@@ -852,7 +814,6 @@ struct DiagView: View {
                 clearOnTap()                                              // ON TAP: momentary flips/mute/solo clear on stop
                 clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
                 clearEmitterPerform()                                     // emitter strip: output OCT = weather
-                if !ladderPending.isEmpty { ladderPending = [:] }         // LADDER: drop un-committed arms (no "next entry" while stopped)
                 if buildCellRoll.contains(where: { !$0.isEmpty }) { buildCellRoll = Array(repeating: [], count: Snap.cells) }   // BUILD piano-roll: clear on stop so idle faces pause
             }
             let lm = au.uiLadderMode(); if lm != ladderMode { ladderMode = lm }   // LADDER: sync the mode (preset load / external change)

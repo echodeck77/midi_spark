@@ -612,7 +612,7 @@ final class Kernel {
             let block = cellRouteBlock(c, box), m = c.proc
             let mdesc = "\(m.type)" + (m.type == .passgate ? " pass=0b\(String(m.passMask, radix: 2))" : m.type == .chance ? " prob=\(m.probability)" : "") + (c.procs.count > 1 ? " +chain\(c.procs.count)" : "")
             let here = (i / Snap.rows) == diag.effColumn ? " ◀playhead" : ""
-            l.append("  cell \(i / 8),\(i % 8) col=\(c.colourIndex) [\(mdesc)] recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)") + here)
+            l.append("  cell \(i / Snap.rows),\(i % Snap.rows) col=\(c.colourIndex) [\(mdesc)] recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)") + here)
         }
         l.append(diag.routedPath ? "VERDICT: a routed path exists → SILENCE IS SUSPICIOUS (a machine may be gating: closed passgate / chance / arp tick — or a real bug)"
                                  : "VERDICT: no routed path → silence is EXPECTED")

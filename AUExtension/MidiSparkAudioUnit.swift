@@ -278,14 +278,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func reelSetBrowsing(_ on: Bool) { kernel.reelSetBrowsing(on) }      // pop-up open → freeze the history tape
 
     /// EDIT PAGE "play this cell only" (user 2026-08-08): solo the given cells while the transport plays — every
-    /// other cell falls silent. Empty = normal grid playback. Ephemeral (never persisted); the edit page sets it
-    /// from the selection and clears it on OFF / leaving EDIT.
-    func setEditSolo(_ cells: [(col: Int, row: Int)]) {
-        var m: UInt64 = 0
-        for c in cells where c.col >= 0 && c.col < 8 && c.row >= 0 && c.row < 8 { m |= UInt64(1) << UInt64(c.col * 8 + c.row) }
-        kernel.setSoloCellMask(m)
-    }
-
     /// PLAY: THIS CELL (user 2026-08-09) — isolate ONE cell and freeze the timeline on its column, so ONLY that
     /// cell's colour machine sounds, ungated by the grid sequence (the grid's active column is ignored). The full
     /// chain renders (normal render path, just held on this column). `clearColourSolo` restores normal play.

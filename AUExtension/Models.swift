@@ -380,7 +380,6 @@ struct ColourParams: Codable, Equatable {
     var chordsSteps: Int? = nil                 // the PATTERN matrix length 1…16 (the progression loops every N); default 8. FOLLOW ignores it.
     var chordsRateResolved: StepRate { chordsRate ?? .r1_1 }
     var chordsStepsResolved: Int { max(1, min(16, chordsSteps ?? 8)) }
-    var chordsModeResolved: ChordsMode { chordsMode ?? .pattern }
     var chordsRootResolved: Int { let r = chordsRoot ?? 0; return (r % 12 + 12) % 12 }
     var chordsScaleResolved: ScaleType { chordsScale ?? .major }
     var chordsVoicingResolved: ChordVoicing { chordsVoicing ?? .triad }

@@ -12,6 +12,8 @@ import Foundation
 /// Clamp `v` into [lo, hi] (assumes lo ≤ hi). One name for the `max(lo, min(hi, v))` idiom repeated across the
 /// engine's resolvers and the macro offset math — states the clamp INTENT once, no behaviour change.
 @inline(__always) func clamp<T: Comparable>(_ v: T, _ lo: T, _ hi: T) -> T { min(max(v, lo), hi) }
+/// Positive modulo — `((x % n) + n) % n`, the rotate/wrap idiom used ~throughout (refactor 2026-09-03). `n > 0`.
+@inline(__always) func posMod(_ x: Int, _ n: Int) -> Int { let m = x % n; return m < 0 ? m + n : m }
 
 /// A velocity clamped to the legal 1…127 and narrowed to UInt8 — the shape every processor's output-velocity
 /// scaling shares (never 0 = a note-off, never > 127). One name for `UInt8(max(1, min(127, v)))`.
@@ -1782,7 +1784,7 @@ func chordsWalkDegreeAt(step: Int, seed: UInt64) -> Int {
     // The RATE clock is free-running (m/rate keeps advancing on a pinned/frozen audition), so `step` is unbounded. LOOP
     // the walk every 64 rate-ticks rather than CLAMPing (the old clamp froze the progression at step 64 forever). Modulo
     // keeps the recompute bounded AND replay-exact (pure fn of step) while the walk keeps evolving (a long 64-chord loop).
-    let s = ((step % 64) + 64) % 64
+    let s = posMod(step, 64)
     var i = 0
     while i < s { deg = walkNextDegree(prev: deg, seed: seed &+ UInt64(i) &* 0x9E3779B97F4A7C15); i += 1 }
     return deg

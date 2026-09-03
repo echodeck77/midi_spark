@@ -50,14 +50,11 @@ struct EditSelection {
 
 
 extension DiagView {
-    // MODE ROW — the selection set's helpers. The ANCHOR is `sel.anchor`: it drives the inspector (selCol/selRow)
-    // and the breadcrumb, and is protected from a stray tap (long-press to drop). Edits write through to `sel`.
-    var editSelTargets: [(col: Int, row: Int)] { sel.targets }
     /// Remove a cell from the group and REVERT it to its original state: a cell created this session is deleted;
     /// a populated cell adopted into the group is restored from its pre-adopt stash.
     func syncSingleModeActivation() {
-        // NOT on the DRAG&DROP page: there the selection is the WHOLE colour, so deriving the active rung from it would
-        // activate every column the colour occupies (user 2026-08-09 bug). The DD grid sets the rung via armLadderRung.
+        // Drives the LADDER active rung from the selection (LADDER factory presets set ladderMode; the old in-grid tap
+        // machinery is gone). NOT on the DRAG&DROP page — there the selection is the whole colour (2026-08-09 bug).
         guard ladderMode, editMode == .addEdit, let au else { return }
         var topByColumn: [Int: Int] = [:]
         for p in sel.cells { topByColumn[p.col] = min(topByColumn[p.col] ?? p.row, p.row) }

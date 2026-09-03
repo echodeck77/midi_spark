@@ -553,9 +553,10 @@ func effectiveGate(_ c: SnapColour) -> Double { c.a.gate }
 func effectiveOctaves(_ c: SnapColour) -> Int { max(1, min(4, Int(c.a.octaves))) }
 
 // RATCHET (§3): repeats per step — quantized to a LEGAL count (2/3/4/6/8).
+private let ratchetLegalRepeats = [2, 3, 4, 6, 8]   // file-scope so effectiveRepeats doesn't rebuild it every call (refactor 2026-09-03)
 @inline(__always)
 func effectiveRepeats(_ c: SnapColour) -> Int {
-    let v = Double(c.a.count), legal = [2, 3, 4, 6, 8]
+    let v = Double(c.a.count), legal = ratchetLegalRepeats
     var best = legal[0], bestD = Double.greatestFiniteMagnitude
     for L in legal { let d = abs(Double(L) - v); if d < bestD { bestD = d; best = L } }
     return best
