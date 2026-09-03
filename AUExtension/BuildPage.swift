@@ -2060,7 +2060,7 @@ extension DiagView {
             let winBeats = 8.0 * sb                                       // the SCROLLING window = 8 steps (restored, Paul 2026-09-03)
             let swingA = max(1.0, Double(swing) / 50.0)
             let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // the CURRENT cell's colour (its animated outline)
-            let focusRow = buildGridSelStampSourceRow ?? -1              // the CURRENT (focused) cell = the active side button's row
+            let currentCid = ddSelectedColourID                          // the CURRENTLY-SELECTED machine — its notes get the animated cell-colour outline
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: swingA)
@@ -2088,14 +2088,15 @@ extension DiagView {
                             let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
                             ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.10)), lineWidth: 1)
                         }
-                        // NOTES — the whole part sequence in NEUTRAL grey; the CURRENT (focused) cell's notes POP: filled in their
-                        // EMITTER colour + a stylish ANIMATED marching-ants OUTLINE in the CELL's colour (Paul 2026-09-03). Drawn
-                        // at ±loop so the scroll is seamless; y pinned to the edge if outside the camera.
-                        let neutral = Color(white: 0.5)
+                        // NOTES — every note fills in its EMITTER colour (so you always see WHICH emitter each note goes to); the
+                        // CURRENTLY-SELECTED machine's notes POP (brighter) and get a stylish ANIMATED marching-ants OUTLINE in the
+                        // CELL's colour (Paul 2026-09-03). Drawn at ±loop so the scroll is seamless; y pinned to the edge if outside.
                         for n in notes {
-                            let isCurrent = focusRow >= 0 && (n.cell % Snap.rows) == focusRow
+                            let col = n.cell / Snap.rows, row = n.cell % Snap.rows
+                            let cellCid = (col >= 0 && col < buildStagingCells.count && row >= 0 && row < buildStagingCells[col].count) ? buildStagingCells[col][row] : nil
+                            let isCurrent = currentCid != nil && cellCid == currentCid   // this note is from the SELECTED machine
                             let cable = Int(n.cable)
-                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)
+                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the EMITTER colour
                             let cellHue = n.colour != 0 ? Color(hex: n.colour) : selHue
                             let vel = Double(n.vel) / 127.0
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
@@ -2105,12 +2106,10 @@ extension DiagView {
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
                                 let rect = CGRect(x: x0 + 0.5, y: yTop + vpad, width: max(3, x1 - x0 - 1), height: max(2, barH - 2 * vpad))
+                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity(isCurrent ? (0.55 + 0.4 * vel) : (0.26 + 0.18 * vel))))   // EMITTER colour — full for the selected cell, subdued for the rest
                                 if isCurrent {
-                                    ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(emit.opacity(0.5 + 0.45 * vel)))   // the EMITTER colour
                                     ctx.stroke(Path(roundedRect: rect.insetBy(dx: -0.5, dy: -0.5), cornerRadius: 3), with: .color(cellHue.opacity(0.95)),
                                                style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [3.5, 2.5], dashPhase: ants))     // ANIMATED marching-ants outline in the CELL colour
-                                } else {
-                                    ctx.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(neutral.opacity(0.22 + 0.18 * vel)))   // NEUTRAL — every other note
                                 }
                             }
                         }
