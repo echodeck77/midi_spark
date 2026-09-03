@@ -3163,6 +3163,27 @@ final class RouterTests: XCTestCase {
         Set(avoidRunE(chain, input: input, refs: refs).ons.filter { $0.cable == 1 }.map { ((Int($0.note) % 12) + 12) % 12 })
     }
 
+    // JOB 7 §G — AVOID "EVERYTHING OUT" (soundingOut): reference = all emitter OUTPUT except this cell's OWN buses
+    // (self-exclude by bus). Proves both halves: a solo AVOID doesn't avoid its own output; a second emitter's output IS
+    // avoided. (Mirrors the CONVERSATION setup — a row-1 cell reads emitter A's live output from row 0.)
+    func testAvoidEverythingOutSelfExcludesButReadsOtherEmitters() {
+        func pcs(withAonBusA: Bool) -> (a: Set<Int>, b: Set<Int>, e: RecordingEmitter) {
+            var s = SceneState.empty()
+            if withAonBusA { s.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }              // emits the held chord on emitter A (row 0)
+            s.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.processors = [mkAvoid(kind: .soundingOut)]; return c }()   // AVOID EVERYTHING-OUT on B (row 1)
+            let st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord([60, 62]), beats: 16, into: e)   // C, D
+            let map = { (cable: Int) in Set(e.ons.filter { $0.cable == cable }.map { ((Int($0.note) % 12) + 12) % 12 }) }
+            return (map(1), map(2), e)
+        }
+        let solo = pcs(withAonBusA: false)                                                     // no OTHER emitter output
+        XCTAssertEqual(solo.b, [0, 2], "self-excludes its own bus B → reference empty → passes its whole input (C,D)")
+        let duo = pcs(withAonBusA: true)
+        XCTAssertEqual(duo.a, [0, 2], "the row-0 cell plays C,D on emitter A")
+        XCTAssertTrue(duo.b.isEmpty, "the AVOID on B reads emitter A's output (C,D ∉ B) and blocks both")
+        assertNothingLeftSounding(duo.e)                                                        // no stuck notes on the new reference path
+    }
+
     // ── Reference-content edges ────────────────────────────────────────────────
     func testAvoidEmptyReferencePassesEverything() {   // C1
         XCTAssertEqual(avoidPCs([mkAvoid()], input: [60, 62, 64], refs: []), [0, 2, 4], "empty reference · AVOID REMOVE → everything passes")

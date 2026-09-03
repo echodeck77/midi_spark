@@ -37,7 +37,7 @@ enum ProcessorType: String, Codable, CaseIterable {
 }
 // AVOID / LOCK (unified 2026-08-31, Paul) — one processor covers "avoid clashing with X" AND "lock to key": a per-note
 // pitch-class filter (the ratified keyFilterNote) as a chain stage.
-enum AvoidRefKind: String, Codable, CaseIterable { case key = "KEY", door = "DOOR", wire = "WIRE", sounding = "ALL" }   // the reference set to test against
+enum AvoidRefKind: String, Codable, CaseIterable { case key = "KEY", door = "DOOR", wire = "WIRE", sounding = "ALL", soundingOut = "OUTALL" }   // the reference set to test against (§G: soundingOut = EVERYTHING OUT, all emitter output minus this cell's own buses)
 enum AvoidMode: String, Codable, CaseIterable { case lock = "LOCK", avoid = "AVOID" }        // LOCK = keep ONLY notes in the reference (in-key) · AVOID = REMOVE notes in the reference (dodge clashes)
 enum AvoidAction: String, Codable, CaseIterable { case remove = "REMOVE", move = "MOVE" }    // a rejected note: REMOVE = drop (a rest) · MOVE = snap to the nearest safe tone
 enum AvoidWhat: String, Codable, CaseIterable { case same = "SAME", clash = "CLASH", clash2 = "CLASH+" }   // AVOID mode: SAME = only the exact pitch-class (don't double) · CLASH = also ±1 semitone (ic1) · CLASH+ = also ±2 (ic2, stricter). Widens the avoided sphere to what CLASHES with the reference.

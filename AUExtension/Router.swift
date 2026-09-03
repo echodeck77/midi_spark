@@ -189,13 +189,15 @@ final class Router {
     /// pool if present, else its LIVE input) · a WIRE's live output · EVERYTHING = every OTHER input door (never this
     /// chain's own receiver — Paul 2026-08-31: "everything except its own receiver"; input-domain, so it MATCHES the
     /// editor piano's prediction and can never avoid itself). `ownDoor` = the AVOID cell's receiver. Computed once per fold.
-    private func avoidRefMask(_ p: SnapParams, ownDoor: Int) -> UInt16 {
+    private func avoidRefMask(_ p: SnapParams, ownDoor: Int, ownBusMask: UInt8) -> UInt16 {
         let base: UInt16
         switch p.avoidRefKind {
         case .key:      base = scalePitchClassMask(root: p.avoidRoot, scale: p.avoidScale)
         case .door:     base = doorRefMask(max(0, min(3, p.avoidRefIndex)))
-        case .wire:     base = soundingPitchClassMask(bus: max(0, min(3, p.avoidRefIndex)))   // engine-only (UI-dead): a specific emitter's live output
-        case .sounding: var m: UInt16 = 0; for d in 0..<4 where d != ownDoor { m |= doorRefMask(d) }; base = m   // EVERYTHING = the union of every OTHER input door
+        case .wire:     base = soundingPitchClassMask(bus: max(0, min(3, p.avoidRefIndex)))   // OUTPUT ▸A–D: a specific emitter's live output
+        case .sounding: var m: UInt16 = 0; for d in 0..<4 where d != ownDoor { m |= doorRefMask(d) }; base = m   // EVERYTHING IN = the union of every OTHER input door
+        case .soundingOut:                                                                    // §G EVERYTHING OUT = all emitter output EXCEPT this cell's OWN buses (self-exclude by BUS)
+            var m: UInt16 = 0; for b in 0..<4 where (ownBusMask >> UInt8(b)) & 1 == 0 { m |= soundingPitchClassMask(bus: b) }; base = m
         }
         // WHAT (AVOID mode only): widen the avoided sphere to the CLASHING neighbours (ic1/ic2). LOCK keeps the exact set.
         return (!p.avoidLock && p.avoidClashSemis > 0) ? widenClashMask(base, semis: p.avoidClashSemis) : base
@@ -1531,7 +1533,7 @@ final class Router {
                     let ap = cell.procs[ai]
                     let ep = effectivePool(for: cell, live: pool)
                     let cnt = ep.srcCount(for: cell)
-                    let refMask = avoidRefMask(ap, ownDoor: Int(cell.resolvedReceiver))
+                    let refMask = avoidRefMask(ap, ownDoor: Int(cell.resolvedReceiver), ownBusMask: cell.busMask)
                     avoidDriverSurvivor = avoidSurvivors({ Int(ep.srcAscending($0, for: cell)) }, count: cnt, refMask: refMask)
                 }
                 switch driveP.type {
@@ -1754,7 +1756,7 @@ final class Router {
                 ? chordSplitWindow(count: srcN, split: treat.a.splitSet,
                                    noteAt: { holdChain ? Int(chainScratch.srcAscending($0, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending($0, for: cell)) })
                 : (0, srcN)
-            let avoidHoldMask: UInt16 = mode == .avoid ? avoidRefMask(treatP, ownDoor: Int(cell.resolvedReceiver)) : 0   // AVOID/LOCK (standalone / hold-tail): the reference set, once per hold
+            let avoidHoldMask: UInt16 = mode == .avoid ? avoidRefMask(treatP, ownDoor: Int(cell.resolvedReceiver), ownBusMask: cell.busMask) : 0   // AVOID/LOCK (standalone / hold-tail): the reference set, once per hold
             // The FINAL emitted note for rank k (base + the register/pool shift) — also the survivor scan's input.
             let holdFinalNote: (Int) -> Int = { k in
                 let b = holdChain ? Int(self.chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
@@ -3738,7 +3740,7 @@ final class Router {
                 if v >= vf && v <= vc { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .avoid:                                           // per-note PITCH filter — RE-POOL upstream / hold-tail: drop or snap each note vs the reference
-            let refMask = avoidRefMask(p, ownDoor: Int(cell.resolvedReceiver))
+            let refMask = avoidRefMask(p, ownDoor: Int(cell.resolvedReceiver), ownBusMask: cell.busMask)
             let srcN = src.srcCount(filter: 0, cableMask: 0b1111)
             // AVOID MOVE lands only on the input scale's SURVIVING notes (never a chromatic note outside the pool). The
             // survivor pool is `src` (the whole set upstream/hold-tail), OR the DRIVER's whole output pool when AVOID sits

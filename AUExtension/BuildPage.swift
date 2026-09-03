@@ -5019,6 +5019,7 @@ extension DiagView {
             case .door:     m = "IN \(letters[max(0, min(3, s.params.avoidRefIndex ?? 0))])"
             case .wire:     m = "OUT \(letters[max(0, min(3, s.params.avoidRefIndex ?? 0))])"
             case .sounding: m = "CLASHES"
+            case .soundingOut: m = "OUT ALL"
             }
         default:       m = ""
         }
