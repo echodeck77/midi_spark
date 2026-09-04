@@ -231,57 +231,57 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(box1.receiverPianoNotes[2], scaleNotes(root: 9, type: .naturalMinor, baseOct: 3, octaves: 2).map { UInt8($0) })
         XCTAssertNotEqual(box0.receiverPianoNotes[2], box1.receiverPianoNotes[2], "switching the radio changes the fed pool")
     }
-    func testChordDoorGeneratesADiatonicChordFromAReferencedScaleDoor() {
-        // THE CHORD DOOR (Paul 2026-09-04): a CHORD door rides the KEYS pipeline (pianoMask bit set) and its pool is the
-        // diatonic chord for its DEGREE, derived from a referenced SCALE door's key.
+    func testChordDoorSequencerConfigFlowsToTheBox() {
+        // THE CHORD DOOR = a SEQUENCER (Paul 2026-09-04): the door's active chord-sequencer config (a ColourParams' chords*)
+        // reaches the box; the Kernel walks it on the beat. No STATIC pool is baked (pianoNotes empty); it rides the piano bit.
         var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
         st.synthesizeReceiversIfNeeded()
-        st.receivers![0].doorMode = .scale                 // door A = C major (the key source)
-        st.receivers![0].scaleRoot = 0; st.receivers![0].scaleType = .major
-        st.receivers![0].scaleBaseOct = 3; st.receivers![0].scaleOctaves = 2
-        st.receivers![1].doorMode = .chord                 // door B = the V chord (degree 4), triad, from door A
-        st.receivers![1].chordPools = [ChordPool(source: 0, degree: 4, voicing: .triad, spread: .close, baseOct: 3), ChordPool(), ChordPool(), ChordPool()]
-        st.receivers![1].activeChord = 0
-        let box = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(box.receiverPianoMask & 0b0010, 0b0010, "the CHORD door rides the piano pipeline")
-        let expected = chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 4, voicing: .triad, spread: .close, baseOct: 3).map { UInt8($0) }
-        XCTAssertEqual(box.receiverPianoNotes[1], expected, "the box carries the V-chord of C major (G B D)")
-        XCTAssertEqual(box.receiverScaleRoot[1], -1, "a CHORD door is NOT a scale door (CHORDS reads scale from scale doors only)")
-    }
-    func testChordDoorWithNoSourceFallsBackToCMajor() {
-        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![2].doorMode = .chord
-        st.receivers![2].chordPools = [ChordPool(source: -1, degree: 0, voicing: .triad, spread: .close, baseOct: 3), ChordPool(), ChordPool(), ChordPool()]
-        let box = SnapshotBuilder.build(from: st)
-        let cmajI = chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 0, voicing: .triad, spread: .close, baseOct: 3).map { UInt8($0) }
-        XCTAssertEqual(box.receiverPianoNotes[2], cmajI, "no source ⇒ C major I (C E G)")
-    }
-    func testChordDoorActiveRadioSwitchesTheChord() {
-        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![0].doorMode = .scale; st.receivers![0].scaleRoot = 0; st.receivers![0].scaleType = .major
         st.receivers![1].doorMode = .chord
-        st.receivers![1].chordPools = [ChordPool(source: 0, degree: 0, voicing: .triad, spread: .close, baseOct: 3),
-                                       ChordPool(source: 0, degree: 3, voicing: .triad, spread: .close, baseOct: 3), ChordPool(), ChordPool()]
+        var seq = ColourParams(); seq.chordsMode = .pattern; seq.chordsDegrees = [0, 4, 5, 3]; seq.chordsSteps = 4; seq.chordsScaleRef = 3
+        st.receivers![1].chordSeqs = [seq, ColourParams(), ColourParams(), ColourParams()]
         st.receivers![1].activeChord = 0
-        let boxI = SnapshotBuilder.build(from: st)
-        st.receivers![1].activeChord = 1
-        let boxIV = SnapshotBuilder.build(from: st)
-        XCTAssertNotEqual(boxI.receiverPianoNotes[1], boxIV.receiverPianoNotes[1], "the radio switches the chord (I vs IV)")
-        XCTAssertEqual(boxIV.receiverPianoNotes[1], chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 3, voicing: .triad, spread: .close, baseOct: 3).map { UInt8($0) })
+        let box = SnapshotBuilder.build(from: st)
+        XCTAssertNotNil(box.receiverChordsParams[1], "a CHORD door's config reaches the box")
+        XCTAssertEqual(box.receiverChordsParams[1]?.chordsMode, .pattern)
+        XCTAssertEqual(box.receiverChordsParams[1]?.chordsScaleRef, 3, "KEY FROM door D flows through")
+        XCTAssertEqual(Array((box.receiverChordsParams[1]?.chordsDegrees ?? []).prefix(4)), [0, 4, 5, 3])
+        XCTAssertNil(box.receiverChordsParams[0], "non-chord doors carry no chord config")
+        XCTAssertEqual(box.receiverPianoMask & 0b0010, 0b0010, "the CHORD door rides the piano pipeline (Kernel fills it live)")
+        XCTAssertEqual(box.receiverPianoNotes[1], [], "no static pool baked — the Kernel walks it on the beat")
+        XCTAssertEqual(box.receiverScaleRoot[1], -1, "a CHORD door is NOT a scale door")
     }
-    func testChordPoolsDecodeTolerantAndDefault() throws {
+    func testChordDoorActiveRadioSwitchesTheBoxConfig() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.synthesizeReceiversIfNeeded()
+        st.receivers![1].doorMode = .chord
+        var a = ColourParams(); a.chordsDegrees = [0, 0, 0, 0]; a.chordsSteps = 4
+        var b = ColourParams(); b.chordsDegrees = [3, 3, 3, 3]; b.chordsSteps = 4
+        st.receivers![1].chordSeqs = [a, b, ColourParams(), ColourParams()]
+        st.receivers![1].activeChord = 0
+        XCTAssertEqual(Array((SnapshotBuilder.build(from: st).receiverChordsParams[1]?.chordsDegrees ?? []).prefix(4)), [0, 0, 0, 0])
+        st.receivers![1].activeChord = 1
+        XCTAssertEqual(Array((SnapshotBuilder.build(from: st).receiverChordsParams[1]?.chordsDegrees ?? []).prefix(4)), [3, 3, 3, 3])
+    }
+    func testChordSeqsDecodeTolerantAndDefault() throws {
         var r = Receiver(); r.doorMode = .chord
-        XCTAssertNil(r.chordPools)
-        XCTAssertEqual(r.chordPoolsResolved.count, 4, "nil ⇒ four default pools")
+        XCTAssertNil(r.chordSeqs)
+        XCTAssertEqual(r.chordSeqsResolved.count, 4, "nil ⇒ four default progressions")
+        XCTAssertEqual(r.chordSeqsResolved[0].chordsScaleRefResolved, 3, "defaults reference KEY-FROM door D")
         XCTAssertTrue(r.latchPianoResolved, "a CHORD door rides the piano/KEYS pipeline")
-        r.chordPools = [ChordPool(source: 2, degree: 4, voicing: .seventh, spread: .open, baseOct: 4)]
         r.activeChord = 7
         XCTAssertEqual(r.activeChordResolved, 3, "clamped 0…3")
-        let back = try JSONDecoder().decode(Receiver.self, from: JSONEncoder().encode(r))
-        XCTAssertEqual(back.chordPoolsResolved.count, 4)
-        XCTAssertEqual(back.chordPoolsResolved[0], ChordPool(source: 2, degree: 4, voicing: .seventh, spread: .open, baseOct: 4))
+        // A stale ChordPool-format JSON key (from the fe708c7 window) is an unknown key ⇒ ignored ⇒ the default progressions.
+        let legacy = "{\"name\":\"\",\"channel\":0,\"mpeMerge\":false,\"muted\":false,\"doorMode\":\"chord\",\"chordPools\":[{\"source\":1,\"degree\":2}]}".data(using: .utf8)!
+        let old = try JSONDecoder().decode(Receiver.self, from: legacy)
+        XCTAssertNil(old.chordSeqs, "stale chordPools key ignored → nil")
+        XCTAssertEqual(old.chordSeqsResolved.count, 4)
+    }
+    func testDefaultRigWiresChordDoorCToScaleDoorD() {
+        let st = PluginState.makeInit()
+        XCTAssertEqual(st.receiversResolved[2].doorModeResolved, .chord, "receiver C is the chord sequencer")
+        XCTAssertEqual(st.receiversResolved[3].doorModeResolved, .scale, "receiver D is the key (scale door)")
+        XCTAssertEqual(st.receiversResolved[2].chordSeqsResolved.count, 4, "four default progressions")
+        XCTAssertEqual(st.receiversResolved[2].chordSeqsResolved[0].chordsScaleRefResolved, 3, "C's chords take KEY FROM D")
     }
     func testExcludeDoorFlowsToSnapshotAndDropsSelf() {
         var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])

@@ -470,26 +470,22 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         let rs = document.receiversResolved
         return (0..<rs.count).contains(i) ? rs[i].activeScaleResolved : 0
     }
-    // THE CHORD DOOR (Paul 2026-09-04): four chord pools + the radio, mirroring the scale-pool setters.
-    private func editReceiverChordSlot(_ i: Int, _ slot: Int, _ f: (inout ChordPool) -> Void) {
-        guard (0..<4).contains(slot) else { return }
-        editReceiver(i) { r in
-            var pools = r.chordPoolsResolved
-            f(&pools[slot])
-            r.chordPools = pools
-        }
-    }
+    // THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-04): each of four instances IS a ColourParams (the CHORDS-processor
+    // config); the editor is the processor's own ProcessorBox, which hands back an edited Colour → we store its paramsA.
     func setReceiverActiveChord(_ i: Int, _ slot: Int) {
         editReceiver(i) { r in
-            if r.chordPools == nil { r.chordPools = r.chordPoolsResolved }
+            if r.chordSeqs == nil { r.chordSeqs = r.chordSeqsResolved }   // materialize so the radio + seqs travel together
             r.activeChord = max(0, min(3, slot))
         }
     }
-    func setReceiverChordSlotSource(_ i: Int, _ slot: Int, _ source: Int) { editReceiverChordSlot(i, slot) { $0.source = max(-1, min(3, source)) } }
-    func setReceiverChordSlotDegree(_ i: Int, _ slot: Int, _ degree: Int) { editReceiverChordSlot(i, slot) { $0.degree = ((degree % 7) + 7) % 7 } }
-    func setReceiverChordSlotVoicing(_ i: Int, _ slot: Int, _ v: ChordVoicing) { editReceiverChordSlot(i, slot) { $0.voicing = v } }
-    func setReceiverChordSlotSpread(_ i: Int, _ slot: Int, _ s: ChordSpread) { editReceiverChordSlot(i, slot) { $0.spread = s } }
-    func setReceiverChordSlotBaseOct(_ i: Int, _ slot: Int, _ oct: Int) { editReceiverChordSlot(i, slot) { $0.baseOct = max(0, min(8, oct)) } }
+    func setReceiverChordSeq(_ i: Int, _ slot: Int, _ params: ColourParams) {
+        guard (0..<4).contains(slot) else { return }
+        editReceiver(i) { r in
+            var seqs = r.chordSeqsResolved
+            seqs[slot] = params
+            r.chordSeqs = seqs
+        }
+    }
     func setReceiverScaleRoot(_ i: Int, _ root: Int) { setReceiverScaleSlotRoot(i, activeScaleSlot(i), root) }
     func setReceiverScaleType(_ i: Int, _ type: ScaleType) { setReceiverScaleSlotType(i, activeScaleSlot(i), type) }
     func setReceiverScaleBaseOct(_ i: Int, _ oct: Int) { setReceiverScaleSlotBaseOct(i, activeScaleSlot(i), oct) }

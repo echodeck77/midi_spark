@@ -39,30 +39,48 @@ CHORD variant (to be defined).
   (each names its scale; tap = switch active, LIVE) over the ROOT/SCALE/RANGE +
   EXCLUDE editor for the active slot.
 
-## THE CHORD DOOR (Paul 2026-09-04) — BUILT (sibling of the scale door)
+## THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-05) — BUILT
 A new `DoorMode.chord`: like SCALE, FOUR instances radio-switched from a strip
-pop-up (the strip CHORD button + a door-sheet launcher). Its pool is a DIATONIC
-CHORD generated from the CHORDS-processor primitives:
-- **Per-instance config:** KEY FROM (a referenced SCALE door ▸/A–D that supplies
-  root+scale; ▸/non-scale ⇒ C major) · DEGREE (I…VII, quality-aware Roman labels) ·
-  VOICING (TRIAD/7TH/ADD9) · SPREAD (CLOSE/OPEN) · base octave.
-- **Engine:** the door's frozen pool = `chordDoorNotes(...)` = `diatonicChord`
-  anchored at the base octave, fed through the KEYS pipeline (self-arms, honours
-  EXCLUDE, plays along) exactly like SCALE. Byte-identical machinery; only the note
-  SOURCE differs (a chord set vs a scale set). `latchPianoResolved` true for `.chord`.
-- **Model:** `ChordPool {source·degree·voicing·spread·baseOct}` +
-  `Receiver.chordPools`/`activeChord` (additive-Optional; nil ⇒ four defaults). The
-  strip/tab/chip name themselves ("A · V7").
-- **Standing set, switched by hand** = the progression (no PATTERN/FOLLOW/WALK modes;
-  the four instances + the radio ARE the way you move between chords).
-- Built end-to-end; iOS builds, macOS 1057 green (+5 tests). DEVICE eye/ear owed.
+pop-up. Each instance is the **full CHORDS PROCESSOR**, reused wholesale so future
+processor work reflects on the door for free. The door AUTONOMOUSLY plays its
+progression on the transport clock — its pool is TIME-VARYING.
+
+**The three shared surfaces (the "future dev reflects" contract):**
+- **Config = `ColourParams`.** `Receiver.chordSeqs: [ColourParams]?` (4) — only the
+  `chords*` fields matter; a future `chords*` field appears on the door automatically.
+  (`activeChord` = the radio. nil ⇒ four interesting default progressions,
+  `Receiver.defaultChordSeqs`, all referencing KEY-FROM door D.)
+- **Editor = the processor's `ProcessorBox`.** The pop-up mounts the real CHORDS
+  editor (slotMode, chrome hidden) bound to the active instance — LITERALLY identical
+  controls (MODE · SCALE-FROM · degree MATRIX · VOICING · SPREAD · RATE · STEPS · WALK).
+- **Engine = one pure `chordSeqNotes(beat, params, keyRoot, keyTones, followNote)`**
+  (Derivations). The Router's CHORDS stage calls it (behaviour-identical refactor) AND
+  the Kernel's door pool-fill calls it — one derivation.
+
+**Time-varying pool:** the builder puts each chord door's active config into the box
+(`receiverChordsParams[4]`); the Kernel walks the progression per render on
+`renderBeatPos` (host or free-run beat), keyed by the SCALE-FROM door
+(`chordsScaleRef`), and fills the door's latch pool (beat-derived, replay-safe). The
+builder bakes NO static pool for a chord door (`receiverPianoNotes` empty; the piano
+bit still set so the Kernel fills it live). The `SnapshotBuilder.applyChords` copy is
+also shared between the cell build and the door build.
+
+**Default rig (makeInit):** D → SCALE door (A mixolydian, existing); C → CHORD door;
+C's four instances = AXIS (I–V–vi–IV) · 50s (I–vi–IV–V) · JAZZ ii7–V7–I7–vi7 ·
+PACHELBEL (I–V–vi–iii–IV–I–IV–V), all KEY FROM D.
+
+Built end-to-end; iOS builds, macOS 1057 green (+5 tests). DEVICE eye/ear owed.
 
 ### CHORD-door judgment calls (device-owed)
-- Each instance is ONE standing chord (degree-selected). If you want a door to WALK a
-  progression or FOLLOW played input over time, that's a separate mode (not built).
-- KEY FROM references a SCALE door; a non-scale/absent source silently falls back to
-  C major (a small "using C major" hint shows in the editor).
+- **FOLLOW** on a door has no grid trigger; the pool-fill passes `followNote: nil`, so
+  FOLLOW sits on the tonic without play-along input (v1 — wiring the door's live input
+  to name the degree is a follow-up).
+- **Free-run**: when the transport is stopped, the progression only advances if the
+  free-run clock is driving `renderBeatPos`; otherwise the door holds one chord.
+- The strip label is "A · CHRD" (the live chord changes on the beat, so it names the
+  door, not a frozen chord). No matrix playhead in the door editor yet (liveStep = -1).
 - Same self-arm visual caveat as SCALE (the strip amber reads off the manual latch).
+- Each instance carries a full `ColourParams` (only `chords*` used) — the price of reuse.
 
 ## Device-owed / judgment calls
 - The SCALE button's amber "engaged" visual still reads off the MANUAL latch mask —

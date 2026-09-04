@@ -3725,8 +3725,6 @@ final class Router {
                 // STEPS+RATE (Paul 2026-09-01): the progression advances on its OWN clock (chordsRateBeats), NOT per grid
                 // column — so it steps at a musical tempo and plays THROUGH even on a frozen/pinned audition (m keeps
                 // advancing). `step` = the free-running rate-tick index; PATTERN loops it over chordsSteps.
-                let rateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
-                let step = Int((m / rateBeats).rounded(.down))
                 // C2b (Paul 2026-09-01): CHORDS reads its KEY from the REFERENCED door — SCALE FROM ▸A–D, a receiver set to
                 // SCALE. The cell's OWN input is the TRIGGER (FOLLOW names the degree from the note you play); this separate
                 // door supplies root+scale. No valid scale reference ⇒ the C-major fallback (p.chordsRoot/Scale, default C).
@@ -3734,21 +3732,12 @@ final class Router {
                 let doorScale = (ref >= 0 && ref < receiverScaleRoot.count && receiverScaleRoot[ref] >= 0)
                 let root = doorScale ? receiverScaleRoot[ref] : p.chordsRoot
                 let scaleTones = doorScale ? receiverScaleType[ref].intervals : p.chordsScale.intervals
-                var deg = 0, rest = false
-                switch p.chordsMode {                           // WHERE the degree comes from
-                case .pattern:                                  // the drawn matrix, its ACTIVE length = chordsSteps (variable — loops every N)
-                    let steps = max(1, min(16, p.chordsSteps))
-                    let degs = (0..<steps).map { $0 < p.chordsDegrees.count ? p.chordsDegrees[$0] : -1 }
-                    (deg, rest) = chordsDegreeAt(step: step, degrees: degs, rotate: p.chordsRotate)
-                case .follow:  deg = scaleDegreeOf(Int(lo), root: root, scaleTones: scaleTones)   // the played note NAMES the degree (in the door's key if declared)
-                case .walk:    deg = chordsWalkDegreeAt(step: step, seed: UInt64(bitPattern: Int64(p.chordsWalkSeed)))  // seeded gravity dice (advances on the rate clock)
-                }
-                if !rest {
-                    let vel = max(1, src.velocity(lo))          // the trigger's velocity
-                    for n in diatonicChord(degree: deg, scaleTones: scaleTones, rootNote: 48 + root,
-                                           voicing: p.chordsVoicing, spread: p.chordsSpread) where n >= 0 && n <= 127 {
-                        dst.noteOn(UInt8(n), velocity: vel, channel: 0)
-                    }
+                // The degree→chord derivation (STEPS/RATE/PATTERN/WALK/FOLLOW) is SHARED with the chord DOOR via chordSeqNotes
+                // — one source of truth so future CHORDS work reflects on both. `m` is the raw beat (steps on tempo, plays
+                // through a pinned audition); FOLLOW names the degree from the trigger `lo`.
+                let vel = max(1, src.velocity(lo))              // the trigger's velocity
+                for n in chordSeqNotes(beat: m, p, keyRoot: root, keyTones: scaleTones, followNote: Int(lo)) {
+                    dst.noteOn(UInt8(n), velocity: vel, channel: 0)
                 }
             }
         case .split:                                           // set-membership filter — RE-POOL when upstream of a driver

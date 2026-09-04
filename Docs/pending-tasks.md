@@ -5,13 +5,16 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-04._
 
-## ★ FOUR SCALE POOLS + THE CHORD DOOR — both BUILT (2026-09-04); DEVICE eye/ear owed
-Spec `Docs/SPEC-four-scale-pools.md`. SCALE (4 radio pools) + CHORD (`DoorMode.chord` — 4 diatonic-chord pools from a
-referenced SCALE door) both built end-to-end (CLAUDE.md status; iOS builds, macOS 1057 green). OPEN:
-- **DEVICE:** verify the live radio switch is heard (both SCALE + CHORD); pop-up legibility/sizing; the SCALE/CHORD strip
-  amber visual (self-arm reads un-engaged, pre-existing); whether the strip label should show the active slot.
-- **CHORD follow-ups (if wanted, not built):** a WALK/FOLLOW door mode (a chord door that moves a progression over time or
-  follows played input) — currently each instance is ONE standing chord. Voice-leading between switched chords (INVERT).
+## ★ FOUR SCALE POOLS + THE CHORD SEQUENCER DOOR — both BUILT (2026-09-05); DEVICE eye/ear owed
+Spec `Docs/SPEC-four-scale-pools.md`. SCALE (4 radio pools) + CHORD (`DoorMode.chord` — a chord SEQUENCER reusing the
+CHORDS processor's config/editor/engine; time-varying pool; 4 default progressions; default rig C→D) both built end-to-end
+(CLAUDE.md status; iOS builds, macOS 1057 green). OPEN:
+- **DEVICE:** verify the live radio switch is heard (SCALE + CHORD); the CHORD sequencer actually walks on the beat (+ the
+  free-run interaction when stopped); the mounted ProcessorBox editor renders cleanly in the door pop-up (legibility/sizing);
+  the SCALE/CHORD strip amber self-arm visual (pre-existing); whether the strip label should show more.
+- **CHORD follow-ups (flagged, not built):** FOLLOW on a door → wire the door's play-along live input to name the degree
+  (v1 sits on the tonic); a matrix PLAYHEAD in the door editor (liveStep from the beat); voice-leading (INVERT) between
+  progression steps; per-instance labels naming the progression (currently "SEQ 1–4").
 
 ## ★ SPAN-ONLY PART AUTOMATION — Phase 1 LANDED; Phase 2 APPROVED + ⏸ PARKED for Paul's device time (2026-09-04)
 Phase 1 (step spans, drag-to-draw, default-on-arm, compile-time bake) DONE + green (`ad9fb75`+`97038c7`; CLAUDE.md

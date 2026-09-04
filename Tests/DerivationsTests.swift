@@ -950,17 +950,29 @@ final class DerivationsTests: XCTestCase {
         // Clamped inputs: octaves 0 → 1, baseOct 99 → 8 (never traps, always ≥ 1 octave).
         XCTAssertFalse(scaleNotes(root: 0, type: .major, baseOct: 99, octaves: 0).isEmpty)
     }
-    // THE CHORD DOOR (Paul 2026-09-04): chordDoorNotes anchors the diatonicChord root at baseOct (root MIDI = pc + baseOct*12+12).
-    func testChordDoorNotesAnchorsAndStacksThirds() {
-        // C major I triad at octave 3: root C = 48 → C E G = 48,52,55.
-        XCTAssertEqual(chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 0, voicing: .triad, spread: .close, baseOct: 3), [48, 52, 55])
-        // The V (degree 4) of C major, triad = G B D → 55,59,62.
-        XCTAssertEqual(chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 4, voicing: .triad, spread: .close, baseOct: 3), [55, 59, 62])
-        // A 7th adds a fourth voice.
-        XCTAssertEqual(chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 0, voicing: .seventh, spread: .close, baseOct: 3).count, 4)
-        // Matches diatonicChord directly (chordDoorNotes is just the octave-anchored wrapper).
-        XCTAssertEqual(chordDoorNotes(root: 2, scaleTones: ScaleType.naturalMinor.intervals, degree: 3, voicing: .triad, spread: .open, baseOct: 4),
-                       diatonicChord(degree: 3, scaleTones: ScaleType.naturalMinor.intervals, rootNote: 2 + 4 * 12 + 12, voicing: .triad, spread: .open))
+    // THE CHORD SEQUENCER (Paul 2026-09-04): chordSeqNotes — the SHARED derivation the CHORDS processor + the chord DOOR use.
+    func testChordSeqNotesWalksThePatternOnTheBeat() {
+        var p = SnapParams()
+        p.chordsMode = .pattern; p.chordsDegrees = [0, 4, 5, 3]; p.chordsSteps = 4; p.chordsRateBeats = 1   // I–V–vi–IV, one chord/beat
+        let tones = ScaleType.major.intervals
+        // bar 0 (beat 0.5) → I = C E G (root MIDI 48).
+        XCTAssertEqual(chordSeqNotes(beat: 0.5, p, keyRoot: 0, keyTones: tones, followNote: nil), [48, 52, 55])
+        // beat 1.x → V = G B D.
+        XCTAssertEqual(chordSeqNotes(beat: 1.2, p, keyRoot: 0, keyTones: tones, followNote: nil), [55, 59, 62])
+        // step 4 loops back to I.
+        XCTAssertEqual(chordSeqNotes(beat: 4.0, p, keyRoot: 0, keyTones: tones, followNote: nil),
+                       chordSeqNotes(beat: 0.0, p, keyRoot: 0, keyTones: tones, followNote: nil))
+        // A REST degree (7) yields no notes.
+        p.chordsDegrees = [7, 0, 0, 0]
+        XCTAssertTrue(chordSeqNotes(beat: 0.0, p, keyRoot: 0, keyTones: tones, followNote: nil).isEmpty)
+        // FOLLOW names the degree from the trigger note (nil ⇒ the tonic).
+        p.chordsMode = .follow
+        XCTAssertEqual(chordSeqNotes(beat: 0.0, p, keyRoot: 0, keyTones: tones, followNote: nil),
+                       diatonicChord(degree: 0, scaleTones: tones, rootNote: 48, voicing: .triad, spread: .close))
+        // WALK is deterministic for a fixed seed/step.
+        p.chordsMode = .walk; p.chordsWalkSeed = 7
+        XCTAssertEqual(chordSeqNotes(beat: 3.0, p, keyRoot: 0, keyTones: tones, followNote: nil),
+                       chordSeqNotes(beat: 3.0, p, keyRoot: 0, keyTones: tones, followNote: nil))
     }
     // AVOID/LOCK (unified 2026-08-31): the declared-key reference mask + the keyFilterNote directions it drives.
     func testScalePitchClassMaskAndKeyFilterDirections() {

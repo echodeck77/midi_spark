@@ -737,18 +737,6 @@ struct ScalePool: Codable, Equatable {
     var octaves: Int = 2         // span
 }
 
-// THE CHORD DOOR (Paul 2026-09-04): a door mode built on the CHORDS processor — its pool is a DIATONIC CHORD, generated from
-// a referenced SCALE door (the key + scale) by DEGREE, with a VOICING + SPREAD. Like SCALE: FOUR instances, radio-switched
-// from a strip pop-up. A standing set (no playing needed); switching the four by hand IS the progression. `source` = the
-// SCALE door 0…3 that supplies key+scale (−1 = none ⇒ C major fallback, mirroring the CHORDS processor). `degree` 0=I…6=vii.
-struct ChordPool: Codable, Equatable {
-    var source: Int = -1              // which SCALE door (0…3) supplies root+scale; −1 = none → C major
-    var degree: Int = 0              // 0=I … 6=vii (diatonic scale degree = the chord root within the key)
-    var voicing: ChordVoicing = .triad   // TRIAD | 7TH | ADD9
-    var spread: ChordSpread = .close     // CLOSE | OPEN
-    var baseOct: Int = 3             // octave anchor for the chord root
-}
-
 struct Receiver: Codable, Equatable {
     var name: String = ""
     var channel: Int = 0        // 0 = OMNI (default), 1–16 = single wire channel (wire ch = channel − 1)
@@ -846,16 +834,36 @@ struct Receiver: Codable, Equatable {
         return "\(names[scaleRootResolved]) \(scaleTypeResolved.label)"
     }
     var scaleOctavesResolved: Int { max(1, min(4, activePool.octaves)) }
-    // THE CHORD DOOR (Paul 2026-09-04): FOUR chord pools, radio-switched (mirrors the scale pools). Additive-Optional —
-    // nil ⇒ four default pools (C major I triad; source −1 = C-major fallback). No legacy single-chord to migrate (new mode).
-    var chordPools: [ChordPool]? = nil
+    // THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-04): the door reuses the CHORDS PROCESSOR's config wholesale — each of
+    // FOUR instances IS a `ColourParams` (only its `chords*` fields are used), so the door's editor + per-beat derivation are
+    // literally the processor's, and future CHORDS work reflects on the door for free. Radio-switched (activeChord). Additive-
+    // Optional; nil ⇒ four INTERESTING default progressions (`defaultChordSeqs`). The pool is TIME-VARYING: the Kernel walks
+    // the progression on the beat (PATTERN/WALK) at the chord RATE, keyed by the SCALE door named in `chordsScaleRef`.
+    // (The old single-chord `chordPools`/`ChordPool` shape, shipped 2026-09-04 fe708c7, is gone — its stale JSON key decodes
+    // away harmlessly since Codable ignores unknown keys; a doc from that few-hour window re-seeds the default progressions.)
+    var chordSeqs: [ColourParams]? = nil
     var activeChord: Int? = nil
     var activeChordResolved: Int { max(0, min(3, activeChord ?? 0)) }
-    var chordPoolsResolved: [ChordPool] {
-        guard let p = chordPools else { return [ChordPool(), ChordPool(), ChordPool(), ChordPool()] }
-        var out = Array(p.prefix(4)); while out.count < 4 { out.append(ChordPool()) }; return out
+    var chordSeqsResolved: [ColourParams] {
+        guard let s = chordSeqs else { return Receiver.defaultChordSeqs }
+        var out = Array(s.prefix(4)); while out.count < 4 { out.append(ColourParams()) }; return out
     }
-    var activeChordPool: ChordPool { chordPoolsResolved[activeChordResolved] }
+    var activeChordSeq: ColourParams { chordSeqsResolved[activeChordResolved] }
+    /// FOUR interesting default progressions (all reference the KEY-FROM door D per the default rig; PATTERN, one chord/bar).
+    static let defaultChordSeqs: [ColourParams] = {
+        func seq(_ degrees: [Int], steps: Int, voicing: ChordVoicing = .triad) -> ColourParams {
+            var p = ColourParams()
+            p.chordsMode = .pattern; p.chordsDegrees = degrees; p.chordsSteps = steps
+            p.chordsRate = .r1_1; p.chordsVoicing = voicing; p.chordsSpread = .close; p.chordsScaleRef = 3   // KEY FROM = door D
+            return p
+        }
+        return [
+            seq([0, 4, 5, 3], steps: 4),                    // AXIS: I–V–vi–IV
+            seq([0, 5, 3, 4], steps: 4),                    // 50s: I–vi–IV–V
+            seq([1, 4, 0, 5], steps: 4, voicing: .seventh), // JAZZ turnaround: ii7–V7–I7–vi7
+            seq([0, 4, 5, 2, 3, 0, 3, 4], steps: 8),        // PACHELBEL: I–V–vi–iii–IV–I–IV–V
+        ]
+    }()
     /// KEYS-style derived pool: on for an explicit KEYS **or SCALE** door (a scale is a pre-typed pool); else the legacy
     /// field EXACTLY (byte-identical for old docs). The note SOURCE differs (tapped keys vs the derived scale set).
     var latchPianoResolved: Bool { doorMode.map { $0 == .keys || $0 == .scale || $0 == .chord } ?? (latchPiano ?? false) }
@@ -1576,6 +1584,9 @@ struct PluginState: Codable, Equatable {
         if state.receivers!.count > 3 {   // DEFAULT: receiver D → A MIXOLYDIAN scale door (Paul 2026-08-29) — fresh instances only
             state.receivers![3].doorMode = .scale; state.receivers![3].scaleRoot = 9; state.receivers![3].scaleType = .mixolydian
         }
+        // DEFAULT RIG (Paul 2026-09-04): receiver C → a CHORD door (the chord sequencer), taking its KEY FROM door D above.
+        // chordSeqs stays nil ⇒ the four interesting default progressions (Receiver.defaultChordSeqs, all chordsScaleRef = D).
+        if state.receivers!.count > 2 { state.receivers![2].doorMode = .chord }
         // A FRESH INSTANCE IS SILENT (Paul 2026-08-29): the grid starts EMPTY — no default cells — so a held note produces
         // NOTHING until the user selects/ferries a cell. (Previously makeInit placed 8 GOLD .drone cells across the top row,
         // a legato straight-through passthrough; with the rooms interface the arrangement is built on the play/part grids,

@@ -179,6 +179,31 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE CHORD DOOR = a chord SEQUENCER — re-architected to REUSE the CHORDS processor (2026-09-05, on branch
+    `feature/chord-door-sequencer`; iOS builds, macOS 1057 green; DEVICE eye/ear owed). Paul: "the same chord sequencer that
+    appears in the sequencer, identical controls; future processor dev must reflect on the door; 4 interesting default chord
+    sequences; D as the chord door's key source; chord mode default on receiver C." SUPERSEDES the 2026-09-04 single-chord
+    `ChordPool` door (fe708c7) — that model is gone (its stale JSON key decodes away harmlessly). **THE SHARING (the "future
+    dev reflects" contract — three shared surfaces):** ① CONFIG = `ColourParams` — `Receiver.chordSeqs: [ColourParams]?` (4;
+    only `chords*` fields used) + `activeChord`; a future `chords*` field appears on the door for free. ② EDITOR = the
+    processor's own `ProcessorBox` — the pop-up MOUNTS it (slotMode, `showSlotChrome:false`, `plainTitle`) bound to the active
+    instance's ColourParams, so the controls are LITERALLY identical (MODE·SCALE-FROM·degree MATRIX·VOICING·SPREAD·RATE·STEPS·
+    WALK); `onEdit` persists via `setReceiverChordSeq`. ③ ENGINE = one pure `chordSeqNotes(beat,p,keyRoot,keyTones,followNote)`
+    (Derivations) — the Router's CHORDS stage was REFACTORED to call it (behaviour-identical; all existing CHORDS RouterTests
+    green) AND the Kernel door-fill calls it. `SnapshotBuilder.applyChords` (the ColourParams→SnapParams chords copy) is also
+    shared between the cell build + the door build. **TIME-VARYING POOL:** the builder puts each chord door's active config into
+    the box (`receiverChordsParams: [SnapParams?]`); the Kernel walks the progression per render on `renderBeatPos` (host/free-
+    run), keyed by the SCALE-FROM door (`chordsScaleRef` → `receiverScaleRoot/Type`), and fills the latch pool (beat-derived,
+    replay-safe). The builder bakes NO static chord pool (`receiverPianoNotes` empty for a chord door; piano bit still set so
+    the Kernel fills it live). **DEFAULT RIG (makeInit):** D → SCALE door (existing A mixolydian); C → CHORD door; C's 4
+    instances = `Receiver.defaultChordSeqs` (AXIS I–V–vi–IV · 50s I–vi–IV–V · JAZZ ii7–V7–I7–vi7 · PACHELBEL, all KEY FROM D).
+    **UI:** strip CHORD button opens `buildReceiverChordPopup` (mounts the editor); door-sheet "EDIT CHORD SEQUENCER ▸"
+    launcher; slot RADIO (SEQ 1–4); strip/tab label "A · CHRD" (`buildChordDoorLabel`). **+5 tests** (chordSeqNotes pattern/
+    walk/follow/rest/loop · box carries the config + no static pool · radio switches the box config · chordSeqs decode-tolerant
+    incl. the stale `chordPools` key ignored · the default rig wires C→D). **JUDGMENT CALLS (Paul-answered + flagged):** RADIO
+    switch confirmed; time-varying autonomous confirmed; FOLLOW on a door sits on the tonic (no play-along trigger wired, v1);
+    free-run interaction device-owed; no matrix playhead in the door editor yet (liveStep −1). Spec: `Docs/SPEC-four-scale-
+    pools.md` (CHORD section rewritten).**
 - **▶ THE CHORD DOOR — a new latch/key/hold-class door mode (2026-09-04, on branch `feature/chord-door`; iOS builds, macOS
     1057 green +5; DEVICE eye/ear owed). Paul's spec: a new `DoorMode.chord`, a SIBLING of the scale door — FOUR instances
     radio-switched from a strip pop-up, each a DIATONIC CHORD generated (CHORDS-processor primitives) from a referenced SCALE

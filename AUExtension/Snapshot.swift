@@ -401,6 +401,7 @@ final class SnapshotBox {
     let receiverRangeHi: [UInt8]     // RANGE (§2): the 4 receivers' note-window high bound (0…127)
     let receiverScaleRoot: [Int]     // CHORDS C2b#1 (Paul 2026-09-01): the 4 receivers' declared scale ROOT (pitch class 0…11) when the door is in SCALE mode, else −1 (no scale). CHORDS reads its key from here — "plays in whatever key D declares."
     let receiverScaleType: [ScaleType]  // …and the scale TYPE (paired with receiverScaleRoot; .major when the door isn't a scale door — only read where receiverScaleRoot ≥ 0)
+    let receiverChordsParams: [SnapParams?]  // THE CHORD DOOR (Paul 2026-09-04): per door, the active chord-sequencer config (nil unless a CHORD door). The Kernel walks it on the beat (chordSeqNotes) to fill the door's pool — the SAME config+derivation as the CHORDS processor.
     let passEmitterMask: [UInt8]     // NO-MACHINE WIRE (Paul 2026-08-23): per door, the UNION of empty-chain (passthrough) cells' emitters — their input passes straight through in realtime via reconcileBypass (like bypass, but per-cell)
     let receiverControllerMask: [UInt8]  // CONTROLLER ROUTING (v1): each door's emitters (A–D) it forwards incoming CC/PB/AT/PC to, re-stamped. Default ALL-LIVE.
     let receiverPianoMask: UInt8         // PIANO LATCH: bit i = receiver i's latch reads its on-screen keyboard selection (not live input)
@@ -444,6 +445,7 @@ final class SnapshotBox {
          receiverDisabledMask: UInt8 = 0,
          receiverRangeLo: [UInt8] = [0, 0, 0, 0], receiverRangeHi: [UInt8] = [127, 127, 127, 127],
          receiverScaleRoot: [Int] = [-1, -1, -1, -1], receiverScaleType: [ScaleType] = [.major, .major, .major, .major],
+         receiverChordsParams: [SnapParams?] = [nil, nil, nil, nil],
          passEmitterMask: [UInt8] = [0, 0, 0, 0],
          receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverPianoMask: UInt8 = 0, receiverPianoNotes: [[UInt8]] = [[], [], [], []],
@@ -500,6 +502,7 @@ final class SnapshotBox {
         self.receiverRangeHi = receiverRangeHi
         self.receiverScaleRoot = receiverScaleRoot
         self.receiverScaleType = receiverScaleType
+        self.receiverChordsParams = receiverChordsParams
         self.passEmitterMask = passEmitterMask
         self.receiverControllerMask = receiverControllerMask
         self.receiverPianoMask = receiverPianoMask

@@ -7,6 +7,22 @@ import Foundation
 
 enum SnapshotBuilder {
 
+    /// Copy a ColourParams' CHORDS config into a SnapParams (the resolved snapshot form). ONE source of truth, SHARED by the
+    /// processor's per-cell build AND the chord DOOR's per-door build — so a future `chords*` field reflects on both. (Paul 2026-09-04)
+    static func applyChords(_ p: ColourParams, into out: inout SnapParams) {
+        if let v = p.chordsMode { out.chordsMode = v }
+        out.chordsRoot = p.chordsRootResolved
+        out.chordsScale = p.chordsScaleResolved
+        out.chordsDegrees = p.chordsDegreesResolved.map { clamp($0, -1, 7) }
+        out.chordsVoicing = p.chordsVoicingResolved
+        out.chordsSpread = p.chordsSpreadResolved
+        if let v = p.chordsRotate { out.chordsRotate = ((v % 8) + 8) % 8 }
+        if let v = p.chordsWalkSeed { out.chordsWalkSeed = v }
+        out.chordsScaleRef = p.chordsScaleRefResolved
+        out.chordsRateBeats = p.chordsRateResolved.beats
+        out.chordsSteps = p.chordsStepsResolved
+    }
+
     static func build(from doc: PluginState, generation: UInt64 = 0, hues: [String: UInt32] = [:]) -> SnapshotBox {
         let scene = doc.activeSceneState   // MULTI-SCENE: bounds-safe active scene (never an out-of-range crash)
 
@@ -246,16 +262,19 @@ enum SnapshotBuilder {
             case .scale:
                 notes = scaleNotes(root: r.scaleRootResolved, type: r.scaleTypeResolved, baseOct: r.scaleBaseOctResolved, octaves: r.scaleOctavesResolved)
             case .chord:
-                // THE CHORD DOOR: a diatonic chord from a referenced SCALE door (the key). Not a scale door / no source ⇒ C major.
-                let cp = r.activeChordPool
-                let ok = cp.source >= 0 && cp.source < recvsForPool.count && recvsForPool[cp.source].doorModeResolved == .scale
-                let root  = ok ? recvsForPool[cp.source].scaleRootResolved : 0
-                let tones = ok ? recvsForPool[cp.source].scaleTypeResolved.intervals : ScaleType.major.intervals
-                notes = chordDoorNotes(root: root, scaleTones: tones, degree: cp.degree, voicing: cp.voicing, spread: cp.spread, baseOct: cp.baseOct)
+                // THE CHORD DOOR = a SEQUENCER: its pool is TIME-VARYING (walked on the beat by the Kernel via chordSeqNotes),
+                // so nothing is pre-baked here. The pianoMask bit is still set (latchPianoResolved) so the Kernel fills it live.
+                notes = []
             default:
                 notes = r.pianoNotesResolved
             }
             return notes.map { UInt8(max(0, min(127, $0))) }
+        }
+        // THE CHORD DOOR config → the box (per door): the active chord-sequencer's SnapParams, nil unless a CHORD door. The
+        // Kernel reads this + the KEY-FROM door's scale to walk the progression on the beat. (Paul 2026-09-04)
+        let receiverChordsParams: [SnapParams?] = recvsForPool.map { r in
+            guard r.doorModeResolved == .chord else { return nil }
+            var sp = SnapParams(); SnapshotBuilder.applyChords(r.activeChordSeq, into: &sp); return sp
         }
         let receiverExcludeDoor = doc.receiversResolved.enumerated().map { (i, r) -> Int8 in let d = r.excludeDoorResolved; return d == i ? -1 : Int8(d) }   // never exclude self
         let receiverExcludeOnly = packMask(doc.receiversResolved.map { $0.excludeModeResolved == .only })    // §3: INTERSECT vs subtract
@@ -336,6 +355,7 @@ enum SnapshotBuilder {
                            receiverRangeHi: receiverRangeHi,
                            receiverScaleRoot: receiverScaleRoot,
                            receiverScaleType: receiverScaleType,
+                           receiverChordsParams: receiverChordsParams,
                            passEmitterMask: passEmit,
                            receiverControllerMask: receiverControllerMask,
                            receiverPianoMask: receiverPianoMask,
@@ -460,18 +480,7 @@ enum SnapshotBuilder {
         if let v = p.tapLevel { out.tapLevel = max(0, min(2, v)) }
         if let v = p.tapTo { out.tapTo = clamp(v, 0, 4) }
         if let v = p.tapMute { out.tapMute = v }
-        // CHORDS (ratified 2026-09-01)
-        if let v = p.chordsMode { out.chordsMode = v }
-        out.chordsRoot = p.chordsRootResolved
-        out.chordsScale = p.chordsScaleResolved
-        out.chordsDegrees = p.chordsDegreesResolved.map { clamp($0, -1, 7) }
-        out.chordsVoicing = p.chordsVoicingResolved
-        out.chordsSpread = p.chordsSpreadResolved
-        if let v = p.chordsRotate { out.chordsRotate = ((v % 8) + 8) % 8 }
-        if let v = p.chordsWalkSeed { out.chordsWalkSeed = v }
-        out.chordsScaleRef = p.chordsScaleRefResolved
-        out.chordsRateBeats = p.chordsRateResolved.beats
-        out.chordsSteps = p.chordsStepsResolved
+        SnapshotBuilder.applyChords(p, into: &out)   // CHORDS (ratified 2026-09-01) — SHARED with the chord DOOR (below)
         if let v = p.rtcMode { out.rtcMode = v }
         if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
         if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }

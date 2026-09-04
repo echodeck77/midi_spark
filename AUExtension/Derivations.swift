@@ -714,12 +714,26 @@ func diatonicChord(degree deg: Int, scaleTones: [Int], rootNote: Int,
     return notes.map { max(0, min(127, $0)) }.sorted()
 }
 
-/// THE CHORD DOOR pool (Paul 2026-09-04): a standing diatonic chord for a door — `diatonicChord` with the root octave anchored
-/// at `baseOct` (root MIDI = pitchClass + baseOct*12 + 12, the `scaleNotes` convention). `root` = key pitch class (0…11),
-/// `scaleTones` = the source scale's intervals. Returns ascending MIDI notes, clamped. Pure/testable.
-func chordDoorNotes(root: Int, scaleTones: [Int], degree: Int, voicing: ChordVoicing, spread: ChordSpread, baseOct: Int) -> [Int] {
-    let rootNote = (((root % 12) + 12) % 12) + max(0, min(8, baseOct)) * 12 + 12
-    return diatonicChord(degree: degree, scaleTones: scaleTones, rootNote: rootNote, voicing: voicing, spread: spread)
+/// THE CHORD SEQUENCER derivation (Paul 2026-09-04): the diatonic chord at beat `m` for a CHORDS config, in a resolved key.
+/// SHARED by the CHORDS PROCESSOR stage (Router.applyStage) AND the chord DOOR pool-fill (Kernel) so they can NEVER diverge —
+/// this is the "future processor work reflects on the door" contract in one function. `step = floor(m / chordsRateBeats)`;
+/// PATTERN reads the drawn matrix (active length = chordsSteps, CARRY/REST honoured), WALK the seeded gravity dice, FOLLOW
+/// names the degree from `followNote` (nil ⇒ the tonic — a door with no play-along input sits on I). `root`/`scaleTones` are
+/// the ALREADY-RESOLVED key (the caller reads the SCALE-FROM door or the card key). Returns ascending MIDI notes, [] on REST.
+func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?) -> [Int] {
+    let rateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
+    let step = Int((m / rateBeats).rounded(.down))
+    var deg = 0, rest = false
+    switch p.chordsMode {
+    case .pattern:
+        let steps = max(1, min(16, p.chordsSteps))
+        let degs = (0..<steps).map { $0 < p.chordsDegrees.count ? p.chordsDegrees[$0] : -1 }
+        (deg, rest) = chordsDegreeAt(step: step, degrees: degs, rotate: p.chordsRotate)
+    case .follow: deg = scaleDegreeOf(followNote ?? root, root: root, scaleTones: scaleTones)
+    case .walk:   deg = chordsWalkDegreeAt(step: step, seed: UInt64(bitPattern: Int64(p.chordsWalkSeed)))
+    }
+    guard !rest else { return [] }
+    return diatonicChord(degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread).filter { $0 >= 0 && $0 <= 127 }
 }
 
 /// Voice-lead `chord` toward `previous` (SPEC-chords-stage §1 INVERT): pick the octave-rotation (inversion) whose notes sit

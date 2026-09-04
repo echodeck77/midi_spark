@@ -305,8 +305,21 @@ final class Kernel {
                 // reading this door still admits the notes (matches captureFiltered's channel-preserving behaviour).
                 let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
                 latchedPools[i].reset()
-                for n in (i < pianoNotes.count ? pianoNotes[i] : []) { latchedPools[i].noteOn(n, velocity: 100, channel: stampCh) }   // KEYS/SCALE derived pool
-                mergeLiveIntoLatched(i)   // KEYS/SCALE: play ALONG live — the door's enabled channels feed the grid on top of the picked pool (Paul 2026-08-23)
+                if let cp = (i < chordDoorParams.count ? chordDoorParams[i] : nil) {
+                    // THE CHORD DOOR = a SEQUENCER (Paul 2026-09-04): walk the progression on the beat via chordSeqNotes (the
+                    // SAME derivation the CHORDS processor uses), keyed by the SCALE-FROM door (chordsScaleRef). Beat-derived
+                    // (renderBeatPos) → one-clock, replay-safe. FOLLOW with no play-along input sits on the tonic (v1).
+                    let ref = cp.chordsScaleRef
+                    let doorScale = ref >= 0 && ref < chordScaleRoot.count && chordScaleRoot[ref] >= 0
+                    let root = doorScale ? chordScaleRoot[ref] : cp.chordsRoot
+                    let tones = doorScale ? chordScaleType[ref].intervals : cp.chordsScale.intervals
+                    for n in chordSeqNotes(beat: renderBeatPos, cp, keyRoot: root, keyTones: tones, followNote: nil) {
+                        latchedPools[i].noteOn(UInt8(n), velocity: 100, channel: stampCh)
+                    }
+                } else {
+                    for n in (i < pianoNotes.count ? pianoNotes[i] : []) { latchedPools[i].noteOn(n, velocity: 100, channel: stampCh) }   // KEYS/SCALE derived pool
+                }
+                mergeLiveIntoLatched(i)   // KEYS/SCALE/CHORD: play ALONG live — the door's enabled channels feed the grid on top of the derived pool (Paul 2026-08-23)
                 // The KEY FILTER (EXCLUDE/ONLY + BLOCK/SNAP) is applied UNIFORMLY in pass 2 below — it references door B's
                 // RESOLVED pool, which needs every door built first (so a SCALE key-door reads correctly, not empty-live).
                 continue
@@ -460,6 +473,9 @@ final class Kernel {
     private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-emitter stamp channels (for the re-stamp forward)
     private var pianoMask: UInt8 = 0                                          // PIANO LATCH: doors whose frozen pool is the on-screen keyboard
     private var pianoNotes: [[UInt8]] = [[], [], [], []]                      // PIANO LATCH: per-door chosen notes
+    private var chordDoorParams: [SnapParams?] = [nil, nil, nil, nil]         // THE CHORD DOOR: per-door chord-sequencer config (nil unless a CHORD door)
+    private var chordScaleRoot: [Int] = [-1, -1, -1, -1]                      // …and the per-door declared scale ROOT (for a chord door's KEY-FROM lookup)
+    private var chordScaleType: [ScaleType] = [.major, .major, .major, .major]  // …and TYPE
     private var receiverExcludeDoor: [Int8] = [-1, -1, -1, -1]                // KEY FILTER: per door, the reference door whose pitch classes filter its pool (-1 = OFF)
     private var receiverExcludeOnly: UInt8 = 0                                // KEY FILTER §3: bit i = door i INTERSECTS (ONLY) vs subtracts (MINUS) the reference
     private var receiverExcludeSnap: UInt8 = 0                                // KEY FILTER §3: bit i = door i SNAPS out-of-set notes vs BLOCKs them
@@ -774,6 +790,9 @@ final class Kernel {
         busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
         pianoMask = box.receiverPianoMask               // PIANO LATCH: which doors read the keyboard
         pianoNotes = box.receiverPianoNotes
+        chordDoorParams = box.receiverChordsParams      // THE CHORD DOOR: per-door sequencer config (nil unless a chord door)
+        chordScaleRoot = box.receiverScaleRoot          // …and the declared scale per door (for a chord door's KEY-FROM read)
+        chordScaleType = box.receiverScaleType
         receiverExcludeDoor = box.receiverExcludeDoor   // KEY FILTER: the reference door
         receiverExcludeOnly = box.receiverExcludeOnly   // §3: INTERSECT (ONLY) vs subtract (MINUS)
         receiverExcludeSnap = box.receiverExcludeSnap   // §3: SNAP vs BLOCK
