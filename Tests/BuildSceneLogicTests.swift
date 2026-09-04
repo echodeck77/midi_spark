@@ -634,4 +634,47 @@ final class BuildSceneLogicTests: XCTestCase {
                                                  partActive: false, selectedPlayCol: nil, playColOn: on)
         XCTAssertEqual(none.kind, .none); XCTAssertFalse(none.playing)
     }
+
+    // ── THE PART-GRID TAP CONTRACT (Paul 2026-09-04): an UNPOPULATED cell must ALWAYS be selectable. This reverted once
+    // when the AUTO-lane PUNCH mode was added, so it is now locked here. ────────────────────────────────────────────
+    func testPartGridEmptyCellIsSelectable() {
+        // a normal tap on an EMPTY cell (cid == nil) selects that rung — no population check
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 3, row: 5, currentRung: -1, cid: nil, selectedColourID: "gold",
+                                                   punchArmed: false, selectMode: false, firstTapOfGesture: true),
+                       .selectRung(row: 5))
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 0, row: 2, currentRung: 6, cid: nil, selectedColourID: nil,
+                                                   punchArmed: false, selectMode: false, firstTapOfGesture: true),
+                       .selectRung(row: 2))
+    }
+    func testPartGridEmptyCellSelectableEvenWithAutoLaneArmed() {
+        // THE REGRESSION: with an AUTO lane armed (punchArmed), an EMPTY cell (cid == nil) must STILL select its rung,
+        // not be swallowed by punch. A populated cell of the SELECTED colour punches; everything else falls through.
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 4, row: 1, currentRung: -1, cid: nil, selectedColourID: "gold",
+                                                   punchArmed: true, selectMode: false, firstTapOfGesture: true),
+                       .selectRung(row: 1))
+        // a populated cell of a DIFFERENT colour also falls through to selection (punch is only its own colour)
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 4, row: 1, currentRung: -1, cid: "orange", selectedColourID: "gold",
+                                                   punchArmed: true, selectMode: false, firstTapOfGesture: true),
+                       .selectRung(row: 1))
+        // the punch itself still fires for the selected colour's own cell
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 4, row: 1, currentRung: -1, cid: "gold", selectedColourID: "gold",
+                                                   punchArmed: true, selectMode: false, firstTapOfGesture: true),
+                       .punch(cellIndex: 4 * Snap.rows + 1))
+    }
+    func testPartGridTapSelectedRungDeselectsOnFirstTapButPaintsOnDrag() {
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 2, row: 5, currentRung: 5, cid: "gold", selectedColourID: "gold",
+                                                   punchArmed: false, selectMode: false, firstTapOfGesture: true),
+                       .deselect)   // first tap on the current rung → column silent
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 2, row: 5, currentRung: 5, cid: "gold", selectedColourID: "gold",
+                                                   punchArmed: false, selectMode: false, firstTapOfGesture: false),
+                       .selectRung(row: 5))   // dragging back over it keeps it (paint, not toggle-off)
+    }
+    func testPartGridSelectModeFocusesPopulatedExitsOnEmpty() {
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 1, row: 3, currentRung: -1, cid: "gold", selectedColourID: "gold",
+                                                   punchArmed: false, selectMode: true, firstTapOfGesture: true),
+                       .focus(colourID: "gold"))
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 1, row: 3, currentRung: -1, cid: nil, selectedColourID: "gold",
+                                                   punchArmed: false, selectMode: true, firstTapOfGesture: true),
+                       .exitSelectMode)
+    }
 }

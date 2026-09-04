@@ -407,4 +407,24 @@ enum BuildSceneLogic {
         let kind: MachineKind = (selID == nil && !playing) ? .none : (onSelectPage ? .selectAudition : .partRow)
         return MachineBinding(kind: kind, isGrey: grey, playing: playing)
     }
+
+    // THE PART-GRID TAP DECISION (Paul 2026-09-04). ONE pure resolver for what a tap on the part interior does, so the
+    // "an UNPOPULATED cell is selectable" rule is LOCKED by tests and cannot silently revert again. It did revert once:
+    // the AUTO-lane PUNCH mode was added AFTER that fix and swallowed EVERY non-punch tap (including empty cells) with a
+    // bare `return`. Here PUNCH intercepts ONLY its own cells (the selected colour, populated); everything else falls
+    // through to normal rung selection — so empty cells stay selectable whether or not a lane is armed.
+    enum PartGridTap: Equatable {
+        case punch(cellIndex: Int)     // AUTO PUNCH: toggle this colour's cell in the lane extent
+        case focus(colourID: String)   // SELECT MODE: focus this machine (populated cell)
+        case exitSelectMode            // SELECT MODE tap on an empty cell: just leave select mode
+        case deselect                  // tapped the currently-selected rung → the column goes silent
+        case selectRung(row: Int)      // select (or drag-paint) this rung — POPULATED OR NOT
+    }
+    static func partGridTap(col: Int, row: Int, currentRung: Int, cid: String?, selectedColourID: String?,
+                            punchArmed: Bool, selectMode: Bool, firstTapOfGesture: Bool) -> PartGridTap {
+        if punchArmed, let cid, cid == selectedColourID { return .punch(cellIndex: col * Snap.rows + row) }   // PUNCH only its OWN cells; everything else falls through
+        if selectMode { return cid.map { .focus(colourID: $0) } ?? .exitSelectMode }
+        if firstTapOfGesture && currentRung == row { return .deselect }
+        return .selectRung(row: row)   // EMPTY cells ARE selectable — the contract, locked by test
+    }
 }

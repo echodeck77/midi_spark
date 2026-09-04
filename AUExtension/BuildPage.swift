@@ -2395,16 +2395,19 @@ extension DiagView {
         guard key != buildPartDragLast else { return }                  // act ONCE per cell entered
         buildPartDragLast = key
         let cid = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil
-        if buildAutoArmedParam() != nil {                               // PUNCH: toggle THIS colour's cell in the extent
-            if let cid, cid == ddSelectedColourID { buildAutoToggle(c * Snap.rows + r) }
-            return
+        let cur = c < buildStagingSel.count ? buildStagingSel[c] : -1
+        // ONE pure decision (BuildSceneLogic.partGridTap) — empty cells stay selectable even with an AUTO lane armed
+        // (Paul 2026-09-04: the PUNCH branch used to swallow them). See testPartGrid* for the locked contract.
+        switch BuildSceneLogic.partGridTap(col: c, row: r, currentRung: cur, cid: cid, selectedColourID: ddSelectedColourID,
+                                           punchArmed: buildAutoArmedParam() != nil, selectMode: buildSelectMode, firstTapOfGesture: first) {
+        case .punch(let idx): buildAutoToggle(idx)
+        case .focus(let fid): buildSelectID(fid); buildSelectMode = false
+        case .exitSelectMode: buildSelectMode = false
+        case .deselect:
+            buildPartTouched = true; if c < buildStagingSel.count { buildStagingSel[c] = -1 }; buildStagingSyncIfPlaying()
+        case .selectRung(let row):
+            buildPartTouched = true; if c < buildStagingSel.count { buildStagingSel[c] = row }; buildStagingSyncIfPlaying()
         }
-        if buildSelectMode { if let cid { buildSelectID(cid) }; buildSelectMode = false; return }   // SELECT MODE: focus
-        buildPartTouched = true
-        if first && (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r {                     // TAP the selected rung → deselect (column silent)
-            if c < buildStagingSel.count { buildStagingSel[c] = -1 }
-        } else if c < buildStagingSel.count { buildStagingSel[c] = r }                               // else select / paint this rung
-        buildStagingSyncIfPlaying()
     }
     // The RIGHT rail — selects the ENTIRE row (every column → this row), like the old gui's row-select. Lights when the
     // whole row is the current per-column selection. (Paul 2026-08-28)
