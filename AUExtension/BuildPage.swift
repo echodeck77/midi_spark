@@ -2101,10 +2101,13 @@ extension DiagView {
                                 let ns = n.start + off, ne = min(n.end + off, winEnd)
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
-                                let bg = CGRect(x: x0 + 0.5, y: yTop, width: max(5, x1 - x0 - 1), height: barH)
-                                ctx.fill(Path(roundedRect: bg, cornerRadius: 3), with: .color(cellHue))                         // BACKGROUND = the CELL's colour (solid)
-                                let note = bg.insetBy(dx: 1.8, dy: 1.8)                                                        // inset so the cell colour shows as a border all around
-                                ctx.fill(Path(roundedRect: note, cornerRadius: 1.5), with: .color(emit))                        // the NOTE = the EMITTER's colour
+                                // A red note on a green background: the NOTE is the full-size EMITTER-colour bar (dominant, never
+                                // insets down to a sliver); the CELL colour is a slightly LARGER rectangle BEHIND it, so it shows
+                                // as a border all around. (Paul 2026-09-04 — the old code insetted the note and short notes vanished.)
+                                let note = CGRect(x: x0 + 0.5, y: yTop, width: max(4, x1 - x0 - 1), height: barH)
+                                let bg = note.insetBy(dx: -2, dy: -2)
+                                ctx.fill(Path(roundedRect: bg, cornerRadius: 3.5), with: .color(cellHue))                        // BACKGROUND = the CELL's colour (behind, a frame)
+                                ctx.fill(Path(roundedRect: note, cornerRadius: 2), with: .color(emit))                           // the NOTE = the EMITTER's colour (full size, on top)
                             }
                         }
                     }
