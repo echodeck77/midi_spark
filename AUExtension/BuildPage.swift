@@ -2070,13 +2070,12 @@ extension DiagView {
                 let winStart = head - winBeats / 2, winEnd = head + winBeats / 2
                 let cam = partRollCamera(notes, winStart: winStart, winEnd: winEnd, cyc: cyc)   // the smooth CAMERA pan/zoom (boxes move with the notes)
                 let pLoF = cam.pLoF, win = cam.win
-                let breath = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 1.9)   // gentle 0…1 pulse — the cell-colour halo breathes
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.26))
                     Canvas { ctx, size in
                         func cy(_ p: Double) -> CGFloat { size.height * CGFloat(1 - (p - pLoF) / win) }   // centre y of a pitch (continuous axis)
                         func xOf(_ beat: Double) -> CGFloat { CGFloat((beat - winStart) / winBeats) * size.width }   // SCROLLING window
-                        let barH = max(2.5, size.height / CGFloat(win) - 1.5)
+                        let barH = max(9, size.height / CGFloat(win) - 1.5)   // READABLE bars (Paul 2026-09-04): tall enough to hold TWO colours — a cell-colour background + an emitter-colour note. Notes at near pitches overlap into merged bands (that's the intended look).
                         // OCTAVE gridlines — glide + zoom with the camera
                         var oct = Int((pLoF / 12).rounded(.up)) * 12
                         while Double(oct) <= pLoF + win { ctx.fill(Path(CGRect(x: 0, y: cy(Double(oct)), width: size.width, height: 1)), with: .color(.white.opacity(0.10))); oct += 12 }
@@ -2088,33 +2087,25 @@ extension DiagView {
                             let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
                             ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.10)), lineWidth: 1)
                         }
-                        // NOTES (Paul 2026-09-03): the NOTE itself is the EMITTER's colour — a bright bar, so you read the
-                        // destination emitter at a glance. Around it, a generous CELL-colour AURA (the backing) in the
-                        // producing cell's own colour — sized so it stays clearly visible at thin bar heights. Both colours
-                        // read distinctly. Drawn at ±loop so the scroll is seamless; y pinned to the edge if outside.
+                        // NOTES (Paul 2026-09-04): each note is a solid CELL-colour BACKGROUND rectangle with the EMITTER-colour
+                        // note inset on top — so the cell colour reads as a clean border/frame around the emitter note. Nothing
+                        // fancy; both colours have room now that the bars are a readable height. Drawn at ±loop for a seamless scroll.
                         for n in notes {
                             let cable = Int(n.cable)
-                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the EMITTER colour = the note
-                            // The CELL colour resolved the SAME way the grid cell paints it (buildStagingCells → colourColor),
-                            // so the aura always matches the cell you see; the emit tag is the fallback.
+                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the NOTE colour = the emitter
+                            // The CELL colour resolved the SAME way the grid cell paints it (buildStagingCells → colourColor).
                             let pc = n.cell / Snap.rows, pr = n.cell % Snap.rows
                             let cellID = (pc >= 0 && pc < buildStagingCells.count && pr >= 0 && pr < buildStagingCells[pc].count) ? buildStagingCells[pc][pr] : nil
                             let cellHue = cellID.flatMap { colourColor($0) } ?? (n.colour != 0 ? Color(hex: n.colour) : selHue)
-                            let vel = Double(n.vel) / 127.0
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
-                            let vpad = min(1.5, (barH - 1) / 2)
                             for off in [-cyc, 0, cyc] {
                                 let ns = n.start + off, ne = min(n.end + off, winEnd)
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
-                                let rect = CGRect(x: x0 + 0.5, y: yTop + vpad, width: max(3, x1 - x0 - 1), height: max(2, barH - 2 * vpad))
-                                // The bars are thin (a whole octave shares little height), so the CELL colour is a generous AURA
-                                // that clearly surrounds the note — never a hairline that vanishes. The EMITTER note is a bright,
-                                // solid core on top. Both colours read at a glance; the aura glows gently for life.
-                                let halo = rect.insetBy(dx: -3.5, dy: -3.5)
-                                ctx.fill(Path(roundedRect: halo, cornerRadius: 5), with: .color(cellHue.opacity(0.44 + 0.14 * breath)))       // CELL-colour AURA — the backing (always clearly visible, gently glowing)
-                                ctx.stroke(Path(roundedRect: halo, cornerRadius: 5), with: .color(cellHue.opacity(0.95)), lineWidth: 1.4)      // crisp CELL-colour edge
-                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(emit.opacity(0.85 + 0.15 * vel)))              // the NOTE = the EMITTER colour (bright, solid core)
+                                let bg = CGRect(x: x0 + 0.5, y: yTop, width: max(5, x1 - x0 - 1), height: barH)
+                                ctx.fill(Path(roundedRect: bg, cornerRadius: 3), with: .color(cellHue))                         // BACKGROUND = the CELL's colour (solid)
+                                let note = bg.insetBy(dx: 1.8, dy: 1.8)                                                        // inset so the cell colour shows as a border all around
+                                ctx.fill(Path(roundedRect: note, cornerRadius: 1.5), with: .color(emit))                        // the NOTE = the EMITTER's colour
                             }
                         }
                     }
