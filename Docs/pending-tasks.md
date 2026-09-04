@@ -5,18 +5,25 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-04._
 
-## ★ SPAN-ONLY PART AUTOMATION — Phase 1 LANDED (2026-09-04, `ad9fb75`+`97038c7`); Phase 2 + polish OPEN
-Phase 1 (step spans, drag-to-draw, default-on-arm, compile-time bake) is done + green (see CLAUDE.md status).
-Plans: `Docs/PLAN-span-automation.md` (BUILT) + `Docs/PLAN-span-automation-phase2.md`. OPEN:
-- **★ PHASE 2 — ×N "PASSES" spans (multi-bar), render-time (BIG-ish).** The ×2/×4/×8 ladder buttons are GREYED:
-  a span longer than the part loop must progress across successive loops, which the compile-time `applyAuto` bake
-  can't express (the baked scene is one loop). Needs a render-time read of the current pass. See the phase-2 plan.
-- **DEVICE-EYE (owed):** the drag-to-draw feel; default-on-arm; the amber tiling highlight; the STATE ramp/playhead;
-  the fixed tab-dot + CLEAR; the two-column proportions + the SPAN 30% column legibility.
-- **2 SMALL UI CALLS (Paul):** (a) the amber/"AUTO N" highlight tiles the WHOLE row (every cell at/after start) —
-  keep, or mark only the first span instance? (b) the drag reads a column range from ANY row (1-D) — confirm on glass.
-- **MINOR DEAD CODE:** `AutoLane.span` (legacy re-anchor) is now fully unused; `cells` survives only for the load
-  migration. Harmless — drop in a future verified sweep once old docs are unlikely.
+## ★ SPAN-ONLY PART AUTOMATION — Phase 1 LANDED; Phase 2 APPROVED + ⏸ PARKED for Paul's device time (2026-09-04)
+Phase 1 (step spans, drag-to-draw, default-on-arm, compile-time bake) DONE + green (`ad9fb75`+`97038c7`; CLAUDE.md
+status). Phase 2 is fully PLANNED + APPROVED but **HELD until Paul is on device** (he wants to steer it on glass + the
+whole AUTO band is device-eye-owed). Plans: `Docs/PLAN-span-automation.md` (BUILT) + `Docs/PLAN-span-automation-phase2.md`
+(approved, all decisions resolved). **TO RESUME, build Phase 2 per the phase-2 plan §9:**
+- **PHASE 2 — ×N "PASSES" spans (render-time).** Un-grey ×2/×4/×8: a span across N bars, evaluated at render time from
+  the current pass (the compile-time bake is one loop, can't progress). `spanPasses` field + a `renderAuto` box
+  descriptor + `SnapParams.settingAuto` (precedent: velOverride/chanOverride). Byte-identical for step/no lanes.
+- **STEP | SMOOTH ramp** (default STEP, continuous-only, greyed for discrete). SMOOTH samples each note at its own beat
+  (finer under a dense driver) — rides the same render-time path as pass spans.
+- **★ CC FRONT AND CENTRE** (Paul's emphasis): make automating a CC (a MOD stage's MIN/MAX) a PROMINENT, early choice in
+  the PARAM row — a smooth CC ramp is the marquee use case (CC is read continuously, so SMOOTH is a true controller
+  sweep). Consider a one-tap "automate CC" that arms a MOD-min/max lane in SMOOTH. Engine already emits MOD CC render-time.
+- **DEVICE-EYE (owed, Phase 1):** the drag feel; default-on-arm; the amber tiling highlight; the STATE ramp/playhead; the
+  fixed tab-dot + CLEAR; the two-column proportions + the SPAN 30% column legibility.
+- **2 SMALL UI CALLS (Paul, on glass):** (a) the "AUTO N" highlight tiles the WHOLE row — keep, or mark only the first
+  span? (b) the drag reads a column range from ANY row (1-D) — confirm.
+- **MINOR DEAD CODE:** `AutoLane.span` (legacy) now fully unused; `cells` survives only for the load migration. Drop in
+  a future verified sweep once old docs are unlikely.
 
 ## ★ OVERNIGHT BATCH 2026-09-03 — landed + FLAGGED deferrals (needs Paul / a dedicated pass)
 Seven queued jobs LANDED (`9010ca1`…`64330ae`; macOS 1023 green; see CLAUDE.md status). What's DEFERRED, and why:
