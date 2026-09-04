@@ -2073,16 +2073,15 @@ extension DiagView {
                     Canvas { ctx, size in
                         func cy(_ p: Double) -> CGFloat { size.height * CGFloat(1 - (p - pLoF) / win) }   // centre y of a pitch (continuous axis)
                         func xOf(_ beat: Double) -> CGFloat { CGFloat((beat - winStart) / winBeats) * size.width }   // SCROLLING window
-                        let barH = max(6, size.height / CGFloat(win) - 1.5)   // READABLE emitter bars (Paul 2026-09-04): a clear minimum so the notes never floor to an invisible sliver.
+                        let barH = max(8, size.height / CGFloat(win) - 1.5)   // READABLE bars (Paul 2026-09-04): a clear minimum so notes never floor to a sliver, and multi-emitter bands stay visible when stacked.
                         // OCTAVE gridlines — glide + zoom with the camera
                         var oct = Int((pLoF / 12).rounded(.up)) * 12
                         while Double(oct) <= pLoF + win { ctx.fill(Path(CGRect(x: 0, y: cy(Double(oct)), width: size.width, height: 1)), with: .color(.white.opacity(0.10))); oct += 12 }
                         // STEP BOXES — one per step, SCROLLING with the window (the "boxes moving with the notes"); subtle so they
                         // don't compete with the current-cell highlight.
                         // COLUMN BOXES = THE CELL (Paul 2026-09-04): each step column plays ONE selected cell, so its box on the
-                        // roll is a BOX in THAT CELL'S colour — a tinted background + a coloured border framing the section of
-                        // notes that cell produces. The notes themselves are just the emitter colour (drawn below). A column with
-                        // no selected cell gets a faint neutral frame.
+                        // roll is a BORDER in THAT CELL'S colour framing the section of notes that cell produces (no fill — Paul).
+                        // The notes themselves are the emitter colour (drawn below). A column with no selected cell = a faint frame.
                         let stepW = size.width / 8
                         let firstStep = Int(floor(winStart / sb))
                         for st in firstStep...(firstStep + 8) {
@@ -2091,24 +2090,33 @@ extension DiagView {
                             let cid = (rung >= 0 && col < buildStagingCells.count && rung < buildStagingCells[col].count) ? buildStagingCells[col][rung] : nil
                             let frame = CGRect(x: xOf(Double(st) * sb) + 1, y: 1, width: stepW - 2, height: size.height - 2)
                             if let hue = cid.flatMap({ colourColor($0) }) {
-                                ctx.fill(Path(roundedRect: frame, cornerRadius: 4), with: .color(hue.opacity(0.20)))              // the CELL's colour, tinted — the section background
-                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(hue.opacity(0.75)), lineWidth: 1.3)   // a box in the CELL's colour around the section
+                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(hue.opacity(0.9)), lineWidth: 1.5)   // a BORDER in the CELL's colour around the section (no fill)
                             } else {
                                 ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.08)), lineWidth: 1)
                             }
                         }
-                        // NOTES (Paul 2026-09-04): each note is just the EMITTER's colour. WHICH cell produced it is shown by the
-                        // coloured column box around it (above), not on the note. Drawn at ±loop for a seamless scroll.
+                        // NOTES (Paul 2026-09-04): each note reflects ALL of its cell's selected emitters. The offline render
+                        // emits the note on every enabled emitter cable, so each copy draws its OWN horizontal band, stacked to
+                        // fill the note's height (A on top … D below) — a single-emitter note is one solid band, an A+C note is
+                        // two. WHICH cell produced it is the coloured column box around it. Drawn at ±loop for a seamless scroll.
                         for n in notes {
-                            let cable = Int(n.cable)
-                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the note colour = the emitter
+                            let bus = Int(n.cable) - 1
+                            guard bus >= 0, bus < Bus.allCases.count else { continue }
+                            let b = Bus.allCases[bus]
+                            let set = buildRowEmittersResolved(n.cell % Snap.rows)               // this cell's selected emitters
+                            let busList = Bus.allCases.filter { set.contains($0) }               // A,B,C,D order
+                            let idx = busList.firstIndex(of: b) ?? 0
+                            let cnt = max(1, busList.count)
+                            let emit = emitterColour(b)
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
+                            let bandH = barH / CGFloat(cnt)
                             for off in [-cyc, 0, cyc] {
                                 let ns = n.start + off, ne = min(n.end + off, winEnd)
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
-                                let note = CGRect(x: x0 + 0.5, y: yTop, width: max(3, x1 - x0 - 1), height: barH)
-                                ctx.fill(Path(roundedRect: note, cornerRadius: 2), with: .color(emit))                           // the NOTE = the EMITTER's colour
+                                let note = CGRect(x: x0 + 0.5, y: yTop + CGFloat(idx) * bandH,
+                                                  width: max(3, x1 - x0 - 1), height: max(1.5, bandH - (cnt > 1 ? 0.5 : 0)))
+                                ctx.fill(Path(roundedRect: note, cornerRadius: cnt > 1 ? 1 : 2), with: .color(emit))   // one emitter's BAND (stacked → all selected emitters)
                             }
                         }
                     }
