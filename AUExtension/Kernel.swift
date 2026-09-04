@@ -975,6 +975,7 @@ final class Kernel {
             router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)
         }
         diag.beat = rBeat            // EFFECTIVE beat (host OR free-run) → UI beat-driven playheads work while the host is stopped (Paul 2026-08-29)
+        diag.effectivePlaying = rPlaying   // host OR free-run actually running → the UI shows "playing" only when sound is really happening (Paul 2026-09-04)
         // PART ROLL: tap in front of the reel tap, recording pass-relative to the PART's cycle at the EFFECTIVE beat (so the
         // free-run audition is captured). At each part-cycle boundary, promote the completed cycle to the drawn roll.
         partTap.out = reelTap; partTap.deck = partDeck

@@ -1419,12 +1419,17 @@ extension DiagView {
         // If the SELECTED machine IS a play-ferry's chain, this button STARTS/STOPS THAT FERRY (its play column) — not a
         // separate isolated chain audition. "This MIDI chain IS the one of the ferry button." (Paul 2026-08-31)
         let bind = buildMachineBinding(room)     // ONE source of truth for what the machine represents + its play state (Paul 2026-09-01)
-        let active = bind.playing
+        // A play FERRY is EXPLICITLY started (its column is armed), so show its armed state directly. The chain/part AUDITION
+        // is AUTO-engaged on page entry, so it must read as "playing" ONLY when the beat is actually advancing (host OR
+        // free-run) — otherwise it falsely shows playing and its playhead strobes on a frozen beat while stopped + idle
+        // (Paul 2026-09-04). The SWEEP always requires real playback, so it never animates a frozen beat.
+        let isFerry: Bool = { if case .playFerry = bind.kind { return true } else { return false } }()
+        let active = isFerry ? bind.playing : (bind.playing && d.effectivePlaying)
         let hue: Color = bind.isGrey ? buildSelectGrey : buildSelHue   // SAME hue as the machine box + chain (grey on SELECT audition, the machine/ferry colour otherwise)
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
             if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when playing
-            if active {                                                 // the PLAYHEAD — a fill sweeping LEFT→RIGHT (beat-anchor driven, so it runs under FREE-RUN too, matching the cell/ferry playheads — Paul 2026-09-02; was gated on d.playing → froze while the host was stopped)
+            if active && d.effectivePlaying {                           // the PLAYHEAD — sweeps only when the beat is ACTUALLY advancing (host OR free-run), so it never strobes on a frozen beat
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     GeometryReader { g in
                         RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.34))

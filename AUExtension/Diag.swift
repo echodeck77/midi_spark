@@ -10,7 +10,8 @@ import Foundation
 struct KernelDiag {
     var renderCount: UInt64 = 0
     var reelState: Int = 0            // THE REEL-TO-REEL: 0 off · 1 armed · 2 replaying (Paul 2026-08-18)
-    var playing = false
+    var playing = false               // the HOST transport flag (raw)
+    var effectivePlaying = false      // host OR free-run actually advancing the beat — the UI's "is anything really playing" tell (Paul 2026-09-04)
     var beat: Double = 0
     var tempo: Double = 0
     var poolCount = 0
