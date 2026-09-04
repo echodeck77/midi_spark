@@ -1878,10 +1878,9 @@ extension DiagView {
         let selectedVis = active && (populated || part)   // PART rail: an EMPTY slot can be selected too (Paul 2026-09-03), so it highlights when active
         // IS THIS ROW'S CELL SOUNDING? PART grid → the SEQUENCER's active rung; SELECT→part ferry → the AIMED audition
         // (the select page's extra voice; the sequenced part does NOT run on select).
-        let ec = max(0, min(7, d.effColumn))
-        let playing = populated && (part
-            ? (buildStagingPlaying && ec < buildStagingSel.count && buildStagingSel[ec] == n)
-            : (buildGridSelStampSourceRow == n && buildDisplayVoice == .chain))
+        // The PART rail is a SIMPLE SELECTOR (Paul 2026-09-04): it must NOT follow the sequencer — the playhead + the cells
+        // already show what's playing. So `playing` is always false on the part rail; only populated/selected drive its look.
+        let playing = populated && !part && buildGridSelStampSourceRow == n && buildDisplayVoice == .chain
         // THREE STATES (Paul 2026-08-30): NULL (dark + thin edge) · POPULATED (machine-hue frame + a calm fingerprint) ·
         // PLAYING (bright machine frame + an EMITTER glow + REAL drifting notes). Machine = the frame, emitter = the drift
         // tint + a corner dot. When the select→part ferry is the AIMED/auditioning one, it now shows the audition's LIVE
