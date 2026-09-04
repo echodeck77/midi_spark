@@ -2201,7 +2201,7 @@ extension DiagView {
             } else {
                 // TWO COLUMNS (Paul 2026-09-04): LEFT ~80% = MACHINE · PARAM · SWEEP; RIGHT ~20% = the SPAN ladder.
                 GeometryReader { gg in
-                    let rightW = max(112, gg.size.width * 0.2)               // the SPAN column ≈ 20% of the section width
+                    let rightW = max(140, gg.size.width * 0.3)               // the SPAN column ≈ 30% of the section width
                     HStack(alignment: .top, spacing: 10) {
                         VStack(alignment: .leading, spacing: 6) {           // LEFT COLUMN
                             HStack(spacing: 4) {                            // MACHINE — the chain's stages (direct)
@@ -2220,13 +2220,12 @@ extension DiagView {
                                     }
                                 } }
                             }
-                            if let p = param {                              // THE SWEEP — FROM → TO faders (the "before/after" the ramp travels between)
-                                let full = BuildSceneLogic.autoParamFullRange(p.kind)
+                            if let p = param {                              // THE SWEEP — FROM → TO endpoints, each drawn with the control APPROPRIATE to the param kind
                                 let sub = BuildSceneLogic.autoSubRange(paramKey, p.kind)
                                 HStack(spacing: 8) {
                                     macroColHead("SWEEP").frame(width: 58, alignment: .leading)
-                                    autoRangeFader("FROM", value: lane.lo ?? sub.lo, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.lo = v } }
-                                    autoRangeFader("TO",   value: lane.hi ?? sub.hi, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.hi = v } }
+                                    autoSweepEndpoint("FROM", value: lane.lo ?? sub.lo, p: p) { v in buildSetAutoLane { $0.lo = v } }
+                                    autoSweepEndpoint("TO",   value: lane.hi ?? sub.hi, p: p) { v in buildSetAutoLane { $0.hi = v } }
                                 }
                                 Text("tap cells on the grid — the sweep plays FROM→TO across them (live)")
                                     .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(buildSelHue).lineLimit(1)
@@ -2317,6 +2316,48 @@ extension DiagView {
         case .option(let opts): let i = min(opts.count - 1, max(0, Int(v.rounded()))); return opts.indices.contains(i) ? opts[i] : "\(i)"
         case .stepper, .mask: return String(Int(v.rounded()))
         }
+    }
+    // A SWEEP endpoint (FROM / TO), rendered with the control APPROPRIATE to the param kind (Paul 2026-09-04): a slider
+    // ONLY for a continuous value; a toggle gets an ON/OFF button (a bypass is never a slider), an option gets a
+    // tap-to-cycle chip, a stepper gets ◀ n ▶, a mask falls back to a raw slider.
+    @ViewBuilder private func autoSweepEndpoint(_ label: String, value: Double, p: MacroControlParam, _ set: @escaping (Double) -> Void) -> some View {
+        switch p.kind {
+        case .continuous(let lo, let hi):
+            autoRangeFader(label, value: value, lo: lo, hi: hi, p: p, set)
+        case .toggle:
+            autoSweepButton(label, text: value >= 0.5 ? "ON" : "OFF", on: value >= 0.5) { set(value >= 0.5 ? 0 : 1) }   // tap = flip
+        case .option(let opts):
+            let i = min(max(0, opts.count - 1), max(0, Int(value.rounded())))
+            autoSweepButton(label, text: opts.indices.contains(i) ? opts[i] : "\(i)", on: true) { set(Double((i + 1) % max(1, opts.count))) }   // tap = cycle
+        case .stepper(let lo, let hi):
+            autoSweepStepper(label, value: Int(value.rounded()), lo: lo, hi: hi, set)
+        case .mask(let bits):
+            autoRangeFader(label, value: value, lo: 0, hi: Double((1 << max(1, bits)) - 1), p: p, set)   // rare — raw packed int
+        }
+    }
+    @ViewBuilder private func autoSweepButton(_ label: String, text: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.42))
+            Text(text).font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity).frame(height: 24)
+                .background(RoundedRectangle(cornerRadius: 4).fill(on ? buildSelHue.opacity(0.22) : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? buildSelHue : Color.white.opacity(0.15), lineWidth: 1))
+                .foregroundColor(on ? buildSelHue : .white.opacity(0.75))
+                .contentShape(Rectangle()).onTapGesture(perform: tap)
+        }.frame(maxWidth: .infinity)
+    }
+    @ViewBuilder private func autoSweepStepper(_ label: String, value: Int, lo: Int, hi: Int, _ set: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.42))
+            HStack(spacing: 0) {
+                Text("◀").font(.system(size: 11, weight: .black)).frame(width: 22, height: 24).contentShape(Rectangle()).onTapGesture { set(Double(max(lo, value - 1))) }
+                Text("\(value)").font(.system(size: 10, weight: .heavy, design: .monospaced)).frame(maxWidth: .infinity)
+                Text("▶").font(.system(size: 11, weight: .black)).frame(width: 22, height: 24).contentShape(Rectangle()).onTapGesture { set(Double(min(hi, value + 1))) }
+            }
+            .frame(maxWidth: .infinity).frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
+            .foregroundColor(.white.opacity(0.85))
+        }.frame(maxWidth: .infinity)
     }
     @ViewBuilder private func macroColHead(_ t: String) -> some View {
         Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildSelHue.opacity(0.85))   // the AUTO section's row headers wear the SELECTED colour (Paul 2026-09-04)
@@ -2414,18 +2455,33 @@ extension DiagView {
         // punch look), so it is always clear + legible and NEVER becomes another colour. It fades only VERY slightly while
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
         let selRing = buildAutoActive() >= 0 ? Color.white.opacity(0.8) : Color.white
-        if punchable {
-            let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent
-            cellBody
-                .overlay { if inExtent { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.32)) } }   // in the extent = amber wash (binary)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(inExtent ? 1 : 0.4), lineWidth: inExtent ? 2 : 1))   // amber PUNCH border (extent editing)
-                .overlay { if selected { RoundedRectangle(cornerRadius: 5).stroke(selRing, lineWidth: 2) } }   // …but the SELECTED rung's WHITE ring ALWAYS wins, on top
-                .frame(width: w, height: h)
-        } else {
-            cellBody
-                .overlay { if selected { RoundedRectangle(cornerRadius: 5).stroke(selRing, lineWidth: 2) } }   // the SELECTED rung — a bright white outline (empty or populated)
-                .frame(width: w, height: h)   // NO dimming on the part grid (Paul 2026-09-03) — the selected rung is marked by its white outline alone
+        let isEditedRow = buildGridSelStampSourceRow == r   // the row whose machine is currently in the editor/view
+        ZStack {
+            if punchable {
+                let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent
+                cellBody
+                    .overlay { if inExtent { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.32)) } }   // in the extent = amber wash (binary)
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(inExtent ? 1 : 0.4), lineWidth: inExtent ? 2 : 1))   // amber PUNCH border (extent editing)
+            } else {
+                cellBody
+            }
+            // THE EDITED ROW (Paul 2026-09-04): the row whose machine is being edited pulses its cells invitingly in the
+            // machine colour, and every ENABLED (populated) cell carries an identifier dot. Under the white ring + amber.
+            if isEditedRow {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                    let breath = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 2.2)
+                    RoundedRectangle(cornerRadius: 5).fill(buildSelHue.opacity(0.10 + 0.18 * breath))
+                }.allowsHitTesting(false)
+                if id != nil {                                          // ENABLED = a populated cell on the edited row → an identifier dot
+                    Circle().fill(Color.white).frame(width: 6, height: 6)
+                        .overlay(Circle().stroke(buildSelHue, lineWidth: 1.5))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading).padding(3)
+                        .allowsHitTesting(false)
+                }
+            }
+            if selected { RoundedRectangle(cornerRadius: 5).stroke(selRing, lineWidth: 2) }   // the SELECTED rung's WHITE ring — ALWAYS on top, always clear
         }
+        .frame(width: w, height: h)
     }
     // THE PART GRID GESTURE (Paul 2026-09-02): ONE drag over the interior handles tap AND drag selection — so empty cells
     // select too and a drag PAINTS the per-column rung. Maps the finger to (col,row); acts once per cell entered. Punch mode
