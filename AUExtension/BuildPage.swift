@@ -2373,15 +2373,20 @@ extension DiagView {
         let hollow = buildAutoActive() >= 0 && !selected
         let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
                           sweep: { buildNoteSweep(idx: idx, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
+        // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
+        // punch look), so it is always clear + legible and NEVER becomes another colour. It fades only VERY slightly while
+        // an AUTO tab is armed, so the amber extent editing can still read underneath.
+        let selRing = buildAutoActive() >= 0 ? Color.white.opacity(0.8) : Color.white
         if punchable {
             let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent
             cellBody
                 .overlay { if inExtent { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.32)) } }   // in the extent = amber wash (binary)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(inExtent ? 1 : 0.4), lineWidth: inExtent ? 2 : 1))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(inExtent ? 1 : 0.4), lineWidth: inExtent ? 2 : 1))   // amber PUNCH border (extent editing)
+                .overlay { if selected { RoundedRectangle(cornerRadius: 5).stroke(selRing, lineWidth: 2) } }   // …but the SELECTED rung's WHITE ring ALWAYS wins, on top
                 .frame(width: w, height: h)
         } else {
             cellBody
-                .overlay { if selected { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2) } }   // the SELECTED rung — a bright outline (empty or populated)
+                .overlay { if selected { RoundedRectangle(cornerRadius: 5).stroke(selRing, lineWidth: 2) } }   // the SELECTED rung — a bright white outline (empty or populated)
                 .frame(width: w, height: h)   // NO dimming on the part grid (Paul 2026-09-03) — the selected rung is marked by its white outline alone
         }
     }
