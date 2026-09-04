@@ -2282,7 +2282,7 @@ extension DiagView {
         }
     }
     @ViewBuilder private func macroColHead(_ t: String) -> some View {
-        Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.32))
+        Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildSelHue.opacity(0.85))   // the AUTO section's row headers wear the SELECTED colour (Paul 2026-09-04)
     }
     @ViewBuilder private func macroHint(_ t: String) -> some View {
         Text(t).font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.28)).frame(maxWidth: .infinity, alignment: .center)
@@ -2338,7 +2338,7 @@ extension DiagView {
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
     // colour is the one FOCUSED in the machine strip/card (abundantly-clear cell↔machine pairing). The rung-SELECTED state
     // reads as a brighter wash + a medium frame (it's the one that plays — the drift already confirms it).
-    @ViewBuilder private func roomsGridCellBody<S: View>(id: String?, selected: Bool, fade: Bool = true, @ViewBuilder sweep: () -> S) -> some View {
+    @ViewBuilder private func roomsGridCellBody<S: View>(id: String?, selected: Bool, fade: Bool = true, hollow: Bool = false, @ViewBuilder sweep: () -> S) -> some View {
         let mHue = id.flatMap { colourColor($0) } ?? buildCell            // the machine's identity hue
         // FOCUS = the machine shown in the strip/card. While a SELECT ferry is aimed the shown machine is the transient
         // gsAud, so ALSO pair the MIRRORED part row's REAL colour (#6, Paul 2026-08-30) — else that row's cells, whose id is
@@ -2352,7 +2352,7 @@ extension DiagView {
         let lit = selected || !fade
         let showFocus = fade && focused
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
-            .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(id == nil ? 0 : (lit ? 0.30 : 0.13))))   // machine-hue identity wash
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(id == nil || hollow ? 0 : (lit ? 0.30 : 0.13))))   // machine-hue identity wash — HOLLOW = face drops to the background, border kept (Paul 2026-09-04)
             .overlay { sweep() }                                        // the EMITTER-coloured drift
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(id == nil ? buildEdge : mHue.opacity(showFocus ? 1.0 : (lit ? 0.7 : 0.4)),
@@ -2368,7 +2368,10 @@ extension DiagView {
         let idx = c * Snap.rows + r
         let punch = buildAutoArmedParam()
         let punchable = punch != nil && id != nil && id == ddSelectedColourID
-        let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
+        // When an AUTO tab is selected, every cell that ISN'T the selected rung loses its face colour (drops to the
+        // background) but keeps its border — so the sweep's target rung stands out. (Paul 2026-09-04)
+        let hollow = buildAutoActive() >= 0 && !selected
+        let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
                           sweep: { buildNoteSweep(idx: idx, active: buildStagingPlaying && selected, id: id, emitter: buildRowEmittersResolved(r)) })
         if punchable {
             let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent
