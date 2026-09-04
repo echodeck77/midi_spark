@@ -2192,11 +2192,11 @@ extension DiagView {
             HStack(spacing: 0) {                                              // THE TAB STRIP: NONE · AUTO 1–5 (span) · CLEAR (separate, right)
                 autoTab("NONE", on: active < 0, dot: false) { buildAutoSetActive(-1) }.frame(maxWidth: .infinity)   // NONE = disabled (left)
                 ForEach(0..<5, id: \.self) { i in
-                    autoTab("AUTO \(i + 1)", on: active == i, dot: !lanes[i].cells.isEmpty) { buildAutoSetActive(i) }   // select = ENABLE this lane (plays immediately)
+                    autoTab("AUTO \(i + 1)", on: active == i, dot: lanes[i].spanStart != nil || lanes[i].spanLen != nil) { buildAutoSetActive(i) }   // dot = this lane holds a span (span-only)
                         .frame(maxWidth: .infinity)                           // the five tabs SPAN the header width
                 }
-                autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { if active >= 0 { buildSetAutoLane { $0.cells = [] } } }   // CLEAR — distinctly separate, right
-                    .opacity(active >= 0 && !lane.cells.isEmpty ? 1 : 0.35)
+                autoChip("CLEAR", on: false, dot: false, wide: true, red: true) { if active >= 0 { buildSetAutoLane { $0.spanStart = nil; $0.spanLen = nil; $0.cells = [] } } }   // CLEAR — reset the span to the whole-part default
+                    .opacity(active >= 0 && (lane.spanStart != nil || lane.spanLen != nil) ? 1 : 0.35)
                     .padding(.leading, 8)
             }
             if active < 0 {                                                  // NONE → FOOTER ONLY (Paul 2026-09-02): just the tab strip, no panel — a spacious part page. Touch a tab → the panel appears.
@@ -3973,7 +3973,7 @@ extension DiagView {
     // PART AUTOMATION (Paul 2026-09-02): capture the per-colour AUTO lanes for the save (prune colours with no active
     // lane AND no extents, so the map stays sparse). nil when nothing's armed → byte-identical fullState.
     func buildCaptureAuto() -> [String: PartAutoColour]? {
-        let live = buildAutoLanes.filter { $0.value.activeLane >= 0 || $0.value.lanes.contains(where: { !$0.cells.isEmpty }) }
+        let live = buildAutoLanes.filter { $0.value.activeLane >= 0 || $0.value.lanes.contains(where: { $0.spanStart != nil || $0.spanLen != nil }) }   // span-only: a lane has content if it holds a span
         return live.isEmpty ? nil : live
     }
     func buildRestoreAuto(_ d: [String: PartAutoColour]) { buildAutoLanes = d; buildPublishScene() }
