@@ -1910,13 +1910,17 @@ extension DiagView {
             } }
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this row's hue
             .clipShape(RoundedRectangle(cornerRadius: 5))
+            // INVERTED when this row is the FOCUSED machine (shown in the machine view): the WHOLE chip becomes the
+            // machine colour and the number goes to an alpha knockout (Paul 2026-09-04). Part rail only.
+            .overlay { if part && selectedVis { RoundedRectangle(cornerRadius: 5).fill(mHue) } }
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : (selectedVis ? Color.white.opacity(0.7) : buildEdge),
                                                               lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING (an empty SELECTED slot gets a white ring)
             .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
             .overlay(alignment: .topTrailing) { if populated { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
             .overlay {
-                if part {                                                // PART rail → the slot NUMBER in the machine hue
-                    Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced)).foregroundColor(mHue.opacity(populated ? 1.0 : 0.5))
+                if part {                                                // PART rail → the slot NUMBER: machine hue normally; an ALPHA knockout when the chip is inverted (focused)
+                    Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced))
+                        .foregroundColor(selectedVis ? Color.black.opacity(0.6) : mHue.opacity(populated ? 1.0 : 0.5))
                 } else {                                                 // SELECT→part ferry → a small PLAY/STOP status glyph in the machine hue (over a calm fingerprint)
                     Image(systemName: playing ? "stop.fill" : "play.fill").font(.system(size: min(11, height * 0.4), weight: .black)).foregroundColor(populated ? mHue : buildDim).opacity(playing ? 0.85 : 1.0)
                 }
@@ -2241,15 +2245,16 @@ extension DiagView {
     // underline (amber when active, a faint baseline when not), sitting over the controls it reveals. The active-cell dot
     // marks a lane that already holds an extent.
     @ViewBuilder private func autoTab(_ t: String, on: Bool, dot: Bool, _ tap: @escaping () -> Void) -> some View {
+        let tabHue = buildSelHue   // AUTO tabs wear the colour of the MACHINE the automation is applied to (Paul 2026-09-04)
         VStack(spacing: 0) {
             HStack(spacing: 4) {
-                if dot { Circle().fill(roomsAmber).frame(width: 4, height: 4) }
+                if dot { Circle().fill(tabHue).frame(width: 4, height: 4) }
                 Text(t).font(.system(size: 10, weight: on ? .heavy : .semibold, design: .monospaced))
-                    .foregroundColor(on ? roomsAmber : .white.opacity(0.5)).lineLimit(1)
+                    .foregroundColor(on ? tabHue : .white.opacity(0.5)).lineLimit(1)
             }
             .frame(maxWidth: .infinity).frame(height: 22)
-            .background(UnevenRoundedRectangle(topLeadingRadius: 5, topTrailingRadius: 5).fill(on ? roomsAmber.opacity(0.16) : Color.white.opacity(0.04)))
-            Rectangle().fill(on ? roomsAmber : Color.white.opacity(0.12)).frame(height: on ? 2 : 1)   // the tab underline / baseline
+            .background(UnevenRoundedRectangle(topLeadingRadius: 5, topTrailingRadius: 5).fill(on ? tabHue.opacity(0.16) : Color.white.opacity(0.04)))
+            Rectangle().fill(on ? tabHue : Color.white.opacity(0.12)).frame(height: on ? 2 : 1)   // the tab underline / baseline
         }
         .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
