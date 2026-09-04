@@ -165,6 +165,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SPAN-ONLY PART AUTOMATION + the AUTO-section batch (2026-09-04, on `main`, `7bd06ea`…`97038c7`; iOS builds,
+  macOS 1041 green; DEVICE-eye owed — UI-heavy). Reworked the part-page AUTO band + rebuilt the automation MODEL to
+  span-only, per the ratified plan `Docs/PLAN-span-automation.md`. **THE AUTO-SECTION UI (`7bd06ea`+`bb5d8d8`):** the
+  panel below the tabs is TWO COLUMNS (left ~30%… wait, left ~80% MACHINE/PARAM/SWEEP · right 30% the SPAN ladder);
+  SWEEP endpoints render the control APPROPRIATE to the param kind (continuous→slider · toggle→ON/OFF · option→cycle ·
+  stepper→◀n▶ · mask→raw); a STATE row draws the live FROM→TO ramp + a playhead; the row headers + tabs wear the
+  SELECTED machine colour; the edited row PULSES a black face over the static colour; every automation cell shows an
+  "AUTO N" label. **SPAN-ONLY MODEL (`ad9fb75`, the keystone):** an AUTO lane is now ONE contiguous FROM→TO span that
+  TILES across the row (replaces the punch-arbitrary-`cells` extent). `AutoLane` gained `spanStart`/`spanLen` (additive-
+  Optional; legacy `cells`/`span` retained for decode + MIGRATED on load — a cells range → a span). `applyAuto` tiles
+  the ramp (`rank = (col−start) mod len` → the existing linear `autoRamp`); a cell before the start is untouched;
+  default (start 0, len = partWidth) = one sweep across the whole part; `partWidth` threaded through composeScene.Input;
+  byte-identical when no lane armed. **UI:** arming a lane applies a default whole-part span IMMEDIATELY (audible at
+  once — the fix for "armed a lane, heard nothing"); a DRAG on the part grid DRAWS the span (press=start, release=end,
+  live; `buildPartDragAnchor`); `partGridTap` lost its punch case (span-draw is UI-side); the 1–8 ladder sets the
+  length, ×2/×4/×8 (passes) are GREYED (Phase 2 = render-time). Retired `buildAutoToggle`/`buildAutoArmedParam`.
+  **FOLLOW-UP (`97038c7`):** fixed 3 leftover `cells`-reading sites the switch broke — the tab "has-content" dot,
+  CLEAR (now resets the span), and `buildCaptureAuto` (was pruning span-only lanes from the save). **DECISIONS (Paul):**
+  span TILES · DRAG to draw · ×N deferred · 1-D per row. +11 tests (span tile/offset/default/no-lane byte-identity/
+  round-trip/legacy-cells migration; partGridTap updated). **OPEN:** Phase 2 (×N passes, render-time) · device-eye ·
+  2 small UI calls (highlight tiles the whole row vs first span; 1-D drag on any row) · minor dead-code (legacy
+  `span`/`cells` fields). Plan: `Docs/PLAN-span-automation.md` (marked BUILT) + `Docs/PLAN-span-automation-phase2.md`.**
 - **▶ PART PAGE POLISH BATCH — piano-roll rebuilt OFFLINE + a run of device-driven fixes (2026-09-04, on `main`,
   `5f70c7d`…`0254c3a`; iOS builds, macOS 1032 green; ALL device-eye/ear owed — the whole batch is UI). A long
   device-driven thread with Paul. **THE PART PIANO ROLL, rebuilt to an OFFLINE deterministic feed (`5f70c7d`):**

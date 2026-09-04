@@ -3,7 +3,20 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-03._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-04._
+
+## ★ SPAN-ONLY PART AUTOMATION — Phase 1 LANDED (2026-09-04, `ad9fb75`+`97038c7`); Phase 2 + polish OPEN
+Phase 1 (step spans, drag-to-draw, default-on-arm, compile-time bake) is done + green (see CLAUDE.md status).
+Plans: `Docs/PLAN-span-automation.md` (BUILT) + `Docs/PLAN-span-automation-phase2.md`. OPEN:
+- **★ PHASE 2 — ×N "PASSES" spans (multi-bar), render-time (BIG-ish).** The ×2/×4/×8 ladder buttons are GREYED:
+  a span longer than the part loop must progress across successive loops, which the compile-time `applyAuto` bake
+  can't express (the baked scene is one loop). Needs a render-time read of the current pass. See the phase-2 plan.
+- **DEVICE-EYE (owed):** the drag-to-draw feel; default-on-arm; the amber tiling highlight; the STATE ramp/playhead;
+  the fixed tab-dot + CLEAR; the two-column proportions + the SPAN 30% column legibility.
+- **2 SMALL UI CALLS (Paul):** (a) the amber/"AUTO N" highlight tiles the WHOLE row (every cell at/after start) —
+  keep, or mark only the first span instance? (b) the drag reads a column range from ANY row (1-D) — confirm on glass.
+- **MINOR DEAD CODE:** `AutoLane.span` (legacy re-anchor) is now fully unused; `cells` survives only for the load
+  migration. Harmless — drop in a future verified sweep once old docs are unlikely.
 
 ## ★ OVERNIGHT BATCH 2026-09-03 — landed + FLAGGED deferrals (needs Paul / a dedicated pass)
 Seven queued jobs LANDED (`9010ca1`…`64330ae`; macOS 1023 green; see CLAUDE.md status). What's DEFERRED, and why:
