@@ -2059,7 +2059,6 @@ extension DiagView {
             let cyc = max(0.0001, Double(max(1, cols)) * sb)
             let winBeats = 8.0 * sb                                       // the SCROLLING window = 8 steps (restored, Paul 2026-09-03)
             let swingA = max(1.0, Double(swing) / 50.0)
-            let selHue = ddSelectedColourID.flatMap { colourColor($0) } ?? Color.white       // fallback cell colour if a note carries no tag
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: swingA)
@@ -2074,40 +2073,42 @@ extension DiagView {
                     Canvas { ctx, size in
                         func cy(_ p: Double) -> CGFloat { size.height * CGFloat(1 - (p - pLoF) / win) }   // centre y of a pitch (continuous axis)
                         func xOf(_ beat: Double) -> CGFloat { CGFloat((beat - winStart) / winBeats) * size.width }   // SCROLLING window
-                        let barH = max(9, size.height / CGFloat(win) - 1.5)   // READABLE bars (Paul 2026-09-04): tall enough to hold TWO colours — a cell-colour background + an emitter-colour note. Notes at near pitches overlap into merged bands (that's the intended look).
+                        let barH = max(6, size.height / CGFloat(win) - 1.5)   // READABLE emitter bars (Paul 2026-09-04): a clear minimum so the notes never floor to an invisible sliver.
                         // OCTAVE gridlines — glide + zoom with the camera
                         var oct = Int((pLoF / 12).rounded(.up)) * 12
                         while Double(oct) <= pLoF + win { ctx.fill(Path(CGRect(x: 0, y: cy(Double(oct)), width: size.width, height: 1)), with: .color(.white.opacity(0.10))); oct += 12 }
                         // STEP BOXES — one per step, SCROLLING with the window (the "boxes moving with the notes"); subtle so they
                         // don't compete with the current-cell highlight.
+                        // COLUMN BOXES = THE CELL (Paul 2026-09-04): each step column plays ONE selected cell, so its box on the
+                        // roll is a BOX in THAT CELL'S colour — a tinted background + a coloured border framing the section of
+                        // notes that cell produces. The notes themselves are just the emitter colour (drawn below). A column with
+                        // no selected cell gets a faint neutral frame.
                         let stepW = size.width / 8
                         let firstStep = Int(floor(winStart / sb))
                         for st in firstStep...(firstStep + 8) {
-                            let frame = CGRect(x: xOf(Double(st) * sb) + 0.5, y: 0.5, width: stepW - 1, height: size.height - 1)
-                            ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.10)), lineWidth: 1)
+                            let col = ((st % cols) + cols) % cols            // the roll loops → map the step to its grid column
+                            let rung = col < buildStagingSel.count ? buildStagingSel[col] : -1
+                            let cid = (rung >= 0 && col < buildStagingCells.count && rung < buildStagingCells[col].count) ? buildStagingCells[col][rung] : nil
+                            let frame = CGRect(x: xOf(Double(st) * sb) + 1, y: 1, width: stepW - 2, height: size.height - 2)
+                            if let hue = cid.flatMap({ colourColor($0) }) {
+                                ctx.fill(Path(roundedRect: frame, cornerRadius: 4), with: .color(hue.opacity(0.20)))              // the CELL's colour, tinted — the section background
+                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(hue.opacity(0.75)), lineWidth: 1.3)   // a box in the CELL's colour around the section
+                            } else {
+                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.08)), lineWidth: 1)
+                            }
                         }
-                        // NOTES (Paul 2026-09-04): each note is a solid CELL-colour BACKGROUND rectangle with the EMITTER-colour
-                        // note inset on top — so the cell colour reads as a clean border/frame around the emitter note. Nothing
-                        // fancy; both colours have room now that the bars are a readable height. Drawn at ±loop for a seamless scroll.
+                        // NOTES (Paul 2026-09-04): each note is just the EMITTER's colour. WHICH cell produced it is shown by the
+                        // coloured column box around it (above), not on the note. Drawn at ±loop for a seamless scroll.
                         for n in notes {
                             let cable = Int(n.cable)
-                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the NOTE colour = the emitter
-                            // The CELL colour resolved the SAME way the grid cell paints it (buildStagingCells → colourColor).
-                            let pc = n.cell / Snap.rows, pr = n.cell % Snap.rows
-                            let cellID = (pc >= 0 && pc < buildStagingCells.count && pr >= 0 && pr < buildStagingCells[pc].count) ? buildStagingCells[pc][pr] : nil
-                            let cellHue = cellID.flatMap { colourColor($0) } ?? (n.colour != 0 ? Color(hex: n.colour) : selHue)
+                            let emit = Color(hex: cable >= 1 && cable <= 4 ? emitterHexes[cable - 1] : 0x808080)   // the note colour = the emitter
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
                             for off in [-cyc, 0, cyc] {
                                 let ns = n.start + off, ne = min(n.end + off, winEnd)
                                 if ne <= winStart || ns >= winEnd { continue }
                                 let x0 = max(0, xOf(ns)), x1 = min(size.width, xOf(ne))
-                                // A red note on a green background: the NOTE is the full-size EMITTER-colour bar (dominant, never
-                                // insets down to a sliver); the CELL colour is a slightly LARGER rectangle BEHIND it, so it shows
-                                // as a border all around. (Paul 2026-09-04 — the old code insetted the note and short notes vanished.)
-                                let note = CGRect(x: x0 + 0.5, y: yTop, width: max(4, x1 - x0 - 1), height: barH)
-                                let bg = note.insetBy(dx: -2, dy: -2)
-                                ctx.fill(Path(roundedRect: bg, cornerRadius: 3.5), with: .color(cellHue))                        // BACKGROUND = the CELL's colour (behind, a frame)
-                                ctx.fill(Path(roundedRect: note, cornerRadius: 2), with: .color(emit))                           // the NOTE = the EMITTER's colour (full size, on top)
+                                let note = CGRect(x: x0 + 0.5, y: yTop, width: max(3, x1 - x0 - 1), height: barH)
+                                ctx.fill(Path(roundedRect: note, cornerRadius: 2), with: .color(emit))                           // the NOTE = the EMITTER's colour
                             }
                         }
                     }
