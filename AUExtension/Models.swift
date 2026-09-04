@@ -726,6 +726,17 @@ enum ScaleType: String, Codable, CaseIterable {
     }
 }
 
+// FOUR SCALE POOLS (Paul 2026-09-04): a SCALE door configures FOUR scale pools and switches between them LIVE (RADIO —
+// exactly one active) via a pop-up on the strip SCALE button. One pool = root · scale · home-octave window (base + span),
+// the exact shape of the legacy single scale. `Codable, Equatable`; the defaults match the legacy single-scale defaults
+// (C major, C3, 2 octaves) so a fresh pool is byte-identical to an unset legacy scale door.
+struct ScalePool: Codable, Equatable {
+    var root: Int = 0            // pitch class 0=C…11=B
+    var type: ScaleType = .major
+    var baseOct: Int = 3         // home octave
+    var octaves: Int = 2         // span
+}
+
 struct Receiver: Codable, Equatable {
     var name: String = ""
     var channel: Int = 0        // 0 = OMNI (default), 1–16 = single wire channel (wire ch = channel − 1)
@@ -791,9 +802,30 @@ struct Receiver: Codable, Equatable {
     var scaleType: ScaleType? = nil
     var scaleBaseOct: Int? = nil
     var scaleOctaves: Int? = nil
-    var scaleRootResolved: Int { let r = scaleRoot ?? 0; return (r % 12 + 12) % 12 }
-    var scaleTypeResolved: ScaleType { scaleType ?? .major }
-    var scaleBaseOctResolved: Int { max(0, min(8, scaleBaseOct ?? 3)) }
+    // FOUR SCALE POOLS (Paul 2026-09-04): the SCALE door now holds FOUR configurable pools and switches between them live
+    // (RADIO, one active). Additive-Optional — nil ⇒ the legacy SINGLE scale (the four fields above) IS pool 0, active, and
+    // slots 1–3 default; byte-identical for old docs. `activeScale` 0…3 is the radio selection. The whole render pipeline
+    // reads `scaleRootResolved`/`scaleTypeResolved`/`scaleBaseOctResolved`/`scaleOctavesResolved`, now sourced from the
+    // ACTIVE pool — so the builder/box/kernel/CHORDS are untouched; switching the radio republishes with the new scale.
+    var scalePools: [ScalePool]? = nil
+    var activeScale: Int? = nil
+    /// The active pool index, clamped. A legacy door (no scalePools) is ALWAYS pool 0 (byte-identical; ignores any stray activeScale).
+    var activeScaleResolved: Int { scalePools == nil ? 0 : max(0, min(3, activeScale ?? 0)) }
+    /// FOUR concrete pools. Present ⇒ pad/truncate to 4. Absent ⇒ MIGRATE: pool 0 = the legacy single scale, pools 1–3 default.
+    var scalePoolsResolved: [ScalePool] {
+        if let p = scalePools {
+            var out = Array(p.prefix(4))
+            while out.count < 4 { out.append(ScalePool()) }
+            return out
+        }
+        let legacy = ScalePool(root: scaleRoot ?? 0, type: scaleType ?? .major, baseOct: scaleBaseOct ?? 3, octaves: scaleOctaves ?? 2)
+        return [legacy, ScalePool(), ScalePool(), ScalePool()]
+    }
+    /// The ACTIVE pool — the single source the four resolvers below read (so the engine sees exactly one scale at a time).
+    var activePool: ScalePool { scalePoolsResolved[activeScaleResolved] }
+    var scaleRootResolved: Int { let r = activePool.root; return (r % 12 + 12) % 12 }
+    var scaleTypeResolved: ScaleType { activePool.type }
+    var scaleBaseOctResolved: Int { max(0, min(8, activePool.baseOct)) }
     /// The KEY label of a SCALE door ("A MIXO"), else nil — the chip-never-lies readout, shared by the machine-column
     /// receiver chip AND the MIDI-config tab bar so they can never disagree. (2026-08-31)
     var scaleLabel: String? {
@@ -801,7 +833,7 @@ struct Receiver: Codable, Equatable {
         let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
         return "\(names[scaleRootResolved]) \(scaleTypeResolved.label)"
     }
-    var scaleOctavesResolved: Int { max(1, min(4, scaleOctaves ?? 2)) }
+    var scaleOctavesResolved: Int { max(1, min(4, activePool.octaves)) }
     /// KEYS-style derived pool: on for an explicit KEYS **or SCALE** door (a scale is a pre-typed pool); else the legacy
     /// field EXACTLY (byte-identical for old docs). The note SOURCE differs (tapped keys vs the derived scale set).
     var latchPianoResolved: Bool { doorMode.map { $0 == .keys || $0 == .scale } ?? (latchPiano ?? false) }

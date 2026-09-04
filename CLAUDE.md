@@ -12,6 +12,20 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   ask, opacity/size/colour values I picked, and interpretations that could differ from his intent. Never
   let a likely mismatch go unstated; naming it up front saves a round-trip.
 
+## Git workflow — TWO INSTANCES RUNNING (Paul 2026-09-04, hard rule)
+Paul runs **two Claude Code instances** in this repo at once. So **do ALL work on a FEATURE BRANCH,
+then merge to `main` and push — as ROUTINE** (standing authorization; don't ask each time):
+1. **Branch first.** Before touching code, `git checkout -b <feature>` off `main`. Never build a feature
+   directly on `main`.
+2. **Commit on the branch**, then **merge to `main`** (fast-forward or `--no-ff`) and **`git push`** — routinely,
+   as the normal end of a piece of work.
+3. **Watch the shared working tree.** Both instances share ONE filesystem, so `git status` may show files
+   the OTHER instance is editing (uncommitted). Before branching/committing, check what's already dirty and
+   **only stage/commit MY OWN files** — never sweep the other instance's in-progress work into my commit.
+   (This already bit once: the other instance's parked span-automation Phase 2 sat uncommitted in `Router.swift`/
+   `SnapshotBuilder.swift`/`Snapshot.swift`/`BuildModel.swift`/`BuildSceneLogic.swift`/`RouterTests.swift`.)
+4. If the two instances' uncommitted edits ever overlap in the same file, STOP and flag it — don't guess.
+
 ## Claude↔Claude message passing (`_dear_claude_code/` inbox · `_dear_claude/` outbox — gitignored)
 
 An async channel with a PARTNER Claude (design/planning context). Both dirs are gitignored and
@@ -165,6 +179,31 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FOUR SCALE POOLS PER SCALE DOOR — model + migration + the switch/config pop-up (2026-09-04, on `main`, UNCOMMITTED;
+    iOS builds, macOS 1046 green +5; DEVICE eye/ear owed — UI + the live switch). Paul's spec (he chose RADIO + config-in-the-
+    pop-up via AskUserQuestion): a SCALE door now holds FOUR configurable scale pools and switches between them LIVE via a
+    pop-up on the strip SCALE button (RADIO — exactly one active). **MODEL (`Models.swift`, the load-bearing/elegant part):**
+    new `ScalePool { root·type·baseOct·octaves }` (Codable/Equatable, defaults = the legacy single-scale defaults) +
+    `Receiver.scalePools: [ScalePool]?` / `activeScale: Int?` (both additive-Optional). The FOUR existing resolvers
+    (`scaleRootResolved`/`scaleTypeResolved`/`scaleBaseOctResolved`/`scaleOctavesResolved`) were RE-POINTED at the ACTIVE pool
+    (`activePool` = `scalePoolsResolved[activeScaleResolved]`) — so the whole render pipeline (builder/box/kernel/CHORDS) is
+    UNTOUCHED; switching the radio just republishes the box with the new active scale. `scalePoolsResolved` MIGRATES a legacy
+    door (scalePools nil ⇒ pool 0 = the legacy single scale, pools 1–3 default, active = 0) → BYTE-IDENTICAL for old docs; a
+    stray `activeScale` with no `scalePools` is ignored (guard). **AU (`MidiSparkAudioUnit.swift`):** slot-aware setters
+    (`setReceiverScaleSlot{Root,Type,BaseOct,Octaves}`) + `setReceiverActiveScale` (the live radio) via a
+    `editReceiverScaleSlot` that materializes the 4 concrete pools before mutating; the 4 legacy flat setters now DELEGATE to
+    the active slot (no divergent path). **UI (`BuildPage.swift`):** the strip SCALE button (`buildReceiverLatchButton`) now
+    OPENS the pop-up for a SCALE door (other modes keep arming — SCALE self-arms via the derived pool, so nothing to toggle);
+    the MIDI-IN door sheet's scale row became a LAUNCHER (active-scale summary + "EDIT 4 SCALE POOLS ▸") to the same pop-up;
+    `buildReceiverScalePopup` = a top-aligned card (like MIDI INPUTS, in `roomsSharedOverlays`, gated on `buildScalePopupDoor`)
+    wrapping the shared `buildScalePoolEditor` = a 4-slot RADIO row (each names its scale, tap = switch active LIVE via
+    `buildRecvEdit`) over the ROOT/SCALE/RANGE/EXCLUDE editor for the active slot. **+5 tests** (SnapshotBuilderTests: legacy→pool-0
+    byte-identity + stray-active guard · radio switches the resolved scale · pad/clamp · decode-tolerance round-trip · the
+    builder pool switches the fed derived set). **EXTENSIBILITY:** the pop-up shell is built to host a future CHORD variant
+    ("later show as chord selected — to be defined"). Spec: `Docs/SPEC-four-scale-pools.md`. **DEVICE-OWED / judgment calls:**
+    the SCALE button's amber "engaged" visual still reads off the MANUAL latchMask (a SCALE door self-arms, so it may look
+    un-engaged though it's feeding — pre-existing, flagged) · the strip button label stays "SCALE" (doesn't show which slot is
+    live — a nice-to-have) · editing a slot requires making it active first (radio model) · pop-up sizing/legibility.**
 - **▶ SPAN-ONLY PART AUTOMATION + the AUTO-section batch (2026-09-04, on `main`, `7bd06ea`…`97038c7`; iOS builds,
   macOS 1041 green; DEVICE-eye owed — UI-heavy). Reworked the part-page AUTO band + rebuilt the automation MODEL to
   span-only, per the ratified plan `Docs/PLAN-span-automation.md`. **THE AUTO-SECTION UI (`7bd06ea`+`bb5d8d8`):** the

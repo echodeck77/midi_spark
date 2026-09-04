@@ -5,6 +5,14 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-04._
 
+## ★ FOUR SCALE POOLS per SCALE door — model+AU+UI BUILT (2026-09-04); DEVICE eye/ear owed + CHORD variant TBD
+Spec `Docs/SPEC-four-scale-pools.md` (RATIFIED: radio + config-in-pop-up). Model/migration/AU/tests + the strip-button
+pop-up + door-sheet launcher all built (CLAUDE.md status; iOS builds, macOS 1046 green). OPEN:
+- **DEVICE:** verify the live radio switch is heard; the pop-up legibility/sizing; the SCALE button's amber visual (self-arm
+  reads un-engaged, pre-existing); whether the strip label should show the active slot.
+- **CHORD variant** (Paul: "this same pop-up will later show as chord selected — to be defined") — the pop-up shell is
+  generic; define the CHORD door's per-slot editor + pool derivation with Paul.
+
 ## ★ SPAN-ONLY PART AUTOMATION — Phase 1 LANDED; Phase 2 APPROVED + ⏸ PARKED for Paul's device time (2026-09-04)
 Phase 1 (step spans, drag-to-draw, default-on-arm, compile-time bake) DONE + green (`ad9fb75`+`97038c7`; CLAUDE.md
 status). Phase 2 is fully PLANNED + APPROVED but **HELD until Paul is on device** (he wants to steer it on glass + the

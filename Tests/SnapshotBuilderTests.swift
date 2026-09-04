@@ -150,6 +150,87 @@ final class SnapshotBuilderTests: XCTestCase {
                        "the box carries the derived C-major pool")
         XCTAssertEqual(box.receiverPianoNotes[2].count, 14)
     }
+    func testLegacySingleScaleMigratesToPoolZeroByteIdentical() {
+        // FOUR SCALE POOLS (Paul 2026-09-04): a legacy door (no scalePools) must resolve EXACTLY as before — pool 0 = the
+        // legacy single scale, active. The four resolvers are unchanged for old docs.
+        var r = Receiver()
+        r.doorMode = .scale
+        r.scaleRoot = 5; r.scaleType = .dorian; r.scaleBaseOct = 2; r.scaleOctaves = 3
+        XCTAssertNil(r.scalePools, "legacy door stores no scalePools")
+        XCTAssertEqual(r.activeScaleResolved, 0, "a legacy door is always pool 0")
+        XCTAssertEqual(r.scaleRootResolved, 5)
+        XCTAssertEqual(r.scaleTypeResolved, .dorian)
+        XCTAssertEqual(r.scaleBaseOctResolved, 2)
+        XCTAssertEqual(r.scaleOctavesResolved, 3)
+        XCTAssertEqual(r.scalePoolsResolved[0], ScalePool(root: 5, type: .dorian, baseOct: 2, octaves: 3),
+                       "pool 0 IS the legacy scale")
+        // A stray activeScale with no scalePools is ignored (byte-identity guard).
+        r.activeScale = 2
+        XCTAssertEqual(r.activeScaleResolved, 0)
+        XCTAssertEqual(r.scaleRootResolved, 5, "stray activeScale can't move a legacy door off pool 0")
+    }
+    func testActiveScaleRadioSwitchesTheResolvedScale() {
+        var r = Receiver()
+        r.doorMode = .scale
+        r.scalePools = [ScalePool(root: 0, type: .major, baseOct: 3, octaves: 2),
+                        ScalePool(root: 9, type: .naturalMinor, baseOct: 2, octaves: 1),
+                        ScalePool(), ScalePool()]
+        r.activeScale = 1
+        XCTAssertEqual(r.scaleRootResolved, 9)
+        XCTAssertEqual(r.scaleTypeResolved, .naturalMinor)
+        XCTAssertEqual(r.scaleBaseOctResolved, 2)
+        XCTAssertEqual(r.scaleOctavesResolved, 1)
+        r.activeScale = 0
+        XCTAssertEqual(r.scaleRootResolved, 0)
+        XCTAssertEqual(r.scaleTypeResolved, .major)
+    }
+    func testScalePoolsResolvedPadsAndClampsActive() {
+        var r = Receiver()
+        r.scalePools = [ScalePool(root: 3, type: .lydian)]        // only 1 stored
+        XCTAssertEqual(r.scalePoolsResolved.count, 4, "padded to 4")
+        XCTAssertEqual(r.scalePoolsResolved[0].root, 3)
+        r.activeScale = 7                                          // out of range
+        XCTAssertEqual(r.activeScaleResolved, 3, "clamped to 0…3")
+    }
+    func testReceiverScalePoolsDecodeTolerant() throws {
+        // CR-8 class: an old-doc Receiver JSON (no scalePools/activeScale keys) must decode + fall back to the legacy scale.
+        let json = """
+        {"name":"","channel":0,"mpeMerge":false,"muted":false,"scaleRoot":7,"scaleType":"mixolydian","scaleBaseOct":4,"scaleOctaves":2,"doorMode":"scale"}
+        """.data(using: .utf8)!
+        let r = try JSONDecoder().decode(Receiver.self, from: json)
+        XCTAssertNil(r.scalePools)
+        XCTAssertEqual(r.scaleRootResolved, 7)
+        XCTAssertEqual(r.scaleTypeResolved, .mixolydian)
+        // Round-trip a four-pool door.
+        var w = Receiver(); w.doorMode = .scale
+        w.scalePools = [ScalePool(root: 2, type: .blues), ScalePool(root: 5, type: .phrygian), ScalePool(), ScalePool()]
+        w.activeScale = 1
+        let data = try JSONEncoder().encode(w)
+        let back = try JSONDecoder().decode(Receiver.self, from: data)
+        XCTAssertEqual(back.scalePools?.count, 4)
+        XCTAssertEqual(back.activeScale, 1)
+        XCTAssertEqual(back.scaleRootResolved, 5)
+        XCTAssertEqual(back.scaleTypeResolved, .phrygian)
+    }
+    func testActiveScaleDrivesTheBuilderPool() {
+        // The RADIO switch must move what the box carries: pool 0 (C major) vs pool 1 (A natural minor) → different derived sets.
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.synthesizeReceiversIfNeeded()
+        st.receivers![2].doorMode = .scale
+        st.receivers![2].scalePools = [ScalePool(root: 0, type: .major, baseOct: 3, octaves: 2),
+                                       ScalePool(root: 9, type: .naturalMinor, baseOct: 3, octaves: 2),
+                                       ScalePool(), ScalePool()]
+        st.receivers![2].activeScale = 0
+        let box0 = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(box0.receiverScaleRoot[2], 0)
+        XCTAssertEqual(box0.receiverPianoNotes[2], scaleNotes(root: 0, type: .major, baseOct: 3, octaves: 2).map { UInt8($0) })
+        st.receivers![2].activeScale = 1
+        let box1 = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(box1.receiverScaleRoot[2], 9)
+        XCTAssertEqual(box1.receiverScaleType[2], .naturalMinor)
+        XCTAssertEqual(box1.receiverPianoNotes[2], scaleNotes(root: 9, type: .naturalMinor, baseOct: 3, octaves: 2).map { UInt8($0) })
+        XCTAssertNotEqual(box0.receiverPianoNotes[2], box1.receiverPianoNotes[2], "switching the radio changes the fed pool")
+    }
     func testExcludeDoorFlowsToSnapshotAndDropsSelf() {
         var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
         st.synthesizeReceiversIfNeeded()

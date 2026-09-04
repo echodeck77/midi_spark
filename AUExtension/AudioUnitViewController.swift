@@ -193,6 +193,7 @@ struct DiagView: View {
     @State var buildMidiConfigOpen: Bool = false   // BUILD [MIDI CONFIG] → the MIDI INPUTS sheet (config-sheets stage 5, Paul 2026-08-20)
     @State var buildMidiConfigTab: Int = 0         // MIDI INPUTS: which door (A–D) tab is shown (Paul 2026-08-23)
     @State var buildRackConfigOpen: Bool = false   // BUILD [RACK CONFIG] → the OUTPUT CHAIN sheet (config-sheets §6, Paul 2026-08-21)
+    @State var buildScalePopupDoor: Int? = nil     // FOUR SCALE POOLS (Paul 2026-09-04): the strip SCALE button opens the 4-pool switch/config pop-up for door i
     @State var buildMidiOutConfigOpen: Bool = false // BUILD [MIDI OUT] → the emitter stamp-channels sheet (moved out of the cog, Paul 2026-08-23)
     @State var buildFileImportDoor: Int? = nil     // FILE import: which door is picking a .mid (nil = closed)
     @State var buildRangeKbdDoor: Int? = nil       // RANGE picker: which door's keyboard is open (nil = closed)

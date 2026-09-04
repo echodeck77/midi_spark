@@ -122,6 +122,7 @@ extension DiagView {
         if buildRackConfigOpen { AnyView(buildRackConfigSheet(size: size)) }                                 // THE RACK (header)
         if buildMidiOutConfigOpen { AnyView(buildMidiOutConfigSheet(size: size)) }                           // MIDI OUTPUTS (strip spanner + header)
         if buildRow8EditOpen { AnyView(buildRow8EditPage(size: size)) }                                      // ROW 8 authoring (header)
+        if let d = buildScalePopupDoor { AnyView(buildReceiverScalePopup(door: d, size: size)) }             // FOUR SCALE POOLS (strip SCALE button)
     }
     @ViewBuilder func roomsChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
@@ -768,12 +769,50 @@ extension DiagView {
     }
     // THE SCALE PICKER (ratified §1): ROOT (C–B) · SCALE (curated list) · the home-octave window (base octave + span). The
     // derived pool feeds the KEYS pipeline (self-arm · EXCLUDE · play-along all reused) — no keyboard, no typing.
+    // FOUR SCALE POOLS (Paul 2026-09-04): the door sheet's scale row is now a LAUNCHER — a summary of the ACTIVE pool + a
+    // button that opens the same 4-pool pop-up the strip SCALE button opens (config lives in ONE place). The pop-up is where
+    // you configure + switch; the strip is the fast performance switch.
     @ViewBuilder private func buildDoorScaleInline(_ i: Int, _ r: Receiver) -> some View {
         let w: CGFloat = 520
         let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-        let root = r.scaleRootResolved, type = r.scaleTypeResolved
-        let pool = scaleNotes(root: root, type: type, baseOct: r.scaleBaseOctResolved, octaves: r.scaleOctavesResolved)
+        let pool = scaleNotes(root: r.scaleRootResolved, type: r.scaleTypeResolved, baseOct: r.scaleBaseOctResolved, octaves: r.scaleOctavesResolved)
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text("ACTIVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 44, alignment: .leading)
+                Text("\(r.activeScaleResolved + 1) · \(names[r.scaleRootResolved]) \(r.scaleTypeResolved.label) · \(pool.count) notes")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.7)
+                Spacer(minLength: 0)
+            }
+            Text("EDIT 4 SCALE POOLS ▸").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .frame(maxWidth: .infinity).frame(height: 34).background(RoundedRectangle(cornerRadius: 6).fill(buildCyan))
+                .contentShape(Rectangle()).onTapGesture { buildScalePopupDoor = i }
+        }.frame(width: w, alignment: .leading)
+    }
+    // The FOUR-POOL editor — the slot RADIO (tap = switch active, live) over the ROOT/SCALE/RANGE editor for the active pool
+    // (the four legacy setters target the active slot). Shared by the pop-up (strip SCALE button + door-sheet launcher).
+    @ViewBuilder private func buildScalePoolEditor(_ i: Int, _ r: Receiver) -> some View {
+        let w: CGFloat = 520
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        let root = r.scaleRootResolved, type = r.scaleTypeResolved
+        let pools = r.scalePoolsResolved, active = r.activeScaleResolved
+        let pool = scaleNotes(root: root, type: type, baseOct: r.scaleBaseOctResolved, octaves: r.scaleOctavesResolved)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {                                       // the 4 slot toggles — RADIO (one active), each names its scale
+                ForEach(0..<4, id: \.self) { k in
+                    let p = pools[k], on = active == k
+                    VStack(spacing: 1) {
+                        Text("\(k + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        Text("\(names[((p.root % 12) + 12) % 12]) \(p.type.label)").font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.55)
+                    }
+                    .foregroundColor(on ? .black : .white.opacity(0.75))
+                    .frame(maxWidth: .infinity).frame(height: 38)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan : Color.white.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? Color.clear : buildCyan.opacity(0.35), lineWidth: 1.5))
+                    .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReceiverActiveScale(i, k) } }
+                }
+            }.frame(width: w)
+            Text("CONFIGURE SCALE \(active + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+            VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 5) {                                       // ROOT — 12 chips
                 Text("ROOT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 40, alignment: .leading)
                 ForEach(0..<12, id: \.self) { k in
@@ -800,7 +839,35 @@ extension DiagView {
                 Text("\(pool.count) notes · \(names[root]) \(type.label)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.7)
             }
             buildDoorExcludeRow(i, width: w)                           // SCALE + EXCLUDE = the diatonic complement (ratified §3)
-        }.frame(width: w, alignment: .leading)
+            }.frame(width: w, alignment: .leading)                     // close the inner CONFIGURE body
+        }.frame(width: w, alignment: .leading)                         // close the outer editor VStack
+    }
+    // THE 4-POOL POP-UP (Paul 2026-09-04): opened by the strip SCALE button + the door-sheet launcher. Top-aligned card (like
+    // the MIDI INPUTS sheet) wrapping the shared editor. Switching a slot is LIVE (buildRecvEdit republishes). A future CHORD
+    // door will reuse this same pop-up shell with a chord editor swapped in ("later show as chord selected — to be defined").
+    @ViewBuilder private func buildReceiverScalePopup(door i: Int, size: CGSize) -> some View {
+        let recvs = au?.uiReceivers() ?? []
+        let r = i < recvs.count ? recvs[i] : Receiver()
+        let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.65).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildScalePopupDoor = nil }
+            VStack(spacing: 0) {
+                HStack {
+                    Text("SCALE POOLS · \(["A", "B", "C", "D"][min(3, max(0, i))])").font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(hue)
+                    Spacer()
+                    Button { buildScalePopupDoor = nil } label: {
+                        Image(systemName: "xmark").font(.system(size: 17, weight: .bold)).foregroundColor(buildDim).padding(10)
+                    }
+                }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 12)
+                ScrollView(.vertical, showsIndicators: false) {
+                    buildScalePoolEditor(i, r).padding(.horizontal, 26).padding(.bottom, 30)
+                }
+            }
+            .frame(width: min(600, size.width - 32), height: min(560, size.height - 96))
+            .background(RoundedRectangle(cornerRadius: 18).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .padding(.top, 20)
+        }
     }
     // A tiny ◀ value ▶ stepper for the scale RANGE (clamped [lo,hi]).
     @ViewBuilder private func buildScaleStepper(_ label: String, value: Int, lo: Int, hi: Int, _ set: @escaping (Int) -> Void) -> some View {
@@ -2256,17 +2323,26 @@ extension DiagView {
     @ViewBuilder private func autoSpanColumn(p: MacroControlParam, lane: AutoLane) -> some View {
         let na = p.kind.isToggle
         let cur = lane.spanLen ?? buildPartCols          // the span LENGTH in steps (span-only); default = the whole part
+        let passes = lane.spanPasses ?? 0                 // ×N passes = span N whole bars (render-time, Phase 2); 0 = a step-length span
+        let isCont: Bool = { if case .continuous = p.kind { return true } else { return false } }()   // SMOOTH only interpolates continuous params
+        let renderable = AutoParamField(key: p.key) != nil   // scalar params only reach the render-time engine; nested (intervals/split) stay step-bake
         VStack(alignment: .leading, spacing: 4) {
             macroColHead("SPAN")
             HStack(spacing: 3) {                                         // 1…8 STEPS — the span length (or DRAG on the grid to draw it)
-                ForEach(1...8, id: \.self) { n in
-                    autoSpanChip("\(n)", on: cur == n) { buildSetAutoLane { $0.spanLen = n; if $0.spanStart == nil { $0.spanStart = 0 } } }
+                ForEach(1...8, id: \.self) { n in                        // mutually exclusive with ×N passes: picking a step length clears passes
+                    autoSpanChip("\(n)", on: passes == 0 && cur == n) { buildSetAutoLane { $0.spanLen = n; $0.spanPasses = nil; if $0.spanStart == nil { $0.spanStart = 0 } } }
                 }
             }
-            HStack(spacing: 3) {                                         // ×2 / ×4 / ×8 PASSES — Phase 2 (needs render-time), greyed
-                ForEach([2, 4, 8], id: \.self) { m in
-                    autoSpanChip("×\(m)", on: false) { }.opacity(0.28).allowsHitTesting(false)
+            HStack(spacing: 3) {                                         // ×2 / ×4 / ×8 PASSES — span N whole bars, ramps per pass (render-time)
+                ForEach([2, 4, 8], id: \.self) { m in                    // mutually exclusive with the 1…8 ladder: picking passes clears spanLen
+                    autoSpanChip("×\(m)", on: passes == m) { buildSetAutoLane { $0.spanPasses = ($0.spanPasses == m ? nil : m); $0.spanLen = nil; if $0.spanStart == nil { $0.spanStart = 0 } } }
                 }
+            }
+            .opacity(renderable ? 1 : 0.3).allowsHitTesting(renderable)   // ×N is render-time only — greyed for nested params (step-length spans still work)
+            HStack(spacing: 3) {                                         // STEP | SMOOTH — stepped per-column vs a continuous ramp (render-time; SMOOTH continuous-only)
+                autoSpanChip("STEP", on: !lane.smooth) { buildSetAutoLane { $0.smooth = false } }
+                autoSpanChip("SMOOTH", on: lane.smooth) { if isCont && renderable { buildSetAutoLane { $0.smooth = true } } }
+                    .opacity(isCont && renderable ? 1 : 0.3).allowsHitTesting(isCont && renderable)
             }
         }
         .opacity(na ? 0.3 : 1)                                           // GREYED for on/off params (SPAN can't apply to a binary value)
@@ -2532,7 +2608,7 @@ extension DiagView {
             if first { buildPartDragAnchor = c }
             let a = buildPartDragAnchor ?? c
             let start = min(a, c), len = abs(c - a) + 1
-            buildSetAutoLane { $0.spanStart = start; $0.spanLen = len }
+            buildSetAutoLane { $0.spanStart = start; $0.spanLen = len; $0.spanPasses = nil }   // drawing a step span = step mode (clears ×N passes)
             buildPartDragLast = key
             return
         }
@@ -3647,6 +3723,7 @@ extension DiagView {
         }
         input.partAuto = buildAutoLanes                                       // PART AUTOMATION (Paul 2026-09-02): bake the active AUTO lanes per cell
         input.partWidth = buildPartCols                                       // SPAN-ONLY (Paul 2026-09-04): the part's active width = the default span + tile reference
+        au?.setBuildAuto(buildAutoLanes.isEmpty ? nil : buildAutoLanes)        // PHASE 2: push the LIVE lanes so the box carries render-time (×N/SMOOTH) descriptors
         let composed = BuildSceneLogic.composeSceneMeta(input)
         au?.setBuildStagingScene(composed.scene)
         buildPartRollGen &+= 1                                                // the box changed → force an OFFLINE part-roll recompute (picks up cell/chain edits)
@@ -4324,7 +4401,12 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 5).fill(engaged ? amber : amber.opacity(0.12)))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(engaged ? Color.clear : amber.opacity(0.4), lineWidth: 1.5))
             .contentShape(Rectangle())
-            .onTapGesture { buildEngageDoor(i) }                     // TOGGLE the door's arm (unset until tapped)
+            .onTapGesture {
+                // FOUR SCALE POOLS (Paul 2026-09-04): a SCALE door's button opens the 4-pool switch/config pop-up (a SCALE
+                // door self-arms via the derived pool — there's nothing to toggle here). Every other mode keeps arming.
+                if rec.doorModeResolved == .scale { buildScalePopupDoor = i }
+                else { buildEngageDoor(i) }
+            }
     }
     // The door's MODE-ACT — engage/clear per its mode (shared by the strip's LATCH button + ROW 8's INPUT cell, Paul 2026-08-24).
     // Engage/release a REPLAY loop, and while it PLAYS, DISABLE OMNI so live input doesn't bleed alongside the loop (Paul

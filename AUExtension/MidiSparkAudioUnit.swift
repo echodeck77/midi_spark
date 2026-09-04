@@ -318,6 +318,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// document's active scene — ephemeral, the document is NEVER touched (encode/persist read `document`). nil = off.
     private var stagingRenderScene: SceneState? = nil
     func setBuildStagingScene(_ scene: SceneState?) { stagingRenderScene = scene; scheduleRebuild() }
+    // PHASE 2 render-time AUTO (Paul 2026-09-04): the LIVE per-colour AUTO lanes, folded into the rendered doc so
+    // SnapshotBuilder can build the render-time descriptors (×N passes / SMOOTH). nil ⇒ use the document's own.
+    private var stagingAuto: [String: PartAutoColour]? = nil
+    func setBuildAuto(_ a: [String: PartAutoColour]?) { stagingAuto = a; scheduleRebuild() }
 
     /// The document the snapshot renders from — the real `document`, plus the ephemeral PLAY: THIS CELL preview cell
     /// (unplaced-colour audition) injected at its empty slot, or the BUILD staging grid override. Never used by
@@ -328,8 +332,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setBuildEphemeralColours(_ cs: [(id: String, machine: [ProcessorSlot], transpose: Int)]) { buildEphemeralColours = cs; scheduleRebuild() }
 
     private func renderDoc() -> PluginState {
-        if stagingRenderScene == nil, previewSolo == nil, buildEphemeralColours.isEmpty { return document }
+        if stagingRenderScene == nil, previewSolo == nil, buildEphemeralColours.isEmpty, stagingAuto == nil { return document }
         var temp = document
+        if let sa = stagingAuto { temp.partAuto = sa }   // PHASE 2: the LIVE AUTO lanes reach the box for render-time (×N / SMOOTH)
         for e in buildEphemeralColours where !temp.colours.contains(where: { $0.colourID == e.id }) {   // append BUILD ephemeral colours
             var col = Colour(colourID: e.id, type: .arp)
             col.defined = true
@@ -438,10 +443,36 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
     // THE SCALE DOOR (ratified §1): the picker sets root · scale · home-octave window; the derived pool feeds the KEYS pipeline.
-    func setReceiverScaleRoot(_ i: Int, _ root: Int) { editReceiver(i) { $0.scaleRoot = (root % 12 + 12) % 12 } }
-    func setReceiverScaleType(_ i: Int, _ type: ScaleType) { editReceiver(i) { $0.scaleType = type } }
-    func setReceiverScaleBaseOct(_ i: Int, _ oct: Int) { editReceiver(i) { $0.scaleBaseOct = max(0, min(8, oct)) } }
-    func setReceiverScaleOctaves(_ i: Int, _ oct: Int) { editReceiver(i) { $0.scaleOctaves = max(1, min(4, oct)) } }
+    // FOUR SCALE POOLS (Paul 2026-09-04): slot-aware setters write into `scalePools[slot]`; `setReceiverActiveScale` is the
+    // RADIO switch (live). `editReceiverScaleSlot` materializes the four concrete pools (from the resolver, migrating the
+    // legacy single scale into slot 0) before mutating, so no edit path diverges. The legacy flat setters below delegate to
+    // the ACTIVE slot (kept for any existing caller; new UI uses the slot setters directly).
+    private func editReceiverScaleSlot(_ i: Int, _ slot: Int, _ f: (inout ScalePool) -> Void) {
+        guard (0..<4).contains(slot) else { return }
+        editReceiver(i) { r in
+            var pools = r.scalePoolsResolved      // 4 concrete pools (migrates legacy single → slot 0)
+            f(&pools[slot])
+            r.scalePools = pools
+        }
+    }
+    func setReceiverActiveScale(_ i: Int, _ slot: Int) {
+        editReceiver(i) { r in
+            if r.scalePools == nil { r.scalePools = r.scalePoolsResolved }   // materialize so the radio + pools travel together
+            r.activeScale = max(0, min(3, slot))
+        }
+    }
+    func setReceiverScaleSlotRoot(_ i: Int, _ slot: Int, _ root: Int) { editReceiverScaleSlot(i, slot) { $0.root = (root % 12 + 12) % 12 } }
+    func setReceiverScaleSlotType(_ i: Int, _ slot: Int, _ type: ScaleType) { editReceiverScaleSlot(i, slot) { $0.type = type } }
+    func setReceiverScaleSlotBaseOct(_ i: Int, _ slot: Int, _ oct: Int) { editReceiverScaleSlot(i, slot) { $0.baseOct = max(0, min(8, oct)) } }
+    func setReceiverScaleSlotOctaves(_ i: Int, _ slot: Int, _ oct: Int) { editReceiverScaleSlot(i, slot) { $0.octaves = max(1, min(4, oct)) } }
+    private func activeScaleSlot(_ i: Int) -> Int {
+        let rs = document.receiversResolved
+        return (0..<rs.count).contains(i) ? rs[i].activeScaleResolved : 0
+    }
+    func setReceiverScaleRoot(_ i: Int, _ root: Int) { setReceiverScaleSlotRoot(i, activeScaleSlot(i), root) }
+    func setReceiverScaleType(_ i: Int, _ type: ScaleType) { setReceiverScaleSlotType(i, activeScaleSlot(i), type) }
+    func setReceiverScaleBaseOct(_ i: Int, _ oct: Int) { setReceiverScaleSlotBaseOct(i, activeScaleSlot(i), oct) }
+    func setReceiverScaleOctaves(_ i: Int, _ oct: Int) { setReceiverScaleSlotOctaves(i, activeScaleSlot(i), oct) }
     // REPLAY (stage 3): how much input history loops (1·2·4·8 passes).
     func setReplayPasses(_ i: Int, _ passes: Int) { editReceiver(i) { $0.replayPasses = [1, 2, 4, 8].contains(passes) ? passes : 1 } }
     func toggleReplayCatch(_ i: Int) { kernel.toggleReplayCatch(i) }   // "LAST N" — capture+loop / release (config-sheets, Paul 2026-08-20)
