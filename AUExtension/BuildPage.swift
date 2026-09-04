@@ -2199,47 +2199,79 @@ extension DiagView {
             } else if chain.isEmpty {
                 macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                HStack(spacing: 4) {                                          // MACHINE — the chain's stages (direct)
-                    macroColHead("MACHINE").frame(width: 58, alignment: .leading)
-                    ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
-                        ForEach(Array(chain.enumerated()), id: \.offset) { (i, s) in
-                            autoChip(buildProcLabel(s), on: i == procIdx, dot: false, wide: true) { buildSetAutoLane { $0.slot = i; $0.param = ""; $0.lo = nil; $0.hi = nil } }   // new machine → reset the sweep
-                        }
-                    } }
-                }
-                HStack(spacing: 4) {                                          // PARAM — pre-mapped useful default leads; tap to change
-                    macroColHead("PARAM").frame(width: 58, alignment: .leading)
-                    ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
-                        ForEach(params, id: \.key) { p in
-                            autoChip(p.label, on: p.key == paramKey, dot: false, wide: true) { buildSetAutoLane { $0.param = p.key; $0.lo = nil; $0.hi = nil } }   // new param → reset the sweep to its default range
-                        }
-                    } }
-                }
-                if let p = param {                                            // THE SWEEP — FROM → TO faders (the "before/after" the ramp travels between)
-                    let full = BuildSceneLogic.autoParamFullRange(p.kind)
-                    let sub = BuildSceneLogic.autoSubRange(paramKey, p.kind)
-                    HStack(spacing: 8) {
-                        macroColHead("SWEEP").frame(width: 58, alignment: .leading)
-                        autoRangeFader("FROM", value: lane.lo ?? sub.lo, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.lo = v } }
-                        autoRangeFader("TO",   value: lane.hi ?? sub.hi, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.hi = v } }
-                    }
-                    if !p.kind.isToggle {                                     // SPAN — re-anchor the sweep every N cells; disabled for binary params
-                        HStack(spacing: 4) {
-                            macroColHead("SPAN").frame(width: 58, alignment: .leading)
-                            let curSpan = lane.span ?? 0
-                            autoChip("FULL", on: curSpan < 2, dot: false, wide: true) { buildSetAutoLane { $0.span = nil } }
-                            ForEach([2, 3, 4, 6, 8], id: \.self) { n in
-                                autoChip("\(n)", on: curSpan == n, dot: false, wide: true) { buildSetAutoLane { $0.span = n } }
+                // TWO COLUMNS (Paul 2026-09-04): LEFT ~80% = MACHINE · PARAM · SWEEP; RIGHT ~20% = the SPAN ladder.
+                GeometryReader { gg in
+                    let rightW = max(112, gg.size.width * 0.2)               // the SPAN column ≈ 20% of the section width
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 6) {           // LEFT COLUMN
+                            HStack(spacing: 4) {                            // MACHINE — the chain's stages (direct)
+                                macroColHead("MACHINE").frame(width: 58, alignment: .leading)
+                                ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
+                                    ForEach(Array(chain.enumerated()), id: \.offset) { (i, s) in
+                                        autoChip(buildProcLabel(s), on: i == procIdx, dot: false, wide: true) { buildSetAutoLane { $0.slot = i; $0.param = ""; $0.lo = nil; $0.hi = nil } }   // new machine → reset the sweep
+                                    }
+                                } }
                             }
+                            HStack(spacing: 4) {                            // PARAM — pre-mapped useful default leads; tap to change
+                                macroColHead("PARAM").frame(width: 58, alignment: .leading)
+                                ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
+                                    ForEach(params, id: \.key) { p in
+                                        autoChip(p.label, on: p.key == paramKey, dot: false, wide: true) { buildSetAutoLane { $0.param = p.key; $0.lo = nil; $0.hi = nil } }   // new param → reset the sweep to its default range
+                                    }
+                                } }
+                            }
+                            if let p = param {                              // THE SWEEP — FROM → TO faders (the "before/after" the ramp travels between)
+                                let full = BuildSceneLogic.autoParamFullRange(p.kind)
+                                let sub = BuildSceneLogic.autoSubRange(paramKey, p.kind)
+                                HStack(spacing: 8) {
+                                    macroColHead("SWEEP").frame(width: 58, alignment: .leading)
+                                    autoRangeFader("FROM", value: lane.lo ?? sub.lo, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.lo = v } }
+                                    autoRangeFader("TO",   value: lane.hi ?? sub.hi, lo: full.lo, hi: full.hi, p: p) { v in buildSetAutoLane { $0.hi = v } }
+                                }
+                                Text("tap cells on the grid — the sweep plays FROM→TO across them (live)")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(buildSelHue).lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            Spacer(minLength: 0)
                         }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        if let p = param { autoSpanColumn(p: p, lane: lane).frame(width: rightW, alignment: .topLeading) }   // RIGHT COLUMN — SPAN
                     }
-                    Text("tap cells on the grid — the sweep plays FROM→TO across them (live)")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(roomsAmber).lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Spacer(minLength: 0)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    // THE SPAN LADDER (Paul 2026-09-04): the AUTO panel's right ~20% column. Row 1 = 1…8 STEPS (re-anchor the FROM→TO
+    // sweep every N steps), row 2 = ×2/×4/×8 PASSES (every 2/4/8 bars). "1" is one full sweep (the engine treats span<2
+    // as FULL — re-anchoring every single step would leave no ramp). GREYED for on/off params — SPAN can't apply to a
+    // binary value.
+    @ViewBuilder private func autoSpanColumn(p: MacroControlParam, lane: AutoLane) -> some View {
+        let na = p.kind.isToggle
+        let cur = lane.span ?? 0
+        VStack(alignment: .leading, spacing: 4) {
+            macroColHead("SPAN")
+            HStack(spacing: 3) {                                         // 1…8 STEPS
+                ForEach(1...8, id: \.self) { n in
+                    autoSpanChip("\(n)", on: n == 1 ? cur < 2 : cur == n) { buildSetAutoLane { $0.span = n } }
+                }
+            }
+            HStack(spacing: 3) {                                         // ×2 / ×4 / ×8 PASSES
+                ForEach([2, 4, 8], id: \.self) { m in
+                    autoSpanChip("×\(m)", on: cur == m * 8) { buildSetAutoLane { $0.span = m * 8 } }
+                }
+            }
+        }
+        .opacity(na ? 0.3 : 1)                                           // GREYED for on/off params
+        .allowsHitTesting(!na)
+        .overlay(alignment: .topTrailing) { if na { Text("n/a").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45)) } }
+    }
+    @ViewBuilder private func autoSpanChip(_ t: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        Text(t).font(.system(size: 9, weight: .bold, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity).frame(height: 20)
+            .background(RoundedRectangle(cornerRadius: 4).fill(on ? buildSelHue.opacity(0.28) : Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? buildSelHue : Color.white.opacity(0.15), lineWidth: on ? 1.5 : 1))
+            .foregroundColor(on ? buildSelHue : .white.opacity(0.6))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
     // §AUTO TAB (Paul 2026-09-02): the AUTO 1–5 + NONE selector reads as TABS — a top-rounded cell with a bottom ACCENT
     // underline (amber when active, a faint baseline when not), sitting over the controls it reveals. The active-cell dot
