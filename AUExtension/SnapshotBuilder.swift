@@ -284,7 +284,7 @@ enum SnapshotBuilder {
             }
         }
 
-        return SnapshotBox(generation: generation,
+        let box = SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
                            morphMaster: max(0, min(1, doc.morphMasterResolved)),
@@ -337,6 +337,27 @@ enum SnapshotBuilder {
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
                            freezeActive: freezeActive, clockScale: clockScale, busRemap: busRemap,
                            broadcastActive: broadcastActive, broadcastAll16: broadcastAll16)
+        // PHASE 2 (Paul 2026-09-04): render-time AUTO descriptors — one per colour with an ACTIVE ×N-passes or SMOOTH
+        // lane whose param is render-supported (scalar). STEP/default spans are compile-time baked upstream (not here).
+        var ra = [ColourAuto?](repeating: nil, count: colours.count)
+        for (cid, pa) in (doc.partAuto ?? [:]) {
+            guard pa.activeLane >= 0, pa.activeLane < 5, pa.activeLane < pa.lanes.count,
+                  let ci = colourIndexByID[cid], ci < doc.colours.count else { continue }
+            let lane = pa.lanes[pa.activeLane]
+            guard (lane.spanPasses ?? 0) >= 2 || lane.smooth else { continue }   // STEP/default → baked, not render-time
+            let chain = doc.colours[ci].templateChain ?? []
+            guard lane.slot >= 0, lane.slot < chain.count else { continue }
+            let type = chain[lane.slot].type
+            let key = BuildSceneLogic.autoResolvedParamKey(type, laneParam: lane.param)
+            guard let field = AutoParamField(key: key),
+                  let p = macroParamsForProcessor(type).first(where: { $0.key == key }) else { continue }   // unsupported param → not render-time
+            let sub = BuildSceneLogic.autoSubRange(key, p.kind)
+            ra[ci] = ColourAuto(slot: lane.slot, field: field, lo: lane.lo ?? sub.lo, hi: lane.hi ?? sub.hi,
+                                startCol: max(0, lane.spanStart ?? 0), spanCols: max(0, lane.spanLen ?? 0),
+                                passes: max(0, lane.spanPasses ?? 0), smooth: lane.smooth)
+        }
+        if ra.contains(where: { $0 != nil }) { box.renderAuto = ra }
+        return box
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

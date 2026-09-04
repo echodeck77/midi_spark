@@ -1474,12 +1474,31 @@ final class Router {
     // PER-PART CLOCK (Paul 2026-08-19): ONE row's per-window TICK content at `effColumn`, on `S`/`cycleBeats`. Extracted
     // from the process() row loop so BOTH the uniform fast-path AND the per-row multi-clock path share it verbatim.
     // Reads `diag.pass` (the caller sets it to the ROW's pass in the per-row path). No behaviour change vs the old inline loop.
+    // PHASE 2 render-time AUTO (Paul 2026-09-04): a ×N-passes / SMOOTH lane overrides one scalar param on this cell's proc,
+    // computed from the beat. STEP = per-column (integer rank, endpoint-inclusive, matches the Phase-1 bake). SMOOTH =
+    // a continuous sawtooth across the span. Value-copy (no alloc). Derived from the beat → replay-exact (invariants 2/3).
+    private func applyRenderAuto(_ cell: inout SnapCell, box: SnapshotBox, r: Int, musicalBeat mb: Double, S: Double) {
+        let ci = Int(cell.colourIndex)
+        guard ci >= 0, ci < box.renderAuto.count, let ra = box.renderAuto[ci],
+              ra.slot >= 0, ra.slot < cell.procs.count, S > 0 else { return }
+        let W = max(1, box.rowLength.indices.contains(r) ? box.rowLength[r] : Snap.cols)
+        let period = ra.passes >= 2 ? ra.passes * W : (ra.spanCols > 0 ? ra.spanCols : W)
+        guard period >= 1 else { return }
+        let posCols = mb / S - Double(ra.startCol)   // continuous column position past the span start
+        guard posCols >= 0 else { return }           // before the span → leave the base param
+        let m = Double(period)
+        let frac: Double
+        if ra.smooth { frac = posCols.truncatingRemainder(dividingBy: m) / m }                     // continuous sawtooth 0…1
+        else { let rank = Int(posCols) % period; frac = period > 1 ? Double(rank) / Double(period - 1) : 1 }   // stepped, endpoint-inclusive
+        cell.procs[ra.slot] = cell.procs[ra.slot].settingAuto(ra.field, ra.lo + frac * (ra.hi - ra.lo))
+    }
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, heldCell: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
             var cell = box.cells[effColumn * Snap.rows + r]
             if cell.colourIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { return }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
+            if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: musicalOf(beatPos, stepBeats: S, a: a), S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp
             if soloSilenced(cell) { return }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
@@ -1661,6 +1680,7 @@ final class Router {
             var cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             if cell.passthrough && cell.resolvedReceiver >= 0 { continue }   // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected passthrough passes its input straight through in REALTIME (reconcileBypass), NOT on the grid's step clock. (A door-less passthrough — no receiver to source from in the per-door bypass pass — stays a gridded hold.)
+            if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: mNow, S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp (a hold samples the value at the column-entry beat)
             applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if composableLengthTailIndex(cell) != nil { continue }   // [→ LENGTH] re-articulates the composed set in the tick loop (emitLengthComposedRow), never a plain hold here
