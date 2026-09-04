@@ -1977,13 +1977,12 @@ extension DiagView {
             // The lower region = everything under the ferry row. FIXED heights that sum EXACTLY to the column (like the
             // SELECT grid — no maxHeight:.infinity, which floated the content): [interior] + [piano roll] + [macro].
             let lowerH = max(interiorH, g.size.height - 2 * pad - navH - gap - ch - gap)
-            // AUTO FOOTER-UNTIL-TOUCHED (Paul 2026-09-02): with no lane selected the AUTO section is just its tab strip (a
-            // one-cell FOOTER) and the freed height goes to the PIANO ROLL — a more spacious part page. Touch a tab → the
-            // panel opens (macro takes the remainder, the roll returns to 2 cells).
-            let autoOpen = buildAutoActive() >= 0
-            let normalPianoH = partCH * 2 + gap                            // the piano-roll strip = 2 cells (halved)
-            let macroH = autoOpen ? max(ch, lowerH - interiorH - normalPianoH - 2 * gap) : ch   // open → the panel · closed → a one-cell footer
-            let pianoH = max(normalPianoH, lowerH - interiorH - macroH - 2 * gap)   // closed → the roll fills the freed space
+            // FIXED ROLL + ALWAYS-EXPANDED AUTO (Paul 2026-09-04): the slide-up is gone. The piano roll is a FIXED two
+            // play-grid cells (ch, not the shrunk part cell), and the AUTO controls are ALWAYS visible below it, running
+            // to the bottom of the page — their tab strip sits at the TOP of the section (roomsPartMacroSection is
+            // top-anchored). No lane-active conditional; the layout never changes shape.
+            let pianoH = ch * 2 + gap                                      // FIXED: two play-grid cells tall
+            let macroH = max(ch, lowerH - interiorH - pianoH - 2 * gap)    // AUTO fills the remainder to the bottom, always
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
                     Color.clear.frame(width: leftInset)
@@ -2009,15 +2008,15 @@ extension DiagView {
                                 .onEnded { _ in buildPartDragLast = nil })
                             VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: partCH) } }
                         }
-                        // SECTION 1 — the PIANO ROLL strip: aligned UNDER the interior columns, 4 cells tall. A STATIC MOCK of
-                        // the merged-lane notation (the real view will fold every row's output into one "what will play" roll).
+                        // SECTION 1 — the PIANO ROLL strip: aligned UNDER the interior columns, a FIXED two play-grid cells tall
+                        // (Paul 2026-09-04). The live merged-lane notation (the offline part-roll feed).
                         HStack(spacing: 0) {
                             Color.clear.frame(width: leftInset)
-                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: pianoH)   // 2 cells tall (halved, Paul 2026-09-01)
+                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: pianoH)   // fixed 2 play-grid cells
                         }
-                        // SECTION 2 — the MACRO section: its header bars (the 4 tabs) + panel, filling the rest. Mocked (the
-                        // BIND/PLAY/PUNCH/SPAN engine lands overnight — M3–M6 over the proven M1/M2 fold).
-                        roomsPartMacroSection().frame(maxWidth: .infinity).frame(height: macroH)
+                        // SECTION 2 — the AUTO section: ALWAYS visible, filling to the bottom of the page. Its tab strip is the
+                        // first element, so top-anchoring the frame keeps the tabs at the TOP of the section (Paul 2026-09-04).
+                        roomsPartMacroSection().frame(maxWidth: .infinity).frame(height: macroH, alignment: .top)
                     }
                     // the processor-editor card, when open, covers the WHOLE lower region (grid + roll + macro) so it keeps its room
                     roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW + gap + cw, h: lowerH)
