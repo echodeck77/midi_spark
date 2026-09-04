@@ -1166,6 +1166,72 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 24, "both gold cells render the COLOUR's euclid template (2 cells × 4-of-8 × 3 notes)")
         assertNothingLeftSounding(e)
     }
+    // MARK: - PHASE 2 render-time part automation (Paul 2026-09-04)
+    // A ×N-passes / SMOOTH AUTO lane overrides ONE scalar proc param FROM the beat (not compile-time baked). These drive
+    // the REAL Router via box.renderAuto. Observable: euclid HITS ramp with the automated euclidPulses.
+
+    /// A part with `gold` (a euclid machine) on every column of row 0, plus an active render-time AUTO lane.
+    private func renderAutoBox(pulsesBase: Int, lane: AutoLane) -> SnapshotBox {
+        var cs = arpColours()
+        let gi = colourIDs.firstIndex(of: "gold")!
+        var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = pulsesBase; eu.params.euclidSteps = 8
+        cs[gi].templateChain = [eu]
+        var s = SceneState.empty()
+        for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }   // gold on every column → the ramp shows column-by-column
+        var st = PluginState(colours: cs, scenes: [s])
+        st.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [lane])]
+        return SnapshotBuilder.build(from: st)
+    }
+    /// Emit-A (cable 1) note-ons that fall in BAR `bar` (8 cols × S=2 beats × 24000 samples/beat = 384000 samples/bar).
+    private func onsInBar(_ e: RecordingEmitter, _ bar: Int) -> Int {
+        let lo = Int64(bar) * 384_000, hi = Int64(bar + 1) * 384_000
+        return e.ons.filter { $0.cable == 1 && $0.sample >= lo && $0.sample < hi }.count
+    }
+    private func passSpanLane() -> AutoLane {
+        var lane = AutoLane(); lane.slot = 0; lane.param = "euclidPulses"; lane.lo = 1; lane.hi = 8; lane.spanStart = 0; lane.spanPasses = 2
+        return lane
+    }
+    func testRenderAutoPassSpanRampsHitsUpAcrossBars() {
+        let box = renderAutoBox(pulsesBase: 1, lane: passSpanLane())
+        XCTAssertFalse(box.renderAuto.isEmpty, "a ×2 lane produces a render-time descriptor (not a compile-time bake)")
+        let e = RecordingEmitter(); run(box, chord([60]), beats: 32, into: e)   // 2 bars = one ×2 period
+        let b0 = onsInBar(e, 0), b1 = onsInBar(e, 1)
+        XCTAssertGreaterThan(b1, b0, "×2 pass span ramps euclid HITS up across the 2 bars (bar1 \(b1) > bar0 \(b0))")
+        assertNothingLeftSounding(e)
+    }
+    func testRenderAutoPassSpanRepeatsAfterItsPeriod() {
+        let box = renderAutoBox(pulsesBase: 1, lane: passSpanLane())
+        let e = RecordingEmitter(); run(box, chord([60]), beats: 48, into: e)   // 3 bars → after the 2-bar period the ramp repeats
+        let b0 = onsInBar(e, 0), b2 = onsInBar(e, 2)
+        XCTAssertEqual(b2, b0, "after one ×2 period (2 bars) the ramp re-anchors — bar2 == bar0 (\(b2) vs \(b0))")
+        assertNothingLeftSounding(e)
+    }
+    func testRenderAutoStepLaneMakesNoRenderDescriptor() {
+        var lane = AutoLane(); lane.slot = 0; lane.param = "euclidPulses"; lane.lo = 1; lane.hi = 8; lane.spanStart = 0; lane.spanLen = 4
+        let box = renderAutoBox(pulsesBase: 1, lane: lane)   // a STEP-length span (no ×N / no SMOOTH)
+        XCTAssertTrue(box.renderAuto.isEmpty, "a STEP-length span is compile-time baked (composeScene), never a render-time descriptor")
+    }
+    func testRenderAutoIsReplayExact() {
+        let box = renderAutoBox(pulsesBase: 1, lane: passSpanLane())
+        let e1 = RecordingEmitter(); run(box, chord([60]), beats: 32, into: e1)
+        let e2 = RecordingEmitter(); run(box, chord([60]), beats: 32, into: e2)
+        XCTAssertEqual(e1.events, e2.events, "render-time AUTO is derived from the beat → byte-identical on replay")
+    }
+    func testRenderAutoSmoothLanePlaysAndLeavesNothingSounding() {
+        var lane = AutoLane(); lane.slot = 0; lane.param = "euclidPulses"; lane.lo = 1; lane.hi = 8; lane.spanStart = 0; lane.smooth = true
+        let box = renderAutoBox(pulsesBase: 1, lane: lane)
+        XCTAssertTrue(box.renderAuto.contains { $0?.smooth == true }, "a SMOOTH lane produces a render-time descriptor with smooth = true")
+        let e = RecordingEmitter(); run(box, chord([60]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "the SMOOTH-automated euclid actually plays")
+        assertNothingLeftSounding(e)
+    }
+    func testRenderAutoNoActiveLaneIsInert() {
+        var lane = passSpanLane()
+        var st = PluginState(colours: { var cs = arpColours(); var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; cs[colourIDs.firstIndex(of: "gold")!].templateChain = [eu]; return cs }(),
+                             scenes: [{ var s = SceneState.empty(); for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }; return s }()])
+        st.partAuto = ["gold": PartAutoColour(activeLane: -1, lanes: [lane])]   // NONE selected → no render-time descriptor
+        XCTAssertTrue(SnapshotBuilder.build(from: st).renderAuto.isEmpty, "activeLane = NONE ⇒ box.renderAuto stays empty (byte-identical)")
+    }
     // PLAY: THIS CELL (user 2026-08-09): forcing the effective column HOLDS the cell in that column playing every
     // window, regardless of the natural timeline — so an isolated cell sounds continuously, ungated by the sequence.
     // Uses an ARP (tick-emitter) — the case that needs iterateTicks UNGATED; a generator decouples via colStart.

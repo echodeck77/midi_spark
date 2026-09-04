@@ -48,6 +48,10 @@ struct AutoLane: Codable, Equatable {
     // TILES across the row (period = spanLen). Replaces the punched `cells` extent (kept only for old-doc decode/migration).
     var spanStart: Int? = nil   // the COLUMN the span begins at (nil ⇒ 0)
     var spanLen:   Int? = nil   // span length in COLUMNS (nil ⇒ the part width = one sweep across the whole part)
+    // PHASE 2 (Paul 2026-09-04): a lane can span multiple BARS (×N passes) and/or ramp SMOOTHLY. Both are RENDER-TIME
+    // (the compile-time bake is one loop); the builder routes such a lane to the box's renderAuto instead of baking.
+    var spanPasses: Int? = nil  // ×N passes (2/4/8) — the ramp period is N part-loops; mutually exclusive with spanLen
+    var smooth: Bool = false    // SMOOTH: sample the ramp at each note's beat (continuous) vs STEP (one value per column)
 }
 
 // A colour's automation: which lane is ON (activeLane, −1 = NONE) + its five lanes. One active lane per colour (Paul).
@@ -188,6 +192,8 @@ extension AutoLane {
         span  = try c.decodeIfPresent(Int.self, forKey: .span)
         spanStart = try c.decodeIfPresent(Int.self, forKey: .spanStart)
         spanLen   = try c.decodeIfPresent(Int.self, forKey: .spanLen)
+        spanPasses = try c.decodeIfPresent(Int.self, forKey: .spanPasses)
+        smooth     = try c.decodeIfPresent(Bool.self, forKey: .smooth) ?? false
         // MIGRATION (Paul 2026-09-04): a pre-span-only lane stored its extent in `cells`; derive a contiguous span from
         // that column range so old automations survive the model switch.
         if spanStart == nil, spanLen == nil, !cells.isEmpty {

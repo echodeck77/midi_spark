@@ -266,6 +266,66 @@ struct SnapParams {
     var chordsSteps: Int = 8                              // the PATTERN matrix length (1…16); the progression loops every N
 }
 
+// PART AUTOMATION render-time override (Paul 2026-09-04, Phase 2). The SCALAR params an AUTO lane may ramp at RENDER
+// time (×N passes / SMOOTH). One case per single-field SnapParams scalar; nested params (harm intervals, split
+// windows) are deliberately absent → their lanes stay STEP-bake only (the ×N/SMOOTH UI greys). Foundation, testable.
+enum AutoParamField: Equatable {
+    case gate, ramp, spread, curve, velTilt, probability, harmVelScale
+    case octaves, count, rtcChance, rtcCountLo, rtcCountHi, rtcRotate
+    case euclidPulses, euclidSteps, euclidRot, glideRange, modMin, modMax
+    case lenShort, lenLong, lenRotate, weaveSpan, weaveEuclidSteps
+    /// nil ⇒ this param is NOT render-time automatable (nested/complex) → its lane stays step-bake only.
+    init?(key: String) {
+        switch key {
+        case "gate": self = .gate;            case "ramp": self = .ramp;          case "spread": self = .spread
+        case "curve": self = .curve;          case "velTilt": self = .velTilt;    case "probability": self = .probability
+        case "harmVelScale": self = .harmVelScale; case "octaves": self = .octaves; case "count": self = .count
+        case "rtcChance": self = .rtcChance;  case "rtcCountLo": self = .rtcCountLo; case "rtcCountHi": self = .rtcCountHi
+        case "rtcRotate": self = .rtcRotate;  case "euclidPulses": self = .euclidPulses; case "euclidSteps": self = .euclidSteps
+        case "euclidRot": self = .euclidRot;  case "glideRange": self = .glideRange; case "modMin": self = .modMin
+        case "modMax": self = .modMax;        case "lenShort": self = .lenShort;  case "lenLong": self = .lenLong
+        case "lenRotate": self = .lenRotate;  case "weaveSpan": self = .weaveSpan; case "weaveEuclidSteps": self = .weaveEuclidSteps
+        default: return nil
+        }
+    }
+}
+extension SnapParams {
+    /// Return a value-copy with the automated field set to `v`, clamped EXACTLY as applyProcessorValues clamps its key.
+    /// No heap (SnapParams is a value struct) → safe on the render path (invariant 3). (Paul 2026-09-04, Phase 2.)
+    func settingAuto(_ f: AutoParamField, _ v: Double) -> SnapParams {
+        var s = self
+        func ci(_ lo: Int, _ hi: Int) -> Int { max(lo, min(hi, Int(v.rounded()))) }
+        func cd(_ lo: Double, _ hi: Double) -> Double { max(lo, min(hi, v)) }
+        switch f {
+        case .gate:         s.gate = cd(0.05, 1)
+        case .ramp:         s.ramp = cd(0, 1)
+        case .spread:       s.spread = cd(0, 1)
+        case .curve:        s.curve = cd(-1, 1)
+        case .velTilt:      s.velTilt = cd(-1, 1)
+        case .probability:  s.probability = cd(0, 1)
+        case .harmVelScale: s.harmVelScale = cd(0.1, 1)
+        case .octaves:      s.octaves = UInt8(ci(1, 4))
+        case .count:        s.count = UInt8(ci(2, 8))
+        case .rtcChance:    s.rtcChance = cd(0, 1)
+        case .rtcCountLo:   s.rtcCountLo = ci(1, 8)
+        case .rtcCountHi:   s.rtcCountHi = ci(1, 8)
+        case .rtcRotate:    s.rtcRotate = ci(0, 7)
+        case .euclidPulses: s.euclidPulses = ci(1, 16)
+        case .euclidSteps:  s.euclidSteps = ci(2, 16)
+        case .euclidRot:    s.euclidRot = ci(0, 15)
+        case .glideRange:   s.glideRange = ci(1, 48)
+        case .modMin:       s.modMin = ci(0, 127)
+        case .modMax:       s.modMax = ci(0, 127)
+        case .lenShort:     s.lenShort = cd(0.05, 0.95)
+        case .lenLong:      s.lenLong = cd(0, 1)
+        case .lenRotate:    s.lenRotate = ci(0, 7)
+        case .weaveSpan:    s.weaveSpan = ci(1, 8)
+        case .weaveEuclidSteps: s.weaveEuclidSteps = ci(2, 16)
+        }
+        return s
+    }
+}
+
 struct SnapColour {
     var transpose: Int8 = 0
     var a = SnapParams()             // the one resolved param bag (A/B morph removed)
@@ -283,6 +343,20 @@ struct SnapFileClip: Equatable {
     var loopBeats: Double = 0
 }
 
+// PART AUTOMATION render-time descriptor (Paul 2026-09-04, Phase 2): one per colour with an active render-time AUTO
+// lane (×N passes and/or SMOOTH). The Router computes the ramp per (pass, col) — or per note beat when SMOOTH — and
+// value-copies the target field on the cell's proc before emit. STEP/default spans stay compile-time baked (no entry).
+struct ColourAuto: Equatable {
+    var slot: Int                    // the automated processor slot in the colour's chain
+    var field: AutoParamField        // the resolved scalar target
+    var lo: Double                   // FROM
+    var hi: Double                   // TO
+    var startCol: Int                // the span start column
+    var spanCols: Int                // STEP-span length in columns (0 ⇒ default = the row loop width)
+    var passes: Int                  // >0 ⇒ a PASS span: period = passes × the row loop width (resolved at render)
+    var smooth: Bool                 // SMOOTH = sample at the note beat (continuous) · false = STEP (per column)
+}
+
 // MARK: - The box: immutable after construction → safe concurrent reads, no locks
 
 final class SnapshotBox {
@@ -291,6 +365,7 @@ final class SnapshotBox {
     let swing: Double                // 50…75 (§4 v2.3)
     let morphMaster: Double          // §13.5, parameter #35
     let colours: [SnapColour]        // ≥16 — sized to the document (BUILD ephemeral colours append beyond the 16)
+    var renderAuto: [ColourAuto?] = []   // PHASE 2: per colour index; nil = none. Set by the builder BEFORE publish (immutable after). Empty ⇒ byte-identical.
     let cells: [SnapCell]            // Snap.cells (256 = maxCols·rows), index = column * Snap.rows + row
     let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
     let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output

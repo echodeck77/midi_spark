@@ -139,6 +139,9 @@ enum BuildSceneLogic {
               pa.activeLane < pa.lanes.count else { return chain }
         let lane = pa.lanes[pa.activeLane]
         guard lane.slot >= 0, lane.slot < chain.count else { return chain }
+        // PHASE 2 (Paul 2026-09-04): a ×N-passes or SMOOTH lane is applied at RENDER time (box.renderAuto), NOT baked here —
+        // the compile-time bake is one loop and can't progress across bars / sample per-note. Leave the base param.
+        if (lane.spanPasses ?? 0) >= 2 || lane.smooth { return chain }
         // SPAN-ONLY (Paul 2026-09-04): the automation is one contiguous span that TILES across the row. A cell at/after
         // the span start gets the FROM→TO ramp at its position WITHIN its tile: rank = (col − start) mod len. The default
         // (start 0, len = partWidth) is a single sweep across the whole part. Cells before the start are untouched.
