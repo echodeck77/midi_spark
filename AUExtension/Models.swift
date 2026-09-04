@@ -691,7 +691,7 @@ struct ProcessorSlot: Codable, Equatable {
 // THRU (Paul 2026-08-23) = "play it straight": the door feeds LIVE input to the grid with NO latching (the neutral
 // default). It's the same audible feed as an un-armed latch door, but it CAN'T be armed — its strip button reads "SET"
 // (static) and opens the config, rather than arming. LATCH/HOLD/KEYS/REPLAY/FILE are the armable modes.
-enum DoorMode: String, Codable, CaseIterable { case thru, latch, hold, keys, replay, file, scale }
+enum DoorMode: String, Codable, CaseIterable { case thru, latch, hold, keys, replay, file, scale, chord }
 
 // THE SCALE DOOR (ratified spec AcceptanceCriteria-scale-door §1, 2026-08-26): the sixth door mode's pool = every note of
 // a chosen scale — a standing pitch-class set, no playing or typing. "KEYS with a picker": the engine IS the KEYS pool,
@@ -735,6 +735,18 @@ struct ScalePool: Codable, Equatable {
     var type: ScaleType = .major
     var baseOct: Int = 3         // home octave
     var octaves: Int = 2         // span
+}
+
+// THE CHORD DOOR (Paul 2026-09-04): a door mode built on the CHORDS processor — its pool is a DIATONIC CHORD, generated from
+// a referenced SCALE door (the key + scale) by DEGREE, with a VOICING + SPREAD. Like SCALE: FOUR instances, radio-switched
+// from a strip pop-up. A standing set (no playing needed); switching the four by hand IS the progression. `source` = the
+// SCALE door 0…3 that supplies key+scale (−1 = none ⇒ C major fallback, mirroring the CHORDS processor). `degree` 0=I…6=vii.
+struct ChordPool: Codable, Equatable {
+    var source: Int = -1              // which SCALE door (0…3) supplies root+scale; −1 = none → C major
+    var degree: Int = 0              // 0=I … 6=vii (diatonic scale degree = the chord root within the key)
+    var voicing: ChordVoicing = .triad   // TRIAD | 7TH | ADD9
+    var spread: ChordSpread = .close     // CLOSE | OPEN
+    var baseOct: Int = 3             // octave anchor for the chord root
 }
 
 struct Receiver: Codable, Equatable {
@@ -834,9 +846,19 @@ struct Receiver: Codable, Equatable {
         return "\(names[scaleRootResolved]) \(scaleTypeResolved.label)"
     }
     var scaleOctavesResolved: Int { max(1, min(4, activePool.octaves)) }
+    // THE CHORD DOOR (Paul 2026-09-04): FOUR chord pools, radio-switched (mirrors the scale pools). Additive-Optional —
+    // nil ⇒ four default pools (C major I triad; source −1 = C-major fallback). No legacy single-chord to migrate (new mode).
+    var chordPools: [ChordPool]? = nil
+    var activeChord: Int? = nil
+    var activeChordResolved: Int { max(0, min(3, activeChord ?? 0)) }
+    var chordPoolsResolved: [ChordPool] {
+        guard let p = chordPools else { return [ChordPool(), ChordPool(), ChordPool(), ChordPool()] }
+        var out = Array(p.prefix(4)); while out.count < 4 { out.append(ChordPool()) }; return out
+    }
+    var activeChordPool: ChordPool { chordPoolsResolved[activeChordResolved] }
     /// KEYS-style derived pool: on for an explicit KEYS **or SCALE** door (a scale is a pre-typed pool); else the legacy
     /// field EXACTLY (byte-identical for old docs). The note SOURCE differs (tapped keys vs the derived scale set).
-    var latchPianoResolved: Bool { doorMode.map { $0 == .keys || $0 == .scale } ?? (latchPiano ?? false) }
+    var latchPianoResolved: Bool { doorMode.map { $0 == .keys || $0 == .scale || $0 == .chord } ?? (latchPiano ?? false) }
     var pianoNotesResolved: [Int] { (pianoNotes ?? []).filter { $0 >= 0 && $0 <= 127 } }
     // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE. Additive-Optional — nil ⇒ derive from the legacy latch fields
     // (LATCH/HOLD/KEYS), so old docs are unchanged. When the door sheet sets it explicitly, it drives the resolvers above.

@@ -239,10 +239,22 @@ enum SnapshotBuilder {
         let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH + SCALE: doors whose frozen pool is a derived set (keyboard-tapped OR scale-picked)
         // THE SCALE DOOR (ratified §1): a SCALE door feeds the KEYS pipeline, but its notes are DERIVED from root+scale+range
         // (scaleNotes) rather than tapped — otherwise identical (self-arm · EXCLUDE · play-along all reused).
-        let receiverPianoNotes = doc.receiversResolved.map { r -> [UInt8] in
-            let notes = r.doorModeResolved == .scale
-                ? scaleNotes(root: r.scaleRootResolved, type: r.scaleTypeResolved, baseOct: r.scaleBaseOctResolved, octaves: r.scaleOctavesResolved)
-                : r.pianoNotesResolved
+        let recvsForPool = doc.receiversResolved
+        let receiverPianoNotes = recvsForPool.map { r -> [UInt8] in
+            let notes: [Int]
+            switch r.doorModeResolved {
+            case .scale:
+                notes = scaleNotes(root: r.scaleRootResolved, type: r.scaleTypeResolved, baseOct: r.scaleBaseOctResolved, octaves: r.scaleOctavesResolved)
+            case .chord:
+                // THE CHORD DOOR: a diatonic chord from a referenced SCALE door (the key). Not a scale door / no source ⇒ C major.
+                let cp = r.activeChordPool
+                let ok = cp.source >= 0 && cp.source < recvsForPool.count && recvsForPool[cp.source].doorModeResolved == .scale
+                let root  = ok ? recvsForPool[cp.source].scaleRootResolved : 0
+                let tones = ok ? recvsForPool[cp.source].scaleTypeResolved.intervals : ScaleType.major.intervals
+                notes = chordDoorNotes(root: root, scaleTones: tones, degree: cp.degree, voicing: cp.voicing, spread: cp.spread, baseOct: cp.baseOct)
+            default:
+                notes = r.pianoNotesResolved
+            }
             return notes.map { UInt8(max(0, min(127, $0))) }
         }
         let receiverExcludeDoor = doc.receiversResolved.enumerated().map { (i, r) -> Int8 in let d = r.excludeDoorResolved; return d == i ? -1 : Int8(d) }   // never exclude self

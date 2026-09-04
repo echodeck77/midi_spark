@@ -950,6 +950,18 @@ final class DerivationsTests: XCTestCase {
         // Clamped inputs: octaves 0 → 1, baseOct 99 → 8 (never traps, always ≥ 1 octave).
         XCTAssertFalse(scaleNotes(root: 0, type: .major, baseOct: 99, octaves: 0).isEmpty)
     }
+    // THE CHORD DOOR (Paul 2026-09-04): chordDoorNotes anchors the diatonicChord root at baseOct (root MIDI = pc + baseOct*12+12).
+    func testChordDoorNotesAnchorsAndStacksThirds() {
+        // C major I triad at octave 3: root C = 48 → C E G = 48,52,55.
+        XCTAssertEqual(chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 0, voicing: .triad, spread: .close, baseOct: 3), [48, 52, 55])
+        // The V (degree 4) of C major, triad = G B D → 55,59,62.
+        XCTAssertEqual(chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 4, voicing: .triad, spread: .close, baseOct: 3), [55, 59, 62])
+        // A 7th adds a fourth voice.
+        XCTAssertEqual(chordDoorNotes(root: 0, scaleTones: ScaleType.major.intervals, degree: 0, voicing: .seventh, spread: .close, baseOct: 3).count, 4)
+        // Matches diatonicChord directly (chordDoorNotes is just the octave-anchored wrapper).
+        XCTAssertEqual(chordDoorNotes(root: 2, scaleTones: ScaleType.naturalMinor.intervals, degree: 3, voicing: .triad, spread: .open, baseOct: 4),
+                       diatonicChord(degree: 3, scaleTones: ScaleType.naturalMinor.intervals, rootNote: 2 + 4 * 12 + 12, voicing: .triad, spread: .open))
+    }
     // AVOID/LOCK (unified 2026-08-31): the declared-key reference mask + the keyFilterNote directions it drives.
     func testScalePitchClassMaskAndKeyFilterDirections() {
         let cMaj = scalePitchClassMask(root: 0, scale: .major)   // C D E F G A B = classes 0,2,4,5,7,9,11

@@ -714,6 +714,14 @@ func diatonicChord(degree deg: Int, scaleTones: [Int], rootNote: Int,
     return notes.map { max(0, min(127, $0)) }.sorted()
 }
 
+/// THE CHORD DOOR pool (Paul 2026-09-04): a standing diatonic chord for a door — `diatonicChord` with the root octave anchored
+/// at `baseOct` (root MIDI = pitchClass + baseOct*12 + 12, the `scaleNotes` convention). `root` = key pitch class (0…11),
+/// `scaleTones` = the source scale's intervals. Returns ascending MIDI notes, clamped. Pure/testable.
+func chordDoorNotes(root: Int, scaleTones: [Int], degree: Int, voicing: ChordVoicing, spread: ChordSpread, baseOct: Int) -> [Int] {
+    let rootNote = (((root % 12) + 12) % 12) + max(0, min(8, baseOct)) * 12 + 12
+    return diatonicChord(degree: degree, scaleTones: scaleTones, rootNote: rootNote, voicing: voicing, spread: spread)
+}
+
 /// Voice-lead `chord` toward `previous` (SPEC-chords-stage §1 INVERT): pick the octave-rotation (inversion) whose notes sit
 /// NEAREST the previous chord's register — the least total leap. Smooth by construction. `previous` empty ⇒ `chord` unchanged.
 /// Pure/testable.

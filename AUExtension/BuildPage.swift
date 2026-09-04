@@ -123,6 +123,7 @@ extension DiagView {
         if buildMidiOutConfigOpen { AnyView(buildMidiOutConfigSheet(size: size)) }                           // MIDI OUTPUTS (strip spanner + header)
         if buildRow8EditOpen { AnyView(buildRow8EditPage(size: size)) }                                      // ROW 8 authoring (header)
         if let d = buildScalePopupDoor { AnyView(buildReceiverScalePopup(door: d, size: size)) }             // FOUR SCALE POOLS (strip SCALE button)
+        if let d = buildChordPopupDoor { AnyView(buildReceiverChordPopup(door: d, size: size)) }             // THE CHORD DOOR (strip CHORD button)
     }
     @ViewBuilder func roomsChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
@@ -150,6 +151,7 @@ extension DiagView {
         case .replay: return "Records this input and loops the last N passes back in."
         case .file:   return "Loops a loaded .mid into this input — a machine reading this input plays it."
         case .scale:  return "The pool is a whole scale — pick a key, no playing needed."
+        case .chord:  return "The pool is a diatonic chord — from a scale door, pick a degree."
         }
     }
     @ViewBuilder private func buildMidiConfigSheet(size: CGSize) -> some View {
@@ -185,7 +187,7 @@ extension DiagView {
                 let on = buildMidiConfigTab == i
                 let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
                 let unset = (i < recvs.count ? recvs[i].doorMode : nil) == nil
-                let tabLabel = (i < recvs.count ? recvs[i].scaleLabel : nil) ?? ["A", "B", "C", "D"][i]   // a SCALE door names itself ("A MIXO"); else the letter
+                let tabLabel = (i < recvs.count ? recvs[i].scaleLabel : nil) ?? buildChordDoorLabel(recvs, i) ?? ["A", "B", "C", "D"][i]   // SCALE ("A MIXO") / CHORD ("A · V7") doors name themselves; else the letter
                 ZStack(alignment: .topTrailing) {
                     Text(tabLabel).font(.system(size: 15, weight: .black, design: .monospaced))
                         .foregroundColor(on ? .black : .white.opacity(0.7))
@@ -473,8 +475,9 @@ extension DiagView {
             // These DON'T auto-engage: REPLAY needs an explicit capture-N arm, FILE plays its loaded clip, THRU is passive.
             // Drop any running latch so the door isn't left in a stale armed state from the previous mode.
             if latchMask & bit != 0 { latchMask &= ~bit; au?.setLatchArm(latchMask) }
-        case .latch, .hold, .keys, .scale:
+        case .latch, .hold, .keys, .scale, .chord:
             // AUTO-ENGAGE (Paul 2026-08-27): selecting an armable mode ARMS it on the receiver at once — no separate SET tap.
+            // (SCALE/CHORD also self-arm via their derived pool, but arm the manual latch too so the strip reads engaged.)
             if replayEngagedMask & bit != 0 { buildToggleReplay(i) }        // release a running loop first
             if latchMask & bit == 0 { latchMask |= bit; au?.setLatchArm(latchMask) }
         }
@@ -500,6 +503,7 @@ extension DiagView {
                     switch m {
                     case .keys:   buildDoorKeyboardInline(i, r)
                     case .scale:  buildDoorScaleInline(i, r)
+                    case .chord:  buildDoorChordInline(i, r)
                     case .latch, .hold: buildDoorLatchInline(i, r)   // §3: the KEY FILTER — restrict this input's pool to a declared key/chord
                     case .replay: buildDoorReplayInline(i, r)
                     case .file:   buildDoorFileInline(i, r)
@@ -861,6 +865,146 @@ extension DiagView {
                 }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 12)
                 ScrollView(.vertical, showsIndicators: false) {
                     buildScalePoolEditor(i, r).padding(.horizontal, 26).padding(.bottom, 30)
+                }
+            }
+            .frame(width: min(600, size.width - 32), height: min(560, size.height - 96))
+            .background(RoundedRectangle(cornerRadius: 18).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .padding(.top, 20)
+        }
+    }
+    // ═══ THE CHORD DOOR (Paul 2026-09-04) — a sibling of the scale door: FOUR diatonic-chord pools, radio-switched from a strip
+    // pop-up, each generated from a referenced SCALE door (the CHORDS-processor primitives). ═══
+    private var chordNoteNames: [String] { ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] }
+    /// The quality-aware label of a chord pool ("V7"), resolving its SOURCE scale door for the real quality (C major if none).
+    private func buildChordSlotLabel(_ recvs: [Receiver], _ cp: ChordPool) -> String {
+        let ok = cp.source >= 0 && cp.source < recvs.count && recvs[cp.source].doorModeResolved == .scale
+        let tones = ok ? recvs[cp.source].scaleTypeResolved.intervals : ScaleType.major.intervals
+        var lbl = degreeLabel(degree: cp.degree, scaleTones: tones)
+        switch cp.voicing { case .seventh: lbl += "7"; case .add9: lbl += "9"; case .triad: break }
+        return lbl
+    }
+    /// The strip/tab label for a CHORD door ("A · V7"), else nil. Parallels `Receiver.scaleLabel`.
+    func buildChordDoorLabel(_ recvs: [Receiver], _ i: Int) -> String? {
+        guard i >= 0, i < recvs.count, recvs[i].doorModeResolved == .chord else { return nil }
+        return "\(["A", "B", "C", "D"][min(3, max(0, i))]) · \(buildChordSlotLabel(recvs, recvs[i].activeChordPool))"
+    }
+    /// The resolved chord notes of a pool (for the readout) — resolves the source scale door (C major fallback).
+    private func buildChordNotes(_ recvs: [Receiver], _ cp: ChordPool) -> [Int] {
+        let ok = cp.source >= 0 && cp.source < recvs.count && recvs[cp.source].doorModeResolved == .scale
+        let root  = ok ? recvs[cp.source].scaleRootResolved : 0
+        let tones = ok ? recvs[cp.source].scaleTypeResolved.intervals : ScaleType.major.intervals
+        return chordDoorNotes(root: root, scaleTones: tones, degree: cp.degree, voicing: cp.voicing, spread: cp.spread, baseOct: cp.baseOct)
+    }
+    // The door sheet's CHORD row = a LAUNCHER (active-chord summary + button) into the same pop-up the strip CHORD button opens.
+    @ViewBuilder private func buildDoorChordInline(_ i: Int, _ r: Receiver) -> some View {
+        let w: CGFloat = 520
+        let recvs = au?.uiReceivers() ?? []
+        let cp = r.activeChordPool
+        let notes = buildChordNotes(recvs, cp)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text("ACTIVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 44, alignment: .leading)
+                Text("\(r.activeChordResolved + 1) · \(buildChordSlotLabel(recvs, cp)) · \(notes.map { chordNoteNames[$0 % 12] }.joined(separator: " "))")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.6)
+                Spacer(minLength: 0)
+            }
+            Text("EDIT 4 CHORDS ▸").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .frame(maxWidth: .infinity).frame(height: 34).background(RoundedRectangle(cornerRadius: 6).fill(buildCyan))
+                .contentShape(Rectangle()).onTapGesture { buildChordPopupDoor = i }
+        }.frame(width: w, alignment: .leading)
+    }
+    // The FOUR-CHORD editor — the slot RADIO (tap = switch active, live) over the SOURCE/DEGREE/VOICING/SPREAD/OCT editor for
+    // the active chord. Shared by the pop-up (strip CHORD button + door-sheet launcher).
+    @ViewBuilder private func buildChordPoolEditor(_ i: Int, _ r: Receiver) -> some View {
+        let w: CGFloat = 520
+        let recvs = au?.uiReceivers() ?? []
+        let pools = r.chordPoolsResolved, active = r.activeChordResolved
+        let cp = pools[active]
+        let srcOk = cp.source >= 0 && cp.source < recvs.count && recvs[cp.source].doorModeResolved == .scale
+        let srcTones = srcOk ? recvs[cp.source].scaleTypeResolved.intervals : ScaleType.major.intervals
+        let notes = buildChordNotes(recvs, cp)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {                                       // the 4 slot toggles — RADIO (one active), each names its chord
+                ForEach(0..<4, id: \.self) { k in
+                    let on = active == k
+                    VStack(spacing: 1) {
+                        Text("\(k + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        Text(buildChordSlotLabel(recvs, pools[k])).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+                    }
+                    .foregroundColor(on ? .black : .white.opacity(0.75))
+                    .frame(maxWidth: .infinity).frame(height: 38)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan : Color.white.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? Color.clear : buildCyan.opacity(0.35), lineWidth: 1.5))
+                    .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReceiverActiveChord(i, k) } }
+                }
+            }.frame(width: w)
+            Text("CONFIGURE CHORD \(active + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+            HStack(spacing: 5) {                                       // SOURCE — which SCALE door supplies the key (▸ = none/C major)
+                Text("KEY FROM").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 72, alignment: .leading)
+                ForEach(-1..<4, id: \.self) { s in
+                    let sel = cp.source == s
+                    let isScale = s >= 0 && s < recvs.count && recvs[s].doorModeResolved == .scale
+                    let name = s < 0 ? "▸" : ["A", "B", "C", "D"][s]
+                    Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .foregroundColor(sel ? .black : (s < 0 || isScale ? .white.opacity(0.75) : .white.opacity(0.3)))   // dim non-SCALE doors
+                        .frame(width: 40, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(sel ? buildCyan : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReceiverChordSlotSource(i, active, s) } }
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(alignment: .top, spacing: 5) {                      // DEGREE — I…VII, labelled with the quality-aware Roman of the source scale
+                Text("DEGREE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 72, alignment: .leading).padding(.top, 4)
+                HStack(spacing: 4) {
+                    ForEach(0..<7, id: \.self) { d in
+                        let sel = cp.degree == d
+                        Text(degreeLabel(degree: d, scaleTones: srcTones)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(sel ? .black : .white.opacity(0.75)).lineLimit(1).minimumScaleFactor(0.6)
+                            .frame(maxWidth: .infinity).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(sel ? buildCyan : Color.white.opacity(0.08)))
+                            .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReceiverChordSlotDegree(i, active, d) } }
+                    }
+                }.frame(width: w - 78)
+            }
+            HStack(spacing: 8) {                                       // VOICING · SPREAD segs
+                Text("VOICING").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 72, alignment: .leading)
+                ForEach(ChordVoicing.allCases, id: \.self) { v in
+                    let sel = cp.voicing == v
+                    Text(["triad": "TRIAD", "seventh": "7TH", "add9": "ADD9"][v.rawValue] ?? v.rawValue.uppercased()).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(sel ? .black : .white.opacity(0.75))
+                        .frame(maxWidth: .infinity).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(sel ? buildCyan : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReceiverChordSlotVoicing(i, active, v) } }
+                }
+            }
+            HStack(spacing: 8) {
+                Text("SPREAD").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 72, alignment: .leading)
+                ForEach(ChordSpread.allCases, id: \.self) { s in
+                    let sel = cp.spread == s
+                    Text(s.rawValue.uppercased()).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(sel ? .black : .white.opacity(0.75))
+                        .frame(width: 90, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(sel ? buildCyan : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { buildRecvEdit { au?.setReceiverChordSlotSpread(i, active, s) } }
+                }
+                buildScaleStepper("OCT", value: cp.baseOct, lo: 0, hi: 8) { v in buildRecvEdit { au?.setReceiverChordSlotBaseOct(i, active, v) } }
+                Spacer(minLength: 0)
+                Text(notes.map { chordNoteNames[$0 % 12] }.joined(separator: " ")).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.6)
+            }
+            if !srcOk { Text("No SCALE door chosen — using C major.").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim) }
+        }.frame(width: w, alignment: .leading)
+    }
+    // THE 4-CHORD POP-UP — twin of the scale pop-up (strip CHORD button + door-sheet launcher).
+    @ViewBuilder private func buildReceiverChordPopup(door i: Int, size: CGSize) -> some View {
+        let recvs = au?.uiReceivers() ?? []
+        let r = i < recvs.count ? recvs[i] : Receiver()
+        let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.65).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildChordPopupDoor = nil }
+            VStack(spacing: 0) {
+                HStack {
+                    Text("CHORDS · \(["A", "B", "C", "D"][min(3, max(0, i))])").font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(hue)
+                    Spacer()
+                    Button { buildChordPopupDoor = nil } label: {
+                        Image(systemName: "xmark").font(.system(size: 17, weight: .bold)).foregroundColor(buildDim).padding(10)
+                    }
+                }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 12)
+                ScrollView(.vertical, showsIndicators: false) {
+                    buildChordPoolEditor(i, r).padding(.horizontal, 26).padding(.bottom, 30)
                 }
             }
             .frame(width: min(600, size.width - 32), height: min(560, size.height - 96))
@@ -3115,7 +3259,7 @@ extension DiagView {
         // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
         // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
         let letter = ["A", "B", "C", "D"][i]
-        let key: String? = i < receivers.count ? receivers[i].scaleLabel : nil   // "A MIXO" for a SCALE door (shared helper), else nil
+        let key: String? = (i < receivers.count ? receivers[i].scaleLabel : nil) ?? buildChordDoorLabel(receivers, i)   // "A MIXO" (SCALE) / "A · V7" (CHORD), else nil
         buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: on, accent: receiverGrey(i), action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30)
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
@@ -4392,6 +4536,7 @@ extension DiagView {
             case .replay:      return "LAST \(rec.replayPassesResolved)"
             case .file:        return ".MID"
             case .scale:       return "SCALE"
+            case .chord:       return "CHORD"
             }
         }()
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -4405,6 +4550,7 @@ extension DiagView {
                 // FOUR SCALE POOLS (Paul 2026-09-04): a SCALE door's button opens the 4-pool switch/config pop-up (a SCALE
                 // door self-arms via the derived pool — there's nothing to toggle here). Every other mode keeps arming.
                 if rec.doorModeResolved == .scale { buildScalePopupDoor = i }
+                else if rec.doorModeResolved == .chord { buildChordPopupDoor = i }   // THE CHORD DOOR: open the 4-chord pop-up
                 else { buildEngageDoor(i) }
             }
     }

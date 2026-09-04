@@ -39,10 +39,30 @@ CHORD variant (to be defined).
   (each names its scale; tap = switch active, LIVE) over the ROOT/SCALE/RANGE +
   EXCLUDE editor for the active slot.
 
-## Future (captured, not built)
-- **CHORD variant** — "this same pop-up will later show as chord selected." The
-  pop-up shell is generic; a CHORD door would swap the per-slot editor (a chord
-  picker) and the pool derivation. Shape TBD with Paul.
+## THE CHORD DOOR (Paul 2026-09-04) — BUILT (sibling of the scale door)
+A new `DoorMode.chord`: like SCALE, FOUR instances radio-switched from a strip
+pop-up (the strip CHORD button + a door-sheet launcher). Its pool is a DIATONIC
+CHORD generated from the CHORDS-processor primitives:
+- **Per-instance config:** KEY FROM (a referenced SCALE door ▸/A–D that supplies
+  root+scale; ▸/non-scale ⇒ C major) · DEGREE (I…VII, quality-aware Roman labels) ·
+  VOICING (TRIAD/7TH/ADD9) · SPREAD (CLOSE/OPEN) · base octave.
+- **Engine:** the door's frozen pool = `chordDoorNotes(...)` = `diatonicChord`
+  anchored at the base octave, fed through the KEYS pipeline (self-arms, honours
+  EXCLUDE, plays along) exactly like SCALE. Byte-identical machinery; only the note
+  SOURCE differs (a chord set vs a scale set). `latchPianoResolved` true for `.chord`.
+- **Model:** `ChordPool {source·degree·voicing·spread·baseOct}` +
+  `Receiver.chordPools`/`activeChord` (additive-Optional; nil ⇒ four defaults). The
+  strip/tab/chip name themselves ("A · V7").
+- **Standing set, switched by hand** = the progression (no PATTERN/FOLLOW/WALK modes;
+  the four instances + the radio ARE the way you move between chords).
+- Built end-to-end; iOS builds, macOS 1057 green (+5 tests). DEVICE eye/ear owed.
+
+### CHORD-door judgment calls (device-owed)
+- Each instance is ONE standing chord (degree-selected). If you want a door to WALK a
+  progression or FOLLOW played input over time, that's a separate mode (not built).
+- KEY FROM references a SCALE door; a non-scale/absent source silently falls back to
+  C major (a small "using C major" hint shows in the editor).
+- Same self-arm visual caveat as SCALE (the strip amber reads off the manual latch).
 
 ## Device-owed / judgment calls
 - The SCALE button's amber "engaged" visual still reads off the MANUAL latch mask —

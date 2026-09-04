@@ -179,6 +179,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE CHORD DOOR — a new latch/key/hold-class door mode (2026-09-04, on branch `feature/chord-door`; iOS builds, macOS
+    1057 green +5; DEVICE eye/ear owed). Paul's spec: a new `DoorMode.chord`, a SIBLING of the scale door — FOUR instances
+    radio-switched from a strip pop-up, each a DIATONIC CHORD generated (CHORDS-processor primitives) from a referenced SCALE
+    door, output as the receiver's pool. **MODEL (`Models.swift`):** `ChordPool {source·degree·voicing·spread·baseOct}` +
+    `Receiver.chordPools`/`activeChord` (additive-Optional; nil ⇒ four defaults, no legacy migration — new mode).
+    `latchPianoResolved` true for `.chord` (rides the KEYS pipeline: self-arm · EXCLUDE · play-along). **ENGINE:** pure
+    `chordDoorNotes(root,tones,degree,voicing,spread,baseOct)` (Derivations, wraps the existing `diatonicChord`); the
+    SnapshotBuilder's piano-notes map gained a `.chord` branch that resolves the SOURCE scale door (root+scale from
+    `recvsForPool`, C-major fallback if the source isn't a SCALE door) → `receiverPianoNotes`. A CHORD door's
+    `receiverScaleRoot` stays −1 (it's not a scale door; the CHORDS PROCESSOR reads scale only from scale doors). No render/
+    Kernel change (rides SCALE's pipeline). **AU:** `setReceiverActiveChord` + slot setters (source/degree/voicing/spread/
+    baseOct) via `editReceiverChordSlot` (materializes the 4 pools). `setDoorMode` .chord case. **UI (`BuildPage.swift`):** the
+    strip CHORD button opens `buildReceiverChordPopup` (twin of the scale pop-up, in `roomsSharedOverlays`, gated on
+    `buildChordPopupDoor`); `buildChordPoolEditor` = a 4-slot RADIO (each names its chord via quality-aware `degreeLabel`) over
+    KEY-FROM(▸·A–D scale doors, non-scale dimmed) · DEGREE(I–VII) · VOICING · SPREAD · OCT + a live note-name readout; the
+    MIDI-IN door sheet's CHORD row is an "EDIT 4 CHORDS ▸" launcher; strip label "CHORD"; the mode radio auto-lists it
+    (DoorMode.allCases); tab/chip name themselves ("A · V7", `buildChordDoorLabel`). **+5 tests** (builder generates the right
+    chord from a referenced scale door · no-source→C major · radio switches the chord · decode-tolerance/default · the pure
+    `chordDoorNotes` anchoring). **DECISIONS (Paul-implied, flagged):** each instance = ONE standing chord (no PATTERN/FOLLOW/
+    WALK — the 4 instances + hand-switching ARE the progression); KEY FROM references a SCALE door (C-major fallback). Spec:
+    `Docs/SPEC-four-scale-pools.md` (CHORD section). DEVICE-OWED: the live radio switch (heard), pop-up legibility, the
+    self-arm amber caveat (shared with SCALE). NOTE: built on the two-instance feature-branch workflow — merge+push routine.**
 - **▶ FOUR SCALE POOLS PER SCALE DOOR — model + migration + the switch/config pop-up (2026-09-04, on `main`, UNCOMMITTED;
     iOS builds, macOS 1046 green +5; DEVICE eye/ear owed — UI + the live switch). Paul's spec (he chose RADIO + config-in-the-
     pop-up via AskUserQuestion): a SCALE door now holds FOUR configurable scale pools and switches between them LIVE via a
