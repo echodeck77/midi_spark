@@ -42,9 +42,12 @@ struct AutoLane: Codable, Equatable {
     // The extent (cells) is WHERE; these are the value RANGE the ramp sweeps between (FROM at the first cell → TO at the last).
     var lo: Double? = nil
     var hi: Double? = nil
-    // SPAN (Paul 2026-09-02): the sweep RE-ANCHORS every `span` extent cells (a repeating sawtooth FROM→TO). nil / <2 ⇒
-    // FULL — ONE sweep across the whole extent. Disabled for binary (toggle) params.
+    // SPAN (Paul 2026-09-02): LEGACY re-anchor-every-N-extent-cells. Superseded by spanStart/spanLen below; kept for decode.
     var span: Int? = nil
+    // SPAN-ONLY (Paul 2026-09-04): the automation is now ONE contiguous span — a FROM→TO ramp over a run of COLUMNS that
+    // TILES across the row (period = spanLen). Replaces the punched `cells` extent (kept only for old-doc decode/migration).
+    var spanStart: Int? = nil   // the COLUMN the span begins at (nil ⇒ 0)
+    var spanLen:   Int? = nil   // span length in COLUMNS (nil ⇒ the part width = one sweep across the whole part)
 }
 
 // A colour's automation: which lane is ON (activeLane, −1 = NONE) + its five lanes. One active lane per colour (Paul).
@@ -183,6 +186,14 @@ extension AutoLane {
         lo    = try c.decodeIfPresent(Double.self, forKey: .lo)
         hi    = try c.decodeIfPresent(Double.self, forKey: .hi)
         span  = try c.decodeIfPresent(Int.self, forKey: .span)
+        spanStart = try c.decodeIfPresent(Int.self, forKey: .spanStart)
+        spanLen   = try c.decodeIfPresent(Int.self, forKey: .spanLen)
+        // MIGRATION (Paul 2026-09-04): a pre-span-only lane stored its extent in `cells`; derive a contiguous span from
+        // that column range so old automations survive the model switch.
+        if spanStart == nil, spanLen == nil, !cells.isEmpty {
+            let cols = cells.map { $0 / Snap.rows }
+            if let lo = cols.min(), let hi = cols.max() { spanStart = lo; spanLen = max(1, hi - lo + 1) }
+        }
     }
 }
 extension PartAutoColour {

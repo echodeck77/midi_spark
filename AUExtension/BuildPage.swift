@@ -2009,7 +2009,7 @@ extension DiagView {
                             .coordinateSpace(name: "partInt")
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
                                 .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: partCH, gap: gap, cols: cols) }
-                                .onEnded { _ in buildPartDragLast = nil })
+                                .onEnded { _ in buildPartDragLast = nil; buildPartDragAnchor = nil })
                             VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: partCH) } }
                         }
                         // SECTION 1 — the PIANO ROLL strip: aligned UNDER the interior columns, a FIXED two play-grid cells tall
@@ -2156,6 +2156,11 @@ extension DiagView {
         let cid = ddSelectedColourID ?? ""; guard !cid.isEmpty else { return }
         var pa = buildAutoLanes[cid] ?? PartAutoColour()
         if pa.lanes.count < 5 { pa.lanes += Array(repeating: AutoLane(), count: 5 - pa.lanes.count) }
+        // DEFAULT SPAN ON ARM (Paul 2026-09-04): arming a lane with no span yet applies a WHOLE-PART sweep immediately, so
+        // the automation is audible at once (drag on the grid to draw a tighter span). span-only: no punch step needed.
+        if i >= 0, i < 5, pa.lanes[i].spanStart == nil, pa.lanes[i].spanLen == nil {
+            pa.lanes[i].spanStart = 0; pa.lanes[i].spanLen = buildPartCols
+        }
         pa.activeLane = i; buildAutoLanes[cid] = pa
         buildPublishScene()   // P3: selecting a lane ENABLES it → republish so it plays immediately
     }
@@ -2250,21 +2255,21 @@ extension DiagView {
     // binary value.
     @ViewBuilder private func autoSpanColumn(p: MacroControlParam, lane: AutoLane) -> some View {
         let na = p.kind.isToggle
-        let cur = lane.span ?? 0
+        let cur = lane.spanLen ?? buildPartCols          // the span LENGTH in steps (span-only); default = the whole part
         VStack(alignment: .leading, spacing: 4) {
             macroColHead("SPAN")
-            HStack(spacing: 3) {                                         // 1…8 STEPS
+            HStack(spacing: 3) {                                         // 1…8 STEPS — the span length (or DRAG on the grid to draw it)
                 ForEach(1...8, id: \.self) { n in
-                    autoSpanChip("\(n)", on: n == 1 ? cur < 2 : cur == n) { buildSetAutoLane { $0.span = n } }
+                    autoSpanChip("\(n)", on: cur == n) { buildSetAutoLane { $0.spanLen = n; if $0.spanStart == nil { $0.spanStart = 0 } } }
                 }
             }
-            HStack(spacing: 3) {                                         // ×2 / ×4 / ×8 PASSES
+            HStack(spacing: 3) {                                         // ×2 / ×4 / ×8 PASSES — Phase 2 (needs render-time), greyed
                 ForEach([2, 4, 8], id: \.self) { m in
-                    autoSpanChip("×\(m)", on: cur == m * 8) { buildSetAutoLane { $0.span = m * 8 } }
+                    autoSpanChip("×\(m)", on: false) { }.opacity(0.28).allowsHitTesting(false)
                 }
             }
         }
-        .opacity(na ? 0.3 : 1)                                           // GREYED for on/off params
+        .opacity(na ? 0.3 : 1)                                           // GREYED for on/off params (SPAN can't apply to a binary value)
         .allowsHitTesting(!na)
         .overlay(alignment: .topTrailing) { if na { Text("n/a").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45)) } }
     }
@@ -2418,35 +2423,28 @@ extension DiagView {
     private func autoResolvedParamKey(lane: AutoLane, type: ProcessorType, params: [MacroControlParam]) -> String {
         BuildSceneLogic.autoResolvedParamKey(type, laneParam: lane.param)
     }
-    // The currently-ARMED punch context (nil ⇒ punch off): the param + its continuous range for the main-grid value canvas.
-    func buildAutoArmedParam() -> (param: MacroControlParam, lo: Double, hi: Double)? {
-        let active = buildAutoActive()
-        guard active >= 0, let cid = ddSelectedColourID, !cid.isEmpty else { return nil }   // NONE (−1) = disabled
-        let chain = buildFocusedChain(); guard !chain.isEmpty else { return nil }
-        let lane = buildAutoLanesFor(cid)[max(0, min(4, active))]
-        let procIdx = min(lane.slot, chain.count - 1)
-        let params = macroParamsForProcessor(chain[procIdx].type)
-        let key = autoResolvedParamKey(lane: lane, type: chain[procIdx].type, params: params)
-        guard let p = params.first(where: { $0.key == key }) else { return nil }
-        if case .continuous(let lo, let hi) = p.kind { return (p, lo, hi) }
-        return (p, 0, 1)   // binary/discrete punch as 0…1 for now
-    }
-    // PUNCH = TOGGLE (Paul 2026-09-01): tap flips a cell in/out of the current lane's EXTENT.
-    func buildAutoToggle(_ idx: Int) {
-        buildPartTouched = true   // punching an AUTO cell is a part-grid edit
-        buildSetAutoLane { if $0.cells.contains(idx) { $0.cells.remove(idx) } else { $0.cells.insert(idx) } }
-    }
+    // (SPAN-ONLY, Paul 2026-09-04: the old PUNCH context/toggle — buildAutoArmedParam / buildAutoToggle — are retired;
+    // a lane's extent is now a drawn SPAN, drag-authored in buildPartGridDrag.)
+    // SPAN-ONLY (Paul 2026-09-04): a cell HAS the automation applied iff it is the SELECTED colour's cell and its column is
+    // at/after the span start (the span tiles rightward across the row). Drives the "AUTO N" label + the amber highlight.
     func buildAutoInExtent(_ idx: Int) -> Bool {
-        buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoActive()))].cells.contains(idx)
+        let active = buildAutoActive(); guard active >= 0 else { return false }
+        let col = idx / Snap.rows, row = idx % Snap.rows
+        guard col < buildStagingCells.count, row < buildStagingCells[col].count,
+              buildStagingCells[col][row] == ddSelectedColourID else { return false }   // the AUTOMATED colour's cell only
+        let start = max(0, buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, active))].spanStart ?? 0)
+        return col >= start
     }
-    // The RANGE displayed across the extent: a cell's ramp position (0…1) by its rank among the toggled cells in
-    // column→row order — so the toggled cells read as a ramp (the param sweeping low→high across the extent). nil = not in.
+    // A cell's ramp position (0…1) WITHIN its span tile — rank = (col − start) mod len — so the STATE playhead + any
+    // per-cell shading read the tiling sweep. nil = before the span / no lane.
     func buildAutoRampFrac(_ idx: Int) -> Double? {
-        let cells = buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, buildAutoActive()))].cells
-        guard cells.contains(idx) else { return nil }
-        let ordered = cells.sorted { ($0 / Snap.rows, $0 % Snap.rows) < ($1 / Snap.rows, $1 % Snap.rows) }
-        guard ordered.count > 1, let rank = ordered.firstIndex(of: idx) else { return 1 }
-        return Double(rank) / Double(ordered.count - 1)
+        let active = buildAutoActive(); guard active >= 0 else { return nil }
+        let lane = buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, active))]
+        let col = idx / Snap.rows
+        let start = max(0, lane.spanStart ?? 0), len = max(1, lane.spanLen ?? buildPartCols)
+        guard col >= start else { return nil }
+        let rank = (col - start) % len
+        return len > 1 ? Double(rank) / Double(len - 1) : 1
     }
     // SHARED grid-cell body (Paul 2026-08-30 colour language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
@@ -2480,8 +2478,6 @@ extension DiagView {
         let id = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil   // Rooms4: bounds-safe against a ragged decoded doc
         let selected = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r   // the ONE selected rung for column c
         let idx = c * Snap.rows + r
-        let punch = buildAutoArmedParam()
-        let punchable = punch != nil && id != nil && id == ddSelectedColourID
         // When an AUTO tab is selected, every cell that ISN'T the selected rung loses its face colour (drops to the
         // background) but keeps its border — so the sweep's target rung stands out. (Paul 2026-09-04)
         let hollow = buildAutoActive() >= 0 && !selected
@@ -2495,10 +2491,10 @@ extension DiagView {
         let laneActive = buildAutoActive()
         let inExtent = laneActive >= 0 && buildAutoInExtent(idx)   // this cell HAS the automation applied
         ZStack {
-            if punchable {
+            if inExtent {                                               // AUTOMATED cell (span-only): the span tiles across the row → amber wash + border
                 cellBody
-                    .overlay { if inExtent { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.32)) } }   // in the extent = amber wash (binary)
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(inExtent ? 1 : 0.4), lineWidth: inExtent ? 2 : 1))   // amber PUNCH border (extent editing)
+                    .overlay { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.30)) }
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber, lineWidth: 2))
             } else {
                 cellBody
             }
@@ -2529,15 +2525,24 @@ extension DiagView {
         guard c >= 0, c < cols, r >= 0, r < 8 else { return }
         let key = c * 100 + r
         let first = buildPartDragLast == nil
+        // SPAN DRAW (Paul 2026-09-04, span-only): while an AUTO lane is armed (and not SELECT mode), the drag DRAWS the
+        // automation SPAN — press column = the anchor, current column = the other end. It fills live as you drag; a single
+        // tap = a 1-column span. Needs the drag ANCHOR (@State), so it lives here rather than in the pure partGridTap.
+        if buildAutoActive() >= 0 && !buildSelectMode {
+            if first { buildPartDragAnchor = c }
+            let a = buildPartDragAnchor ?? c
+            let start = min(a, c), len = abs(c - a) + 1
+            buildSetAutoLane { $0.spanStart = start; $0.spanLen = len }
+            buildPartDragLast = key
+            return
+        }
         guard key != buildPartDragLast else { return }                  // act ONCE per cell entered
         buildPartDragLast = key
         let cid = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil
         let cur = c < buildStagingSel.count ? buildStagingSel[c] : -1
-        // ONE pure decision (BuildSceneLogic.partGridTap) — empty cells stay selectable even with an AUTO lane armed
-        // (Paul 2026-09-04: the PUNCH branch used to swallow them). See testPartGrid* for the locked contract.
+        // ONE pure decision (BuildSceneLogic.partGridTap) — rung selection / SELECT-mode focus; empty cells stay selectable.
         switch BuildSceneLogic.partGridTap(col: c, row: r, currentRung: cur, cid: cid, selectedColourID: ddSelectedColourID,
-                                           punchArmed: buildAutoArmedParam() != nil, selectMode: buildSelectMode, firstTapOfGesture: first) {
-        case .punch(let idx): buildAutoToggle(idx)
+                                           selectMode: buildSelectMode, firstTapOfGesture: first) {
         case .focus(let fid): buildSelectID(fid); buildSelectMode = false
         case .exitSelectMode: buildSelectMode = false
         case .deselect:
@@ -3641,6 +3646,7 @@ extension DiagView {
             return buildPlayColSteps[c].map { cid in cid.map { buildColourChain($0) } ?? [] }
         }
         input.partAuto = buildAutoLanes                                       // PART AUTOMATION (Paul 2026-09-02): bake the active AUTO lanes per cell
+        input.partWidth = buildPartCols                                       // SPAN-ONLY (Paul 2026-09-04): the part's active width = the default span + tile reference
         let composed = BuildSceneLogic.composeSceneMeta(input)
         au?.setBuildStagingScene(composed.scene)
         buildPartRollGen &+= 1                                                // the box changed → force an OFFLINE part-roll recompute (picks up cell/chain edits)

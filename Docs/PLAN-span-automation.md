@@ -1,7 +1,8 @@
 # PLAN — SPAN-ONLY part automation (drag-to-draw + default-on-arm)
 
-STATUS: PLAN, awaiting Paul's approval + his ruling on the OPEN DECISIONS (§7). Nothing built yet.
-Author's recommendation is marked ★ against each decision.
+STATUS: ✅ BUILT (2026-09-04, Paul approved all four ★ recommendations). Phase 1 (step spans, compile-time bake)
+landed; Phase 2 (×N passes, render-time) remains deferred + the ×N ladder buttons are greyed. All §7 decisions
+resolved to the ★ options: span TILES · DRAG to draw · ×N deferred · 1-D per row. DEVICE-eye owed (the drag feel).
 
 ## 1. The decision (what changes)
 The AUTO automation model becomes **span-only**: a lane's automation is ONE contiguous SPAN — a run of

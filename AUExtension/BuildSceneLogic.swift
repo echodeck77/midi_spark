@@ -65,6 +65,7 @@ enum BuildSceneLogic {
         // PART AUTOMATION (Paul 2026-09-02): per-colour AUTO lanes. A colour's active lane ramps a param across its
         // EXTENT of part cells, baked per-cell here (applyAuto). Empty ⇒ byte-identical.
         var partAuto: [String: PartAutoColour] = [:]
+        var partWidth: Int = Snap.cols                 // the part's active loop width (8 or 16) — the default span length + tile reference
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -133,22 +134,24 @@ enum BuildSceneLogic {
     /// its resolved param to the ramped value. Returns the chain unchanged when there's no active lane / this cell isn't
     /// in the extent / the slot is out of range → BYTE-IDENTICAL when no automation is armed. (Baked at build, invariant 1.)
     static func applyAuto(_ chain: [ProcessorSlot], colourID: String?, col: Int, row: Int,
-                          partAuto: [String: PartAutoColour]) -> [ProcessorSlot] {
+                          partAuto: [String: PartAutoColour], partWidth: Int) -> [ProcessorSlot] {
         guard let cid = colourID, let pa = partAuto[cid], pa.activeLane >= 0, pa.activeLane < 5,
               pa.activeLane < pa.lanes.count else { return chain }
         let lane = pa.lanes[pa.activeLane]
-        let idx = col * Snap.rows + row
-        guard lane.cells.contains(idx), lane.slot >= 0, lane.slot < chain.count else { return chain }
+        guard lane.slot >= 0, lane.slot < chain.count else { return chain }
+        // SPAN-ONLY (Paul 2026-09-04): the automation is one contiguous span that TILES across the row. A cell at/after
+        // the span start gets the FROM→TO ramp at its position WITHIN its tile: rank = (col − start) mod len. The default
+        // (start 0, len = partWidth) is a single sweep across the whole part. Cells before the start are untouched.
+        let start = max(0, lane.spanStart ?? 0)
+        let len = max(1, lane.spanLen ?? max(1, partWidth))
+        guard col >= start else { return chain }
         let type = chain[lane.slot].type
         let key = autoResolvedParamKey(type, laneParam: lane.param)
         guard !key.isEmpty, let p = macroParamsForProcessor(type).first(where: { $0.key == key }) else { return chain }
         let (subLo, subHi) = autoSubRange(key, p.kind)
         let lo = lane.lo ?? subLo, hi = lane.hi ?? subHi   // FROM → TO: the lane's set endpoints, else the curated sub-range
-        let ordered = lane.cells.sorted { ($0 / Snap.rows, $0 % Snap.rows) < ($1 / Snap.rows, $1 % Snap.rows) }
-        let rank = ordered.firstIndex(of: idx) ?? 0
-        // SPAN: re-anchor the sweep every `span` extent cells (a repeating FROM→TO sawtooth); nil/<2 ⇒ one sweep across all.
-        let span = (lane.span ?? 0) >= 2 ? lane.span! : ordered.count
-        let value = autoRamp(lo, hi, rank: rank % max(1, span), count: span)
+        let rank = (col - start) % len
+        let value = autoRamp(lo, hi, rank: rank, count: len)
         var out = chain
         out[lane.slot] = applyProcessorValues([key: value], to: out[lane.slot])
         return out
@@ -205,7 +208,7 @@ enum BuildSceneLogic {
                 var cell = Cell(colourID: cid, buses: emit)
                 cell.inputReceiver = max(0, min(3, r < i.performRecv.count ? i.performRecv[r] : 0))
                 let chain = (c < i.performChain.count && r < i.performChain[c].count) ? i.performChain[c][r] : []
-                cell.processors = applyAuto(chain, colourID: cid, col: c, row: r, partAuto: i.partAuto)   // PART AUTOMATION bake
+                cell.processors = applyAuto(chain, colourID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
                 s.setCell(c, r, cell)
             } }
         }
@@ -224,7 +227,7 @@ enum BuildSceneLogic {
                 let recv = max(0, min(3, r < i.rowReceiver.count ? i.rowReceiver[r] : i.selReceiver))
                 var cell = Cell(colourID: cid, buses: buses)
                 cell.inputReceiver = recv
-                cell.processors = applyAuto(chain, colourID: cid, col: c, row: r, partAuto: i.partAuto)   // PART AUTOMATION bake
+                cell.processors = applyAuto(chain, colourID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
                 s.setCell(c, r, cell)                               // the audition sits in front on a slot collision
             }
         }
@@ -414,15 +417,15 @@ enum BuildSceneLogic {
     // bare `return`. Here PUNCH intercepts ONLY its own cells (the selected colour, populated); everything else falls
     // through to normal rung selection — so empty cells stay selectable whether or not a lane is armed.
     enum PartGridTap: Equatable {
-        case punch(cellIndex: Int)     // AUTO PUNCH: toggle this colour's cell in the lane extent
         case focus(colourID: String)   // SELECT MODE: focus this machine (populated cell)
         case exitSelectMode            // SELECT MODE tap on an empty cell: just leave select mode
         case deselect                  // tapped the currently-selected rung → the column goes silent
         case selectRung(row: Int)      // select (or drag-paint) this rung — POPULATED OR NOT
     }
+    // The rung/select decision when NO AUTO lane is armed. (When a lane IS armed the drag DRAWS the automation span
+    // instead — that's UI-side in buildPartGridDrag, since it needs the drag anchor. Paul 2026-09-04, span-only.)
     static func partGridTap(col: Int, row: Int, currentRung: Int, cid: String?, selectedColourID: String?,
-                            punchArmed: Bool, selectMode: Bool, firstTapOfGesture: Bool) -> PartGridTap {
-        if punchArmed, let cid, cid == selectedColourID { return .punch(cellIndex: col * Snap.rows + row) }   // PUNCH only its OWN cells; everything else falls through
+                            selectMode: Bool, firstTapOfGesture: Bool) -> PartGridTap {
         if selectMode { return cid.map { .focus(colourID: $0) } ?? .exitSelectMode }
         if firstTapOfGesture && currentRung == row { return .deselect }
         return .selectRung(row: row)   // EMPTY cells ARE selectable — the contract, locked by test

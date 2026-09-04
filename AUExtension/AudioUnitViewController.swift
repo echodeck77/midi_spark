@@ -374,6 +374,7 @@ struct DiagView: View {
     @State var partRollSig: String = ""                  // the recompute key (input · selection · rate · edit generation) — skip identical recomputes
     @State var buildPartRollGen: Int = 0                 // bumped by buildPublishScene so a CELL/CHAIN edit forces an offline recompute (even if the selection didn't change)
     @State var buildPartDragLast: Int? = nil   // PART GRID (Paul 2026-09-02): the last cell touched in the current tap/drag selection (nil = no active drag)
+    @State var buildPartDragAnchor: Int? = nil // SPAN DRAW (Paul 2026-09-04): the COLUMN a span-draw drag started on (nil = no active span drag)
     @State var buildHostHalted: Bool = false   // TRANSPORT (Paul 2026-09-02): the host stopped while we were following it → HALT (free-run off), cells stay armed; cleared on host START or an explicit BUILD play
     @State var cellSounding = [Bool](repeating: false, count: Snap.cells)
     @State var cellReleasedAt = [Date](repeating: .distantPast, count: Snap.cells)

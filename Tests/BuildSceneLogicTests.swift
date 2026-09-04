@@ -95,20 +95,19 @@ final class BuildSceneLogicTests: XCTestCase {
     // MARK: PART AUTOMATION — the AUTO lanes (Paul 2026-09-02). A colour's ACTIVE lane ramps a param across its EXTENT
     // of part cells (sub-range low→high, column→row order), baked per-cell at build via applyAuto.
 
-    func testAutoLaneRampsParamAcrossExtent() {
+    func testAutoLaneRampsParamAcrossTheSpan() {
         var i = BuildSceneLogic.Input()
         i.stagingPlaying = true
         i.stagingCells = grid([(0, 2, "gold"), (1, 2, "gold"), (2, 2, "gold")])
         i.stagingSel = [2, 2, 2, -1, -1, -1, -1, -1]          // three gold cells play (rung 2)
         var base = ProcessorSlot(type: .arp); base.params.gate = 0.5   // a distinct base gate to override
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
-        // AUTO 1 on slot 0's GATE (param "" ⇒ the pre-mapped default = gate), extent = (0,2) and (2,2)
-        let e0 = 0 * Snap.rows + 2, e2 = 2 * Snap.rows + 2
-        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", cells: [e0, e2])])]
+        // SPAN-ONLY: AUTO 1 on slot 0's GATE, span start 0 length 3 → ramps LOW→HIGH across cols 0,1,2.
+        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", spanStart: 0, spanLen: 3)])]
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "rank 0 → the sub-range LOW")
-        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6, "rank 1 → the sub-range HIGH")
-        XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "outside the extent → the base value, untouched")
+        XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 0.65, accuracy: 1e-6, "rank 1 → the midpoint")
+        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6, "rank 2 → the sub-range HIGH")
     }
 
     func testAutoNoneLaneIsByteIdentical() {
@@ -118,30 +117,28 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
         var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
-        // NONE (activeLane −1) even though a lane HAS an extent → nothing bakes (byte-identical)
-        i.partAuto = ["gold": PartAutoColour(activeLane: -1, lanes: [AutoLane(slot: 0, param: "gate", cells: [0 * Snap.rows + 2])])]
+        // NONE (activeLane −1) even though a lane HAS a span → nothing bakes (byte-identical)
+        i.partAuto = ["gold": PartAutoColour(activeLane: -1, lanes: [AutoLane(slot: 0, param: "gate", spanStart: 0, spanLen: 1)])]
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "NONE → the base value untouched")
     }
 
-    // HOUSEKEEPING (2026-09-03): the AUTO lane's SPAN sawtooth (re-anchor every N cells) was untested.
-    func testAutoSpanSawtoothReAnchorsEveryNCells() {
+    // SPAN-ONLY (Paul 2026-09-04): the span TILES — a length-2 span repeats [lo, hi, lo, hi] across the row.
+    func testAutoSpanTilesAcrossTheRowThroughComposeScene() {
         var i = BuildSceneLogic.Input()
         i.stagingPlaying = true
         i.stagingCells = grid([(0, 2, "gold"), (1, 2, "gold"), (2, 2, "gold"), (3, 2, "gold")])
         i.stagingSel = [2, 2, 2, 2, -1, -1, -1, -1]
         var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
-        let cells = Set((0..<4).map { $0 * Snap.rows + 2 })
-        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", cells: cells, span: 2)])]
+        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", spanStart: 0, spanLen: 2)])]
         let s = BuildSceneLogic.composeScene(i)!
-        // SPAN 2 → the FROM→TO sweep RE-ANCHORS every 2 cells: [lo, hi, lo, hi] (gate sub-range 0.3…1.0), not a monotone ramp.
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6)
         XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
-        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "re-anchored to LOW at the 3rd cell")
+        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "the length-2 span tiles → LOW again")
         XCTAssertEqual(s.cellAt(3, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
     }
-    // HOUSEKEEPING: the lane's explicit FROM/TO (lo/hi) endpoints override the curated sub-range — was untested.
+    // The lane's explicit FROM/TO (lo/hi) endpoints override the curated sub-range.
     func testAutoExplicitFromToOverridesTheSubRange() {
         var i = BuildSceneLogic.Input()
         i.stagingPlaying = true
@@ -149,8 +146,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingSel = [2, 2, 2, -1, -1, -1, -1, -1]
         var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
-        let cells = Set((0..<3).map { $0 * Snap.rows + 2 })
-        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", cells: cells, lo: 0.5, hi: 0.9)])]
+        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", lo: 0.5, hi: 0.9, spanStart: 0, spanLen: 3)])]
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "FROM overrides the gate sub-range low (0.3)")
         XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 0.9, accuracy: 1e-6, "TO overrides the sub-range high (1.0)")
@@ -635,46 +631,88 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(none.kind, .none); XCTAssertFalse(none.playing)
     }
 
-    // ── THE PART-GRID TAP CONTRACT (Paul 2026-09-04): an UNPOPULATED cell must ALWAYS be selectable. This reverted once
-    // when the AUTO-lane PUNCH mode was added, so it is now locked here. ────────────────────────────────────────────
+    // ── THE PART-GRID TAP CONTRACT (Paul 2026-09-04): an UNPOPULATED cell must ALWAYS be selectable (when no AUTO lane is
+    // armed — a lane armed puts the grid in span-DRAW mode, handled UI-side). Locked here. ─────────────────────────────
     func testPartGridEmptyCellIsSelectable() {
         // a normal tap on an EMPTY cell (cid == nil) selects that rung — no population check
         XCTAssertEqual(BuildSceneLogic.partGridTap(col: 3, row: 5, currentRung: -1, cid: nil, selectedColourID: "gold",
-                                                   punchArmed: false, selectMode: false, firstTapOfGesture: true),
+                                                   selectMode: false, firstTapOfGesture: true),
                        .selectRung(row: 5))
         XCTAssertEqual(BuildSceneLogic.partGridTap(col: 0, row: 2, currentRung: 6, cid: nil, selectedColourID: nil,
-                                                   punchArmed: false, selectMode: false, firstTapOfGesture: true),
+                                                   selectMode: false, firstTapOfGesture: true),
                        .selectRung(row: 2))
-    }
-    func testPartGridEmptyCellSelectableEvenWithAutoLaneArmed() {
-        // THE REGRESSION: with an AUTO lane armed (punchArmed), an EMPTY cell (cid == nil) must STILL select its rung,
-        // not be swallowed by punch. A populated cell of the SELECTED colour punches; everything else falls through.
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 4, row: 1, currentRung: -1, cid: nil, selectedColourID: "gold",
-                                                   punchArmed: true, selectMode: false, firstTapOfGesture: true),
-                       .selectRung(row: 1))
-        // a populated cell of a DIFFERENT colour also falls through to selection (punch is only its own colour)
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 4, row: 1, currentRung: -1, cid: "orange", selectedColourID: "gold",
-                                                   punchArmed: true, selectMode: false, firstTapOfGesture: true),
-                       .selectRung(row: 1))
-        // the punch itself still fires for the selected colour's own cell
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 4, row: 1, currentRung: -1, cid: "gold", selectedColourID: "gold",
-                                                   punchArmed: true, selectMode: false, firstTapOfGesture: true),
-                       .punch(cellIndex: 4 * Snap.rows + 1))
     }
     func testPartGridTapSelectedRungDeselectsOnFirstTapButPaintsOnDrag() {
         XCTAssertEqual(BuildSceneLogic.partGridTap(col: 2, row: 5, currentRung: 5, cid: "gold", selectedColourID: "gold",
-                                                   punchArmed: false, selectMode: false, firstTapOfGesture: true),
+                                                   selectMode: false, firstTapOfGesture: true),
                        .deselect)   // first tap on the current rung → column silent
         XCTAssertEqual(BuildSceneLogic.partGridTap(col: 2, row: 5, currentRung: 5, cid: "gold", selectedColourID: "gold",
-                                                   punchArmed: false, selectMode: false, firstTapOfGesture: false),
+                                                   selectMode: false, firstTapOfGesture: false),
                        .selectRung(row: 5))   // dragging back over it keeps it (paint, not toggle-off)
     }
     func testPartGridSelectModeFocusesPopulatedExitsOnEmpty() {
         XCTAssertEqual(BuildSceneLogic.partGridTap(col: 1, row: 3, currentRung: -1, cid: "gold", selectedColourID: "gold",
-                                                   punchArmed: false, selectMode: true, firstTapOfGesture: true),
+                                                   selectMode: true, firstTapOfGesture: true),
                        .focus(colourID: "gold"))
         XCTAssertEqual(BuildSceneLogic.partGridTap(col: 1, row: 3, currentRung: -1, cid: nil, selectedColourID: "gold",
-                                                   punchArmed: false, selectMode: true, firstTapOfGesture: true),
+                                                   selectMode: true, firstTapOfGesture: true),
                        .exitSelectMode)
+    }
+
+    // ── SPAN-ONLY AUTOMATION (Paul 2026-09-04): a lane is a contiguous FROM→TO span that TILES across the row. ─────────
+    func testAutoSpanTilesAcrossTheRow() {
+        // gold ARP on row 0; a lane on the ARP's GATE (LENGTH), FROM 0.1 → TO 0.9, span start 0, length 4.
+        var lane = AutoLane(); lane.slot = 0; lane.param = "gate"; lane.lo = 0.1; lane.hi = 0.9
+        lane.spanStart = 0; lane.spanLen = 4
+        let pa = PartAutoColour(activeLane: 0, lanes: [lane])
+        let chain = [ProcessorSlot(type: .arp)]
+        func gateAt(_ col: Int) -> Double {
+            let out = BuildSceneLogic.applyAuto(chain, colourID: "gold", col: col, row: 0, partAuto: ["gold": pa], partWidth: 8)
+            return out[0].params.gate ?? -1
+        }
+        // within the first tile the ramp goes 0.1 → 0.9 across cols 0…3, then REPEATS at col 4
+        XCTAssertEqual(gateAt(0), 0.1, accuracy: 1e-9)   // rank 0 → FROM
+        XCTAssertEqual(gateAt(3), 0.9, accuracy: 1e-9)   // rank 3 → TO
+        XCTAssertEqual(gateAt(4), 0.1, accuracy: 1e-9)   // tile repeats
+        XCTAssertEqual(gateAt(7), 0.9, accuracy: 1e-9)
+    }
+    func testAutoSpanStartOffsetLeavesEarlierColumnsUntouched() {
+        var lane = AutoLane(); lane.slot = 0; lane.param = "gate"; lane.lo = 0.2; lane.hi = 0.8
+        lane.spanStart = 2; lane.spanLen = 4
+        let pa = PartAutoColour(activeLane: 0, lanes: [lane])
+        let base = [ProcessorSlot(type: .arp)]
+        let before = BuildSceneLogic.applyAuto(base, colourID: "gold", col: 1, row: 0, partAuto: ["gold": pa], partWidth: 8)
+        XCTAssertEqual(before, base, "columns before the span start are untouched")
+        let at = BuildSceneLogic.applyAuto(base, colourID: "gold", col: 2, row: 0, partAuto: ["gold": pa], partWidth: 8)
+        XCTAssertEqual(at[0].params.gate ?? -1, 0.2, accuracy: 1e-9, "the span begins at start → FROM")
+    }
+    func testAutoDefaultSpanIsOneSweepAcrossThePart() {
+        // span-only defaults (spanStart/spanLen nil) ⇒ one sweep across the whole part width. (Endpoints in-range: gate clamps ≥0.05.)
+        var lane = AutoLane(); lane.slot = 0; lane.param = "gate"; lane.lo = 0.1; lane.hi = 0.9
+        let pa = PartAutoColour(activeLane: 0, lanes: [lane])
+        let chain = [ProcessorSlot(type: .arp)]
+        func gateAt(_ col: Int) -> Double {
+            BuildSceneLogic.applyAuto(chain, colourID: "gold", col: col, row: 0, partAuto: ["gold": pa], partWidth: 8)[0].params.gate ?? -1
+        }
+        XCTAssertEqual(gateAt(0), 0.1, accuracy: 1e-9)
+        XCTAssertEqual(gateAt(7), 0.9, accuracy: 1e-9)   // len = partWidth 8 → one full sweep
+    }
+    func testAutoNoLaneIsByteIdentical() {
+        let chain = [ProcessorSlot(type: .arp)]
+        XCTAssertEqual(BuildSceneLogic.applyAuto(chain, colourID: "gold", col: 3, row: 0, partAuto: [:], partWidth: 8), chain)
+    }
+    func testAutoLaneSpanFieldsRoundTrip() throws {
+        var lane = AutoLane(); lane.slot = 1; lane.param = "gate"; lane.lo = 0.1; lane.hi = 0.9; lane.spanStart = 3; lane.spanLen = 5
+        let data = try JSONEncoder().encode(PartAutoColour(activeLane: 0, lanes: [lane]))
+        let back = try JSONDecoder().decode(PartAutoColour.self, from: data)
+        XCTAssertEqual(back.lanes.first?.spanStart, 3)
+        XCTAssertEqual(back.lanes.first?.spanLen, 5)
+    }
+    func testAutoLaneMigratesLegacyCellsToASpan() throws {
+        // an OLD lane persisted with a `cells` extent (cols 2…5, various rows) but no span fields → decode derives a span.
+        let legacy = #"{"slot":0,"param":"gate","cells":[34,49,80,95],"lo":0.1,"hi":0.9}"#   // 34=col2 · 49=col3 · 80=col5 · 95=col5 (Snap.rows=16)
+        let lane = try JSONDecoder().decode(AutoLane.self, from: Data(legacy.utf8))
+        XCTAssertEqual(lane.spanStart, 2, "derived from the min column")
+        XCTAssertEqual(lane.spanLen, 4, "min…max column span = cols 2…5 → length 4")
     }
 }
