@@ -1968,6 +1968,10 @@ extension DiagView {
             let ch = m.ch, navH = m.navH
             let partCH = max(6, ch * DiagView.roomsPartInteriorFraction)     // SHRUNK interior cell height (the header rows keep `ch`)
             let interiorW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
+            // The PLAY LAYER is ALWAYS 8 columns (buildPlayColOn etc.), independent of the part grid width. So there are
+            // always 8 play ferries — when the part is 16 steps wide they simply widen to fill the interior (a ferry per
+            // two columns), never becoming 16 (which would index the 8-slot play layer out of range). (Paul 2026-09-04)
+            let ferryW = (interiorW - CGFloat(7) * gap) / 8
             let interiorH = partCH * 8 + gap * 7                            // 8 rungs at the shrunk height
             let leftInset = railW + gap                                     // full rail → the interior's left edge
             // The lower region = everything under the ferry row. FIXED heights that sum EXACTLY to the column (like the
@@ -1987,7 +1991,7 @@ extension DiagView {
                 }
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
                     buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the full-width left rail (Paul 2026-09-02)
-                    ForEach(0..<cols, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }
+                    ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: ferryW, height: ch) }   // ALWAYS 8 ferries (the play layer), widening to fill when the part is 16 wide (Paul 2026-09-04)
                     roomsPlayFerryRowSelector().frame(width: railW, height: ch) // the ▲▼ row cursor — top-RIGHT, over the full-width right rail
                 }
                 ZStack(alignment: .topLeading) {                           // the lower region: shrunk grid on top, the LARGE PANEL beneath
