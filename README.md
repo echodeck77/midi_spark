@@ -8,11 +8,12 @@ Public name **"8x8 State"** (display-only; the code/bundle identity stays MidiSp
 **Spec:** `Docs/midispark-spec-v2.8.md` read together with
 `Docs/midispark-spec-v3.0-delta.md` (the delta wins conflicts).
 **Live status and the current plan:** `CLAUDE.md`.
-**UI reference:** the built plugin is the living reference for shipped features;
-`Docs/midispark-preview-v60.html` (now exported, with v59) is the behavioural
-spec for unbuilt ones — currently the §5 rev 2 CELL EDITOR, the §6a
-channel-strip perform face, and undo/redo (CLAUDE.md a5–a7; v60 predates
-these revs — the delta wins).
+**UI reference:** the built plugin is the living reference for shipped features. The
+current surface is the ROOMS interface (SELECT / PART / PLAY grids + the reel-to-reel
+pass browser) — the old tab/PERFORM-EDIT/cell-editor surfaces have all been retired.
+For unbuilt behaviour, CLAUDE.md's status log + `Docs/pending-tasks.md` are the source
+of truth; `Docs/midispark-preview-v60.html` (simulator) and `-v61.html` (ratification
+board) are the surviving mockups.
 
 > Status in one line: the v3.0 graph-routing migration is DONE (grid-chaining was since
 > RETIRED — cells route from four receiver DOORS); ~29 processor types, channels/outputs,

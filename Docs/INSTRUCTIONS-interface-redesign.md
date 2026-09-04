@@ -1,6 +1,13 @@
 # INSTRUCTIONS → Code — THE INTERFACE REDESIGN (Paul, 2026-08-28)
-# STATUS: TO BE IMPLEMENTED WITH PAUL'S GUIDANCE (the door-loop
-# pattern: this is the shape; he walks the build; device steps
+# ⚠ STALENESS BANNER (2026-09-04): MUCH OF THIS HAS SHIPPED. The ROOMS surface
+# (SELECT / PART / PLAY grids + the reel-to-reel pass browser) is now the SOLE
+# interface (the old tab/PERFORM-EDIT/cell-editor surfaces are retired). This doc
+# is kept as the ORIGINAL redesign shape + the remaining unbuilt increments — it is
+# NOT a status record. For what actually shipped vs what's still open, the CLAUDE.md
+# status log + Docs/pending-tasks.md are the source of truth; where this prose says
+# "not built" it is very likely already built.
+# STATUS: PARTLY BUILT; remaining increments TO BE IMPLEMENTED WITH PAUL'S GUIDANCE
+# (the door-loop pattern: this is the shape; he walks the build; device steps
 # outrank prose).
 # ★ THE STANDING ORDER: USE EXISTING COMPONENTS WHEREVER
 # POSSIBLE — real components, NOT approximations. §6 names the

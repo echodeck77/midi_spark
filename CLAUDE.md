@@ -4,6 +4,14 @@ AUv3 MIDI processor (`aumi`) for iPadOS. One line: **"Don't sequence notes. Sequ
 happens to them."** An 8×8 grid sequences MIDI *processors* (arps, ratchets, gates) over
 time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b). Primary host: AUM.
 
+## How I respond to Paul (apply to EVERY reply)
+- **TL;DR FIRST.** Open every response with a one- or two-sentence TL;DR — the bottom line before any
+  detail, so Paul gets the gist without reading the whole thing. (This is a hard rule, not a sometimes.)
+- **FLAG POSSIBLE MISMATCHES.** Whenever I make a change, explicitly point out where it might NOT match
+  Paul's expectations — device-owed visuals I can't see or hear, judgment calls I made on an ambiguous
+  ask, opacity/size/colour values I picked, and interpretations that could differ from his intent. Never
+  let a likely mismatch go unstated; naming it up front saves a round-trip.
+
 ## Claude↔Claude message passing (`_dear_claude_code/` inbox · `_dear_claude/` outbox — gitignored)
 
 An async channel with a PARTNER Claude (design/planning context). Both dirs are gitignored and
@@ -79,17 +87,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   slice exists; reconcile, don't rebuild).
 - `BRIDGE_NOTES.md` — snapshot bridge design + hear-it tests.
 - GUI mockups — **the built plugin is the living reference for SHIPPED features**;
-  mockups are the behavioural spec for UNBUILT ones. `Docs/midispark-preview-v59.html`
-  and `-v60.html` NOW EXIST (exported 2026-07-23; the earlier dangling-v59 note is
-  resolved). v60 = canonical, and is the reference for the §6a EMITTER TOGGLES
-  (pads toggle in both modes; CH caption = opener in EDIT; selectedBus concept
-  DEAD). Lineage: v57 column keys · v58 static frames · v59 sixteen-slot strip ·
-  v60 emitter toggles · **v61 = the RATIFICATION BOARD** (decision surface,
-  not a full sim — v60 stays the last full simulator: colour pairs/ALT
-  box/gradient morph bodies, cell editor + stamp banner, §6a faces,
-  parametric glyphs, receiver bands, the legibility card). v26–v59 are history; v50/v51 are BROKEN (JSX bug) — never
-  open; v40 is the preserved abandoned fork — do not implement it. The AUTO/WIDE/
-  TALL toggle is a browser preview affordance — never port it.
+  mockups are the behavioural spec for UNBUILT ones. TWO mockups survive (the earlier
+  v26–v59 + v62 lineage were deleted 2026-09-04 as spent history): **`Docs/midispark-
+  preview-v60.html` = canonical** (the last full simulator: colour pairs/ALT box/gradient
+  morph bodies, cell editor + stamp banner, §6a faces, parametric glyphs, receiver bands,
+  the legibility card; also the §6a EMITTER TOGGLES reference) and **`-v61.html` = the
+  RATIFICATION BOARD** (a decision surface, not a full sim). NOTE: both PREDATE the rooms
+  interface that actually shipped — they're the old tab/perform-era simulators, useful for
+  colour/face/glyph reference but NOT the current surface (that's the built plugin + the
+  CLAUDE.md status log). The AUTO/WIDE/TALL toggle is a browser preview affordance — never port it.
 
 ## Vocabulary (spec §1 — enforced, including in code comments and UI strings)
 - **Colour** = the treatment (type + params + its machine/chain). ID-based: the 16 canonical
@@ -159,6 +165,32 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PART PAGE POLISH BATCH — piano-roll rebuilt OFFLINE + a run of device-driven fixes (2026-09-04, on `main`,
+  `5f70c7d`…`0254c3a`; iOS builds, macOS 1032 green; ALL device-eye/ear owed — the whole batch is UI). A long
+  device-driven thread with Paul. **THE PART PIANO ROLL, rebuilt to an OFFLINE deterministic feed (`5f70c7d`):**
+  the live-capture roll lagged one cycle (the "audio up / notation down octave" report) + was unreliable; replaced
+  with `renderOfflinePartRoll(box:pool:latched:latchMask:cyc:)` (Emission.swift, Foundation-only, unit-tested) — runs
+  the REAL Router over the current box for ONE pass against a CLONE of the live/latched pools (`NotePool.clone()`),
+  so the roll is the part's exact output with NO lag + no audio-thread dependence. `Kernel.offlinePartRoll` +
+  AU forwarder + a VC recompute gated by a `partRollSig` (held notes · selection · rate · `buildPartRollGen`,
+  bumped by buildPublishScene); the live PartTap capture is retired. Router tags each emitted note with its cell
+  index (`markCell`) + display hue (`markColour`) so the roll filters to the SELECTED rung per column. **THE ROLL
+  LOOK (`0d20d1c`…`2bc89d3`, after several wrong turns — the bars were ~2px tall, too small to render two colours):
+  notes = the EMITTER colour (a note reflecting ALL its cell's selected emitters as stacked horizontal bands); the
+  CELL is a BORDER-only box around each column's section (the cell's colour). Readable fixed bar height.** **PLAY
+  BUTTON (`bbe4d65`):** the machine play-button playhead now animates ONLY while the HOST transport runs (`d.playing`),
+  never free-run/auto-engage — added `diag.effectivePlaying`; fixes the "strobes/jiggles when stopped" report (it was
+  wall-clock-extrapolating a frozen beat). **8 PLAY FERRIES (`cd8726e`):** the part-page ferry row is ALWAYS 8 (the
+  play layer), not `cols` — a 16-wide part no longer draws 16 ferries indexing the 8-slot play layer out of range.
+  **PART-GRID SELECTION (`8dbe8cb`):** unpopulated cells are selectable again — the AUTO-lane PUNCH mode had been
+  swallowing every non-punch tap; PUNCH now intercepts only its own cells and everything else (empty included) falls
+  through. Extracted the decision to pure `BuildSceneLogic.partGridTap` + 5 locking tests. **LAYOUT + AUTO POLISH
+  (`bec319f`…`0254c3a`):** the AUTO footer slide-up is retired — the piano roll is FIXED at two play-grid cells and
+  the AUTO controls are ALWAYS visible below it to the page bottom (tabs top-anchored); the AUTO row headers +
+  tabs wear the SELECTED machine colour; when a lane is armed non-selected part cells go HOLLOW (face → background,
+  border kept); the SELECTED rung is ALWAYS a white outline drawn on top (never recoloured, faded only slightly under
+  a lane); the FOCUSED number-rail chip INVERTS (solid machine-colour fill + alpha number). +1 side-rail fix
+  (`6ddeb36`, the part rail is a simple selector, no longer follows the sequencer). Plan: `Docs/PLAN-part-piano-roll.md`.**
 - **▶ OVERNIGHT BATCH — 7 queued jobs (2026-09-03, on `main`, `9010ca1`…`64330ae`; iOS builds, macOS 1023 green incl.
   fuzz; part-roll/AVOID-seg DEVICE-owed). Paul: "queue ten high-value jobs that don't need my involvement." Landed the
   safe, off-device-verifiable ones; flagged the two needing his semantic ruling. **Job 1 (`9010ca1`)** Info.plist — all
