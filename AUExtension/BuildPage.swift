@@ -2750,7 +2750,11 @@ extension DiagView {
     // too (diag.beat is now the EFFECTIVE beat). One bar per loop today (a 1-step continuous pass); when N-step passes land
     // (part loop-length / reel) the loop maps to the pass's real length.
     @ViewBuilder private func roomsCellPlayhead(active: Bool) -> some View {
-        if active {
+        // Show the sweep ONLY while the beat is ACTUALLY advancing (host transport OR free-run) — never off a frozen beat.
+        // buildHeaderFill-style wall-clock extrapolation of a stopped beat lurches-and-resets each 4 Hz poll (the "jitter")
+        // and keeps crawling while nothing plays; gating on d.effectivePlaying makes it entirely still when stopped/silent
+        // and smooth when genuinely playing. (Paul 2026-09-04 — same root cause as the machine play button.)
+        if active && d.effectivePlaying {
             GeometryReader { g in
                 let sb = max(0.0001, stepBeats)
                 let barBeats = Double(Snap.cols) * sb                // one bar = 8 steps
