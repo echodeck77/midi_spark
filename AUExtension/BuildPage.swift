@@ -1985,7 +1985,7 @@ extension DiagView {
             // play-grid cells (ch, not the shrunk part cell), and the AUTO controls are ALWAYS visible below it, running
             // to the bottom of the page — their tab strip sits at the TOP of the section (roomsPartMacroSection is
             // top-anchored). No lane-active conditional; the layout never changes shape.
-            let pianoH = ch * 2 + gap                                      // FIXED: two play-grid cells tall
+            let pianoH = (ch * 2 + gap) / 2                                // FIXED: ONE play-grid cell tall (halved 2026-09-04 to free space for AUTO)
             let macroH = max(ch, lowerH - interiorH - pianoH - 2 * gap)    // AUTO fills the remainder to the bottom, always
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
@@ -2227,6 +2227,10 @@ extension DiagView {
                                     autoSweepEndpoint("FROM", value: lane.lo ?? sub.lo, p: p) { v in buildSetAutoLane { $0.lo = v } }
                                     autoSweepEndpoint("TO",   value: lane.hi ?? sub.hi, p: p) { v in buildSetAutoLane { $0.hi = v } }
                                 }
+                                HStack(spacing: 8) {                        // STATE — the live FROM→TO ramp + a playhead at the currently-swept cell
+                                    macroColHead("STATE").frame(width: 58, alignment: .leading)
+                                    autoSweepState(p: p, from: lane.lo ?? sub.lo, to: lane.hi ?? sub.hi)
+                                }
                                 Text("tap cells on the grid — the sweep plays FROM→TO across them (live)")
                                     .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(buildSelHue).lineLimit(1)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2359,6 +2363,38 @@ extension DiagView {
             .foregroundColor(.white.opacity(0.85))
         }.frame(maxWidth: .infinity)
     }
+    // SWEEP STATE (Paul 2026-09-04): a live picture of the sweep below the FROM/TO row — the FROM→TO ramp drawn as a line
+    // with endpoint dots (updates as you drag FROM/TO), plus a PLAYHEAD marker riding the ramp at the cell currently being
+    // swept while the part plays. Shape = up-ramp / down-ramp / flat at a glance; playhead = where the sweep is right now.
+    @ViewBuilder private func autoSweepState(p: MacroControlParam, from: Double, to: Double) -> some View {
+        let full = BuildSceneLogic.autoParamFullRange(p.kind)
+        let span = max(1e-9, full.hi - full.lo)
+        let f = min(1, max(0, (from - full.lo) / span)), t = min(1, max(0, (to - full.lo) / span))
+        let playFrac: Double? = {                                   // the currently-swept cell's ramp position (0…1) while playing
+            guard d.playing && buildStagingPlaying else { return nil }
+            let col = max(0, min(Snap.maxCols - 1, d.effColumn))
+            guard col < buildStagingSel.count else { return nil }
+            let rung = buildStagingSel[col]; guard rung >= 0 else { return nil }
+            return buildAutoRampFrac(col * Snap.rows + rung)
+        }()
+        ZStack {
+            RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06))
+            Canvas { ctx, size in
+                let pad: CGFloat = 6
+                func y(_ frac: Double) -> CGFloat { pad + (size.height - 2 * pad) * CGFloat(1 - frac) }
+                let x0 = pad, x1 = size.width - pad
+                var line = Path(); line.move(to: CGPoint(x: x0, y: y(f))); line.addLine(to: CGPoint(x: x1, y: y(t)))
+                ctx.stroke(line, with: .color(buildSelHue.opacity(0.9)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                ctx.fill(Path(ellipseIn: CGRect(x: x0 - 3, y: y(f) - 3, width: 6, height: 6)), with: .color(buildSelHue))
+                ctx.fill(Path(ellipseIn: CGRect(x: x1 - 3, y: y(t) - 3, width: 6, height: 6)), with: .color(buildSelHue))
+                if let pf = playFrac {                              // the PLAYHEAD — where on the ramp the sweep is right now
+                    let px = x0 + (x1 - x0) * CGFloat(pf), py = y(f + (t - f) * pf)
+                    ctx.fill(Path(ellipseIn: CGRect(x: px - 4, y: py - 4, width: 8, height: 8)), with: .color(.white))
+                    ctx.stroke(Path(ellipseIn: CGRect(x: px - 4, y: py - 4, width: 8, height: 8)), with: .color(buildSelHue), lineWidth: 1.5)
+                }
+            }
+        }.frame(height: 30).frame(maxWidth: .infinity)
+    }
     @ViewBuilder private func macroColHead(_ t: String) -> some View {
         Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildSelHue.opacity(0.85))   // the AUTO section's row headers wear the SELECTED colour (Paul 2026-09-04)
     }
@@ -2456,28 +2492,29 @@ extension DiagView {
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
         let selRing = buildAutoActive() >= 0 ? Color.white.opacity(0.8) : Color.white
         let isEditedRow = buildGridSelStampSourceRow == r   // the row whose machine is currently in the editor/view
+        let laneActive = buildAutoActive()
+        let inExtent = laneActive >= 0 && buildAutoInExtent(idx)   // this cell HAS the automation applied
         ZStack {
             if punchable {
-                let inExtent = buildAutoInExtent(idx)   // TRUE = this cell is in the sweep's extent
                 cellBody
                     .overlay { if inExtent { RoundedRectangle(cornerRadius: 5).fill(roomsAmber.opacity(0.32)) } }   // in the extent = amber wash (binary)
                     .overlay(RoundedRectangle(cornerRadius: 5).stroke(roomsAmber.opacity(inExtent ? 1 : 0.4), lineWidth: inExtent ? 2 : 1))   // amber PUNCH border (extent editing)
             } else {
                 cellBody
             }
-            // THE EDITED ROW (Paul 2026-09-04): the row whose machine is being edited pulses its cells invitingly in the
-            // machine colour, and every ENABLED (populated) cell carries an identifier dot. Under the white ring + amber.
+            // THE EDITED ROW pulses (Paul 2026-09-04): a BLACK face fading in/out OVER the cell's static colour — a strong,
+            // unmissable invite (the earlier machine-colour breathe was too subtle).
             if isEditedRow {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     let breath = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 2.2)
-                    RoundedRectangle(cornerRadius: 5).fill(buildSelHue.opacity(0.10 + 0.18 * breath))
+                    RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.7 * breath))
                 }.allowsHitTesting(false)
-                if id != nil {                                          // ENABLED = a populated cell on the edited row → an identifier dot
-                    Circle().fill(Color.white).frame(width: 6, height: 6)
-                        .overlay(Circle().stroke(buildSelHue, lineWidth: 1.5))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading).padding(3)
-                        .allowsHitTesting(false)
-                }
+            }
+            // AUTOMATION APPLIED → the lane label "AUTO N" on every extent cell (replaces the old dot).
+            if inExtent {
+                Text("AUTO \(laneActive + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.55)
+                    .foregroundColor(.white).shadow(color: .black.opacity(0.8), radius: 1).padding(.horizontal, 2)
+                    .allowsHitTesting(false)
             }
             if selected { RoundedRectangle(cornerRadius: 5).stroke(selRing, lineWidth: 2) }   // the SELECTED rung's WHITE ring — ALWAYS on top, always clear
         }
