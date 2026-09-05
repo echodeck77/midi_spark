@@ -84,6 +84,24 @@ final class LiveTelemetry {
     func anchorBeat(_ b: Double, tempo t: Double, at when: Date) { beat = b; beatAnchor = b; beatAnchorAt = when; tempo = t }
 }
 
+// Paul 2026-09-05: the WHOLE part-grid state, archived onto a play cell when a part/cell is promoted FROM the part grid, so
+// the part can be RESTORED later (restore is currently unimplemented). In-memory (value copy) this session.
+struct BuildPartSnapshot {
+    var stagingCells: [[String?]]
+    var stagingSel: [Int]
+    var rowReceiver: [Int?]
+    var rowEmitters: [Set<Bus>?]
+    var rowChain: [[ProcessorSlot]]
+    var rowShade: [Double]
+    var rowUnder: [String?]
+    var deletedRows: [Int: [String?]]
+    var partLen: Int?
+    var partRate: StepRate?
+    var partCast: [String]
+    var selReceiver: Int
+    var partEmitters: Set<Bus>
+}
+
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State var d = KernelDiag()      // polled for the grid's effColumn / playing
@@ -202,6 +220,7 @@ struct DiagView: View {
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the
     // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a colour here.
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
+    @State var buildPlayColPartSnapshot: [Int: BuildPartSnapshot] = [:]   // Paul 2026-09-05: per play COLUMN, the whole part-grid state ARCHIVED onto it when a part/cell was promoted from the part grid — for a future RESTORE (in-memory this session; persists with the play grid when restore lands)
     // THE PLAY GRID (Paul 2026-08-29) — its OWN arrangement, INDEPENDENT of the part's buildStagingCells so the SELECT
     // top-button assign lands only on PLAY (was writing the shared staging → it wrongly lit the part-grid side buttons).
     // [column][row]; one selected rung per column (buildPlaySel, default ROW 1 = 0). Populated by the top-button ferry.

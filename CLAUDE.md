@@ -179,6 +179,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROMOTE = ARCHIVE-THE-PART-GRID-then-CLEAR (Paul changed his mind; 2026-09-05, on branch `feature/promote-archive-restore`;
+    iOS builds; UI-only, DEVICE eye/ear owed). SUPERSEDES the same-day "PROMOTE = MOVE / remove the source row" below. Paul:
+    "if promoted to the playgrid FROM the part grid, store the status on the WHOLE part grid with the new play grid cell so it
+    can be restored later (restore currently unimplemented)." Rulings (AskUserQuestion): the grid is CLEARED after archiving;
+    the null-I/O pulse (the other half) STAYS. **IMPL (`BuildPage.swift` + `AudioUnitViewController.swift`):** dropped
+    `buildRemovePartRow`; added `BuildPartSnapshot` (a value-copy of the whole part grid — stagingCells/stagingSel/rowReceiver/
+    rowEmitters/rowChain/rowShade/rowUnder/deletedRows/partLen/partRate/partCast/selReceiver/partEmitters), `@State
+    buildPlayColPartSnapshot: [Int: BuildPartSnapshot]` (keyed by play COLUMN), `buildCapturePartSnapshot()` +
+    `buildClearPartGrid()` (clears every row + resets the per-row/part state) + `buildArchivePartToPlay(t)` (snapshot → store →
+    clear). Both promote paths call it: `roomsFlattenPartToPlay` (a PART promote — always) and `roomsAssignPlayColumn` (a
+    SELECT-cell ferry — only when the source is a part row, `buildGridSelStampSourceRow != nil`; a library-sourced ferry leaves
+    the grid alone). The null-I/O pulse (B2, `buildPartJustPromoted`→`buildIONullPending`) is unchanged. **RESTORE is NOT built**
+    — the snapshot is captured + stored only. **FLAGGED:** the store is IN-MEMORY (`@State`), so it does NOT survive save/load
+    yet — persisting it (with the play grid's `BuildPlayGridData`) lands with the restore feature; keyed per play COLUMN (per-cell
+    keying possible if wanted); a cell-ferry from a part row now also archives+clears the WHOLE grid (device-check that breadth).**
 - **▶ PROMOTE = MOVE (remove the source part row) + FRESH-CELL NULL-I/O PULSE (2026-09-05, on branch
     `feature/promote-remove-row`; iOS builds; UI-only, DEVICE eye/ear owed). Paul: "when a cell or part is promoted to the play
     ferries, remove the row it was promoted from from the part grid; when a part is promoted and a new cell is selected/created

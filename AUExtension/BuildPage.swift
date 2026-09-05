@@ -1874,7 +1874,7 @@ extension DiagView {
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }
         buildVoiceOwner = .none; au?.clearColourSolo()                       // the SELECT/PART shared audition stops — the play layer is the voice now
         buildSelectPlayColumn(t)                                             // the FERRIED play cell becomes THE selection (deselects the source; machine strip + I/O toggles reflect it — Paul 2026-08-30)
-        if let s = srcRow { buildRemovePartRow(s) }                          // Paul 2026-09-05: MOVE — the promoted cell leaves the part grid (its source row is removed)
+        if srcRow != nil { buildArchivePartToPlay(t) }                       // Paul 2026-09-05: promoted FROM the part grid → archive the whole grid onto this play cell (for restore) + clear it
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
         buildPublishScene()                                                  // republish: the started column plays, the audition is off
@@ -1911,10 +1911,9 @@ extension DiagView {
         buildPlayColRecv[t] = buildSelReceiver                               // the column DEFAULT (the ferry dot/drift tint + any rest-step fallback)
         buildPlayColEmit[t] = buildDefaultEmitters
         buildPlayColOn[t] = true                                            // start it
-        // Paul 2026-09-05: promoting the PART is a MOVE — remove the rows it was MADE OF (the distinct rungs across the
-        // flattened columns), and ARM the fresh-I/O pulse so the NEXT new select-grid cell starts null + inviting.
-        let promotedRows = Set((0..<len).compactMap { c -> Int? in let rr = c < buildStagingSel.count ? buildStagingSel[c] : -1; return rr >= 0 ? rr : nil })
-        for r in promotedRows { buildRemovePartRow(r) }
+        // Paul 2026-09-05: promoting the PART ARCHIVES the whole part-grid state onto this play cell (for a future restore),
+        // then CLEARS the grid; and ARMS the fresh-I/O pulse so the NEXT new select-grid cell starts null + inviting.
+        buildArchivePartToPlay(t)
         buildPartJustPromoted = true
         buildVoiceOwner = .none; au?.clearColourSolo()                      // the part/chain shared audition stops — the play column now carries the sequence (no doubling)
         buildSelectPlayColumn(t)
@@ -4336,14 +4335,28 @@ extension DiagView {
         if r < buildRowShade.count { buildRowShade[r] = 0 }
         buildDeletedRows[r] = nil
     }
-    // Paul 2026-09-05: PROMOTION to a play ferry is a MOVE — clear the part-grid row it came from (cells + per-row I/O + any
-    // column rungs still pointing at it), so the promoted part/cell leaves the part grid.
-    private func buildRemovePartRow(_ r: Int) {
-        guard r >= 0, r < 8 else { return }
-        buildSetRow(r, to: nil)
-        if r < buildRowReceiver.count { buildRowReceiver[r] = nil }
-        if r < buildRowEmitters.count { buildRowEmitters[r] = nil }
-        for c in 0..<buildStagingSel.count where buildStagingSel[c] == r { buildStagingSel[c] = -1 }
+    // Paul 2026-09-05 (changed his mind): PROMOTION from the part grid ARCHIVES the WHOLE part-grid state onto the new play
+    // cell (for a future RESTORE), then CLEARS the grid — so the part is stashed, not lost, and the grid is free for the next.
+    private func buildCapturePartSnapshot() -> BuildPartSnapshot {
+        BuildPartSnapshot(stagingCells: buildStagingCells, stagingSel: buildStagingSel, rowReceiver: buildRowReceiver,
+                          rowEmitters: buildRowEmitters, rowChain: buildRowChain, rowShade: buildRowShade, rowUnder: buildRowUnder,
+                          deletedRows: buildDeletedRows, partLen: buildPartLen, partRate: buildPartRate, partCast: buildPartCast,
+                          selReceiver: buildSelReceiver, partEmitters: buildPartEmitters)
+    }
+    private func buildClearPartGrid() {
+        for r in 0..<8 { buildSetRow(r, to: nil) }                 // clears cells + per-row chain/shade/deletedRows
+        buildStagingSel = Array(repeating: -1, count: Snap.maxCols)
+        buildRowReceiver = Array(repeating: nil, count: 8)
+        buildRowEmitters = Array(repeating: nil, count: 8)
+        buildRowUnder = Array(repeating: nil, count: 8)
+        buildDeletedRows = [:]
+        buildPartCast = []
+        buildPartLen = nil; buildPartRate = nil
+    }
+    // Archive the current part grid onto play column `t`, then clear the grid. Both promote paths call this. (Paul 2026-09-05)
+    private func buildArchivePartToPlay(_ t: Int) {
+        buildPlayColPartSnapshot[t] = buildCapturePartSnapshot()
+        buildClearPartGrid()
     }
 
 

@@ -5,6 +5,16 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-04._
 
+## ★ PROMOTE ARCHIVES THE PART GRID → RESTORE is UNBUILT (2026-09-05)
+Promoting a part/cell from the part grid now stores a `BuildPartSnapshot` of the WHOLE grid on the play column
+(`buildPlayColPartSnapshot`) and CLEARS the grid (CLAUDE.md status). OPEN:
+- **RESTORE** (the point of the archive) — a way to bring a play column's stored part snapshot back into the part grid. UI +
+  action unbuilt.
+- **PERSISTENCE** — the snapshot is in-memory `@State`; to survive save/load it must ride the play grid's `BuildPlayGridData`
+  (needs `BuildPartSnapshot: Codable` + the ephemeral colours it references). Do this WITH restore.
+- **DEVICE:** confirm the archive+clear feel; whether a single cell-ferry from a part row should clear the WHOLE grid (current)
+  or be exempt; the null-I/O pulse on the next select cell.
+
 ## ★ FOUR SCALE POOLS + THE CHORD SEQUENCER DOOR — both BUILT (2026-09-05); DEVICE eye/ear owed
 Spec `Docs/SPEC-four-scale-pools.md`. SCALE (4 radio pools) + CHORD (`DoorMode.chord` — a chord SEQUENCER reusing the
 CHORDS processor's config/editor/engine; time-varying pool; 4 default progressions; default rig C→D) both built end-to-end
