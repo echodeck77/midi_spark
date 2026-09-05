@@ -179,6 +179,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROMOTE = MOVE (remove the source part row) + FRESH-CELL NULL-I/O PULSE (2026-09-05, on branch
+    `feature/promote-remove-row`; iOS builds; UI-only, DEVICE eye/ear owed). Paul: "when a cell or part is promoted to the play
+    ferries, remove the row it was promoted from from the part grid; when a part is promoted and a new cell is selected/created
+    on the select grid, the emitter+receiver toggles are set to null and all 8 controls PULSE invitingly." **B1 PROMOTE = MOVE
+    (`BuildPage.swift`):** a new `buildRemovePartRow(r)` (clears the row's cells via `buildSetRow(r,nil)` + nils per-row I/O +
+    de-selects any column rungs pointing at it). `roomsAssignPlayColumn` (a SELECT-cell ferry) captures `buildGridSelStampSourceRow`
+    BEFORE `buildSelectPlayColumn` clears it, then removes it (nil source = a library cell → nothing removed). `roomsFlattenPartToPlay`
+    (a PART promote) removes the DISTINCT rows the part was made of (the rungs across the flattened columns — Paul's ruling:
+    "the rows it was made of", not the whole grid). **B2 FRESH-CELL NULL PULSE:** `roomsFlattenPartToPlay` arms
+    `buildPartJustPromoted`; the NEXT select-grid cell tap (`buildGridSelTapCell`) consumes it → `buildIONullPending = true`.
+    While pending: all 8 I/O chips render OFF + a breathing cyan keyline (`buildIOSelectChip` gained a `pulse` param using the
+    house `stagingPulseFraction`/TimelineView idiom), and `buildDefaultEmitters` returns [] → busMask 0 → the cell is SILENT
+    (Paul's ruling: "silent until wired"). The invitation clears on the FIRST I/O edit (`buildSelectDoor`/`buildToggleBus` +
+    the two ALL variants clear the flag; the emitter setters build from EMPTY on the first pick, not the [.a] default).
+    **JUDGMENT CALL / flagged mismatch:** Paul chose "silent until you pick BOTH a receiver AND an emitter"; v1 clears the
+    whole invitation on the FIRST I/O touch (the existing fresh-row-flash idiom), so picking a receiver first un-silences on
+    the default emitter A. A strict silent-until-BOTH gate would need a true-null receiver (buildSelReceiver = −1, risk of
+    index crashes) + decoupling silence from display — a device-tunable follow-up. Whole feature is UI, DEVICE eye/ear owed.**
 - **▶ SPAN AUTOMATION PHASE 2 — render-time ×N passes + STEP|SMOOTH, LANDED (2026-09-05, on `main`, `50159b8`+merge
     `c6ab8fb`; iOS builds, macOS suite green). Completes the parked Phase 2 (Paul: "all of phase 2 except cc dominance").
     A part-AUTO lane spans multiple bars (×2/×4/×8 passes) and/or ramps SMOOTHLY, overriding one SCALAR proc param FROM

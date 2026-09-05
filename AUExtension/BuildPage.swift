@@ -1454,7 +1454,7 @@ extension DiagView {
     // The part's DEFAULT output emitters — its chosen set, or emitter A when none. A row/cell/ferry inherits this when
     // it has no emitters of its own. (refactor 2026-08-30: was `buildPartEmitters.isEmpty ? [.a] : buildPartEmitters`
     // inlined at ~10 sites.)
-    var buildDefaultEmitters: Set<Bus> { buildPartEmitters.isEmpty ? [.a] : buildPartEmitters }
+    var buildDefaultEmitters: Set<Bus> { buildIONullPending ? [] : (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters) }   // Paul 2026-09-05: null-pending ⇒ NO emitter (busMask 0 → the fresh cell is SILENT until wired)
     // Two BRIGHT shades that alternate each new SELECT pick (buildSelectGreyAlt flips on selection) so the machine section
     // visibly shifts even though the audition colour is always the same transient "gsAud" (Paul 2026-09-01).
     var buildSelectGrey: Color { Color(white: buildSelectGreyAlt ? 0.90 : 0.80) }
@@ -1856,6 +1856,7 @@ extension DiagView {
         guard t >= 0 && t < 8 else { return }
         if roomsRoom == .part { roomsFlattenPartToPlay(t); return }           // PART page → FLATTEN the part into a multi-step pass (Paul 2026-08-30)
         guard let hit = buildGridSelStampSource() else { return }
+        let srcRow = buildGridSelStampSourceRow                              // Paul 2026-09-05: the part row this cell was promoted FROM (nil ⇒ a library/audition source, nothing to remove)
         buildRecordUndo()                                                    // the play grid is now in the undo snapshot → ferrying is undoable (2026-08-31)
         buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
         buildPlayColLen[t] = 1; buildPlayColSteps[t] = []; buildPlayColRate[t] = nil   // a SELECT single-cell ferry clears any prior multi-step pass on this column
@@ -1873,6 +1874,7 @@ extension DiagView {
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }
         buildVoiceOwner = .none; au?.clearColourSolo()                       // the SELECT/PART shared audition stops — the play layer is the voice now
         buildSelectPlayColumn(t)                                             // the FERRIED play cell becomes THE selection (deselects the source; machine strip + I/O toggles reflect it — Paul 2026-08-30)
+        if let s = srcRow { buildRemovePartRow(s) }                          // Paul 2026-09-05: MOVE — the promoted cell leaves the part grid (its source row is removed)
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
         buildPublishScene()                                                  // republish: the started column plays, the audition is off
@@ -1909,6 +1911,11 @@ extension DiagView {
         buildPlayColRecv[t] = buildSelReceiver                               // the column DEFAULT (the ferry dot/drift tint + any rest-step fallback)
         buildPlayColEmit[t] = buildDefaultEmitters
         buildPlayColOn[t] = true                                            // start it
+        // Paul 2026-09-05: promoting the PART is a MOVE — remove the rows it was MADE OF (the distinct rungs across the
+        // flattened columns), and ARM the fresh-I/O pulse so the NEXT new select-grid cell starts null + inviting.
+        let promotedRows = Set((0..<len).compactMap { c -> Int? in let rr = c < buildStagingSel.count ? buildStagingSel[c] : -1; return rr >= 0 ? rr : nil })
+        for r in promotedRows { buildRemovePartRow(r) }
+        buildPartJustPromoted = true
         buildVoiceOwner = .none; au?.clearColourSolo()                      // the part/chain shared audition stops — the play column now carries the sequence (no doubling)
         buildSelectPlayColumn(t)
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()
@@ -3201,7 +3208,7 @@ extension DiagView {
         // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
         let letter = ["A", "B", "C", "D"][i]
         let key: String? = (i < receivers.count ? receivers[i].scaleLabel : nil) ?? buildChordDoorLabel(receivers, i)   // "A MIXO" (SCALE) / "A · V7" (CHORD), else nil
-        buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: on, accent: receiverGrey(i), action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30)
+        buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every colour follows). (Paul 2026-08-18)
@@ -3214,7 +3221,7 @@ extension DiagView {
                 let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) }
                     ?? buildSelectedPlayCol.map { ($0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a]).contains(b) }
                     ?? ((buildDefaultEmitters).contains(b))
-                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on, accent: emitterColour(b), action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE colour (Paul 2026-08-30)
+                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildIONullPending ? false : on, accent: emitterColour(b), pulse: buildIONullPending, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE colour (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
             }
         }
         .frame(width: castW)
@@ -3222,13 +3229,20 @@ extension DiagView {
     // The shared two-line I/O chip: a small top label over a big A/B/C/D, styled like the centre column's emitter A–D
     // chips (cyan-when-on, muted idle, height 48). Used by BOTH the MIDI-IN receiver selector and the MIDI-OUT
     // emitter toggles so they read identically. (Paul 2026-08-18)
-    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
+    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, pulse: Bool = false, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
         // Paul 2026-08-30: HALF height (48→24) + only the LARGER line (the letter) — the small "MIDI IN"/"MIDI OUT" caption dropped.
         Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         .foregroundColor(on ? Color.black : buildDim)
         .frame(maxWidth: .infinity).frame(height: 36)                        // +50% over the halved 24 (Paul 2026-08-30)
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature colour for MIDI OUT); idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
+        // Paul 2026-09-05: NULL + PULSE — a fresh cell after a part promote invites setup; every unset toggle breathes a cyan keyline.
+        .overlay(Group { if pulse {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let f = stagingPulseFraction(tl.date, period: 0.9)
+                RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.3 + 0.55 * f), lineWidth: 2)
+            }.allowsHitTesting(false)
+        } })
         .contentShape(Rectangle())
         .onTapGesture(perform: action)                                       // TAP = this row (or the part default)
         .onLongPressGesture(minimumDuration: 0.75, perform: {               // HOLD = apply to EVERY row (Paul 2026-08-19)
@@ -3493,6 +3507,7 @@ extension DiagView {
     // scene-build + audition; no per-colour cell fanning.
     private func buildSelectDoor(_ i: Int) {
         buildRecordUndo()   // BUILD UNDO: pick the input door (receiver)
+        buildIONullPending = false                               // Paul 2026-09-05: picking the door dismisses the fresh-cell null/pulse invitation
         buildClearPendingOnEdit()                                // a RECEIVER change ends the fresh-row flash (Paul 2026-08-25)
         if let r = buildSelectedRow, r < buildRowReceiver.count { buildRowReceiver[r] = i }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
         else if let pc = buildSelectedPlayCol, pc < buildPlayColRecv.count { buildPlayColRecv[pc] = i; buildPublishScene() }   // a selected PLAY cell edits its OWN door (Paul 2026-08-30)
@@ -3509,12 +3524,13 @@ extension DiagView {
 
     private func buildToggleBus(_ bus: Bus) {
         buildRecordUndo()   // BUILD UNDO: toggle an output emitter
+        let wasNull = buildIONullPending; buildIONullPending = false   // Paul 2026-09-05: the first emitter pick WIRES the fresh cell — build from EMPTY, not the [.a] default
         buildClearPendingOnEdit()                                // an EMITTER change ends the fresh-row flash (Paul 2026-08-25)
         let selR = buildSelectedRow
         let selPC = selR == nil ? buildSelectedPlayCol : nil       // a selected PLAY cell edits its OWN emitters (Paul 2026-08-30)
-        var buses = selR.map { buildRowEmittersResolved($0) }
+        var buses = wasNull ? [] : (selR.map { buildRowEmittersResolved($0) }
             ?? selPC.map { $0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a] }
-            ?? (buildDefaultEmitters)
+            ?? (buildDefaultEmitters))
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
         if buses.isEmpty { buses = [bus] }                        // never leave a row with no output
         if let r = selR, r < buildRowEmitters.count { buildRowEmitters[r] = buses }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
@@ -3527,6 +3543,7 @@ extension DiagView {
     private func buildSelectDoorAll(_ i: Int) {
         if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildSelectDoor(i); return }   // a play cell has no "all rows" — edit just its door (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the door to every row (U7 fix 2026-08-27 — the single-row sibling records; this didn't)
+        buildIONullPending = false                               // Paul 2026-09-05: dismiss the fresh-cell invitation
         buildClearPendingOnEdit()                                // a RECEIVER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
         for r in 0..<min(8, buildRowReceiver.count) { buildRowReceiver[r] = i }
         buildSelReceiver = i; ddStickyReceiver = i
@@ -3537,8 +3554,9 @@ extension DiagView {
     private func buildToggleBusAll(_ bus: Bus) {
         if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildToggleBus(bus); return }   // a play cell has no "all rows" — edit just its emitters (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the emitter to every row (U7 fix 2026-08-27)
+        let wasNull = buildIONullPending; buildIONullPending = false   // Paul 2026-09-05: dismiss the fresh-cell invitation, build from EMPTY
         buildClearPendingOnEdit()                                // an EMITTER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
-        var buses = buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters)
+        var buses = wasNull ? [] : (buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters))
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
         if buses.isEmpty { buses = [bus] }
         for r in 0..<min(8, buildRowEmitters.count) { buildRowEmitters[r] = buses }
@@ -4317,6 +4335,15 @@ extension DiagView {
         if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the colour's OWN machine (no per-row variation override)
         if r < buildRowShade.count { buildRowShade[r] = 0 }
         buildDeletedRows[r] = nil
+    }
+    // Paul 2026-09-05: PROMOTION to a play ferry is a MOVE — clear the part-grid row it came from (cells + per-row I/O + any
+    // column rungs still pointing at it), so the promoted part/cell leaves the part grid.
+    private func buildRemovePartRow(_ r: Int) {
+        guard r >= 0, r < 8 else { return }
+        buildSetRow(r, to: nil)
+        if r < buildRowReceiver.count { buildRowReceiver[r] = nil }
+        if r < buildRowEmitters.count { buildRowEmitters[r] = nil }
+        for c in 0..<buildStagingSel.count where buildStagingSel[c] == r { buildStagingSel[c] = -1 }
     }
 
 
@@ -5576,6 +5603,8 @@ extension DiagView {
     // A select-grid TAP: SELECT MODE focuses the cell into the machine (no play/stop); else it auditions. (Paul 2026-08-31)
     private func buildGridSelTapCell(_ i: Int) {
         guard buildGridSelPresent(i) else { return }
+        // Paul 2026-09-05: a NEW select-grid cell after a PART promote starts with NULL I/O + all-8-pulsing (silent until wired).
+        if buildPartJustPromoted { buildPartJustPromoted = false; buildIONullPending = true }
         if buildSelectMode { buildGridSelFocus(i); buildSelectMode = false } else { buildGridSelAudition(i) }   // SELECT ends after one pick (Paul 2026-08-31)
     }
     // FOCUS ONLY (SELECT mode): load the cell into the machine + select it, but DON'T start/swap the audition voice. (Paul 2026-08-31)
