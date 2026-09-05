@@ -433,4 +433,20 @@ enum BuildSceneLogic {
         if firstTapOfGesture && currentRung == row { return .deselect }
         return .selectRung(row: row)   // EMPTY cells ARE selectable — the contract, locked by test
     }
+
+    // PLAY-GRID FERRY EDITING (Paul 2026-09-05, Docs/PLAN-play-grid-ferry-editing.md): unpack a play cell onto the BENCH.
+    // A PART-BACKED cell (its stored BuildPart) loads WHOLE — a lossless round-trip of what was flattened. A SELECT-BACKED
+    // cell (no stored part, just a colourID) yields a FRESH one-cell part: the bench cleared to exactly that one chain
+    // (top-left, selected), so editing starts from that single cell. Pure → unit-tested; the park/live-link/re-deposit
+    // lifecycle is UI-side (Stages 3–4).
+    static func unpackPlayCell(storedPart: BuildPart?, selectColourID: String?) -> BuildPart {
+        if let p = storedPart { return p }                 // part-backed: the whole part, verbatim (lossless)
+        var part = BuildPart()                             // select-backed: a clean bench holding one cell
+        if let cid = selectColourID {
+            part.stagingCells[0][0] = cid                  // the single chain, top-left (col 0, row 0)
+            part.stagingSel[0] = 0                         // that column's selected rung
+            part.selID = cid                               // the cast selection follows it
+        }
+        return part
+    }
 }

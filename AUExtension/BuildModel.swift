@@ -89,6 +89,11 @@ struct BuildPlayGridData: Codable, Equatable {
     var colours: [Colour] = []          // referenced EPHEMERAL colours (colourID + templateChain machine + transpose)
     var hues: [String: UInt32] = [:]    // ephemeral colour hues (colourHueOverride is session-only)
     var idCounter: Int = 0              // the "b<n>" high-water mark so restored ids don't collide
+    // PLAY-GRID FERRY EDITING (Paul 2026-09-05): each of the 64 cells can store a FULL BuildPart (part-backed) so a
+    // flatten round-trips losslessly through the bench; nil ⇒ select-backed (the colourID in `cells`) or empty. The
+    // persistent WORKING part is the bench's home for un-ferried WIP. Both additive-Optional → old docs decode to nil.
+    var playCellPart: [[BuildPart?]]? = nil   // 8×8 [col][row]; a part-backed cell's stored part
+    var workingPart: BuildPart? = nil         // the "65th" part — the bench's home for un-ferried WIP
 }
 extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedData pattern) — a field added later never fails an older save
     init(from decoder: Decoder) throws {
@@ -106,6 +111,8 @@ extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedDat
         colours     = try c.decodeIfPresent([Colour].self, forKey: .colours) ?? []
         hues        = try c.decodeIfPresent([String: UInt32].self, forKey: .hues) ?? [:]
         idCounter   = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
+        playCellPart = try c.decodeIfPresent([[BuildPart?]].self, forKey: .playCellPart)   // PLAY-GRID FERRY EDITING (2026-09-05); nil = absent
+        workingPart  = try c.decodeIfPresent(BuildPart.self, forKey: .workingPart)
     }
 }
 

@@ -715,4 +715,46 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(lane.spanStart, 2, "derived from the min column")
         XCTAssertEqual(lane.spanLen, 4, "min…max column span = cols 2…5 → length 4")
     }
+
+    // MARK: - PLAY-GRID FERRY EDITING — Stage 1 model (Paul 2026-09-05)
+
+    /// A part-backed cell unpacks to its stored part, verbatim — the lossless round-trip that makes flatten→unpack exact.
+    func testUnpackPartBackedCellIsLossless() {
+        var p = BuildPart()
+        p.stagingCells[2][3] = "gold"; p.stagingSel[2] = 3; p.selID = "gold"; p.length = 5; p.receiver = 2; p.emitters = [.b]
+        XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: p, selectColourID: nil), p,
+                       "part-backed unpack returns the whole stored part unchanged")
+    }
+    /// A select-backed cell (no part, just a colourID) unpacks to a fresh one-cell bench: that chain top-left, selected.
+    func testUnpackSelectBackedCellClearsToOneCell() {
+        let part = BuildSceneLogic.unpackPlayCell(storedPart: nil, selectColourID: "teal")
+        XCTAssertEqual(part.stagingCells[0][0], "teal")
+        XCTAssertEqual(part.stagingSel[0], 0)
+        XCTAssertEqual(part.selID, "teal")
+        XCTAssertNil(part.stagingCells[1][0] ?? nil, "the rest of the bench is clear")
+        XCTAssertEqual(part.stagingSel[1], -1, "other columns carry no selection")
+    }
+    /// An empty cell (no part, no colourID) unpacks to a blank bench.
+    func testUnpackEmptyCellIsBlankBench() {
+        XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: nil, selectColourID: nil), BuildPart())
+    }
+    /// The 64-cell part store + the working part round-trip through Codable; an OLD doc (missing the keys) decodes to nil.
+    func testPlayGridDataRoundTripsCellPartsAndWorkingPart() throws {
+        var g = BuildPlayGridData()
+        var cell = BuildPart(); cell.selID = "gold"; cell.stagingCells[0][0] = "gold"
+        var parts = Array(repeating: Array(repeating: BuildPart?.none, count: 8), count: 8)
+        parts[3][4] = cell
+        g.playCellPart = parts
+        var wip = BuildPart(); wip.selID = "wip"; g.workingPart = wip
+        let data = try JSONEncoder().encode(g)
+        let back = try JSONDecoder().decode(BuildPlayGridData.self, from: data)
+        XCTAssertEqual(back.playCellPart?[3][4]?.selID, "gold", "the part-backed cell round-trips")
+        XCTAssertNil(back.playCellPart?[0][0] ?? nil, "an empty cell stays nil")
+        XCTAssertEqual(back.workingPart?.selID, "wip", "the working part round-trips")
+        // OLD doc: strip the new keys → decode → nil (byte-identical, no throw).
+        var obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        obj.removeValue(forKey: "playCellPart"); obj.removeValue(forKey: "workingPart")
+        let old = try JSONDecoder().decode(BuildPlayGridData.self, from: try JSONSerialization.data(withJSONObject: obj))
+        XCTAssertNil(old.playCellPart); XCTAssertNil(old.workingPart)
+    }
 }
