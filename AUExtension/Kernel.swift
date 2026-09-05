@@ -238,7 +238,17 @@ final class Kernel {
 
     private func computeEffectiveLatchMask() -> UInt8 {
         var m = latchArmMask
-        for i in 0..<4 where (pianoMask & (1 << UInt8(i))) != 0 && i < pianoNotes.count && !pianoNotes[i].isEmpty {
+        // Self-arm a PIANO-class door (no lock needed): a KEYS/SCALE/PIANO door arms once it has picked notes; a CHORD
+        // door (chordDoorParams != nil) has a TIME-VARYING pool sequenced live from chordSeqNotes, so its pianoNotes is
+        // ALWAYS empty — it must self-arm regardless (else the default-rig chord door is silent until manually armed).
+        for i in 0..<4 where (pianoMask & (1 << UInt8(i))) != 0
+            && ((i < chordDoorParams.count && chordDoorParams[i] != nil)
+                || (i < pianoNotes.count && !pianoNotes[i].isEmpty)) {
+            m |= UInt8(1 << i)
+        }
+        // THE CHORD DOOR self-arms too (Paul 2026-09-05 bug): its pool is TIME-VARYING (walked on the beat), so pianoNotes is
+        // ALWAYS empty — the non-empty test above never fires for it. Being a chord door IS reason to arm (like a scale door).
+        for i in 0..<4 where i < chordDoorParams.count && chordDoorParams[i] != nil {
             m |= UInt8(1 << i)
         }
         for i in 0..<4 where (replayEngagedMask & (1 << UInt8(i))) != 0 && doorRings[i].hasLoop {   // REPLAY: only an ENGAGED door (LAST N pressed) loops → its cells read the loop

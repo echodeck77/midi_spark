@@ -251,7 +251,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     incl. the stale `chordPools` key ignored · the default rig wires C→D). **JUDGMENT CALLS (Paul-answered + flagged):** RADIO
     switch confirmed; time-varying autonomous confirmed; FOLLOW on a door sits on the tonic (no play-along trigger wired, v1);
     free-run interaction device-owed; no matrix playhead in the door editor yet (liveStep −1). Spec: `Docs/SPEC-four-scale-
-    pools.md` (CHORD section rewritten).**
+    pools.md` (CHORD section rewritten). **BUGFIX (2026-09-05, `Kernel.swift`): the CHORD door never self-armed → silent by
+    default (Paul: "can't arm it"). `computeEffectiveLatchMask` only self-armed a piano/scale door when `pianoNotes[i]` was
+    non-empty, but a chord door's pool is TIME-VARYING so its pianoNotes is ALWAYS [] → its bit never entered the latch mask.
+    FIX: a chord door (`chordDoorParams[i] != nil`) self-arms unconditionally (being a chord door IS reason to arm, like a
+    scale door with notes). Kernel-only, device-verified.**
 - **▶ THE CHORD DOOR — a new latch/key/hold-class door mode (2026-09-04, on branch `feature/chord-door`; iOS builds, macOS
     1057 green +5; DEVICE eye/ear owed). Paul's spec: a new `DoorMode.chord`, a SIBLING of the scale door — FOUR instances
     radio-switched from a strip pop-up, each a DIATONIC CHORD generated (CHORDS-processor primitives) from a referenced SCALE
