@@ -86,21 +86,6 @@ final class LiveTelemetry {
 
 // Paul 2026-09-05: the WHOLE part-grid state, archived onto a play cell when a part/cell is promoted FROM the part grid, so
 // the part can be RESTORED later (restore is currently unimplemented). In-memory (value copy) this session.
-struct BuildPartSnapshot {
-    var stagingCells: [[String?]]
-    var stagingSel: [Int]
-    var rowReceiver: [Int?]
-    var rowEmitters: [Set<Bus>?]
-    var rowChain: [[ProcessorSlot]]
-    var rowShade: [Double]
-    var rowUnder: [String?]
-    var deletedRows: [Int: [String?]]
-    var partLen: Int?
-    var partRate: StepRate?
-    var partCast: [String]
-    var selReceiver: Int
-    var partEmitters: Set<Bus>
-}
 
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
@@ -220,7 +205,7 @@ struct DiagView: View {
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the
     // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a colour here.
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
-    @State var buildPlayColPartSnapshot: [Int: BuildPartSnapshot] = [:]   // Paul 2026-09-05: per play COLUMN, the whole part-grid state ARCHIVED onto it when a part/cell was promoted from the part grid — for a future RESTORE (in-memory this session; persists with the play grid when restore lands)
+    @State var buildPlayCellPart: [[BuildPart?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)   // PLAY-GRID FERRY EDITING (Paul 2026-09-05, option C): per CELL [col][row], the full BuildPart archived on flatten/promote (part-backed) so unpack round-trips losslessly. Reconciled from the earlier per-column BuildPartSnapshot onto the BuildPart model. In-memory this session; persists with the play grid at Stage 5.
     // THE PLAY GRID (Paul 2026-08-29) — its OWN arrangement, INDEPENDENT of the part's buildStagingCells so the SELECT
     // top-button assign lands only on PLAY (was writing the shared staging → it wrongly lit the part-grid side buttons).
     // [column][row]; one selected rung per column (buildPlaySel, default ROW 1 = 0). Populated by the top-button ferry.
