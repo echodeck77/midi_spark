@@ -1810,7 +1810,7 @@ extension DiagView {
                             .overlay(Image(systemName: "plus").font(.system(size: min(13, g.size.height * 0.42), weight: .black)).foregroundColor(copyHue.opacity(0.4 + 0.4 * f)))
                     }
                 } }
-                .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on).padding(2) } }   // ALWAYS-VISIBLE emitter constellation (Paul 2026-09-05 v2; was the idle-blank live drift)
+                .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t)).padding(2) } }   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes (Paul 2026-09-05)
                 .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this ferry's hue
                 .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -2655,7 +2655,7 @@ extension DiagView {
         let hollow = buildAutoActive() >= 0 && !selected
         let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
                           flatFill: partCellFill(id), flatFrame: partCellFrame(id),   // Paul 2026-09-05 v2: DARK, SATURATED, FLAT machine hue (matches the selector)
-                          sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: emitterHue(buildRowEmittersResolved(r)), playing: buildStagingPlaying && selected) })   // ALWAYS-VISIBLE emitter constellation
+                          sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: emitterHue(buildRowEmittersResolved(r)), playing: buildStagingPlaying && selected, strikeIdx: [idx]) })   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
         // punch look), so it is always clear + legible and NEVER becomes another colour. It fades only VERY slightly while
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
@@ -4406,7 +4406,7 @@ extension DiagView {
     // THE CONSTELLATION face (Paul 2026-09-05, design-cell-language.md): a dot per note (radius ∝ velocity) at (x=time,
     // y=pitch, both 0…1 with y already inverted so 0=top), joined by a faint path in x-order — the cell's output as a sigil.
     // SHARED by the live drift (buildNoteSweep) and the offline SELECT roll (buildGridSelPianoRoll).
-    private func drawConstellation(_ ctx: inout GraphicsContext, _ size: CGSize, _ points: [(x: Double, y: Double, v: Double, a: Double)], tint: Color) {
+    private func drawConstellation(_ ctx: inout GraphicsContext, _ size: CGSize, _ points: [(x: Double, y: Double, v: Double, a: Double)], tint: Color, blinks: [(y: Double, boost: Double)] = []) {
         guard !points.isEmpty else { return }
         let inset = size.height * 0.16, hh = size.height - 2 * inset
         func px(_ p: (x: Double, y: Double, v: Double, a: Double)) -> CGPoint { CGPoint(x: CGFloat(p.x) * size.width, y: inset + CGFloat(p.y) * hh) }
@@ -4416,32 +4416,49 @@ extension DiagView {
             for (i, p) in sorted.enumerated() { let c = px(p); if i == 0 { path.move(to: c) } else { path.addLine(to: c) } }
             ctx.stroke(path, with: .color(tint.opacity(0.5)), lineWidth: max(1, size.height * 0.025))
         }
-        for p in points {                                             // the dots — size + opacity carry velocity
-            let c = px(p), r = max(1.2, size.height * (0.028 + 0.05 * p.v))
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(p.a)))
+        for p in points {                                             // the dots — size + opacity carry velocity; a live strike at this pitch BLINKS the star
+            var a = p.a, rMul = 1.0
+            for b in blinks where abs(b.y - p.y) < 0.09 { a = min(1.0, a + 0.6 * b.boost); rMul = max(rMul, 1.0 + 1.0 * b.boost) }
+            let c = px(p), r = max(1.2, size.height * (0.028 + 0.05 * p.v)) * rMul
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(a)))
         }
     }
     // THE UNIFIED CELL FACE (Paul 2026-09-05 v2): the ALWAYS-VISIBLE expected-output constellation — SELECT (grey ink), PART +
     // PLAY (emitter colour). Static when idle (so the sigil is always there — v1's bug was drawing ONLY the live drift, so idle
     // cells were blank); a PLAYING cell animates a beat-locked playhead sweeping the sigil (dots glow as it crosses them).
-    @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool) -> some View {
+    @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool, strikeIdx: [Int] = []) -> some View {
         let pts = bars.map { (x: Double(($0.x0 + $0.x1) / 2), y: Double($0.y), v: $0.vel, a: 0.4 + 0.55 * $0.vel) }
-        if playing && !animationsPaused && !bars.isEmpty {
-            // Paul 2026-09-05: a PLAYING/SELECTED cell SCROLLS the constellation right→left, beat-locked (NO playhead). Two
-            // beat-offset copies draw a seamless loop (the whole sigil slides, its path intact).
+        // Paul 2026-09-05: SCROLL only while the music is actually ADVANCING (host or free-run) — STATIC when the transport is
+        // stopped (was free-running off wall-clock → skipping). And the STARS BLINK when their note actually strikes (the live
+        // strike feed) — so a cell with no MIDI coming in never blinks. The timeline runs only when scrolling OR strikes exist.
+        let scroll = playing && d.effectivePlaying
+        let feed = strikeIdx.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] }
+        if !bars.isEmpty && !animationsPaused && (scroll || !feed.isEmpty) {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-                let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)
-                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                let raw = (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats
-                let phase = raw < 0 ? raw + 1 : raw
+                let now = tl.date
+                let phase: Double = {
+                    guard scroll else { return 0 }
+                    let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)
+                    let live = meters.beatAnchor + now.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                    let raw = (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats
+                    return raw < 0 ? raw + 1 : raw
+                }()
+                let blinks: [(y: Double, boost: Double)] = feed.compactMap { n in
+                    let age = now.timeIntervalSince(n.born)
+                    return (age >= 0 && age < 0.3) ? (y: 1 - n.lane, boost: 1 - age / 0.3) : nil   // lane=1 → top → y'=0; boost decays over 0.3s
+                }
                 Canvas { ctx, size in
-                    let dx = CGFloat(phase) * size.width
-                    var c1 = ctx; c1.translateBy(x: -dx, y: 0); drawConstellation(&c1, size, pts, tint: tint)                 // the sigil, scrolled left
-                    var c2 = ctx; c2.translateBy(x: size.width - dx, y: 0); drawConstellation(&c2, size, pts, tint: tint)     // the wrap copy entering from the right
+                    if scroll {                                        // beat-locked scroll — two offset copies loop seamlessly
+                        let dx = CGFloat(phase) * size.width
+                        var c1 = ctx; c1.translateBy(x: -dx, y: 0); drawConstellation(&c1, size, pts, tint: tint, blinks: blinks)
+                        var c2 = ctx; c2.translateBy(x: size.width - dx, y: 0); drawConstellation(&c2, size, pts, tint: tint, blinks: blinks)
+                    } else {
+                        drawConstellation(&ctx, size, pts, tint: tint, blinks: blinks)   // STATIC sigil, stars blink on strikes
+                    }
                 }.padding(2)
             }.allowsHitTesting(false)
         } else {
-            Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint) }.padding(2).allowsHitTesting(false)
+            Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint) }.padding(2).allowsHitTesting(false)   // STATIC (stopped, no strikes)
         }
     }
     @ViewBuilder private func buildNoteSweep(indices: [Int], active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
@@ -5775,7 +5792,7 @@ extension DiagView {
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
                 // The drift ANIMATES only while the chain is actually PLAYING (Paul 2026-08-30 bug): gating on `sel` alone kept
                 // the fingerprint looping after STOP on "play this midi chain" (MIDI stopped, animation didn't) — reads as still running.
-                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint)   // Paul 2026-09-05: the SELECTED cell SCROLLS its constellation (was gated on live MIDI)
+                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint, strikeIdx: sel ? (buildChainAuditionRow.map { [$0] } ?? []) : [])   // Paul 2026-09-05: SELECTED cell scrolls (only when playing) + its stars blink on live strikes
                     .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
             }
             if sel {       // THE ACTIVE CELL — a breathing live frame (DARK on the light-grey SELECT cell, else white)
@@ -5795,8 +5812,8 @@ extension DiagView {
     // = an offline render → each note's start · LENGTH (x0→x1 = bar width) · PITCH lane · VELOCITY (opacity)). STATIC at the
     // real note positions when idle; when the cell is auditioning it SCROLLS LEFT→RIGHT, beat-locked to the music (the same
     // extrapolated beat the cell playheads use). Same colour scheme (the caller's `tint`).
-    @ViewBuilder private func buildGridSelPianoRoll(_ bars: [GridSelBar], playing: Bool, tint: Color) -> some View {
-        buildOutputFace(bars, tint: tint, playing: playing)   // SELECT face = the unified expected-output constellation (Paul 2026-09-05 v2)
+    @ViewBuilder private func buildGridSelPianoRoll(_ bars: [GridSelBar], playing: Bool, tint: Color, strikeIdx: [Int] = []) -> some View {
+        buildOutputFace(bars, tint: tint, playing: playing, strikeIdx: strikeIdx)   // SELECT face = the unified expected-output constellation (Paul 2026-09-05 v2)
     }
     // THE DRIFTING NOTE FACE (Paul 2026-08-26): notes scroll RIGHT→LEFT, looping — the same aesthetic as the part/play grid
     // cells (buildNoteSweep). Every present cell + row selector wears its chain's fingerprint drifting across it (a browse

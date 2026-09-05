@@ -200,6 +200,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     roomsPartPlayhead/roomsCellPlayhead untouched); SELECT scrolls on mere selection (was gated on live MIDI); the part cell
     is DARKER (`partCellFill` mix 0.24, `partCellFrame` 0.48 — was 0.52/bright-0.85) + the PART-PAGE ferries now wear the same
     dark fill/frame (gated `roomsRoom == .part`; the PLAY grid keeps its dusk blends) to kill the "still bright" look.**
+    **v4 device fixes (same day): the scroll now runs ONLY while `d.effectivePlaying` (host or free-run advancing) → STATIC
+    when the transport is stopped (v3 free-ran off wall-clock → skipping, esp. when stopped) and beat-locked/in-sync when
+    playing. + THE STARS BLINK on a live strike: `buildOutputFace` gained `strikeIdx` (part `[idx]` · play `buildPlayColSweep-
+    Indices(t)` · select `buildChainAuditionRow`); the timeline runs only when scrolling OR the strike feed (`buildCellRoll`)
+    is non-empty, so a cell with no MIDI in never blinks; `drawConstellation` boosts a dot's size+opacity when a recent strike
+    (age<0.3s) matches its pitch lane. DEVICE eye owed (blink delay ≤ the 4Hz poll; boost/decay constants tunable).**
 - **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
     constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
     (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a
