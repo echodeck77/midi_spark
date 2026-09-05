@@ -4401,12 +4401,12 @@ extension DiagView {
     // step*Snap.rows + 8+c), so the ferry gathers ALL its steps' feeds → the whole pass's notes drift, not just step 0.
     // THE PART cell colour (Paul 2026-09-05 v2): a DARK, SATURATED, FLAT version of the row's MACHINE hue (row 7 = its yellow
     // machine, etc.) — matches the row selector (same hue), no wash/fade. The bright emitter constellation rides on top.
-    private func partCellFill(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x000000, buildBaseHex($0), 0.24)) } ?? buildCell }   // DARK (Paul 2026-09-05: still too bright → deepen)
-    private func partCellFrame(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x000000, buildBaseHex($0), 0.48)) } ?? buildEdge }   // a slightly-lighter DARK edge — not the bright hue
+    private func partCellFill(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.16)) } ?? buildCell }   // DEEP dark (Paul 2026-09-05: "primary as fuck" → much darker, just a hint of hue over the ground)
+    private func partCellFrame(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.34)) } ?? buildEdge }   // a subtly-lighter dark edge — never the bright hue
     // THE CONSTELLATION face (Paul 2026-09-05, design-cell-language.md): a dot per note (radius ∝ velocity) at (x=time,
     // y=pitch, both 0…1 with y already inverted so 0=top), joined by a faint path in x-order — the cell's output as a sigil.
     // SHARED by the live drift (buildNoteSweep) and the offline SELECT roll (buildGridSelPianoRoll).
-    private func drawConstellation(_ ctx: inout GraphicsContext, _ size: CGSize, _ points: [(x: Double, y: Double, v: Double, a: Double)], tint: Color, blinks: [(y: Double, boost: Double)] = []) {
+    private func drawConstellation(_ ctx: inout GraphicsContext, _ size: CGSize, _ points: [(x: Double, y: Double, v: Double, a: Double)], tint: Color) {
         guard !points.isEmpty else { return }
         let inset = size.height * 0.16, hh = size.height - 2 * inset
         func px(_ p: (x: Double, y: Double, v: Double, a: Double)) -> CGPoint { CGPoint(x: CGFloat(p.x) * size.width, y: inset + CGFloat(p.y) * hh) }
@@ -4416,49 +4416,40 @@ extension DiagView {
             for (i, p) in sorted.enumerated() { let c = px(p); if i == 0 { path.move(to: c) } else { path.addLine(to: c) } }
             ctx.stroke(path, with: .color(tint.opacity(0.5)), lineWidth: max(1, size.height * 0.025))
         }
-        for p in points {                                             // the dots — size + opacity carry velocity; a live strike at this pitch BLINKS the star
-            var a = p.a, rMul = 1.0
-            for b in blinks where abs(b.y - p.y) < 0.09 { a = min(1.0, a + 0.6 * b.boost); rMul = max(rMul, 1.0 + 1.0 * b.boost) }
-            let c = px(p), r = max(1.2, size.height * (0.028 + 0.05 * p.v)) * rMul
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(a)))
+        for p in points {                                             // the dots — size + opacity carry velocity
+            let c = px(p), r = max(1.2, size.height * (0.028 + 0.05 * p.v))
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(p.a)))
         }
     }
-    // THE UNIFIED CELL FACE (Paul 2026-09-05 v2): the ALWAYS-VISIBLE expected-output constellation — SELECT (grey ink), PART +
-    // PLAY (emitter colour). Static when idle (so the sigil is always there — v1's bug was drawing ONLY the live drift, so idle
-    // cells were blank); a PLAYING cell animates a beat-locked playhead sweeping the sigil (dots glow as it crosses them).
-    @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool, strikeIdx: [Int] = []) -> some View {
+    // THE CELL FACE — REWRITTEN (Paul 2026-09-05, device feedback). The old approach fought itself: an offline sigil + a
+    // beat-EXTRAPOLATED scroll (jittered, ran when stopped) + an offline↔live blink MATCH (missed notes, doubled a lane). This
+    // is driven by ONE source — the LIVE strike feed (buildCellRoll):
+    //  • idle / stopped → the STATIC expected-output sigil (the resting identity). No timeline → no jitter, no drift.
+    //  • notes SOUNDING → each real strike is a bright STAR at its true pitch that drifts left and fades. In sync by
+    //    construction (driven by note age), ONE star per note (no matching → no misses/doubles), gone when the feed empties.
+    // `playing` is advisory only; the feed decides whether anything animates.
+    @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool = false, strikeIdx: [Int] = []) -> some View {
         let pts = bars.map { (x: Double(($0.x0 + $0.x1) / 2), y: Double($0.y), v: $0.vel, a: 0.4 + 0.55 * $0.vel) }
-        // Paul 2026-09-05: SCROLL only while the music is actually ADVANCING (host or free-run) — STATIC when the transport is
-        // stopped (was free-running off wall-clock → skipping). And the STARS BLINK when their note actually strikes (the live
-        // strike feed) — so a cell with no MIDI coming in never blinks. The timeline runs only when scrolling OR strikes exist.
-        let scroll = playing && d.effectivePlaying
         let feed = strikeIdx.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] }
-        if !bars.isEmpty && !animationsPaused && (scroll || !feed.isEmpty) {
+        if !feed.isEmpty && !animationsPaused {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
                 let now = tl.date
-                let phase: Double = {
-                    guard scroll else { return 0 }
-                    let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)
-                    let live = meters.beatAnchor + now.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                    let raw = (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats
-                    return raw < 0 ? raw + 1 : raw
-                }()
-                let blinks: [(y: Double, boost: Double)] = feed.compactMap { n in
-                    let age = now.timeIntervalSince(n.born)
-                    return (age >= 0 && age < 0.3) ? (y: 1 - n.lane, boost: 1 - age / 0.3) : nil   // lane=1 → top → y'=0; boost decays over 0.3s
-                }
                 Canvas { ctx, size in
-                    if scroll {                                        // beat-locked scroll — two offset copies loop seamlessly
-                        let dx = CGFloat(phase) * size.width
-                        var c1 = ctx; c1.translateBy(x: -dx, y: 0); drawConstellation(&c1, size, pts, tint: tint, blinks: blinks)
-                        var c2 = ctx; c2.translateBy(x: size.width - dx, y: 0); drawConstellation(&c2, size, pts, tint: tint, blinks: blinks)
-                    } else {
-                        drawConstellation(&ctx, size, pts, tint: tint, blinks: blinks)   // STATIC sigil, stars blink on strikes
+                    drawConstellation(&ctx, size, pts.map { ($0.x, $0.y, $0.v, $0.a * 0.4) }, tint: tint)   // the face, dimmed beneath the live stars
+                    let inset = size.height * 0.16, hh = size.height - 2 * inset
+                    for n in feed {                                    // one STAR per actual strike — at its pitch, drifting left, fading
+                        let age = now.timeIntervalSince(n.born)
+                        if age < 0 || age > buildRollLife { continue }
+                        let prog = age / buildRollLife
+                        let x = CGFloat(1 - prog) * size.width, y = inset + CGFloat(1 - n.lane) * hh
+                        let a = max(0.0, min(1.0, min(1.0, prog / 0.06) * min(1.0, (1 - prog) / 0.5))) * (0.6 + 0.4 * n.vel)
+                        let r = max(1.6, size.height * (0.04 + 0.06 * n.vel))
+                        ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(a)))
                     }
                 }.padding(2)
             }.allowsHitTesting(false)
         } else {
-            Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint) }.padding(2).allowsHitTesting(false)   // STATIC (stopped, no strikes)
+            Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint) }.padding(2).allowsHitTesting(false)   // STATIC sigil (idle / stopped)
         }
     }
     @ViewBuilder private func buildNoteSweep(indices: [Int], active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
@@ -5829,7 +5820,8 @@ extension DiagView {
         let gen = buildGridSelRollGen
         var chains: [(Int, [ProcessorSlot])] = []
         for i in 0..<64 where buildGridSelPresent(i) { if let hit = buildGridSelChainAt(i) { chains.append((i, hit.chain)) } }
-        buildGridSelCellRoll = [:]
+        // Paul 2026-09-05: do NOT clear the cache here — keep the old faces until the new ones are ready, else every cell
+        // blanks in the async gap ("goes blank then redraws"). The gen guard + full-dict swap below replace them atomically.
         DispatchQueue.global(qos: .userInitiated).async {
             var out: [Int: [GridSelBar]] = [:]
             for (i, chain) in chains { out[i] = gridSelRollBars(chain) }
@@ -5841,8 +5833,7 @@ extension DiagView {
     private func buildGridSelComputeRowRolls() {
         var chains: [(Int, [ProcessorSlot])] = []
         for n in 0..<8 { if let cid = buildRowColour(n) { chains.append((n, buildColourChain(cid))) } }
-        buildGridSelRowRoll = [:]
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async {   // Paul 2026-09-05: no eager clear (avoids the blank-then-redraw flash)
             var out: [Int: [GridSelBar]] = [:]
             for (n, chain) in chains { out[n] = gridSelRollBars(chain) }
             DispatchQueue.main.async { self.buildGridSelRowRoll = out }
@@ -5858,8 +5849,7 @@ extension DiagView {
                 chains.append((t, buildColourChain(cid)))
             }
         }
-        buildPlayColRoll = [:]
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async {   // Paul 2026-09-05: no eager clear (avoids the blank-then-redraw flash)
             var out: [Int: [GridSelBar]] = [:]
             for (t, chain) in chains { out[t] = gridSelRollBars(chain) }
             DispatchQueue.main.async { self.buildPlayColRoll = out }

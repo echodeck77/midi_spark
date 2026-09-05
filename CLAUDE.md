@@ -206,6 +206,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     Indices(t)` · select `buildChainAuditionRow`); the timeline runs only when scrolling OR the strike feed (`buildCellRoll`)
     is non-empty, so a cell with no MIDI in never blinks; `drawConstellation` boosts a dot's size+opacity when a recent strike
     (age<0.3s) matches its pitch lane. DEVICE eye owed (blink delay ≤ the 4Hz poll; boost/decay constants tunable).**
+    **v5 ANIMATION REWRITE (Paul: "worth rewriting completely?" — yes). The v2–v4 face fought itself: offline sigil + beat-
+    EXTRAPOLATED scroll (jittered, ran when stopped) + offline↔live blink MATCH (missed/doubled). REWRITTEN around ONE source,
+    the LIVE strike feed (`buildCellRoll`): idle/stopped → the STATIC expected-output sigil (no timeline → no jitter); notes
+    SOUNDING → each real strike is a bright STAR at its true pitch drifting left + fading (in sync by construction, ONE star per
+    note → no misses/doubles), over the dimmed sigil. The beat-scroll + the lane-matching blink are GONE. Also fixed the
+    LONG-STANDING blank-then-redraw flash — the roll caches (`buildGridSelCellRoll`/`RowRoll`/`buildPlayColRoll`) no longer
+    eager-`= [:]`-clear before the async refill (kept until the new dict swaps in atomically). And the PART grid is DEEPER dark
+    (`partCellFill` mix 0.16, `partCellFrame` 0.34 over the ground — was 0.24/0.48) to kill the "primary as fuck" look. FLAG: I
+    read "the side grid" as the PART grid (SELECT is already grey) — if a different grid is meant, redirect; the resting sigil
+    is still the bright EMITTER colour (per the ratified design) — if THAT reads too primary, dimming it is the next lever.**
 - **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
     constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
     (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a
