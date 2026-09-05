@@ -8,9 +8,9 @@ tracks status. **The live status lives in three current places:**
 - **`Docs/codebase-review-2026-08-16.md`** — the whole-repo review (subsystem reads, bug table, §12 action list).
 
 ## Current reality (correcting the worst old fossils)
-- **29 processor types** (2026-09-01), not 6: arp · ratchet · passgate · strum · chance · harmonize · echo · euclid ·
+- **30 processor types** (2026-09-05), not 6: arp · ratchet · passgate · strum · chance · harmonize · echo · euclid ·
   burst · cascade · drone · shift · humanize · mod · glide · tutti · length · weave · split · octave · transpose ·
-  channel · nudge · dest · muteMatrix · riff · tap · hocket · avoid (grouped in the storefront catalog as MELODY/HARMONY/
+  channel · nudge · dest · muteMatrix · riff · tap · hocket · avoid · chords (grouped in the storefront catalog as MELODY/HARMONY/
   RHYTHM/DYNAMICS/CONTROL/TIME/UTILITY/ROUTING).
 - **MACROS shipped and are on `main`** (M0–M4 + the canonical authoring flow).
 - **THE RACK shipped** (per-emitter treatment matrix — claim/duck/turns/mono/fence/curve/pocket/conversation live).

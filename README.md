@@ -16,10 +16,10 @@ of truth; `Docs/midispark-preview-v60.html` (simulator) and `-v61.html` (ratific
 board) are the surviving mockups.
 
 > Status in one line: the v3.0 graph-routing migration is DONE (grid-chaining was since
-> RETIRED — cells route from four receiver DOORS); ~29 processor types, channels/outputs,
+> RETIRED — cells route from four receiver DOORS); ~30 processor types, channels/outputs,
 > receivers (six door modes incl. SCALE, LATCH + controller routing), macros, the emitter
 > RACK, per-part clock, the reel pass browser, and audition (all types) are built, with a
-> ~980-test off-device suite covering the render engine itself. The UI is now the single
+> ~1059-test off-device suite covering the render engine itself. The UI is now the single
 > BUILD "rooms" surface (SELECT / PART / PLAY + the reel) — the six-tab shell and the old
 > DRAG&DROP + PROCESSORS/cell-edit pages were retired. A/B-state morph was removed from the
 > render. See CLAUDE.md for live status; do not code from this README.
@@ -77,7 +77,7 @@ AUExtension/
                                      MIDI (source pool + passthrough + CC), param events, audition
                                      suppression → Router; hosts LiveMIDIEmitter (the one AudioToolbox user)
   Router.swift                       OUTPUT side (§2/§7), Foundation-only: grid columns, four-DOOR routing
-                                     (grid-chaining retired), all ~29 processor types, per-part multi-clock,
+                                     (grid-chaining retired), all ~30 processor types, per-part multi-clock,
                                      fan-out, the voice table + 5-cable collision refcount, AUDITION
   Emission.swift                     The MIDIEmitter seam (delta §7b): Router emits through this, not
                                      AudioToolbox → the whole engine unit-tests off-device
@@ -95,7 +95,7 @@ AUExtension/
   TestSessions.swift                 T1–T17 canned patches (the in-app loader is retired; now dev-only)
   AudioUnitViewController.swift      Extension UI host: the BUILD rooms surface + responsive DESK
                                      (the 4 Hz poll drives the playheads)
-Tests/                               Off-device unit tests (macOS MidiSparkTests target, ~980 tests over the
+Tests/                               Off-device unit tests (macOS MidiSparkTests target, ~1059 tests over the
                                      pure core AND the render engine — first line of verification; green
                                      through every commit)
 Docs/                                Specs, migration plan, test playbook, factory scenes, UI guide, mockups

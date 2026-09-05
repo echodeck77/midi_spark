@@ -1476,7 +1476,13 @@ final class Router {
     // Reads `diag.pass` (the caller sets it to the ROW's pass in the per-row path). No behaviour change vs the old inline loop.
     // PHASE 2 render-time AUTO (Paul 2026-09-04): a ×N-passes / SMOOTH lane overrides one scalar param on this cell's proc,
     // computed from the beat. STEP = per-column (integer rank, endpoint-inclusive, matches the Phase-1 bake). SMOOTH =
-    // a continuous sawtooth across the span. Value-copy (no alloc). Derived from the beat → replay-exact (invariants 2/3).
+    // a continuous sawtooth across the span, SAMPLED ONCE PER RENDER WINDOW (block-start beat, like applyInternalMods) —
+    // so a SMOOTH value is quantized to block boundaries, not strictly block-size-invariant (deterministic per host
+    // schedule; STEP flips only at column boundaries, which are per-block, so STEP is invariant). Derived from the beat →
+    // replay-exact for a given schedule. No render-path alloc UNLESS a lane is active (the settingAuto SnapParams is a
+    // value copy, but the `cell.procs[slot] =` write-back below is a COW of the procs array — feature-gated: the
+    // byte-identical default writes nothing). ra.slot is resolved against the colour TEMPLATE; a per-cell chain override
+    // of a different type at that slot would get a harmless ignored field (never a trap — slot bound-guarded).
     private func applyRenderAuto(_ cell: inout SnapCell, box: SnapshotBox, r: Int, musicalBeat mb: Double, S: Double) {
         let ci = Int(cell.colourIndex)
         guard ci >= 0, ci < box.renderAuto.count, let ra = box.renderAuto[ci],

@@ -563,4 +563,53 @@ final class EffectiveParamsTests: XCTestCase {
         m.laneRate = -1
         XCTAssertEqual(m.laneRateMulResolved, Macro.laneRateMul.first, "a negative rate index clamps to the first")
     }
+
+    // MARK: - Phase-2 render-time AUTO param plumbing (Paul 2026-09-04)
+
+    /// `AutoParamField(key:)` must recognise EXACTLY the render-time-automatable scalar keys and reject anything else —
+    /// a typo in the string table silently makes a param non-automatable at render time (the builder just skips it), with
+    /// no crash and no other test failing. This locks the 24-key table.
+    func testAutoParamFieldRecognisesEveryAutomatableKey() {
+        let keys = ["gate", "ramp", "spread", "curve", "velTilt", "probability", "harmVelScale",
+                    "octaves", "count", "rtcChance", "rtcCountLo", "rtcCountHi", "rtcRotate",
+                    "euclidPulses", "euclidSteps", "euclidRot", "glideRange", "modMin", "modMax",
+                    "lenShort", "lenLong", "lenRotate", "weaveSpan", "weaveEuclidSteps"]
+        for k in keys { XCTAssertNotNil(AutoParamField(key: k), "\(k) must be render-time automatable") }
+        XCTAssertEqual(keys.count, 24, "the render-time scalar set is 24 fields")
+        for bogus in ["", "nope", "euclidPuls", "bypass", "pattern", "harm0", "passMask"] {
+            XCTAssertNil(AutoParamField(key: bogus), "\(bogus) is NOT a render-time scalar (nested/enum/typo)")
+        }
+    }
+
+    /// `SnapParams.settingAuto` must clamp each field to the SAME bounds `applyProcessorValues` uses (its documented
+    /// contract). This locks all 24 bounds — a wrong bound would ship silently otherwise. The `readAuto` switch is
+    /// exhaustive, so a NEW AutoParamField case forces this table to be extended.
+    func testSettingAutoClampsEveryFieldToItsBound() {
+        // (field, expected low clamp, expected high clamp) — copied from applyProcessorValues (MacroAuthoring.swift).
+        let table: [(AutoParamField, Double, Double)] = [
+            (.gate, 0.05, 1), (.ramp, 0, 1), (.spread, 0, 1), (.curve, -1, 1), (.velTilt, -1, 1),
+            (.probability, 0, 1), (.harmVelScale, 0.1, 1), (.octaves, 1, 4), (.count, 2, 8),
+            (.rtcChance, 0, 1), (.rtcCountLo, 1, 8), (.rtcCountHi, 1, 8), (.rtcRotate, 0, 7),
+            (.euclidPulses, 1, 16), (.euclidSteps, 2, 16), (.euclidRot, 0, 15), (.glideRange, 1, 48),
+            (.modMin, 0, 127), (.modMax, 0, 127), (.lenShort, 0.05, 0.95), (.lenLong, 0, 1),
+            (.lenRotate, 0, 7), (.weaveSpan, 1, 8), (.weaveEuclidSteps, 2, 16)]
+        XCTAssertEqual(table.count, 24, "every AutoParamField case is covered")
+        for (f, lo, hi) in table {
+            XCTAssertEqual(readAuto(SnapParams().settingAuto(f, -9_999), f), lo, accuracy: 1e-9, "\(f) clamps below to \(lo)")
+            XCTAssertEqual(readAuto(SnapParams().settingAuto(f, 9_999), f), hi, accuracy: 1e-9, "\(f) clamps above to \(hi)")
+        }
+    }
+    /// Read one automatable field back out of a SnapParams as a Double (for the clamp assertions above).
+    private func readAuto(_ s: SnapParams, _ f: AutoParamField) -> Double {
+        switch f {
+        case .gate: return s.gate;                 case .ramp: return s.ramp;                 case .spread: return s.spread
+        case .curve: return s.curve;               case .velTilt: return s.velTilt;           case .probability: return s.probability
+        case .harmVelScale: return s.harmVelScale; case .octaves: return Double(s.octaves);   case .count: return Double(s.count)
+        case .rtcChance: return s.rtcChance;       case .rtcCountLo: return Double(s.rtcCountLo); case .rtcCountHi: return Double(s.rtcCountHi)
+        case .rtcRotate: return Double(s.rtcRotate); case .euclidPulses: return Double(s.euclidPulses); case .euclidSteps: return Double(s.euclidSteps)
+        case .euclidRot: return Double(s.euclidRot); case .glideRange: return Double(s.glideRange); case .modMin: return Double(s.modMin)
+        case .modMax: return Double(s.modMax);     case .lenShort: return s.lenShort;         case .lenLong: return s.lenLong
+        case .lenRotate: return Double(s.lenRotate); case .weaveSpan: return Double(s.weaveSpan); case .weaveEuclidSteps: return Double(s.weaveEuclidSteps)
+        }
+    }
 }

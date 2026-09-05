@@ -16,20 +16,26 @@ CHORDS processor's config/editor/engine; time-varying pool; 4 default progressio
   (v1 sits on the tonic); a matrix PLAYHEAD in the door editor (liveStep from the beat); voice-leading (INVERT) between
   progression steps; per-instance labels naming the progression (currently "SEQ 1–4").
 
-## ★ SPAN-ONLY PART AUTOMATION — Phase 1 LANDED; Phase 2 APPROVED + ⏸ PARKED for Paul's device time (2026-09-04)
-Phase 1 (step spans, drag-to-draw, default-on-arm, compile-time bake) DONE + green (`ad9fb75`+`97038c7`; CLAUDE.md
-status). Phase 2 is fully PLANNED + APPROVED but **HELD until Paul is on device** (he wants to steer it on glass + the
-whole AUTO band is device-eye-owed). Plans: `Docs/PLAN-span-automation.md` (BUILT) + `Docs/PLAN-span-automation-phase2.md`
-(approved, all decisions resolved). **TO RESUME, build Phase 2 per the phase-2 plan §9:**
-- **PHASE 2 — ×N "PASSES" spans (render-time).** Un-grey ×2/×4/×8: a span across N bars, evaluated at render time from
-  the current pass (the compile-time bake is one loop, can't progress). `spanPasses` field + a `renderAuto` box
-  descriptor + `SnapParams.settingAuto` (precedent: velOverride/chanOverride). Byte-identical for step/no lanes.
-- **STEP | SMOOTH ramp** (default STEP, continuous-only, greyed for discrete). SMOOTH samples each note at its own beat
-  (finer under a dense driver) — rides the same render-time path as pass spans.
-- **★ CC FRONT AND CENTRE** (Paul's emphasis): make automating a CC (a MOD stage's MIN/MAX) a PROMINENT, early choice in
-  the PARAM row — a smooth CC ramp is the marquee use case (CC is read continuously, so SMOOTH is a true controller
-  sweep). Consider a one-tap "automate CC" that arms a MOD-min/max lane in SMOOTH. Engine already emits MOD CC render-time.
-- **DEVICE-EYE (owed, Phase 1):** the drag feel; default-on-arm; the amber tiling highlight; the STATE ramp/playhead; the
+## ★ SPAN-ONLY PART AUTOMATION — Phase 1 + Phase 2 LANDED; only CC-prominence still parked (2026-09-05)
+Phase 1 (step spans, drag-to-draw, default-on-arm, compile-time bake) DONE (`ad9fb75`+`97038c7`). **Phase 2 (render-time
+×N passes + STEP|SMOOTH) LANDED** (`50159b8`+merge `c6ab8fb`; iOS builds, macOS suite green): `AutoLane.spanPasses`/
+`smooth` → `AutoParamField` (24 scalar targets) + `SnapParams.settingAuto` + `SnapshotBox.renderAuto` (builder populates
+for an active render-time lane) → `Router.applyRenderAuto` overrides the cell's proc at emitTickRow + emitColumnHolds
+(STEP = integer column rank, endpoint-inclusive; SMOOTH = continuous sawtooth); STEP/default spans stay the Phase-1 bake.
+UI: ×N live + mutually exclusive with the 1–8 ladder + a STEP|SMOOTH row (SMOOTH continuous-only; ×N/SMOOTH greyed for
+nested params). +6 RouterTests + AutoParamField/settingAuto clamp tests. Plans: `PLAN-span-automation.md` +
+`PLAN-span-automation-phase2.md`. STILL OPEN:
+- **★ CC FRONT AND CENTRE — PARKED (Paul's carve-out, NOT built).** Make automating a CC (a MOD stage's MIN/MAX) a
+  PROMINENT, early choice in the PARAM row — a SMOOTH CC ramp is the marquee use case (CC read continuously → a true
+  controller sweep). Design elaborated 2026-09-05: default CC 74 when auto off · spans/passes carry a SHAPE/waveform
+  (linear/sine/tri/saw/S&H/draw; ×N = bar-synced LFO) · power-edit ideas (draw-the-curve · waveform chips + rate ·
+  per-step value lane · punch-in hold-islands · named-CC picker · multi-lane mod matrix); route A = MOD-backed reuse.
+  Plan §11. Consider a one-tap "automate CC" that arms a MOD-min/max lane in SMOOTH.
+- **RENDER-TIME v1 LIMITS (flagged, not blockers):** SMOOTH is sampled once per render window (block-start, like
+  applyInternalMods — deterministic per host schedule, not strictly block-size-invariant); the render surface is
+  SCALAR-only (nested params stay step-bake); per-part-clock / 16-wide parts use the SCENE beat for the pass math
+  (exact for the uniform 8-wide default).
+- **DEVICE-EYE (owed, both phases):** the drag feel; default-on-arm; the amber tiling highlight; the STATE ramp/playhead; the
   fixed tab-dot + CLEAR; the two-column proportions + the SPAN 30% column legibility.
 - **2 SMALL UI CALLS (Paul, on glass):** (a) the "AUTO N" highlight tiles the WHOLE row — keep, or mark only the first
   span? (b) the drag reads a column range from ANY row (1-D) — confirm.

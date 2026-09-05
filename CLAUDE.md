@@ -179,6 +179,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SPAN AUTOMATION PHASE 2 — render-time ×N passes + STEP|SMOOTH, LANDED (2026-09-05, on `main`, `50159b8`+merge
+    `c6ab8fb`; iOS builds, macOS suite green). Completes the parked Phase 2 (Paul: "all of phase 2 except cc dominance").
+    A part-AUTO lane spans multiple bars (×2/×4/×8 passes) and/or ramps SMOOTHLY, overriding one SCALAR proc param FROM
+    the beat instead of the compile-time bake. `AutoLane.spanPasses`/`smooth` (decode-tolerant) → `AutoParamField` (24
+    scalar targets) + `SnapParams.settingAuto` (value-copy, clamps mirror applyProcessorValues) + `ColourAuto` in
+    `SnapshotBox.renderAuto` (builder populates for an ACTIVE ×N/SMOOTH lane; STEP/default spans stay the Phase-1 bake) →
+    `Router.applyRenderAuto` at emitTickRow + emitColumnHolds (STEP = integer column rank endpoint-inclusive; SMOOTH =
+    continuous sawtooth). UI (`autoSpanColumn`): ×N live + MUTUALLY EXCLUSIVE with the 1–8 step ladder + a STEP|SMOOTH
+    row (SMOOTH continuous-only; ×N/SMOOTH greyed for nested params that can't reach the render engine). +6 RouterTests +
+    AutoParamField/settingAuto-clamp tests. **NOTE (two-instance collision):** the BuildPage (autoSpanColumn) + AU
+    (setBuildAuto) halves were swept into the scale-pools commit `4ba091a`, briefly breaking main; `50159b8` added the
+    model/engine/tests to make it whole. **v1 LIMITS (flagged):** SMOOTH sampled per render window (block-start, like
+    applyInternalMods — deterministic per schedule, not block-size-invariant) · scalar-only render surface · per-part-
+    clock/16-wide parts use the SCENE beat for the pass math (exact for uniform 8-wide). **CC-prominence PARKED** (Paul's
+    carve-out; design elaborated 2026-09-05 — see pending-tasks + PLAN §11). DEVICE-eye owed on the ×N/SMOOTH UI.**
 - **▶ THE CHORD DOOR = a chord SEQUENCER — re-architected to REUSE the CHORDS processor (2026-09-05, on branch
     `feature/chord-door-sequencer`; iOS builds, macOS 1057 green; DEVICE eye/ear owed). Paul: "the same chord sequencer that
     appears in the sequencer, identical controls; future processor dev must reflect on the door; 4 interesting default chord
@@ -270,7 +285,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   **FOLLOW-UP (`97038c7`):** fixed 3 leftover `cells`-reading sites the switch broke — the tab "has-content" dot,
   CLEAR (now resets the span), and `buildCaptureAuto` (was pruning span-only lanes from the save). **DECISIONS (Paul):**
   span TILES · DRAG to draw · ×N deferred · 1-D per row. +11 tests (span tile/offset/default/no-lane byte-identity/
-  round-trip/legacy-cells migration; partGridTap updated). **OPEN:** Phase 2 (×N passes, render-time) · device-eye ·
+  round-trip/legacy-cells migration; partGridTap updated). **OPEN:** [Phase 2 LANDED 2026-09-05 — see the top entry] · device-eye ·
   2 small UI calls (highlight tiles the whole row vs first span; 1-D drag on any row) · minor dead-code (legacy
   `span`/`cells` fields). Plan: `Docs/PLAN-span-automation.md` (marked BUILT) + `Docs/PLAN-span-automation-phase2.md`.**
 - **▶ PART PAGE POLISH BATCH — piano-roll rebuilt OFFLINE + a run of device-driven fixes (2026-09-04, on `main`,
