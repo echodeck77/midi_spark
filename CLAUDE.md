@@ -216,6 +216,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     (`partCellFill` mix 0.16, `partCellFrame` 0.34 over the ground — was 0.24/0.48) to kill the "primary as fuck" look. FLAG: I
     read "the side grid" as the PART grid (SELECT is already grey) — if a different grid is meant, redirect; the resting sigil
     is still the bright EMITTER colour (per the ratified design) — if THAT reads too primary, dimming it is the next lever.**
+    **v6 (Paul corrected the model): the CONSTELLATION ITSELF scrolls + its OWN notes light — NOT a static sigil with a
+    separate note layer drifting over it (v5 was wrong). `buildOutputFace`: when the live strike feed is non-empty (MIDI
+    flowing → static otherwise, incl. stopped), the whole sigil (dots + path) scrolls right→left beat-locked (two beat-offset
+    copies, seamless loop) and `drawConstellation(phase:)` LIGHTS each dot as the scroll carries it to the play line (x≈phase)
+    — deterministic, in sync, no matching. The v5 drifting-live-stars-over-static-sigil is gone.**
 - **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
     constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
     (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a
