@@ -1799,8 +1799,9 @@ extension DiagView {
             // THREE STATES (Paul 2026-08-30): NULL · POPULATED (machine frame, calm) · PLAYING (bright frame + EMITTER glow +
             // the live drift). Machine = the frame, emitter = the drift tint + a corner dot + the playing glow. SELECTED (not
             // playing) also brightens the frame so the ferry ↔ machine pairing is visible.
+            let partMode = roomsRoom == .part   // Paul 2026-09-05: on the PART page the ferries are DARK like the part cells (the PLAY grid keeps its dusk blends)
             RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
-                .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
+                .overlay(RoundedRectangle(cornerRadius: 4).fill(partMode && set ? partCellFill(id) : mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // DARK on part / faint MACHINE wash on play
                 .overlay { if copyId != nil {                            // FAINT PULSING COPY — tap to duplicate the row-below cell here
                     TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in
                         let f = stagingPulseFraction(tl.date, period: 1.1)
@@ -1813,7 +1814,7 @@ extension DiagView {
                 .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                 .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this ferry's hue
                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING or SELECTED
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(partMode && set ? partCellFrame(id) : (set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge), lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // DARK edge on part / MACHINE frame on play
                 .overlay { if buildSelectMode && set { RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
                 .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
                 .overlay { if copyId == nil { Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) } }   // PLAY/STOP (a COPY cell shows its own "+" instead)
@@ -4400,30 +4401,24 @@ extension DiagView {
     // step*Snap.rows + 8+c), so the ferry gathers ALL its steps' feeds → the whole pass's notes drift, not just step 0.
     // THE PART cell colour (Paul 2026-09-05 v2): a DARK, SATURATED, FLAT version of the row's MACHINE hue (row 7 = its yellow
     // machine, etc.) — matches the row selector (same hue), no wash/fade. The bright emitter constellation rides on top.
-    private func partCellFill(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x000000, buildBaseHex($0), 0.52)) } ?? buildCell }
-    private func partCellFrame(_ id: String?) -> Color { id.map { Color(hex: buildBaseHex($0)).opacity(0.85) } ?? buildEdge }
+    private func partCellFill(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x000000, buildBaseHex($0), 0.24)) } ?? buildCell }   // DARK (Paul 2026-09-05: still too bright → deepen)
+    private func partCellFrame(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x000000, buildBaseHex($0), 0.48)) } ?? buildEdge }   // a slightly-lighter DARK edge — not the bright hue
     // THE CONSTELLATION face (Paul 2026-09-05, design-cell-language.md): a dot per note (radius ∝ velocity) at (x=time,
     // y=pitch, both 0…1 with y already inverted so 0=top), joined by a faint path in x-order — the cell's output as a sigil.
     // SHARED by the live drift (buildNoteSweep) and the offline SELECT roll (buildGridSelPianoRoll).
-    private func drawConstellation(_ ctx: inout GraphicsContext, _ size: CGSize, _ points: [(x: Double, y: Double, v: Double, a: Double)], tint: Color, playhead: Double? = nil) {
+    private func drawConstellation(_ ctx: inout GraphicsContext, _ size: CGSize, _ points: [(x: Double, y: Double, v: Double, a: Double)], tint: Color) {
         guard !points.isEmpty else { return }
         let inset = size.height * 0.16, hh = size.height - 2 * inset
         func px(_ p: (x: Double, y: Double, v: Double, a: Double)) -> CGPoint { CGPoint(x: CGFloat(p.x) * size.width, y: inset + CGFloat(p.y) * hh) }
-        if points.count > 1 {                                          // the sigil path (x-order) — STRONGER than v1 (Paul 2026-09-05: lines too faint)
+        if points.count > 1 {                                          // the sigil path (x-order)
             let sorted = points.sorted { $0.x < $1.x }
             var path = Path()
             for (i, p) in sorted.enumerated() { let c = px(p); if i == 0 { path.move(to: c) } else { path.addLine(to: c) } }
             ctx.stroke(path, with: .color(tint.opacity(0.5)), lineWidth: max(1, size.height * 0.025))
         }
-        for p in points {                                             // the dots — SMALLER than v1 (Paul: dots too big); glow near the playhead
-            let c = px(p)
-            var r = max(1.2, size.height * (0.028 + 0.05 * p.v)), a = p.a
-            if let ph = playhead { let d = abs(p.x - ph); if d < 0.14 { let g = 1 - d / 0.14; r += size.height * 0.02 * g; a = min(1, a + 0.45 * g) } }
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(a)))
-        }
-        if let ph = playhead {                                        // the sweeping playhead (Paul: the playing cell must ANIMATE clearly)
-            var pl = Path(); pl.move(to: CGPoint(x: CGFloat(ph) * size.width, y: 0)); pl.addLine(to: CGPoint(x: CGFloat(ph) * size.width, y: size.height))
-            ctx.stroke(pl, with: .color(tint.opacity(0.7)), lineWidth: 1.5)
+        for p in points {                                             // the dots — size + opacity carry velocity
+            let c = px(p), r = max(1.2, size.height * (0.028 + 0.05 * p.v))
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(p.a)))
         }
     }
     // THE UNIFIED CELL FACE (Paul 2026-09-05 v2): the ALWAYS-VISIBLE expected-output constellation — SELECT (grey ink), PART +
@@ -4432,12 +4427,18 @@ extension DiagView {
     @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool) -> some View {
         let pts = bars.map { (x: Double(($0.x0 + $0.x1) / 2), y: Double($0.y), v: $0.vel, a: 0.4 + 0.55 * $0.vel) }
         if playing && !animationsPaused && !bars.isEmpty {
+            // Paul 2026-09-05: a PLAYING/SELECTED cell SCROLLS the constellation right→left, beat-locked (NO playhead). Two
+            // beat-offset copies draw a seamless loop (the whole sigil slides, its path intact).
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
                 let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let raw = (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats
                 let phase = raw < 0 ? raw + 1 : raw
-                Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint, playhead: phase) }.padding(2)
+                Canvas { ctx, size in
+                    let dx = CGFloat(phase) * size.width
+                    var c1 = ctx; c1.translateBy(x: -dx, y: 0); drawConstellation(&c1, size, pts, tint: tint)                 // the sigil, scrolled left
+                    var c2 = ctx; c2.translateBy(x: size.width - dx, y: 0); drawConstellation(&c2, size, pts, tint: tint)     // the wrap copy entering from the right
+                }.padding(2)
             }.allowsHitTesting(false)
         } else {
             Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint) }.padding(2).allowsHitTesting(false)
@@ -5774,7 +5775,7 @@ extension DiagView {
             if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
                 // The drift ANIMATES only while the chain is actually PLAYING (Paul 2026-08-30 bug): gating on `sel` alone kept
                 // the fingerprint looping after STOP on "play this midi chain" (MIDI stopped, animation didn't) — reads as still running.
-                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel && buildDisplayVoice == .chain && !buildChainLiveChord.isEmpty, tint: rollTint)   // precise one-frame roll; SCROLLS only while real MIDI is flowing (Paul 2026-08-31: a generator no longer looks like it's "playing" with nothing held)
+                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint)   // Paul 2026-09-05: the SELECTED cell SCROLLS its constellation (was gated on live MIDI)
                     .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
             }
             if sel {       // THE ACTIVE CELL — a breathing live frame (DARK on the light-grey SELECT cell, else white)

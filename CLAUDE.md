@@ -195,6 +195,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     look; the `isEditedRow` black breathe (an edit invite) is a possible "faded row" Paul saw — flagged, removable; v1's
     `partRowHexes` token is now unused (harmless); the face is the EXPECTED-output constellation animating (not literal live
     strikes) — if Paul wants actual live-strike drift back it's a follow-up overlay.**
+    **v3 device fixes (same day): the playing/selected cell now SCROLLS the constellation (two beat-offset copies, seamless
+    loop) instead of a playhead — the NEW playheads were removed (`drawConstellation` playhead param gone; existing
+    roomsPartPlayhead/roomsCellPlayhead untouched); SELECT scrolls on mere selection (was gated on live MIDI); the part cell
+    is DARKER (`partCellFill` mix 0.24, `partCellFrame` 0.48 — was 0.52/bright-0.85) + the PART-PAGE ferries now wear the same
+    dark fill/frame (gated `roomsRoom == .part`; the PLAY grid keeps its dusk blends) to kill the "still bright" look.**
 - **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
     constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
     (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a
