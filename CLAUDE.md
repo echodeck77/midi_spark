@@ -179,6 +179,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
+    constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
+    (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a
+    CONSTELLATION (a dot per note, radius ∝ velocity, at x=time/y=pitch, joined by a faint sigil path); the three grids differ
+    only by COLOUR + MOTION. **RENDERER:** new shared `drawConstellation(ctx,size,points,tint)` (Canvas; faint x-ordered path +
+    velocity-sized dots) replaces the note-BAR drawing in `buildNoteSweep` (the live drift, PART+PLAY) and `buildGridSelPianoRoll`
+    (the offline SELECT roll). **SELECT = monochrome blueprint:** the constellation in grey ink (tint from `buildGridSelCell`),
+    a STABLE sigil with a sweeping PLAYHEAD when auditioning (replaces the old scrolling-notes); selected cell = the INVERSE
+    (light stage, dark sigil) — inverse is SELECT-only. **PART = dark colour + bright notes:** `roomsGridCellBody` gained
+    `flatFill`/`flatFrame`; `roomsPartCell` passes a DARK, FLAT, FIXED-ROW colour (`partRowFill`/`partRowFrame` from a new
+    8-hue `partRowHexes` token — row identity by POSITION, not machine) + a row-colour frame; the constellation rides on top in
+    the bright EMITTER colour (kept). The emitter/part separation is by LIGHTNESS (dark ground · bright marks), the fix for
+    their overlapping hues. AUTO ramp is the one allowed exception. **PLAY = blended (unchanged look):** keeps the dusk washes +
+    per-cell playhead + PLAYING glow; only the note FORM becomes constellation dots. **RATIFIED (Paul):** constellation face ·
+    keep current emitter colours (dark cell makes them pop; NOT lightened globally) · velocity kept (dot size) · fixed-by-row
+    palette (any distinct set) · inverse = SELECT-only · Part keeps live drift. **DEVICE-OWED / flags:** the entire look is
+    unverifiable off-device (dot sizes, path opacity, drift feel, the 8 row hues, dark-cell saturation — all tunable constants);
+    `buildGridSelDriftFace` (the row-selector fingerprints) still draws BARS — a consistency follow-up; empty part cells stay
+    blank (row colour on populated cells only); the SELECT playhead-sweep is a behaviour change from the old note-scroll.**
 - **▶ PROMOTE = ARCHIVE-THE-PART-GRID-then-CLEAR (Paul changed his mind; 2026-09-05, on branch `feature/promote-archive-restore`;
     iOS builds; UI-only, DEVICE eye/ear owed). SUPERSEDES the same-day "PROMOTE = MOVE / remove the source row" below. Paul:
     "if promoted to the playgrid FROM the part grid, store the status on the WHOLE part grid with the new play grid cell so it

@@ -86,6 +86,18 @@ let colourHexes: [UInt32] = [
 // own colour while staying muted enough that the vivid emitter drift still pops on top.
 let playHexes: [UInt32] = [0xBE6E5A, 0xC0925A, 0x9BA25E, 0x5FA37E, 0x4F9AA6, 0x5E80B8, 0x8A6EBE, 0xBC6AA0]
 
+// THE PART GRID's FIXED ROW palette (Paul 2026-09-05, design-cell-language.md): 8 distinct, good-looking hues, ONE per row
+// POSITION — a row's identity, independent of its machine. Part cells are drawn DARK + FLAT from these; the bright emitter
+// notes ride on top. The part/emitter separation is by LIGHTNESS (dark ground · bright marks), not hue.
+let partRowHexes: [UInt32] = [0xFF5A4D, 0xFF9E33, 0xFFD23D, 0x6FCF5B, 0x35C7C0, 0x4A90E2, 0xA97BE0, 0xFF7BB0]
+// Linear RGB mix of two packed hexes (t: 0→a … 1→b).
+func mixHex(_ a: UInt32, _ b: UInt32, _ t: Double) -> UInt32 {
+    let ar = Double((a >> 16) & 255), ag = Double((a >> 8) & 255), ab = Double(a & 255)
+    let br = Double((b >> 16) & 255), bg = Double((b >> 8) & 255), bb = Double(b & 255)
+    let r = UInt32(max(0, min(255, ar + (br - ar) * t))), g = UInt32(max(0, min(255, ag + (bg - ag) * t))), bl = UInt32(max(0, min(255, ab + (bb - ab) * t)))
+    return (r << 16) | (g << 8) | bl
+}
+
 // THE RECEIVER SIGNATURE GREYS (Paul 2026-08-30): the four MIDI-IN receivers A→D are now 4 shades of grey, LIGHT→DARK — their
 // identity colour going forward (the OMNI/ENABLE button on the receiver strip + the MIDI-IN toggle chips). Kept light enough
 // for black labels. (Distinct from the vivid emitter signature colours + the machine hues.)
