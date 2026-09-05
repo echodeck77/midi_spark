@@ -224,7 +224,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     LEFT edge (x=0) + the wrap copy off the RIGHT edge → "flash on both edges, off-screen, disconnected." Moved the PLAY-POINT
     to ~28% from the left (`translate (0.28 − phase + k)·w`, k∈{−1,0,1}) so a note reaches it EXACTLY when it sounds → the flash
     is on-screen + singular (wrap copies fall fully off-screen); the glow is symmetric (`d = min(f, 1−f)`) so its peak lands on
-    the beat.**
+    the beat. **v8 (the REAL disconnect — "dots flash on the beat but not on the note"): in v6/v7 the dots were ALWAYS the
+    OFFLINE render (`gridSelRollBars` → `Dice.runRecorder` against the fixed standard chord `[60,64,67]`) on ALL THREE grids;
+    the live strike feed was only an on/off "is it playing" gate. So the sigil showed a DIFFERENT chord's output — right beat
+    grid, wrong pitches/sequence. FIX: `buildOutputFace` now — IDLE → the static offline blueprint (the identity at rest, no
+    sound to contradict); PLAYING → the ACTUAL EMITTED NOTES from the live strike feed (`buildCellRoll`), a dot per real note
+    at its real pitch, drifting right→left, brightest as it sounds (the buildNoteSweep model). The dots ARE the notes you hear
+    → correspondence by construction, no offline↔live matching. Removed the scroll/`phase` machinery + `drawConstellation`'s
+    phase param. All three grids route through `buildOutputFace`; the offline rolls survive only as the idle blueprint.**
 - **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
     constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
     (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a

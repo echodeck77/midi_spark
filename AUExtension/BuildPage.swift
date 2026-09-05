@@ -4405,57 +4405,51 @@ extension DiagView {
     private func partCellFrame(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.34)) } ?? buildEdge }   // a subtly-lighter dark edge — never the bright hue
     // THE CONSTELLATION face (Paul 2026-09-05, design-cell-language.md): a dot per note (radius ∝ velocity) at (x=time,
     // y=pitch, both 0…1 with y already inverted so 0=top), joined by a faint path in x-order — the cell's output as a sigil.
-    // SHARED by the live drift (buildNoteSweep) and the offline SELECT roll (buildGridSelPianoRoll).
-    // THE CONSTELLATION — the cell's expected output as a sigil (dot per note, size ∝ velocity, joined by a faint path). When
-    // a `phase` (0…1 through the bar) is given, each dot LIGHTS as the scroll carries it to the play line (screen x≈0): a
-    // deterministic, in-sync brightening of the sigil's OWN notes — no offline↔live matching, so no misses/doubles.
-    private func drawConstellation(_ ctx: inout GraphicsContext, _ size: CGSize, _ points: [(x: Double, y: Double, v: Double, a: Double)], tint: Color, phase: Double? = nil) {
+    // SHARED by the live drift (buildNoteSweep + buildOutputFace playing) and the offline blueprint (buildOutputFace idle).
+    // THE CONSTELLATION — a sigil: dot per note (size ∝ velocity), joined by a faint path in x-order. The caller decides what
+    // the points ARE (live emitted notes when playing, the offline expected output when idle) and their brightness/position.
+    private func drawConstellation(_ ctx: inout GraphicsContext, _ size: CGSize, _ points: [(x: Double, y: Double, v: Double, a: Double)], tint: Color) {
         guard !points.isEmpty else { return }
         let inset = size.height * 0.16, hh = size.height - 2 * inset
         func px(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: CGFloat(x) * size.width, y: inset + CGFloat(y) * hh) }
-        if points.count > 1 {                                          // the sigil path (x-order) — scrolls with the dots (caller's transform)
+        if points.count > 1 {                                          // the sigil path (x-order)
             let sorted = points.sorted { $0.x < $1.x }
             var path = Path()
             for (i, p) in sorted.enumerated() { let c = px(p.x, p.y); if i == 0 { path.move(to: c) } else { path.addLine(to: c) } }
             ctx.stroke(path, with: .color(tint.opacity(0.5)), lineWidth: max(1, size.height * 0.025))
         }
         for p in points {
-            var a = p.a, rMul = 1.0
-            if let ph = phase {                                        // LIGHT this note AT the sound moment (phase ≈ its time), symmetric so the peak lands on the beat
-                let f = ((p.x - ph).truncatingRemainder(dividingBy: 1.0) + 1.0).truncatingRemainder(dividingBy: 1.0)
-                let d = min(f, 1 - f)                                  // distance to the play moment (f = 0), either side
-                if d < 0.12 { let g = 1 - d / 0.12; a = min(1.0, a + 0.7 * g); rMul = 1 + 0.9 * g }
-            }
-            let c = px(p.x, p.y), r = max(1.2, size.height * (0.028 + 0.05 * p.v)) * rMul
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(a)))
+            let c = px(p.x, p.y), r = max(1.2, size.height * (0.028 + 0.05 * p.v))
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(p.a)))
         }
     }
-    // THE CELL FACE (Paul 2026-09-05, corrected): the CONSTELLATION ITSELF scrolls right→left (beat-locked) and its OWN notes
-    // LIGHT as they play — NOT a static sigil with a separate note layer over it. It animates ONLY while MIDI is actually
-    // flowing (the live strike feed is non-empty) → STATIC when the transport is stopped / no input, and never blinks with no
-    // MIDI. The scroll is the whole sigil (dots + path) via two beat-offset copies (seamless loop); the lighting is `phase`.
+    // THE CELL FACE (Paul 2026-09-05, corrected AGAIN): "what I see must tally with what I hear."
+    //   IDLE   → the STATIC blueprint sigil (the offline expected output, `bars`) — the cell's identity at rest.
+    //   PLAYING→ the ACTUAL EMITTED NOTES (the live strike feed): a dot per real note, at its real pitch, drifting right→left
+    //            and lit brightest as it sounds. The dots ARE the notes you hear (by construction) → no pitch/sequence
+    //            mismatch. (The blueprint is rendered against a STANDARD chord, so it can NOT be trusted to match the live
+    //            output — that was the disconnect: the sigil flashed on the beat grid but showed a different chord's notes.)
     @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool = false, strikeIdx: [Int] = []) -> some View {
-        let pts = bars.map { (x: Double(($0.x0 + $0.x1) / 2), y: Double($0.y), v: $0.vel, a: 0.4 + 0.55 * $0.vel) }
-        let feed = strikeIdx.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] }   // MIDI flowing? empty ⇒ stopped / no input ⇒ STATIC
-        if !feed.isEmpty && !animationsPaused && !bars.isEmpty {
+        let feed = strikeIdx.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] }   // MIDI flowing? empty ⇒ stopped / no input ⇒ STATIC blueprint
+        if !feed.isEmpty && !animationsPaused {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-                let loopBeats = max(0.0001, Double(Snap.cols) * stepBeats)
-                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                let raw = (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats
-                let phase = raw < 0 ? raw + 1 : raw
+                let now = tl.date
                 Canvas { ctx, size in
-                    // PLAY-POINT at ~28% from the left: a note reaches it EXACTLY when it sounds, so the flash is ON the note,
-                    // ON-SCREEN, and SINGULAR (the wrap copies' flashes fall fully off-screen). Was translate -phase*w → the
-                    // play moment sat at x=0 (left edge) + the wrap copy flashed off the right edge → "flash on both edges".
-                    let pp = 0.28
-                    for k in [-1.0, 0.0, 1.0] {
-                        var cc = ctx; cc.translateBy(x: CGFloat(pp - phase + k) * size.width, y: 0)
-                        drawConstellation(&cc, size, pts, tint: tint, phase: phase)
+                    var pts: [(x: Double, y: Double, v: Double, a: Double)] = []
+                    for n in feed {
+                        let age = now.timeIntervalSince(n.born)
+                        if age < 0 || age > buildRollLife { continue }
+                        let prog = age / buildRollLife                              // 0 (right, just sounded) → 1 (left, gone)
+                        let fade = min(1.0, prog / 0.10) * min(1.0, (1 - prog) / 0.45)   // brightest just after onset = ON the note
+                        let a = max(0.0, min(1.0, fade)) * (0.55 + 0.45 * n.vel)
+                        pts.append((x: 1 - prog, y: 1 - n.lane, v: n.vel, a: a))   // enter RIGHT, drift LEFT; lane 1 → top
                     }
+                    drawConstellation(&ctx, size, pts, tint: tint)                  // the dots ARE the live notes — lit by freshness, no `phase`
                 }.padding(2)
             }.allowsHitTesting(false)
         } else {
-            Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint) }.padding(2).allowsHitTesting(false)   // STATIC sigil (idle / stopped / no MIDI)
+            let pts = bars.map { (x: Double(($0.x0 + $0.x1) / 2), y: Double($0.y), v: $0.vel, a: 0.4 + 0.55 * $0.vel) }
+            Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint) }.padding(2).allowsHitTesting(false)   // STATIC blueprint (idle)
         }
     }
     @ViewBuilder private func buildNoteSweep(indices: [Int], active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
