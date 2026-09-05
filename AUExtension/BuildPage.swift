@@ -4421,9 +4421,10 @@ extension DiagView {
         }
         for p in points {
             var a = p.a, rMul = 1.0
-            if let ph = phase {                                        // LIGHT this note as it reaches the play line (x ≈ phase)
+            if let ph = phase {                                        // LIGHT this note AT the sound moment (phase ≈ its time), symmetric so the peak lands on the beat
                 let f = ((p.x - ph).truncatingRemainder(dividingBy: 1.0) + 1.0).truncatingRemainder(dividingBy: 1.0)
-                if f < 0.16 { let g = 1 - f / 0.16; a = min(1.0, a + 0.7 * g); rMul = 1 + 0.9 * g }
+                let d = min(f, 1 - f)                                  // distance to the play moment (f = 0), either side
+                if d < 0.12 { let g = 1 - d / 0.12; a = min(1.0, a + 0.7 * g); rMul = 1 + 0.9 * g }
             }
             let c = px(p.x, p.y), r = max(1.2, size.height * (0.028 + 0.05 * p.v)) * rMul
             ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(tint.opacity(a)))
@@ -4443,9 +4444,14 @@ extension DiagView {
                 let raw = (live.truncatingRemainder(dividingBy: loopBeats)) / loopBeats
                 let phase = raw < 0 ? raw + 1 : raw
                 Canvas { ctx, size in
-                    let dx = CGFloat(phase) * size.width
-                    var c1 = ctx; c1.translateBy(x: -dx, y: 0); drawConstellation(&c1, size, pts, tint: tint, phase: phase)                // the sigil, scrolled left, notes lighting as they cross
-                    var c2 = ctx; c2.translateBy(x: size.width - dx, y: 0); drawConstellation(&c2, size, pts, tint: tint, phase: phase)    // the wrap copy from the right
+                    // PLAY-POINT at ~28% from the left: a note reaches it EXACTLY when it sounds, so the flash is ON the note,
+                    // ON-SCREEN, and SINGULAR (the wrap copies' flashes fall fully off-screen). Was translate -phase*w → the
+                    // play moment sat at x=0 (left edge) + the wrap copy flashed off the right edge → "flash on both edges".
+                    let pp = 0.28
+                    for k in [-1.0, 0.0, 1.0] {
+                        var cc = ctx; cc.translateBy(x: CGFloat(pp - phase + k) * size.width, y: 0)
+                        drawConstellation(&cc, size, pts, tint: tint, phase: phase)
+                    }
                 }.padding(2)
             }.allowsHitTesting(false)
         } else {
