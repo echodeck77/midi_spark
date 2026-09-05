@@ -284,6 +284,7 @@ struct DiagView: View {
     @State var buildGridSelActiveRoll: [GridSelBar] = []  // the auditioning chain's piano-roll (offline render, shown on the active cell + right column)
     @State var buildGridSelCellRoll: [Int: [GridSelBar]] = [:]   // per-CELL piano-roll fingerprints (bg-computed per deal/tab) — the drifting note face on every present cell (Paul 2026-08-26)
     @State var buildGridSelRowRoll: [Int: [GridSelBar]] = [:]    // per-ROW-chip piano-roll fingerprints (bg-computed on open) — the row selectors get the same drifting face
+    @State var buildPlayColRoll: [Int: [GridSelBar]] = [:]       // Paul 2026-09-05: per PLAY COLUMN, the offline expected-output bars — the play/ferry cells' always-visible constellation face
     @State var buildGridSelRollGen = 0                   // generation token so a stale bg roll batch (deal/tab changed under it) is discarded
     @State var buildGridSelStampRow: Int? = nil          // HOLD-TO-STAMP (Paul 2026-08-26): the row being held — a white sweep fills it while held; at completion the auditioning chain stamps onto it (keeping its colour)
     @State var buildGridSelStampAt: Date? = nil          // when the hold began (drives the rising white-fill fraction)

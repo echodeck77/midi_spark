@@ -179,6 +179,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CELL CONSTELLATION v2 — the device-feedback rework (2026-09-05, on branch `fix/cell-constellation-v2`; iOS builds; UI-only,
+    DEVICE eye owed). v1 (`c7ad7f4`) failed on device: constellations appeared ONLY on SELECT, part/play cells lost their notes,
+    the part cell colour didn't match the selector + looked faded, and the playing cell didn't animate. ROOT CAUSE: v1 only
+    converted the LIVE-DRIFT face (`buildNoteSweep`), which draws only while notes are ACTUALLY sounding → idle cells blank;
+    SELECT used the always-visible OFFLINE roll. **FIX — one unified always-visible face `buildOutputFace(bars,tint,playing)`:**
+    every cell (SELECT · PART · PLAY · ferries · row selectors) now draws its EXPECTED-OUTPUT constellation from the offline
+    rolls, static when idle, with a beat-locked PLAYHEAD sweep + dot-glow when playing. `buildGridSelPianoRoll` +
+    `buildGridSelDriftFace` delegate to it; `roomsPartCell` + `roomsPlayFerry` use it (replacing the idle-blank `buildNoteSweep`).
+    Rolls: PART = the existing per-row `buildGridSelRowRoll`; PLAY = a new per-column `buildPlayColRoll` (`buildComputePlayColRolls`);
+    both recomputed in `buildPublishScene` so they stay current. **PART colour = the row's MACHINE hue** (not v1's separate
+    fixed-position palette — "row 7 always yellow" = its yellow machine), drawn DARK + SATURATED + FLAT (`partCellFill`/`Frame`
+    via `buildBaseHex`) so it MATCHES the selector and isn't faded. **drawConstellation tuned:** smaller dots, stronger sigil
+    lines, + the `playhead` param (bright sweep line + dots brighten as crossed). **DEVICE-OWED / flags:** still can't verify the
+    look; the `isEditedRow` black breathe (an edit invite) is a possible "faded row" Paul saw — flagged, removable; v1's
+    `partRowHexes` token is now unused (harmless); the face is the EXPECTED-output constellation animating (not literal live
+    strikes) — if Paul wants actual live-strike drift back it's a follow-up overlay.**
 - **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
     constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
     (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a
