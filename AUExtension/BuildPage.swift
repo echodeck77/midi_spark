@@ -1444,7 +1444,16 @@ extension DiagView {
     private var reelEffCycle: Double { reelRangeCyc > 0 ? reelRangeCyc : reelCycle }   // the roll's x-axis span: the range total, or the single pass length
 
     // The selected colour's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.
-    fileprivate var buildSelHue: Color { colourColor(ddSelectedColourID ?? "") ?? buildCyan }
+    // THE ONE machine hue, DERIVED FROM POSITION (Paul 2026-09-06). A bench focus (a ferry / part row) has no intrinsic
+    // "true colour" — its colour IS its row position (design-cell-language decision 4, partRowHexes), derived at render,
+    // NEVER a stored per-colour hue (the old colourHueOverride used a DIFFERENT palette, colourHexes, and diverged →
+    // "orange cell, red machine"). Every MIDI-chain-machine surface (box · chain boxes · cards · AUTO band · meter · part
+    // roll) funnels through here, so touching a cell always shows its true colour. Play cell → its dusk (positional by
+    // column, still via colourColor); a plain SELECT browse audition → the callers grey it.
+    fileprivate var buildSelHue: Color {
+        if let n = buildGridSelStampSourceRow { return partPosHue(n) }   // BENCH: the focused ferry/part row = its position colour
+        return colourColor(ddSelectedColourID ?? "") ?? buildCyan       // play dusk / browse (greyed by callers) / fallback
+    }
     // THE MACHINE DISPLAY HUE (Paul 2026-08-30): the ONE hue for the machine BOX + MIDI CHAIN + PLAY button, so the three
     // stay consistent. Colour is a thing on the PART/PLAY grids + ferries only — it has LEFT the SELECT grid (its cells show
     // the inverse light grey). So a PLAIN select-grid audition (the transient gsAud, which carries no colour) shows the
@@ -1480,7 +1489,7 @@ extension DiagView {
                                        source: buildSelectSource)   // grey ⇔ .browseCell; a .ferryRow keeps its colour (Paul 2026-09-06)
     }
     func buildMachineHue(_ room: Room) -> Color {
-        buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else the machine/ferry's own hue
+        buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else buildSelHue (now positional for a bench focus, dusk for a play cell)
     }
     // THE ONE HUE for every machine/card/editor surface (Paul 2026-08-31: the processor card was a DIFFERENT colour to the
     // machine box — a throwback to the multi-colour select grid, because the card read raw buildSelHue while the box read
@@ -2283,8 +2292,8 @@ extension DiagView {
                             let rung = col < buildStagingSel.count ? buildStagingSel[col] : -1
                             let cid = (rung >= 0 && col < buildStagingCells.count && rung < buildStagingCells[col].count) ? buildStagingCells[col][rung] : nil
                             let frame = CGRect(x: xOf(Double(st) * sb) + 1, y: 1, width: stepW - 2, height: size.height - 2)
-                            if let hue = cid.flatMap({ colourColor($0) }) {
-                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(hue.opacity(0.9)), lineWidth: 1.5)   // a BORDER in the CELL's colour around the section (no fill)
+                            if cid != nil, rung >= 0 {
+                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(partPosHue(rung).opacity(0.9)), lineWidth: 1.5)   // a BORDER in the CELL's POSITION colour (derive-from-position, Paul 2026-09-06) around the section (no fill)
                             } else {
                                 ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.08)), lineWidth: 1)
                             }
