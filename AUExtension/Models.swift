@@ -1326,6 +1326,13 @@ struct PluginState: Codable, Equatable {
     // rung). While on, at most one cell speaks per column. Optional → old docs decode nil (off). Mirrors masterMute.
     var ladderMode: Bool? = nil
     var ladderModeResolved: Bool { ladderMode ?? false }
+    // IGNORE INCOMING ALL-NOTES-OFF (Paul 2026-09-06) — a MIDI SOURCE that floods CC120 (All Sound Off) / CC123 (All
+    // Notes Off) around each chord (common — loop wraps, phrase ends, transport) would otherwise wipe our LIVE input
+    // pool at Kernel.handleIncoming, silencing a sustained chord even though the notes are still held (the "empty pass"
+    // report). PERSISTED, document-level (like masterMute). Default TRUE (ignore) — a MIDI PROCESSOR re-sequences input,
+    // so a source's routine reset shouldn't clear it; real note-offs still release, and host/transport panic still flushes.
+    var ignoreAllNotesOff: Bool? = nil
+    var ignoreAllNotesOffResolved: Bool { ignoreAllNotesOff ?? true }
     // LATCH ARM — which input doors are ARMED (the KEYS/HOLD/LATCH/SCALE engage, a 4-bit mask). PERSISTED (Paul 2026-08-27,
     // "save the latch/keys section with the document") so a saved session reopens with the same doors engaged, and re-derived
     // on the render side (the kernel's live latchArmMask is seeded from this on every rebuild/load). Optional → old docs

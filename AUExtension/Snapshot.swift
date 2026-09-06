@@ -392,6 +392,7 @@ final class SnapshotBox {
     let rackMask: UInt8              // THE RACK (design-the-rack §3): bit i = emitter i's rack is IN the signal path. The builder pre-ANDs this into claimMask/flattenMask/altMask/curveMask above; carried here for future self-affecting treatments (MONO/FENCE) to gate on.
     let masterKey: Int8              // master panel: per-scene master transpose (−12…12), on every output note
     let masterMute: Bool             // master panel: global emission kill
+    let ignoreAllNotesOff: Bool      // INPUT (Paul 2026-09-06): ignore an incoming CC120/123 (All Sound/Notes Off) so a chatty source (which floods these around each chord) can't wipe the live input pool. Default TRUE (ignore). Real note-offs + host/transport panic still release.
     let thruReceiver: Int8           // receiver strip: the THRU-pip receiver (0–3) passthrough follows (default 0 = R1)
     let receiverChannels: [UInt8]    // delta §9 item 11: the 4 receivers' channel filters (0 = OMNI, 1–16) — input metering
     let receiverChannelMask: [UInt16]  // MULTI-CHANNEL (Paul 2026-08-21): the 4 receivers' channel SUBSET masks (bit c = channel c+1; 0xFFFF = OMNI, 0 = none) — the door's own admission (metering + latch capture)
@@ -439,7 +440,7 @@ final class SnapshotBox {
          monoMask: UInt8 = 0, monoPriority: [UInt8] = [0, 0, 0, 0],
          pocketMask: UInt8 = 0, pocketMs: [Int8] = [0, 0, 0, 0],
          convLead: Int8 = -1, convStance: [UInt8] = [0, 0, 0, 0], rackMask: UInt8 = 0b1111,
-         masterKey: Int8 = 0, masterMute: Bool = false,
+         masterKey: Int8 = 0, masterMute: Bool = false, ignoreAllNotesOff: Bool = true,
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
          receiverChannelMask: [UInt16] = [0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF],
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0,
@@ -493,6 +494,7 @@ final class SnapshotBox {
         self.rackMask = rackMask
         self.masterKey = masterKey
         self.masterMute = masterMute
+        self.ignoreAllNotesOff = ignoreAllNotesOff
         self.thruReceiver = thruReceiver
         self.receiverChannels = receiverChannels
         self.receiverChannelMask = receiverChannelMask
