@@ -4703,7 +4703,6 @@ extension DiagView {
     }
     @ViewBuilder private func buildReceiverFader(_ i: Int, letter: String) -> some View {
         let override = i < recvDragVel.count ? recvDragVel[i] : nil
-        let feed = buildReceiverFeedColours(i)   // the colour(s) of the cell(s) this door feeds (vertical bands if >1)
         VStack(spacing: 2) {
             Text(letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildDim)   // NO drag-velocity number over the slider (Paul 2026-08-30)
             GeometryReader { g in
@@ -4717,7 +4716,11 @@ extension DiagView {
                     let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
-                        buildMeterBands(feed, level: level, height: g.size.height, override: override != nil ? buildPink : nil, faded: true)   // ALL bands fade; inverse only on the SELECTED colour; light-grey downward when no cell feeds it (Paul 2026-08-31)
+                        // SIMPLE VELOCITY INDICATOR (Paul 2026-09-06): one flat bar rising to the input level — cyan for the
+                        // metered/held velocity, pink while dragging the override. The per-machine feed colours + the chord/key
+                        // "energy" meter treatment were stripped back; the level itself (held · attack flash · override) is unchanged.
+                        RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9))
+                            .frame(height: g.size.height * CGFloat(min(1, max(0, level))))
                     }
                 }
                 .contentShape(Rectangle())
@@ -4813,31 +4816,8 @@ extension DiagView {
         }
     }
 
-    // The colours of every CELL FEEDING receiver `door` (its velocity-strip tint) — the part rows whose input is this door
-    // + any live play column reading it. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
-    private func buildReceiverFeedColours(_ door: Int) -> [MeterBand] {
-        var bands: [MeterBand] = []
-        var seen = Set<String>()
-        func add(_ cid: String?, color: Color? = nil) {
-            guard let cid, !seen.contains(cid) else { return }
-            seen.insert(cid)
-            bands.append(MeterBand(color: color ?? colourColor(cid) ?? buildCyan, energy: cid == ddSelectedColourID))   // ENERGY (inverted overlay) only on the SELECTED colour
-        }
-        for r in 0..<8 where buildRowColour(r) != nil && buildRowReceiverResolved(r) == door { add(buildRowColour(r)) }   // part rows on this door
-        for c in 0..<8 where c < buildPlayColRecv.count && buildPlayColRecv[c] == door {                                   // play columns on this door
-            let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
-            if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r]) }
-        }
-        // A CHAIN AUDITION (the SELECT-grid cell playing) on this door → the STANDARDIZED machine hue (LIGHT GREY on SELECT),
-        // not its palette colour, and not empty — so the select-grid audition IS reflected in the input strip. (Paul 2026-08-31)
-        if buildDisplayVoice == .chain {
-            let aDoor = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
-            if aDoor == door { add(ddSelectedColourID, color: buildMachineHue(roomsRoom)) }
-        }
-        // A door with NO feeding cell (a scale-door audition, input not on a placed cell) returns EMPTY → the strip shows the
-        // light-grey downward shimmer. (Paul 2026-08-31)
-        return bands
-    }
+    // (buildReceiverFeedColours removed 2026-09-06 — the receiver strip is a simple velocity indicator again; the fader no
+    //  longer tints by the machines it feeds. The emitter side keeps its own buildEmitterPlayingColours below.)
     // The colours of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
     // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
     private func buildEmitterPlayingColours(_ e: Bus) -> [MeterBand] {
