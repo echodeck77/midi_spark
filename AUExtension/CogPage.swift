@@ -78,9 +78,14 @@ struct CogPage: View {
     private var divider: some View { Divider().overlay(ink.opacity(0.12)).padding(.vertical, 2) }
 
     private var healthRow: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
+            // PLAY = the engine's CLOCK is advancing (host transport OR free-run). A HOLD chord is only SEQUENCED while the
+            // clock runs; if PLAY 0 while a chord is HELD/FRZ, the grid isn't advancing (transport stopped + free-run off) —
+            // that's the "HOLD enabled but nothing sounds" case, and it's the CLOCK, not the latch. (Paul 2026-09-06)
+            healthStat("PLAY", d.effectivePlaying ? 1 : 0, alert: !d.effectivePlaying)
+            healthStat("SND", Int(d.distinctSounding))    // distinct notes actually on the WIRE (emitted output) — 0 = nothing coming out
             healthStat("VOICES", Int(d.activeVoiceCount))
-            healthStat("HELD", Int(d.poolCount))
+            healthStat("HELD", Int(d.poolCount))          // raw LIVE input pool
             healthStat("PANICS", Int(d.panics), alert: d.panics > 0)
             healthStat("DROPPED", d.floodDropped, alert: d.floodDropped > 0)   // FLOOD GOVERNOR tell (incident 2026-08-08)
             Spacer()
