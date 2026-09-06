@@ -217,10 +217,10 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(burst, arpOnly, "fold with chance 1 ratchets every note into a burst")
     }
     // RATCHET PATTERN fold (Paul 2026-09-06): downstream of an ARP, PATTERN folds PER-NOTE (it no longer re-pools/drives) —
-    // each arp note reads the pattern slice at its time: REST (0/·) DROPS it, 1 passes it through, 2/3/4 burst it in place. So
-    // an all-1 pattern == the arp alone; an all-REST pattern is SILENCE; an all-2 pattern bursts every note. A STANDALONE
-    // PATTERN still DRIVES but now honours REST as a true gap. Nothing left sounding in any case.
-    func testRatchetPatternFoldsOntoTheDriverAndRestIsSilent() {
+    // each arp note reads the pattern's count on the ratchet's own RATE grid: 1 = play it once untouched, N = re-fire that
+    // SAME note N times spread over the gap to the next arp note (the spread copies ride the echo ring). So an all-1 pattern
+    // == the arp alone; an N-per-step pattern produces MORE note-ons (each note re-fired). No REST. Nothing left sounding.
+    func testRatchetPatternFoldsOntoTheDriverAndRatchetsEachNote() {
         func arpCell(_ procs: [ProcessorSlot]) -> Int {
             let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
             let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
@@ -234,18 +234,11 @@ final class RouterTests: XCTestCase {
         }
         let arpOnly  = arpCell([arp])
         let allPlain = arpCell([arp, pattern(Array(repeating: 1, count: 8))])
-        let allRest  = arpCell([arp, pattern(Array(repeating: 0, count: 8))])
-        let allRoll  = arpCell([arp, pattern(Array(repeating: 2, count: 8))])
-        XCTAssertEqual(allPlain, arpOnly, "an all-1 pattern passes every arp note through unchanged (the ARP still drives its rhythm)")
-        XCTAssertEqual(allRest, 0, "an all-REST pattern drops every arp note → silence")
-        XCTAssertGreaterThan(allRoll, arpOnly, "an all-2 pattern bursts every arp note (more note-ons than the arp alone)")
-
-        // STANDALONE [RATCHET PATTERN] still DRIVES (re-pools), but a REST slice is a true gap now (was a plain hit).
-        let csR = colourIDs.map { c -> Colour in var x = Colour(colourID: c, type: .ratchet); x.paramsA.rtcMode = .pattern; x.paramsA.rtcRate = .r1_16; x.paramsA.rtcSlices = Array(repeating: 0, count: 8); return x }
-        let bR = box(colours: csR) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
-        let eR = RecordingEmitter(); run(bR, chord([60, 64, 67]), beats: 2, into: eR)
-        assertNothingLeftSounding(eR)
-        XCTAssertEqual(eR.ons.filter { $0.cable == 1 }.count, 0, "a standalone all-REST pattern is silent")
+        let allTwo   = arpCell([arp, pattern(Array(repeating: 2, count: 8))])
+        let allFour  = arpCell([arp, pattern(Array(repeating: 4, count: 8))])
+        XCTAssertEqual(allPlain, arpOnly, "an all-1 pattern plays every arp note ONCE, untouched (the ARP keeps its rhythm)")
+        XCTAssertGreaterThan(allTwo, arpOnly, "a 2-per-step pattern re-fires each arp note (more note-ons than the arp alone)")
+        XCTAssertGreaterThan(allFour, arpOnly, "a 4-per-step pattern ratchets audibly too (more note-ons than the arp alone)")
     }
     // MUTE composes ON TOP of DEST (Paul 2026-08-25 §5): DEST routes each slice to one emitter, MUTE then removes muted
     // emitters. [ARP→DEST(alt A/B)→MUTE(A)] → the A-routed slices go silent, the B-routed ones still play; none stuck.
