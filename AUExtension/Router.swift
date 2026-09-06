@@ -3399,11 +3399,9 @@ final class Router {
         }
         return lastNonFold >= 0 ? lastNonFold : lastDriver
     }
-    /// A ratchet that FOLDS per-note downstream instead of driving (Paul 2026-09-06): PATTERN always (its per-slice counts
-    /// ratchet each upstream note in place — REST drops it, 1 passes it through, 2/3/4 burst it), or a COIN ratchet in
-    /// PASS-THROUGH mode. ALL, and a non-fold COIN, still drive (re-pool). Only counts as a fold when a real driver precedes it
-    /// (chainDriverIndex resolves that); downstreamRatchetFoldIndex only ever looks AFTER the chosen driver.
-    private func isRatchetFoldable(_ p: SnapParams) -> Bool { p.type == .ratchet && (p.rtcMode == .pattern || (p.rtcMode == .coin && p.rtcFold)) }
+    /// A ratchet that FOLDS per-note downstream instead of driving: a COIN ratchet in PASS-THROUGH mode (Paul 2026-09-06).
+    /// PATTERN is a self-clocked DRIVER (RATE/STEPS/SPAN, RIFF-shaped) — it re-clocks the upstream note, so it is NOT a fold.
+    private func isRatchetFoldable(_ p: SnapParams) -> Bool { p.type == .ratchet && p.rtcMode == .coin && p.rtcFold }
     /// The FIRST non-bypassed foldable RATCHET slot after `driver` — PATTERN (per-slice REST/pass/burst) or COIN PASS-THROUGH.
     private func downstreamRatchetFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
         var j = driver + 1
@@ -3934,28 +3932,18 @@ final class Router {
             }
             j += 1
         }
-        // RATCHET fold (Paul 2026-09-06): a downstream fold-ratchet re-shapes THIS driver note IN PLACE — the ARP keeps its
-        // rhythm; the ratchet doesn't re-pool. PATTERN reads the per-slice count at this note's time on the ratchet's own
-        // RATE grid (the pattern LENS): 1 = play the note once (untouched); 2…8 = re-fire the SAME note (its own pitch +
-        // length) that many times, evenly spaced over the gap to the NEXT driver note (spacing = driverStep ÷ N). RATE only
-        // picks the count — the SPACING comes from the gap, the LENGTH from the note itself; long notes' copies may OVERLAP
-        // (the engine re-articulates same-pitch overlaps, no stuck notes). The N−1 spread copies ride the ECHO ring so they
-        // emit ACROSS render blocks (a single-tick fold can't spread otherwise). COIN reads the seeded chance (velFactor 1.0).
+        // RATCHET COIN pass-through fold (Paul 2026-09-06): a downstream COIN ratchet in PASS-THROUGH re-shapes THIS driver
+        // note in place — the driver (ARP) keeps its rhythm; on a COIN fire the note is re-fired `foldBurst` times spread over
+        // the gap to the next driver note (spacing = driverStep ÷ N), riding the ECHO ring so the copies emit across blocks.
+        // (PATTERN is NOT a fold — it's a self-clocked driver, handled in emitRatchetModal.) velFactor 1.0 in fold mode.
         var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0
         if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
             let rp = cell.procs[fi]
             let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // gap to the next driver (arp) note
-            if rp.rtcMode == .pattern {
-                let rate = max(0.03125, rp.rtcRateBeats)
-                let idx = ((Int((m / rate).rounded(.down)) + rp.rtcRotate) % 8 + 8) % 8
-                let raw = idx < rp.rtcSlices.count ? rp.rtcSlices[idx] : 1
-                foldBurst = max(1, min(8, raw))                          // 1 = plain (untouched) · 2…8 = ratchet (no REST — Paul 2026-09-06)
-            } else {   // COIN pass-through
-                let step = Int((m / S).rounded())
-                if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
-                    foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
-                                                          : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
-                }
+            let step = Int((m / S).rounded())
+            if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
+                foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
+                                                      : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
             }
             if foldBurst > 1 { foldSpacingBeats = driverStep / Double(foldBurst); foldDecay = max(0.2, 1.0 - rp.ramp * 0.6) }   // BURST FADE ≈ echo decay taper
         }
@@ -4298,15 +4286,44 @@ final class Router {
         }
     }
 
-    /// RATCHET COIN / PATTERN. COIN: per step, a seeded chance to ratchet (a count in [lo,hi]) vs a plain single hit.
-    /// PATTERN: walk the 8-slice per-slice-count row at RATE — 0 = a plain single hit, N = a roll of N within the slice;
-    /// ROTATE offsets the pattern. Window-scanned per column (like WEAVE/LENGTH); RETRIG at the column boundary.
+    /// RATCHET COIN / PATTERN. COIN: per grid column, a seeded chance to ratchet (a count in [lo,hi]) vs a plain single hit
+    /// (window-scanned per column). PATTERN (Paul 2026-09-06, RIFF-shaped): a SELF-CLOCKED ratchet on its OWN clock — fire the
+    /// pool at RATE, STEPS strikes per SPAN window, then rest to the next re-anchor (SPAN FREE ⇒ a steady STEPS×RATE loop),
+    /// window-scanned over the absolute beat so it spreads across blocks + free-runs independent of the global grid step.
     private func emitRatchetModal(mode: RatchetMode, cell: SnapCell, row r: Int, transpose: Int, emits: Bool, pool: NotePool,
                                   bm: UInt8, ramp: Double, chainDriver: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                   cycleBeats: Double, p: SnapParams, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard S > 0 else { return }
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a), mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        if mode == .pattern {
+            // PATTERN — a SELF-CLOCKED ratchet (Paul 2026-09-06, RIFF-shaped): fire the pool at RATE, STEPS strikes per SPAN
+            // window, then rest to the next re-anchor. RATE = strike spacing · STEPS(1…32) = strikes per window · SPAN = the
+            // window / re-anchor (FREE ⇒ a seamless STEPS×RATE loop = a steady ratchet at RATE). No per-slice counts / euclid.
+            // Window-scanned over the ABSOLUTE beat (not per grid column) so it spreads across render blocks + free-runs on its
+            // OWN clock, independent of the global grid step. BURST FADE (ramp) tapers velocity across each window's strikes.
+            let rate = max(0.03125, p.rtcRateBeats)
+            let steps = max(1, min(32, p.rtcSteps))
+            let period = p.rtcSpanN > 0 ? max(rate, spanLadderBeats(p.rtcSpanN, S: S, row: cycleBeats)) : rate * Double(steps)
+            var ak = Int((mWinStart / period).rounded(.down)) - 1        // one window early: a strike from the prior window may land here
+            while true {
+                let anchor = Double(ak) * period
+                if anchor >= mWinEnd { break }
+                for i in 0..<steps {
+                    let tau = anchor + Double(i) * rate
+                    if tau >= anchor + period { break }                 // past this window → rest until the next re-anchor
+                    if tau < mWinStart || tau >= mWinEnd { continue }   // half-open: fires in exactly one render window
+                    let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
+                    let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    let offT = sampleOf(musical: tau + rate * 0.6, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
+                                    onTime: onT, offTime: offT, m: tau, repIdx: i, count: steps, ramp: ramp, chainDriver: chainDriver,
+                                    windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
+                }
+                ak += 1
+            }
+            return
+        }
         var col = columnStart(mWinStart, S)
         while col < mWinEnd {
             let colEnd = col + S
@@ -4327,41 +4344,6 @@ final class Router {
                     ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
                                     onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
                                     windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
-                }
-            } else {   // PATTERN
-                // SPAN LADDER (Paul 2026-08-22, RATE×ladder): rtcSpanN>0 ⇒ RATE = slice width, SPAN N = the loop PERIOD in
-                // columns (the 8-slice walk re-anchors every N cols → polymeter). rtcSpanN==0 ⇒ LEGACY CELL|ROW (byte-
-                // identical): CELL strides the counts at the RATE; ROW spans the 8 slices over the bar.
-                let rtcLadder = p.rtcSpanN > 0
-                let rtcSpanBeats = rtcLadder ? spanLadderBeats(p.rtcSpanN, S: S, row: cycleBeats) : 0
-                let sliceBeats = rtcLadder ? max(0.03125, p.rtcRateBeats)
-                                           : ((p.rtcSpan == .row) ? max(0.03125, cycleBeats / 8.0) : max(0.03125, p.rtcRateBeats))
-                var sIdx = 0
-                while true {
-                    let sliceStart = col + Double(sIdx) * sliceBeats
-                    if sliceStart >= colEnd { break }
-                    sIdx += 1
-                    let g = Int((sliceStart / sliceBeats).rounded(.down))
-                    let idx: Int
-                    if rtcLadder {   // re-anchor the count walk every N columns
-                        let localG = Int(((sliceStart - columnStart(sliceStart, rtcSpanBeats)) / sliceBeats).rounded(.down))
-                        idx = (((localG + p.rtcRotate) % 8) + 8) % 8
-                    } else {
-                        idx = (((g + p.rtcRotate) % 8) + 8) % 8
-                    }
-                    let raw = idx < p.rtcSlices.count ? p.rtcSlices[idx] : 1
-                    let count = max(1, min(8, raw))                        // 1 = plain single hit · 2…8 = roll (no REST — Paul 2026-09-06)
-                    let sEnd = min(colEnd, sliceStart + sliceBeats), subSlice = sliceBeats / Double(count)
-                    for j in 0..<count {
-                        let tau = sliceStart + Double(j) * subSlice
-                        guard tau >= mWinStart && tau < mWinEnd && tau < sEnd else { continue }
-                        let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
-                        let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                        let offT = sampleOf(musical: min(sEnd, tau + subSlice * 0.6), beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                        ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
-                                        onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
-                                        windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
-                    }
                 }
             }
             col += S

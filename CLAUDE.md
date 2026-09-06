@@ -179,6 +179,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET PATTERN v3 — a SELF-CLOCKED ratchet (RATE·STEPS·SPAN, RIFF-shaped) (2026-09-06, on `main`; iOS builds, macOS 1066
+  green incl. fuzz; DEVICE ear owed). SUPERSEDES the fold v1/v2 below. After a long design thread Paul redefined RATCHET
+  PATTERN away from a per-note fold: it now has its OWN clock like RIFF. THE BUG that triggered this: the fold indexed the
+  pattern on the ratchet's rate grid, which drifted from the visible grid columns (scene step ≠ ratchet rate) → cells fired
+  "every couple of steps," not once per playhead column. Paul's ruling: **RATE = the ratchet's own tick clock (replaces the
+  global grid for this proc) · STEPS (1–32) = strikes per SPAN window · SPAN (like RIFF) = the window it fills then rests;
+  FREE = a seamless STEPS×RATE loop (steady stream).** Each tick re-fires the upstream note (the arp's current note). Removed:
+  the per-cell number matrix + euclid/rotate controls. **ENGINE:** PATTERN is a DRIVER again (not a fold) — `isRatchetFoldable`
+  reverted to COIN-only, `emitDriverNote` fold reverted to COIN-only. `emitRatchetModal`'s PATTERN branch rewritten to a
+  SELF-CLOCKED, absolute-beat window-scan (spreads across render blocks, free-runs independent of the grid): anchors at
+  `period = SPAN>0 ? spanLadderBeats : rate×steps`, fires `steps` strikes at `rate` from each anchor then rests. New model
+  field `rtcSteps` (ColourParams + SnapParams + builder; `rtcSlices`/`rtcRotate`/`rtcSpan` now decode-only). **UI:** PATTERN
+  editor = STEPS numPair (1–32) + the frame footer's GRID(=RATE) · SPAN (ROTATE dropped), no matrix. **TESTS:** rewrote the two
+  ratchet-PATTERN tests to the self-clock (faster RATE = more strikes; SPAN window w/ small STEPS < free-run) + the Derivations
+  density test; retired the CELL|ROW slice test. **v1 LIMITS/FLAGS (device-ear owed):** STEPS is audible mainly via SPAN
+  (with SPAN FREE every tick fires, so STEPS just sets the seamless loop length — flagged to Paul, accepted); the ratchet
+  re-clock replaces the arp's note LENGTHS with RATE-staccato strikes (Paul embraced the re-clock); each strike ~0.6-staccato;
+  the frameRow ROTATE slot is now an EmptyView (possible layout gap — device-eye). The COIN pass-through fold (rtcFold) is
+  unchanged + still spreads via the echo ring.**
 - **▶ RATCHET PATTERN fold v2 — AUDIBLE ratchet via the echo ring, REST dropped, matrix 1–8 (2026-09-06, on `main`; iOS builds,
   macOS 1066 green incl. fuzz; DEVICE ear owed). SUPERSEDES the same-day "true REST = silence" fold below (two mis-reads
   corrected). Paul: (1) REST should be pass-through, not silence — so DROP rest entirely, matrix = **1,2,3,4,5,6,7,8** (1 =

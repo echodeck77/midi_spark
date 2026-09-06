@@ -415,14 +415,10 @@ struct ProcessorBox: View {
                 // PASS · RATCHET CHOSEN keeps the arp driving — most notes pass through UNCHANGED, only the COIN-chosen ones burst.
                 field("WHEN AFTER A DRIVER (e.g. ARP)", \.rtcFold) {
                     seg(["RATCHET DRIVES", "PASS · RATCHET CHOSEN"], sel: (p.rtcFold ?? false) ? "PASS · RATCHET CHOSEN" : "RATCHET DRIVES") { i in setParam { $0.rtcFold = (i == 1) } } }
-            } else {   // pattern — a STATE MATRIX (rows = strikes per step, cols = the 8 steps)
-                heroField("STRIKES PER STEP — tap a cell  (1 = plain · 2–8 = ratchet)") {
-                    stateMatrixRadio([1, 2, 3, 4, 5, 6, 7, 8],
-                        header: { v in AnyView(Text("\(max(1, v))").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
-                        eFill: true, onRotate: { d in setParam { $0.rtcRotate = ((($0.rtcRotate ?? 0) + d) % 8 + 8) % 8 } },
-                        selected: { i in rtcSliceAt(p.rtcSlices, i) },
-                        set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 1, count: 8); while s.count < 8 { s.append(1) }; s[i] = v; $0.rtcSlices = s } })   // default/pad = 1 (plain), never 0 (no REST — Paul 2026-09-06)
-                }
+            } else {   // pattern — a SELF-CLOCKED ratchet (Paul 2026-09-06, RIFF-shaped): RATE · STEPS · SPAN, no matrix/euclid
+                heroField("STEPS — strikes per SPAN window  (1–32)") {
+                    numPair(p.rtcSteps ?? 8, 1...32) { v in setParam { $0.rtcSteps = v } } }
+                Text("RATE sets the spacing · SPAN sets the window it fills then rests (FREE = a steady stream)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
             }
             field("BURST FADE — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%", \.ramp) {
                 slider(bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1)
@@ -431,7 +427,7 @@ struct ProcessorBox: View {
             // only) in fixed order + place, then the pairs-well line. GRID = slice width · SPAN = the pattern's loop period.
             if rmode == .pattern {
                 frameRow(grid:  { frameGrid(p.rtcRate ?? .r1_8) { r in setParam { $0.rtcRate = r } } },
-                         rotate: { frameRotate(p.rtcRotate ?? 0, 0...7) { v in setParam { $0.rtcRotate = v } } },
+                         rotate: { EmptyView() },   // ROTATE dropped — no per-step pattern to rotate in the RIFF-shaped model (Paul 2026-09-06)
                          span:   { frameSpan(p.rtcSpanN ?? 0, free: true) { v in setParam { $0.rtcSpanN = v } } },
                          pairs: .ratchet)
             }
