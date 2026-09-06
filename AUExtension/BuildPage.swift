@@ -1739,8 +1739,9 @@ extension DiagView {
             .contentShape(Rectangle()).onTapGesture { roomsRoom = .play }
     }
     @ViewBuilder func roomsSeamSliver(to room: Room, chevron: String, width: CGFloat, height: CGFloat) -> some View {
-        // The DESTINATION grid's name, written VERTICALLY, with a left/right chevron pointing to it (Paul 2026-08-31):
-        // on the SELECT page the seam → PART ("PART GRID", far RIGHT, ▸); on the PART page → SELECT ("SELECT GRID", far LEFT, ◂).
+        // The DESTINATION grid's name, written VERTICALLY as UPRIGHT characters — one per line (Paul 2026-09-06; was a
+        // sideways `.rotationEffect(.degrees(90))`), with a left/right chevron pointing to it (Paul 2026-08-31): on the SELECT
+        // page the seam → PART ("PART GRID", far RIGHT, ▸); on the PART page → SELECT ("SELECT GRID", far LEFT, ◂).
         let label = room == .part ? "PART GRID" : (room == .select ? "SELECT GRID" : room.rawValue)
         let toRight = room == .part
         let ink = roomsDoorInk(to: .play)                                   // ALL nav buttons wear the PLAY-GRID colour (Paul 2026-08-31)
@@ -1749,8 +1750,11 @@ extension DiagView {
             .overlay(
                 VStack(spacing: 6) {
                     Image(systemName: toRight ? "chevron.right" : "chevron.left").font(.system(size: min(13, width * 0.6), weight: .heavy))
-                    Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).fixedSize()
-                        .rotationEffect(.degrees(90)).frame(width: width, height: min(height * 0.75, 130))   // VERTICAL text
+                    VStack(spacing: 1) {                                    // UPRIGHT, one character per line (a space becomes the word-break blank line)
+                        ForEach(Array(label.enumerated()), id: \.offset) { _, ch in
+                            Text(String(ch)).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        }
+                    }
                 }.foregroundColor(ink)
             )
             .contentShape(Rectangle()).onTapGesture { roomsRoom = room }
