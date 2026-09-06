@@ -179,6 +179,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RECEIVER STRIP — velocity indicator stripped back to a simple bar (2026-09-06, on `main`, `40dd3bd`; iOS builds; UI-only,
+  DEVICE eye owed). Paul: strip the receiver strips right back to a simple velocity indicator + controller "as it was before",
+  keeping the MIDI-accuracy fixes. Removed the two fader accretions in `buildReceiverFader` (BuildPage.swift): the per-machine
+  FEED COLOURS (`buildReceiverFeedColours` — bands tinted by the cells the door feeds; DELETED, receiver-only, unused) and the
+  chord/key-aware meter treatment (`buildMeterBands(faded:true)` energy-waist + `buildMeterNoFeedBand` grey shimmer). The fader
+  is again ONE flat bar — cyan for the metered/held velocity, pink while dragging the override. KEPT (the accuracy fixes):
+  `recvHeld` sustained-while-held level, the 30 Hz attack flash (`meters.receiverPeak`), the latch-velocity read, and drag-to-
+  override (`setReceiverVel`). Strip BUTTONS unchanged (CH/ENABLE, LATCH mode, OCT, S/M — Paul chose "meter only" scope, not the
+  mode-button or bare-fader options). `buildMeterBands`/`MeterBand`/`buildMeterNoFeedBand` KEPT (the EMITTER fader still uses them
+  via `buildEmitterPlayingColours`). **TWO-INSTANCE NOTE:** BuildPage.swift had the other instance's uncommitted work; I staged
+  ONLY my 3 hunks (`git apply --cached` of an isolated patch) and FF-pushed to main, leaving their work untouched in the tree.**
 - **▶ IGNORE INCOMING ALL-NOTES-OFF — the sustained-chord "empty pass" fix (2026-09-06, on `main`, merge `27304e1`; iOS builds,
   macOS 1065 green; DEVICE ear owed). Paul: a third-party app feeding SUSTAINED chords dropped out for most of a pass even
   WITHOUT hold — a synth on the same source held it fine. ROOT CAUSE (confirmed via Paul's MIDI monitor): the source floods
