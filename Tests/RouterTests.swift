@@ -216,6 +216,26 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(pass, arpOnly, "fold with chance 0 passes every arp note through unchanged (arp still drives)")
         XCTAssertGreaterThan(burst, arpOnly, "fold with chance 1 ratchets every note into a burst")
     }
+    // HUMANIZE / SHIFT reclassified as per-note MODIFIERS (Paul 2026-09-06): downstream of an ARP they no longer re-pool the
+    // chord — they jitter/push each arp note IN PLACE, keeping the arp's rhythm. So [ARP→SHIFT] / [ARP→HUMANIZE] emit the SAME
+    // number of note-ons as the arp alone (one modified note per arp note); standalone they STILL generate.
+    func testHumanizeShiftFoldOntoTheDriverNotRepool() {
+        func cellCount(_ procs: [ProcessorSlot]) -> Int {
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var shift = ProcessorSlot(type: .shift); shift.params.spread = 0.5
+        var human = ProcessorSlot(type: .humanize); human.params.spread = 0.8
+        let arpOnly = cellCount([arp])
+        XCTAssertEqual(cellCount([arp, shift]), arpOnly, "[ARP→SHIFT] pushes each arp note — same note count as the arp (not re-pooled)")
+        XCTAssertEqual(cellCount([arp, human]), arpOnly, "[ARP→HUMANIZE] jitters each arp note — same note count as the arp (not re-pooled)")
+        XCTAssertGreaterThan(cellCount([human]), 0, "standalone HUMANIZE still generates")
+        XCTAssertGreaterThan(cellCount([shift]), 0, "standalone SHIFT still generates")
+    }
     // RATCHET PATTERN v3 (Paul 2026-09-06, RIFF-shaped): downstream of an ARP the PATTERN ratchet DRIVES — it re-clocks the
     // arp's note at its OWN RATE (STEPS strikes per SPAN window), independent of the arp/global grid. So it sounds, and a
     // faster ratchet RATE = more strikes (its own clock, not the arp's). Nothing left sounding.
