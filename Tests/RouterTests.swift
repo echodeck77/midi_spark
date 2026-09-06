@@ -216,29 +216,23 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(pass, arpOnly, "fold with chance 0 passes every arp note through unchanged (arp still drives)")
         XCTAssertGreaterThan(burst, arpOnly, "fold with chance 1 ratchets every note into a burst")
     }
-    // RATCHET PATTERN fold (Paul 2026-09-06): downstream of an ARP, PATTERN folds PER-NOTE (it no longer re-pools/drives) —
-    // each arp note reads the pattern's count on the ratchet's own RATE grid: 1 = play it once untouched, N = re-fire that
-    // SAME note N times spread over the gap to the next arp note (the spread copies ride the echo ring). So an all-1 pattern
-    // == the arp alone; an N-per-step pattern produces MORE note-ons (each note re-fired). No REST. Nothing left sounding.
-    func testRatchetPatternFoldsOntoTheDriverAndRatchetsEachNote() {
-        func arpCell(_ procs: [ProcessorSlot]) -> Int {
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+    // RATCHET PATTERN v3 (Paul 2026-09-06, RIFF-shaped): downstream of an ARP the PATTERN ratchet DRIVES — it re-clocks the
+    // arp's note at its OWN RATE (STEPS strikes per SPAN window), independent of the arp/global grid. So it sounds, and a
+    // faster ratchet RATE = more strikes (its own clock, not the arp's). Nothing left sounding.
+    func testRatchetPatternIsASelfClockedDriverAfterAnArp() {
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+        func pat(_ rate: ArpRate) -> ProcessorSlot {
+            var r = ProcessorSlot(type: .ratchet); r.params.rtcMode = .pattern; r.params.rtcRate = rate; r.params.rtcSteps = 8; return r
+        }
+        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        func strikes(_ rate: ArpRate) -> Int {
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, pat(rate)]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
-        func pattern(_ slices: [Int]) -> ProcessorSlot {
-            var r = ProcessorSlot(type: .ratchet); r.params.rtcMode = .pattern; r.params.rtcRate = .r1_16; r.params.rtcSlices = slices; r.params.ramp = 0; return r
-        }
-        let arpOnly  = arpCell([arp])
-        let allPlain = arpCell([arp, pattern(Array(repeating: 1, count: 8))])
-        let allTwo   = arpCell([arp, pattern(Array(repeating: 2, count: 8))])
-        let allFour  = arpCell([arp, pattern(Array(repeating: 4, count: 8))])
-        XCTAssertEqual(allPlain, arpOnly, "an all-1 pattern plays every arp note ONCE, untouched (the ARP keeps its rhythm)")
-        XCTAssertGreaterThan(allTwo, arpOnly, "a 2-per-step pattern re-fires each arp note (more note-ons than the arp alone)")
-        XCTAssertGreaterThan(allFour, arpOnly, "a 4-per-step pattern ratchets audibly too (more note-ons than the arp alone)")
+        XCTAssertGreaterThan(strikes(.r1_16), 0, "the self-clocked PATTERN ratchet sounds after an arp")
+        XCTAssertGreaterThan(strikes(.r1_16), strikes(.r1_4), "a faster ratchet RATE = more strikes (its own clock, not the arp's rhythm)")
     }
     // MUTE composes ON TOP of DEST (Paul 2026-08-25 §5): DEST routes each slice to one emitter, MUTE then removes muted
     // emitters. [ARP→DEST(alt A/B)→MUTE(A)] → the A-routed slices go silent, the B-routed ones still play; none stuck.
@@ -1835,22 +1829,21 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(onsRow, onsCell, "SPAN ROW spreads the 8-slice shape across the bar; CELL strides it at the fast RATE")
         assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
     }
-    func testRatchetPatternSpanRowSpreadsCountsAcrossTheBar() {
-        // SPAN ROW (Paul 2026-08-19): the 8 per-slice counts span the whole bar (slice i = column i); CELL strides at the RATE.
-        func rowBox(_ span: PatternSpan) -> SnapshotBox {
+    func testRatchetPatternSpanWindowLeavesGapsVsFreeRun() {
+        // SPAN v3 (Paul 2026-09-06, RIFF-shaped): FREE (spanN 0) = a steady stream at RATE. A SPAN window fires STEPS strikes
+        // then RESTS to the next re-anchor — so a small STEPS in a wide window emits FEWER strikes than the free-running stream.
+        func rbox(spanN: Int, steps: Int) -> SnapshotBox {
             box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .ratchet)
-                c.paramsA.rtcMode = .pattern
-                c.paramsA.rtcSlices = [3, 0, 3, 0, 3, 0, 3, 0]
-                c.paramsA.rtcRate = .r1_16; c.paramsA.rtcSpan = span; return c }) {
+                c.paramsA.rtcMode = .pattern; c.paramsA.rtcRate = .r1_16; c.paramsA.rtcSteps = steps; c.paramsA.rtcSpanN = spanN; return c }) {
                 for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
             }
         }
-        let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
-        let eCell = RecordingEmitter(); run(rowBox(.cell), chord([60, 64, 67]), beats: 16, into: eCell, releaseAtEnd: false)
-        let onsRow = eRow.ons.filter { $0.cable == 1 }.count, onsCell = eCell.ons.filter { $0.cable == 1 }.count
-        XCTAssertGreaterThan(onsRow, 0, "the ROW ratchet-pattern sounds")
-        XCTAssertLessThan(onsRow, onsCell, "SPAN ROW spreads the per-slice counts across the bar; CELL strides at the fast RATE")
-        assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
+        let eFree = RecordingEmitter(); run(rbox(spanN: 0, steps: 8), chord([60, 64, 67]), beats: 16, into: eFree, releaseAtEnd: false)
+        let eSpan = RecordingEmitter(); run(rbox(spanN: 4, steps: 2), chord([60, 64, 67]), beats: 16, into: eSpan, releaseAtEnd: false)
+        let onsFree = eFree.ons.filter { $0.cable == 1 }.count, onsSpan = eSpan.ons.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(onsFree, 0, "the free-running ratchet sounds a steady stream at RATE")
+        XCTAssertLessThan(onsSpan, onsFree, "a SPAN window (2 strikes then rest) emits fewer than the free-running stream")
+        assertNothingLeftSounding(eFree); assertNothingLeftSounding(eSpan)
     }
     func testCascadeRevealsEachChordNoteOnce() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)

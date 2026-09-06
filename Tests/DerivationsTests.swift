@@ -2130,15 +2130,16 @@ final class DerivationsTests: XCTestCase {
         XCTAssertGreaterThan(plain, 0, "chance=0 still sounds — a plain hit each step")
         XCTAssertEqual(Accept.notesA([rtc(1)]), [60, 64, 67], "the whole chord bursts")
     }
-    func testRtcPatternSliceCountsScaleDensity() {
-        func pat(_ counts: [Int]) -> ProcessorSlot {
-            var s = ProcessorSlot(type: .ratchet); s.params.rtcMode = .pattern; s.params.rtcSlices = counts; s.params.rtcRate = .r1_8; return s
+    // RATCHET PATTERN v3 (Paul 2026-09-06, RIFF-shaped): a SELF-CLOCKED ratchet — fires the chord at its OWN RATE, no per-slice
+    // matrix. A faster RATE = more strikes (its own clock drives the density); the whole chord sounds each strike.
+    func testRtcPatternSelfClockedFiresAtItsOwnRate() {
+        func pat(_ rate: ArpRate) -> ProcessorSlot {
+            var s = ProcessorSlot(type: .ratchet); s.params.rtcMode = .pattern; s.params.rtcRate = rate; s.params.rtcSteps = 8; return s
         }
-        let plain = Accept.onsA([pat(Array(repeating: 1, count: 8))]).count   // every slice a plain single hit (1)
-        let dense = Accept.onsA([pat(Array(repeating: 4, count: 8))]).count    // every slice a 4-roll
-        XCTAssertGreaterThan(dense, plain, "PATTERN all-4 emits more than all-plain")
-        XCTAssertGreaterThan(plain, 0, "plain (1) slices sound")
-        XCTAssertEqual(Accept.notesA([pat(Array(repeating: 3, count: 8))]), [60, 64, 67], "the chord sounds")
+        let fast = Accept.onsA([pat(.r1_16)]).count, slow = Accept.onsA([pat(.r1_4)]).count
+        XCTAssertGreaterThan(fast, 0, "a self-clocked PATTERN ratchet fires at its RATE")
+        XCTAssertGreaterThan(fast, slow, "a faster RATE = more strikes (the ratchet's own clock sets the density)")
+        XCTAssertEqual(Accept.notesA([pat(.r1_16)]), [60, 64, 67], "each strike sounds the whole chord")
     }
 
     // ARP OCT DIRECTION (Paul 2026-08-22): the PATTERN orders WITHIN a lap; OCT DIRECTION orders the LAPS. DOWN = top octave first.
