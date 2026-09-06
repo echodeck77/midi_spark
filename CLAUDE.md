@@ -232,6 +232,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     at its real pitch, drifting right→left, brightest as it sounds (the buildNoteSweep model). The dots ARE the notes you hear
     → correspondence by construction, no offline↔live matching. Removed the scroll/`phase` machinery + `drawConstellation`'s
     phase param. All three grids route through `buildOutputFace`; the offline rolls survive only as the idle blueprint.**
+    **v9 (the SELECT→part FERRY brought into line — it had never migrated to the part-cell look): the right-rail ferry
+    (`roomsSideChip`, `part: false`) violated the spec 6 ways — a machine wash that brightened on play, the REJECTED two-layer
+    note model (`buildGridSelDriftFace` static blueprint + a separate `buildNoteSweep` over it, dimmed 0.45–0.55), an emitter
+    GLOW on play, a ground fill that didn't match the part cell, and a bright-on-play machine frame. FIX (part:false only, the
+    part-grid rail untouched): flat `partCellFill(buildRowColour(n))` ground + `partCellFrame` frame (white ring when active,
+    never a hue-brighten) + ONE `buildOutputFace(strikeIdx:)` (blueprint at rest → live emitted notes when auditioning) + the
+    glow/wash/dimming/two-layer all removed. Ground now routes through `partCellFill(buildRowColour(n))` = the SAME recipe as
+    the part cell, so the two read identical AND the position-vs-machine-hue colour choice (#6, PARKED for Paul) is a one-place
+    change in `partCellFill`.**
 - **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
     constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
     (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a

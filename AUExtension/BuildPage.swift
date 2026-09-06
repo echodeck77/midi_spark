@@ -2053,39 +2053,41 @@ extension DiagView {
         // tint + a corner dot. When the select→part ferry is the AIMED/auditioning one, it now shows the audition's LIVE
         // emitted notes (#5, Paul 2026-08-30): the audition parks on buildChainAuditionRow (col 0), so its strike feed lives
         // at that engine index — read it here. Idle → the static CHAIN fingerprint (buildGridSelRowRoll) as the calm tell.
-        let liveIdx = (!part && playing) ? buildChainAuditionRow : nil    // this ferry is auditioning → its live-strike engine row (col 0)
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
             .frame(height: height)
-            .overlay(RoundedRectangle(cornerRadius: 5).fill(mHue.opacity(populated ? (playing ? 0.24 : 0.10) : 0)))   // faint MACHINE wash
+            // FLAT dark ground on the SELECT→part ferry (Paul 2026-09-06): partCellFill == the part cell's ground, so the ferry
+            // reads IDENTICAL to the part slot it stamps (spec design-cell-language: PART + part ferries = dark + flat, no wash).
+            // The part-grid rail keeps its faint machine wash.
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(part ? mHue.opacity(populated ? 0.10 : 0) : (populated ? partCellFill(buildRowColour(n)) : Color.clear)))
+            // ONE emitter constellation (Paul 2026-09-06): the SAME buildOutputFace the part cell uses — the static blueprint at
+            // rest, the ACTUAL emitted notes when auditioning (strikeIdx = the audition's live-strike row). Was a static sigil +
+            // a separate live layer drifting over it (the rejected two-layer model) at 0.45–0.55 opacity.
             .overlay { if populated && !part {
-                ZStack {
-                    // BASE: the chain's fingerprint. While PLAYING it DRIFTS (a guaranteed "this is running" tell that covers the
-                    // edges where the live strike feed is momentarily empty or the audition row shifted — Paul 2026-08-30, the
-                    // "subsequent copies didn't animate" bug); idle → a calm static fingerprint.
-                    buildGridSelDriftFace(buildGridSelRowRoll[n] ?? [], animated: playing, tint: eHue)
-                        .padding(.vertical, 3).padding(.horizontal, 2).opacity(playing ? 0.45 : 0.55)
-                    // REAL audition notes ride ON TOP when this ferry's live-strike row is known (brighter, the honest signal).
-                    if let li = liveIdx { buildNoteSweep(idx: li, active: true, id: buildRowColour(n), emitter: buildRowEmittersResolved(n)) }
-                }
+                buildOutputFace(buildGridSelRowRoll[n] ?? [], tint: eHue, playing: playing,
+                                strikeIdx: playing ? (buildChainAuditionRow.map { [$0] } ?? []) : [])
             } }
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this row's hue
             .clipShape(RoundedRectangle(cornerRadius: 5))
             // INVERTED when this row is the FOCUSED machine (shown in the machine view): the WHOLE chip becomes the
             // machine colour and the number goes to an alpha knockout (Paul 2026-09-04). Part rail only.
             .overlay { if part && selectedVis { RoundedRectangle(cornerRadius: 5).fill(mHue) } }
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : (selectedVis ? Color.white.opacity(0.7) : buildEdge),
-                                                              lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))   // MACHINE frame: dim → BRIGHT when PLAYING (an empty SELECTED slot gets a white ring)
+            // FRAME (Paul 2026-09-06): the part-grid rail keeps its bright-on-play machine frame; the SELECT→part ferry wears the
+            // part cell's DARK, FLAT partCellFrame (never brightens on play — only the notes animate), with a WHITE RING when it's
+            // the active/aimed source (spec: selected = white ring, not a hue brighten).
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(
+                part ? (populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : (selectedVis ? Color.white.opacity(0.7) : buildEdge))
+                     : (playing ? partCellFrame(buildRowColour(n)) : (selectedVis ? Color.white.opacity(0.85) : (populated ? partCellFrame(buildRowColour(n)) : buildEdge))),
+                lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))
             .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
             .overlay(alignment: .topTrailing) { if populated { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
             .overlay {
                 if part {                                                // PART rail → the slot NUMBER: machine hue normally; an ALPHA knockout when the chip is inverted (focused)
                     Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced))
                         .foregroundColor(selectedVis ? Color.black.opacity(0.6) : mHue.opacity(populated ? 1.0 : 0.5))
-                } else {                                                 // SELECT→part ferry → a small PLAY/STOP status glyph in the machine hue (over a calm fingerprint)
+                } else {                                                 // SELECT→part ferry → a small PLAY/STOP status glyph in the machine hue (over the flat dark ground)
                     Image(systemName: playing ? "stop.fill" : "play.fill").font(.system(size: min(11, height * 0.4), weight: .black)).foregroundColor(populated ? mHue : buildDim).opacity(playing ? 0.85 : 1.0)
                 }
             }
-            .shadow(color: playing ? eHue.opacity(0.7) : .clear, radius: playing ? 5 : 0)   // PLAYING → an EMITTER-coloured glow (the "this is alive" tell)
             .contentShape(Rectangle())
             .onTapGesture {
                 if buildSelectMode { if let cid = buildRowColour(n) { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this row's colour, then end SELECT (Paul 2026-08-31)
