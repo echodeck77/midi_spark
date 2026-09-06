@@ -1128,10 +1128,6 @@ struct ProcessorBox: View {
     private func weaveDrawnAt(_ arr: [StepRate]?, _ i: Int) -> StepRate {
         let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .r1_8
     }
-    private func rtcSliceAt(_ arr: [Int]?, _ i: Int) -> Int {   // RATCHET PATTERN per-slice count (safe read)
-        let a = arr ?? []; let v = i >= 0 && i < a.count ? a[i] : 1; return max(1, v)   // clamp to a valid 1…8 (no REST — Paul 2026-09-06)
-    }
-
     private func tuttiSliceAt(_ arr: [TuttiSlice]?, _ i: Int) -> TuttiSlice {   // safe read (a loaded doc may carry <8)
         let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .all
     }

@@ -4006,12 +4006,6 @@ extension DiagView {
         return (ch(16) << 16) | (ch(8) << 8) | ch(0)
     }
     // Perceived darkness of a hex — used to invert a row button's background when its coloured icon would vanish.
-    private func buildIsDark(_ hex: UInt32) -> Bool {
-        let r = Double((hex >> 16) & 0xFF), g = Double((hex >> 8) & 0xFF), b = Double(hex & 0xFF)
-        return (0.299 * r + 0.587 * g + 0.114 * b) / 255.0 < 0.45
-    }
-    // The row button's background: normally the muted rail; but in PLACE/MUTATE, if the SELECTED colour (the icon
-    // colour) is DARK, invert to a light button so the icon still reads. (Paul 2026-08-16)
 
 
 
