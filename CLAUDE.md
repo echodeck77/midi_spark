@@ -179,6 +179,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ IGNORE INCOMING ALL-NOTES-OFF — the sustained-chord "empty pass" fix (2026-09-06, on `main`, merge `27304e1`; iOS builds,
+  macOS 1065 green; DEVICE ear owed). Paul: a third-party app feeding SUSTAINED chords dropped out for most of a pass even
+  WITHOUT hold — a synth on the same source held it fine. ROOT CAUSE (confirmed via Paul's MIDI monitor): the source floods
+  **CC120 (All Sound Off) + CC123 (All Notes Off) on all 16 channels** around each chord (loop/phrase/transport resets are
+  common), and `Kernel.handleIncoming` wiped the ENTIRE live input pool on the first CC120/123 (`pool.reset()`), CHANNEL-
+  AGNOSTIC — so it nuked even a channel-filtered door, and since the burst shares the chord's render block (all Time:0), the
+  just-arrived chord was erased before the grid read it → silent pass. (The 2026-08-31 fix already spared the FROZEN/HOLD
+  pool from this; the LIVE pool was still wiped, which is why HOLD only partly rescued it + why the HOLD `.replace`-thinning
+  bit on top.) FIX (Paul chose toggle, default ignore): document-level `PluginState.ignoreAllNotesOff` (additive-Optional,
+  resolved DEFAULT TRUE = ignore) → `SnapshotBox.ignoreAllNotesOff` → Kernel guard `… && !ignoreAllNotesOff` on the pool
+  reset. Real note-offs still release notes; host/transport panic + the a8 stuck-note nets still flush. Cog **INPUT** section
+  toggle ("IGNORE ALL-NOTES-OFF"). +1 SnapshotBuilder test (resolver default TRUE + box carry; explicit false honors). DEVICE
+  ear owed (Kernel isn't unit-tested). FLAG: default flips existing docs to ignore — intended (a MIDI processor re-sequences
+  input, so a source's routine reset shouldn't clear it); turn it OFF per project if a source uses CC123 as its only release.**
 - **▶ RATCHET COIN "PASS-THROUGH" — a downstream per-note ratchet fold (2026-09-06, on `main`; iOS builds, macOS 1064 +
   fuzz green; DEVICE ear owed). Paul: "[ARP → ratchet] that plays through most notes but hits particular notes with a
   ratchet, by probability — pass through when NOT ratcheting." The existing `[ARP → RATCHET]` makes RATCHET the DRIVER
