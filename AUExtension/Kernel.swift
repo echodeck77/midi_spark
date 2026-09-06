@@ -268,7 +268,6 @@ final class Kernel {
     // gesture → union (staggered onset). A whole-chord restrike (release→regrow) replaces with the SAME chord = no drop.
     private var holdLiveLo = [UInt64](repeating: 0, count: 4)          // previous live NOTE SET per door (lo = notes 0…63)
     private var holdLiveHi = [UInt64](repeating: 0, count: 4)          // (hi = notes 64…127) — compared by IDENTITY so a same-size swap is caught
-    private var holdReleasing = [Bool](repeating: true, count: 4)      // a release happened since the last capture → the next ADD is a NEW chord (true at arm so the first press replaces)
     private var holdDiagLive = [Int](repeating: 0, count: 4)           // HOLD bisect: live admitted note count per door
     private var holdDiagFrozen = [Int](repeating: 0, count: 4)         // HOLD bisect: frozen (held) note count per door
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
@@ -281,7 +280,7 @@ final class Kernel {
             if isArmed && !wasArmed {
                 latchedPools[i].reset()                                   // fresh arm → start empty (no stale chord)
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
-                holdReleasing[i] = true; holdLiveLo[i] = 0; holdLiveHi[i] = 0   // ...and the HOLD gesture edge (first press after arm REPLACES)
+                holdLiveLo[i] = 0; holdLiveHi[i] = 0   // ...and the HOLD gesture edge: reset the mirror-and-freeze tracking so the first live chord after arm is captured
             }
             guard isArmed else { continue }
             if (replayMask & bit != 0 && replayEngagedMask & bit != 0) || (fileMask & bit != 0) {
@@ -960,7 +959,7 @@ final class Kernel {
         if !playing, reel.state != .off { reel.state = .off; reelExitFlush = true }   // transport stop → resume live
         if reelSelectRequest != Int.min {                          // the pop-up tapped a pass: pin it + REPLAY NOW (replace live output)
             let p = reelSelectRequest; reelSelectRequest = Int.min
-            if reel.selectPass(p) { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true) }   // reel REPLACES live output → flush the live WIRE/bypass monitor too (reconcileBypass is skipped during replay, so it can't close them → hung notes, Paul 2026-08-24)
+            if reel.selectPass(p) { reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true) }   // reel REPLACES live output (externalFlush also clears glide/mod — Finding 1: no process() edge here) → flush the live WIRE/bypass monitor too (reconcileBypass is skipped during replay, so it can't close them → hung notes, Paul 2026-08-24)
         }
         if reelStopRequest {                                       // the pop-up stopped replay: resume live, drop the pin
             reelStopRequest = false
@@ -975,7 +974,7 @@ final class Kernel {
         let reelPass = playing ? Int((beatPos / max(0.0001, reelCycleBeats)).rounded(.down)) : Int.min
         if playing, reelPass != reelLastPass {                     // pass boundary
             if reelRecordFromStart && !reelFrozen { reel.promote() }   // file ONLY a pass recorded start→finish, uninterrupted by reel mode
-            if reel.state == .armed { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true) }   // armed→replaying: flush the live WIRE/bypass monitor too (see above)
+            if reel.state == .armed { reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true) }   // armed→replaying (externalFlush also clears glide/mod — Finding 1: no process() edge here): flush the live WIRE/bypass monitor too (see above)
             reel.startPass(); reelLastPass = reelPass
             reelRecordFromStart = playing && !reelFrozen           // will the NEW pass record from its start? (partial/frozen passes never file)
         }
@@ -999,11 +998,11 @@ final class Kernel {
                 rPlaying = true; rBeat = freeRunBeat
             } else if freeRunActive {
                 freeRunActive = false; freeRunBeat = 0
-                router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)
+                router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)   // Finding 1: flush glide/mod too (no process() edge here → stale glide slot otherwise)
             }
         } else if freeRunActive {   // host started, or free-run disabled mid-run → stop + flush the free-run notes
             freeRunActive = false; freeRunBeat = 0
-            router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)
+            router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)   // Finding 1: flush glide/mod too (no process() edge here → stale glide slot otherwise)
         }
         diag.beat = rBeat            // EFFECTIVE beat (host OR free-run) → UI beat-driven playheads work while the host is stopped (Paul 2026-08-29)
         diag.effectivePlaying = rPlaying   // host OR free-run actually running → the UI shows "playing" only when sound is really happening (Paul 2026-09-04)
@@ -1185,11 +1184,12 @@ final class Kernel {
         if isForwardableController(bytes[0]), let out = midiOut {
             for i in 0..<4 { hearingScratch[i] = receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable) && receiverHearsMask(receiverChanMask[i], channel: channel) }   // CR-16: reused scratch (no per-event alloc)
             let fwd = controllerForwardMask(hearing: hearingScratch, masks: receiverControllerMask)
-            // CC120/123 (all-sound/all-notes-off): while a HOLD/LATCH is armed, do NOT relay it to the synth — it would kill
-            // the deliberately-held chord DOWNSTREAM even though we now keep it internally (completes the 2026-08-31 HOLD fix:
-            // the held sound must survive a source's all-notes-off at the synth too, not just in our voice table). Other CCs
-            // forward normally; with nothing armed the panic passthrough is unchanged. Device-owed (Kernel isn't unit-tested). (Paul 2026-09-01)
-            let suppressAllOff = (bytes[0] & 0xF0) == 0xB0 && length >= 2 && (bytes[1] == 120 || bytes[1] == 123) && effectiveLatchMask != 0
+            // CC120/123 (all-sound/all-notes-off): do NOT relay it to the synth when either a HOLD/LATCH is armed (it would
+            // kill the deliberately-held chord DOWNSTREAM even though we keep it internally) OR ignoreAllNotesOff is on (the
+            // source floods it as noise — Finding 2, 2026-09-07: forwarding it when NO latch was armed silenced the grid's OWN
+            // sustained/legato output at the synth while our refcount still held those notes, an inconsistency vs the pool
+            // suppression). Other CCs forward normally. Device-owed (Kernel isn't unit-tested).
+            let suppressAllOff = (bytes[0] & 0xF0) == 0xB0 && length >= 2 && (bytes[1] == 120 || bytes[1] == 123) && (effectiveLatchMask != 0 || ignoreAllNotesOff)
             if fwd != 0 && !suppressAllOff {
                 let n = min(length, 3)
                 for i in 0..<n { passthroughScratch[i] = bytes[i] }

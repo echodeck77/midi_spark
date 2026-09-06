@@ -1035,6 +1035,16 @@ final class Router {
         }
         for i in 0..<4 { emitterLastOnsetSample[i] = .min }   // HOCKET: clear the wire-onset feed on any flush edge (no stale TRADE trigger)
     }
+    /// EXTERNAL hard flush — for the Kernel's reel/free-run edges, which close voices OUTSIDE Router.process() and so get
+    /// no transport edge. allNotesOff alone closes a glide's immortal ANCHOR voice but leaves its `glideVoices[]` slot
+    /// dangling; on resume (host still playing → no process() edge → no flushGlide) a reused slot gets wrong-closed by
+    /// glide's phrase-end → a spurious note-off. This mirrors what process() does at its own flush edges, so those Kernel
+    /// edges can't strand the glide/mod subsystems. (Paul 2026-09-07, housekeeping — engine Finding 1.)
+    func externalFlush(box: SnapshotBox, atSample time: Int64, out: MIDIEmitter?, includeBypass: Bool = false) {
+        allNotesOff(atSample: time, out: out, includeBypass: includeBypass)
+        flushGlide(atSample: time, out: out)
+        flushMod(box: box, atSample: time, out: out)
+    }
     /// PANIC belt-and-braces (incident 2026-08-08 §3): beyond our own tracked note-offs, blast CC120 (all-sound-off)
     /// + CC123 (all-notes-off) on every channel and every cable, so a wedged synth we can't fully account for gets a
     /// blameless reset. Only on the hard flush (master-MUTE long-press / panic) — never on ordinary edges.
