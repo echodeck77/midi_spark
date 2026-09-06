@@ -3934,28 +3934,30 @@ final class Router {
             }
             j += 1
         }
-        // RATCHET fold (Paul 2026-09-06): a downstream fold-ratchet re-shapes THIS driver note in place — the ARP (etc.)
-        // keeps its rhythm + note lengths; the ratchet doesn't re-pool. PATTERN reads the per-slice count at this note's time
-        // (on the ratchet's own RATE grid): REST (·) DROPS the note (reset `cur` now → its echoes drop too, like LENGTH MUTE),
-        // 1 = pass through unchanged, 2/3/4 = burst its own [on, off] span. COIN reads the seeded chance (velFactor 1.0 in
-        // fold mode, as before). Decided ONCE per driver note → deterministic + replay-safe.
-        var foldBurst = 0; var foldRamp = 0.0
+        // RATCHET fold (Paul 2026-09-06): a downstream fold-ratchet re-shapes THIS driver note IN PLACE — the ARP keeps its
+        // rhythm; the ratchet doesn't re-pool. PATTERN reads the per-slice count at this note's time on the ratchet's own
+        // RATE grid (the pattern LENS): 1 = play the note once (untouched); 2…8 = re-fire the SAME note (its own pitch +
+        // length) that many times, evenly spaced over the gap to the NEXT driver note (spacing = driverStep ÷ N). RATE only
+        // picks the count — the SPACING comes from the gap, the LENGTH from the note itself; long notes' copies may OVERLAP
+        // (the engine re-articulates same-pitch overlaps, no stuck notes). The N−1 spread copies ride the ECHO ring so they
+        // emit ACROSS render blocks (a single-tick fold can't spread otherwise). COIN reads the seeded chance (velFactor 1.0).
+        var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0
         if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
             let rp = cell.procs[fi]
+            let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // gap to the next driver (arp) note
             if rp.rtcMode == .pattern {
                 let rate = max(0.03125, rp.rtcRateBeats)
                 let idx = ((Int((m / rate).rounded(.down)) + rp.rtcRotate) % 8 + 8) % 8
-                let raw = idx < rp.rtcSlices.count ? rp.rtcSlices[idx] : 0
-                if raw <= 0 { cur.reset(); cur.rebuildSorted() }          // REST → drop this note (+ echoes below)
-                else if raw >= 2 { foldBurst = min(8, raw); foldRamp = rp.ramp }   // 1 = plain pass-through (foldBurst 0)
+                let raw = idx < rp.rtcSlices.count ? rp.rtcSlices[idx] : 1
+                foldBurst = max(1, min(8, raw))                          // 1 = plain (untouched) · 2…8 = ratchet (no REST — Paul 2026-09-06)
             } else {   // COIN pass-through
                 let step = Int((m / S).rounded())
                 if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
                     foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
                                                           : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
-                    foldRamp = rp.ramp
                 }
             }
+            if foldBurst > 1 { foldSpacingBeats = driverStep / Double(foldBurst); foldDecay = max(0.2, 1.0 - rp.ramp * 0.6) }   // BURST FADE ≈ echo decay taper
         }
         // LENGTH downstream: replace THIS onset's gate by the slice it lands in — MUTE drops the note (+ its echoes),
         // PASS keeps the driver's own gate, SHORT/LONG override the off. The off-beat → sample conversion is linear
@@ -3985,16 +3987,16 @@ final class Router {
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
             if splitGateActive && (Int(n) < splitGateLo || Int(n) > splitGateHi || Int(cur.velocity(n)) < splitGateVF || Int(cur.velocity(n)) > splitGateVC) { continue }   // SPLIT punch-hole → rest
-            if foldBurst > 1 {                                    // RATCHET this note: subdivide its [on, off] span into `foldBurst` staccato sub-strikes
-                let span = max(1, offOut - onSample), sub = max(1, span / Int64(foldBurst))
-                for bi in 0..<foldBurst {
-                    let onB = onSample + Int64(bi) * sub, offB = onB + Int64(Double(sub) * 0.6)
-                    let vB = ratchetVelocity(base: max(1, Int(cur.velocity(n))), ramp: foldRamp, index: bi, count: foldBurst)
-                    emitChop(Int(n), cell: cell, bm: bm, onSample: onB, offSample: offB, windowEnd: windowEnd, velocity: vB, m: m, S: S, out: out, diag: &diag)
-                }
-            } else {                                             // PASS THROUGH unchanged (the driver's own note + full gate)
-                emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offOut, windowEnd: windowEnd,
-                         velocity: max(1, cur.velocity(n)), m: m, S: S, out: out, diag: &diag)   // per-note carried velocity (offOut = LENGTH-overridden gate)
+            let baseVel = max(1, Int(cur.velocity(n)))
+            // STRIKE 0 = the driver note itself, at its OWN length (offOut = LENGTH-overridden gate). Then, if the fold
+            // ratchet calls for N>1, register N−1 more COPIES spaced over the gap to the next note — via the ECHO ring so
+            // they spread across render blocks (each copy keeps the note's own length; overlaps re-articulate cleanly).
+            emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offOut, windowEnd: windowEnd, velocity: UInt8(baseVel), m: m, S: S, out: out, diag: &diag)
+            if foldBurst > 1 && foldSpacingBeats > 0 {
+                let noteLenBeats = max(0.01, Double(max(1, offOut - onSample)) * beatsPerSample)
+                let echoBM = chopMask(cell, m: m, S: S, base: bm)
+                pushEchoTail(onset: m, note: n, vel: UInt8(baseVel), busMask: echoBM, timeBeats: foldSpacingBeats, repeats: foldBurst - 1,
+                             feedDelay: 1.0, decay: foldDecay, offset: 0, pitch: 0, gateBeats: noteLenBeats)
             }
         }
     }
@@ -4347,9 +4349,8 @@ final class Router {
                     } else {
                         idx = (((g + p.rtcRotate) % 8) + 8) % 8
                     }
-                    let raw = idx < p.rtcSlices.count ? p.rtcSlices[idx] : 0
-                    if raw <= 0 { continue }                               // REST — a true gap (Paul 2026-09-06; was 1 plain hit)
-                    let count = min(8, raw)                                // 1 = plain single hit · 2/3/4 = roll
+                    let raw = idx < p.rtcSlices.count ? p.rtcSlices[idx] : 1
+                    let count = max(1, min(8, raw))                        // 1 = plain single hit · 2…8 = roll (no REST — Paul 2026-09-06)
                     let sEnd = min(colEnd, sliceStart + sliceBeats), subSlice = sliceBeats / Double(count)
                     for j in 0..<count {
                         let tau = sliceStart + Double(j) * subSlice

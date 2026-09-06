@@ -415,13 +415,13 @@ struct ProcessorBox: View {
                 // PASS · RATCHET CHOSEN keeps the arp driving — most notes pass through UNCHANGED, only the COIN-chosen ones burst.
                 field("WHEN AFTER A DRIVER (e.g. ARP)", \.rtcFold) {
                     seg(["RATCHET DRIVES", "PASS · RATCHET CHOSEN"], sel: (p.rtcFold ?? false) ? "PASS · RATCHET CHOSEN" : "RATCHET DRIVES") { i in setParam { $0.rtcFold = (i == 1) } } }
-            } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
-                heroField("ROLLS PER STEP — tap a cell  (· = REST · 1 = plain · 2/3/4 = roll)") {
-                    stateMatrixRadio([0, 1, 2, 3, 4],
-                        header: { v in AnyView(Text(v <= 0 ? "·" : "\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
+            } else {   // pattern — a STATE MATRIX (rows = strikes per step, cols = the 8 steps)
+                heroField("STRIKES PER STEP — tap a cell  (1 = plain · 2–8 = ratchet)") {
+                    stateMatrixRadio([1, 2, 3, 4, 5, 6, 7, 8],
+                        header: { v in AnyView(Text("\(max(1, v))").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
                         eFill: true, onRotate: { d in setParam { $0.rtcRotate = ((($0.rtcRotate ?? 0) + d) % 8 + 8) % 8 } },
                         selected: { i in rtcSliceAt(p.rtcSlices, i) },
-                        set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 0, count: 8); while s.count < 8 { s.append(0) }; s[i] = v; $0.rtcSlices = s } })
+                        set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 1, count: 8); while s.count < 8 { s.append(1) }; s[i] = v; $0.rtcSlices = s } })   // default/pad = 1 (plain), never 0 (no REST — Paul 2026-09-06)
                 }
             }
             field("BURST FADE — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%", \.ramp) {
@@ -1133,7 +1133,7 @@ struct ProcessorBox: View {
         let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .r1_8
     }
     private func rtcSliceAt(_ arr: [Int]?, _ i: Int) -> Int {   // RATCHET PATTERN per-slice count (safe read)
-        let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : 0
+        let a = arr ?? []; let v = i >= 0 && i < a.count ? a[i] : 1; return max(1, v)   // clamp to a valid 1…8 (no REST — Paul 2026-09-06)
     }
 
     private func tuttiSliceAt(_ arr: [TuttiSlice]?, _ i: Int) -> TuttiSlice {   // safe read (a loaded doc may carry <8)

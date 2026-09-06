@@ -303,7 +303,7 @@ struct ColourParams: Codable, Equatable {
     var rtcQuota: Int? = nil                   // ③ rough fires-per-row budget (0 = FREE · 2/3/4; nil/0 ⇒ off)
     var rtcOddsVel: Bool? = nil                // ④ fire-odds scale with the incoming note velocity (nil/false ⇒ FIXED)
     var rtcFold: Bool? = nil                   // COIN "PASS THROUGH" (Paul 2026-09-06): downstream of a driver, RATCHET stops being the driver — the upstream (e.g. ARP) drives, and each note either PASSES THROUGH unchanged or (per the COIN chance) is REPLACED by a ratchet burst. nil/false ⇒ RATCHET drives (legacy).
-    var rtcSlices: [Int]? = [2, 0, 2, 0, 2, 0, 2, 0]   // PATTERN: 8 per-slice counts (0/· = REST · 1 = plain hit · 2/3/4 = roll) — Paul 2026-09-06: 0 is now a true rest (was a plain hit)
+    var rtcSlices: [Int]? = [2, 1, 2, 1, 2, 1, 2, 1]   // PATTERN: 8 per-slice STRIKE COUNTS (1 = plain single · 2…8 = ratchet). No REST — Paul 2026-09-06 (a 0 clamps to 1). Downstream of a driver each cell ratchets that arp note in place.
     var rtcRate: ArpRate? = .r1_8              // PATTERN: slice rate (slices per window, walks the bar)
     var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)
     var rtcSpan: PatternSpan? = nil            // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19

@@ -179,6 +179,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET PATTERN fold v2 — AUDIBLE ratchet via the echo ring, REST dropped, matrix 1–8 (2026-09-06, on `main`; iOS builds,
+  macOS 1066 green incl. fuzz; DEVICE ear owed). SUPERSEDES the same-day "true REST = silence" fold below (two mis-reads
+  corrected). Paul: (1) REST should be pass-through, not silence — so DROP rest entirely, matrix = **1,2,3,4,5,6,7,8** (1 =
+  plain/untouched · 2–8 = ratchet); (2) `[ARP 1/8 → RATCHET PATTERN 1/8]` with a 2/3/4 slice gave only "slightly shorter length,
+  not ratcheting." ROOT CAUSE of (2): the fold bursted each arp note over its own SHORT GATE (`offOut−onSample`) → sub-strikes
+  crammed into a near-inaudible flam; and a per-tick fold can't spread strikes across audio blocks (the engine emits note-ONs
+  immediately, only note-OFFs defer). RATIFIED MODEL: the ratchet's RATE = a pattern LENS (which count each arp note reads);
+  the count N = re-fire that arp note (its OWN pitch + length) N times spaced over the gap to the NEXT arp note (spacing =
+  driverStep÷N); RATE never touches length; long notes' copies OVERLAP (engine re-articulates same-pitch, no stuck notes).
+  IMPL: `emitDriverNote` emits strike 0 (the note at its own length) then registers N−1 copies as **ECHO-ring tails**
+  (`pushEchoTail`, feedDelay 1 · decay from BURST-FADE · gateBeats = note length) — reusing the proven cross-block, no-stuck,
+  flood-governed, replay-safe drain. `driverStep = Snap.arpRateBeats[driver.rateIndex]`. COIN fold now spreads the same way.
+  Standalone/driver PATTERN path: REST removed (`count = max(1,min(8,raw))`, window-scans as before). Matrix → `[1…8]` +
+  `rtcSliceAt`/set default 1; `rtcSlices` default `[2,1,2,1…]`. Tests updated (all-1 == arp alone · 2/4-per-step > arp; dropped
+  the silence assertions). **v1 LIMITS (flagged):** `driverStep` uses the driver's nominal rate (exact for a uniform arp;
+  approximate for variable-spacing drivers); a downstream ECHO echoes only strike 0, not the ratchet copies; N−1 tails/arp-note
+  can hit the 256-tail ring / 48-per-beat flood cap under extreme settings (copies drop, no stuck notes). DEVICE ear owed.**
 - **▶ RATCHET PATTERN — a downstream PER-NOTE FOLD + a true REST (2026-09-06, on `main`; iOS builds, macOS 1066 green incl.
   fuzz; DEVICE ear owed). Paul: `[ARP → RATCHET PATTERN]` altered notes on rest + made short arp notes long. ROOT CAUSE:
   RATCHET PATTERN, as the LAST driver, BECAME the chain driver and RE-POOLED the arp — a chain driver reads only the upstream

@@ -2136,10 +2136,8 @@ final class DerivationsTests: XCTestCase {
         }
         let plain = Accept.onsA([pat(Array(repeating: 1, count: 8))]).count   // every slice a plain single hit (1)
         let dense = Accept.onsA([pat(Array(repeating: 4, count: 8))]).count    // every slice a 4-roll
-        let rest  = Accept.onsA([pat(Array(repeating: 0, count: 8))]).count    // every slice a REST (Paul 2026-09-06: 0 is a true gap now)
         XCTAssertGreaterThan(dense, plain, "PATTERN all-4 emits more than all-plain")
         XCTAssertGreaterThan(plain, 0, "plain (1) slices sound")
-        XCTAssertEqual(rest, 0, "REST (0/·) slices are a true gap — silence")
         XCTAssertEqual(Accept.notesA([pat(Array(repeating: 3, count: 8))]), [60, 64, 67], "the chord sounds")
     }
 
