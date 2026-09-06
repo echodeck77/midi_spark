@@ -2049,7 +2049,7 @@ extension DiagView {
     //   TAP        = make this the ACTIVE selection (white border) + play/load its chain (reflected in the chain/IN/OUT
     //                panel) + arm it as a STAMP SOURCE when populated (buildGridSelStampSourceRow).
     //   LONG-PRESS = copy the active source (a browse CELL *or* another SIDE BUTTON) onto this slot — the rising white
-    //                fill → white-fade CONFIRM revealing the part's pre-allocated colour (colourHexes[n]).
+    //                fill → white-fade CONFIRM revealing the part's fixed-by-row-position colour (partPosHex(n)).
     // The stamp writes the shared part row, so the PART grid's slot + row light up too (one model, two rooms). (Paul 2026-08-28)
     @ViewBuilder func roomsSideButton(_ n: Int, part: Bool = false) -> some View {
         GeometryReader { g in roomsSideChip(n, height: g.size.height, part: part) }
@@ -2057,7 +2057,7 @@ extension DiagView {
     @ViewBuilder private func roomsSideChip(_ n: Int, height: CGFloat, part: Bool) -> some View {
         let populated = buildRowColour(n) != nil                          // this slot/row holds a chain
         let active = buildGridSelStampSourceRow == n                      // THE active side button
-        let mHue = Color(hex: colourHexes[n % 16])                        // MACHINE identity (the row's predetermined colour)
+        let mHue = partPosHue(n)                                          // ROW-POSITION identity (design-cell-language decision 4: "row 7 always yellow") — the BRIGHT row hue, used only for the number / focus inverse / stamp bloom
         let eHue = emitterHue(buildRowEmittersResolved(n))               // EMITTER colour (routing)
         let selectedVis = active && (populated || part)   // PART rail: an EMPTY slot can be selected too (Paul 2026-09-03), so it highlights when active
         // IS THIS ROW'S CELL SOUNDING? PART grid → the SEQUENCER's active rung; SELECT→part ferry → the AIMED audition
@@ -2072,10 +2072,10 @@ extension DiagView {
         // at that engine index — read it here. Idle → the static CHAIN fingerprint (buildGridSelRowRoll) as the calm tell.
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
             .frame(height: height)
-            // FLAT dark ground on the SELECT→part ferry (Paul 2026-09-06): partCellFill == the part cell's ground, so the ferry
-            // reads IDENTICAL to the part slot it stamps (spec design-cell-language: PART + part ferries = dark + flat, no wash).
-            // The part-grid rail keeps its faint machine wash.
-            .overlay(RoundedRectangle(cornerRadius: 5).fill(part ? mHue.opacity(populated ? 0.10 : 0) : (populated ? partCellFill(buildRowColour(n)) : Color.clear)))
+            // FLAT dark, FIXED-BY-ROW-POSITION ground for BOTH rails (Paul 2026-09-06, design-cell-language decision 4):
+            // the ferry reads IDENTICAL to the part slot it stamps, and the two halves of the one component finally agree —
+            // dark position hue, no wash. (Was: part rail = a faint machine wash; ferry = a machine-hued partCellFill.)
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(populated ? partPosFill(n) : Color.clear))
             // ONE emitter constellation (Paul 2026-09-06): the SAME buildOutputFace the part cell uses — the static blueprint at
             // rest, the ACTUAL emitted notes when auditioning (strikeIdx = the audition's live-strike row). Was a static sigil +
             // a separate live layer drifting over it (the rejected two-layer model) at 0.45–0.55 opacity.
@@ -2086,14 +2086,15 @@ extension DiagView {
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this row's hue
             .clipShape(RoundedRectangle(cornerRadius: 5))
             // INVERTED when this row is the FOCUSED machine (shown in the machine view): the WHOLE chip becomes the
-            // machine colour and the number goes to an alpha knockout (Paul 2026-09-04). Part rail only.
+            // row-position colour and the number goes to an alpha knockout (Paul 2026-09-04, kept as the part-rail focus
+            // tell per Paul 2026-09-06). Part rail only.
             .overlay { if part && selectedVis { RoundedRectangle(cornerRadius: 5).fill(mHue) } }
-            // FRAME (Paul 2026-09-06): the part-grid rail keeps its bright-on-play machine frame; the SELECT→part ferry wears the
-            // part cell's DARK, FLAT partCellFrame (never brightens on play — only the notes animate), with a WHITE RING when it's
-            // the active/aimed source (spec: selected = white ring, not a hue brighten).
+            // FRAME (Paul 2026-09-06): BOTH rails now wear the DARK, FLAT partPosFrame (never brightens on play — only the
+            // notes animate), with a WHITE RING when the button is the active/aimed source (design-cell-language decision 5:
+            // selected = white ring, not a hue brighten). Was: part rail = a bright machine frame; ferry = a machine partCellFrame.
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(
-                part ? (populated ? mHue.opacity(playing ? 1.0 : (selectedVis ? 0.9 : 0.5)) : (selectedVis ? Color.white.opacity(0.7) : buildEdge))
-                     : (playing ? partCellFrame(buildRowColour(n)) : (selectedVis ? Color.white.opacity(0.85) : (populated ? partCellFrame(buildRowColour(n)) : buildEdge))),
+                populated ? (selectedVis ? Color.white.opacity(0.85) : partPosFrame(n))
+                          : (selectedVis ? Color.white.opacity(0.7) : buildEdge),
                 lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))
             .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
             .overlay(alignment: .topTrailing) { if populated { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
@@ -2674,7 +2675,7 @@ extension DiagView {
         // background) but keeps its border — so the sweep's target rung stands out. (Paul 2026-09-04)
         let hollow = buildAutoActive() >= 0 && !selected
         let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
-                          flatFill: partCellFill(id), flatFrame: partCellFrame(id),   // Paul 2026-09-05 v2: DARK, SATURATED, FLAT machine hue (matches the selector)
+                          flatFill: partPosFill(r), flatFrame: partPosFrame(r),   // Paul 2026-09-06: DARK, FLAT, FIXED-BY-ROW-POSITION hue (design-cell-language decision 4 — was the machine hue)
                           sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: emitterHue(buildRowEmittersResolved(r)), playing: buildStagingPlaying && selected, strikeIdx: [idx]) })   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
         // punch look), so it is always clear + legible and NEVER becomes another colour. It fades only VERY slightly while
@@ -4432,8 +4433,17 @@ extension DiagView {
     // step*Snap.rows + 8+c), so the ferry gathers ALL its steps' feeds → the whole pass's notes drift, not just step 0.
     // THE PART cell colour (Paul 2026-09-05 v2): a DARK, SATURATED, FLAT version of the row's MACHINE hue (row 7 = its yellow
     // machine, etc.) — matches the row selector (same hue), no wash/fade. The bright emitter constellation rides on top.
-    private func partCellFill(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.16)) } ?? buildCell }   // DEEP dark (Paul 2026-09-05: "primary as fuck" → much darker, just a hint of hue over the ground)
+    private func partCellFill(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.16)) } ?? buildCell }   // DEEP dark (Paul 2026-09-05: "primary as fuck" → much darker, just a hint of hue over the ground). MACHINE hue — kept for the PLAY ferry (roomsPlayFerry) only.
     private func partCellFrame(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.34)) } ?? buildEdge }   // a subtly-lighter dark edge — never the bright hue
+    // FIXED-BY-ROW-POSITION dark-flat ground for the BENCH surfaces — the part cells + the part/SELECT→part side rails
+    // (design-cell-language.md decision 4, RATIFIED: "row 7 always yellow", fixed by POSITION not machine identity; Paul
+    // 2026-09-06 — "dark colours for the side rails and bright colours for the emitters", using partRowHexes). The dark
+    // ground = the row's fixed hue mixed deep into the stage; the BRIGHT row hue (partPosHue) is reserved for the identity
+    // number, the focus inverse, and the stamp bloom, while the constellation stays the bright EMITTER colour.
+    private func partPosHex(_ row: Int) -> UInt32 { partRowHexes[((row % partRowHexes.count) + partRowHexes.count) % partRowHexes.count] }
+    private func partPosHue(_ row: Int) -> Color { Color(hex: partPosHex(row)) }
+    private func partPosFill(_ row: Int) -> Color { Color(hex: mixHex(0x0E1116, partPosHex(row), 0.16)) }   // DARK + FLAT, the same recipe as partCellFill but keyed on POSITION
+    private func partPosFrame(_ row: Int) -> Color { Color(hex: mixHex(0x0E1116, partPosHex(row), 0.34)) }  // subtly-lighter dark edge — never the bright hue
     // THE CONSTELLATION face (Paul 2026-09-05, design-cell-language.md): a dot per note (radius ∝ velocity) at (x=time,
     // y=pitch, both 0…1 with y already inverted so 0=top), joined by a faint path in x-order — the cell's output as a sigil.
     // SHARED by the live drift (buildNoteSweep + buildOutputFace playing) and the offline blueprint (buildOutputFace idle).
