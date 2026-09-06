@@ -236,6 +236,47 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(cellCount([human]), 0, "standalone HUMANIZE still generates")
         XCTAssertGreaterThan(cellCount([shift]), 0, "standalone SHIFT still generates")
     }
+    // FOLD must MODIFY, not just preserve the count (Housekeeping 2026-09-07): the count-equality test above would still pass
+    // if a fold regressed to a pass-through identity. SHIFT pushes each arp note LATER → [ARP→SHIFT] onset-sum strictly > arp.
+    func testShiftFoldActuallyDelaysArpOnsets() {
+        func onsets(_ procs: [ProcessorSlot]) -> [Int64] {
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
+        }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var shift = ProcessorSlot(type: .shift); shift.params.spread = 1.0
+        let base = onsets([arp]), shifted = onsets([arp, shift])
+        XCTAssertEqual(base.count, shifted.count, "SHIFT pushes each note in place — same count")
+        XCTAssertGreaterThan(shifted.reduce(0, +), base.reduce(0, +), "[ARP→SHIFT] delays the onsets (a pass-through identity fold would not)")
+    }
+    // HUMANIZE fold is replay-safe (seeded) AND actually perturbs (jitters onset/velocity vs the arp alone).
+    func testHumanizeFoldIsReplaySafeAndPerturbs() {
+        func stamps(_ procs: [ProcessorSlot]) -> [[Int64]] {
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { [$0.sample, Int64($0.note), Int64($0.vel)] }
+        }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var human = ProcessorSlot(type: .humanize); human.params.spread = 0.9
+        let a = stamps([arp, human]), b = stamps([arp, human])
+        XCTAssertEqual(a, b, "HUMANIZE is seeded → two runs byte-identical (replay-safe)")
+        XCTAssertNotEqual(stamps([arp]), a, "HUMANIZE actually perturbs the arp's onsets/velocities")
+    }
+    // A chain whose ONLY driver is a fold-ratchet (COIN pass-through) must still DRIVE: chainDriverIndex skips isRatchetFold
+    // but falls back to the last driver when there's no non-fold driver, so a lone [RATCHET COIN rtcFold] generates.
+    func testLoneFoldableRatchetStillDrives() {
+        let cs = colourIDs.map { Colour(colourID: $0, type: .ratchet) }
+        var r = ProcessorSlot(type: .ratchet); r.params.rtcMode = .coin; r.params.rtcFold = true
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [r]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+        assertNothingLeftSounding(e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "a lone fold-ratchet has nothing to fold onto → it drives + generates")
+    }
     // RATCHET PATTERN v3 (Paul 2026-09-06, RIFF-shaped): downstream of an ARP the PATTERN ratchet DRIVES — it re-clocks the
     // arp's note at its OWN RATE (STEPS strikes per SPAN window), independent of the arp/global grid. So it sounds, and a
     // faster ratchet RATE = more strikes (its own clock, not the arp's). Nothing left sounding.

@@ -78,6 +78,27 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(BuildSceneLogic.mutateChain([], avoid: [], &rng), "no slots → nothing to tweak")
     }
 
+    // passLen clamps a play-column pass length into [1, Snap.maxCols]; out-of-range column / short array → a single cell.
+    // (Housekeeping 2026-09-07: this gates multi-step play-pass composition and had zero coverage.)
+    func testPassLenClampsToMaxColsAndHandlesOutOfRange() {
+        XCTAssertEqual(BuildSceneLogic.passLen([5], 0), 5, "in-range length passes through")
+        XCTAssertEqual(BuildSceneLogic.passLen([0], 0), 1, "0 floors to a single cell")
+        XCTAssertEqual(BuildSceneLogic.passLen([999], 0), Snap.maxCols, "over-long clamps to the maxCols ceiling")
+        XCTAssertEqual(BuildSceneLogic.passLen([], 3), 1, "empty array → single cell")
+        XCTAssertEqual(BuildSceneLogic.passLen([5], 9), 1, "out-of-range column → single cell")
+    }
+
+    // mutateCount always yields 1…3 and is deterministic per seed (the mutate-grid fan-out count).
+    func testMutateCountStaysInOneToThreeAndIsSeeded() {
+        for seed in UInt64(0)..<200 {
+            var g = DiceRNG(seed: seed)
+            let n = BuildSceneLogic.mutateCount(&g)
+            XCTAssertTrue((1...3).contains(n), "mutateCount out of range: \(n) (seed \(seed))")
+        }
+        var a = DiceRNG(seed: 42), b = DiceRNG(seed: 42)
+        XCTAssertEqual(BuildSceneLogic.mutateCount(&a), BuildSceneLogic.mutateCount(&b), "same seed → same count")
+    }
+
     // The richer fingerprint captures GATE (note duration) where the note+onset signature is blind to it.
     func testFingerprintCapturesGateWhereSignatureIsBlind() {
         var longGate = ProcessorSlot(type: .arp); longGate.params.gate = 0.9
