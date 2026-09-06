@@ -179,6 +179,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET PATTERN — a downstream PER-NOTE FOLD + a true REST (2026-09-06, on `main`; iOS builds, macOS 1066 green incl.
+  fuzz; DEVICE ear owed). Paul: `[ARP → RATCHET PATTERN]` altered notes on rest + made short arp notes long. ROOT CAUSE:
+  RATCHET PATTERN, as the LAST driver, BECAME the chain driver and RE-POOLED the arp — a chain driver reads only the upstream
+  NOTE POOL (via composeChainSet), never its rhythm/lengths — so it discarded the arp's 1/8 timing + note-lengths and played
+  its own grid (long notes, firing on the arp's rests); and a "·"/0 pattern slice was coded as ONE PLAIN HIT, never silence.
+  Paul's model (ratified): PATTERN should PROCESS the upstream input per-note — ratchet each arp note IN PLACE. FIX (generalises
+  the 2026-09-06 COIN `rtcFold`): `isRatchetFold`→`isRatchetFoldable` now true for PATTERN too (always) — so `chainDriverIndex`
+  (rewritten: last non-foldable driver, else the last driver so a lone/`[HARMONIZE→RATCHET PATTERN]` ratchet still DRIVES)
+  skips a PATTERN ratchet when a real driver precedes it → the ARP keeps rhythm + lengths and `emitDriverNote` folds the
+  pattern onto each driven note: slice REST (0/·) DROPS the note (+ its echoes, like LENGTH MUTE), 1 = pass through, 2/3/4 =
+  burst its own [on,off] span (ramp = BURST FADE). Fold slice = the pattern's own RATE grid at the note's time (`floor(m/rate)`
+  + rotate). **TRUE REST (Paul's ruling, changes existing patterns):** 0/· is now SILENCE in BOTH the fold AND the
+  standalone/driver path (`emitRatchetModal`: `if raw<=0 { continue }`), and the PATTERN matrix gained a **1 = plain** state
+  (was `[0,2,3,4]` → now `[0,1,2,3,4]`, `·`=REST). +1 RouterTest (all-1 == arp alone · all-REST = silence · all-2 bursts ·
+  standalone all-REST silent) + updated the DerivationsTest that had encoded 0=plain. **v1 LIMITS (flagged):** the fold samples
+  the pattern on its RATE grid (Paul's "1/4" example), not the SPAN-ladder/CELL|ROW span (that still shapes the standalone
+  driver path); the matrix has no per-slice velocity; two PATTERN ratchets after one driver → only the first folds. DEVICE ear
+  owed. NOTE: default rtcSlices `[2,0,2,0…]` now reads as roll-2/REST (was roll-2/plain).**
 - **▶ RECEIVER STRIP — velocity indicator stripped back to a simple bar (2026-09-06, on `main`, `40dd3bd`; iOS builds; UI-only,
   DEVICE eye owed). Paul: strip the receiver strips right back to a simple velocity indicator + controller "as it was before",
   keeping the MIDI-accuracy fixes. Removed the two fader accretions in `buildReceiverFader` (BuildPage.swift): the per-machine

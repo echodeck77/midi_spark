@@ -416,8 +416,8 @@ struct ProcessorBox: View {
                 field("WHEN AFTER A DRIVER (e.g. ARP)", \.rtcFold) {
                     seg(["RATCHET DRIVES", "PASS · RATCHET CHOSEN"], sel: (p.rtcFold ?? false) ? "PASS · RATCHET CHOSEN" : "RATCHET DRIVES") { i in setParam { $0.rtcFold = (i == 1) } } }
             } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
-                heroField("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
-                    stateMatrixRadio([0, 2, 3, 4],
+                heroField("ROLLS PER STEP — tap a cell  (· = REST · 1 = plain · 2/3/4 = roll)") {
+                    stateMatrixRadio([0, 1, 2, 3, 4],
                         header: { v in AnyView(Text(v <= 0 ? "·" : "\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
                         eFill: true, onRotate: { d in setParam { $0.rtcRotate = ((($0.rtcRotate ?? 0) + d) % 8 + 8) % 8 } },
                         selected: { i in rtcSliceAt(p.rtcSlices, i) },

@@ -3384,21 +3384,30 @@ final class Router {
     /// `[arp → passgate]` or `[euclid → harmonize]` keep generating (the driver drives, the tail folds).
     private func chainDriverIndex(_ cell: SnapCell) -> Int {
         guard cell.procs.count >= 2 else { return -1 }
-        var i = cell.procs.count - 1
-        while i >= 0 {
-            // A COIN RATCHET in PASS-THROUGH (fold) mode is NOT the driver — it folds per-note downstream (emitDriverNote), so
-            // the UPSTREAM driver (e.g. the ARP) keeps its rhythm + note lengths and the ratchet only replaces chosen notes.
-            if !cell.slotBypass[i] && isDriverType(cell.procs[i].type) && !isRatchetFold(cell.procs[i]) { return i }
-            i -= 1
+        // The driver = the LAST non-bypassed driver that ISN'T a foldable ratchet. A RATCHET PATTERN (always) or a COIN
+        // ratchet in PASS-THROUGH folds PER-NOTE downstream (emitDriverNote), so the UPSTREAM driver (e.g. the ARP) keeps its
+        // rhythm + note lengths and the ratchet re-shapes each note in place instead of re-pooling (Paul 2026-09-06). If EVERY
+        // driver here is a foldable ratchet — nothing upstream to fold ONTO (a lone [RATCHET PATTERN] in a chain, or
+        // [HARMONIZE → RATCHET PATTERN] where HARMONIZE isn't a driver) — the last one DRIVES (re-pools) as before.
+        var lastDriver = -1, lastNonFold = -1, i = 0
+        while i < cell.procs.count {
+            if !cell.slotBypass[i] && isDriverType(cell.procs[i].type) {
+                lastDriver = i
+                if !isRatchetFoldable(cell.procs[i]) { lastNonFold = i }
+            }
+            i += 1
         }
-        return -1
+        return lastNonFold >= 0 ? lastNonFold : lastDriver
     }
-    /// A COIN ratchet set to PASS-THROUGH (fold) — a downstream per-note effect, not a chain driver (Paul 2026-09-06).
-    private func isRatchetFold(_ p: SnapParams) -> Bool { p.type == .ratchet && p.rtcFold && p.rtcMode == .coin }
-    /// The FIRST non-bypassed COIN-fold RATCHET slot after `driver` — its notes pass through unless the COIN fires (a burst).
+    /// A ratchet that FOLDS per-note downstream instead of driving (Paul 2026-09-06): PATTERN always (its per-slice counts
+    /// ratchet each upstream note in place — REST drops it, 1 passes it through, 2/3/4 burst it), or a COIN ratchet in
+    /// PASS-THROUGH mode. ALL, and a non-fold COIN, still drive (re-pool). Only counts as a fold when a real driver precedes it
+    /// (chainDriverIndex resolves that); downstreamRatchetFoldIndex only ever looks AFTER the chosen driver.
+    private func isRatchetFoldable(_ p: SnapParams) -> Bool { p.type == .ratchet && (p.rtcMode == .pattern || (p.rtcMode == .coin && p.rtcFold)) }
+    /// The FIRST non-bypassed foldable RATCHET slot after `driver` — PATTERN (per-slice REST/pass/burst) or COIN PASS-THROUGH.
     private func downstreamRatchetFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
         var j = driver + 1
-        while j < cell.procs.count { if !cell.slotBypass[j] && isRatchetFold(cell.procs[j]) { return j }; j += 1 }
+        while j < cell.procs.count { if !cell.slotBypass[j] && isRatchetFoldable(cell.procs[j]) { return j }; j += 1 }
         return nil
     }
     /// The LAST non-bypassed SPLIT slot after `driver` (last-writer wins), or nil.
@@ -3925,6 +3934,29 @@ final class Router {
             }
             j += 1
         }
+        // RATCHET fold (Paul 2026-09-06): a downstream fold-ratchet re-shapes THIS driver note in place — the ARP (etc.)
+        // keeps its rhythm + note lengths; the ratchet doesn't re-pool. PATTERN reads the per-slice count at this note's time
+        // (on the ratchet's own RATE grid): REST (·) DROPS the note (reset `cur` now → its echoes drop too, like LENGTH MUTE),
+        // 1 = pass through unchanged, 2/3/4 = burst its own [on, off] span. COIN reads the seeded chance (velFactor 1.0 in
+        // fold mode, as before). Decided ONCE per driver note → deterministic + replay-safe.
+        var foldBurst = 0; var foldRamp = 0.0
+        if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
+            let rp = cell.procs[fi]
+            if rp.rtcMode == .pattern {
+                let rate = max(0.03125, rp.rtcRateBeats)
+                let idx = ((Int((m / rate).rounded(.down)) + rp.rtcRotate) % 8 + 8) % 8
+                let raw = idx < rp.rtcSlices.count ? rp.rtcSlices[idx] : 0
+                if raw <= 0 { cur.reset(); cur.rebuildSorted() }          // REST → drop this note (+ echoes below)
+                else if raw >= 2 { foldBurst = min(8, raw); foldRamp = rp.ramp }   // 1 = plain pass-through (foldBurst 0)
+            } else {   // COIN pass-through
+                let step = Int((m / S).rounded())
+                if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
+                    foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
+                                                          : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
+                    foldRamp = rp.ramp
+                }
+            }
+        }
         // LENGTH downstream: replace THIS onset's gate by the slice it lands in — MUTE drops the note (+ its echoes),
         // PASS keeps the driver's own gate, SHORT/LONG override the off. The off-beat → sample conversion is linear
         // in `beatsPerSample` (gate offs, not onsets, so intra-column swing warp is negligible here).
@@ -3949,19 +3981,6 @@ final class Router {
                 }
             }   // CHAIN tails were already registered at the ECHO slot (from its INPUT set); drainEchoTails re-folds them.
             if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry) — both routes
-        }
-        // COIN PASS-THROUGH fold (Paul 2026-09-06): a downstream fold-ratchet either PASSES this driver note through unchanged
-        // (the common case) or, per the seeded COIN chance, REPLACES it with a burst of sub-strikes over its OWN [on, off] span.
-        // Decided ONCE per driver note (seeded on its column step → deterministic + replay-safe); gap/quota reuse the COIN scan.
-        var foldBurst = 0; var foldRamp = 0.0
-        if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
-            let rp = cell.procs[fi]
-            let step = Int((m / S).rounded())
-            if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
-                foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
-                                                      : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
-                foldRamp = rp.ramp
-            }
         }
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
@@ -4329,7 +4348,8 @@ final class Router {
                         idx = (((g + p.rtcRotate) % 8) + 8) % 8
                     }
                     let raw = idx < p.rtcSlices.count ? p.rtcSlices[idx] : 0
-                    let count = raw <= 0 ? 1 : min(8, raw)                 // 0 = plain single hit
+                    if raw <= 0 { continue }                               // REST — a true gap (Paul 2026-09-06; was 1 plain hit)
+                    let count = min(8, raw)                                // 1 = plain single hit · 2/3/4 = roll
                     let sEnd = min(colEnd, sliceStart + sliceBeats), subSlice = sliceBeats / Double(count)
                     for j in 0..<count {
                         let tau = sliceStart + Double(j) * subSlice
