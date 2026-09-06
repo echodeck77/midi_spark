@@ -394,25 +394,40 @@ enum BuildSceneLogic {
     enum MachineKind: Equatable { case none, selectAudition, partRow, playFerry(Int) }
     struct MachineBinding: Equatable { var kind: MachineKind; var isGrey: Bool; var playing: Bool }
 
+    /// THE SELECT-PAGE SOURCE (Paul 2026-09-06): the ONE model value for what the machine currently points at on the SELECT
+    /// page — a browsed catalog CELL, or a SELECT→part FERRY (a real coloured part row). Both ride the shared `gsAud` audition
+    /// transient, so which one it is was previously inferred from two mutually-exclusive Int? @State (buildGridSelSel /
+    /// buildGridSelStampSourceRow) kept in sync by hand — a desync risk, and the reason the ferry could render as the colourless
+    /// grey (the grey rule couldn't tell a ferry from a cell). As one sum type the exclusivity is a type guarantee.
+    enum SelectSource: Equatable {
+        case none
+        case browseCell(Int)   // a catalog/library cell auditioning on gsAud (colourless → grey)
+        case ferryRow(Int)     // a part-row ferry the machine names (rides gsAud but wears the ROW's real colour)
+        var isFerry: Bool { if case .ferryRow = self { return true }; return false }
+        var browseCell: Int? { if case .browseCell(let i) = self { return i }; return nil }
+        var ferryRow: Int? { if case .ferryRow(let n) = self { return n }; return nil }
+    }
+
     /// Resolve what the machine represents + whether it is playing.
     ///  - selID: the machine identity (ddSelectedColourID) · audID: the transient SELECT-audition colour ("gsAud").
     ///  - onSelectPage: room == .select — only there can the machine bind to a play ferry (the SELECT grid owns them).
     ///  - chainActive / partActive: the DISPLAYED audition voice (buildDisplayVoice == .chain / .part).
     ///  - selectedPlayCol: the play column selID names (buildSelectedPlayCol), or nil · playColOn: per-column play state.
     /// Reproduces roomsVerticalPlay's `ferryCol.map{playColOn} ?? (displayVoice==voice)` + buildMachineHue's grey rule.
-    ///  - activeFerry: a SELECT→part ferry is the active source (buildGridSelStampSourceRow != nil). It rides gsAud like a
-    ///    plain cell audition, but it IS a real coloured machine → it must wear its colour, never the colourless grey.
+    ///  - source: the SELECT-page source (the single model value). A `.ferryRow` rides gsAud like a plain cell audition, but it
+    ///    IS a real coloured machine → it must wear its colour, never the colourless grey. Grey is the `.browseCell` case only.
     static func machineBinding(selID: String?, audID: String, onSelectPage: Bool,
                                chainActive: Bool, partActive: Bool,
-                               selectedPlayCol: Int?, playColOn: [Bool], activeFerry: Bool = false) -> MachineBinding {
+                               selectedPlayCol: Int?, playColOn: [Bool], source: SelectSource = .none) -> MachineBinding {
         // A play ferry the machine names (SELECT page only) BINDS to that column — its play state is the column's OWN, and
         // it wears the cell's real colour (never grey).
         if onSelectPage, let c = selectedPlayCol, c >= 0, c < playColOn.count {
             return MachineBinding(kind: .playFerry(c), isGrey: false, playing: playColOn[c])
         }
-        // grey ONLY on the colourless PLAIN SELECT audition — NOT when a ferry is the active source (it carries a real colour
-        // via colourHueOverride[gsAud], so it must keep it; tapping a ferry rides gsAud too, and used to fall to grey here).
-        let grey = onSelectPage && (selID == audID) && !activeFerry
+        // grey ONLY on the colourless PLAIN SELECT audition — NOT when a ferry is the source (it carries a real colour via
+        // colourHueOverride[gsAud], so it keeps it; a ferry rides gsAud too and used to fall to grey here). Derived from the
+        // one model value, not a paired bool: grey ⇔ the audition is loaded AND the source isn't a ferry.
+        let grey = onSelectPage && (selID == audID) && !source.isFerry
         let playing = onSelectPage ? chainActive : partActive
         let kind: MachineKind = (selID == nil && !playing) ? .none : (onSelectPage ? .selectAudition : .partRow)
         return MachineBinding(kind: kind, isGrey: grey, playing: playing)

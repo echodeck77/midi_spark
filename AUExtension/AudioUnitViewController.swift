@@ -262,7 +262,10 @@ struct DiagView: View {
     @State var buildGridSelLib: [LibEntry] = []          // MY LIBRARY summaries (chains loaded lazily on tap)
     @State var buildGridSelPage = 0                      // SELECT grid CATEGORY index (Paul 2026-08-29): the left rail's 8 buttons are fixed processor-type categories (ARP·RIFF·EUCLID·RATCHET·CHANCE·HARMONY·MOD/CC·GATE); this is the selected one. (Reuses the old page slot.)
     @State var buildGridSelCatIndices: [Int] = []        // the LIBRARY indices matching the current category (cached; recomputed on category change / library load), so grid position i → buildGridSelLib[catIndices[i]]
-    @State var buildGridSelSel: Int? = nil               // the index of the auditioning cell (nil = none)
+    // THE SELECT-PAGE SOURCE (Paul 2026-09-06): the ONE model value for what the machine points at on SELECT — a browse CELL or
+    // a part-row FERRY. Replaces the two mutually-exclusive Int? (buildGridSelSel / buildGridSelStampSourceRow), which are now
+    // COMPUTED projections over this (see BuildPage) — so the exclusivity is a type guarantee, not a hand-synced pair.
+    @State var buildSelectSource: BuildSceneLogic.SelectSource = .none
     @State var buildSelectGreyAlt: Bool = false          // SELECT machine grey ALTERNATES between two bright shades on each new selection, so a new pick visibly shifts even though the audition stays "gsAud" (Paul 2026-09-01)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
     @State var buildGridSelQuantStep = false             // §2 QUANTIZE: INSTANT (default — snappy switching) | STEP
@@ -275,7 +278,6 @@ struct DiagView: View {
     @State var buildGridSelStampAt: Date? = nil          // when the hold began (drives the rising white-fill fraction)
     @State var buildGridSelStampFlashRow: Int? = nil     // a just-stamped row — flashes fully white then fades to its colour
     @State var buildGridSelStampFlashAt: Date? = nil
-    @State var buildGridSelStampSourceRow: Int? = nil    // NEW INTERFACE (Paul 2026-08-28): the ACTIVE SIDE BUTTON — the white-bordered part slot, and (if populated) the STAMP SOURCE for a long-press copy onto another side button/cell. Mutually exclusive with buildGridSelSel (a library-cell source).
     @State var buildPartJustPromoted = false             // Paul 2026-09-05: a part was flattened to a play ferry → the NEXT new select-grid cell starts with null I/O + pulsing toggles.
     @State var buildIONullPending = false                // Paul 2026-09-05: the 8 I/O toggles show null + pulse invitingly (the cell is silent until wired); cleared on the first I/O edit.
     @State var buildFerryHeld = false                    // a ferry button was HELD (deliberate copy hold) then released BEFORE committing → suppress the follow-up tap so it doesn't steal focus / re-audition the playing cell (Paul 2026-08-29)

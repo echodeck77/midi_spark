@@ -630,15 +630,21 @@ final class BuildSceneLogicTests: XCTestCase {
                                                  partActive: false, selectedPlayCol: nil, playColOn: on)
         XCTAssertEqual(none.kind, .none); XCTAssertFalse(none.playing)
 
-        // 5. A SELECT→part FERRY is the active source (activeFerry) — it rides gsAud like a plain audition, but it carries a
-        //    real colour (colourHueOverride[gsAud]) → must NOT be grey. Regression: tapping a ferry used to fall to grey. (Paul 2026-09-06)
+        // 5. THE SELECT SOURCE (Paul 2026-09-06): a .ferryRow rides gsAud like a plain audition, but it carries a real colour
+        //    (colourHueOverride[gsAud]) → must NOT be grey; a .browseCell on gsAud stays grey. Regression: tapping a ferry used
+        //    to fall to grey because ferry + cell shared gsAud and the resolver couldn't tell them apart.
         let ferrySource = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: true,
-                                                        partActive: false, selectedPlayCol: nil, playColOn: on, activeFerry: true)
+                                                        partActive: false, selectedPlayCol: nil, playColOn: on, source: .ferryRow(3))
         XCTAssertFalse(ferrySource.isGrey, "a ferry source keeps its colour even while riding gsAud")
-        // …and the SAME inputs WITHOUT an active ferry (a plain cell audition) stay grey — the fix is scoped to the ferry.
-        let plainAud = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: true,
-                                                     partActive: false, selectedPlayCol: nil, playColOn: on, activeFerry: false)
-        XCTAssertTrue(plainAud.isGrey, "a plain gsAud audition is still grey")
+        let browseAud = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: true,
+                                                      partActive: false, selectedPlayCol: nil, playColOn: on, source: .browseCell(4))
+        XCTAssertTrue(browseAud.isGrey, "a plain browse-cell audition is still grey")
+
+        // The sum type makes the ferry/cell exclusivity a type guarantee (was two Int? kept in sync by hand).
+        XCTAssertEqual(BuildSceneLogic.SelectSource.ferryRow(3).ferryRow, 3)
+        XCTAssertNil(BuildSceneLogic.SelectSource.ferryRow(3).browseCell)
+        XCTAssertTrue(BuildSceneLogic.SelectSource.ferryRow(3).isFerry)
+        XCTAssertFalse(BuildSceneLogic.SelectSource.browseCell(4).isFerry)
     }
 
     // ── THE PART-GRID TAP CONTRACT (Paul 2026-09-04): an UNPOPULATED cell must ALWAYS be selectable (when no AUTO lane is

@@ -248,6 +248,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     inconsistent — "often"). `colourHueOverride[gsAud]` already holds the ferry's hex, so the only defect was `isGrey`. FIX:
     `machineBinding` gains `activeFerry` (= `buildGridSelStampSourceRow != nil`); `grey = … && !activeFerry`. A ferry keeps its
     colour; a plain gsAud cell audition still greys. +2 assertions in `testMachineBindingResolvesFerryAuditionAndGrey`.**
+    **MODEL REFACTOR (2026-09-06, Paul: "should be in the model, not an if statement"; macOS 1063 green, iOS builds): the
+    ferry-vs-cell identity was two mutually-exclusive `Int?` @State (`buildGridSelSel` / `buildGridSelStampSourceRow`) kept in
+    sync BY HAND across ~13 paired assignments + inferred via ~16 `!= nil` checks — a desync risk, and why the ferry could
+    render grey (the resolver couldn't tell a ferry from a cell). Now ONE model value: `BuildSceneLogic.SelectSource` enum
+    (`.none/.browseCell(Int)/.ferryRow(Int)`, pure/testable) as the single `@State buildSelectSource`; the two old fields are
+    COMPUTED projections over it (`nonmutating set`, a nil-write clears only its OWN case) so every existing read/write site
+    compiles unchanged AND exclusivity is now a TYPE GUARANTEE (can't be both). `machineBinding` drops the `activeFerry` bool
+    for `source: SelectSource` — grey ⇔ the audition is loaded AND `!source.isFerry`, derived from the one value. Test updated
+    to the `source:` signature + SelectSource projection assertions.**
 - **▶ CELL DESIGN LANGUAGE — the CONSTELLATION face + three-grid differentiation (2026-09-05, on branch `feature/cell-
     constellation`; iOS builds; UI-only, DEVICE eye owed on the WHOLE look). Ratified with Paul over a mockup
     (`claude.ai/code/artifact/2b727eeb…`, spec `Docs/design-cell-language.md`). ONE idea: every cell paints its output as a

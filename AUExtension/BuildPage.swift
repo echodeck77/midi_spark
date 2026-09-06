@@ -1461,11 +1461,23 @@ extension DiagView {
     // THE MACHINE BINDING (Paul 2026-09-01, state-unification): the ONE truth for what the machine represents + its play
     // state, gathered from the four @State axes into the pure BuildSceneLogic resolver. The machine hue, the play button,
     // (and in a follow-up, every represented-cell indicator) all DERIVE from this so they can't diverge.
+    // THE TWO SELECT-SOURCE PROJECTIONS (Paul 2026-09-06): buildGridSelSel (a browse cell) and buildGridSelStampSourceRow (a
+    // ferry row) are now COMPUTED views over the ONE model value `buildSelectSource`, so they can never both be set (the old
+    // desync that let a ferry render grey). Every existing read/write site keeps working; a nil-write clears only ITS OWN case
+    // (so the paired `stampSourceRow = n; sel = nil` / `sel = i; stampSourceRow = nil` idioms compose correctly).
+    var buildGridSelSel: Int? {
+        get { buildSelectSource.browseCell }
+        nonmutating set { if let v = newValue { buildSelectSource = .browseCell(v) } else if buildSelectSource.browseCell != nil { buildSelectSource = .none } }
+    }
+    var buildGridSelStampSourceRow: Int? {
+        get { buildSelectSource.ferryRow }
+        nonmutating set { if let v = newValue { buildSelectSource = .ferryRow(v) } else if buildSelectSource.isFerry { buildSelectSource = .none } }
+    }
     func buildMachineBinding(_ room: Room) -> BuildSceneLogic.MachineBinding {
         BuildSceneLogic.machineBinding(selID: buildSelID, audID: buildGridSelAudID, onSelectPage: room == .select,
                                        chainActive: buildDisplayVoice == .chain, partActive: buildDisplayVoice == .part,
                                        selectedPlayCol: room == .select ? buildSelectedPlayCol : nil, playColOn: buildPlayColOn,
-                                       activeFerry: buildGridSelStampSourceRow != nil)   // a ferry source rides gsAud but keeps its colour (Paul 2026-09-06)
+                                       source: buildSelectSource)   // grey ⇔ .browseCell; a .ferryRow keeps its colour (Paul 2026-09-06)
     }
     func buildMachineHue(_ room: Room) -> Color {
         buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else the machine/ferry's own hue
