@@ -33,6 +33,14 @@ struct CogPage: View {
                             onOffToggle(on: showScenes) { showScenes = $0 }
                         }
                         divider
+                        section("INPUT")
+                        HStack(spacing: 8) {
+                            Text("IGNORE ALL-NOTES-OFF").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).fixedSize()
+                            Text("drop incoming CC120/123 so a source can't wipe a held chord").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+                            Spacer()
+                            onOffToggle(on: au?.uiIgnoreAllNotesOff() ?? true) { au?.setIgnoreAllNotesOff($0) }
+                        }
+                        divider
                         section("HEALTH")
                         healthRow
                         replayRow

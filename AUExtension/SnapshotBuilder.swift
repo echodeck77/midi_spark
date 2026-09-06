@@ -345,6 +345,7 @@ enum SnapshotBuilder {
                            rackMask: rackMask,
                            masterKey: Int8(scene.masterKeyResolved),
                            masterMute: doc.masterMute ?? false,
+                           ignoreAllNotesOff: doc.ignoreAllNotesOffResolved,
                            thruReceiver: Int8(doc.thruReceiverResolved),
                            receiverChannels: recvCh,
                            receiverChannelMask: recvChMask,

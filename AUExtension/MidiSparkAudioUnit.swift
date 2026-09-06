@@ -791,6 +791,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // LADDER MODE (exclusive columns). The on/off arm is document-level; the per-column chosen rung is scene state.
     func uiLadderMode() -> Bool { document.ladderModeResolved }
     func setLadderMode(_ on: Bool) { editDocument { $0.ladderMode = on } }
+    func uiIgnoreAllNotesOff() -> Bool { document.ignoreAllNotesOffResolved }   // INPUT (Paul 2026-09-06): ignore a source's CC120/123 flood
+    func setIgnoreAllNotesOff(_ on: Bool) { editDocument { $0.ignoreAllNotesOff = on } }
     /// The resolved active rung for a column (topmost-occupied default) — the UI lights it + dims the other rungs.
     func ladderActiveRow(_ col: Int) -> Int? { document.activeSceneState.ladderActiveRow(col) }
     /// Commit a LADDER rung switch for a column. A PERFORMANCE action (record:false → not on the undo stack) that

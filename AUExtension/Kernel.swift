@@ -496,6 +496,7 @@ final class Kernel {
     private var keyFilterChanBuf = [UInt8](repeating: 0, count: 128)
     private var keyFilterCblBuf = [UInt8](repeating: 0, count: 128)
     private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
+    private var ignoreAllNotesOff = true     // INPUT (Paul 2026-09-06): mirror of box.ignoreAllNotesOff — suppress a source's CC120/123 wiping the live pool
     // NOTE MONITOR (Paul 2026-08-29): raw held notes are NOT echoed to the output — a CELL is the sole note source, so a
     // fresh instance (nothing selected) is SILENT. Default OFF; kept as a flag so a soundcheck toggle can re-enable it.
     private let noteMonitorPassthrough = false
@@ -828,6 +829,7 @@ final class Kernel {
         receiverRangeLo = box.receiverRangeLo            // RANGE (§2): this render's per-receiver note windows (latch capture)
         receiverRangeHi = box.receiverRangeHi
         latchAddMask = box.latchAddMask                 // TWO LATCH MODES: which receivers latch in ADD (toggle) mode
+        ignoreAllNotesOff = box.ignoreAllNotesOff        // INPUT: don't let a source's CC120/123 flood wipe the live pool (Paul 2026-09-06)
         thruReceiver = min(3, max(0, Int(box.thruReceiver)))   // receiver strip: which receiver passthrough follows
         diag.renderCount &+= 1
         diag.snapshotGen = box.generation
@@ -1167,7 +1169,11 @@ final class Kernel {
                 // phrases, on transport events), and wiping the frozen chord broke HOLD — the held chord died + the input
                 // indicator dropped to zero on every new chord (app-independent). A user's HOLD is a deliberate freeze that must
                 // survive a source's all-notes-off; a real host panic/transport-stop flushes stuck notes via the edge allNotesOff.
-                if bytes[1] == 120 || bytes[1] == 123 { pool.reset() }
+                // IGNORE ALL-NOTES-OFF (Paul 2026-09-06): a source that floods CC120/123 on every channel around each chord
+                // (confirmed via MIDI monitor) would wipe the whole live pool here — silencing a sustained chord even though
+                // the notes are still held (the "empty pass" report; channel-agnostic, so it hit even a channel-filtered door).
+                // Default ON (ignore); real note-offs still release notes, host/transport panic still flushes stuck notes.
+                if (bytes[1] == 120 || bytes[1] == 123) && !ignoreAllNotesOff { pool.reset() }
             }
         }
         // CONTROLLER ROUTING (v1): CC · PB · AT · PC forward to each door's CONTROLLERS emitters (union), RE-STAMPED to

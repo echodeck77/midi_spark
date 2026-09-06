@@ -17,6 +17,19 @@ final class SnapshotBuilderTests: XCTestCase {
         return SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [s]))
     }
 
+    // IGNORE ALL-NOTES-OFF (Paul 2026-09-06): the flag resolves (nil ⇒ ignore = true, the new default) and rides to the
+    // box, where the Kernel reads it to decide whether an incoming CC120/123 wipes the live input pool.
+    func testIgnoreAllNotesOffResolvesToTrueByDefaultAndFlowsToBox() {
+        let cs = colours(customizing: 0) { _ in }
+        // default (unset) → ignore
+        XCTAssertTrue(SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [SceneState.empty()])).ignoreAllNotesOff,
+                      "unset ⇒ ignore incoming All-Notes-Off (default ON)")
+        // explicit false → honor it (the box tells the Kernel to let CC120/123 clear the pool)
+        var st = PluginState(colours: cs, scenes: [SceneState.empty()]); st.ignoreAllNotesOff = false
+        XCTAssertFalse(SnapshotBuilder.build(from: st).ignoreAllNotesOff, "explicit false ⇒ honor incoming All-Notes-Off")
+        XCTAssertFalse(st.ignoreAllNotesOffResolved, "resolver mirrors the explicit false")
+    }
+
     // PER-PART CLOCK (Paul 2026-08-19): the builder resolves each row's step + loop length from the scene's per-row
     // overrides, falling back to the scene default (uniform = today). Stage A — the box just CARRIES the values.
     func testPerRowClockResolvesElseFallsToGlobal() {
