@@ -50,7 +50,24 @@ nested params). +6 RouterTests + AutoParamField/settingAuto clamp tests. Plans: 
 - **2 SMALL UI CALLS (Paul, on glass):** (a) the "AUTO N" highlight tiles the WHOLE row — keep, or mark only the first
   span? (b) the drag reads a column range from ANY row (1-D) — confirm.
 - **MINOR DEAD CODE:** `AutoLane.span` (legacy) now fully unused; `cells` survives only for the load migration. Drop in
-  a future verified sweep once old docs are unlikely.
+  a future verified sweep once old docs are unlikely. ALSO (housekeeping 2026-09-07): `holdCaptureDecision` + the `HoldCapture`
+  enum + their ~10 `DerivationsTests` assertions are DEAD in production since the HOLD mirror-and-freeze rewrite (`4549d2e`) —
+  KEPT for now (test-documents the old detect-replace model; may be needed if mirror-and-freeze is reverted after device
+  verification). Also the dead-but-tested pure cluster `laneValue`/`voiceLeadTowardPrevious`/`peakHoldLevel`/`triggerMark`(+its
+  glyph helpers)/`poolStep`(array wrapper) — reserved/held-for-rebuild, remove only in a coordinated cull with their tests.
+- **★ DECODE-SAFETY HARDENING (housekeeping 2026-09-07, MEDIUM preventive — NOT an active bug):** the three CENTRAL persisted
+  types `Colour`/`SceneState`/`Receiver` (stored directly in `PluginState.colours`/`scenes`/`receivers`) still lack a
+  decode-tolerant `init(from:)` and each has non-Optional stored fields. Per the CR-8 mechanism the codebase documents, ADDING
+  any non-Optional field to any of them = a whole-document factory reset. `Cell`/`Macro`/`BuildPart` etc. already got the
+  tolerant-init treatment; these three are the highest-value remaining. Do it carefully (byte-identical encode; decodeIfPresent
+  + memberwise defaults; + round-trip & missing-key tests). Leaf structs in PluginState arrays/dicts (`MacroCellValue`,
+  `MacroTarget`, `ScalePool`, `MidiFile.NoteEvent`, `ProcessorSlot`) are the same latent class — Optional-only additions or a
+  tolerant init keeps them safe.
+- **HOLD — DEVICE EAR OWED + Finding 3 (housekeeping 2026-09-07):** mirror-and-freeze (`4549d2e`) — a sustained/chatty source
+  must NEVER leave HOLD silent on a pass; verify on device. The cog HEALTH `PLAY`/`SND` + per-door `LIV`/`FRZ` stats (`90cc1dc`)
+  are the bisect. FINDING 3 (deferred, MED): under `ignoreAllNotesOff` the LIVE pool isn't cleared on a transport stop, so a
+  CC123-ONLY source (no per-note offs) re-sequences dead notes on the next play — the sustained-input case self-clears on real
+  release; a stop-edge `pool.reset` would break free-run-on-host-stop, so it needs a guarded fix, not a blind one.
 
 ## ★ OVERNIGHT BATCH 2026-09-03 — landed + FLAGGED deferrals (needs Paul / a dedicated pass)
 Seven queued jobs LANDED (`9010ca1`…`64330ae`; macOS 1023 green; see CLAUDE.md status). What's DEFERRED, and why:

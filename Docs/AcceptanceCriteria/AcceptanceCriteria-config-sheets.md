@@ -21,9 +21,12 @@ Global rarities (MPE etc.) remain in the existing ⚙ cog.
   - **LATCH** — notes TOGGLE in/out of the pool (press adds,
     press again removes; the ADD lineage). CLEAR = double-tap the
     strip's mode badge.
-  - **HOLD** — CHORD DETECTION: a strike REPLACES the pool with
-    the detected chord (the CHORD lineage; the strike-grouping
-    window stays internal/default).
+  - **HOLD** — MIRROR-AND-FREEZE (2026-09-06 `4549d2e`, was
+    "chord detection / strike-replaces"): the frozen pool tracks
+    the current live chord whenever the admitted live set is
+    non-empty, and FREEZES the last chord when input goes silent
+    (no chord-detection / strike-grouping window). Invariant:
+    never empty while input is present.
   - **REPLAY** — ★ THE DOOR LOOP AS A MODE: the door's input ring
     records always (retro by default — never arm); **PASSES: 1 ·
     2 · 4 · 8** selects how much history loops as the LIVING

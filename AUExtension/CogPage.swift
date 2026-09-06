@@ -5,7 +5,7 @@ import SwiftUI
 /// returns to uninterrupted play. It hosts the true GLOBALS, NOT performance roles.
 ///
 /// The MIDI INPUT (doors) + MIDI OUTPUT (emitter channels) config moved to their own MIDI IN / MIDI OUT buttons
-/// (Paul 2026-08-23). The cog now holds the true globals: DISPLAY · HEALTH · about.
+/// (Paul 2026-08-23). The cog now holds the true globals: DISPLAY · INPUT (ignore all-notes-off) · HEALTH · about.
 struct CogPage: View {
     let au: MidiSparkAudioUnit?
     let d: KernelDiag                 // health readout (voices / held / panics)

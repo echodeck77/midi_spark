@@ -10,7 +10,7 @@ features below assume a working latch underneath.
   when armed. **BUILT 2026-08-03:** 40pt headline (lock glyph + "LATCH"); the mode moved off the arm to the toggle.
 - **KEYS | CHORD** — a small toggle directly under LATCH (the mode, moved OUT of the cog per the split law):
   - **KEYS (DEFAULT):** each key played is ADDED to the latch pool; playing it again REMOVES it (per-note toggle).
-  - **CHORD:** on chord detection, the pool CLEARS and REPLACES.
+  - **CHORD (HOLD):** MIRROR-AND-FREEZE (2026-09-06 `4549d2e`) — the pool tracks the live chord while the admitted set is non-empty and freezes the last chord when input goes silent (was "clears + replaces on chord detection").
   - **Mode-switching NEVER clears the pool** — the latch persists across the toggle; only LATCH OFF releases.
   - **BUILT 2026-08-03:** on the strip under LATCH; engine field kept as `Receiver.latchAdd` (true = KEYS); default
     flipped to KEYS. Pool-persists-across-toggle already holds (Kernel resets only on the arm rising edge).

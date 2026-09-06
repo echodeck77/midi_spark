@@ -179,6 +179,32 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ HOUSEKEEPING SWEEP + the session's HOLD/colour/diagnostic fixes (2026-09-07, on `main`, PUSHED; iOS builds, macOS 1072
+  green +5). Five parallel read-only survey agents (engine bug-hunt · pure-core · test-gap · docs · dead-code), every finding
+  re-verified before acting. **ENGINE (`1c20892`):** Finding 1 (HIGH) — the Kernel's reel + free-run edge `router.allNotesOff`
+  calls run OUTSIDE `Router.process()` (no transport edge) and couldn't reach the private `flushGlide`/`flushMod`, so a closed
+  glide anchor left a dangling `glideVoices[]` slot → a reused voice wrong-closed on resume (spurious note-off). New
+  `Router.externalFlush(box:atSample:out:includeBypass:)` = allNotesOff + flushGlide + flushMod; the 4 reel/free-run edges route
+  through it. Finding 2 (MED) — a chatty source's incoming CC120/123 was still FORWARDED to the synth when NO latch was armed
+  (silencing the grid's own sustained output while our refcount held it); `suppressAllOff` now also fires when
+  `ignoreAllNotesOff`. **DEAD CODE (`6ad51cf`):** removed `buildIsDark` + `rtcSliceAt` (grep-verified zero-ref, 2026-08-16
+  orphans) + the now-dead `holdReleasing` var (orphaned by the HOLD mirror-and-freeze rewrite). **TESTS (`a6e35f4`, +5):**
+  `passLen` clamp + `mutateCount` range/seed; SHIFT-fold DELAYS onsets + HUMANIZE-fold replay-safe-and-perturbs (the old test
+  only checked note COUNT, so an identity-regression fold would've passed) + a lone fold-ratchet still DRIVES. **KEPT + flagged
+  (not removed):** `holdCaptureDecision`+`HoldCapture` (dead in prod since the HOLD rewrite but still test-documented — pending
+  HOLD device-verification, may be needed if mirror-and-freeze is reverted); `hasDuplicateVoices` (reserved I3 hook); the
+  dead-but-tested pure cluster (`laneValue`/`voiceLeadTowardPrevious`/`peakHoldLevel`/`triggerMark`/`poolStep` array-wrapper).
+  **FLAGGED for a careful pass (not done — see pending-tasks):** decode-safety hardening — `Colour`/`SceneState`/`Receiver` are
+  the three central persisted types and still lack a decode-tolerant `init(from:)`, so ADDING any non-Optional field to them =
+  a whole-doc factory reset (CR-8 class; `Cell` already got the fix). Finding 3 (MED, deferred) — under `ignoreAllNotesOff` the
+  live pool isn't cleared on a transport stop, so a CC123-only source re-sequences dead notes next play (the sustained-input
+  case self-clears on real release; a stop-edge reset would break free-run-on-host-stop, so not fixed blind). This session's
+  earlier landings are folded in here: **HOLD MIRROR-AND-FREEZE (`4549d2e`)** — the frozen HOLD pool now tracks the live chord
+  when the admitted set is non-empty + freezes the last chord when it goes silent (replaced the detect-replace
+  `holdCaptureDecision`; the invariant "never empty while input present"); **DERIVE-FROM-POSITION colour (`693ab8f`)** —
+  `buildSelHue` derives `partPosHue(row)` for a focused ferry/part row so every machine surface shows the row's true position
+  colour (`buildMachineHue` simplified); **cog HEALTH PLAY + SND (`90cc1dc`)** — the HOLD-silence bisect readout. All the HOLD/
+  colour/diagnostic items are DEVICE-owed (the Kernel + UI aren't unit-tested).**
 - **▶ HUMANIZE / SHIFT reclassified as per-note MODIFIERS (2026-09-06, on `main`; iOS builds, macOS 1067 green incl. fuzz;
   DEVICE ear owed; engine-only). Paul flagged these were miscategorized as DRIVERS (they re-pooled the chord on their own grid
   in a chain, discarding the upstream rhythm). Now, downstream of a real driver they FOLD — jitter/push each driven note IN
@@ -298,7 +324,9 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     Rolls: PART = the existing per-row `buildGridSelRowRoll`; PLAY = a new per-column `buildPlayColRoll` (`buildComputePlayColRolls`);
     both recomputed in `buildPublishScene` so they stay current. **PART colour = the row's MACHINE hue** (not v1's separate
     fixed-position palette — "row 7 always yellow" = its yellow machine), drawn DARK + SATURATED + FLAT (`partCellFill`/`Frame`
-    via `buildBaseHex`) so it MATCHES the selector and isn't faded. **drawConstellation tuned:** smaller dots, stronger sigil
+    via `buildBaseHex`) so it MATCHES the selector and isn't faded. **[SUPERSEDED 2026-09-06 (`4966de5`/`693ab8f`): PART +
+    ferry colour REVERTED to FIXED-BY-ROW-POSITION (`partRowHexes` via `partPos*`) per design-cell-language decision 4 — the
+    machine-hue `partCellFill`/`buildBaseHex` recipe now serves ONLY the PLAY ferry; `partRowHexes` is the LIVE token.]** **drawConstellation tuned:** smaller dots, stronger sigil
     lines, + the `playhead` param (bright sweep line + dots brighten as crossed). **DEVICE-OWED / flags:** still can't verify the
     look; the `isEditedRow` black breathe (an edit invite) is a possible "faded row" Paul saw — flagged, removable; v1's
     `partRowHexes` token is now unused (harmless); the face is the EXPECTED-output constellation animating (not literal live
@@ -347,8 +375,9 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     part-grid rail untouched): flat `partCellFill(buildRowColour(n))` ground + `partCellFrame` frame (white ring when active,
     never a hue-brighten) + ONE `buildOutputFace(strikeIdx:)` (blueprint at rest → live emitted notes when auditioning) + the
     glow/wash/dimming/two-layer all removed. Ground now routes through `partCellFill(buildRowColour(n))` = the SAME recipe as
-    the part cell, so the two read identical AND the position-vs-machine-hue colour choice (#6, PARKED for Paul) is a one-place
-    change in `partCellFill`.**
+    the part cell, so the two read identical AND the position-vs-machine-hue colour choice (#6, ~~PARKED for Paul~~ RESOLVED
+    2026-09-06 `4966de5`/`693ab8f`: FIXED-BY-POSITION via `partPos*`/`partRowHexes` — the derive-from-position model) is a
+    one-place change in `partCellFill`.**
     **BUGFIX (2026-09-06, macOS 1063+2 green): re-selecting (TAPPING) a populated SELECT→part ferry made the machine box/chain/
     play-button colour fall to light GREY. Root cause: `buildGridSelAimRow`→`buildGridSelLoadChain` sets `buildSelID = gsAud`
     (the transient audition), and `machineBinding`'s `grey = onSelectPage && selID == gsAud` fired even though a real coloured
