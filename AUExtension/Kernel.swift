@@ -340,19 +340,19 @@ final class Kernel {
                 latchedPools[i].latchAddStep(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                              noteLo: rLo, noteHi: rHi, prevHeld: &latchPrevHeld[i])
             } else {
-                // HOLD (CHORD) — by NOTE IDENTITY (Paul 2026-08-31, count was too coarse): compare the live NOTE SET to last
-                // render. A RELEASE (a note went off) arms "the next new note is a new chord". An ADD right after a release
-                // (incl. the SAME render, e.g. a fast swap or a within-block release+restrike where the count is unchanged) →
-                // REPLACE the frozen pool with the current live set. An ADD with no release (still forming) → UNION (staggered
-                // chord builds up; "press three, only two hold"). A pure release keeps the frozen set. A note-for-note restrike
-                // of the SAME chord (no net add/remove) → nothing → held chord survives.
+                // HOLD (CHORD) — MIRROR-AND-FREEZE (Paul 2026-09-06: "it goes silent on certain passes — which should NEVER
+                // happen"). The frozen pool TRACKS the current live chord whenever the live admitted set is non-empty, and
+                // FREEZES the last chord when the input goes silent. So a SUSTAINED source (which floods CC120/123 as noise —
+                // now ignored) plays its held chord on EVERY pass, and releasing the input holds the last chord.
+                //
+                // This replaces the old detect-and-replace (holdCaptureDecision): its per-render REPLACE — made hair-trigger
+                // once the CC120/123 flood armed `releasing` every render — captured whatever transient PARTIAL/EMPTY live
+                // state existed at the capture instant, which is exactly the intermittent per-pass silence. Now: capture ONLY
+                // on a CHANGE to a NON-EMPTY set (no churn while steady); an EMPTY live set KEEPS the frozen chord. Invariant:
+                // the frozen pool is never empty while input is present, so HOLD can't go silent under a held chord.
                 let (clo, chi) = pool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
-                let dec = holdCaptureDecision(prevLo: holdLiveLo[i], prevHi: holdLiveHi[i], curLo: clo, curHi: chi, releasing: holdReleasing[i])
-                holdReleasing[i] = dec.releasing
-                switch dec.action {
-                case .replace: latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
-                case .union:   latchedPools[i].mergeFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
-                case .keep:    break
+                if (clo != 0 || chi != 0) && (clo != holdLiveLo[i] || chi != holdLiveHi[i]) {
+                    latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
                 }
                 holdLiveLo[i] = clo; holdLiveHi[i] = chi
             }
@@ -1173,6 +1173,8 @@ final class Kernel {
                 // (confirmed via MIDI monitor) would wipe the whole live pool here — silencing a sustained chord even though
                 // the notes are still held (the "empty pass" report; channel-agnostic, so it hit even a channel-filtered door).
                 // Default ON (ignore); real note-offs still release notes, host/transport panic still flushes stuck notes.
+                // (The HOLD door no longer needs a "boundary" signal from this flood — it MIRRORS the live chord; see
+                // updateLatchedPools' HOLD branch.)
                 if (bytes[1] == 120 || bytes[1] == 123) && !ignoreAllNotesOff { pool.reset() }
             }
         }
