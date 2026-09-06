@@ -1464,7 +1464,8 @@ extension DiagView {
     func buildMachineBinding(_ room: Room) -> BuildSceneLogic.MachineBinding {
         BuildSceneLogic.machineBinding(selID: buildSelID, audID: buildGridSelAudID, onSelectPage: room == .select,
                                        chainActive: buildDisplayVoice == .chain, partActive: buildDisplayVoice == .part,
-                                       selectedPlayCol: room == .select ? buildSelectedPlayCol : nil, playColOn: buildPlayColOn)
+                                       selectedPlayCol: room == .select ? buildSelectedPlayCol : nil, playColOn: buildPlayColOn,
+                                       activeFerry: buildGridSelStampSourceRow != nil)   // a ferry source rides gsAud but keeps its colour (Paul 2026-09-06)
     }
     func buildMachineHue(_ room: Room) -> Color {
         buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else the machine/ferry's own hue

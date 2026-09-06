@@ -629,6 +629,16 @@ final class BuildSceneLogicTests: XCTestCase {
         let none = BuildSceneLogic.machineBinding(selID: nil, audID: aud, onSelectPage: true, chainActive: false,
                                                  partActive: false, selectedPlayCol: nil, playColOn: on)
         XCTAssertEqual(none.kind, .none); XCTAssertFalse(none.playing)
+
+        // 5. A SELECT→part FERRY is the active source (activeFerry) — it rides gsAud like a plain audition, but it carries a
+        //    real colour (colourHueOverride[gsAud]) → must NOT be grey. Regression: tapping a ferry used to fall to grey. (Paul 2026-09-06)
+        let ferrySource = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: true,
+                                                        partActive: false, selectedPlayCol: nil, playColOn: on, activeFerry: true)
+        XCTAssertFalse(ferrySource.isGrey, "a ferry source keeps its colour even while riding gsAud")
+        // …and the SAME inputs WITHOUT an active ferry (a plain cell audition) stay grey — the fix is scoped to the ferry.
+        let plainAud = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: true,
+                                                     partActive: false, selectedPlayCol: nil, playColOn: on, activeFerry: false)
+        XCTAssertTrue(plainAud.isGrey, "a plain gsAud audition is still grey")
     }
 
     // ── THE PART-GRID TAP CONTRACT (Paul 2026-09-04): an UNPOPULATED cell must ALWAYS be selectable (when no AUTO lane is

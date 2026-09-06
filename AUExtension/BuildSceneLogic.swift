@@ -400,15 +400,19 @@ enum BuildSceneLogic {
     ///  - chainActive / partActive: the DISPLAYED audition voice (buildDisplayVoice == .chain / .part).
     ///  - selectedPlayCol: the play column selID names (buildSelectedPlayCol), or nil · playColOn: per-column play state.
     /// Reproduces roomsVerticalPlay's `ferryCol.map{playColOn} ?? (displayVoice==voice)` + buildMachineHue's grey rule.
+    ///  - activeFerry: a SELECT→part ferry is the active source (buildGridSelStampSourceRow != nil). It rides gsAud like a
+    ///    plain cell audition, but it IS a real coloured machine → it must wear its colour, never the colourless grey.
     static func machineBinding(selID: String?, audID: String, onSelectPage: Bool,
                                chainActive: Bool, partActive: Bool,
-                               selectedPlayCol: Int?, playColOn: [Bool]) -> MachineBinding {
+                               selectedPlayCol: Int?, playColOn: [Bool], activeFerry: Bool = false) -> MachineBinding {
         // A play ferry the machine names (SELECT page only) BINDS to that column — its play state is the column's OWN, and
         // it wears the cell's real colour (never grey).
         if onSelectPage, let c = selectedPlayCol, c >= 0, c < playColOn.count {
             return MachineBinding(kind: .playFerry(c), isGrey: false, playing: playColOn[c])
         }
-        let grey = onSelectPage && (selID == audID)         // grey ONLY on the colourless SELECT audition (PART wears its colour)
+        // grey ONLY on the colourless PLAIN SELECT audition — NOT when a ferry is the active source (it carries a real colour
+        // via colourHueOverride[gsAud], so it must keep it; tapping a ferry rides gsAud too, and used to fall to grey here).
+        let grey = onSelectPage && (selID == audID) && !activeFerry
         let playing = onSelectPage ? chainActive : partActive
         let kind: MachineKind = (selID == nil && !playing) ? .none : (onSelectPage ? .selectAudition : .partRow)
         return MachineBinding(kind: kind, isGrey: grey, playing: playing)
