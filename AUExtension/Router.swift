@@ -3386,10 +3386,20 @@ final class Router {
         guard cell.procs.count >= 2 else { return -1 }
         var i = cell.procs.count - 1
         while i >= 0 {
-            if !cell.slotBypass[i] && isDriverType(cell.procs[i].type) { return i }
+            // A COIN RATCHET in PASS-THROUGH (fold) mode is NOT the driver — it folds per-note downstream (emitDriverNote), so
+            // the UPSTREAM driver (e.g. the ARP) keeps its rhythm + note lengths and the ratchet only replaces chosen notes.
+            if !cell.slotBypass[i] && isDriverType(cell.procs[i].type) && !isRatchetFold(cell.procs[i]) { return i }
             i -= 1
         }
         return -1
+    }
+    /// A COIN ratchet set to PASS-THROUGH (fold) — a downstream per-note effect, not a chain driver (Paul 2026-09-06).
+    private func isRatchetFold(_ p: SnapParams) -> Bool { p.type == .ratchet && p.rtcFold && p.rtcMode == .coin }
+    /// The FIRST non-bypassed COIN-fold RATCHET slot after `driver` — its notes pass through unless the COIN fires (a burst).
+    private func downstreamRatchetFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
+        var j = driver + 1
+        while j < cell.procs.count { if !cell.slotBypass[j] && isRatchetFold(cell.procs[j]) { return j }; j += 1 }
+        return nil
     }
     /// The LAST non-bypassed SPLIT slot after `driver` (last-writer wins), or nil.
     private func downstreamSplitIndex(_ cell: SnapCell, after driver: Int) -> Int? {
@@ -3902,6 +3912,10 @@ final class Router {
                             emitArtic(note: tn, busMask: tapBM, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: tv, out: out, diag: &diag)
                         }
                     }
+                } else if cell.procs[j].type == .ratchet {
+                    // COIN PASS-THROUGH fold (Paul 2026-09-06): note-TRANSPARENT in the set fold — its burst-or-pass is applied
+                    // at the FINAL emit (below), so the note reaches it unchanged. (A ratchet is only downstream if it's a fold;
+                    // a driving ratchet would BE the driver.)
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()
@@ -3936,11 +3950,33 @@ final class Router {
             }   // CHAIN tails were already registered at the ECHO slot (from its INPUT set); drainEchoTails re-folds them.
             if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry) — both routes
         }
+        // COIN PASS-THROUGH fold (Paul 2026-09-06): a downstream fold-ratchet either PASSES this driver note through unchanged
+        // (the common case) or, per the seeded COIN chance, REPLACES it with a burst of sub-strikes over its OWN [on, off] span.
+        // Decided ONCE per driver note (seeded on its column step → deterministic + replay-safe); gap/quota reuse the COIN scan.
+        var foldBurst = 0; var foldRamp = 0.0
+        if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
+            let rp = cell.procs[fi]
+            let step = Int((m / S).rounded())
+            if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
+                foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
+                                                      : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
+                foldRamp = rp.ramp
+            }
+        }
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
             if splitGateActive && (Int(n) < splitGateLo || Int(n) > splitGateHi || Int(cur.velocity(n)) < splitGateVF || Int(cur.velocity(n)) > splitGateVC) { continue }   // SPLIT punch-hole → rest
-            emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offOut, windowEnd: windowEnd,
-                     velocity: max(1, cur.velocity(n)), m: m, S: S, out: out, diag: &diag)   // per-note carried velocity (offOut = LENGTH-overridden gate)
+            if foldBurst > 1 {                                    // RATCHET this note: subdivide its [on, off] span into `foldBurst` staccato sub-strikes
+                let span = max(1, offOut - onSample), sub = max(1, span / Int64(foldBurst))
+                for bi in 0..<foldBurst {
+                    let onB = onSample + Int64(bi) * sub, offB = onB + Int64(Double(sub) * 0.6)
+                    let vB = ratchetVelocity(base: max(1, Int(cur.velocity(n))), ramp: foldRamp, index: bi, count: foldBurst)
+                    emitChop(Int(n), cell: cell, bm: bm, onSample: onB, offSample: offB, windowEnd: windowEnd, velocity: vB, m: m, S: S, out: out, diag: &diag)
+                }
+            } else {                                             // PASS THROUGH unchanged (the driver's own note + full gate)
+                emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offOut, windowEnd: windowEnd,
+                         velocity: max(1, cur.velocity(n)), m: m, S: S, out: out, diag: &diag)   // per-note carried velocity (offOut = LENGTH-overridden gate)
+            }
         }
     }
     /// Register an echo tail for ONE note at beat `onset`. SYNCED delay always works; FREE (ms) works when `tempo > 0`

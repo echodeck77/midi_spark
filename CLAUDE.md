@@ -179,6 +179,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET COIN "PASS-THROUGH" — a downstream per-note ratchet fold (2026-09-06, on `main`; iOS builds, macOS 1064 +
+  fuzz green; DEVICE ear owed). Paul: "[ARP → ratchet] that plays through most notes but hits particular notes with a
+  ratchet, by probability — pass through when NOT ratcheting." The existing `[ARP → RATCHET]` makes RATCHET the DRIVER
+  (it's the last driver → re-pools the arp), and it gates every note ~60%, so it can't pass notes through untouched. NEW
+  opt-in `rtcFold` (COIN-only): a fold-ratchet is NOT counted as the chain driver (`chainDriverIndex` skips
+  `isRatchetFold`), so the UPSTREAM driver (the ARP) keeps its rhythm + note lengths; a new `downstreamRatchetFoldIndex`
+  fold in `emitDriverNote` decides ONCE per driver note (seeded on its column step → replay-safe, gap/quota reuse the COIN
+  scan): COIN fires → REPLACE the note with a burst subdividing its OWN [on,off] span (`rtcCoinCount`/`rtcCoinSize` +
+  `ratchetVelocity` ramp); else emit it UNCHANGED (true passthrough). The ratchet slot is note-transparent in the set fold.
+  Additive-Optional `ColourParams.rtcFold` (synthesized-Codable safe) → `SnapParams.rtcFold` → builder copy; UI = a
+  RATCHET-DRIVES | PASS · RATCHET CHOSEN seg on the COIN editor. +1 RouterTest (chance 0 = byte-count-identical to the arp
+  alone = passthrough · chance 1 = every note bursts) + fuzz randomizes `rtcFold` (~200s chaos, no stuck notes). **v1
+  LIMITS (flagged):** the COIN chance is evaluated on the SCENE-step grid (one decision per column) — for a clean per-note
+  chance, run the arp at the column rate; a sub-column-fast arp shares a column's decision. ODDS-FROM-VELOCITY isn't wired
+  in fold mode (velFactor 1.0). The burst sub-strikes are ~60% staccato (a ratchet roll), not the note's own length.**
 - **▶ CELL CONSTELLATION v2 — the device-feedback rework (2026-09-05, on branch `fix/cell-constellation-v2`; iOS builds; UI-only,
     DEVICE eye owed). v1 (`c7ad7f4`) failed on device: constellations appeared ONLY on SELECT, part/play cells lost their notes,
     the part cell colour didn't match the selector + looked faded, and the playing cell didn't animate. ROOT CAUSE: v1 only

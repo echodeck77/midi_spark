@@ -253,6 +253,7 @@ final class FuzzTests: XCTestCase {
         // COIN — SHAPING THE DICE (Paul 2026-08-26): hammer size-weights + gap + quota + velocity-odds for no stuck notes
         if r.chance(0.6) { p.rtcSizeWeights = (0..<5).map { _ in r.int(9) } }  // incl. all-zero (→ LO/HI fallback)
         p.rtcGap = r.int(5); p.rtcQuota = [0, 2, 3, 4][r.int(4)]; p.rtcOddsVel = r.chance(0.5)
+        p.rtcFold = r.chance(0.5)   // COIN PASS-THROUGH fold (Paul 2026-09-06): downstream of a driver, burst-or-pass per note — hammer the new emission path for no stuck notes
     }
     private func applyRandomBurst(_ p: inout ColourParams, _ r: inout FuzzRNG) {
         p.burstMode = BurstMode.allCases[r.int(BurstMode.allCases.count)]     // ONCE · COIN · PATTERN

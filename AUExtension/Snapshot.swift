@@ -207,6 +207,7 @@ struct SnapParams {
     var rtcGap: Int = 0              // COIN ② refire gap (0 = off) · ③ quota (0 = FREE) · ④ odds-from-velocity
     var rtcQuota: Int = 0
     var rtcOddsVel: Bool = false
+    var rtcFold: Bool = false        // COIN "PASS THROUGH" (Paul 2026-09-06): downstream of a driver, pass each note through unless the COIN fires (then a burst). false ⇒ RATCHET drives (legacy).
     var rtcSlices: [Int] = [2, 0, 2, 0, 2, 0, 2, 0]   // PATTERN: per-slice counts (0 = plain)
     var rtcRateBeats: Double = 0.5                    // PATTERN: slice width in beats (from rtcRate)
     var rtcRotate: Int = 0

@@ -194,6 +194,28 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(muteA.ons.contains { $0.cable == 2 }, "the other emitters keep playing")
         XCTAssertLessThan(muteA.ons.filter { $0.cable >= 1 }.count, plain.ons.filter { $0.cable >= 1 }.count, "muting drops A's copies")
     }
+    // RATCHET COIN PASS-THROUGH fold (Paul 2026-09-06): downstream of an ARP, RATCHET stops driving — the ARP drives and each
+    // note PASSES THROUGH unless the COIN fires (then a burst). chance 0 ⇒ identical note-on count to the arp alone (true
+    // passthrough); chance 1 ⇒ every note bursts (more note-ons). Nothing left sounding either way.
+    func testRatchetFoldPassesThroughUnlessTheCoinFires() {
+        func arpCell(_ procs: [ProcessorSlot]) -> Int {
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        func fold(chance: Double, count: Int) -> ProcessorSlot {
+            var r = ProcessorSlot(type: .ratchet); r.params.rtcMode = .coin; r.params.rtcFold = true
+            r.params.rtcChance = chance; r.params.rtcCountLo = count; r.params.rtcCountHi = count; return r
+        }
+        let arpOnly = arpCell([arp])
+        let pass = arpCell([arp, fold(chance: 0, count: 3)])
+        let burst = arpCell([arp, fold(chance: 1, count: 3)])
+        XCTAssertEqual(pass, arpOnly, "fold with chance 0 passes every arp note through unchanged (arp still drives)")
+        XCTAssertGreaterThan(burst, arpOnly, "fold with chance 1 ratchets every note into a burst")
+    }
     // MUTE composes ON TOP of DEST (Paul 2026-08-25 §5): DEST routes each slice to one emitter, MUTE then removes muted
     // emitters. [ARP→DEST(alt A/B)→MUTE(A)] → the A-routed slices go silent, the B-routed ones still play; none stuck.
     func testMuteMatrixComposesOverDest() {

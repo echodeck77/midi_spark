@@ -411,6 +411,10 @@ struct ProcessorBox: View {
                 row2({ field("REFIRE GAP — quiet steps after a fire", \.rtcGap) { numPair(p.rtcGap ?? 0, 0...4) { v in setParam { $0.rtcGap = v } } } },
                      { field("QUOTA — rough fires per row", \.rtcQuota) { seg(["FREE", "~2", "~3", "~4"], sel: ["FREE", "~2", "~3", "~4"][[0, 2, 3, 4].firstIndex(of: p.rtcQuota ?? 0) ?? 0]) { i in setParam { $0.rtcQuota = [0, 2, 3, 4][i] } } } })
                 field("ODDS FROM", \.rtcOddsVel) { seg(["FIXED", "VELOCITY"], sel: (p.rtcOddsVel ?? false) ? "VELOCITY" : "FIXED") { i in setParam { $0.rtcOddsVel = (i == 1) } } }
+                // PASS-THROUGH (Paul 2026-09-06): downstream of a driver (e.g. [ARP → RATCHET]), RATCHET DRIVES re-pools the arp;
+                // PASS · RATCHET CHOSEN keeps the arp driving — most notes pass through UNCHANGED, only the COIN-chosen ones burst.
+                field("WHEN AFTER A DRIVER (e.g. ARP)", \.rtcFold) {
+                    seg(["RATCHET DRIVES", "PASS · RATCHET CHOSEN"], sel: (p.rtcFold ?? false) ? "PASS · RATCHET CHOSEN" : "RATCHET DRIVES") { i in setParam { $0.rtcFold = (i == 1) } } }
             } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
                 heroField("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
                     stateMatrixRadio([0, 2, 3, 4],
