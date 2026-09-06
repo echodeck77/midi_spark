@@ -3393,7 +3393,7 @@ final class Router {
         while i < cell.procs.count {
             if !cell.slotBypass[i] && isDriverType(cell.procs[i].type) {
                 lastDriver = i
-                if !isRatchetFoldable(cell.procs[i]) { lastNonFold = i }
+                if !isRatchetFoldable(cell.procs[i]) && !isModifierFoldable(cell.procs[i]) { lastNonFold = i }
             }
             i += 1
         }
@@ -3402,6 +3402,10 @@ final class Router {
     /// A ratchet that FOLDS per-note downstream instead of driving: a COIN ratchet in PASS-THROUGH mode (Paul 2026-09-06).
     /// PATTERN is a self-clocked DRIVER (RATE/STEPS/SPAN, RIFF-shaped) — it re-clocks the upstream note, so it is NOT a fold.
     private func isRatchetFoldable(_ p: SnapParams) -> Bool { p.type == .ratchet && p.rtcMode == .coin && p.rtcFold }
+    /// SHIFT / HUMANIZE are per-note MODIFIERS (Paul 2026-09-06): downstream of a real driver they don't re-pool — they
+    /// jitter/push each driven note IN PLACE (emitDriverNote), so [ARP→HUMANIZE] humanizes the arp's notes + keeps its
+    /// rhythm. As the ONLY driver (standalone / [non-driver→SHIFT]) they still GENERATE (chainDriverIndex falls to lastDriver).
+    private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize }
     /// The FIRST non-bypassed foldable RATCHET slot after `driver` — PATTERN (per-slice REST/pass/burst) or COIN PASS-THROUGH.
     private func downstreamRatchetFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
         var j = driver + 1
@@ -3884,6 +3888,8 @@ final class Router {
         // echoes the final set; per-repeat-as-it-fires processing is the deeper "hand the tails" work.)
         var echoP: SnapParams? = nil
         var lenP: SnapParams? = nil   // LENGTH downstream (last-writer wins): overrides each onset's gate by its slice
+        var shiftP: SnapParams? = nil   // SHIFT downstream (Paul 2026-09-06): a fixed late push per note
+        var humanP: SnapParams? = nil   // HUMANIZE downstream: seeded per-note timing + velocity jitter
         var j = driver + 1
         avoidDriverSurvivorValid = true   // downstream fold: a [driver→AVOID(move)] snaps onto the driver's whole-pool survivors (resolved above), not the single driven note (B-1)
         defer { avoidDriverSurvivorValid = false }
@@ -3923,6 +3929,10 @@ final class Router {
                     // COIN PASS-THROUGH fold (Paul 2026-09-06): note-TRANSPARENT in the set fold — its burst-or-pass is applied
                     // at the FINAL emit (below), so the note reaches it unchanged. (A ratchet is only downstream if it's a fold;
                     // a driving ratchet would BE the driver.)
+                } else if cell.procs[j].type == .shift {
+                    shiftP = cell.procs[j]   // GROOVE (Paul 2026-09-06): a per-note late PUSH; applied at the final emit (note-transparent to the set)
+                } else if cell.procs[j].type == .humanize {
+                    humanP = cell.procs[j]   // GROOVE: seeded per-note timing + velocity jitter; applied at the final emit
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()
@@ -3975,11 +3985,29 @@ final class Router {
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
             if splitGateActive && (Int(n) < splitGateLo || Int(n) > splitGateHi || Int(cur.velocity(n)) < splitGateVF || Int(cur.velocity(n)) > splitGateVC) { continue }   // SPLIT punch-hole → rest
-            let baseVel = max(1, Int(cur.velocity(n)))
+            var baseVel = max(1, Int(cur.velocity(n)))
+            var onN = onSample, offN = offOut
+            // GROOVE MODIFIERS (Paul 2026-09-06): a downstream SHIFT / HUMANIZE re-shapes THIS driver note IN PLACE — the ARP
+            // keeps its rhythm, each note is pushed / jittered (SHIFT = a fixed late push · HUMANIZE = seeded per-note timing +
+            // velocity jitter, replay-safe by seed = column·note·index). On/off shift together (length preserved), clamped into
+            // the window like NUDGE/POCKET. So [ARP→HUMANIZE] humanizes the arp's notes instead of re-pooling the chord.
+            if shiftP != nil || humanP != nil {
+                var offB: Int64 = 0; var vScale = 1.0
+                if let sp = shiftP { offB += Int64((max(0, min(1, sp.spread)) * 0.4 * S / max(1e-9, beatsPerSample)).rounded()) }
+                if let hp = humanP {
+                    let amt = max(0, min(1, hp.spread))
+                    let colu = UInt64(bitPattern: Int64((m / S).rounded()))
+                    let h = splitmix64Mix(colu &* 2_654_435_761 &+ UInt64(n) &* 131 &+ UInt64(k) &* 17)
+                    offB += Int64((Double(h & 0xFFFF) / 65535.0 * amt * 0.15 * S / max(1e-9, beatsPerSample)).rounded())
+                    vScale *= max(0.05, (100.0 - Double((h >> 16) & 0xFFFF) / 65535.0 * amt * 45.0) / 100.0)
+                }
+                if offB != 0 { let len = max(1, offN - onN); onN = min(windowEnd, onSample + offB); offN = onN + len }   // shift both → length preserved, clamped to the block
+                baseVel = max(1, Int((Double(baseVel) * vScale).rounded()))
+            }
             // STRIKE 0 = the driver note itself, at its OWN length (offOut = LENGTH-overridden gate). Then, if the fold
             // ratchet calls for N>1, register N−1 more COPIES spaced over the gap to the next note — via the ECHO ring so
             // they spread across render blocks (each copy keeps the note's own length; overlaps re-articulate cleanly).
-            emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offOut, windowEnd: windowEnd, velocity: UInt8(baseVel), m: m, S: S, out: out, diag: &diag)
+            emitChop(Int(n), cell: cell, bm: bm, onSample: onN, offSample: offN, windowEnd: windowEnd, velocity: UInt8(baseVel), m: m, S: S, out: out, diag: &diag)
             if foldBurst > 1 && foldSpacingBeats > 0 {
                 let noteLenBeats = max(0.01, Double(max(1, offOut - onSample)) * beatsPerSample)
                 let echoBM = chopMask(cell, m: m, S: S, base: bm)

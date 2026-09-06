@@ -179,6 +179,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ HUMANIZE / SHIFT reclassified as per-note MODIFIERS (2026-09-06, on `main`; iOS builds, macOS 1067 green incl. fuzz;
+  DEVICE ear owed; engine-only). Paul flagged these were miscategorized as DRIVERS (they re-pooled the chord on their own grid
+  in a chain, discarding the upstream rhythm). Now, downstream of a real driver they FOLD — jitter/push each driven note IN
+  PLACE, keeping the driver's rhythm: `[ARP→HUMANIZE]` humanizes the arp's notes (seeded per-note timing + velocity jitter,
+  replay-safe by seed = column·note·index); `[ARP→SHIFT]` pushes each arp note late. MECHANISM (mirrors the ratchet-COIN-fold):
+  they stay in `isDriverType` (so STANDALONE / as the ONLY driver they still GENERATE via emitGeneratorRow), but a new
+  `isModifierFoldable` (shift/humanize) makes `chainDriverIndex` skip them when a real driver precedes it → the upstream drives
+  and `emitDriverNote` records the downstream SHIFT/HUMANIZE (like `lenP`) and applies the per-note timing offset (on/off shift
+  together, length preserved, clamped to the window like NUDGE/POCKET) + velocity scale at the final emit. So `[ARP→SHIFT]` /
+  `[ARP→HUMANIZE]` emit the SAME note count as the arp (one modified note per arp note, not a re-pool). +1 RouterTest (fold ==
+  arp count · standalone still generates). **v1 LIMITS (flagged):** applies on the tick-driver fold (arp/ratchet/strum/euclid/
+  burst/cascade/weave/riff/hocket); a HOLD driver combo (e.g. `[DRONE→HUMANIZE]`) doesn't jitter (drone rides emitColumnHolds,
+  not emitDriverNote); SHIFT still overlaps the NUDGE utility (both per-note timing — left as-is); a late push is clamped to the
+  block edge like NUDGE. UI/storefront copy still calls them generators (a copy nicety, not wired — flagged).**
 - **▶ RATCHET PATTERN v3 — a SELF-CLOCKED ratchet (RATE·STEPS·SPAN, RIFF-shaped) (2026-09-06, on `main`; iOS builds, macOS 1066
   green incl. fuzz; DEVICE ear owed). SUPERSEDES the fold v1/v2 below. After a long design thread Paul redefined RATCHET
   PATTERN away from a per-note fold: it now has its OWN clock like RIFF. THE BUG that triggered this: the fold indexed the
