@@ -179,6 +179,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET PATTERN v6 — SELF-CLOCKED PASS-THROUGH, ✅ DEVICE-VERIFIED (2026-09-07, on `main`, `6db4ae6` engine + `c6fcbb4`
+  playhead; iOS builds, macOS 1072 green). SUPERSEDES Model B (v5) below. Paul's final ruling: "Ratchet pattern is NOT a driver.
+  It receives MIDI, passes it through, unless the current column is active in which case it ratchets it the specified number of
+  times" + "should have its OWN clock, and any notes passed through should ratchet or not based on the timing of the ratchet
+  pattern processor." So Model B's per-arp-NOTE ordinal (`g=floor(m/driverStep)`) was WRONG — a fast arp hit the ratchet every
+  step or two, decoupled from the ratchet's own rhythm. **ENGINE (`emitDriverNote` PATTERN fold):** the ARP still drives; a note
+  passing through reads whichever column the ratchet's OWN-RATE playhead is on AT THE NOTE'S TIME — `col = floor(localBeat ÷
+  rtcRate) mod STEPS` (+ rtcRotate; SPAN re-anchors via `spanLadderBeats`/`columnStart`). `1` = pass through untouched · `2…8` =
+  ratchet N over the ratchet's OWN rate slot (spacing `rtcRate ÷ N`, via the ECHO ring). NEVER silent (no rest — Paul rejected
+  rest-as-silence twice). So two 1/8 notes inside one 1/4 ratchet column BOTH read that column and both ratchet. **PLAYHEAD
+  (`stateMatrixRadio` + `StateMatrixClock`):** the matrix highlight was aliasing to a 1↔5 jump on 1/8 — I'd fed it the ~4 Hz
+  polled `d.beat`, and sampling an ~8 Hz sweep at 4 Hz is below Nyquist → jumps of STEPS÷2. FIX: the ratchet matrix playhead now
+  runs in a `TimelineView` that EXTRAPOLATES the beat per frame (`meters.beatAnchor + elapsed×tempo/60` — the app's standard
+  pattern), `col = floor(beat÷rtcRate) mod STEPS`, sweeping all STEPS smoothly at RATE. `ProcessorBox` carries the beat-anchor
+  trio; other matrix callers still light the global grid column (`liveStep`). Test renamed `testRatchetPatternRatchetsOnActive
+  Columns` (all-1 == bare arp · all-3 > all-pass). **PROCESS LESSON (Paul, hard):** I burned his time going in circles by iterating
+  on the VISUAL playhead blind (I can't see/hear the device) and by implementing from my own synthesis / reviewer notes instead of
+  his literal words (twice reverted rest-as-silence + a driver rewrite mid-flight). The engine is unit-testable off-device (trust
+  that); the playhead is cosmetic — when reporting, SEPARATE "does it sound right" (engine, chase with tests) from "does the light
+  track" (cosmetic). v1 flags still open: burst sub-strikes ~0.6 staccato; COIN fold velFactor 1.0; the visual runs FREE (no SPAN
+  re-anchor / gated on `d.playing` not free-run).**
 - **▶ RATCHET PATTERN v5 (Model B) — a PER-ARP-NOTE fold + adversarial-review fixes (2026-09-07, on `main`; iOS builds, macOS
   1067+ green incl. fuzz; DEVICE ear owed). Paul: v4 "isn't very good" → a thorough adversarial sweep. VERDICT: v4's self-
   clocked driver RE-CLOCKED the arp onto its own RATE grid (point-sampling "what note is the arp on now" per tick), throwing
