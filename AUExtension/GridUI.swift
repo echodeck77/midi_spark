@@ -186,6 +186,7 @@ struct ProcessorBox: View {
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
     @State private var laneReadout: String? = nil        // LANE READOUT (idea 18): the value floating while a lane bar is dragged
+    @State private var togglePaintTarget: Bool? = nil    // toggleLane drag-paint (Paul 2026-09-07): the state set by the first cell touched, painted across the drag
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -883,31 +884,20 @@ struct ProcessorBox: View {
             let steps = max(1, min(32, p.velSteps ?? 8))
             let lane: [Int] = { var a = p.velLane ?? Array(repeating: 100, count: steps); while a.count < steps { a.append(100) }; return Array(a.prefix(steps)) }()
             let pass: [Int] = { var a = p.velPass ?? Array(repeating: 0, count: steps); while a.count < steps { a.append(0) }; return Array(a.prefix(steps)) }()
-            heroField("VELOCITY PER STEP  (drag to draw · 1–127)") {
+            heroField("VELOCITY PER STEP  (drag ACROSS the bars to draw · 1–127)") {
                 sliderLane(lane, count: steps, max: 127, eFill: true) { i, v in
                     setParam { var a = $0.velLane ?? Array(repeating: 100, count: steps); while a.count < steps { a.append(100) }; a[i] = Swift.max(1, v); $0.velLane = a } }
             }
-            field("PASS THROUGH — tap a step to keep the note's OWN velocity") {
-                HStack(spacing: 3) {
-                    ForEach(Array(0..<steps), id: \.self) { s in
-                        let on = s < pass.count && pass[s] != 0
-                        RoundedRectangle(cornerRadius: 4).fill(on ? Color.white.opacity(0.22) : Color.white.opacity(0.06))
-                            .frame(maxWidth: .infinity).frame(height: 22)
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.8 : 0.12), lineWidth: on ? 1.5 : 1))
-                            .overlay { if on { Image(systemName: "arrow.right").font(.system(size: 9, weight: .black)).foregroundColor(.white) } }
-                            .contentShape(Rectangle()).onTapGesture {
-                                setParam { var a = $0.velPass ?? Array(repeating: 0, count: steps); while a.count < steps { a.append(0) }; a[s] = (a[s] != 0) ? 0 : 1; $0.velPass = a } }
-                    }
-                }
+            field("BYPASS PER STEP  (drag across to pass steps through — keep the note's OWN velocity)") {
+                toggleLane(steps, on: { s in s < pass.count && pass[s] != 0 }, glyph: "arrow.right") { s, target in
+                    setParam { var a = $0.velPass ?? Array(repeating: 0, count: steps); while a.count < steps { a.append(0) }; a[s] = target ? 1 : 0; $0.velPass = a } }
             }
             field("STEPS — pattern length  (1–32)") { numPair(p.velSteps ?? 8, 1...32) { v in setParam { $0.velSteps = v } } }
-            field("CLOCK — how the playhead advances", \.velClock) {
+            field("CLOCK — how the lane advances", \.velClock) {
                 seg(["TIME", "NOTE"], sel: (p.velClock ?? .time) == .note ? "NOTE" : "TIME") { i in setParam { $0.velClock = (i == 1 ? .note : .time) } } }
-            // THE FOOTER (§1): GRID = the step's clock · SPAN = re-anchor the lane every N columns (0 = FREE across all STEPS).
-            frameRow(grid:  { frameGrid(p.velRate ?? .r1_8) { r in setParam { $0.velRate = r } } },
-                     rotate: { EmptyView() },
-                     span:   { frameSpan(p.velSpanN ?? 0, free: true) { v in setParam { $0.velSpanN = v } } },
-                     pairs: nil)
+            field("RATE — the step clock  (used in TIME mode)", \.velRate) {
+                seg(ArpRate.allCases.map(\.rawValue), sel: (p.velRate ?? .r1_8).rawValue) { i in setParam { $0.velRate = ArpRate.allCases[i] } } }
+            frameSpan(p.velSpanN ?? 0, free: true) { v in setParam { $0.velSpanN = v } }   // SPAN = re-anchor the lane every N columns (0 = FREE across all STEPS)
         })
         case .dest: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // ROUTING (Paul 2026-08-22 §5) — the DEST MATRIX: which emitter each onset-slice hockets to
             let base = [0, 1, 2, 3, 0, 1, 2, 3]
@@ -1315,33 +1305,40 @@ struct ProcessorBox: View {
         HStack(spacing: 6) {
         if eFill { EBrushButton(steps: count, accent: accent) { pat in for i in 0..<count { set(i, pat[i] ? maxV : 0) } } }   // §5 E-BRUSH: euclidean fill (hit = max, rest = 0)
         ZStack(alignment: .top) {
-        HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
-            ForEach(0..<count, id: \.self) { i in
-                let v = i < steps.count ? steps[i] : 0
-                let live = i == liveStep                       // PLAYHEAD (idea 15): the live grid column
-                GeometryReader { g in
-                    let h = g.size.height
+        // ONE gesture over the WHOLE lane (Paul 2026-09-07): run a finger ACROSS the bars to draw — the column is hit-tested
+        // from the finger's X, so EVERY bar the finger crosses registers (was: each bar owned its own gesture, so the first
+        // bar touched captured the whole drag and the rest never responded). x → column · y → value.
+        GeometryReader { lane in
+            let W = lane.size.width, H = lane.size.height
+            HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
+                ForEach(0..<count, id: \.self) { i in
+                    let v = i < steps.count ? steps[i] : 0
+                    let live = i == liveStep                       // PLAYHEAD (idea 15): the live grid column
                     ZStack(alignment: center ? .center : .bottom) {   // CENTRE = a bipolar lane (0 = mid, + above, − below) — the TIMING pocket
                         RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(live ? 0.16 : 0.08))
                         if center {
                             let frac = CGFloat(v) / CGFloat(maxV)   // −1…1
-                            let barH = Swift.max(2, abs(frac) * h / 2)
+                            let barH = Swift.max(2, abs(frac) * H / 2)
                             RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: barH).offset(y: frac >= 0 ? -barH / 2 : barH / 2)
                         } else {
-                            RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, h * CGFloat(v) / CGFloat(maxV)))
+                            RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, H * CGFloat(v) / CGFloat(maxV)))
                         }
                     }
                     .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
-                    .contentShape(Rectangle())
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { val in
-                        let y = min(1, Swift.max(0, val.location.y / Swift.max(1, h)))   // 0 top … 1 bottom
-                        let nv = center ? Int(((0.5 - y) * 2 * CGFloat(maxV)).rounded()) : Int((1 - y) * CGFloat(maxV))
-                        set(i, nv); laneReadout = (center && nv > 0 ? "+" : "") + "\(nv)"   // idea 18: float the value
-                    }.onEnded { _ in laneReadout = nil })
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity).frame(height: 84)
             }
+            .frame(width: W, height: H)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { val in
+                let colW = W / CGFloat(Swift.max(1, count))
+                let col = Swift.max(0, Swift.min(count - 1, Int(val.location.x / Swift.max(1, colW))))   // which bar the finger is over
+                let y = Swift.min(1, Swift.max(0, val.location.y / Swift.max(1, H)))   // 0 top … 1 bottom
+                let nv = center ? Int(((0.5 - y) * 2 * CGFloat(maxV)).rounded()) : Int((1 - y) * CGFloat(maxV))
+                set(col, nv); laneReadout = (center && nv > 0 ? "+" : "") + "\(nv)"   // idea 18: float the value
+            }.onEnded { _ in laneReadout = nil })
         }
+        .frame(height: 84)
         if let r = laneReadout {   // LANE READOUT (idea 18): the touched bar's value floats at the top
             Text(r).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                 .padding(.horizontal, 8).padding(.vertical, 3).background(RoundedRectangle(cornerRadius: 5).fill(accent))
@@ -1349,6 +1346,33 @@ struct ProcessorBox: View {
         }
         }
         }
+    }
+    // A per-step TOGGLE ROW you can DRAW ACROSS (Paul 2026-09-07): ONE gesture over the whole row — the first cell the finger
+    // touches sets the paint TARGET (its inverse), then every cell the finger crosses is SET to that target (idempotent, so
+    // no flip-flop within a cell). Drag to enable/disable several at once; a plain tap still flips one. `on`/`setOn` per step.
+    private func toggleLane(_ count: Int, height: CGFloat = 24, on: @escaping (Int) -> Bool, glyph: String? = nil, _ setOn: @escaping (Int, Bool) -> Void) -> some View {
+        GeometryReader { row in
+            let W = row.size.width
+            HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
+                ForEach(0..<count, id: \.self) { s in
+                    let lit = on(s)
+                    RoundedRectangle(cornerRadius: 4).fill(lit ? accent.opacity(0.85) : Color.white.opacity(0.06))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(lit ? accent : Color.white.opacity(0.14), lineWidth: lit ? 1.5 : 1))
+                        .overlay { if lit, let g = glyph { Image(systemName: g).font(.system(size: 9, weight: .black)).foregroundColor(.black) } }
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(width: W, height: height)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { val in
+                let colW = W / CGFloat(Swift.max(1, count))
+                let col = Swift.max(0, Swift.min(count - 1, Int(val.location.x / Swift.max(1, colW))))
+                let target = togglePaintTarget ?? !on(col)   // first touch → the target state (the first cell's inverse)
+                togglePaintTarget = target
+                setOn(col, target)                            // idempotent SET → paints across, never flip-flops mid-cell
+            }.onEnded { _ in togglePaintTarget = nil })
+        }
+        .frame(height: height)
     }
 
     // ---- small controls ----
