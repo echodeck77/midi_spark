@@ -885,7 +885,7 @@ struct ProcessorBox: View {
             let lane: [Int] = { var a = p.velLane ?? Array(repeating: 100, count: steps); while a.count < steps { a.append(100) }; return Array(a.prefix(steps)) }()
             let pass: [Int] = { var a = p.velPass ?? Array(repeating: 0, count: steps); while a.count < steps { a.append(0) }; return Array(a.prefix(steps)) }()
             heroField("VELOCITY PER STEP  (drag ACROSS the bars to draw · 1–127)") {
-                sliderLane(lane, count: steps, max: 127, eFill: true) { i, v in
+                sliderLane(lane, count: steps, max: 127, eFill: false) { i, v in   // no euclid brush (Paul 2026-09-07) — draw the lane by hand
                     setParam { var a = $0.velLane ?? Array(repeating: 100, count: steps); while a.count < steps { a.append(100) }; a[i] = Swift.max(1, v); $0.velLane = a } }
             }
             field("BYPASS PER STEP  (drag across to pass steps through — keep the note's OWN velocity)") {
