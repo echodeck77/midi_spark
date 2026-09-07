@@ -185,6 +185,7 @@ final class Kernel {
     private var freeRunEnabled = false
     private var freeRunActive = false
     private var freeRunBeat = 0.0
+    private var freeRunEmptyStreak: Int64 = 0   // samples the effective-held set has read empty while free-run is active — the debounce so a momentary blink doesn't stop the clock + restart the pass at column 0 (Paul 2026-09-07)
     func setFreeRunEnabled(_ b: Bool) { freeRunEnabled = b }   // main-thread bool write; a torn read is benign (one late block)
     private var recordBeatBase = 0.0, recordBps = 0.0, recordWinStart: Int64 = 0   // beat mapping for handleIncoming's ring recording
     private var recordPlaying = false
@@ -1012,15 +1013,24 @@ final class Kernel {
         var rPlaying = playing, rBeat = beatPos
         if freeRunEnabled && !playing {
             let effHeld = pool.count > 0 || (0..<4).contains { (effectiveLatchMask & (1 << UInt8($0))) != 0 && $0 < latchedPools.count && latchedPools[$0].count > 0 }
-            if effHeld {
-                if !freeRunActive { freeRunActive = true; freeRunBeat = 0 }
+            // DEBOUNCE + CONTINUOUS BEAT (Paul 2026-09-07 — the "drops passes" amplifier): free-run must NOT stop the instant
+            // the effective-held set reads empty for a single render. With a STACCATO source the live pool is empty between
+            // chords, so effHeld leans entirely on the frozen HOLD pool; a one-render blink there would otherwise stop+flush
+            // AND reset freeRunBeat to 0, restarting the grid at column 0 and dropping the rest of the pass. So: keep the beat
+            // ADVANCING (never reset mid-run) and only truly stop after the held set has been empty for a GRACE window. A held
+            // HOLD chord keeps effHeld true throughout, so this only ever absorbs a transient.
+            freeRunEmptyStreak = effHeld ? 0 : (freeRunEmptyStreak &+ Int64(frameCount))
+            let graceSamples = Int64(sampleRate * 0.5)   // ~0.5 s — far longer than a staccato gap / a capture blink, far shorter than "input stopped"
+            if effHeld || (freeRunActive && freeRunEmptyStreak <= graceSamples) {
+                if !freeRunActive { freeRunActive = true; freeRunBeat = 0; freeRunEmptyStreak = 0 }   // COLD start only → beat 0; a within-grace blink carries the beat (no column-0 restart)
                 freeRunBeat += renderWindowBeats
                 rPlaying = true; rBeat = freeRunBeat
-            } else if freeRunActive {
-                freeRunActive = false; freeRunBeat = 0
+            } else if freeRunActive {                    // grace elapsed with no input → genuinely stop + flush
+                freeRunActive = false; freeRunBeat = 0; freeRunEmptyStreak = 0
                 router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)   // Finding 1: flush glide/mod too (no process() edge here → stale glide slot otherwise)
             }
-        } else if freeRunActive {   // host started, or free-run disabled mid-run → stop + flush the free-run notes
+        } else if freeRunActive {   // host started, or free-run disabled mid-run → stop + flush the free-run notes (immediate — NOT debounced; hand the clock back at once)
+            freeRunEmptyStreak = 0
             freeRunActive = false; freeRunBeat = 0
             router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true)   // Finding 1: flush glide/mod too (no process() edge here → stale glide slot otherwise)
         }
