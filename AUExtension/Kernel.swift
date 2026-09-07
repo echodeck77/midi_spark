@@ -274,6 +274,7 @@ final class Kernel {
     private func updateLatchedPools() {
         guard effectiveLatchMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed (incl. PIANO) now or before
         pool.rebuildSorted()                       // the live pool's ascending view (process rebuilds again; idempotent)
+        blockStruckPool.rebuildSorted()            // ...and the notes STRUCK this block (staccato-safe HOLD capture, below)
         for i in 0..<4 {
             let bit = UInt8(1 << i)
             let isArmed = effectiveLatchMask & bit != 0, wasArmed = prevLatchArmMask & bit != 0
@@ -339,19 +340,23 @@ final class Kernel {
                 latchedPools[i].latchAddStep(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                              noteLo: rLo, noteHi: rHi, prevHeld: &latchPrevHeld[i])
             } else {
-                // HOLD (CHORD) — MIRROR-AND-FREEZE (Paul 2026-09-06: "it goes silent on certain passes — which should NEVER
-                // happen"). The frozen pool TRACKS the current live chord whenever the live admitted set is non-empty, and
-                // FREEZES the last chord when the input goes silent. So a SUSTAINED source (which floods CC120/123 as noise —
-                // now ignored) plays its held chord on EVERY pass, and releasing the input holds the last chord.
+                // HOLD (CHORD) — MIRROR-AND-FREEZE, STACCATO-SAFE (Paul 2026-09-06/07: "HOLD should NEVER go silent once notes
+                // have been fed"). The effective live chord = notes CURRENTLY held (`pool`) UNION notes STRUCK this block
+                // (`blockStruckPool`, which a same-block note-off can't erase). The frozen pool TRACKS that set whenever it's
+                // non-empty, and FREEZES the last chord when it goes silent. So a SUSTAINED source plays its held chord every
+                // pass AND a STACCATO source (a chord struck+released within one render block — the device MIDI monitor showed
+                // exactly this: on…off per pass) is still captured, where sampling only the end-of-block `pool` saw it already
+                // emptied → the frozen pool never filled → HOLD silent (the reported bug).
                 //
-                // This replaces the old detect-and-replace (holdCaptureDecision): its per-render REPLACE — made hair-trigger
-                // once the CC120/123 flood armed `releasing` every render — captured whatever transient PARTIAL/EMPTY live
-                // state existed at the capture instant, which is exactly the intermittent per-pass silence. Now: capture ONLY
-                // on a CHANGE to a NON-EMPTY set (no churn while steady); an EMPTY live set KEEPS the frozen chord. Invariant:
-                // the frozen pool is never empty while input is present, so HOLD can't go silent under a held chord.
-                let (clo, chi) = pool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                // Replaces the old detect-and-replace (holdCaptureDecision). Capture ONLY on a CHANGE to a NON-EMPTY set (no
+                // churn while steady); an EMPTY set KEEPS the frozen chord. Invariant: the frozen pool is never empty while a
+                // chord has been struck, so HOLD can't go silent.
+                let (plo, phi) = pool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                let (slo, shi) = blockStruckPool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                let (clo, chi) = (plo | slo, phi | shi)   // currently-held ∪ struck-this-block
                 if (clo != 0 || chi != 0) && (clo != holdLiveLo[i] || chi != holdLiveHi[i]) {
-                    latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                    latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)   // currently-held notes (with their live velocities)
+                    latchedPools[i].mergeFiltered(from: blockStruckPool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)   // + a chord already released within this block
                 }
                 holdLiveLo[i] = clo; holdLiveHi[i] = chi
             }
@@ -573,6 +578,11 @@ final class Kernel {
     }
 
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
+    // NOTES STRUCK THIS RENDER BLOCK (Paul 2026-09-07): every incoming note-on is added here and it is CLEARED ONLY at the
+    // block start — note-offs never remove from it. So a STACCATO chord whose note-on AND note-off both land in one block
+    // (a fast source firing a chord per pass) is still visible to HOLD capture, which samples once per block AFTER the event
+    // loop and would otherwise see the pool already emptied by the offs → the frozen HOLD pool never fills → HOLD silent.
+    private let blockStruckPool = NotePool()
     private let router = Router()       // grid → emission (§2/§7)
 
     #if DEBUG
@@ -888,6 +898,7 @@ final class Kernel {
         #endif
 
         // ---- event list: MIDI + parameter events ----
+        blockStruckPool.reset()   // start the per-block struck-notes accumulator fresh (HOLD capture reads it after the loop)
         var ev = events
         while let e = ev {
             let head = e.pointee.head
@@ -1138,6 +1149,7 @@ final class Kernel {
         let channel = bytes[0] & 0x0F
         if status == 0x90, length >= 3 {
             pool.noteOn(bytes[1], velocity: bytes[2], channel: channel, cable: UInt8(clamping: cable))
+            if bytes[2] > 0 { blockStruckPool.noteOn(bytes[1], velocity: bytes[2], channel: channel, cable: UInt8(clamping: cable)) }   // record the STRIKE (survives a same-block note-off) so HOLD capture can't miss a staccato chord (Paul 2026-09-07)
             // delta §9 item 11 INPUT metering: attribute this note-on to EVERY receiver whose filter hears
             // it (§item 11: cable AND channel). A vel-0 note-on is a note-off — skip it.
             let vel = bytes[2]
