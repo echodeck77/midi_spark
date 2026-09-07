@@ -310,6 +310,7 @@ final class Router {
     // there are now 128 cells (rows 0–15) — lo = cells 0…63, hi = cells 64…127. Both scalars → a torn read stays benign.
     private var cellSoundingLo: UInt64 = 0
     private var cellSoundingHi: UInt64 = 0
+    private var cellSoundVel = [UInt8](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity (max over the cell's active voices) — stays up while a note is HELD, unlike the strike feed. Feeds the emitter fader's per-colour floor (Paul 2026-09-07).
     private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
     // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
     // reconcile either keeps it (matched by the new column) or closes it (dropped). Sized to the pool, reused.
@@ -954,14 +955,23 @@ final class Router {
     /// `currentCellSounding` and drives the spark's life off the gate — travelling for exactly the held duration.
     func snapshotCellSounding() {
         var lo: UInt64 = 0, hi: UInt64 = 0
+        for i in 0..<Snap.cells { cellSoundVel[i] = 0 }                    // per-cell sounding VELOCITY: reset then take the max over each cell's active voices
         for v in voices where v.active && !v.silent && v.cellIndex >= 0 && v.cellIndex < Snap.cells {
             if v.cellIndex < 64 { lo |= UInt64(1) << UInt64(v.cellIndex) }
             else { hi |= UInt64(1) << UInt64(v.cellIndex - 64) }
+            if v.vel > cellSoundVel[Int(v.cellIndex)] { cellSoundVel[Int(v.cellIndex)] = v.vel }
         }
         cellSoundingLo = lo; cellSoundingHi = hi
     }
     /// UI-poll read of the per-cell sounding bitmask (main thread; benign render/UI staleness, as the other feeds).
     func currentCellSounding() -> (lo: UInt64, hi: UInt64) { (cellSoundingLo, cellSoundingHi) }
+    /// UI-poll read of the per-cell SOUNDING velocity (0…127), element-copied into a FRESH array so the main thread never
+    /// shares the render buffer (a torn UInt8 read is benign — one stale bar). Feeds the emitter fader's per-colour floor.
+    func cellSoundingVelSnapshot() -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: Snap.cells)
+        for i in 0..<Snap.cells { out[i] = cellSoundVel[i] }
+        return out
+    }
 
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
     /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source colour) set.

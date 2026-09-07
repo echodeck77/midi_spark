@@ -379,6 +379,7 @@ struct DiagView: View {
     // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
     @State var cellHitAt = [Date](repeating: .distantPast, count: Snap.cells)   // Snap.cells = 128 (rows 0–15; index = col*Snap.rows+row)
     @State var cellHitVel = [Double](repeating: 0, count: Snap.cells)
+    @State var cellSoundVel = [Double](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity 0…1 (stays up while HELD) — the emitter fader's per-colour floor (Paul 2026-09-07)
     // SEAL comet note-on/off GATE: which cells are currently SOUNDING (from au.pollCellSounding), and when each
     // last went SILENT. The spark travels for exactly as long as the note is held, then fades ~0.45s from release.
     @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL: the part's exact output (the OFFLINE feed, recomputed on input/selection/edit change — no lag)
@@ -1020,6 +1021,8 @@ struct DiagView: View {
                 if pruned { buildCellRoll = roll }
             }
             let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected; 128 cells = lo 0…63 + hi 64…127)
+            let svRaw = au.pollCellSoundingVel()           // per-cell SOUNDING velocity → the emitter fader's per-colour floor
+            let sv = svRaw.map { Double($0) / 127.0 }; if sv != cellSoundVel { cellSoundVel = sv }   // deduped write (no re-render on a steady value)
             var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
             let nowG = Date()
             for i in 0..<Snap.cells {
