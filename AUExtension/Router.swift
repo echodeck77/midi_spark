@@ -3409,9 +3409,10 @@ final class Router {
         }
         return lastNonFold >= 0 ? lastNonFold : lastDriver
     }
-    /// A ratchet that FOLDS per-note downstream instead of driving: a COIN ratchet in PASS-THROUGH mode (Paul 2026-09-06).
-    /// PATTERN is a self-clocked DRIVER (RATE/STEPS/SPAN, RIFF-shaped) — it re-clocks the upstream note, so it is NOT a fold.
-    private func isRatchetFoldable(_ p: SnapParams) -> Bool { p.type == .ratchet && p.rtcMode == .coin && p.rtcFold }
+    /// A ratchet that FOLDS per-note downstream instead of driving (Paul 2026-09-07): PATTERN (Model B — advances one matrix
+    /// column PER ARP NOTE: 0 = rest, 1 = passthrough, 2…8 = ratchet that note in place), or a COIN ratchet in PASS-THROUGH.
+    /// As the ONLY driver (standalone) the ratchet still DRIVES self-clocked (chainDriverIndex falls to lastDriver → emitRatchetModal).
+    private func isRatchetFoldable(_ p: SnapParams) -> Bool { p.type == .ratchet && (p.rtcMode == .pattern || (p.rtcMode == .coin && p.rtcFold)) }
     /// SHIFT / HUMANIZE are per-note MODIFIERS (Paul 2026-09-06): downstream of a real driver they don't re-pool — they
     /// jitter/push each driven note IN PLACE (emitDriverNote), so [ARP→HUMANIZE] humanizes the arp's notes + keeps its
     /// rhythm. As the ONLY driver (standalone / [non-driver→SHIFT]) they still GENERATE (chainDriverIndex falls to lastDriver).
@@ -3952,21 +3953,32 @@ final class Router {
             }
             j += 1
         }
-        // RATCHET COIN pass-through fold (Paul 2026-09-06): a downstream COIN ratchet in PASS-THROUGH re-shapes THIS driver
-        // note in place — the driver (ARP) keeps its rhythm; on a COIN fire the note is re-fired `foldBurst` times spread over
-        // the gap to the next driver note (spacing = driverStep ÷ N), riding the ECHO ring so the copies emit across blocks.
-        // (PATTERN is NOT a fold — it's a self-clocked driver, handled in emitRatchetModal.) velFactor 1.0 in fold mode.
-        var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0
+        // RATCHET fold (Paul 2026-09-07, Model B): a downstream foldable ratchet re-shapes THIS driver note IN PLACE — the
+        // driver (ARP) keeps its rhythm. PATTERN advances one MATRIX COLUMN per arp note (by the note's tick ordinal): 0 = REST
+        // (drop it), 1 = passthrough (the note as-is), 2…8 = ratchet (re-fire N times spread over the gap to the next arp note,
+        // spacing = driverStep ÷ N). COIN: on a seeded fire, re-fire the coin count. Bursts ride the ECHO ring so the copies
+        // emit across render blocks. So each arp note gets its own column → both of two 1/8 notes are ratcheted (Model B).
+        var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0; var foldRest = false
         if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
             let rp = cell.procs[fi]
-            let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // gap to the next driver (arp) note
-            let step = Int((m / S).rounded())
-            if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
-                foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
-                                                      : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
+            let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // the driver (arp) step = gap to the next note
+            if rp.rtcMode == .pattern {
+                let steps = max(1, min(32, rp.rtcSteps))
+                let g = driverStep > 0 ? Int((m / driverStep).rounded(.down)) : 0     // THIS arp note's ordinal (its tick index) → the matrix column
+                let col = (((g + rp.rtcRotate) % steps) + steps) % steps
+                let raw = col < rp.rtcSlices.count ? rp.rtcSlices[col] : 1
+                if raw <= 0 { foldRest = true }                                        // 0 = REST → drop this note
+                else if raw >= 2 { foldBurst = min(8, raw) }                           // 1 = passthrough · 2…8 = ratchet
+            } else {   // COIN pass-through (velFactor 1.0 in fold mode)
+                let step = Int((m / S).rounded())
+                if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
+                    foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
+                                                          : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
+                }
             }
             if foldBurst > 1 { foldSpacingBeats = driverStep / Double(foldBurst); foldDecay = max(0.2, 1.0 - rp.ramp * 0.6) }   // BURST FADE ≈ echo decay taper
         }
+        if foldRest { cur.reset(); cur.rebuildSorted() }   // REST → drop the note (+ its echoes), like LENGTH MUTE
         // LENGTH downstream: replace THIS onset's gate by the slice it lands in — MUTE drops the note (+ its echoes),
         // PASS keeps the driver's own gate, SHORT/LONG override the off. The off-beat → sample conversion is linear
         // in `beatsPerSample` (gate offs, not onsets, so intra-column swing warp is negligible here).
@@ -4350,7 +4362,9 @@ final class Router {
                 // which matrix column is the playhead on? re-anchored by SPAN (like RIFF), else free-running; + ROTATE
                 let localTick = spanBeats > 0 ? Int(((tickStart - columnStart(tickStart, spanBeats)) / rate).rounded(.down)) : tk
                 let col = (((localTick + p.rtcRotate) % steps) + steps) % steps
-                let count = max(1, min(8, col < p.rtcSlices.count ? p.rtcSlices[col] : 1))   // 1 = passthrough · 2…8 = ratchet
+                let raw = col < p.rtcSlices.count ? p.rtcSlices[col] : 1
+                if raw <= 0 { tk += 1; continue }                                            // 0 = REST → a true gap (Paul 2026-09-07)
+                let count = min(8, raw)                                                       // 1 = passthrough · 2…8 = ratchet
                 let sub = rate / Double(count)
                 for j in 0..<count {
                     let tau = tickStart + Double(j) * sub

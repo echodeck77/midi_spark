@@ -179,6 +179,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET PATTERN v5 (Model B) — a PER-ARP-NOTE fold + adversarial-review fixes (2026-09-07, on `main`; iOS builds, macOS
+  1067+ green incl. fuzz; DEVICE ear owed). Paul: v4 "isn't very good" → a thorough adversarial sweep. VERDICT: v4's self-
+  clocked driver RE-CLOCKED the arp onto its own RATE grid (point-sampling "what note is the arp on now" per tick), throwing
+  away the arp's rhythm — the opposite of "process the input in front of it" / "ratchet both of the 1/8 notes." (WHY A can't
+  ratchet two: a RATE tick samples ONCE, so the second 1/8 note falls between ticks, unseen.) Paul chose **Model B**: downstream
+  of a driver the PATTERN ratchet FOLDS — the ARP drives, and each arp note reads the NEXT matrix column (by its tick ordinal
+  `g=floor(m/driverStep)`, +rtcRotate, mod STEPS): **0 = REST (drop) · 1 = passthrough (the note at its own on/off) · 2–8 =
+  ratchet** (re-fire N over the gap to the next arp note, spacing driverStep÷N, via the ECHO ring). So both 1/8 notes get their
+  own column. ENGINE: `isRatchetFoldable` includes PATTERN again → `chainDriverIndex` makes the ARP the driver + the ratchet
+  foldable; `emitDriverNote` gained the PATTERN branch (foldBurst/foldRest by column). STANDALONE (no driver) keeps the v4 self-
+  clocked `emitRatchetModal` (RATE playhead) — now honouring 0=rest too. **REVIEW FIXES:** B1 ROTATE was clamped mod-8 in the
+  builder (dead past col 8) → mod-32; B4 rtcSlices clamped 1…8 dropped authored RESTS (Dice/preset `0`s became passthrough) →
+  clamp 0…8; matrix gained the **· (rest)** option (0,1,2…8). Tests: [ARP→RATCHET PATTERN] all-1 plays the arp · all-3 > all-1 ·
+  all-rest silent; standalone/self-clock + rate tests kept. **STILL FLAGGED (device-eye):** B2 the matrix PLAYHEAD highlight is
+  the GLOBAL grid column (`liveStep`), not the ratchet's per-arp-note position — so the visible sweep still won't match; needs a
+  per-cell liveStep feed (not wired). B3 a ratcheted sub-strike is ~0.6-staccato (not the note's own length). RATE only drives
+  standalone now (the arp's rate drives in a chain). The tick-ordinal advances per arp TICK (a masked/rested arp step skips a
+  column). NOTE: Diag.swift/Kernel.swift were the partner instance's HOLD work — untouched; I committed only my 4 files.**
 - **▶ RATCHET PATTERN v4 — the step MATRIX restored (self-clocked, per-column counts) (2026-09-07, on `main`; iOS builds, macOS
   1067+ green incl. fuzz; DEVICE ear owed). Paul: "I was wrong to say ditch the numbers" — bring the grid back, without the
   euclid control, self-clocked like RIFF with a defined step count; each column, when the playhead reaches it, decides
