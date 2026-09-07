@@ -165,6 +165,7 @@ struct ProcessorBox: View {
     var accentOverride: Color? = nil                     // MODE ROW: force the control accent (blue, to match the emitters)
     var passHead: Int = -1                               // MODE ROW: the live PASS index (0…3) for the passgate playhead; -1 = stopped
     var liveStep: Int = -1                               // PLAYHEAD (idea 15): the live GRID COLUMN (0…7) lit in the matrices/lanes; -1 = stopped
+    var beat: Double = -1                                // the effective beat (host/free-run); -1 = stopped. RATCHET PATTERN derives its OWN-clock playhead column from this + its RATE (Paul 2026-09-07)
     var onBypass: () -> Void = {}
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
     var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
@@ -418,10 +419,19 @@ struct ProcessorBox: View {
             } else {   // pattern — a step MATRIX (Paul 2026-09-07, Model B): STEPS columns, each a COUNT (1 = pass the note
                        // through · 2–8 = ratchet). NO rest — every column sounds. Downstream of a driver it advances one column PER ARP NOTE.
                 let steps = max(1, min(32, p.rtcSteps ?? 8))
+                // PLAYHEAD (Paul 2026-09-07): the ratchet's OWN column at the live beat — col = floor(beat ÷ RATE) mod STEPS
+                // (+ ROTATE). Sweeps ALL STEPS at RATE (not the global grid, which stopped at 8). SPAN re-anchor is the engine's;
+                // the visual runs FREE (device-eye owed; ~4 Hz poll → coarse at fast rates). -1 when stopped.
+                let ratchetLive: Int = {
+                    guard beat >= 0 else { return -1 }
+                    let rate = Swift.max(0.03125, (p.rtcRate ?? .r1_8).beats)
+                    let g = Int((beat / rate).rounded(.down))
+                    return (((g + (p.rtcRotate ?? 0)) % steps) + steps) % steps
+                }()
                 heroField("STEPS — pattern length  (1–32)") {
                     numPair(p.rtcSteps ?? 8, 1...32) { v in setParam { $0.rtcSteps = v } } }
                 field("PER STEP — tap a column  (1 = pass through · 2–8 = ratchet)", \.rtcSlices) {
-                    stateMatrixRadio([1, 2, 3, 4, 5, 6, 7, 8], steps: steps,
+                    stateMatrixRadio([1, 2, 3, 4, 5, 6, 7, 8], steps: steps, liveOverride: ratchetLive,
                         header: { v in AnyView(Text("\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
                         eFill: false,   // euclid control removed (Paul 2026-09-07)
                         onRotate: { d in setParam { $0.rtcRotate = ((($0.rtcRotate ?? 0) + d) % steps + steps) % steps } },
@@ -1202,10 +1212,11 @@ struct ProcessorBox: View {
     /// brush, no dead first touch). Row headers (left edge) carry the option's glyph + name — permanent and positional;
     /// the whole pattern reads as geometry. One reusable widget for LENGTH · RATCHET PATTERN · TUTTI PATTERN · … .
     @ViewBuilder private func stateMatrixRadio<Opt: Hashable>(
-        _ options: [Opt], steps: Int = 8, header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
+        _ options: [Opt], steps: Int = 8, liveOverride: Int? = nil, header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
         selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
     ) -> some View {
         let cols = max(1, min(32, steps))   // variable matrix width (CHORDS ≤16; RATCHET PATTERN up to 32 — Paul 2026-09-07); other callers default to 8
+        let liveCol = liveOverride ?? liveStep   // RATCHET PATTERN passes its OWN-clock column (sweeps all STEPS); others use the global grid column
         let grid = VStack(spacing: 3) {
             ForEach(Array(options.enumerated()), id: \.offset) { (_, opt) in
                 HStack(spacing: 3) {
@@ -1213,7 +1224,7 @@ struct ProcessorBox: View {
                     header(opt).frame(width: 64, alignment: .leading)
                     ForEach(0..<cols, id: \.self) { step in
                         let on = selected(step) == opt
-                        let live = step == liveStep                       // PLAYHEAD (idea 15): the live grid column
+                        let live = step == liveCol                        // PLAYHEAD (idea 15): the live column (ratchet's own clock, or the global grid)
                         RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(live ? 0.14 : 0.06))
                             .frame(maxWidth: .infinity).frame(height: 26)
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: on ? 1.5 : 1))

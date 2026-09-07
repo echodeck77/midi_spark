@@ -3953,21 +3953,25 @@ final class Router {
             }
             j += 1
         }
-        // RATCHET fold (Paul 2026-09-07, Model B): a downstream foldable ratchet re-shapes THIS driver note IN PLACE — the
-        // driver (ARP) keeps its rhythm; the ratchet is NOT a driver. PATTERN advances one MATRIX COLUMN per arp note (by the
-        // note's tick ordinal): 1 = PASS THROUGH (the note as-is), 2…8 = ratchet (re-fire N spread over the gap to the next arp
-        // note, spacing driverStep ÷ N). NO REST — an inactive column passes the note (Paul 2026-09-07). COIN: on a seeded fire,
-        // re-fire the coin count. Bursts ride the ECHO ring so the copies emit across render blocks. Each arp note = its own column.
+        // RATCHET fold (Paul 2026-09-07): the ratchet is a PASS-THROUGH with its OWN CLOCK — NOT a driver, NOT per arp-note.
+        // PATTERN: the ratchet's playhead runs on its OWN RATE (rtcRate, SPAN re-anchors); a note passing through reads
+        // whichever column that playhead is on AT THE NOTE'S TIME (col = floor(noteBeat ÷ rtcRate) mod STEPS). 1 = PASS THROUGH
+        // (the note as-is) · 2…8 = ratchet it N over the ratchet's own rate slot (spacing rtcRate ÷ N) · never silent. So two
+        // 1/8 notes inside one 1/4 column BOTH read that column → both ratchet. COIN: seeded fire over the driver step. Bursts
+        // ride the ECHO ring so the copies emit across render blocks.
         var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0
         if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
             let rp = cell.procs[fi]
-            let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // the driver (arp) step = gap to the next note
+            var slotBeats = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // COIN: subdivide the driver (arp) step
             if rp.rtcMode == .pattern {
                 let steps = max(1, min(32, rp.rtcSteps))
-                let g = driverStep > 0 ? Int((m / driverStep).rounded(.down)) : 0     // THIS arp note's ordinal (its tick index) → the matrix column
+                let rate = max(0.03125, rp.rtcRateBeats)                              // the RATCHET'S OWN clock (not the arp's) — Paul 2026-09-07
+                let spanBeats = rp.rtcSpanN > 0 ? spanLadderBeats(rp.rtcSpanN, S: S, row: cycleBeats) : 0
+                let localBeat = spanBeats > 0 ? (m - columnStart(m, spanBeats)) : m   // SPAN re-anchor (RIFF-style); else free-run
+                let g = Int((localBeat / rate).rounded(.down))                        // which column the ratchet's playhead is on AT THIS NOTE'S TIME
                 let col = (((g + rp.rtcRotate) % steps) + steps) % steps
                 let raw = col < rp.rtcSlices.count ? rp.rtcSlices[col] : 1
-                if raw >= 2 { foldBurst = min(8, raw) }                                // 1 (or unset) = PASSTHROUGH · 2…8 = ratchet · never silent
+                if raw >= 2 { foldBurst = min(8, raw); slotBeats = rate }             // active column → ratchet N over the ratchet's OWN rate slot · 1 = passthrough
             } else {   // COIN pass-through (velFactor 1.0 in fold mode)
                 let step = Int((m / S).rounded())
                 if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
@@ -3975,7 +3979,7 @@ final class Router {
                                                           : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
                 }
             }
-            if foldBurst > 1 { foldSpacingBeats = driverStep / Double(foldBurst); foldDecay = max(0.2, 1.0 - rp.ramp * 0.6) }   // BURST FADE ≈ echo decay taper
+            if foldBurst > 1 { foldSpacingBeats = slotBeats / Double(foldBurst); foldDecay = max(0.2, 1.0 - rp.ramp * 0.6) }   // BURST FADE ≈ echo decay taper
         }
         // LENGTH downstream: replace THIS onset's gate by the slice it lands in — MUTE drops the note (+ its echoes),
         // PASS keeps the driver's own gate, SHORT/LONG override the off. The off-beat → sample conversion is linear
