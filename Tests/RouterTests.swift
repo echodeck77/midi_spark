@@ -1890,21 +1890,21 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(onsRow, onsCell, "SPAN ROW spreads the 8-slice shape across the bar; CELL strides it at the fast RATE")
         assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
     }
-    func testRatchetPatternSpanWindowLeavesGapsVsFreeRun() {
-        // SPAN v3 (Paul 2026-09-06, RIFF-shaped): FREE (spanN 0) = a steady stream at RATE. A SPAN window fires STEPS strikes
-        // then RESTS to the next re-anchor — so a small STEPS in a wide window emits FEWER strikes than the free-running stream.
-        func rbox(spanN: Int, steps: Int) -> SnapshotBox {
+    func testRatchetPatternColumnCountsRatchet() {
+        // PATTERN (Paul 2026-09-07): each matrix column holds a COUNT = strikes when the playhead reaches it (1 = passthrough,
+        // N = ratchet N, subdividing the column's RATE slot). So a high-count matrix emits more note-ons than an all-1 one.
+        func rbox(_ counts: [Int]) -> SnapshotBox {
             box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .ratchet)
-                c.paramsA.rtcMode = .pattern; c.paramsA.rtcRate = .r1_16; c.paramsA.rtcSteps = steps; c.paramsA.rtcSpanN = spanN; return c }) {
+                c.paramsA.rtcMode = .pattern; c.paramsA.rtcRate = .r1_16; c.paramsA.rtcSteps = counts.count; c.paramsA.rtcSlices = counts; return c }) {
                 for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
             }
         }
-        let eFree = RecordingEmitter(); run(rbox(spanN: 0, steps: 8), chord([60, 64, 67]), beats: 16, into: eFree, releaseAtEnd: false)
-        let eSpan = RecordingEmitter(); run(rbox(spanN: 4, steps: 2), chord([60, 64, 67]), beats: 16, into: eSpan, releaseAtEnd: false)
-        let onsFree = eFree.ons.filter { $0.cable == 1 }.count, onsSpan = eSpan.ons.filter { $0.cable == 1 }.count
-        XCTAssertGreaterThan(onsFree, 0, "the free-running ratchet sounds a steady stream at RATE")
-        XCTAssertLessThan(onsSpan, onsFree, "a SPAN window (2 strikes then rest) emits fewer than the free-running stream")
-        assertNothingLeftSounding(eFree); assertNothingLeftSounding(eSpan)
+        let ePass = RecordingEmitter(); run(rbox(Array(repeating: 1, count: 8)), chord([60, 64, 67]), beats: 8, into: ePass, releaseAtEnd: false)
+        let eRat  = RecordingEmitter(); run(rbox(Array(repeating: 4, count: 8)), chord([60, 64, 67]), beats: 8, into: eRat, releaseAtEnd: false)
+        let onsPass = ePass.ons.filter { $0.cable == 1 }.count, onsRat = eRat.ons.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(onsPass, 0, "an all-passthrough (all-1) pattern sounds one hit per column at RATE")
+        XCTAssertGreaterThan(onsRat, onsPass, "higher per-column counts ratchet → more strikes")
+        assertNothingLeftSounding(ePass); assertNothingLeftSounding(eRat)
     }
     func testCascadeRevealsEachChordNoteOnce() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)

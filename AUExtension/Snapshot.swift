@@ -208,8 +208,8 @@ struct SnapParams {
     var rtcQuota: Int = 0
     var rtcOddsVel: Bool = false
     var rtcFold: Bool = false        // COIN "PASS THROUGH" (Paul 2026-09-06): downstream of a driver, pass each note through unless the COIN fires (then a burst). false ⇒ RATCHET drives (legacy).
-    var rtcSlices: [Int] = [2, 0, 2, 0, 2, 0, 2, 0]   // (legacy PATTERN per-slice counts — unused since the RIFF-shaped rebuild)
-    var rtcSteps: Int = 8                             // PATTERN v3: strikes per SPAN window (1…32) — Paul 2026-09-06
+    var rtcSlices: [Int] = [2, 1, 2, 1, 2, 1, 2, 1]   // PATTERN: per-column strike counts (1 = passthrough · 2…8 = ratchet), padded to 32 in the builder
+    var rtcSteps: Int = 8                             // PATTERN: the step-matrix LENGTH (1…32) — the playhead sweeps this many columns at RATE (Paul 2026-09-07)
     var rtcRateBeats: Double = 0.5                    // PATTERN: strike spacing in beats (from rtcRate) — the ratchet's OWN clock
     var rtcRotate: Int = 0
     var rtcSpan: PatternSpan = .cell                 // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)

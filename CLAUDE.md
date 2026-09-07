@@ -179,6 +179,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET PATTERN v4 — the step MATRIX restored (self-clocked, per-column counts) (2026-09-07, on `main`; iOS builds, macOS
+  1067+ green incl. fuzz; DEVICE ear owed). Paul: "I was wrong to say ditch the numbers" — bring the grid back, without the
+  euclid control, self-clocked like RIFF with a defined step count; each column, when the playhead reaches it, decides
+  passthrough or how many to ratchet. So v3's bare RATE+STEPS is replaced by: a STEP MATRIX of **STEPS columns (1–32)**, each a
+  COUNT (**1 = passthrough · 2–8 = ratchet**); the playhead sweeps the columns at **RATE** (its own clock, RIFF-shaped),
+  **SPAN** re-anchors (FREE = free-run). ENGINE (`emitRatchetModal` PATTERN): window-scan RATE ticks over the absolute beat;
+  `col = (localTick + rtcRotate) mod STEPS` (localTick re-anchored by SPAN); `count = rtcSlices[col]`; subdivide that column's
+  RATE slot into `count` staccato sub-strikes (count 1 = one hit). Feeds the upstream note (re-clocks the arp) → spreads across
+  render blocks, free-runs independent of the grid. `rtcSlices` widened to 32 (builder pads/clamps 1…8); `rtcSteps` = the matrix
+  length. UI: the `stateMatrixRadio` count matrix is back (`steps: rtcSteps`, options 1–8, **eFill:false** = euclid brush
+  removed, drag-to-rotate kept) + a STEPS numPair; the matrix column cap raised 16→32; RATE/SPAN in the frame footer. Tests:
+  per-column-count (all-4 > all-1) + the self-clock rate tests; retired the v3 span-window test. **v1 FLAGS (device-eye):** 32
+  columns × 8 option-rows is cramped; a HOLD driver combo (`[DRONE→RATCHET PATTERN]`) still won't re-clock (drone rides
+  emitColumnHolds); SPAN re-anchors the phase (no rests — every column fires its count).**
 - **▶ HOUSEKEEPING SWEEP + the session's HOLD/colour/diagnostic fixes (2026-09-07, on `main`, PUSHED; iOS builds, macOS 1072
   green +5). Five parallel read-only survey agents (engine bug-hunt · pure-core · test-gap · docs · dead-code), every finding
   re-verified before acting. **ENGINE (`1c20892`):** Finding 1 (HIGH) — the Kernel's reel + free-run edge `router.allNotesOff`

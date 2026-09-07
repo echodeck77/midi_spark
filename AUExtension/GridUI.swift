@@ -415,10 +415,19 @@ struct ProcessorBox: View {
                 // PASS · RATCHET CHOSEN keeps the arp driving — most notes pass through UNCHANGED, only the COIN-chosen ones burst.
                 field("WHEN AFTER A DRIVER (e.g. ARP)", \.rtcFold) {
                     seg(["RATCHET DRIVES", "PASS · RATCHET CHOSEN"], sel: (p.rtcFold ?? false) ? "PASS · RATCHET CHOSEN" : "RATCHET DRIVES") { i in setParam { $0.rtcFold = (i == 1) } } }
-            } else {   // pattern — a SELF-CLOCKED ratchet (Paul 2026-09-06, RIFF-shaped): RATE · STEPS · SPAN, no matrix/euclid
-                heroField("STEPS — strikes per SPAN window  (1–32)") {
+            } else {   // pattern — a SELF-CLOCKED step MATRIX (Paul 2026-09-07, RIFF-shaped): STEPS columns, each a COUNT
+                       // (1 = passthrough · 2–8 = ratchet); the playhead sweeps them at RATE (its own clock), SPAN re-anchors.
+                let steps = max(1, min(32, p.rtcSteps ?? 8))
+                heroField("STEPS — pattern length  (1–32)") {
                     numPair(p.rtcSteps ?? 8, 1...32) { v in setParam { $0.rtcSteps = v } } }
-                Text("RATE sets the spacing · SPAN sets the window it fills then rests (FREE = a steady stream)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
+                field("RATCHETS PER STEP — tap a column  (1 = passthrough · 2–8 = ratchet)", \.rtcSlices) {
+                    stateMatrixRadio([1, 2, 3, 4, 5, 6, 7, 8], steps: steps,
+                        header: { v in AnyView(Text("\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
+                        eFill: false,   // euclid control removed (Paul 2026-09-07)
+                        onRotate: { d in setParam { $0.rtcRotate = ((($0.rtcRotate ?? 0) + d) % steps + steps) % steps } },
+                        selected: { i in let a = p.rtcSlices ?? []; return max(1, i >= 0 && i < a.count ? a[i] : 1) },
+                        set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 1, count: steps); while s.count < steps { s.append(1) }; s[i] = v; $0.rtcSlices = s } })
+                }
             }
             field("BURST FADE — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%", \.ramp) {
                 slider(bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1)
@@ -1196,7 +1205,7 @@ struct ProcessorBox: View {
         _ options: [Opt], steps: Int = 8, header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
         selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
     ) -> some View {
-        let cols = max(1, min(16, steps))   // CHORDS STEPS (Paul 2026-09-01): a variable matrix width; other callers default to 8
+        let cols = max(1, min(32, steps))   // variable matrix width (CHORDS ≤16; RATCHET PATTERN up to 32 — Paul 2026-09-07); other callers default to 8
         let grid = VStack(spacing: 3) {
             ForEach(Array(options.enumerated()), id: \.offset) { (_, opt) in
                 HStack(spacing: 3) {
