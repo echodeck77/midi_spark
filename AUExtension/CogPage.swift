@@ -112,7 +112,9 @@ struct CogPage: View {
             HStack(spacing: 10) {
                 ForEach(0..<4, id: \.self) { i in
                     if d.holdArmed & (1 << UInt8(i)) != 0 {
-                        healthStat("\(["A","B","C","D"][i]) LIV", i < d.holdLiveN.count ? d.holdLiveN[i] : 0)
+                        let mode = d.holdKeysMask & (1 << UInt8(i)) != 0 ? "K" : "C"   // K = KEYS/note-toggle branch · C = CHORD/mirror-and-freeze (staccato-fixed)
+                        healthStat("\(["A","B","C","D"][i])·\(mode) LIV", i < d.holdLiveN.count ? d.holdLiveN[i] : 0)
+                        healthStat("STR", i < d.holdStruckN.count ? d.holdStruckN[i] : 0)   // notes struck THIS block (did the staccato capture see the strike?)
                         healthStat("FRZ", i < d.holdFrozenN.count ? d.holdFrozenN[i] : 0)
                     }
                 }

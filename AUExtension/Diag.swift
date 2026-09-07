@@ -53,6 +53,8 @@ struct KernelDiag {
     // FROZEN (held) note count. If a new chord doesn't update FRZ, the live→frozen HOLD capture is the fault; if LIVE never
     // shows the new chord, the input isn't reaching the door (channel/cable/range). Shown in cog HEALTH while armed.
     var holdArmed: UInt8 = 0           // which doors are latch-armed (bit i)
+    var holdKeysMask: UInt8 = 0        // which armed doors are in the KEYS/note-toggle branch (latchAddStep); clear bit = CHORD/mirror-and-freeze (2026-09-07)
     var holdLiveN: [Int] = [0, 0, 0, 0]   // live admitted notes per door
     var holdFrozenN: [Int] = [0, 0, 0, 0] // frozen (held) notes per door
+    var holdStruckN: [Int] = [0, 0, 0, 0] // notes STRUCK this block admitted per door (staccato-capture bisect, 2026-09-07)
 }

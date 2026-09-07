@@ -270,6 +270,7 @@ final class Kernel {
     private var holdLiveHi = [UInt64](repeating: 0, count: 4)          // (hi = notes 64…127) — compared by IDENTITY so a same-size swap is caught
     private var holdDiagLive = [Int](repeating: 0, count: 4)           // HOLD bisect: live admitted note count per door
     private var holdDiagFrozen = [Int](repeating: 0, count: 4)         // HOLD bisect: frozen (held) note count per door
+    private var holdDiagStruck = [Int](repeating: 0, count: 4)         // HOLD bisect (2026-09-07): notes STRUCK this block admitted by the door — did the staccato capture see the strike?
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
     private func updateLatchedPools() {
         guard effectiveLatchMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed (incl. PIANO) now or before
@@ -363,6 +364,7 @@ final class Kernel {
             // HOLD BISECT diagnostic (Paul 2026-08-31): live admitted vs frozen note counts, per armed door.
             holdDiagLive[i] = pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi)
             holdDiagFrozen[i] = latchedPools[i].count
+            holdDiagStruck[i] = blockStruckPool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi)
         }
         // ---- PASS 2: THE KEY FILTER (ratified §3) — every armed door's pool is filtered by a reference door's PITCH CLASSES
         //      (MINUS = subtract / the complement · ONLY = intersect / in-key), out-of-set notes BLOCKed or SNAPped to the
@@ -949,6 +951,7 @@ final class Kernel {
         // poolN=0 ⇒ the loop→pool fill isn't landing; poolN>0 & still silent ⇒ no grid cell reads that door.
         diag.replayEngaged = replayEngagedMask; diag.replayLoopN = 0; diag.replayPoolN = 0
         diag.holdArmed = effectiveLatchMask & ~replayMask & ~fileMask; diag.holdLiveN = holdDiagLive; diag.holdFrozenN = holdDiagFrozen   // HOLD/LATCH/KEYS/SCALE bisect
+        diag.holdKeysMask = effectiveLatchMask & latchAddMask; diag.holdStruckN = holdDiagStruck   // which armed doors use the KEYS note-toggle branch + the struck-this-block counts (2026-09-07)
         for i in 0..<4 where (replayEngagedMask & (1 << UInt8(i))) != 0 {
             diag.replayLoopN += doorRings[i].loopN; diag.replayPoolN += latchedPools[i].count
         }
