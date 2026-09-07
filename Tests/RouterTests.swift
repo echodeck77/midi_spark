@@ -267,6 +267,27 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(a, b, "HUMANIZE is seeded → two runs byte-identical (replay-safe)")
         XCTAssertNotEqual(stamps([arp]), a, "HUMANIZE actually perturbs the arp's onsets/velocities")
     }
+    // VELOCITY fold (Paul 2026-09-07): a downstream VELOCITY overrides each driver note's velocity from its per-step lane
+    // (NOTE clock = one column per arp note), and a PASSTHROUGH step leaves the inherited velocity. Note-transparent → same count.
+    func testVelocityFoldOverridesPerStepAndPassesThrough() {
+        func vels(_ procs: [ProcessorSlot]) -> [Int] {
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.vel) }
+        }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var vel = ProcessorSlot(type: .velocity)
+        vel.params.velSteps = 2; vel.params.velLane = [30, 120]; vel.params.velPass = [0, 0]
+        vel.params.velRate = .r1_16; vel.params.velClock = .note   // advance one lane column per arp note
+        let overridden = vels([arp, vel])
+        XCTAssertEqual(overridden.count, vels([arp]).count, "VELOCITY is note-transparent — same note count as the arp")
+        XCTAssertTrue(overridden.allSatisfy { $0 == 30 || $0 == 120 }, "each note takes its lane step's velocity (30/120), overriding the inherited value")
+        XCTAssertTrue(overridden.contains(30) && overridden.contains(120), "both lane steps are heard")
+        var passVel = vel; passVel.params.velPass = [1, 1]   // every step passthrough
+        XCTAssertEqual(vels([arp, passVel]), vels([arp]), "an all-passthrough VELOCITY leaves the arp's own velocities untouched")
+    }
     // A chain whose ONLY driver is a fold-ratchet (COIN pass-through) must still DRIVE: chainDriverIndex skips isRatchetFold
     // but falls back to the last driver when there's no non-fold driver, so a lone [RATCHET COIN rtcFold] generates.
     func testLoneFoldableRatchetStillDrives() {

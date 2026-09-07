@@ -33,6 +33,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case hocket = "HOCKET"     // DRIVER (AcceptanceCriteria-hocket-processor, v1): plays its pool (WHAT) timed by LISTENING to another emitter wire (WHEN) — GAPS answers in its silences, TRADE hit-for-hit. The chains converse.
     case avoid = "AVOID"       // FILTER (unified 2026-08-31): a per-note pitch filter — the DOOR key-filter as a chain stage. REFERENCE (KEY · DOOR · WIRE · ALL SOUNDING) × MODE (LOCK keep-in | AVOID remove-in) × ACTION (REMOVE drop | MOVE snap). Placeable anywhere; masks clashes / locks to key. Politeness, not counterpoint.
     case chords = "CHORDS"     // HARMONY (ratified 2026-09-01): derive a diatonic progression from a key by rank arithmetic — a held trigger → the chord for the current degree (PATTERN matrix · FOLLOW door-note · WALK gravity dice). A set-shaper like HARMONIZE, never a driver. No chord stored; plays in any key.
+    case velocity = "VELOCITY" // DYNAMICS (Paul 2026-09-07): a per-step velocity SEQUENCER — override each note's velocity from a per-step lane (or PASSTHROUGH that step). Note-transparent MODIFIER (never a driver); TIME (RATE·STEPS·SPAN) or NOTE (advance per note) clock, mirroring RATCHET PATTERN.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 // AVOID / LOCK (unified 2026-08-31, Paul) — one processor covers "avoid clashing with X" AND "lock to key": a per-note
@@ -313,6 +314,15 @@ struct ColourParams: Codable, Equatable {
     var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)
     var rtcSpan: PatternSpan? = nil            // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
     var rtcSpanN: Int? = nil                   // SPAN LADDER (Paul 2026-08-22, RATE×ladder): RATE = slice width · SPAN N = the loop period in columns. nil ⇒ LEGACY CELL|ROW (byte-identical)
+    // VELOCITY (Paul 2026-09-07): a per-step velocity SEQUENCER — a note-transparent MODIFIER. Each step either OVERRIDES the
+    // emitted velocity (velLane[step], 0…127) or PASSES THROUGH (velPass[step] != 0 ⇒ keep the note's own velocity). Sequenced
+    // like RATCHET PATTERN: RATE·STEPS·SPAN, TIME clock (own rate grid) or NOTE clock (advance one column per note through).
+    var velLane: [Int]? = [100, 80, 92, 80, 112, 80, 92, 80]   // per-step override velocity 0…127 (a gentle default accent)
+    var velPass: [Int]? = nil                  // per-step PASSTHROUGH flag (0 = override · non-0 = keep the note's velocity); nil/short ⇒ that step overrides
+    var velSteps: Int? = 8                     // the step-matrix LENGTH (1…32)
+    var velRate: ArpRate? = .r1_8              // TIME clock: step spacing (slices per window)
+    var velSpanN: Int? = nil                   // SPAN: re-anchor every N matrix columns (nil/0 ⇒ free-run)
+    var velClock: RatchetClock? = nil          // nil/TIME ⇒ own RATE grid · NOTE ⇒ advance one column per note through (chain-only), like RATCHET PATTERN
     // UTILITY SET (Paul 2026-08-22) — simple per-chain transforms. Append-only Optionals.
     var utilOctave: Int? = 0                    // OCTAVE: shift ±3 octaves (×12 semitones), pitch-class preserved
     var utilTranspose: Int? = 0                 // TRANSPOSE: shift ±24 semitones
