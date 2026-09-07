@@ -415,17 +415,17 @@ struct ProcessorBox: View {
                 // PASS · RATCHET CHOSEN keeps the arp driving — most notes pass through UNCHANGED, only the COIN-chosen ones burst.
                 field("WHEN AFTER A DRIVER (e.g. ARP)", \.rtcFold) {
                     seg(["RATCHET DRIVES", "PASS · RATCHET CHOSEN"], sel: (p.rtcFold ?? false) ? "PASS · RATCHET CHOSEN" : "RATCHET DRIVES") { i in setParam { $0.rtcFold = (i == 1) } } }
-            } else {   // pattern — a step MATRIX (Paul 2026-09-07, Model B): STEPS columns, each a COUNT (· = rest · 1 =
-                       // passthrough · 2–8 = ratchet). Downstream of a driver it advances one column PER ARP NOTE.
+            } else {   // pattern — a step MATRIX (Paul 2026-09-07, Model B): STEPS columns, each a COUNT (1 = pass the note
+                       // through · 2–8 = ratchet). NO rest — every column sounds. Downstream of a driver it advances one column PER ARP NOTE.
                 let steps = max(1, min(32, p.rtcSteps ?? 8))
                 heroField("STEPS — pattern length  (1–32)") {
                     numPair(p.rtcSteps ?? 8, 1...32) { v in setParam { $0.rtcSteps = v } } }
-                field("PER STEP — tap a column  (· = rest · 1 = passthrough · 2–8 = ratchet)", \.rtcSlices) {
-                    stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7, 8], steps: steps,
-                        header: { v in AnyView(Text(v <= 0 ? "·" : "\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
+                field("PER STEP — tap a column  (1 = pass through · 2–8 = ratchet)", \.rtcSlices) {
+                    stateMatrixRadio([1, 2, 3, 4, 5, 6, 7, 8], steps: steps,
+                        header: { v in AnyView(Text("\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
                         eFill: false,   // euclid control removed (Paul 2026-09-07)
                         onRotate: { d in setParam { $0.rtcRotate = ((($0.rtcRotate ?? 0) + d) % steps + steps) % steps } },
-                        selected: { i in let a = p.rtcSlices ?? []; return i >= 0 && i < a.count ? max(0, a[i]) : 1 },
+                        selected: { i in let a = p.rtcSlices ?? []; return i >= 0 && i < a.count ? max(1, a[i]) : 1 },
                         set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 1, count: steps); while s.count < steps { s.append(1) }; s[i] = v; $0.rtcSlices = s } })
                 }
             }

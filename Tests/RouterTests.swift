@@ -284,18 +284,21 @@ final class RouterTests: XCTestCase {
         func cellCount(_ slices: [Int]) -> Int {
             let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
-            var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern; rat.params.rtcSteps = slices.count; rat.params.rtcSlices = slices; rat.params.ramp = 0
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, rat]; return c }() }
+            var procs = [arp]
+            if !slices.isEmpty {   // empty ⇒ the bare arp (baseline); else [ARP → RATCHET PATTERN]
+                var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern; rat.params.rtcSteps = slices.count; rat.params.rtcSlices = slices; rat.params.ramp = 0
+                procs.append(rat)
+            }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        let allPass = cellCount(Array(repeating: 1, count: 8))
-        let allRat  = cellCount(Array(repeating: 3, count: 8))
-        let allRest = cellCount(Array(repeating: 0, count: 8))
-        XCTAssertGreaterThan(allPass, 0, "all-passthrough plays the arp — one note per arp note")
+        let arpOnly = cellCount([])                                  // no ratchet slot → the bare arp
+        let allPass = cellCount(Array(repeating: 1, count: 8))       // every column = pass through
+        let allRat  = cellCount(Array(repeating: 3, count: 8))       // every column = ratchet ×3
+        XCTAssertEqual(allPass, arpOnly, "all-passthrough = the arp untouched (one note per arp note, NEVER silent — no rest)")
         XCTAssertGreaterThan(allRat, allPass, "all-ratchet-3 re-fires each arp note (more strikes than passthrough)")
-        XCTAssertEqual(allRest, 0, "all-rest drops every arp note → silence")
     }
     // MUTE composes ON TOP of DEST (Paul 2026-08-25 §5): DEST routes each slice to one emitter, MUTE then removes muted
     // emitters. [ARP→DEST(alt A/B)→MUTE(A)] → the A-routed slices go silent, the B-routed ones still play; none stuck.
