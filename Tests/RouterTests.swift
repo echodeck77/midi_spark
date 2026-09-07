@@ -300,6 +300,32 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(allPass, arpOnly, "all-passthrough = the arp untouched (one note per arp note, NEVER silent — no rest)")
         XCTAssertGreaterThan(allRat, allPass, "all-ratchet-3 re-fires each arp note (more strikes than passthrough)")
     }
+    // RATCHET PATTERN — the NOTE clock (Paul 2026-09-07): instead of the ratchet's own RATE, the playhead advances one MATRIX
+    // column PER NOTE passing through. So the Nth arp note reads column N: an all-1 matrix == the bare arp; a matrix with a
+    // ratchet count on every other column re-fires those notes → more strikes than passthrough. Chain-only; replay-safe.
+    func testRatchetPatternNoteClockAdvancesPerNote() {
+        func cellCount(_ slices: [Int]?) -> Int {
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var procs = [arp]
+            if let slices = slices {   // nil ⇒ the bare arp (baseline); else [ARP → RATCHET PATTERN] in NOTE clock
+                var rat = ProcessorSlot(type: .ratchet)
+                rat.params.rtcMode = .pattern; rat.params.rtcClock = .note; rat.params.rtcSteps = slices.count
+                rat.params.rtcSlices = slices; rat.params.ramp = 0
+                procs.append(rat)
+            }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let arpOnly = cellCount(nil)
+        let allPass = cellCount(Array(repeating: 1, count: 8))
+        let alt     = cellCount([1, 4, 1, 4, 1, 4, 1, 4])   // every 2nd note (ordinal 1,3,5,…) ratchets ×4
+        XCTAssertEqual(allPass, arpOnly, "NOTE clock, all-passthrough = the arp untouched (one column advanced per note)")
+        XCTAssertGreaterThan(alt, allPass, "NOTE clock ratchets every 2nd note → more strikes than passthrough")
+        XCTAssertEqual(alt, cellCount([1, 4, 1, 4, 1, 4, 1, 4]), "replay-safe")
+    }
     // MUTE composes ON TOP of DEST (Paul 2026-08-25 §5): DEST routes each slice to one emitter, MUTE then removes muted
     // emitters. [ARP→DEST(alt A/B)→MUTE(A)] → the A-routed slices go silent, the B-routed ones still play; none stuck.
     func testMuteMatrixComposesOverDest() {

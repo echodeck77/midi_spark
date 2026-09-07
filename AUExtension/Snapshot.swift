@@ -211,6 +211,7 @@ struct SnapParams {
     var rtcSlices: [Int] = [2, 1, 2, 1, 2, 1, 2, 1]   // PATTERN: per-column strike counts (1 = passthrough · 2…8 = ratchet), padded to 32 in the builder
     var rtcSteps: Int = 8                             // PATTERN: the step-matrix LENGTH (1…32) — the playhead sweeps this many columns at RATE (Paul 2026-09-07)
     var rtcRateBeats: Double = 0.5                    // PATTERN: strike spacing in beats (from rtcRate) — the ratchet's OWN clock
+    var rtcClock: RatchetClock = .time                // PATTERN clock (Paul 2026-09-07): TIME = own RATE grid · NOTE = advance one column per note through (chain-only)
     var rtcRotate: Int = 0
     var rtcSpan: PatternSpan = .cell                 // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
     var rtcSpanN: Int = 0                            // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW · >0 = the loop period in columns

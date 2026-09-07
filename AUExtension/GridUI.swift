@@ -172,6 +172,7 @@ struct ProcessorBox: View {
     var beatAnchorAt: Date = .distantPast
     var tempo: Double = 120
     var clockPlaying: Bool = false
+    var driverNoteRate: Double = 0                       // RATCHET PATTERN NOTE clock: the upstream driver's note rate in beats (0 = unknown/standalone → the playhead can't sweep per-note)
     // A self-clock for a state matrix's playhead — extrapolated per frame so it can sweep faster than the diag poll.
     // `span` = the loop period in BEATS (0 = free-run over all STEPS); the playhead re-anchors every `span`.
     struct StateMatrixClock { let anchor: Double; let anchorAt: Date; let tempo: Double; let rate: Double; let steps: Int; let rotate: Int; let span: Double }
@@ -428,18 +429,24 @@ struct ProcessorBox: View {
             } else {   // pattern — a step MATRIX (Paul 2026-09-07, Model B): STEPS columns, each a COUNT (1 = pass the note
                        // through · 2–8 = ratchet). NO rest — every column sounds. Downstream of a driver it advances one column PER ARP NOTE.
                 let steps = max(1, min(32, p.rtcSteps ?? 8))
-                // PLAYHEAD (Paul 2026-09-07): the ratchet's OWN column, col = floor(beat ÷ RATE) mod STEPS (+ ROTATE), sweeping
-                // ALL STEPS at RATE. The beat is EXTRAPOLATED per animation frame inside stateMatrixRadio (NOT the ~4 Hz poll —
-                // that aliases a fast rate to a 1↔5 jump). SPAN re-anchor is the engine's; the visual runs FREE.
+                let clockMode = p.rtcClock ?? .time
+                // PLAYHEAD (Paul 2026-09-07): the ratchet's OWN column, col = floor(beat ÷ ADVANCE) mod STEPS (+ ROTATE). In TIME
+                // the advance = RATE; in NOTE the advance = the upstream DRIVER's note rate (so the playhead sweeps at the rate
+                // notes actually arrive). Extrapolated per animation frame inside stateMatrixRadio (NOT the ~4 Hz poll — that
+                // aliases a fast rate to a 1↔5 jump). SPAN re-anchors every N MATRIX columns.
                 let ratchetRate = Swift.max(0.03125, (p.rtcRate ?? .r1_8).beats)
+                let advanceRate = (clockMode == .note && driverNoteRate > 0) ? driverNoteRate : ratchetRate
                 let ratchetSpanN = p.rtcSpanN ?? 0     // SPAN = re-anchor every N MATRIX columns (0 = FREE over all STEPS) — Paul 2026-09-07
-                let ratchetClock = clockPlaying
+                // NOTE mode with no known driver rate (standalone / irregular driver) → no periodic sweep; leave the playhead static.
+                let ratchetClock = (clockPlaying && !(clockMode == .note && driverNoteRate <= 0))
                     ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo,
-                                       rate: ratchetRate, steps: steps, rotate: p.rtcRotate ?? 0,
-                                       span: ratchetSpanN > 0 ? Double(ratchetSpanN) * ratchetRate : 0)
+                                       rate: advanceRate, steps: steps, rotate: p.rtcRotate ?? 0,
+                                       span: ratchetSpanN > 0 ? Double(ratchetSpanN) * advanceRate : 0)
                     : nil
                 heroField("STEPS — pattern length  (1–32)") {
                     numPair(p.rtcSteps ?? 8, 1...32) { v in setParam { $0.rtcSteps = v } } }
+                field("CLOCK — how the playhead advances", \.rtcClock) {
+                    seg(["TIME", "NOTE"], sel: clockMode == .note ? "NOTE" : "TIME") { i in setParam { $0.rtcClock = (i == 1 ? .note : .time) } } }
                 field("PER STEP — tap a column  (1 = pass through · 2–8 = ratchet)", \.rtcSlices) {
                     stateMatrixRadio([1, 2, 3, 4, 5, 6, 7, 8], steps: steps, clock: ratchetClock,
                         header: { v in AnyView(Text("\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },

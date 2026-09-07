@@ -3975,13 +3975,16 @@ final class Router {
             var slotBeats = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // COIN: subdivide the driver (arp) step
             if rp.rtcMode == .pattern {
                 let steps = max(1, min(32, rp.rtcSteps))
-                let rate = max(0.03125, rp.rtcRateBeats)                              // the RATCHET'S OWN clock (not the arp's) — Paul 2026-09-07
-                let spanBeats = rp.rtcSpanN > 0 ? Double(rp.rtcSpanN) * rate : 0      // SPAN = re-anchor every N MATRIX columns (N × RATE); 0 = free-run (Paul 2026-09-07)
-                let localBeat = spanBeats > 0 ? (m - columnStart(m, spanBeats)) : m   // re-anchor the ratchet's playhead phase; else free-run
-                let g = Int((localBeat / rate).rounded(.down))                        // which column the ratchet's playhead is on AT THIS NOTE'S TIME
+                // CLOCK (Paul 2026-09-07): TIME = the ratchet's OWN RATE grid (col = floor(beat ÷ rtcRate)); NOTE = advance one
+                // column PER NOTE through (col = this note's ordinal). NOTE's ordinal is derived from the driver's step (exact
+                // for a uniform arp; approximate for a variable-timing driver), and a ratchet burst spreads over the note gap.
+                let advBeats = rp.rtcClock == .note ? slotBeats : max(0.03125, rp.rtcRateBeats)   // slotBeats = the driver (arp) step
+                let spanBeats = rp.rtcSpanN > 0 ? Double(rp.rtcSpanN) * advBeats : 0  // SPAN = re-anchor every N MATRIX columns; 0 = free-run
+                let localBeat = spanBeats > 0 ? (m - columnStart(m, spanBeats)) : m   // re-anchor the playhead phase; else free-run
+                let g = Int((localBeat / advBeats).rounded(.down))                    // TIME: which column at this note's time · NOTE: this note's ordinal
                 let col = (((g + rp.rtcRotate) % steps) + steps) % steps
                 let raw = col < rp.rtcSlices.count ? rp.rtcSlices[col] : 1
-                if raw >= 2 { foldBurst = min(8, raw); slotBeats = rate }             // active column → ratchet N over the ratchet's OWN rate slot · 1 = passthrough
+                if raw >= 2 { foldBurst = min(8, raw); slotBeats = advBeats }         // active column → ratchet N over the advance slot (own rate, or the note gap in NOTE mode) · 1 = passthrough
             } else {   // COIN pass-through (velFactor 1.0 in fold mode)
                 let step = Int((m / S).rounded())
                 if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {

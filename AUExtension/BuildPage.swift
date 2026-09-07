@@ -5368,6 +5368,15 @@ extension DiagView {
     // colour's templateChain via withChainColour). Our own header carries Delete/Bypass, so the box's chrome is hidden.
     @ViewBuilder private func buildSlotBox(_ i: Int, _ slot: ProcessorSlot, cid: String) -> some View {
         let sc: Colour = { var c = Colour(colourID: cid, type: slot.type); c.paramsA = slot.params; return c }()
+        // RATCHET PATTERN NOTE clock (Paul 2026-09-07): the playhead advances one column per note through, at the rate notes
+        // arrive = the nearest upstream DRIVER's note rate. Read it from the chain so the visual sweeps in NOTE mode (0 = none).
+        let driverNoteRate: Double = {
+            guard slot.type == .ratchet else { return 0 }
+            let chain = buildColourChain(cid); let drivers: Set<ProcessorType> = [.arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave, .riff, .hocket]
+            var k = min(i, chain.count) - 1
+            while k >= 0 { if drivers.contains(chain[k].type) { return chain[k].params.rate?.beats ?? 0 }; k -= 1 }
+            return 0
+        }()
         ProcessorBox(
             colour: sc, colourIndex: -1, face: .a,
             onEdit: { mutate in
@@ -5383,6 +5392,8 @@ extension DiagView {
             passHead: d.playing ? (d.pass & 3) : -1,
             liveStep: d.playing ? ((d.effColumn % 8) + 8) % 8 : -1,   // PLAYHEAD (idea 15): the live grid column sweeps the matrix/lane
             beatAnchor: meters.beatAnchor, beatAnchorAt: meters.beatAnchorAt, tempo: meters.tempo, clockPlaying: d.playing,   // RATCHET PATTERN extrapolates its OWN-clock playhead (Paul 2026-09-07)
+            driverNoteRate: driverNoteRate,   // NOTE clock: the upstream driver's note rate → the playhead sweeps per-note
+
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
             onMacro: nil, plainTitle: true, showSlotChrome: false,

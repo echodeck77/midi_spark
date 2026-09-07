@@ -147,6 +147,9 @@ enum WeaveMode: String, Codable, CaseIterable { case ladder = "LADDER", harmonic
 // COIN = a seeded chance per step to ratchet-or-plain (a count range varies the burst); PATTERN = an 8-slice row of
 // per-slice counts (0=plain · 2/3/4) painted across the bar. Append-only; ALL is the migration-invisible default.
 enum RatchetMode: String, Codable, CaseIterable { case all = "ALL", coin = "COIN", pattern = "PATTERN" }
+// RATCHET PATTERN clock (Paul 2026-09-07): TIME = the ratchet's own RATE grid advances the playhead by time · NOTE =
+// the playhead advances one MATRIX column per note passing through (chain-only; standalone falls back to TIME).
+enum RatchetClock: String, Codable, CaseIterable { case time = "TIME", note = "NOTE" }
 // BURST family (Paul 2026-08-19): ONCE = today (fire at column entry) · COIN = seeded chance-of-burst per step ·
 // PATTERN = an 8-slice BURST/CARRY/REST row (pick-then-paint). CARRY = span-stretch: the roll's strikes + curve
 // redistribute across the burst slice + its contiguous carries (one breathing roll over the painted span).
@@ -306,6 +309,7 @@ struct ColourParams: Codable, Equatable {
     var rtcSlices: [Int]? = [2, 1, 2, 1, 2, 1, 2, 1]   // PATTERN: per-column STRIKE COUNTS (1 = passthrough · 2…8 = ratchet), up to 32 columns — the step matrix (Paul 2026-09-07)
     var rtcSteps: Int? = 8                     // PATTERN (Paul 2026-09-07, RIFF-shaped): the matrix LENGTH (1…32). The playhead sweeps this many columns at RATE (its own clock); SPAN re-anchors.
     var rtcRate: ArpRate? = .r1_8              // PATTERN: slice rate (slices per window, walks the bar)
+    var rtcClock: RatchetClock? = nil          // PATTERN clock (Paul 2026-09-07): nil/TIME ⇒ own RATE grid · NOTE ⇒ advance one column per note through (chain-only)
     var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)
     var rtcSpan: PatternSpan? = nil            // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
     var rtcSpanN: Int? = nil                   // SPAN LADDER (Paul 2026-08-22, RATE×ladder): RATE = slice width · SPAN N = the loop period in columns. nil ⇒ LEGACY CELL|ROW (byte-identical)
