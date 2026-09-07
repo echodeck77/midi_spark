@@ -3966,8 +3966,8 @@ final class Router {
             if rp.rtcMode == .pattern {
                 let steps = max(1, min(32, rp.rtcSteps))
                 let rate = max(0.03125, rp.rtcRateBeats)                              // the RATCHET'S OWN clock (not the arp's) — Paul 2026-09-07
-                let spanBeats = rp.rtcSpanN > 0 ? spanLadderBeats(rp.rtcSpanN, S: S, row: cycleBeats) : 0
-                let localBeat = spanBeats > 0 ? (m - columnStart(m, spanBeats)) : m   // SPAN re-anchor (RIFF-style); else free-run
+                let spanBeats = rp.rtcSpanN > 0 ? Double(rp.rtcSpanN) * rate : 0      // SPAN = re-anchor every N MATRIX columns (N × RATE); 0 = free-run (Paul 2026-09-07)
+                let localBeat = spanBeats > 0 ? (m - columnStart(m, spanBeats)) : m   // re-anchor the ratchet's playhead phase; else free-run
                 let g = Int((localBeat / rate).rounded(.down))                        // which column the ratchet's playhead is on AT THIS NOTE'S TIME
                 let col = (((g + rp.rtcRotate) % steps) + steps) % steps
                 let raw = col < rp.rtcSlices.count ? rp.rtcSlices[col] : 1
@@ -4356,7 +4356,7 @@ final class Router {
             // Feeds the upstream note (re-clocks the arp). BURST FADE (ramp) tapers velocity across a column's sub-strikes.
             let rate = max(0.03125, p.rtcRateBeats)
             let steps = max(1, min(32, p.rtcSteps))
-            let spanBeats = p.rtcSpanN > 0 ? max(rate, spanLadderBeats(p.rtcSpanN, S: S, row: cycleBeats)) : 0   // SPAN re-anchor; 0 = free-run
+            let spanBeats = p.rtcSpanN > 0 ? Double(p.rtcSpanN) * rate : 0   // SPAN = re-anchor every N MATRIX columns (N × RATE); 0 = free-run (Paul 2026-09-07)
             var tk = Int((mWinStart / rate).rounded(.down)) - 1          // one tick early (a sub-strike can spill into this window)
             while true {
                 let tickStart = Double(tk) * rate

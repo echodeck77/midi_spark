@@ -491,12 +491,17 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(notes(.midiIn), [60, 64, 67], "MIDI IN reads the raw door chord (ignores the upstream octave)")
         XCTAssertEqual(notes(.both), [60, 64, 67, 72, 76, 79], "BOTH merges the door with the upstream set")
     }
-    // SPAN LADDER stage 2b — RATCHET PATTERN (RATE×ladder): RATE = slice width, SPAN N = the loop period in columns.
-    func testRatchetSpanLadderReAnchorsThePatternByPeriod() {
+    // RATCHET PATTERN SPAN (Paul 2026-09-07): SPAN N re-anchors the ratchet's playhead every N MATRIX columns (N × RATE);
+    // FREE (0) = free-run over all STEPS. So with STEPS = 8: FREE == span 8 (a full-loop re-anchor is the same as no
+    // re-anchor), and a SHORT span (2) confines the playhead to columns 0..1 → a different note count. This is the
+    // "SPAN doesn't reset / stuck in FREE" fix: it used to measure the period in GRID columns, which on a common setup
+    // landed at ≥ STEPS and was indistinguishable from FREE.
+    func testRatchetSpanReAnchorsByMatrixColumns() {
         func onCount(spanN: Int?) -> Int {
             var c = Colour(colourID: "gold", type: .ratchet)
             c.paramsA.rtcMode = .pattern
-            c.paramsA.rtcSlices = [3, 0, 2, 0, 4, 0, 2, 0]
+            c.paramsA.rtcSteps = 8
+            c.paramsA.rtcSlices = [3, 1, 2, 1, 4, 1, 2, 1]   // no rest (v6): every column sounds ≥ 1
             c.paramsA.rtcSpanN = spanN
             let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
             let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
@@ -504,10 +509,12 @@ final class RouterTests: XCTestCase {
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        let c3 = onCount(spanN: 3), c8 = onCount(spanN: 8)
-        XCTAssertGreaterThan(c3, 0, "the RATE×ladder ratchet sounds")
-        XCTAssertNotEqual(c3, c8, "period 3 (polymeter) differs from period 8")
-        XCTAssertEqual(c3, onCount(spanN: 3), "replay-safe")
+        let free = onCount(spanN: 0), c8 = onCount(spanN: 8), c2 = onCount(spanN: 2), c3 = onCount(spanN: 3)
+        XCTAssertGreaterThan(free, 0, "the ratchet sounds")
+        XCTAssertEqual(free, c8, "FREE == span 8 when STEPS = 8 (a full-loop re-anchor is a no-op)")
+        XCTAssertNotEqual(c2, free, "a short span (2 columns) confines the playhead → differs from FREE")
+        XCTAssertNotEqual(c3, free, "span 3 (polymeter against the 8-step pattern) differs from FREE")
+        XCTAssertEqual(c2, onCount(spanN: 2), "replay-safe")
     }
     // SPAN LADDER stage 2b — CASCADE (RATE×ladder): RATE = reveal spacing, SPAN N = the reveal window in columns.
     func testCascadeSpanLadderChangesTheRevealWindow() {

@@ -173,7 +173,8 @@ struct ProcessorBox: View {
     var tempo: Double = 120
     var clockPlaying: Bool = false
     // A self-clock for a state matrix's playhead — extrapolated per frame so it can sweep faster than the diag poll.
-    struct StateMatrixClock { let anchor: Double; let anchorAt: Date; let tempo: Double; let rate: Double; let steps: Int; let rotate: Int }
+    // `span` = the loop period in BEATS (0 = free-run over all STEPS); the playhead re-anchors every `span`.
+    struct StateMatrixClock { let anchor: Double; let anchorAt: Date; let tempo: Double; let rate: Double; let steps: Int; let rotate: Int; let span: Double }
     var onBypass: () -> Void = {}
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
     var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
@@ -430,9 +431,12 @@ struct ProcessorBox: View {
                 // PLAYHEAD (Paul 2026-09-07): the ratchet's OWN column, col = floor(beat ÷ RATE) mod STEPS (+ ROTATE), sweeping
                 // ALL STEPS at RATE. The beat is EXTRAPOLATED per animation frame inside stateMatrixRadio (NOT the ~4 Hz poll —
                 // that aliases a fast rate to a 1↔5 jump). SPAN re-anchor is the engine's; the visual runs FREE.
+                let ratchetRate = Swift.max(0.03125, (p.rtcRate ?? .r1_8).beats)
+                let ratchetSpanN = p.rtcSpanN ?? 0     // SPAN = re-anchor every N MATRIX columns (0 = FREE over all STEPS) — Paul 2026-09-07
                 let ratchetClock = clockPlaying
                     ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo,
-                                       rate: Swift.max(0.03125, (p.rtcRate ?? .r1_8).beats), steps: steps, rotate: p.rtcRotate ?? 0)
+                                       rate: ratchetRate, steps: steps, rotate: p.rtcRotate ?? 0,
+                                       span: ratchetSpanN > 0 ? Double(ratchetSpanN) * ratchetRate : 0)
                     : nil
                 heroField("STEPS — pattern length  (1–32)") {
                     numPair(p.rtcSteps ?? 8, 1...32) { v in setParam { $0.rtcSteps = v } } }
@@ -1250,7 +1254,8 @@ struct ProcessorBox: View {
             if let c = clock {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
                     let b = c.anchor + tl.date.timeIntervalSince(c.anchorAt) * c.tempo / 60.0
-                    let g = Int((b / c.rate).rounded(.down))
+                    let localBeat = c.span > 0 ? (b - columnStart(b, c.span)) : b   // SPAN re-anchors every `span` beats; else free-run
+                    let g = Int((localBeat / c.rate).rounded(.down))
                     makeGrid((((g + c.rotate) % c.steps) + c.steps) % c.steps)
                 }
             } else {
@@ -1482,9 +1487,11 @@ struct ProcessorBox: View {
         }
     }
     private func frameSpan(_ current: Int, free: Bool, _ set: @escaping (Int) -> Void) -> some View {
-        let topVals = (free ? [0] : []) + [16, 32]   // Paul 2026-08-28: FREE · ×2 · ×4 on top …
+        let topVals = (free ? [0] : []) + [16, 32]   // FREE · 16 · 32 on top …
         let botVals = [1, 2, 3, 4, 6, 8]             // … 1 · 2 · 3 · 4 · 6 · 8 below
-        let lbl: (Int) -> String = { $0 == 0 ? "FREE" : spanLadderLabel($0) }
+        // RATCHET PATTERN SPAN is now in MATRIX COLUMNS (re-anchor every N of the STEPS columns), so label them as plain
+        // counts — the old "×2/×4" (grid rows) no longer applies (Paul 2026-09-07).
+        let lbl: (Int) -> String = { $0 == 0 ? "FREE" : "\($0)" }
         return frameCtl("SPAN") {
             VStack(alignment: .leading, spacing: FS.chipGap) {
                 chipRow(topVals, lbl, { $0 == current }, { set($0) })
