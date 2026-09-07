@@ -3954,11 +3954,11 @@ final class Router {
             j += 1
         }
         // RATCHET fold (Paul 2026-09-07, Model B): a downstream foldable ratchet re-shapes THIS driver note IN PLACE — the
-        // driver (ARP) keeps its rhythm. PATTERN advances one MATRIX COLUMN per arp note (by the note's tick ordinal): 0 = REST
-        // (drop it), 1 = passthrough (the note as-is), 2…8 = ratchet (re-fire N times spread over the gap to the next arp note,
-        // spacing = driverStep ÷ N). COIN: on a seeded fire, re-fire the coin count. Bursts ride the ECHO ring so the copies
-        // emit across render blocks. So each arp note gets its own column → both of two 1/8 notes are ratcheted (Model B).
-        var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0; var foldRest = false
+        // driver (ARP) keeps its rhythm; the ratchet is NOT a driver. PATTERN advances one MATRIX COLUMN per arp note (by the
+        // note's tick ordinal): 1 = PASS THROUGH (the note as-is), 2…8 = ratchet (re-fire N spread over the gap to the next arp
+        // note, spacing driverStep ÷ N). NO REST — an inactive column passes the note (Paul 2026-09-07). COIN: on a seeded fire,
+        // re-fire the coin count. Bursts ride the ECHO ring so the copies emit across render blocks. Each arp note = its own column.
+        var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0
         if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
             let rp = cell.procs[fi]
             let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // the driver (arp) step = gap to the next note
@@ -3967,8 +3967,7 @@ final class Router {
                 let g = driverStep > 0 ? Int((m / driverStep).rounded(.down)) : 0     // THIS arp note's ordinal (its tick index) → the matrix column
                 let col = (((g + rp.rtcRotate) % steps) + steps) % steps
                 let raw = col < rp.rtcSlices.count ? rp.rtcSlices[col] : 1
-                if raw <= 0 { foldRest = true }                                        // 0 = REST → drop this note
-                else if raw >= 2 { foldBurst = min(8, raw) }                           // 1 = passthrough · 2…8 = ratchet
+                if raw >= 2 { foldBurst = min(8, raw) }                                // 1 (or unset) = PASSTHROUGH · 2…8 = ratchet · never silent
             } else {   // COIN pass-through (velFactor 1.0 in fold mode)
                 let step = Int((m / S).rounded())
                 if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
@@ -3978,7 +3977,6 @@ final class Router {
             }
             if foldBurst > 1 { foldSpacingBeats = driverStep / Double(foldBurst); foldDecay = max(0.2, 1.0 - rp.ramp * 0.6) }   // BURST FADE ≈ echo decay taper
         }
-        if foldRest { cur.reset(); cur.rebuildSorted() }   // REST → drop the note (+ its echoes), like LENGTH MUTE
         // LENGTH downstream: replace THIS onset's gate by the slice it lands in — MUTE drops the note (+ its echoes),
         // PASS keeps the driver's own gate, SHORT/LONG override the off. The off-beat → sample conversion is linear
         // in `beatsPerSample` (gate offs, not onsets, so intra-column swing warp is negligible here).
@@ -4362,9 +4360,7 @@ final class Router {
                 // which matrix column is the playhead on? re-anchored by SPAN (like RIFF), else free-running; + ROTATE
                 let localTick = spanBeats > 0 ? Int(((tickStart - columnStart(tickStart, spanBeats)) / rate).rounded(.down)) : tk
                 let col = (((localTick + p.rtcRotate) % steps) + steps) % steps
-                let raw = col < p.rtcSlices.count ? p.rtcSlices[col] : 1
-                if raw <= 0 { tk += 1; continue }                                            // 0 = REST → a true gap (Paul 2026-09-07)
-                let count = min(8, raw)                                                       // 1 = passthrough · 2…8 = ratchet
+                let count = max(1, min(8, col < p.rtcSlices.count ? p.rtcSlices[col] : 1))   // 1 = single hit · 2…8 = ratchet · NO REST (Paul 2026-09-07: every column sounds)
                 let sub = rate / Double(count)
                 for j in 0..<count {
                     let tau = tickStart + Double(j) * sub
