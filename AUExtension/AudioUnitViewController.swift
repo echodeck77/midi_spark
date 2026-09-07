@@ -1230,6 +1230,35 @@ struct DiagView: View {
         }
     }
 
+    // HOLD BISECT — in the DEV overlay where device passes actually look (2026-09-07; the cog-HEALTH copy was the wrong
+    // screen). PLAY = engine clock advancing · SND = notes on the wire · per armed door: mode (K = KEYS/note-toggle branch,
+    // C = CHORD/mirror-and-freeze), L = live admitted, S = struck this block, F = frozen held. "HOLD ARM 0" (red) = the
+    // engine sees NO door latch-armed → capture can't run → the frozen pool stays empty → silent.
+    var holdBisectMonitor: some View {
+        func n(_ a: [Int], _ i: Int) -> Int { i < a.count ? a[i] : 0 }
+        return HStack(spacing: 10) {
+            Text("PLAY \(d.effectivePlaying ? 1 : 0)").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(d.effectivePlaying ? .white.opacity(0.55) : .black)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(d.effectivePlaying ? Color.clear : UI.red))
+            Text("SND \(d.distinctSounding)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            if d.holdArmed == 0 {
+                Text("HOLD ARM 0").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(UI.red))
+            } else {
+                ForEach(0..<4, id: \.self) { i in
+                    if d.holdArmed & (1 << UInt8(i)) != 0 {
+                        let mode = d.holdKeysMask & (1 << UInt8(i)) != 0 ? "K" : "C"
+                        Text("\(["A","B","C","D"][i])·\(mode) L\(n(d.holdLiveN, i)) S\(n(d.holdStruckN, i)) F\(n(d.holdFrozenN, i))")
+                            .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                    }
+                }
+            }
+            Spacer()
+        }
+    }
+
     // The BINARY's build datetime — the extension executable's link/modification time. A quick "am I actually on the
     // fresh build?" tell in the hidden loader (the AUv3 host can cache the old plugin). Computed once from the extension
     // bundle (Bundle(for:) on the AU class → the extension binary, not the host app).
@@ -1254,6 +1283,7 @@ struct DiagView: View {
                 Text("BUILD \(Self.buildStamp)").font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.5))   // the running binary's build time
                 buildSelfTestView
                 stuckNoteMonitor
+                holdBisectMonitor
                 chaosRow
                 autoRow
             }
