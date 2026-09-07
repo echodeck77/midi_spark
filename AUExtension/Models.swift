@@ -789,9 +789,12 @@ struct Receiver: Codable, Equatable {
     // releases all, in both modes.
     var latchAdd: Bool? = nil
     /// The latch mode, nil-safe: missing ⇒ KEYS (true — the redesign default). Non-persisting read helper. When an
-    /// explicit `doorMode` is set it wins (LATCH ⇒ true, everything else ⇒ false); else falls through to the legacy
-    /// field EXACTLY (byte-identical for old docs).
-    var latchAddResolved: Bool { doorMode.map { $0 == .latch } ?? (latchAdd ?? true) }
+    /// TRUE ⟺ the RESOLVED door mode is LATCH (the note-toggle capture branch). Derived from `doorModeResolved` so the
+    /// engine's capture branch and the UI's mode display can NEVER disagree (Paul 2026-09-07 bug: an UNSET door displayed
+    /// HOLD via doorModeResolved's `.hold` default but this resolver's old `latchAdd ?? true` sent it down the LATCH
+    /// note-toggle branch → HOLD was silent/toggling). Explicit LATCH → true; explicit HOLD/KEYS/etc. → false; a legacy
+    /// `latchAdd` flag is honoured through doorModeResolved; an unset door → HOLD (false), matching the display + makeInit.
+    var latchAddResolved: Bool { doorModeResolved == .latch }
     // PIANO latch (2026-08-10): a third latch mode — the frozen pool is CHOSEN from an on-screen keyboard, not captured
     // from live input. When on (+ the latch armed), `pianoNotes` feed the grid as the frozen chord. Optional so old
     // docs decode nil ⇒ off. Persisted rig config. `latchPiano` overrides KEYS|CHORD when true.
