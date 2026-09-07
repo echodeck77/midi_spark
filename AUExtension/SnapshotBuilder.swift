@@ -492,10 +492,10 @@ enum SnapshotBuilder {
         if let v = p.rtcQuota { out.rtcQuota = clamp(v, 0, 4) }
         if let v = p.rtcOddsVel { out.rtcOddsVel = v }
         if let v = p.rtcFold { out.rtcFold = v }
-        if let v = p.rtcSlices { var s = v; while s.count < 32 { s.append(1) }; out.rtcSlices = Array(s.prefix(32)).map { clamp($0, 1, 8) } }   // PATTERN: per-column counts, up to 32 steps (1 = passthrough · 2…8 = ratchet)
+        if let v = p.rtcSlices { var s = v; while s.count < 32 { s.append(1) }; out.rtcSlices = Array(s.prefix(32)).map { clamp($0, 0, 8) } }   // PATTERN: per-column counts, up to 32 steps (0 = REST · 1 = passthrough · 2…8 = ratchet)
         out.rtcSteps = clamp(p.rtcSteps ?? 8, 1, 32)   // PATTERN: the matrix length (playhead sweeps this many columns at RATE)
         if let v = p.rtcRate { out.rtcRateBeats = max(0.03125, v.beats) }
-        if let v = p.rtcRotate { out.rtcRotate = ((v % 8) + 8) % 8 }
+        if let v = p.rtcRotate { out.rtcRotate = ((v % 32) + 32) % 32 }   // rotate up to STEPS-1 (was mod-8 — broke rotate past column 8 for a wide matrix; Paul 2026-09-07)
         if let v = p.rtcSpan { out.rtcSpan = v }
         out.rtcSpanN = p.rtcSpanN ?? 0   // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW; >0 = loop period in columns
         if let v = p.arpFit { out.arpFit = v }

@@ -277,23 +277,25 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "a lone fold-ratchet has nothing to fold onto → it drives + generates")
     }
-    // RATCHET PATTERN v3 (Paul 2026-09-06, RIFF-shaped): downstream of an ARP the PATTERN ratchet DRIVES — it re-clocks the
-    // arp's note at its OWN RATE (STEPS strikes per SPAN window), independent of the arp/global grid. So it sounds, and a
-    // faster ratchet RATE = more strikes (its own clock, not the arp's). Nothing left sounding.
-    func testRatchetPatternIsASelfClockedDriverAfterAnArp() {
-        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
-        func pat(_ rate: ArpRate) -> ProcessorSlot {
-            var r = ProcessorSlot(type: .ratchet); r.params.rtcMode = .pattern; r.params.rtcRate = rate; r.params.rtcSteps = 8; return r
-        }
-        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        func strikes(_ rate: ArpRate) -> Int {
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, pat(rate)]; return c }() }
+    // RATCHET PATTERN Model B (Paul 2026-09-07): downstream of an ARP it FOLDS per arp note — the ARP drives, and each arp
+    // note reads the next matrix column: 0 = REST (drop), 1 = passthrough (one note), 2…8 = ratchet (more strikes). So an
+    // all-1 matrix plays the arp (one note per arp note), an all-3 matrix re-fires each note (more), an all-0 is silent.
+    func testRatchetPatternFoldsPerArpNote() {
+        func cellCount(_ slices: [Int]) -> Int {
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern; rat.params.rtcSteps = slices.count; rat.params.rtcSlices = slices; rat.params.ramp = 0
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, rat]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        XCTAssertGreaterThan(strikes(.r1_16), 0, "the self-clocked PATTERN ratchet sounds after an arp")
-        XCTAssertGreaterThan(strikes(.r1_16), strikes(.r1_4), "a faster ratchet RATE = more strikes (its own clock, not the arp's rhythm)")
+        let allPass = cellCount(Array(repeating: 1, count: 8))
+        let allRat  = cellCount(Array(repeating: 3, count: 8))
+        let allRest = cellCount(Array(repeating: 0, count: 8))
+        XCTAssertGreaterThan(allPass, 0, "all-passthrough plays the arp — one note per arp note")
+        XCTAssertGreaterThan(allRat, allPass, "all-ratchet-3 re-fires each arp note (more strikes than passthrough)")
+        XCTAssertEqual(allRest, 0, "all-rest drops every arp note → silence")
     }
     // MUTE composes ON TOP of DEST (Paul 2026-08-25 §5): DEST routes each slice to one emitter, MUTE then removes muted
     // emitters. [ARP→DEST(alt A/B)→MUTE(A)] → the A-routed slices go silent, the B-routed ones still play; none stuck.
