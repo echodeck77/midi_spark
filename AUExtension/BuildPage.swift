@@ -2211,8 +2211,11 @@ extension DiagView {
                         // first element, so top-anchoring the frame keeps the tabs at the TOP of the section (Paul 2026-09-04).
                         roomsPartMacroSection().frame(maxWidth: .infinity).frame(height: macroH, alignment: .top)
                     }
-                    // the processor-editor card, when open, covers the WHOLE lower region (grid + roll + macro) so it keeps its room
-                    roomsProcessorCardAt(x: leftInset, y: 0, w: interiorW + gap + cw, h: lowerH)
+                    // The processor-editor card (Paul 2026-09-07): docked BELOW the grid — it covers the piano roll + AUTO
+                    // section (from just under the grid body down to the foot), leaving the grid itself visible + tappable
+                    // while you edit. Horizontally it spans the FULL grid-region width (x:0 = right of the emitter strips /
+                    // machine column → the page's right edge), i.e. every rail + interior cell.
+                    roomsProcessorCardAt(x: 0, y: interiorH + gap, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: lowerH - interiorH - gap)
                 }
             }
             .padding(pad)
@@ -5517,6 +5520,7 @@ extension DiagView {
             ]),
             BuildCardGroup(title: "DYNAMICS", note: nil, cards: [
                 C("HUMANIZE", "Loosens the timing and softens the hits: a human touch.", .humanize),
+                C("VELOCITY", "A per-step velocity sequencer — draw the accents, or pass a step through.", .velocity),
             ]),
             BuildCardGroup(title: "CONTROL", note: "Moves synth controls — makes no notes of its own.", cards: [
                 C("LFO", "A wave moving a synth knob: sweeps and wobbles.", .mod) { $0.modSource = .shape },
