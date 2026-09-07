@@ -108,8 +108,13 @@ struct CogPage: View {
     // Play a chord → arm → play a NEW chord: if FRZ doesn't follow, the live→frozen capture is at fault; if LIVE never shows
     // the new chord, the input isn't reaching that door (channel / cable / range).
     @ViewBuilder private var holdRow: some View {
-        if d.holdArmed != 0 {
-            HStack(spacing: 10) {
+        // ALWAYS shown (2026-09-07): if it hid when nothing was armed, "HOLD is on but no row appears" was ambiguous —
+        // either the door isn't registering as ARMED in the engine, or the build is stale. "HOLD ARM none" makes the
+        // arm state unmistakable; per-door LIV/STR/FRZ + the K/C mode letter appear once a door is armed.
+        HStack(spacing: 10) {
+            if d.holdArmed == 0 {
+                healthStat("HOLD ARM", 0, alert: true)   // no door latch-armed — capture can't run; the frozen pool stays empty
+            } else {
                 ForEach(0..<4, id: \.self) { i in
                     if d.holdArmed & (1 << UInt8(i)) != 0 {
                         let mode = d.holdKeysMask & (1 << UInt8(i)) != 0 ? "K" : "C"   // K = KEYS/note-toggle branch · C = CHORD/mirror-and-freeze (staccato-fixed)
@@ -118,8 +123,8 @@ struct CogPage: View {
                         healthStat("FRZ", i < d.holdFrozenN.count ? d.holdFrozenN[i] : 0)
                     }
                 }
-                Spacer()
             }
+            Spacer()
         }
     }
     private func healthStat(_ label: String, _ v: Int, alert: Bool = false) -> some View {
