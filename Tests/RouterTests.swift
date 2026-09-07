@@ -277,10 +277,10 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "a lone fold-ratchet has nothing to fold onto → it drives + generates")
     }
-    // RATCHET PATTERN Model B (Paul 2026-09-07): downstream of an ARP it FOLDS per arp note — the ARP drives, and each arp
-    // note reads the next matrix column: 0 = REST (drop), 1 = passthrough (one note), 2…8 = ratchet (more strikes). So an
-    // all-1 matrix plays the arp (one note per arp note), an all-3 matrix re-fires each note (more), an all-0 is silent.
-    func testRatchetPatternFoldsPerArpNote() {
+    // RATCHET PATTERN (Paul 2026-09-07): a PASS-THROUGH with its OWN clock — the arp drives; a passing note reads whichever
+    // column the ratchet's own-RATE playhead is on at that instant: 1 = pass through, 2…8 = ratchet. Never silent (no rest).
+    // So an all-1 matrix == the bare arp; an all-3 matrix ratchets every note (more strikes).
+    func testRatchetPatternRatchetsOnActiveColumns() {
         func cellCount(_ slices: [Int]) -> Int {
             let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8

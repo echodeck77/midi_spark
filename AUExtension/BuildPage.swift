@@ -5343,6 +5343,7 @@ extension DiagView {
             accentOverride: buildCardHue,   // the ONE machine/card hue (grey on the SELECT audition) — matches the machine box
             passHead: d.playing ? (d.pass & 3) : -1,
             liveStep: d.playing ? ((d.effColumn % 8) + 8) % 8 : -1,   // PLAYHEAD (idea 15): the live grid column sweeps the matrix/lane
+            beat: d.playing ? d.beat : -1,   // RATCHET PATTERN derives its OWN-clock playhead column from the live beat (Paul 2026-09-07)
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
             onMacro: nil, plainTitle: true, showSlotChrome: false,

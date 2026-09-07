@@ -355,7 +355,13 @@ final class Kernel {
                 let (plo, phi) = pool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
                 let (slo, shi) = blockStruckPool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
                 let (clo, chi) = (plo | slo, phi | shi)   // currently-held ∪ struck-this-block
-                if (clo != 0 || chi != 0) && (clo != holdLiveLo[i] || chi != holdLiveHi[i]) {
+                // CAPTURE ON A STRIKE, KEEP ON A RELEASE (Paul 2026-09-07: "every now and then it drops to one note — why does
+                // HOLD process note-off?"). `struck` = a note is PRESENT now that wasn't last render → a real strike/new chord.
+                // A pure RELEASE adds no new note → `struck` false → KEEP the frozen chord. The old "capture on any change to
+                // non-empty" re-captured the SHRINKING set as a chord released note-by-note across blocks → the frozen pool
+                // followed it down to one note. Now note-offs never shrink the held chord: HOLD truly ignores them.
+                let struck = (clo & ~holdLiveLo[i]) != 0 || (chi & ~holdLiveHi[i]) != 0
+                if struck {
                     latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)   // currently-held notes (with their live velocities)
                     latchedPools[i].mergeFiltered(from: blockStruckPool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)   // + a chord already released within this block
                 }

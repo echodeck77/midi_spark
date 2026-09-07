@@ -441,16 +441,17 @@ final class SnapshotBuilderTests: XCTestCase {
     }
 
     func testLatchAddMaskFromReceivers() {
-        // KEYS | CHORD (2026-08-03): the per-receiver mode packs into the box mask (bit i = receiver i in KEYS =
-        // per-note toggle). KEYS is now the DEFAULT (nil ⇒ KEYS = bit set); CHORD is explicit (latchAdd = false).
+        // The per-receiver mode packs into the box mask (bit i = receiver i in LATCH = the note-toggle capture branch).
+        // An UNSET door defaults to HOLD (bit CLEAR), matching doorModeResolved + the strip display (Paul 2026-09-07 fix:
+        // the old nil ⇒ LATCH default disagreed with the HOLD display → HOLD silently ran the note-toggle branch).
         var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.receivers = [{ var r = Receiver(name: "1"); r.latchAdd = false; return r }(),   // explicit CHORD
-                        Receiver(name: "2"),                                                // default ⇒ KEYS
-                        { var r = Receiver(name: "3"); r.latchAdd = false; return r }(),   // explicit CHORD
-                        Receiver(name: "4")]                                                // default ⇒ KEYS
-        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1010, "explicit CHORD clears the bit; default KEYS sets it")
-        st.receivers = nil   // no receivers ⇒ four default doors ⇒ all KEYS
-        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1111, "default (nil) ⇒ all KEYS")
+        st.receivers = [{ var r = Receiver(name: "1"); r.doorMode = .latch; return r }(),    // explicit LATCH ⇒ bit set
+                        Receiver(name: "2"),                                                 // default ⇒ HOLD ⇒ clear
+                        { var r = Receiver(name: "3"); r.latchAdd = false; return r }(),      // HOLD (legacy) ⇒ clear
+                        { var r = Receiver(name: "4"); r.latchAdd = true; return r }()]       // legacy LATCH ⇒ bit set
+        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1001, "LATCH (explicit + legacy) set the bit; HOLD clears it")
+        st.receivers = nil   // no receivers ⇒ four default doors ⇒ all HOLD
+        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b0000, "default (nil) ⇒ all HOLD (bit clear)")
     }
 
     // THE CONFIG SHEETS (Paul 2026-08-20): the door MODE reframes the 3 existing latch modes, behaviour-preserving.
@@ -463,7 +464,7 @@ final class SnapshotBuilderTests: XCTestCase {
         // the legacy resolvers are UNCHANGED for old docs (byte-identical)
         var chord = Receiver(name: "c"); chord.latchAdd = false
         XCTAssertFalse(chord.latchAddResolved); XCTAssertFalse(chord.latchPianoResolved)
-        XCTAssertTrue(Receiver(name: "d").latchAddResolved, "nil ⇒ KEYS latch (true)")
+        XCTAssertFalse(Receiver(name: "d").latchAddResolved, "nil ⇒ HOLD (false) — unified with doorModeResolved's HOLD default (Paul 2026-09-07)")
     }
     func testExplicitDoorModeDrivesTheLatchResolvers() {
         func r(_ m: DoorMode) -> Receiver { var x = Receiver(name: "x"); x.doorMode = m; return x }
