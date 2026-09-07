@@ -2297,4 +2297,17 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(arpPatternAt(ArpPattern.allCases.count), .up, "an out-of-range index clamps to UP")
         XCTAssertEqual(arpPatternAt(-1), .up, "a negative index clamps to UP")
     }
+    // VELOCITY (Paul 2026-09-07): the per-step lane resolver — override clamps to a legal note velocity 1…127 (never a
+    // vel-0 note-on = a note-off), a PASSTHROUGH step returns nil, the column wraps the drawn length, empty pass = no passthrough.
+    func testVelLaneStepOverridesClampsAndPassesThrough() {
+        let lane = [30, 0, 200, 90]
+        let pass = [0, 0, 0, 1]
+        XCTAssertEqual(velLaneStep(lane: lane, pass: pass, steps: 4, col: 0), 30)
+        XCTAssertEqual(velLaneStep(lane: lane, pass: pass, steps: 4, col: 1), 1, "0 in the lane clamps to 1 — never a vel-0 note-on")
+        XCTAssertEqual(velLaneStep(lane: lane, pass: pass, steps: 4, col: 2), 127, "clamps to the 127 ceiling")
+        XCTAssertNil(velLaneStep(lane: lane, pass: pass, steps: 4, col: 3), "a passthrough step returns nil (leave the note's own velocity)")
+        XCTAssertEqual(velLaneStep(lane: lane, pass: pass, steps: 4, col: 5), 1, "col wraps the drawn length (5 mod 4 = 1)")
+        XCTAssertEqual(velLaneStep(lane: lane, pass: [], steps: 4, col: 3), 90, "empty pass = no passthrough")
+        XCTAssertNil(velLaneStep(lane: lane, pass: pass, steps: 0, col: 0), "zero steps = nil")
+    }
 }

@@ -1583,7 +1583,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .chords:    return .chords                          // HARMONY — a held trigger → the diatonic chord for the current degree (a set-shaper like harmonize)
     case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
-    case .channel, .nudge, .dest, .muteMatrix, .tap: return .identity   // UTILITY/ROUTING — note-transparent; the emit-side effect (channel/timing/emitter override · TAP's mid-chain send) applies elsewhere
+    case .channel, .nudge, .dest, .muteMatrix, .tap, .velocity: return .identity   // UTILITY/ROUTING/DYNAMICS — note-transparent; the emit-side effect (channel/timing/emitter/VELOCITY override · TAP's mid-chain send) applies elsewhere
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -1765,6 +1765,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .transpose: return "arrow.up.and.down.text.horizontal"   // UTILITY — semitone shift
     case .channel:   return "cable.connector"              // UTILITY — output channel override
     case .nudge:     return "arrow.left.and.right"         // UTILITY — time offset
+    case .velocity:  return "chart.bar.fill"               // DYNAMICS — per-step velocity lane (accents)
     case .dest:      return "arrow.triangle.branch"        // ROUTING — per-step emitter (the hocket)
     case .muteMatrix: return "speaker.slash"               // ROUTING — per-step part-muting (the gate grid)
     case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
@@ -1773,6 +1774,18 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .avoid:     return "hand.raised"                   // FILTER — the per-note pitch filter (avoid clashes / lock to key)
     case .chords:    return "pianokeys"                     // HARMONY — the derived diatonic progression
     }
+}
+
+/// VELOCITY (Paul 2026-09-07): the velocity OVERRIDE for step `col` of the per-step lane. Returns nil = PASSTHROUGH
+/// (leave the note's own velocity untouched). A step marked in `pass` (pass[col] != 0), or `col` out of the drawn
+/// `steps`, is passthrough; otherwise the lane value clamped to a legal note velocity 1…127 (never a vel-0 note-on,
+/// which would read as a note-off — a MODIFIER must not silence). `col` wraps the drawn length. Pure/testable.
+func velLaneStep(lane: [Int], pass: [Int], steps: Int, col: Int) -> Int? {
+    guard steps > 0 else { return nil }
+    let c = ((col % steps) + steps) % steps
+    if c < pass.count && pass[c] != 0 { return nil }   // explicit PASSTHROUGH step
+    guard c < lane.count else { return nil }
+    return max(1, min(127, lane[c]))                    // the override
 }
 
 /// CHORDS PATTERN (SPEC-chords-stage §2): the DEGREE at grid step `step` from the drawn matrix. −1 = CARRY (empty column →

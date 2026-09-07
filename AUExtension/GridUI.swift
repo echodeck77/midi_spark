@@ -335,6 +335,7 @@ struct ProcessorBox: View {
         case .transpose: return "shift this chain by semitones (moves notes off the held chord)"
         case .channel:   return "send this chain out on a chosen MIDI channel"
         case .nudge:     return "slide this chain earlier or later in time"
+        case .velocity:  return "set each note's velocity from a per-step lane (or pass it through)"
         case .dest:      return "route each step to a chosen emitter (hocket)"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
@@ -876,6 +877,37 @@ struct ProcessorBox: View {
                 let nu = p.utilNudge ?? 0
                 field("NUDGE  \(nu > 0 ? "+" : "")\(nu)/16 beat", \.utilNudge) { stepper(nu, -8, 8) { v in setParam { $0.utilNudge = v } } }
             }
+        })
+        case .velocity: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // DYNAMICS (Paul 2026-09-07) — the VELOCITY SEQUENCER: a per-step velocity OVERRIDE lane + a per-step
+                                                                                     // PASSTHROUGH toggle; STEPS/RATE/SPAN like the other lanes + a TIME|NOTE clock (advance per note).
+            let steps = max(1, min(32, p.velSteps ?? 8))
+            let lane: [Int] = { var a = p.velLane ?? Array(repeating: 100, count: steps); while a.count < steps { a.append(100) }; return Array(a.prefix(steps)) }()
+            let pass: [Int] = { var a = p.velPass ?? Array(repeating: 0, count: steps); while a.count < steps { a.append(0) }; return Array(a.prefix(steps)) }()
+            heroField("VELOCITY PER STEP  (drag to draw · 1–127)") {
+                sliderLane(lane, count: steps, max: 127, eFill: true) { i, v in
+                    setParam { var a = $0.velLane ?? Array(repeating: 100, count: steps); while a.count < steps { a.append(100) }; a[i] = Swift.max(1, v); $0.velLane = a } }
+            }
+            field("PASS THROUGH — tap a step to keep the note's OWN velocity") {
+                HStack(spacing: 3) {
+                    ForEach(Array(0..<steps), id: \.self) { s in
+                        let on = s < pass.count && pass[s] != 0
+                        RoundedRectangle(cornerRadius: 4).fill(on ? Color.white.opacity(0.22) : Color.white.opacity(0.06))
+                            .frame(maxWidth: .infinity).frame(height: 22)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.8 : 0.12), lineWidth: on ? 1.5 : 1))
+                            .overlay { if on { Image(systemName: "arrow.right").font(.system(size: 9, weight: .black)).foregroundColor(.white) } }
+                            .contentShape(Rectangle()).onTapGesture {
+                                setParam { var a = $0.velPass ?? Array(repeating: 0, count: steps); while a.count < steps { a.append(0) }; a[s] = (a[s] != 0) ? 0 : 1; $0.velPass = a } }
+                    }
+                }
+            }
+            field("STEPS — pattern length  (1–32)") { numPair(p.velSteps ?? 8, 1...32) { v in setParam { $0.velSteps = v } } }
+            field("CLOCK — how the playhead advances", \.velClock) {
+                seg(["TIME", "NOTE"], sel: (p.velClock ?? .time) == .note ? "NOTE" : "TIME") { i in setParam { $0.velClock = (i == 1 ? .note : .time) } } }
+            // THE FOOTER (§1): GRID = the step's clock · SPAN = re-anchor the lane every N columns (0 = FREE across all STEPS).
+            frameRow(grid:  { frameGrid(p.velRate ?? .r1_8) { r in setParam { $0.velRate = r } } },
+                     rotate: { EmptyView() },
+                     span:   { frameSpan(p.velSpanN ?? 0, free: true) { v in setParam { $0.velSpanN = v } } },
+                     pairs: nil)
         })
         case .dest: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // ROUTING (Paul 2026-08-22 §5) — the DEST MATRIX: which emitter each onset-slice hockets to
             let base = [0, 1, 2, 3, 0, 1, 2, 3]

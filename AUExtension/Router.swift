@@ -3426,7 +3426,7 @@ final class Router {
     /// SHIFT / HUMANIZE are per-note MODIFIERS (Paul 2026-09-06): downstream of a real driver they don't re-pool — they
     /// jitter/push each driven note IN PLACE (emitDriverNote), so [ARP→HUMANIZE] humanizes the arp's notes + keeps its
     /// rhythm. As the ONLY driver (standalone / [non-driver→SHIFT]) they still GENERATE (chainDriverIndex falls to lastDriver).
-    private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize }
+    private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize || p.type == .velocity }
     /// The FIRST non-bypassed foldable RATCHET slot after `driver` — PATTERN (per-slice REST/pass/burst) or COIN PASS-THROUGH.
     private func downstreamRatchetFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
         var j = driver + 1
@@ -3911,6 +3911,7 @@ final class Router {
         var lenP: SnapParams? = nil   // LENGTH downstream (last-writer wins): overrides each onset's gate by its slice
         var shiftP: SnapParams? = nil   // SHIFT downstream (Paul 2026-09-06): a fixed late push per note
         var humanP: SnapParams? = nil   // HUMANIZE downstream: seeded per-note timing + velocity jitter
+        var velP: SnapParams? = nil     // VELOCITY downstream (Paul 2026-09-07): a per-step velocity OVERRIDE; note-transparent, applied at the final emit
         var j = driver + 1
         avoidDriverSurvivorValid = true   // downstream fold: a [driver→AVOID(move)] snaps onto the driver's whole-pool survivors (resolved above), not the single driven note (B-1)
         defer { avoidDriverSurvivorValid = false }
@@ -3954,6 +3955,8 @@ final class Router {
                     shiftP = cell.procs[j]   // GROOVE (Paul 2026-09-06): a per-note late PUSH; applied at the final emit (note-transparent to the set)
                 } else if cell.procs[j].type == .humanize {
                     humanP = cell.procs[j]   // GROOVE: seeded per-note timing + velocity jitter; applied at the final emit
+                } else if cell.procs[j].type == .velocity {
+                    velP = cell.procs[j]     // per-step velocity OVERRIDE; note-transparent to the set, applied at the final emit
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()
@@ -4019,10 +4022,24 @@ final class Router {
             }   // CHAIN tails were already registered at the ECHO slot (from its INPUT set); drainEchoTails re-folds them.
             if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry) — both routes
         }
+        // VELOCITY fold (Paul 2026-09-07): a downstream VELOCITY reads its per-step lane at THIS driver note's time and
+        // sets the emitted velocity (or PASSTHROUGH = leave the inherited value). CLOCK TIME = col by wall-beat over its
+        // own RATE grid; NOTE = advance one column per driver note (col = the driver step's ordinal). SPAN re-anchors the
+        // lane every N columns. Computed once (same onset for the whole folded set → every note this step shares it).
+        var velOverride: Int? = nil
+        if let vp = velP {
+            let steps = max(1, min(32, vp.velSteps))
+            let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]
+            let advBeats = vp.velClock == .note ? max(0.03125, driverStep) : max(0.03125, vp.velRateBeats)
+            let spanBeats = vp.velSpanN > 0 ? Double(vp.velSpanN) * advBeats : 0
+            let localBeat = spanBeats > 0 ? (m - columnStart(m, spanBeats)) : m
+            let g = Int((localBeat / advBeats).rounded(.down))
+            velOverride = velLaneStep(lane: vp.velLane, pass: vp.velPass, steps: steps, col: g)
+        }
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
             if splitGateActive && (Int(n) < splitGateLo || Int(n) > splitGateHi || Int(cur.velocity(n)) < splitGateVF || Int(cur.velocity(n)) > splitGateVC) { continue }   // SPLIT punch-hole → rest
-            var baseVel = max(1, Int(cur.velocity(n)))
+            var baseVel = velOverride ?? max(1, Int(cur.velocity(n)))   // VELOCITY override (nil = passthrough) wins the base; HUMANIZE below can still jitter it
             var onN = onSample, offN = offOut
             // GROOVE MODIFIERS (Paul 2026-09-06): a downstream SHIFT / HUMANIZE re-shapes THIS driver note IN PLACE — the ARP
             // keeps its rhythm, each note is pushed / jittered (SHIFT = a fixed late push · HUMANIZE = seeded per-note timing +

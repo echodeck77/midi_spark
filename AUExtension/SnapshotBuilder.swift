@@ -499,6 +499,13 @@ enum SnapshotBuilder {
         if let v = p.rtcRotate { out.rtcRotate = ((v % 32) + 32) % 32 }   // rotate up to STEPS-1 (was mod-8 — broke rotate past column 8 for a wide matrix; Paul 2026-09-07)
         if let v = p.rtcSpan { out.rtcSpan = v }
         out.rtcSpanN = p.rtcSpanN ?? 0   // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW; >0 = loop period in columns
+        // VELOCITY (Paul 2026-09-07): per-step override lane + passthrough flags, padded to 32; clamps mirror the rtc PATTERN copy.
+        out.velSteps = clamp(p.velSteps ?? 8, 1, 32)
+        if let v = p.velLane { var s = v; while s.count < 32 { s.append(100) }; out.velLane = Array(s.prefix(32)).map { clamp($0, 0, 127) } }
+        if let v = p.velPass { var s = v; while s.count < 32 { s.append(0) }; out.velPass = Array(s.prefix(32)) }
+        if let v = p.velRate { out.velRateBeats = max(0.03125, v.beats) }
+        out.velSpanN = p.velSpanN ?? 0
+        out.velClock = p.velClock ?? .time
         if let v = p.arpFit { out.arpFit = v }
         if let v = p.arpOctDown { out.arpOctDown = v }
         if let v = p.arpRandomAnchor { out.arpRandomAnchor = max(0, min(2, v)) }

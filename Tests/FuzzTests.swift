@@ -68,7 +68,8 @@ final class FuzzTests: XCTestCase {
                                       .tap,                  // ROUTING — the mid-chain send; hammered so a parallel copy never strands a note
                                       .hocket,               // DRIVER — the wire-listening gate (GAPS/TRADE); hammered so the gate never strands a note across every edge
                                       .avoid,                // FILTER — the per-note pitch filter (drop/snap vs a reference); hammered as head/upstream/downstream/hold for no stuck notes
-                                      .chords]               // HARMONY — a held trigger → a derived diatonic chord; hammered (random key/degrees/voicing) so the set-replace never strands a note
+                                      .chords,               // HARMONY — a held trigger → a derived diatonic chord; hammered (random key/degrees/voicing) so the set-replace never strands a note
+                                      .velocity]             // DYNAMICS — per-step velocity override; note-transparent, so it must never strand a note (random lane/pass/steps/rate/clock/span)
         // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -115,6 +116,15 @@ final class FuzzTests: XCTestCase {
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)
             if c.type == .dest && r.chance(0.6) { c.paramsA.destSlices = (0..<8).map { _ in r.int(4) } }   // DEST MATRIX §5 — per-slice emitter override (routing-class); hammer the re-route for no stuck notes
             if c.type == .muteMatrix && r.chance(0.6) { c.paramsA.muteSlices = (0..<8).map { _ in r.int(16) } }   // MUTE MATRIX §5 — random per-step muted-emitter masks incl. full-mute (all 4) → note fully dropped; no stuck notes
+            if c.type == .velocity && r.chance(0.7) {   // VELOCITY — random per-step override lane / passthrough mask / steps / rate / clock / span; note-transparent, must never strand a note
+                let n = 1 + r.int(32)
+                c.paramsA.velSteps = n
+                c.paramsA.velLane = (0..<n).map { _ in r.int(128) }        // 0…127 incl. 0 → the resolver clamps to ≥1 (never a vel-0 note-on)
+                c.paramsA.velPass = (0..<n).map { _ in r.int(2) }          // per-step passthrough
+                c.paramsA.velRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
+                c.paramsA.velClock = r.chance(0.5) ? .note : .time
+                c.paramsA.velSpanN = r.int(9)                             // 0 = free · 1…8 = re-anchor every N columns
+            }
             if c.type == .tap { c.paramsA.tapTo = r.int(5); c.paramsA.tapLevel = Double(r.range(0, 150)) / 100; c.paramsA.tapMute = r.chance(0.2) }   // TAP — random send wire/level/mute; the parallel copy must never strand a note
             if c.type == .riff && r.chance(0.6) {   // RIFF — random rank stencil (incl. ranks past the chord → wrap) + oct + steps/rate/wrap; no stuck notes
                 let n = 1 + r.int(32)               // VARIABLE length 1…32 (odd ⇒ polymeter — Paul 2026-08-26)

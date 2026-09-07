@@ -215,6 +215,13 @@ struct SnapParams {
     var rtcRotate: Int = 0
     var rtcSpan: PatternSpan = .cell                 // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
     var rtcSpanN: Int = 0                            // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW · >0 = the loop period in columns
+    // VELOCITY (Paul 2026-09-07): per-step velocity override lane — a note-transparent modifier (see Router emitDriverNote fold).
+    var velLane: [Int] = [100, 80, 92, 80, 112, 80, 92, 80]   // per-step override velocity 0…127 (padded to velSteps in the builder)
+    var velPass: [Int] = []                           // per-step PASSTHROUGH flag (0 = override · non-0 = keep the note's velocity); short ⇒ that step overrides
+    var velSteps: Int = 8                             // the step-matrix LENGTH (1…32)
+    var velRateBeats: Double = 0.5                    // TIME clock: step spacing in beats (from velRate)
+    var velSpanN: Int = 0                             // SPAN: re-anchor every N matrix columns (0 = free-run)
+    var velClock: RatchetClock = .time                // TIME = own RATE grid · NOTE = advance one column per note through (chain-only)
     var utilOctave: Int = 0                           // OCTAVE: ±3 octave shift (UTILITY, Paul 2026-08-22)
     var utilTranspose: Int = 0                        // TRANSPOSE: ±24 semitone shift
     var stageOct: Int = 0                             // §1 ANATOMY (Paul 2026-08-27): this STAGE's own voice shifted ±3 octaves (the header OCT standard)
