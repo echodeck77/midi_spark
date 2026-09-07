@@ -303,8 +303,8 @@ struct ColourParams: Codable, Equatable {
     var rtcQuota: Int? = nil                   // ③ rough fires-per-row budget (0 = FREE · 2/3/4; nil/0 ⇒ off)
     var rtcOddsVel: Bool? = nil                // ④ fire-odds scale with the incoming note velocity (nil/false ⇒ FIXED)
     var rtcFold: Bool? = nil                   // COIN "PASS THROUGH" (Paul 2026-09-06): downstream of a driver, RATCHET stops being the driver — the upstream (e.g. ARP) drives, and each note either PASSES THROUGH unchanged or (per the COIN chance) is REPLACED by a ratchet burst. nil/false ⇒ RATCHET drives (legacy).
-    var rtcSlices: [Int]? = [2, 1, 2, 1, 2, 1, 2, 1]   // (legacy PATTERN per-slice counts — decode-only since the 2026-09-06 RIFF-shaped rebuild; unused by the engine now)
-    var rtcSteps: Int? = 8                     // PATTERN v3 (Paul 2026-09-06, RIFF-shaped): strikes per SPAN window (1…32). RATE = spacing · SPAN = the window / re-anchor. Replaces the per-slice matrix.
+    var rtcSlices: [Int]? = [2, 1, 2, 1, 2, 1, 2, 1]   // PATTERN: per-column STRIKE COUNTS (1 = passthrough · 2…8 = ratchet), up to 32 columns — the step matrix (Paul 2026-09-07)
+    var rtcSteps: Int? = 8                     // PATTERN (Paul 2026-09-07, RIFF-shaped): the matrix LENGTH (1…32). The playhead sweeps this many columns at RATE (its own clock); SPAN re-anchors.
     var rtcRate: ArpRate? = .r1_8              // PATTERN: slice rate (slices per window, walks the bar)
     var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)
     var rtcSpan: PatternSpan? = nil            // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19

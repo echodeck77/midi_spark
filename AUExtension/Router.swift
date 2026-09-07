@@ -4325,9 +4325,9 @@ final class Router {
     }
 
     /// RATCHET COIN / PATTERN. COIN: per grid column, a seeded chance to ratchet (a count in [lo,hi]) vs a plain single hit
-    /// (window-scanned per column). PATTERN (Paul 2026-09-06, RIFF-shaped): a SELF-CLOCKED ratchet on its OWN clock — fire the
-    /// pool at RATE, STEPS strikes per SPAN window, then rest to the next re-anchor (SPAN FREE ⇒ a steady STEPS×RATE loop),
-    /// window-scanned over the absolute beat so it spreads across blocks + free-runs independent of the global grid step.
+    /// (window-scanned per column). PATTERN (Paul 2026-09-07, RIFF-shaped): a SELF-CLOCKED step MATRIX — the playhead sweeps
+    /// STEPS columns at RATE (its own clock, SPAN re-anchors); each column's COUNT decides passthrough (1) or ratchet (2…8),
+    /// subdividing that column's RATE slot. Window-scanned over the absolute beat so it spreads across blocks + free-runs.
     private func emitRatchetModal(mode: RatchetMode, cell: SnapCell, row r: Int, transpose: Int, emits: Bool, pool: NotePool,
                                   bm: UInt8, ramp: Double, chainDriver: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
@@ -4335,30 +4335,34 @@ final class Router {
         guard S > 0 else { return }
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a), mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         if mode == .pattern {
-            // PATTERN — a SELF-CLOCKED ratchet (Paul 2026-09-06, RIFF-shaped): fire the pool at RATE, STEPS strikes per SPAN
-            // window, then rest to the next re-anchor. RATE = strike spacing · STEPS(1…32) = strikes per window · SPAN = the
-            // window / re-anchor (FREE ⇒ a seamless STEPS×RATE loop = a steady ratchet at RATE). No per-slice counts / euclid.
-            // Window-scanned over the ABSOLUTE beat (not per grid column) so it spreads across render blocks + free-runs on its
-            // OWN clock, independent of the global grid step. BURST FADE (ramp) tapers velocity across each window's strikes.
+            // PATTERN — a SELF-CLOCKED step MATRIX (Paul 2026-09-07, RIFF-shaped): the playhead sweeps STEPS columns at RATE
+            // (the ratchet's OWN clock, re-anchored by SPAN — FREE = free-run); each column holds a COUNT — 1 = passthrough
+            // (one hit), 2…8 = RATCHET that many (subdividing the column's RATE slot into count staccato sub-strikes). Window-
+            // scanned over the ABSOLUTE beat so it spreads across render blocks + free-runs independent of the global grid.
+            // Feeds the upstream note (re-clocks the arp). BURST FADE (ramp) tapers velocity across a column's sub-strikes.
             let rate = max(0.03125, p.rtcRateBeats)
             let steps = max(1, min(32, p.rtcSteps))
-            let period = p.rtcSpanN > 0 ? max(rate, spanLadderBeats(p.rtcSpanN, S: S, row: cycleBeats)) : rate * Double(steps)
-            var ak = Int((mWinStart / period).rounded(.down)) - 1        // one window early: a strike from the prior window may land here
+            let spanBeats = p.rtcSpanN > 0 ? max(rate, spanLadderBeats(p.rtcSpanN, S: S, row: cycleBeats)) : 0   // SPAN re-anchor; 0 = free-run
+            var tk = Int((mWinStart / rate).rounded(.down)) - 1          // one tick early (a sub-strike can spill into this window)
             while true {
-                let anchor = Double(ak) * period
-                if anchor >= mWinEnd { break }
-                for i in 0..<steps {
-                    let tau = anchor + Double(i) * rate
-                    if tau >= anchor + period { break }                 // past this window → rest until the next re-anchor
+                let tickStart = Double(tk) * rate
+                if tickStart >= mWinEnd { break }
+                // which matrix column is the playhead on? re-anchored by SPAN (like RIFF), else free-running; + ROTATE
+                let localTick = spanBeats > 0 ? Int(((tickStart - columnStart(tickStart, spanBeats)) / rate).rounded(.down)) : tk
+                let col = (((localTick + p.rtcRotate) % steps) + steps) % steps
+                let count = max(1, min(8, col < p.rtcSlices.count ? p.rtcSlices[col] : 1))   // 1 = passthrough · 2…8 = ratchet
+                let sub = rate / Double(count)
+                for j in 0..<count {
+                    let tau = tickStart + Double(j) * sub
                     if tau < mWinStart || tau >= mWinEnd { continue }   // half-open: fires in exactly one render window
                     let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
                     let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    let offT = sampleOf(musical: tau + rate * 0.6, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    let offT = sampleOf(musical: tau + sub * 0.6, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
-                                    onTime: onT, offTime: offT, m: tau, repIdx: i, count: steps, ramp: ramp, chainDriver: chainDriver,
+                                    onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
                                     windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
                 }
-                ak += 1
+                tk += 1
             }
             return
         }
