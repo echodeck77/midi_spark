@@ -4889,21 +4889,23 @@ extension DiagView {
                         let age = tl.date.timeIntervalSince(i < meters.emitPeakAt.count ? meters.emitPeakAt[i] : .distantPast)
                         return max(0, min(1, (i < meters.emitPeak.count ? meters.emitPeak[i] : 0) * (1 - age / 0.9)))
                     }()
-                    // PER-COLOUR velocity (Paul 2026-09-07): each band rises to ITS OWN velocity, as max over the colour's cells of
-                    //   • the STRIKE flash — cellHitVel/cellHitAt decayed 0.9 s (gives the RHYTHM + attack per note, and the smooth
-                    //     fall after a note ends), and
-                    //   • the SOUNDING floor — cellSoundVel (from the voice table) — which STAYS UP while a note is HELD, so a drone/
-                    //     sustained chord doesn't decay to empty (the flaw in the strike-only version).
-                    // So arps flash per note, held chords sit steady, releases fall smoothly — all per colour. A band with no
-                    // per-cell feed falls back to the shared level; DRAGGING (override) → the single override value (nil below).
+                    // PER-COLOUR velocity (Paul 2026-09-07, SMOOTHED — "too jumpy"): each band rises to ITS OWN velocity, as max
+                    // over the colour's cells of a SINGLE smooth curve: while the cell is SOUNDING it HOLDS STEADY at the sounding
+                    // velocity (cellSoundVel — no per-note flash-to-full, which was the jumpiness); once RELEASED it decays smoothly
+                    // over 0.9 s from the note's velocity (timestamp-based off cellReleasedAt, so it's frame-smooth, not 4 Hz-stepped).
+                    // Held chords sit steady, releases fall like the old meter; the rhythm still reads as each note's held pulse.
                     let bandLevels: [Double]? = override != nil ? nil : playing.map { band in
                         guard !band.cellIdxs.isEmpty else { return level }
                         var best = 0.0
-                        for idx in band.cellIdxs where idx >= 0 && idx < cellHitVel.count {
-                            let age = tl.date.timeIntervalSince(cellHitAt[idx])
-                            let strike = max(0, min(1, cellHitVel[idx] / 127.0 * (1 - age / 0.9)))   // the strike flash (rhythm + attack), decaying
-                            let sound = idx < cellSoundVel.count ? cellSoundVel[idx] : 0             // the held floor — stays up while sounding
-                            best = max(best, strike, sound)
+                        for idx in band.cellIdxs where idx >= 0 && idx < cellSoundVel.count {
+                            let lvl: Double
+                            if idx < cellSounding.count && cellSounding[idx] {   // HELD → steady at the sounding velocity
+                                lvl = cellSoundVel[idx]
+                            } else {                                             // RELEASED → smooth 0.9 s decay from the note's velocity
+                                let age = tl.date.timeIntervalSince(idx < cellReleasedAt.count ? cellReleasedAt[idx] : .distantPast)
+                                lvl = max(0, cellHitVel[idx] * (1 - age / 0.9))
+                            }
+                            best = max(best, lvl)
                         }
                         return best
                     }
