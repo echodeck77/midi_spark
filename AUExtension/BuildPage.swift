@@ -2150,71 +2150,55 @@ extension DiagView {
     // §E 16-STEP (Paul 2026-09-02): the part's ACTIVE WIDTH = its loop length (buildPartLen, 1…16; nil ⇒ the 8-wide
     // default). The grid renders this many STEP columns (cells shrink to fit), the engine loops them (rowLength).
     var buildPartCols: Int { max(1, min(Snap.maxCols, buildPartLen ?? Snap.cols)) }
+    // §MERGE (Paul 2026-09-08): the PART grid is now FOUR interior rows (was 8) — a compact 8|16 × 4 main body — with the
+    // processor card docked permanently in the freed lower half. The ▲PLAY sliver + the piano-roll + the AUTO section are
+    // GONE (the standalone play grid is retired → the ferries drive playback; piano-roll/AUTO not ported yet per Paul).
+    static let roomsGridRows = 4                                            // the merged main-body row count (was 8)
     @ViewBuilder func roomsPartGrid(m: RoomsMetrics) -> some View {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad               // heights come from the shared lattice (m); width stays per-view
             let cols = buildPartCols                                         // §E: the part-grid STEP count = the active width (8 or up to 16)
+            let rows = DiagView.roomsGridRows                               // §MERGE: 4 interior rows
             // FULL-WIDTH SIDE RAILS (Paul 2026-09-02): the left/right rails (+ the ferry-row STOP/▲▼ that cap them) are ONE
             // interior cell wide — same as the play/ferry cells. Width = `cols` interior cells + 2 rails (cols+2 cells worth).
             let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 2))   // cell width (cols interior + 2 full-width rails)
             let railW = cw                                                   // the side rails + the STOP/▲▼ header slots = a full cell (Paul 2026-09-02)
-            let ch = m.ch, navH = m.navH
-            let partCH = max(6, ch * DiagView.roomsPartInteriorFraction)     // SHRUNK interior cell height (the header rows keep `ch`)
+            let ch = m.ch
+            let rowH = ch                                                    // §MERGE: full-height interior cells now (no shrink — the freed rows go to the card)
             let interiorW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
             // The PLAY LAYER is ALWAYS 8 columns (buildPlayColOn etc.), independent of the part grid width. So there are
             // always 8 play ferries — when the part is 16 steps wide they simply widen to fill the interior (a ferry per
             // two columns), never becoming 16 (which would index the 8-slot play layer out of range). (Paul 2026-09-04)
             let ferryW = (interiorW - CGFloat(7) * gap) / 8
-            let interiorH = partCH * 8 + gap * 7                            // 8 rungs at the shrunk height
+            let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)  // the 4-row grid
             let leftInset = railW + gap                                     // full rail → the interior's left edge
-            // The lower region = everything under the ferry row. FIXED heights that sum EXACTLY to the column (like the
-            // SELECT grid — no maxHeight:.infinity, which floated the content): [interior] + [piano roll] + [macro].
-            let lowerH = max(interiorH, g.size.height - 2 * pad - navH - gap - ch - gap)
-            // FIXED ROLL + ALWAYS-EXPANDED AUTO (Paul 2026-09-04): the slide-up is gone. The piano roll is a FIXED two
-            // play-grid cells (ch, not the shrunk part cell), and the AUTO controls are ALWAYS visible below it, running
-            // to the bottom of the page — their tab strip sits at the TOP of the section (roomsPartMacroSection is
-            // top-anchored). No lane-active conditional; the layout never changes shape.
-            let pianoH = (ch * 2 + gap) / 2                                // FIXED: ONE play-grid cell tall (halved 2026-09-04 to free space for AUTO)
-            let macroH = max(ch, lowerH - interiorH - pianoH - 2 * gap)    // AUTO fills the remainder to the bottom, always
+            // The lower region = everything under the ferry row: the 4-row grid on top, the docked CARD filling the rest
+            // (the freed space from 8→4 rows). No ▲PLAY sliver now, so only the ferry row (ch) sits above it.
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)
             VStack(alignment: .leading, spacing: gap) {
-                HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
-                    Color.clear.frame(width: leftInset)
-                    roomsPlayNavSliver(width: interiorW, height: navH)
-                }
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
                     buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the full-width left rail (Paul 2026-09-02)
                     ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: ferryW, height: ch) }   // ALWAYS 8 ferries (the play layer), widening to fill when the part is 16 wide (Paul 2026-09-04)
                     roomsPlayFerryRowSelector().frame(width: railW, height: ch) // the ▲▼ row cursor — top-RIGHT, over the full-width right rail
                 }
-                ZStack(alignment: .topLeading) {                           // the lower region: shrunk grid on top, the LARGE PANEL beneath
+                ZStack(alignment: .topLeading) {                           // the lower region: the 4-row grid on top, the docked CARD beneath
                     VStack(alignment: .leading, spacing: gap) {
-                        HStack(alignment: .top, spacing: gap) {             // body: left rail | interior+playhead | right rail (all at partCH)
-                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: partCH) } }
+                        HStack(alignment: .top, spacing: gap) {             // body: left rail | interior+playhead | right rail
+                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH) } }
                             ZStack(alignment: .topLeading) {
-                                VStack(spacing: gap) { ForEach(0..<8, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: partCH) } } } }
+                                VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } } } }
                                 roomsPartPlayhead(colW: cw, gap: gap, height: interiorH).allowsHitTesting(false)
                             }
                             .contentShape(Rectangle())
                             .coordinateSpace(name: "partInt")
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
-                                .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: partCH, gap: gap, cols: cols) }
+                                .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: rowH, gap: gap, cols: cols) }
                                 .onEnded { _ in buildPartDragLast = nil; buildPartDragAnchor = nil })
-                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: partCH) } }
+                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }
                         }
-                        // SECTION 1 — the PIANO ROLL strip: aligned UNDER the interior columns, a FIXED two play-grid cells tall
-                        // (Paul 2026-09-04). The live merged-lane notation (the offline part-roll feed).
-                        HStack(spacing: 0) {
-                            Color.clear.frame(width: leftInset)
-                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: pianoH)   // fixed 2 play-grid cells
-                        }
-                        // SECTION 2 — the AUTO section: ALWAYS visible, filling to the bottom of the page. Its tab strip is the
-                        // first element, so top-anchoring the frame keeps the tabs at the TOP of the section (Paul 2026-09-04).
-                        roomsPartMacroSection().frame(maxWidth: .infinity).frame(height: macroH, alignment: .top)
                     }
-                    // The processor-editor card (Paul 2026-09-07): docked BELOW the grid — it covers the piano roll + AUTO
-                    // section (from just under the grid body down to the foot), leaving the grid itself visible + tappable
-                    // while you edit. Horizontally it spans the FULL grid-region width (x:0 = right of the emitter strips /
-                    // machine column → the page's right edge), i.e. every rail + interior cell.
+                    // The processor-editor card (Paul 2026-09-08): docked BELOW the 4-row grid, filling the freed lower half.
+                    // It spans the FULL grid-region width (every rail + interior cell). Shows the slot picked from the chain.
                     roomsProcessorCardAt(x: 0, y: interiorH + gap, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: lowerH - interiorH - gap)
                 }
             }
