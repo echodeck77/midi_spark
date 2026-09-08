@@ -386,8 +386,8 @@ struct DiagView: View {
     @State var cellHitAt = [Date](repeating: .distantPast, count: Snap.cells)   // Snap.cells = 128 (rows 0–15; index = col*Snap.rows+row)
     @State var cellHitVel = [Double](repeating: 0, count: Snap.cells)
     @State var cellSoundVel = [Double](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity 0…1 (stays up while HELD) — the emitter fader's per-colour floor (Paul 2026-09-07)
-    // SEAL comet note-on/off GATE: which cells are currently SOUNDING (from au.pollCellSounding), and when each
-    // last went SILENT. The spark travels for exactly as long as the note is held, then fades ~0.45s from release.
+    // SEAL comet note-on/off GATE: which cells are currently SOUNDING (derived from the 256-wide cellSoundVel feed > 0,
+    // covering cols 8–15), and when each last went SILENT. The spark travels for the held duration, then fades ~0.45s.
     @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL: the part's exact output (the OFFLINE feed, recomputed on input/selection/edit change — no lag)
     @State var partRollSig: String = ""                  // the recompute key (input · selection · rate · edit generation) — skip identical recomputes
     @State var buildPartRollGen: Int = 0                 // bumped by buildPublishScene so a CELL/CHAIN edit forces an offline recompute (even if the selection didn't change)

@@ -238,7 +238,7 @@ enum BuildSceneLogic {
         if i.chainActive, let cid = i.chainColourID {               // THE MIDI CHAIN / SELECT audition — a 1-step CONTINUOUS pass
             let buses: Set<Bus> = i.chainEmitters.isEmpty ? [.a] : i.chainEmitters   // the SELECTED colour's own I/O (Paul 2026-08-18)
             let recv = max(0, min(3, i.chainReceiver))
-            let occ = (0..<8).map { r in (0..<8).filter { s.cellAt($0, r) != nil }.count }
+            let occ = (0..<8).map { r in (0..<Snap.maxCols).filter { s.cellAt($0, r) != nil }.count }   // scan the full 16-wide part (Paul 2026-09-08) so a row busy only in cols 8–15 isn't treated as empty for the audition overlay
             func mk() -> Cell { var c = Cell(colourID: cid, buses: buses); c.inputReceiver = recv; c.processors = i.chainMachine; return c }
             if let emptyRow = (0..<8).first(where: { occ[$0] == 0 }) {
                 // NO RE-STRIKING (Paul 2026-08-29): park at COLUMN 0 of a FULLY-EMPTY row + loop that row to column 0 (below),

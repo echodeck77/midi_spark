@@ -678,6 +678,88 @@ extension Cell {
         stars         = try c.decodeIfPresent(Int.self, forKey: .stars)
     }
 }
+// DECODE-TOLERANT (CR-8, Paul 2026-09-08 housekeeping): the same guard the `Cell` init above uses, extended to the
+// remaining central persisted types. Synthesized Decodable throws `keyNotFound` on a MISSING non-Optional key (even one
+// with a `= default`), and these are decoded INSIDE PluginState's arrays — so one throw = the WHOLE document decode
+// throws = a factory reset. A decodeIfPresent-every-field init means adding a non-Optional field later can never lose an
+// older save. The memberwise init + synthesized encode/CodingKeys survive (custom init is in an extension). Round-trip-tested.
+extension Colour {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        colourID = try c.decodeIfPresent(String.self, forKey: .colourID) ?? "c0"
+        type = try c.decodeIfPresent(ProcessorType.self, forKey: .type) ?? .arp
+        transpose = try c.decodeIfPresent(Int.self, forKey: .transpose) ?? 0
+        morph = try c.decodeIfPresent(Double.self, forKey: .morph) ?? 0
+        paramsA = try c.decodeIfPresent(ColourParams.self, forKey: .paramsA) ?? ColourParams()
+        paramsB = try c.decodeIfPresent(ColourParams.self, forKey: .paramsB) ?? ColourParams()
+        typeB = try c.decodeIfPresent(ProcessorType.self, forKey: .typeB)
+        transposeB = try c.decodeIfPresent(Int.self, forKey: .transposeB)
+        altColour = try c.decodeIfPresent(Int.self, forKey: .altColour)
+        transposeByType = try c.decodeIfPresent([Int].self, forKey: .transposeByType)
+        on = try c.decodeIfPresent(OnConfig.self, forKey: .on)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        defined = try c.decodeIfPresent(Bool.self, forKey: .defined)
+        templateChain = try c.decodeIfPresent([ProcessorSlot].self, forKey: .templateChain)
+    }
+}
+extension ProcessorSlot {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = try c.decodeIfPresent(ProcessorType.self, forKey: .type) ?? .arp
+        params = try c.decodeIfPresent(ColourParams.self, forKey: .params) ?? ColourParams()
+        bypassed = try c.decodeIfPresent(Bool.self, forKey: .bypassed) ?? false
+        paramsAlt = try c.decodeIfPresent(ColourParams.self, forKey: .paramsAlt)
+        bypassedAlt = try c.decodeIfPresent(Bool.self, forKey: .bypassedAlt)
+    }
+}
+extension SceneState {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        cells = try c.decodeIfPresent([[Cell?]].self, forKey: .cells) ?? Array(repeating: Array(repeating: Cell?.none, count: 8), count: 8)
+        stepRate = try c.decodeIfPresent(StepRate.self, forKey: .stepRate) ?? .r1_2
+        swing = try c.decodeIfPresent(Int.self, forKey: .swing) ?? 50
+        rowStepRate = try c.decodeIfPresent([StepRate?].self, forKey: .rowStepRate)
+        rowLen = try c.decodeIfPresent([Int?].self, forKey: .rowLen)
+        rowLane = try c.decodeIfPresent([UInt16].self, forKey: .rowLane)
+        masterKey = try c.decodeIfPresent(Int.self, forKey: .masterKey)
+        activeRow = try c.decodeIfPresent([Int?].self, forKey: .activeRow)
+        row8On = try c.decodeIfPresent([Bool].self, forKey: .row8On)
+    }
+}
+extension Receiver {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        channel = try c.decodeIfPresent(Int.self, forKey: .channel) ?? 0
+        channelMask = try c.decodeIfPresent(UInt16.self, forKey: .channelMask)
+        mpeMerge = try c.decodeIfPresent(Bool.self, forKey: .mpeMerge) ?? false
+        muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false
+        inputEnabled = try c.decodeIfPresent(Bool.self, forKey: .inputEnabled)
+        rangeLo = try c.decodeIfPresent(Int.self, forKey: .rangeLo)
+        rangeHi = try c.decodeIfPresent(Int.self, forKey: .rangeHi)
+        cable = try c.decodeIfPresent(Int.self, forKey: .cable)
+        controllerMask = try c.decodeIfPresent(Int.self, forKey: .controllerMask)
+        latchAdd = try c.decodeIfPresent(Bool.self, forKey: .latchAdd)
+        latchPiano = try c.decodeIfPresent(Bool.self, forKey: .latchPiano)
+        pianoNotes = try c.decodeIfPresent([Int].self, forKey: .pianoNotes)
+        scaleRoot = try c.decodeIfPresent(Int.self, forKey: .scaleRoot)
+        scaleType = try c.decodeIfPresent(ScaleType.self, forKey: .scaleType)
+        scaleBaseOct = try c.decodeIfPresent(Int.self, forKey: .scaleBaseOct)
+        scaleOctaves = try c.decodeIfPresent(Int.self, forKey: .scaleOctaves)
+        scalePools = try c.decodeIfPresent([ScalePool].self, forKey: .scalePools)
+        activeScale = try c.decodeIfPresent(Int.self, forKey: .activeScale)
+        chordSeqs = try c.decodeIfPresent([ColourParams].self, forKey: .chordSeqs)
+        activeChord = try c.decodeIfPresent(Int.self, forKey: .activeChord)
+        doorMode = try c.decodeIfPresent(DoorMode.self, forKey: .doorMode)
+        replayPasses = try c.decodeIfPresent(Int.self, forKey: .replayPasses)
+        fileClip = try c.decodeIfPresent([MidiFile.NoteEvent].self, forKey: .fileClip)
+        fileLoopBeats = try c.decodeIfPresent(Double.self, forKey: .fileLoopBeats)
+        fileName = try c.decodeIfPresent(String.self, forKey: .fileName)
+        excludeDoor = try c.decodeIfPresent(Int.self, forKey: .excludeDoor)
+        excludeMode = try c.decodeIfPresent(ExcludeMode.self, forKey: .excludeMode)
+        excludeReject = try c.decodeIfPresent(ExcludeReject.self, forKey: .excludeReject)
+    }
+}
 
 // CELL MACHINE — one stage of a cell's processor chain: a processor type + its params + a true-bypass toggle.
 // Reuses ColourParams verbatim as the per-slot param bag (append-only §12.0). Codable/Equatable so the chain
