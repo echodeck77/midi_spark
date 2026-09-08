@@ -4156,10 +4156,24 @@ extension DiagView {
         refreshFromDocument()
     }
     // <<< CLEAR — empty the SELECTED colour's midi chain (every processor box → "+"). (Paul 2026-08-18)
+    // On the PART grid (Paul 2026-09-08) CLEAR ALSO removes the colour's PRESENCE from the part (its row); and when the
+    // whole part is thereby empty it clears the ACTIVE FERRY too → an empty ferry, which is how you reach the SELECT
+    // browser (the empty-ferry-only navigation, once the toggle is gone).
     private func buildClearChain() {
         buildRecordUndo()   // BUILD UNDO: clear the selected colour's chain
         guard let cid = ddSelectedColourID else { return }
         buildWriteColourMachine(cid, [])
+        if roomsRoom == .part {
+            for r in 0..<8 where buildRowColour(r) == cid { buildSetRow(r, to: nil) }          // remove the colour's presence on the part grid (its row)
+            buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)
+            if (0..<8).allSatisfy({ buildRowColour($0) == nil }), let a = buildActiveFerry, a >= 0, a < 8 {   // the whole part is now empty → clear the ferry cell
+                buildFerryParts[a] = nil
+                if a < buildPlayColOn.count { buildPlayColOn[a] = false }
+                buildClearFerryPlayback(a)
+                buildActiveFerry = nil; buildVoiceOwner = .none; roomsRoom = .select              // → an empty ferry / the SELECT browser
+            }
+            buildPublishScene()
+        }
         refreshFromDocument()
     }
     // <<< COPY / PASTE (Paul 2026-08-25): COPY grabs the SELECTED colour's chain into a buffer; PASTE drops that chain
