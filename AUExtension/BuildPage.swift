@@ -1906,20 +1906,45 @@ extension DiagView {
     // part, so the outgoing ferry's bench edits are written back first.
     func buildActivateFerry(_ t: Int) {
         guard t >= 0, t < 8 else { return }
-        if let a = buildActiveFerry, a >= 0, a < 8, a != t { buildFerryParts[a] = buildCaptureBenchPart(); buildFlattenFerry(a) }   // write back the outgoing ferry
+        if let a = buildActiveFerry, a >= 0, a < 8, a != t {                  // the OUTGOING active ferry
+            buildFerryParts[a] = buildCaptureBenchPart()                      // write back its bench edits
+            if buildVoiceOwner == .part { buildVoiceOwner = .none }           // release the single STAGING voice (the incoming ferry reclaims it if on)
+            if a < buildPlayColOn.count, buildPlayColOn[a] { buildFlattenFerry(a) } else { buildClearFerryPlayback(a) }   // if it's still ON it keeps sounding in the BACKGROUND (the play layer)
+        }
         if let p = buildFerryParts[t] {
             buildLoadBenchPart(p); buildActiveFerry = t; roomsRoom = .part
+            if t < buildPlayColOn.count, buildPlayColOn[t] { buildClearFerryPlayback(t); buildVoiceOwner = .part }   // the ACTIVE ferry plays via the STAGING step-sequencer (visible sweep + live selection), NOT the play-layer flatten
+            else { buildVoiceOwner = .none }
         } else {
-            buildActiveFerry = nil; roomsRoom = .select                       // an empty ferry opens the browser
+            buildActiveFerry = nil; roomsRoom = .select; buildVoiceOwner = .none   // an empty ferry opens the browser
         }
         buildPublishScene()
     }
-    // PLAY-button tap: toggle whether ferry `t`'s part sounds (flattened onto the play layer). Several ferries can be on.
+    // PLAY-button tap: start/stop ferry `t`. The ACTIVE (on-bench) ferry plays via the STAGING step-sequencer — the part
+    // grid sweeps, each column's SELECTED rung fires, edits respond live. A BACKGROUND ferry plays via the play-layer
+    // flatten (its mono line). Several may be on at once: one staging (the active) + up to seven play-layer.
     func buildToggleFerryPlay(_ t: Int) {
         guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
-        buildFlattenFerry(t)                                                  // reflect the latest part (incl. live edits if it's active)
-        if t < buildPlayColOn.count { buildPlayColOn[t].toggle(); if buildPlayColOn[t] { buildVoiceOwner = .none; au?.clearColourSolo(); buildHostHalted = false } }
+        let willOn = !(t < buildPlayColOn.count && buildPlayColOn[t])
+        if t < buildPlayColOn.count { buildPlayColOn[t] = willOn }
+        if t == buildActiveFerry {
+            buildVoiceOwner = willOn ? .part : .none                          // active → the STAGING sequencer (the visible part grid)
+            buildClearFerryPlayback(t)                                        // …never also on the play layer (no double-audition)
+        } else {
+            if willOn { buildFlattenFerry(t) } else { buildClearFerryPlayback(t) }   // background → the play layer
+        }
+        if willOn { au?.clearColourSolo(); buildHostHalted = false }
         buildPublishScene()
+    }
+    // Clear ferry `t`'s play-layer playback line — when it stops, OR when it becomes the ACTIVE ferry (then it plays via
+    // the staging sequencer, so its play-layer row must be empty). Resets the pass to the inert single-cell default.
+    func buildClearFerryPlayback(_ t: Int) {
+        guard t >= 0, t < 8 else { return }
+        if t < buildPlayColSteps.count { buildPlayColSteps[t] = [] }
+        if t < buildPlayColLen.count { buildPlayColLen[t] = 1 }
+        if t < buildPlayColStepRecv.count { buildPlayColStepRecv[t] = [] }
+        if t < buildPlayColStepEmit.count { buildPlayColStepEmit[t] = [] }
+        if t < buildPlayCells.count { for r in 0..<buildPlayCells[t].count { buildPlayCells[t][r] = nil } }   // no legacy single-cell either
     }
     // LONG-PRESS an EMPTY ferry on the SELECT grid: create a NEW part seeded with the selected chain in row 0, store it in
     // the ferry, and open it on the bench. A ferry always holds a part; the select grid only supplies the seed chain.
@@ -1933,7 +1958,7 @@ extension DiagView {
         let io = roomsStampSourceIO(); p.receiver = io.recv; p.emitters = io.emit
         buildFerryParts[t] = p
         buildSyncColours()
-        buildFlattenFerry(t)
+        if t < buildPlayColOn.count { buildPlayColOn[t] = true }              // a seeded ferry starts playing at once (via the staging sequencer once activated)
         buildActivateFerry(t)
     }
     // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
@@ -3873,7 +3898,9 @@ extension DiagView {
     var buildCanRedo: Bool { !buildRedoStack.isEmpty }
 
     private func buildPublishScene() {
-        if let a = buildActiveFerry { buildFlattenFerry(a) }     // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): keep the active ferry's playback line in step with the bench edits (captures the bench + re-flattens) so a selection/content change is heard at once
+        // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the ACTIVE ferry plays via the STAGING sequencer, which composes
+        // the LIVE bench each publish — so a selection/content edit is heard + swept at once, no flatten needed here. A
+        // BACKGROUND ferry's play-layer line is (re)flattened only when it goes on / when it stops being the active one.
         buildGridSelComputeRowRolls()                            // Paul 2026-09-05: keep the PART cells' always-visible constellation current on every change
         buildComputePlayColRolls()                               // …and the PLAY columns' faces
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely

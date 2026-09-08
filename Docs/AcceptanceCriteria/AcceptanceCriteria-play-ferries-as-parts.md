@@ -21,14 +21,18 @@ there is **no part/select toggle** — the ferries are how you move between part
   `workingPart` + the referenced ephemeral colours (`colours`/`hues`/`idCounter`); the 8-slot `parts` array replaces the
   8×8 `playCellPart` there (with a decode-tolerant migration — see Phase 1).
 
-## Playback — mono line per part, via the existing flatten (NO engine change)
-- A playing part sounds **one line**: its **selected rung per column** (`stagingSel[c]` → `stagingCells[c][rung]`),
-  at the part's own `rate`/`length`. This is exactly what `roomsFlattenPartToPlay` already produces (an N-step pass on
-  a play-layer row), and per-step I/O is already carried (`colStepRecv`/`colStepEmit`).
-- **Simultaneity is free:** the play layer has 8 hidden engine rows (Snap.rows 16 = 8 visible + 8 play-layer). Each
-  "on" ferry flattens its part onto its own play-layer row, so all 8 play together — the mechanism that already backs
-  `buildPlayColOn`. So multi-step passes are **KEPT** as the internal representation of "a part is playing"; they are
-  no longer hand-authored by the user (demoted to plumbing).
+## Playback — a real STEP SEQUENCER (active via staging) + flatten for the background (NO engine change)
+Ratified refinement (Paul 2026-09-08): the flatten-to-a-single-hidden-row model is NOT how the part you're looking at
+should play — it must sequence like a step sequencer (visible sweep, per-column rung, live selection response). So:
+- **The ACTIVE (on-bench) ferry plays via the STAGING sequencer** (`buildVoiceOwner == .part` → `composeScene`'s
+  staging block, rows 0–7): the part grid SWEEPS, each column fires its SELECTED rung, and editing the selection/cells
+  responds live (staging composes the live bench every publish). This is the visible step sequencer + `roomsPartPlayhead`.
+- **BACKGROUND (non-active) "on" ferries play via the flatten** onto the hidden play-layer rows (8–15): a mono line
+  (selected rung per column) at the part's `rate`/`length`, per-step I/O carried. They don't need a visible sweep.
+- **Simultaneity:** one staging voice (the active) + up to seven play-layer lines = up to 8 parts at once. Switching
+  ferries hands the staging voice to the newcomer and pushes the outgoing (if still on) to a play-layer line.
+- A part is a **mono line** (selected rung per column); poly is future. Multi-step "passes" survive ONLY as the
+  background flatten's internal representation — never hand-authored.
 - **Poly per part is explicitly FUTURE, not now** (Paul 2026-09-08). It would need more play-layer rows than the 8
   slots allow (8 parts × up to 4 rows), i.e. a real engine change — out of scope here.
 
