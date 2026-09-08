@@ -1025,12 +1025,12 @@ extension DiagView {
     @ViewBuilder func buildHeaderControls() -> some View {
         HStack(alignment: .center, spacing: 8) {
             if !reelShowPopup {
-                buildRateControl()                              // the per-part rate
+                // The SELECT|PART grid toggle is RETIRED (Paul 2026-09-08): the ferry row IS the navigation — tap a populated
+                // ferry to open its part, an empty ferry to reach the SELECT browser. CLEARing a part empties its ferry.
                 buildStepsControl()                             // §E: the per-part STEP count (8 | 16)
                 buildConfigButton("MIDI IN")  { buildMidiConfigOpen = true }    // the MIDI-IN doors sheet
                 buildConfigButton("MIDI OUT") { buildMidiOutConfigOpen = true } // the emitter stamp-channels sheet
                 buildConfigButton("RACK")     { buildRackConfigOpen = true }    // the rack / OUTPUT CHAIN sheet (config-sheets §6)
-                buildConfigButton("ROW 8")    { buildRow8EditSlot = max(0, buildRow8EditSlot); buildRow8EditOpen = true }   // the ROW 8 action-cell authoring page (Paul 2026-08-24: edit lives in the header, after RACK)
             }
             buildReelButton()                                   // RECORD — top-right (Paul 2026-08-23); handles the pass-browser hide + share anchor
         }
@@ -1044,6 +1044,16 @@ extension DiagView {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: 5).fill(anyPlaying ? roomsIndigo : roomsIndigo.opacity(0.35)))   // PLAY-GRID indigo (dimmer when idle)
             .contentShape(Rectangle()).onTapGesture { buildStopAllOnTransportStop() }
+    }
+    // THE PLAY toggle — start/stop every populated play column. Lives in the grid's top-RIGHT corner (where the ▲▼ ferry
+    // cursor used to be), styled to MIRROR the STOP button on the opposite (left) end (Paul 2026-09-08). Cell-sized.
+    @ViewBuilder func buildPlayAllButton() -> some View {
+        let playing = buildPlayPlaying
+        Image(systemName: "play.fill").font(.system(size: 15, weight: .black))
+            .foregroundColor(roomsDoorInk(to: .play))                                             // white ink — like the STOP button
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(playing ? roomsIndigo : roomsIndigo.opacity(buildPlayPopulated ? 0.55 : 0.35)))   // lit indigo while playing; dimmer idle (dimmest with nothing to play)
+            .contentShape(Rectangle()).onTapGesture { buildTogglePlayGrid() }
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -1081,27 +1091,8 @@ extension DiagView {
         }
     }
 
-    // PER-PART CLOCK (Paul 2026-08-19): the CURRENT part's step RATE — a compact PILL FLOATING at the part grid's top-
-    // right edge (not a grid cell). A part deployed at a different rate plays at a DIFFERENT TEMPO. "—" = scene default.
-    // (LENGTH dropped from here — it's now driven by the staging LOOP KEYS on promote. Paul 2026-08-19.)
-    @ViewBuilder private func buildRateControl() -> some View {
-        Menu {
-            Button { buildSetPartRate(nil) } label: { Label("DEFAULT (scene rate)", systemImage: buildPartRate == nil ? "checkmark" : "circle") }
-            ForEach(StepRate.allCases, id: \.self) { r in
-                Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
-            }
-        } label: {
-            let effRate = buildPartRate ?? StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)]   // the ACTUAL rate — the part override, else the scene default
-            HStack(spacing: 4) {                                              // MATCH the header clock chip's format (Paul 2026-08-23)
-                Image(systemName: "timer").font(.system(size: 10, weight: .semibold))
-                Text(effRate.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
-            }
-            .foregroundColor(buildCyan)
-            .padding(.horizontal, 8).frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-            .contentShape(Rectangle())
-        }
-    }
+    // (The per-part RATE pill was removed from the header 2026-09-08 — the header clock chip carries the step rate; the
+    // per-part-rate model + setter stay.)
     func buildSetPartRate(_ r: StepRate?) {
         buildPartRate = r
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative for performRate mapping
@@ -1109,7 +1100,7 @@ extension DiagView {
     }
     // §E 16-STEP (Paul 2026-09-02): the CURRENT part's STEP COUNT (its active width = loop length). nil ⇒ the 8-wide
     // default (byte-identical); 16 ⇒ the part grid renders + loops 16 columns. A compact 8|16 menu beside the rate pill.
-    @ViewBuilder private func buildStepsControl() -> some View {
+    @ViewBuilder func buildStepsControl() -> some View {
         Menu {
             Button { buildSetPartLen(nil) } label: { Label("8 STEPS", systemImage: buildPartCols <= 8 ? "checkmark" : "circle") }
             Button { buildSetPartLen(16) }  label: { Label("16 STEPS", systemImage: buildPartCols == 16 ? "checkmark" : "circle") }
@@ -1125,7 +1116,20 @@ extension DiagView {
         }
     }
     func buildSetPartLen(_ n: Int?) {
+        let old = buildPartCols
         buildPartLen = n
+        let new = buildPartCols
+        // EXTENDING (e.g. 8 → 16, Paul 2026-09-08): TILE the existing pattern into the newly-revealed columns so the whole
+        // loop sounds — a bare widen left them empty, so the playhead swept the second half in silence. Only fill columns
+        // that are currently EMPTY (so re-extending never clobbers a second half you've already edited).
+        if new > old, old > 0 {
+            for c in old..<new where c < buildStagingCells.count {
+                guard buildStagingCells[c].allSatisfy({ $0 == nil }) else { continue }   // don't overwrite existing content
+                let src = c % old
+                if src < buildStagingCells.count { buildStagingCells[c] = buildStagingCells[src] }
+                if c < buildStagingSel.count, src < buildStagingSel.count { buildStagingSel[c] = buildStagingSel[src] }
+            }
+        }
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = n }   // keep buildParts authoritative for performLen mapping
         buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)            // keep the selection valid across the new width
         buildPublishScene()
@@ -1702,19 +1706,37 @@ extension DiagView {
     // NO outer box (buildProcessorPanel already draws its OWN selected-colour box + background) + NO padding, so that box
     // fills the whole card (Paul 2026-08-28) — only the panel's hue border shows, occupying the full space.
     @ViewBuilder func roomsProcessorCardAt(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> some View {
-        if let slot = buildEditSlot {
-            let chain = selectedColourChain()
-            if slot < chain.count, let cid = ddSelectedColourID {
-                buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
-                .frame(width: w, height: h)                                   // fixed card box — the panel pins its header + scrolls its body inside this
-                .offset(x: x, y: y)
-                .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
-                .onChange(of: ddSelectedColourID) { newID in
-                    guard let newID, newID != buildEditorSnapCid else { return }
-                    buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = newID
-                }
+        let chain = selectedColourChain()
+        // §MERGE (Paul 2026-09-08): the card region is PERMANENT — always present below the grid, reflecting the selected
+        // row/cell. Its CONTENT is the processor picked from the chain (buildEditSlot). With no pick (or an empty/stale
+        // chain) it shows an invitation, so the space always reads as "the editor lives here".
+        if let slot = buildEditSlot, slot < chain.count, let cid = ddSelectedColourID {
+            buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
+            .frame(width: w, height: h)                                   // fixed card box — the panel pins its header + scrolls its body inside this
+            .offset(x: x, y: y)
+            .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
+            .onChange(of: ddSelectedColourID) { newID in
+                guard let newID, newID != buildEditorSnapCid else { return }
+                buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = newID
             }
+        } else {
+            roomsCardPlaceholder(empty: chain.isEmpty).frame(width: w, height: h).offset(x: x, y: y)
         }
+    }
+    // The always-present card region when no processor is being viewed: an invitation to pick one from the chain (or,
+    // when the selected cell has no chain yet, to add one). Keeps the below-grid section permanently visible (Paul 2026-09-08).
+    @ViewBuilder private func roomsCardPlaceholder(empty: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(
+                VStack(spacing: 8) {
+                    Image(systemName: empty ? "plus.rectangle.on.rectangle" : "hand.tap")
+                        .font(.system(size: 22, weight: .semibold)).foregroundColor(.white.opacity(0.28))
+                    Text(empty ? "ADD A PROCESSOR FROM THE CHAIN" : "TAP A PROCESSOR IN THE CHAIN TO EDIT IT")
+                        .font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.4))
+                        .multilineTextAlignment(.center)
+                }.padding(12)
+            )
     }
     // ── THE NAV SLIVERS — thin navigation bars that are a COMPONENT OF THE GRID BOX (Paul 2026-08-28). The ▲PLAY sliver
     // sits directly above the top-row selector buttons (1/3 cell tall, spanning cols 1–8); the SEAM sliver sits beside
@@ -1747,37 +1769,7 @@ extension DiagView {
             .overlay(HStack(spacing: 5) { Image(systemName: "chevron.up"); Text("PLAY GRID"); Image(systemName: "chevron.up") }.font(.system(size: min(11, height * 0.7), weight: .heavy, design: .monospaced)).foregroundColor(roomsDoorInk(to: .play)))   // a chevron on EACH side (Paul 2026-08-31)
             .contentShape(Rectangle()).onTapGesture { roomsRoom = .play }
     }
-    @ViewBuilder func roomsSeamSliver(to room: Room, chevron: String, width: CGFloat, height: CGFloat) -> some View {
-        // The DESTINATION grid's name, written VERTICALLY as UPRIGHT characters — one per line (Paul 2026-09-06; was a
-        // sideways `.rotationEffect(.degrees(90))`), with a left/right chevron pointing to it (Paul 2026-08-31): on the SELECT
-        // page the seam → PART ("PART GRID", far RIGHT, ▸); on the PART page → SELECT ("SELECT GRID", far LEFT, ◂).
-        let label = room == .part ? "PART GRID" : (room == .select ? "SELECT GRID" : room.rawValue)
-        let toRight = room == .part
-        let ink = roomsDoorInk(to: .play)                                   // ALL nav buttons wear the PLAY-GRID colour (Paul 2026-08-31)
-        roomsDoorBar(to: .play)                                             // → the PLAY-GRID indigo (not the destination's own signature)
-            .frame(width: width, height: height)
-            .overlay(
-                VStack(spacing: 6) {
-                    Image(systemName: toRight ? "chevron.right" : "chevron.left").font(.system(size: min(13, width * 0.6), weight: .heavy))
-                    VStack(spacing: 1) {                                    // UPRIGHT, one character per line (a space becomes the word-break blank line)
-                        ForEach(Array(label.enumerated()), id: \.offset) { _, ch in
-                            Text(String(ch)).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        }
-                    }
-                }.foregroundColor(ink)
-            )
-            .contentShape(Rectangle()).onTapGesture { roomsRoom = room }
-    }
-    // THE SEAM COLUMN (Paul 2026-08-28) — the part↔select nav, relocated to the FAR side of the page (opposite the MIDI
-    // chain): a PARTIALLY-INVISIBLE single-column control that takes the grid's height into account so the visible seam
-    // aligns EXACTLY with the grid's interior rows (same ch + offset as the grid: below the ▲PLAY sliver + track row).
-    // The column width is set by the caller (50% of a grid cell) so it looks identical to the old in-grid seam.
-    @ViewBuilder func roomsSeamColumn(to room: Room, chevron: String, m: RoomsMetrics) -> some View {
-        GeometryReader { g in                                               // the shared lattice (m) places the seam over the grid's interior rows
-            roomsSeamSliver(to: room, chevron: chevron, width: g.size.width, height: m.interiorH)
-                .offset(y: m.interiorTop)                                    // the rest of the column is empty → partially invisible
-        }
-    }
+    // The part↔select SEAM sliver/column are RETIRED (Paul 2026-09-08, Phase 3): the ferry row is the sole navigation.
     // THE PLAY FERRY button (Paul 2026-08-29) — the SELECT grid's top-row buttons that FERRY the selected cell to the
     // PLAY grid. LONG-PRESS copies the currently-selected cell onto the play grid at THIS column's selected rung (→ its
     // grid position + the play bottom readout), with the rising-white overwrite warning (buildGridSelStampSweep, offset
@@ -1787,93 +1779,134 @@ extension DiagView {
     // THE FERRY-ROW CURSOR (Paul 2026-08-31): ▲▼ chooses which grid ROW the play-ferry buttons target — so you can ferry
     // a cell to row 1 of a column, then move the cursor and ferry another to row 3 (each cell stays independent). Sits in
     // the ferry row's left corner. Compact: ▲ · Rn · ▼ in one cell.
-    @ViewBuilder func roomsPlayFerryRowSelector() -> some View {
-        // BOTTOM-UP (Paul 2026-08-31): the play grid climbs — Row 1 at the bottom, UP goes to a new higher row (lit at Row 1),
-        // DOWN goes back. Big, touchable ▲/▼ each filling a half of the cell.
-        let canUp = buildPlayFerryRow < 7, canDown = buildPlayFerryRow > 0
+    // The ▲▼ FERRY-ROW CURSOR is RETIRED (Paul 2026-09-08, Phase 3): a ferry is one PART now, not a column of per-row cells.
+    @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
-            let s = min(g.size.width, g.size.height) * 0.5
-            // ONE SOLID BLOCK (Paul 2026-09-01): a single indigo fill; the two chevrons are just tap-halves over it (only the
-            // CHEVRON dims at an edge, never the block) so it reads as one control, not two buttons.
-            ZStack {
-                RoundedRectangle(cornerRadius: 4).fill(roomsIndigo)
-                VStack(spacing: 0) {
-                    Image(systemName: "chevron.up").font(.system(size: s, weight: .black)).foregroundColor(canUp ? roomsDoorInk(to: .play) : .white.opacity(0.28))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle()).onTapGesture { if canUp { buildPlayFerryStep(1) } }
-                    Text("R\(buildPlayFerryRow + 1)").font(.system(size: 9, weight: .black, design: .monospaced)).foregroundColor(.white.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.5)
-                    Image(systemName: "chevron.down").font(.system(size: s, weight: .black)).foregroundColor(canDown ? roomsDoorInk(to: .play) : .white.opacity(0.28))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle()).onTapGesture { if canDown { buildPlayFerryStep(-1) } }
-                }
+            // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): each ferry IS a BuildPart slot. The SELECTOR (top ⅓) opens
+            // the part on the bench (empty → the SELECT grid); the PLAY button (bottom ⅔) starts/stops it (several may
+            // play at once). A long-press on an EMPTY ferry (on SELECT) seeds a new part from the selected chain.
+            let part = t < buildFerryParts.count ? buildFerryParts[t] : nil
+            let set = part != nil
+            let repId: String? = part.flatMap { p in p.selID ?? p.stagingCells.flatMap({ $0 }).compactMap({ $0 }).first }   // the part's representative colour (for the ferry's identity hue)
+            let mHue = repId.flatMap { colourColor($0) } ?? Color(hex: colourHexes[t % colourHexes.count])
+            let eHue = emitterHue(part?.emitters ?? [.a])
+            let on = t < buildPlayColOn.count && buildPlayColOn[t]        // this part is sounding
+            let focused = buildActiveFerry == t                          // this part is the one loaded on the bench
+            let selH = max(10, g.size.height / 3)
+            let playH = max(12, g.size.height - selH - 3)
+            VStack(spacing: 3) {
+                // ── THE SELECTOR (top ⅓): open this ferry's part on the bench (empty → the SELECT grid) ──
+                RoundedRectangle(cornerRadius: 4).fill(set ? mHue.opacity(focused ? 0.55 : 0.28) : Color.white.opacity(0.06))
+                    .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(10, selH * 0.5), weight: .bold))
+                        .foregroundColor(set ? (focused ? .black : .white.opacity(0.85)) : buildDim))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(focused ? 0.9 : 0.4) : buildEdge, lineWidth: focused ? 2 : 1))
+                    .frame(height: selH)
+                    .contentShape(Rectangle())
+                    .onTapGesture { buildActivateFerry(t) }
+                // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
+                RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
+                    .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
+                    .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t)).padding(2) } }   // emitter constellation; stars blink on strikes
+                    .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
+                    .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed colour-bloom in this ferry's hue
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))
+                    .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
+                    .overlay { Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) }   // PLAY/STOP (empty shows "+")
+                    .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if set { buildToggleFerryPlay(t) } else { buildActivateFerry(t) } }   // empty PLAY tap → open the browser too
+                    .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
+                                        pressing: { p in if !set { buildGridSelStampPressing(t + 8, p) } },
+                                        perform: { if !set && roomsRoom == .select { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT → seed a part from the selected chain
             }
         }
     }
-    @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
-        GeometryReader { g in
-            let sel = buildPlayFerryRow                                  // the ferry buttons show + act on the CURSOR ROW (▲▼-chosen), not a fixed rung (Paul 2026-08-31)
-            let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
-            let set = id != nil                                          // has this column been ferried at the cursor row?
-            // FAINT COPY (Paul 2026-08-31): an EMPTY cursor cell whose ROW-BELOW holds a cell → a faint, pulsing copy of it;
-            // tap DUPLICATES it onto this row (same colour) + starts it playing.
-            let copyId: String? = (!set && sel > 0 && t < buildPlayCells.count && (sel - 1) < buildPlayCells[t].count) ? buildPlayCells[t][sel - 1] : nil
-            let copyHue = copyId.flatMap { colourColor($0) } ?? Color(hex: playHexes[t % playHexes.count])
-            let on = (t < buildPlayColOn.count && buildPlayColOn[t]) && (t < buildPlaySel.count && buildPlaySel[t] == buildPlayFerryRow)   // PLAYING iff the cursor row is this column's active rung
-            let mHue = id.flatMap { colourColor($0) } ?? Color(hex: playHexes[t % playHexes.count])   // MACHINE identity — dusk (the ferried cell's colour, or the play grid's dusk slot when empty; Paul 2026-08-30)
-            let eHue = emitterHue(t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a])  // EMITTER colour (routing)
-            let focused = set && id == ddSelectedColourID               // this play ferry is the SELECTED machine (Paul 2026-08-30)
-            // THREE STATES (Paul 2026-08-30): NULL · POPULATED (machine frame, calm) · PLAYING (bright frame + EMITTER glow +
-            // the live drift). Machine = the frame, emitter = the drift tint + a corner dot + the playing glow. SELECTED (not
-            // playing) also brightens the frame so the ferry ↔ machine pairing is visible.
-            let partMode = roomsRoom == .part   // Paul 2026-09-05: on the PART page the ferries are DARK like the part cells (the PLAY grid keeps its dusk blends)
-            RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
-                .overlay(RoundedRectangle(cornerRadius: 4).fill(partMode && set ? partCellFill(id) : mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // DARK on part / faint MACHINE wash on play
-                .overlay { if copyId != nil {                            // FAINT PULSING COPY — tap to duplicate the row-below cell here
-                    TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in
-                        let f = stagingPulseFraction(tl.date, period: 1.1)
-                        RoundedRectangle(cornerRadius: 4).fill(copyHue.opacity(0.06 + 0.12 * f))
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(copyHue.opacity(0.28 + 0.4 * f), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
-                            .overlay(Image(systemName: "plus").font(.system(size: min(13, g.size.height * 0.42), weight: .black)).foregroundColor(copyHue.opacity(0.4 + 0.4 * f)))
-                    }
-                } }
-                .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t)).padding(2) } }   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes (Paul 2026-09-05)
-                .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
-                .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this ferry's hue
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(partMode && set ? partCellFrame(id) : (set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge), lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // DARK edge on part / MACHINE frame on play
-                .overlay { if buildSelectMode && set { RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
-                .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
-                .overlay { if copyId == nil { Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) } }   // PLAY/STOP (a COPY cell shows its own "+" instead)
-                .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if copyId != nil { buildPlayFerryDuplicate(t); return }   // FAINT COPY → duplicate the row-below cell here + play
-                    if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
-                    if buildSelectMode { buildSelectPlayColumn(t); buildSelectMode = false }   // SELECT MODE: focus this ferry (no start/stop), then end SELECT (Paul 2026-08-31)
-                    else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
-                }
-                .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
-                                    pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
+    // buildPlayFerryStep (the ▲▼ cursor mover) + buildPlayFerryDuplicate (the faint-copy) are RETIRED (Paul 2026-09-08,
+    // Phase 3) — a ferry is one PART now, not a column of per-row cells.
+    // ── THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts) — Phase 2 operations ──
+    // Flatten ferry `t`'s stored part into the per-column PLAYBACK arrays (the SAME representation the engine already
+    // plays, so up to 8 ferries sound at once). Mono line = the SELECTED RUNG per column (poly is future). If `t` is the
+    // ACTIVE (on-bench) ferry, its live edits are captured first so what plays matches what you're editing.
+    func buildFlattenFerry(_ t: Int) {
+        guard t >= 0, t < 8 else { return }
+        if buildActiveFerry == t { buildFerryParts[t] = buildCaptureBenchPart() }
+        guard let p = buildFerryParts[t] else {
+            if t < buildPlayColSteps.count { buildPlayColSteps[t] = [] }
+            if t < buildPlayColLen.count { buildPlayColLen[t] = 1 }
+            if t < buildPlayColStepRecv.count { buildPlayColStepRecv[t] = [] }
+            if t < buildPlayColStepEmit.count { buildPlayColStepEmit[t] = [] }
+            return
         }
+        let len = max(1, min(Snap.maxCols, p.length ?? Snap.cols))
+        let rungAt: (Int) -> Int = { c in c < p.stagingSel.count ? p.stagingSel[c] : -1 }
+        buildPlayColSteps[t]     = (0..<len).map { c in let r = rungAt(c); return (r >= 0 && c < p.stagingCells.count && r < p.stagingCells[c].count) ? p.stagingCells[c][r] : nil }
+        buildPlayColLen[t]       = len
+        buildPlayColRate[t]      = p.rate
+        buildPlayColStepRecv[t]  = (0..<len).map { c in let r = rungAt(c); return r >= 0 ? (p.rowReceiver.flatMap { r < $0.count ? $0[r] : nil } ?? p.receiver) : p.receiver }
+        buildPlayColStepEmit[t]  = (0..<len).map { c in let r = rungAt(c); return r >= 0 ? (p.rowEmitters.flatMap { r < $0.count ? $0[r] : nil } ?? p.emitters) : p.emitters }
     }
-    // Move the ferry-row cursor (bottom-up) with a soft slide. (Paul 2026-08-31)
-    func buildPlayFerryStep(_ dir: Int) {
-        let n = max(0, min(7, buildPlayFerryRow + dir))
-        guard n != buildPlayFerryRow else { return }
-        withAnimation(.easeInOut(duration: 0.26)) { buildPlayFerryRow = n }
-    }
-    // DUPLICATE the ROW-BELOW's cell onto the cursor row (same colour) + start it playing immediately (Paul 2026-08-31).
-    func buildPlayFerryDuplicate(_ t: Int) {
-        let cur = buildPlayFerryRow
-        guard cur > 0, t >= 0, t < buildPlayCells.count, cur < buildPlayCells[t].count, (cur - 1) < buildPlayCells[t].count,
-              let src = buildPlayCells[t][cur - 1] else { return }
-        buildRecordUndo()
-        buildPlayCells[t][cur] = src                                     // same colour (a copy of the row below)
-        if t < buildPlaySel.count { buildPlaySel[t] = cur }             // the cursor row becomes this column's active rung
-        if t < buildPlayColOn.count { buildPlayColOn[t] = true }        // …and starts playing immediately
-        buildVoiceOwner = .none; au?.clearColourSolo()                  // the play layer is the voice
-        buildSelectPlayColumn(t)                                        // reflect it in the machine + deselect the source
+    // SELECTOR tap: bring ferry `t`'s part onto the bench (empty ferry → the SELECT grid). The ferry is a LIVE VIEW of its
+    // part, so the outgoing ferry's bench edits are written back first.
+    func buildActivateFerry(_ t: Int) {
+        guard t >= 0, t < 8 else { return }
+        if let a = buildActiveFerry, a >= 0, a < 8, a != t {                  // the OUTGOING active ferry
+            buildFerryParts[a] = buildCaptureBenchPart()                      // write back its bench edits
+            if buildVoiceOwner == .part { buildVoiceOwner = .none }           // release the single STAGING voice (the incoming ferry reclaims it if on)
+            if a < buildPlayColOn.count, buildPlayColOn[a] { buildFlattenFerry(a) } else { buildClearFerryPlayback(a) }   // if it's still ON it keeps sounding in the BACKGROUND (the play layer)
+        }
+        if let p = buildFerryParts[t] {
+            buildLoadBenchPart(p); buildActiveFerry = t; roomsRoom = .part
+            if t < buildPlayColOn.count, buildPlayColOn[t] { buildClearFerryPlayback(t); buildVoiceOwner = .part }   // the ACTIVE ferry plays via the STAGING step-sequencer (visible sweep + live selection), NOT the play-layer flatten
+            else { buildVoiceOwner = .none }
+            roomsPartSetup()                                                  // same per-grid setup the retired toggle ran (rolls + focus default)
+        } else {
+            buildActiveFerry = nil; roomsRoom = .select; buildVoiceOwner = .none   // an empty ferry opens the browser
+            roomsSelectSetup()                                                // opens the library browser (buildEnsureGridSelOpen), like the retired toggle
+        }
         buildPublishScene()
+    }
+    // PLAY-button tap: start/stop ferry `t`. The ACTIVE (on-bench) ferry plays via the STAGING step-sequencer — the part
+    // grid sweeps, each column's SELECTED rung fires, edits respond live. A BACKGROUND ferry plays via the play-layer
+    // flatten (its mono line). Several may be on at once: one staging (the active) + up to seven play-layer.
+    func buildToggleFerryPlay(_ t: Int) {
+        guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
+        let willOn = !(t < buildPlayColOn.count && buildPlayColOn[t])
+        if t < buildPlayColOn.count { buildPlayColOn[t] = willOn }
+        if t == buildActiveFerry {
+            buildVoiceOwner = willOn ? .part : .none                          // active → the STAGING sequencer (the visible part grid)
+            buildClearFerryPlayback(t)                                        // …never also on the play layer (no double-audition)
+        } else {
+            if willOn { buildFlattenFerry(t) } else { buildClearFerryPlayback(t) }   // background → the play layer
+        }
+        if willOn { au?.clearColourSolo(); buildHostHalted = false }
+        buildPublishScene()
+    }
+    // Clear ferry `t`'s play-layer playback line — when it stops, OR when it becomes the ACTIVE ferry (then it plays via
+    // the staging sequencer, so its play-layer row must be empty). Resets the pass to the inert single-cell default.
+    func buildClearFerryPlayback(_ t: Int) {
+        guard t >= 0, t < 8 else { return }
+        if t < buildPlayColSteps.count { buildPlayColSteps[t] = [] }
+        if t < buildPlayColLen.count { buildPlayColLen[t] = 1 }
+        if t < buildPlayColStepRecv.count { buildPlayColStepRecv[t] = [] }
+        if t < buildPlayColStepEmit.count { buildPlayColStepEmit[t] = [] }
+        if t < buildPlayCells.count { for r in 0..<buildPlayCells[t].count { buildPlayCells[t][r] = nil } }   // no legacy single-cell either
+    }
+    // LONG-PRESS an EMPTY ferry on the SELECT grid: create a NEW part seeded with the selected chain in row 0, store it in
+    // the ferry, and open it on the bench. A ferry always holds a part; the select grid only supplies the seed chain.
+    func buildSeedFerry(_ t: Int) {
+        guard t >= 0, t < 8, buildFerryParts[t] == nil, let hit = buildGridSelStampSource() else { return }
+        buildRecordUndo()
+        let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose)   // a fresh part colour carrying the selected chain (vivid part hue)
+        var p = BuildPart()
+        for c in 0..<Snap.cols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }      // seed the chain across the WHOLE first row (an 8-step loop), all columns' rung selected → the part plays a full sequence, not one cell (Paul 2026-09-08)
+        p.selID = y; p.cast = [y]
+        let io = roomsStampSourceIO(); p.receiver = io.recv; p.emitters = io.emit
+        buildFerryParts[t] = p
+        buildSyncColours()
+        if t < buildPlayColOn.count { buildPlayColOn[t] = true }              // a seeded ferry starts playing at once (via the staging sequencer once activated)
+        buildActivateFerry(t)
     }
     // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
     // (default row 1). Writes ONLY the play grid's OWN store (buildPlayCells) — NOT the shared buildStagingCells — so it
@@ -1959,35 +1992,45 @@ extension DiagView {
     }
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
     // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)
+    // §MERGE (Paul 2026-09-08): the SELECT browser is now FOUR rows (was 8) — the left rail's 4 categories (ARP·RIFF·
+    // RATCHET·CC) sit one per row — with the processor card docked permanently in the freed lower half. The ▲PLAY sliver
+    // is gone (play grid retired → the ferries drive playback).
     @ViewBuilder func roomsSelectGridUnit(m: RoomsMetrics) -> some View {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad                 // heights from the shared lattice (m); width per-view
+            let rows = DiagView.roomsGridRows                                 // §MERGE: 4 interior rows
             let cw = max(6, (g.size.width - 2 * pad - 9 * gap) / 10)           // 10 cols (LEFT page rail + 8 interior + right side button)
-            let ch = m.ch, navH = m.navH
+            let ch = m.ch
+            let rowH = ch * 0.5                                             // §MERGE (Paul 2026-09-08): interior cells are HALF the ferry-cell height
             let interiorW = cw * 8 + gap * 7
-            let interiorH = m.interiorH
+            let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)   // the 4-row browser (half-height cells)
             let leftInset = cw + gap                                        // the left page rail → the interior's left edge
+            let footerH = ch * 2.0 / 3.0                                     // the footer row (Paul 2026-09-08): 2/3 the ferry height, spanning the interior body — DIRECTLY under the grid rows
+            let footerY = interiorH + gap                                    // the footer sits flush beneath the last grid row (NOT at the bottom of the unit)
+            let cardY = footerY + footerH + gap                             // the card docks BELOW the footer (so it no longer covers it)
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the footer + the docked card
             VStack(alignment: .leading, spacing: gap) {
-                HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
-                    Color.clear.frame(width: leftInset)
-                    roomsPlayNavSliver(width: interiorW, height: navH)
+                HStack(spacing: gap) {                                       // STOP (left) · PLAY-ferry buttons · PLAY (right) — Paul 2026-09-08
+                    buildStopAllButton().frame(width: cw, height: ch)       // STOP — top-LEFT corner
+                    ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
+                    buildPlayAllButton().frame(width: cw, height: ch)       // PLAY — top-RIGHT corner (mirrors STOP)
                 }
-                VStack(spacing: gap) {
-                    HStack(spacing: gap) {                                   // ▲▼ row cursor + PLAY-ferry row + right corner
-                        roomsPlayFerryRowSelector().frame(width: cw, height: ch)
-                        ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
-                        buildStopAllButton().frame(width: cw, height: ch)   // STOP — the select grid's top-right corner (Paul 2026-08-31)
-                    }
-                    ForEach(0..<8, id: \.self) { r in                        // LEFT page rail + interior cells + right side buttons
-                        HStack(spacing: gap) {
-                            roomsSelectPage(r).frame(width: cw, height: ch)  // the PAGE selector (loads a page of presets)
-                            ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: ch) }
-                            roomsSideButton(r).frame(width: cw, height: ch)
+                ZStack(alignment: .topLeading) {                            // the 4-row browser + the docked card below
+                    VStack(spacing: gap) {
+                        ForEach(0..<rows, id: \.self) { r in                  // LEFT page rail (category) + interior cells + right side button
+                            HStack(spacing: gap) {
+                                roomsSelectPage(r).frame(width: cw, height: rowH)  // the CATEGORY selector (ARP·RIFF·RATCHET·CC)
+                                ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: rowH) }
+                                roomsSideButton(r).frame(width: cw, height: rowH)
+                            }
                         }
                     }
-                }
-                .overlay(alignment: .topLeading) {                          // the processor card over the interior 8×8 (past the left rail)
-                    roomsProcessorCardAt(x: 0, y: ch + gap, w: leftInset + interiorW, h: interiorH)   // extend LEFT over the page-select rail (Paul 2026-08-29)
+                    // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
+                    roomsGridFooter(cells: 8, railW: cw, gap: gap, h: footerH)
+                        .frame(width: cw * 10 + gap * 9, height: footerH).offset(y: footerY)   // SELECT = pages (placeholder, not wired)
+                    // The processor-editor card (Paul 2026-09-08): docked BELOW the footer (so it no longer covers it),
+                    // filling the rest of the freed lower half, spanning the full grid-region width.
+                    roomsProcessorCardAt(x: 0, y: cardY, w: cw * 10 + gap * 9, h: max(0, lowerH - cardY))
                 }
             }
             .padding(pad)
@@ -1998,9 +2041,9 @@ extension DiagView {
     }
     // THE CATEGORY RAIL (Paul 2026-08-29) — the SELECT grid's LEFT buttons are FIXED processor-type categories; tapping one
     // filters the library grid to presets containing that processor. ONE is always selected (default 0 = ARP).
+    // §MERGE (Paul 2026-09-08): FOUR categories, one per rail row (the SELECT grid is now 4 rows): ARP · RIFF · RATCHET · CC.
     var roomsSelectCategories: [(label: String, type: ProcessorType)] {
-        [("ARP", .arp), ("RIFF", .riff), ("EUCLID", .euclid), ("RATCHET", .ratchet),
-         ("CHANCE", .chance), ("HARMONY", .harmonize), ("MOD/CC", .mod), ("GATE", .passgate)]
+        [("ARP", .arp), ("RIFF", .riff), ("RATCHET", .ratchet), ("CC", .mod)]
     }
     private func buildGridSelCategoryType(_ c: Int) -> ProcessorType { roomsSelectCategories[max(0, min(roomsSelectCategories.count - 1, c))].type }
     // Recompute the CURRENT category's matching library indices (an entry matches if its chain contains the category's
@@ -2030,6 +2073,23 @@ extension DiagView {
     // The grid's cell WIDTH for a given box width — so the caller can size the far-edge seam column to 50% of a cell,
     // matching the old in-grid seam. SELECT = 10 cols (left page rail + 8 + right side), PART = 10 cols. (Paul 2026-08-29)
     func roomsGridCellW(_ boxW: CGFloat, cols: Int) -> CGFloat { max(6, (boxW - 2 * 3 - CGFloat(cols - 1) * 3) / CGFloat(cols)) }
+    // THE GRID FOOTER (Paul 2026-09-08) — a row at the BOTTOM of each grid, mirroring the top ferry row at 2/3 its height,
+    // spanning the MAIN BODY only (the interior columns, NOT the side rails: flanked by rail-width spacers). PLACEHOLDER for
+    // now — SELECT = pages · PART = column-loop buttons (behaviour deliberately NOT wired yet; this just reserves the space).
+    @ViewBuilder private func roomsGridFooter(cells: Int, railW: CGFloat, gap: CGFloat, h: CGFloat) -> some View {
+        HStack(spacing: gap) {
+            Color.clear.frame(width: railW, height: h)                       // left rail — excluded from the footer's width
+            HStack(spacing: gap) {                                            // the body: one cell per interior column, filling the interior width
+                ForEach(0..<max(1, cells), id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.05))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            Color.clear.frame(width: railW, height: h)                       // right rail — excluded
+        }
+        .frame(height: h)
+    }
     // The empty-box PROCESSOR SELECTOR window (the catalog) — the existing modal picker, rendered in the rooms shell. (Paul 2026-08-28)
     @ViewBuilder func roomsProcessorPicker(size: CGSize) -> some View {
         if let slot = buildAddSlot { buildProcessorPicker(slot: slot, size: size) }
@@ -2150,72 +2210,62 @@ extension DiagView {
     // §E 16-STEP (Paul 2026-09-02): the part's ACTIVE WIDTH = its loop length (buildPartLen, 1…16; nil ⇒ the 8-wide
     // default). The grid renders this many STEP columns (cells shrink to fit), the engine loops them (rowLength).
     var buildPartCols: Int { max(1, min(Snap.maxCols, buildPartLen ?? Snap.cols)) }
+    // §MERGE (Paul 2026-09-08): the PART grid is now FOUR interior rows (was 8) — a compact 8|16 × 4 main body — with the
+    // processor card docked permanently in the freed lower half. The ▲PLAY sliver + the piano-roll + the AUTO section are
+    // GONE (the standalone play grid is retired → the ferries drive playback; piano-roll/AUTO not ported yet per Paul).
+    static let roomsGridRows = 4                                            // the merged main-body row count (was 8)
     @ViewBuilder func roomsPartGrid(m: RoomsMetrics) -> some View {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad               // heights come from the shared lattice (m); width stays per-view
             let cols = buildPartCols                                         // §E: the part-grid STEP count = the active width (8 or up to 16)
+            let rows = DiagView.roomsGridRows                               // §MERGE: 4 interior rows
             // FULL-WIDTH SIDE RAILS (Paul 2026-09-02): the left/right rails (+ the ferry-row STOP/▲▼ that cap them) are ONE
             // interior cell wide — same as the play/ferry cells. Width = `cols` interior cells + 2 rails (cols+2 cells worth).
             let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 2))   // cell width (cols interior + 2 full-width rails)
             let railW = cw                                                   // the side rails + the STOP/▲▼ header slots = a full cell (Paul 2026-09-02)
-            let ch = m.ch, navH = m.navH
-            let partCH = max(6, ch * DiagView.roomsPartInteriorFraction)     // SHRUNK interior cell height (the header rows keep `ch`)
+            let ch = m.ch
+            let rowH = ch * 0.5                                             // §MERGE (Paul 2026-09-08): interior cells are HALF the ferry-cell height (freed space → the card)
             let interiorW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
             // The PLAY LAYER is ALWAYS 8 columns (buildPlayColOn etc.), independent of the part grid width. So there are
             // always 8 play ferries — when the part is 16 steps wide they simply widen to fill the interior (a ferry per
             // two columns), never becoming 16 (which would index the 8-slot play layer out of range). (Paul 2026-09-04)
             let ferryW = (interiorW - CGFloat(7) * gap) / 8
-            let interiorH = partCH * 8 + gap * 7                            // 8 rungs at the shrunk height
+            let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)  // the 4-row grid
             let leftInset = railW + gap                                     // full rail → the interior's left edge
-            // The lower region = everything under the ferry row. FIXED heights that sum EXACTLY to the column (like the
-            // SELECT grid — no maxHeight:.infinity, which floated the content): [interior] + [piano roll] + [macro].
-            let lowerH = max(interiorH, g.size.height - 2 * pad - navH - gap - ch - gap)
-            // FIXED ROLL + ALWAYS-EXPANDED AUTO (Paul 2026-09-04): the slide-up is gone. The piano roll is a FIXED two
-            // play-grid cells (ch, not the shrunk part cell), and the AUTO controls are ALWAYS visible below it, running
-            // to the bottom of the page — their tab strip sits at the TOP of the section (roomsPartMacroSection is
-            // top-anchored). No lane-active conditional; the layout never changes shape.
-            let pianoH = (ch * 2 + gap) / 2                                // FIXED: ONE play-grid cell tall (halved 2026-09-04 to free space for AUTO)
-            let macroH = max(ch, lowerH - interiorH - pianoH - 2 * gap)    // AUTO fills the remainder to the bottom, always
+            let footerH = ch * 2.0 / 3.0                                     // the footer row (Paul 2026-09-08): 2/3 the ferry height, DIRECTLY under the grid rows
+            let footerY = interiorH + gap                                    // flush beneath the last grid row
+            let cardY = footerY + footerH + gap                             // the card docks BELOW the footer (no longer covering it)
+            // The lower region = everything under the ferry row: the 4-row grid on top, then the footer, then the docked
+            // CARD filling the rest (the freed space from 8→4 rows).
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)
             VStack(alignment: .leading, spacing: gap) {
-                HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
-                    Color.clear.frame(width: leftInset)
-                    roomsPlayNavSliver(width: interiorW, height: navH)
-                }
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
                     buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the full-width left rail (Paul 2026-09-02)
                     ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: ferryW, height: ch) }   // ALWAYS 8 ferries (the play layer), widening to fill when the part is 16 wide (Paul 2026-09-04)
-                    roomsPlayFerryRowSelector().frame(width: railW, height: ch) // the ▲▼ row cursor — top-RIGHT, over the full-width right rail
+                    buildPlayAllButton().frame(width: railW, height: ch)     // PLAY — top-RIGHT, mirrors STOP on the left (Paul 2026-09-08, replaced the ▲▼ cursor)
                 }
-                ZStack(alignment: .topLeading) {                           // the lower region: shrunk grid on top, the LARGE PANEL beneath
+                ZStack(alignment: .topLeading) {                           // the lower region: the 4-row grid on top, the docked CARD beneath
                     VStack(alignment: .leading, spacing: gap) {
-                        HStack(alignment: .top, spacing: gap) {             // body: left rail | interior+playhead | right rail (all at partCH)
-                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: partCH) } }
+                        HStack(alignment: .top, spacing: gap) {             // body: LEFT chevron rail | interior+playhead | RIGHT numbered rail (Paul 2026-09-08 — rails swapped)
+                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }   // LEFT = chevron (row-select for playback)
                             ZStack(alignment: .topLeading) {
-                                VStack(spacing: gap) { ForEach(0..<8, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: partCH) } } } }
+                                VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } } } }
                                 roomsPartPlayhead(colW: cw, gap: gap, height: interiorH).allowsHitTesting(false)
                             }
                             .contentShape(Rectangle())
                             .coordinateSpace(name: "partInt")
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
-                                .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: partCH, gap: gap, cols: cols) }
+                                .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: rowH, gap: gap, cols: cols) }
                                 .onEnded { _ in buildPartDragLast = nil; buildPartDragAnchor = nil })
-                            VStack(spacing: gap) { ForEach(0..<8, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: partCH) } }
+                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH) } }   // RIGHT = numbered (the part-position selector / copy source)
                         }
-                        // SECTION 1 — the PIANO ROLL strip: aligned UNDER the interior columns, a FIXED two play-grid cells tall
-                        // (Paul 2026-09-04). The live merged-lane notation (the offline part-roll feed).
-                        HStack(spacing: 0) {
-                            Color.clear.frame(width: leftInset)
-                            roomsPartPianoRoll(cols: cols, colW: cw, gap: gap).frame(width: interiorW, height: pianoH)   // fixed 2 play-grid cells
-                        }
-                        // SECTION 2 — the AUTO section: ALWAYS visible, filling to the bottom of the page. Its tab strip is the
-                        // first element, so top-anchoring the frame keeps the tabs at the TOP of the section (Paul 2026-09-04).
-                        roomsPartMacroSection().frame(maxWidth: .infinity).frame(height: macroH, alignment: .top)
                     }
-                    // The processor-editor card (Paul 2026-09-07): docked BELOW the grid — it covers the piano roll + AUTO
-                    // section (from just under the grid body down to the foot), leaving the grid itself visible + tappable
-                    // while you edit. Horizontally it spans the FULL grid-region width (x:0 = right of the emitter strips /
-                    // machine column → the page's right edge), i.e. every rail + interior cell.
-                    roomsProcessorCardAt(x: 0, y: interiorH + gap, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: lowerH - interiorH - gap)
+                    // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
+                    roomsGridFooter(cells: cols, railW: railW, gap: gap, h: footerH)
+                        .frame(width: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), height: footerH).offset(y: footerY)   // PART = column-loop buttons (placeholder, not wired)
+                    // The processor-editor card (Paul 2026-09-08): docked BELOW the footer (no longer covering it), filling
+                    // the rest of the freed lower half. Spans the FULL grid-region width (every rail + interior cell).
+                    roomsProcessorCardAt(x: 0, y: cardY, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: max(0, lowerH - cardY))
                 }
             }
             .padding(pad)
@@ -2770,7 +2820,7 @@ extension DiagView {
     // THE PART PLAYHEAD — a 2pt line sweeping the 8 interior columns, phase-locked to the beat (reuses the buildPlayhead
     // math: extrapolated beat → musical/swung column progress → x). Flexible-cell variant for the rooms grid.
     @ViewBuilder private func roomsPartPlayhead(colW: CGFloat, gap: CGFloat, height: CGFloat) -> some View {
-        if d.playing && buildStagingPlaying {
+        if d.playing && (buildStagingPlaying || buildActiveFerryPlaying) {   // follow the active ferry's play-layer line (Paul 2026-09-08), not only the old staging voice
             let sb = buildPartRate?.beats ?? stepBeats
             let cols = buildPartCols                                        // §E: the active width
             let width = colW * CGFloat(cols) + gap * CGFloat(cols - 1)
@@ -2785,8 +2835,9 @@ extension DiagView {
             }
         }
     }
-    // TAP a PART LEFT side button — it becomes the SELECTED slot (the always-one selection, shared with SELECT) + the
-    // copy source, and reflects its chain in the panel. It does NOT select a grid row — the RIGHT rail does that. (Paul 2026-08-28)
+    // TAP the PART NUMBERED rail (now on the RIGHT, Paul 2026-09-08) — it becomes the SELECTED slot (the always-one
+    // selection, shared with SELECT) + the copy source, and reflects its chain in the panel. It does NOT select a grid
+    // row — the CHEVRON rail (now on the LEFT, roomsPartRightRail) does that. (Paul 2026-08-28)
     private func roomsTapPartSide(_ n: Int) {
         if buildFerryHeld { buildFerryHeld = false; return }            // released-early hold → don't steal focus / re-audition the playing cell
         buildRoomsSetActiveSide(n)                                      // this left button is THE selected slot (+ copy source); clears any library-cell source
@@ -3632,6 +3683,9 @@ extension DiagView {
     // ~11 WRITE sites route through buildVoiceOwner now, so "who is the voice" lives in ONE place.
     var ddSolo: Bool { buildVoiceOwner == .chain }               // the SELECT chain audition
     var buildStagingPlaying: Bool { buildVoiceOwner == .part }   // the PART sequencer audition
+    // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the bench shows the ACTIVE ferry's part; playback happens on the play
+    // layer, so the part-grid playhead follows the active ferry's own on/off (not the old staging voice).
+    var buildActiveFerryPlaying: Bool { if let a = buildActiveFerry, a >= 0, a < buildPlayColOn.count { return buildPlayColOn[a] }; return false }
     // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADERS read this so
     // they highlight the new state IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
     var buildDisplayVoice: BuildWorkshopVoice { buildPendingWorkshopVoice ?? buildWorkshopVoice }
@@ -3791,6 +3845,9 @@ extension DiagView {
     var buildCanRedo: Bool { !buildRedoStack.isEmpty }
 
     private func buildPublishScene() {
+        // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the ACTIVE ferry plays via the STAGING sequencer, which composes
+        // the LIVE bench each publish — so a selection/content edit is heard + swept at once, no flatten needed here. A
+        // BACKGROUND ferry's play-layer line is (re)flattened only when it goes on / when it stops being the active one.
         buildGridSelComputeRowRolls()                            // Paul 2026-09-05: keep the PART cells' always-visible constellation current on every change
         buildComputePlayColRolls()                               // …and the PLAY columns' faces
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
@@ -4033,10 +4090,25 @@ extension DiagView {
         refreshFromDocument()
     }
     // <<< CLEAR — empty the SELECTED colour's midi chain (every processor box → "+"). (Paul 2026-08-18)
+    // On the PART grid (Paul 2026-09-08) CLEAR ALSO removes the colour's PRESENCE from the part (its row); and when the
+    // whole part is thereby empty it clears the ACTIVE FERRY too → an empty ferry, which is how you reach the SELECT
+    // browser (the empty-ferry-only navigation, once the toggle is gone).
     private func buildClearChain() {
         buildRecordUndo()   // BUILD UNDO: clear the selected colour's chain
         guard let cid = ddSelectedColourID else { return }
         buildWriteColourMachine(cid, [])
+        if roomsRoom == .part {
+            for r in 0..<8 where buildRowColour(r) == cid { buildSetRow(r, to: nil) }          // remove the colour's presence on the part grid (its row)
+            buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)
+            if (0..<8).allSatisfy({ buildRowColour($0) == nil }), let a = buildActiveFerry, a >= 0, a < 8 {   // the whole part is now empty → clear the ferry cell
+                buildFerryParts[a] = nil
+                if a < buildPlayColOn.count { buildPlayColOn[a] = false }
+                buildClearFerryPlayback(a)
+                buildActiveFerry = nil; buildVoiceOwner = .none; roomsRoom = .select              // → an empty ferry / the SELECT browser
+                roomsSelectSetup()                                                                // open the library browser (like the retired toggle)
+            }
+            buildPublishScene()
+        }
         refreshFromDocument()
     }
     // <<< COPY / PASTE (Paul 2026-08-25): COPY grabs the SELECTED colour's chain into a buffer; PASTE drops that chain
@@ -4175,30 +4247,42 @@ extension DiagView {
     // THE ROOMS PLAY GRID (Paul 2026-08-30): capture the 8 play columns + their multi-step passes + the ephemeral colours
     // they reference, so a reload restores the whole play grid. Only when there's content (a populated/multi-step column).
     func buildCapturePlayGrid() -> BuildPlayGridData? {
-        let hasContent = (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }
+        var parts = buildFerryParts                                          // THE PLAY FERRIES ARE PARTS — the source of truth
+        if let a = buildActiveFerry, a >= 0, a < 8 { parts[a] = buildCaptureBenchPart() }   // fold in the active ferry's live bench edits (read-only capture)
+        let anyPart = parts.contains { $0 != nil }
+        let hasContent = anyPart || (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }
         guard hasContent else { return nil }
         var ids = Set<String>()
         for col in buildPlayCells { for cell in col { if let id = cell { ids.insert(id) } } }
         for col in buildPlayColSteps { for step in col { if let id = step { ids.insert(id) } } }
+        for p in parts.compactMap({ $0 }) {                                  // every colour a ferry part references
+            ids.formUnion(p.stagingCells.flatMap { $0.compactMap { $0 } }); ids.formUnion(p.cast)
+            ids.formUnion(p.rowUnder.compactMap { $0 }); if let s = p.selID { ids.insert(s) }
+        }
         let ephemeral = ids.filter { buildColourReg[$0] != nil }.sorted()
         let colours = ephemeral.map { id -> Colour in var c = Colour(colourID: id, type: .arp); c.defined = true; c.templateChain = buildColourReg[id]; c.transpose = buildColourTranspose[id] ?? 0; return c }
         var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = colourHueOverride[id] { hues[id] = h } }
-        return BuildPlayGridData(cells: buildPlayCells, sel: buildPlaySel, colOn: buildPlayColOn, colRecv: buildPlayColRecv,
-                                 colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
-                                 colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, colours: colours, hues: hues, idCounter: buildIDCounter)
+        var data = BuildPlayGridData(cells: buildPlayCells, sel: buildPlaySel, colOn: buildPlayColOn, colRecv: buildPlayColRecv,
+                                     colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
+                                     colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, colours: colours, hues: hues, idCounter: buildIDCounter)
+        data.parts = parts
+        return data
     }
     func buildRestorePlayGrid(_ d: BuildPlayGridData) {
         for c in d.colours { buildColourReg[c.colourID] = c.templateChain ?? []; if c.transpose != 0 { buildColourTranspose[c.colourID] = c.transpose } }
         for (id, hue) in d.hues { colourHueOverride[id] = hue }
         buildIDCounter = max(buildIDCounter, d.idCounter)
         buildSyncColours()
-        // Restore the arrays only when the shapes are exactly right (a valid round-trip is 8 columns × ≥8 rungs); a malformed
-        // doc keeps the empty defaults rather than risking an out-of-range ferry write later (defensive).
-        guard d.cells.count == 8, d.cells.allSatisfy({ $0.count >= 8 }), d.sel.count == 8, d.colOn.count == 8, d.colRecv.count == 8,
-              d.colEmit.count == 8, d.colLen.count == 8, d.colSteps.count == 8, d.colRate.count == 8, d.colStepRecv.count == 8, d.colStepEmit.count == 8 else { return }
-        buildPlayCells = d.cells; buildPlaySel = d.sel; buildPlayColOn = d.colOn; buildPlayColRecv = d.colRecv; buildPlayColEmit = d.colEmit
-        buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
-        buildPublishScene()   // republish so restored STARTED columns sound at once
+        buildFerryParts = d.partsResolved                                    // THE PLAY FERRIES ARE PARTS — restore/migrate the 8 slots (source of truth)
+        // Restore the legacy arrays only when the shapes are exactly right; a malformed doc keeps the defaults (defensive).
+        // (These are now derived playback state; the parts re-flatten below regardless, so `colOn` is what really matters.)
+        if d.cells.count == 8, d.cells.allSatisfy({ $0.count >= 8 }), d.sel.count == 8, d.colOn.count == 8, d.colRecv.count == 8,
+           d.colEmit.count == 8, d.colLen.count == 8, d.colSteps.count == 8, d.colRate.count == 8, d.colStepRecv.count == 8, d.colStepEmit.count == 8 {
+            buildPlayCells = d.cells; buildPlaySel = d.sel; buildPlayColOn = d.colOn; buildPlayColRecv = d.colRecv; buildPlayColEmit = d.colEmit
+            buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
+        }
+        for t in 0..<8 { buildFlattenFerry(t) }                              // regenerate each ferry's playback line from its part (canonical)
+        buildPublishScene()   // republish so restored STARTED ferries sound at once
     }
     // PART AUTOMATION (Paul 2026-09-02): capture the per-colour AUTO lanes for the save (prune colours with no active
     // lane AND no extents, so the map stays sparse). nil when nothing's armed → byte-identical fullState.
@@ -4869,10 +4953,17 @@ extension DiagView {
         }
         // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette colour. (Paul 2026-08-31)
         if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedColourID, color: buildMachineHue(roomsRoom), idx: buildChainAuditionRow) }
-        for c in 0..<8 where c < buildPlayColOn.count && buildPlayColOn[c] {                          // PLAY columns emitting on e
-            let emit = c < buildPlayColEmit.count ? buildPlayColEmit[c] : []
-            if emit.contains(e) { let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
-                if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r], idx: Snap.playLayerRowBase + c) } }
+        // BACKGROUND ferries (Paul 2026-09-08): a non-active "on" ferry plays via the FLATTEN on play-layer row (base+c) —
+        // map EVERY non-nil step's colour that emits on e (its index = step·rows + (base+c)), so a multi-colour part shows
+        // all its bands and every step reflects, not just step 0. (The active ferry is on the STAGING branch above.)
+        for c in 0..<8 where c != buildActiveFerry && c < buildPlayColOn.count && buildPlayColOn[c] {
+            let steps = c < buildPlayColSteps.count ? buildPlayColSteps[c] : []
+            let stepEmit = c < buildPlayColStepEmit.count ? buildPlayColStepEmit[c] : []
+            for s in 0..<steps.count {
+                guard let cid = steps[s] else { continue }
+                let em = s < stepEmit.count ? stepEmit[s] : (c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])
+                if em.contains(e) { add(cid, idx: s * Snap.rows + (Snap.playLayerRowBase + c)) }
+            }
         }
         return order.map { MeterBand(color: byCid[$0]!.color, energy: false, cellIdxs: byCid[$0]!.idxs) }
     }

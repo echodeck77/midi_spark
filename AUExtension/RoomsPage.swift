@@ -51,8 +51,7 @@ extension DiagView {
         ZStack {
             roomsField(roomsRoom).ignoresSafeArea()                        // §8b: charcoal floor everywhere; PLAY = the near-black stage
             switch roomsRoom {
-            case .select: roomsSelect(size)
-            case .part:   roomsPart(size)
+            case .select, .part: roomsWorkbench(size)   // MERGED (Paul 2026-09-08): SELECT + PART are one page, a toggle picks the grid
             case .play:   roomsPlay(size)
             case .reel:   roomsReel(size)
             }
@@ -161,36 +160,28 @@ extension DiagView {
     }
 
     // ── THE ROOMS ─────────────────────────────────────────────────────────────────────────────────
-    @ViewBuilder private func roomsSelect(_ size: CGSize) -> some View {
+    // THE MERGED WORKBENCH (Paul 2026-09-08) — SELECT and PART are now ONE page. The SELECT GRID | PART GRID toggle now
+    // lives in the HEADER (buildHeaderControls); this body is just the active GRID (2/3, LEFT) + the fixed machine column
+    // (1/3, RIGHT). roomsRoom still holds which grid is active (.select or .part), so every existing per-grid path
+    // (setup, voice sync, ferries, the docked card) is reused verbatim.
+    @ViewBuilder private func roomsWorkbench(_ size: CGSize) -> some View {
         GeometryReader { g in
-            let avail = g.size.width - 16 - 12                             // page padding (16) + 2 HStack gaps (12)
+            let avail = g.size.width - 16 - 6                             // page padding (16) + 1 HStack gap (6)
             let gridW = avail * 2 / 3
-            let seamW = roomsGridCellW(gridW, cols: 10) * 0.5             // 50% of a grid cell (SELECT is now 10 cols: left page rail + 8 + right side)
-            let chainW = avail - gridW - seamW
-            let m = RoomsMetrics(height: g.size.height - 16)              // the ONE lattice for this room (HStack content height = page − padding 8·2)
-            HStack(spacing: 6) {
-                roomsSelectGridUnit(m: m).frame(width: gridW)             // the GRID + its edge selectors (2/3, left)
-                chainPanel(.select, m).frame(width: chainW)               // the MACHINE box — its bands rhyme with the grid (1/3, middle)
-                roomsSeamColumn(to: .part, chevron: "▸", m: m).frame(width: seamW)   // the SEAM → PART, FAR RIGHT (opposite the chain)
+            let chainW = avail - gridW
+            let bodyH = g.size.height - 16                                // no in-body toggle bar now — the body fills the page (Paul 2026-09-08)
+            let m = RoomsMetrics(height: bodyH)                           // the ONE lattice for the grid body
+            HStack(alignment: .top, spacing: 6) {
+                Group {
+                    if roomsRoom == .part { roomsPartGrid(m: m) } else { roomsSelectGridUnit(m: m) }
+                }.frame(width: gridW, height: bodyH)                      // the active GRID (2/3, LEFT — same side for both)
+                chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box (1/3, RIGHT — fixed)
             }.padding(8)
         }
-        .onAppear { roomsSelectSetup() }                                  // open the library-backed grid selector on SELECT (idempotent)
+        .onAppear { if roomsRoom == .part { roomsPartSetup() } else { roomsSelectSetup() } }
     }
-    @ViewBuilder private func roomsPart(_ size: CGSize) -> some View {
-        GeometryReader { g in
-            let avail = g.size.width - 16 - 12
-            let gridW = avail * 2 / 3
-            let seamW = roomsGridCellW(gridW, cols: 10) * 0.5
-            let chainW = avail - gridW - seamW
-            let m = RoomsMetrics(height: g.size.height - 16)              // the ONE lattice for this room
-            HStack(alignment: .top, spacing: 6) {                          // TOP-align the columns (Paul 2026-09-01 — the default .center floated the right side)
-                roomsSeamColumn(to: .select, chevron: "◂", m: m).frame(width: seamW)   // the SEAM → SELECT, FAR LEFT (opposite the chain)
-                chainPanel(.part, m).frame(width: chainW)                  // the MACHINE box — its bands rhyme with the grid (1/3, middle)
-                roomsPartGrid(m: m).frame(width: gridW)                    // the GRID + its edge selectors (2/3, right)
-            }.padding(8)
-        }
-        .onAppear { roomsPartSetup() }                                    // source the MIDI from the part grid + refresh the side-button faces
-    }
+    // The SELECT|PART grid toggle + roomsSwitchGrid are RETIRED (Paul 2026-09-08, Phase 3): the ferry row is the sole
+    // navigation now. roomsPartSetup / roomsSelectSetup live on (called from buildActivateFerry / buildClearChain).
     @ViewBuilder private func roomsPlay(_ size: CGSize) -> some View {
         GeometryReader { g in
             let navH: CGFloat = 30
@@ -217,7 +208,7 @@ extension DiagView {
     }
     @ViewBuilder private func roomsReel(_ size: CGSize) -> some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) { navDoor("◂ PLAY", to: .play); Spacer() }.padding(.horizontal, 12).padding(.top, 8)
+            HStack(spacing: 8) { navDoor("◂ BACK", to: .select); Spacer() }.padding(.horizontal, 12).padding(.top, 8)   // §MERGE: back to the workbench (the standalone PLAY grid is retired)
             ZStack {
                 RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03)).overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsRedSig.opacity(0.5), lineWidth: 1.5))   // §8b REEL = RED signature
                 VStack(spacing: 8) {
