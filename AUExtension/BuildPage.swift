@@ -1959,35 +1959,38 @@ extension DiagView {
     }
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
     // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)
+    // §MERGE (Paul 2026-09-08): the SELECT browser is now FOUR rows (was 8) — the left rail's 4 categories (ARP·RIFF·
+    // RATCHET·CC) sit one per row — with the processor card docked permanently in the freed lower half. The ▲PLAY sliver
+    // is gone (play grid retired → the ferries drive playback).
     @ViewBuilder func roomsSelectGridUnit(m: RoomsMetrics) -> some View {
         GeometryReader { g in
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad                 // heights from the shared lattice (m); width per-view
+            let rows = DiagView.roomsGridRows                                 // §MERGE: 4 interior rows
             let cw = max(6, (g.size.width - 2 * pad - 9 * gap) / 10)           // 10 cols (LEFT page rail + 8 interior + right side button)
-            let ch = m.ch, navH = m.navH
+            let ch = m.ch
             let interiorW = cw * 8 + gap * 7
-            let interiorH = m.interiorH
+            let interiorH = ch * CGFloat(rows) + gap * CGFloat(rows - 1)     // the 4-row browser
             let leftInset = cw + gap                                        // the left page rail → the interior's left edge
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the docked card
             VStack(alignment: .leading, spacing: gap) {
-                HStack(spacing: 0) {                                        // ▲PLAY over the interior columns (past the left rail)
-                    Color.clear.frame(width: leftInset)
-                    roomsPlayNavSliver(width: interiorW, height: navH)
+                HStack(spacing: gap) {                                       // ▲▼ row cursor + PLAY-ferry row + right corner (no ▲PLAY now)
+                    roomsPlayFerryRowSelector().frame(width: cw, height: ch)
+                    ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
+                    buildStopAllButton().frame(width: cw, height: ch)       // STOP — the select grid's top-right corner (Paul 2026-08-31)
                 }
-                VStack(spacing: gap) {
-                    HStack(spacing: gap) {                                   // ▲▼ row cursor + PLAY-ferry row + right corner
-                        roomsPlayFerryRowSelector().frame(width: cw, height: ch)
-                        ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
-                        buildStopAllButton().frame(width: cw, height: ch)   // STOP — the select grid's top-right corner (Paul 2026-08-31)
-                    }
-                    ForEach(0..<8, id: \.self) { r in                        // LEFT page rail + interior cells + right side buttons
-                        HStack(spacing: gap) {
-                            roomsSelectPage(r).frame(width: cw, height: ch)  // the PAGE selector (loads a page of presets)
-                            ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: ch) }
-                            roomsSideButton(r).frame(width: cw, height: ch)
+                ZStack(alignment: .topLeading) {                            // the 4-row browser + the docked card below
+                    VStack(spacing: gap) {
+                        ForEach(0..<rows, id: \.self) { r in                  // LEFT page rail (category) + interior cells + right side button
+                            HStack(spacing: gap) {
+                                roomsSelectPage(r).frame(width: cw, height: ch)  // the CATEGORY selector (ARP·RIFF·RATCHET·CC)
+                                ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: ch) }
+                                roomsSideButton(r).frame(width: cw, height: ch)
+                            }
                         }
                     }
-                }
-                .overlay(alignment: .topLeading) {                          // the processor card over the interior 8×8 (past the left rail)
-                    roomsProcessorCardAt(x: 0, y: ch + gap, w: leftInset + interiorW, h: interiorH)   // extend LEFT over the page-select rail (Paul 2026-08-29)
+                    // The processor-editor card (Paul 2026-09-08): docked BELOW the 4-row browser, filling the freed lower
+                    // half, spanning the full grid-region width. Shows the slot picked from the chain.
+                    roomsProcessorCardAt(x: 0, y: interiorH + gap, w: cw * 10 + gap * 9, h: lowerH - interiorH - gap)
                 }
             }
             .padding(pad)
@@ -1998,9 +2001,9 @@ extension DiagView {
     }
     // THE CATEGORY RAIL (Paul 2026-08-29) — the SELECT grid's LEFT buttons are FIXED processor-type categories; tapping one
     // filters the library grid to presets containing that processor. ONE is always selected (default 0 = ARP).
+    // §MERGE (Paul 2026-09-08): FOUR categories, one per rail row (the SELECT grid is now 4 rows): ARP · RIFF · RATCHET · CC.
     var roomsSelectCategories: [(label: String, type: ProcessorType)] {
-        [("ARP", .arp), ("RIFF", .riff), ("EUCLID", .euclid), ("RATCHET", .ratchet),
-         ("CHANCE", .chance), ("HARMONY", .harmonize), ("MOD/CC", .mod), ("GATE", .passgate)]
+        [("ARP", .arp), ("RIFF", .riff), ("RATCHET", .ratchet), ("CC", .mod)]
     }
     private func buildGridSelCategoryType(_ c: Int) -> ProcessorType { roomsSelectCategories[max(0, min(roomsSelectCategories.count - 1, c))].type }
     // Recompute the CURRENT category's matching library indices (an entry matches if its chain contains the category's

@@ -241,7 +241,7 @@ extension DiagView {
     }
     @ViewBuilder private func roomsReel(_ size: CGSize) -> some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) { navDoor("◂ PLAY", to: .play); Spacer() }.padding(.horizontal, 12).padding(.top, 8)
+            HStack(spacing: 8) { navDoor("◂ BACK", to: .select); Spacer() }.padding(.horizontal, 12).padding(.top, 8)   // §MERGE: back to the workbench (the standalone PLAY grid is retired)
             ZStack {
                 RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03)).overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsRedSig.opacity(0.5), lineWidth: 1.5))   // §8b REEL = RED signature
                 VStack(spacing: 8) {
