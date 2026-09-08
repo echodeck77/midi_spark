@@ -72,9 +72,10 @@ so the old stylings can't leak in. Pure-ish SwiftUI/Canvas reading the feeds abo
 - **Ribbon data at cell size:** `gridSelRollBars` may overshoot a tiny cell; thin/clamp in `GridSkin`, not in the feed.
 - **Two instances:** only this instance is active (Paul 2026-09-08) — but BuildPage is large + shared; commit per phase.
 
-## OPEN DECISIONS (need your call before/within P1–P3)
-- Palette **shade-steps** (swatch defaults 42/12 lighten · 24/50 darken?).
-- **Selection marker:** lift & bloom replaces the cyan ring — keep a faint cyan accent as belt-and-braces, or lift only?
-- **Machine-box echo:** full colour frame, or just the header bar (the mock uses the header)?
-- **Ribbon density:** max bars per cell (device-tune).
-- **Playhead:** keep the part-grid sweep line + per-cell playhead, or let the beat-sweep-on-ferries carry all motion?
+## DECISIONS (Paul 2026-09-08 — RATIFIED)
+- **Shade-steps:** DARKEN — the base at row 0, progressively darker down the rows (no lightening). `ferryShade` steps
+  ≈ 0% · 20% · 38% · 55% toward black (row 0…3); the base stays vivid at the top.
+- **Selection marker:** lift & bloom PLUS a faint **cyan** accent (belt-and-braces) — keep the cyan.
+- **Machine-box echo:** the **header bar** only (not a full frame).
+- **Ribbon density:** agreed — a calm default, retuned on device.
+- **Playhead:** NONE — remove the part-grid sweep line + per-cell playhead; the ferry BEAT SWEEP is the only motion.
