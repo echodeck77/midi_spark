@@ -4994,7 +4994,11 @@ extension DiagView {
             if byCid[cid] == nil { order.append(cid); byCid[cid] = (color ?? colourColor(cid) ?? buildCyan, []) }
             if let idx { byCid[cid]!.idxs.append(idx) }
         }
-        if buildStagingPlaying {                                                                     // PART: the selected rungs that emit on e
+        // The ACTIVE ferry plays via the STAGING sequencer (rows 0–7). Map its selected rungs whenever it is ON — not only
+        // when buildStagingPlaying (a shared-voice mirror) is set — so its band never falls through the gap between here and
+        // the background branch below (which excludes the active ferry). Fixes the strip going blank on some ferry passes.
+        let activeOn = buildActiveFerry.map { $0 >= 0 && $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? false
+        if buildStagingPlaying || activeOn {                                                         // PART: the selected rungs that emit on e
             for c in 0..<Snap.maxCols { let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
                 if r >= 0, buildRowColour(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowColour(r), idx: c * Snap.rows + r) } }
         }
