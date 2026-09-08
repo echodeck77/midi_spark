@@ -1998,7 +1998,8 @@ extension DiagView {
             let interiorW = cw * 8 + gap * 7
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)   // the 4-row browser (half-height cells)
             let leftInset = cw + gap                                        // the left page rail → the interior's left edge
-            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the docked card
+            let footerH = ch * 2.0 / 3.0                                     // the bottom footer row (Paul 2026-09-08): 2/3 the ferry height, spanning the interior body
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap - footerH - gap)  // below the ferry row: the 4-row browser + the docked card (room reserved for the footer)
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: gap) {                                       // STOP (left) · PLAY-ferry buttons · PLAY (right) — Paul 2026-09-08
                     buildStopAllButton().frame(width: cw, height: ch)       // STOP — top-LEFT corner
@@ -2019,6 +2020,7 @@ extension DiagView {
                     // half, spanning the full grid-region width. Shows the slot picked from the chain.
                     roomsProcessorCardAt(x: 0, y: interiorH + gap, w: cw * 10 + gap * 9, h: lowerH - interiorH - gap)
                 }
+                roomsGridFooter(cells: 8, railW: cw, gap: gap, h: footerH)   // BOTTOM footer — SELECT = pages (placeholder, not wired)
             }
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
@@ -2060,6 +2062,23 @@ extension DiagView {
     // The grid's cell WIDTH for a given box width — so the caller can size the far-edge seam column to 50% of a cell,
     // matching the old in-grid seam. SELECT = 10 cols (left page rail + 8 + right side), PART = 10 cols. (Paul 2026-08-29)
     func roomsGridCellW(_ boxW: CGFloat, cols: Int) -> CGFloat { max(6, (boxW - 2 * 3 - CGFloat(cols - 1) * 3) / CGFloat(cols)) }
+    // THE GRID FOOTER (Paul 2026-09-08) — a row at the BOTTOM of each grid, mirroring the top ferry row at 2/3 its height,
+    // spanning the MAIN BODY only (the interior columns, NOT the side rails: flanked by rail-width spacers). PLACEHOLDER for
+    // now — SELECT = pages · PART = column-loop buttons (behaviour deliberately NOT wired yet; this just reserves the space).
+    @ViewBuilder private func roomsGridFooter(cells: Int, railW: CGFloat, gap: CGFloat, h: CGFloat) -> some View {
+        HStack(spacing: gap) {
+            Color.clear.frame(width: railW, height: h)                       // left rail — excluded from the footer's width
+            HStack(spacing: gap) {                                            // the body: one cell per interior column, filling the interior width
+                ForEach(0..<max(1, cells), id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.05))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            Color.clear.frame(width: railW, height: h)                       // right rail — excluded
+        }
+        .frame(height: h)
+    }
     // The empty-box PROCESSOR SELECTOR window (the catalog) — the existing modal picker, rendered in the rooms shell. (Paul 2026-08-28)
     @ViewBuilder func roomsProcessorPicker(size: CGSize) -> some View {
         if let slot = buildAddSlot { buildProcessorPicker(slot: slot, size: size) }
@@ -2202,9 +2221,11 @@ extension DiagView {
             let ferryW = (interiorW - CGFloat(7) * gap) / 8
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)  // the 4-row grid
             let leftInset = railW + gap                                     // full rail → the interior's left edge
+            let footerH = ch * 2.0 / 3.0                                     // the bottom footer row (Paul 2026-09-08): 2/3 the ferry height, spanning the interior body
             // The lower region = everything under the ferry row: the 4-row grid on top, the docked CARD filling the rest
-            // (the freed space from 8→4 rows). No ▲PLAY sliver now, so only the ferry row (ch) sits above it.
-            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)
+            // (the freed space from 8→4 rows). No ▲PLAY sliver now, so only the ferry row (ch) sits above it. Room is
+            // reserved at the bottom for the footer row (footerH + gap).
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap - footerH - gap)
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
                     buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the full-width left rail (Paul 2026-09-02)
@@ -2231,6 +2252,7 @@ extension DiagView {
                     // It spans the FULL grid-region width (every rail + interior cell). Shows the slot picked from the chain.
                     roomsProcessorCardAt(x: 0, y: interiorH + gap, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: lowerH - interiorH - gap)
                 }
+                roomsGridFooter(cells: cols, railW: railW, gap: gap, h: footerH)   // BOTTOM footer — PART = column-loop buttons (placeholder, not wired)
             }
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
