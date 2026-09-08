@@ -1026,13 +1026,15 @@ struct DiagView: View {
                 for i in 0..<roll.count { let n0 = roll[i].count; roll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }; if roll[i].count != n0 { pruned = true } }
                 if pruned { buildCellRoll = roll }
             }
-            let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected; 128 cells = lo 0…63 + hi 64…127)
-            let svRaw = au.pollCellSoundingVel()           // per-cell SOUNDING velocity → the emitter fader's per-colour floor
+            let svRaw = au.pollCellSoundingVel()           // per-cell SOUNDING velocity (256-wide) → the emitter fader's per-colour floor
             let sv = svRaw.map { Double($0) / 127.0 }; if sv != cellSoundVel { cellSoundVel = sv }   // deduped write (no re-render on a steady value)
             var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
             let nowG = Date()
+            // PER-CELL SOUNDING GATE (Paul 2026-09-08): derive from the 256-wide velocity feed (sv > 0), NOT the old 128-bit
+            // lo/hi mask — that mask only covered indices 0…127 (columns 0–7), so a 16-wide part's second half (cols 8–15,
+            // index ≥128) always read "not sounding" and the emitter strip's HELD branch never fired there.
             for i in 0..<Snap.cells {
-                let on = i < 64 ? ((sounding.lo >> UInt64(i)) & 1 == 1) : ((sounding.hi >> UInt64(i - 64)) & 1 == 1)
+                let on = sv[i] > 0
                 if on != newSounding[i] {
                     if !on { relAt[i] = nowG }             // falling edge → stamp the release (the spark fades from here)
                     newSounding[i] = on; gateChanged = true
