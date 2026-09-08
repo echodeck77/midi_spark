@@ -1025,8 +1025,8 @@ extension DiagView {
     @ViewBuilder func buildHeaderControls() -> some View {
         HStack(alignment: .center, spacing: 8) {
             if !reelShowPopup {
-                roomsGridToggle("SELECT GRID", room: .select)   // §MERGE (Paul 2026-09-08): the grid toggle moved onto the header
-                roomsGridToggle("PART GRID", room: .part)
+                // The SELECT|PART grid toggle is RETIRED (Paul 2026-09-08): the ferry row IS the navigation — tap a populated
+                // ferry to open its part, an empty ferry to reach the SELECT browser. CLEARing a part empties its ferry.
                 buildStepsControl()                             // §E: the per-part STEP count (8 | 16)
                 buildConfigButton("MIDI IN")  { buildMidiConfigOpen = true }    // the MIDI-IN doors sheet
                 buildConfigButton("MIDI OUT") { buildMidiOutConfigOpen = true } // the emitter stamp-channels sheet
@@ -1928,8 +1928,10 @@ extension DiagView {
             buildLoadBenchPart(p); buildActiveFerry = t; roomsRoom = .part
             if t < buildPlayColOn.count, buildPlayColOn[t] { buildClearFerryPlayback(t); buildVoiceOwner = .part }   // the ACTIVE ferry plays via the STAGING step-sequencer (visible sweep + live selection), NOT the play-layer flatten
             else { buildVoiceOwner = .none }
+            roomsPartSetup()                                                  // same per-grid setup the retired toggle ran (rolls + focus default)
         } else {
             buildActiveFerry = nil; roomsRoom = .select; buildVoiceOwner = .none   // an empty ferry opens the browser
+            roomsSelectSetup()                                                // opens the library browser (buildEnsureGridSelOpen), like the retired toggle
         }
         buildPublishScene()
     }
@@ -4171,6 +4173,7 @@ extension DiagView {
                 if a < buildPlayColOn.count { buildPlayColOn[a] = false }
                 buildClearFerryPlayback(a)
                 buildActiveFerry = nil; buildVoiceOwner = .none; roomsRoom = .select              // → an empty ferry / the SELECT browser
+                roomsSelectSetup()                                                                // open the library browser (like the retired toggle)
             }
             buildPublishScene()
         }
