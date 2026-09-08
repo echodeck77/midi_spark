@@ -5004,10 +5004,17 @@ extension DiagView {
         }
         // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette colour. (Paul 2026-08-31)
         if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedColourID, color: buildMachineHue(roomsRoom), idx: buildChainAuditionRow) }
-        for c in 0..<8 where c < buildPlayColOn.count && buildPlayColOn[c] {                          // PLAY columns emitting on e
-            let emit = c < buildPlayColEmit.count ? buildPlayColEmit[c] : []
-            if emit.contains(e) { let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
-                if r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count { add(buildPlayCells[c][r], idx: Snap.playLayerRowBase + c) } }
+        // BACKGROUND ferries (Paul 2026-09-08): a non-active "on" ferry plays via the FLATTEN on play-layer row (base+c) —
+        // map EVERY non-nil step's colour that emits on e (its index = step·rows + (base+c)), so a multi-colour part shows
+        // all its bands and every step reflects, not just step 0. (The active ferry is on the STAGING branch above.)
+        for c in 0..<8 where c != buildActiveFerry && c < buildPlayColOn.count && buildPlayColOn[c] {
+            let steps = c < buildPlayColSteps.count ? buildPlayColSteps[c] : []
+            let stepEmit = c < buildPlayColStepEmit.count ? buildPlayColStepEmit[c] : []
+            for s in 0..<steps.count {
+                guard let cid = steps[s] else { continue }
+                let em = s < stepEmit.count ? stepEmit[s] : (c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])
+                if em.contains(e) { add(cid, idx: s * Snap.rows + (Snap.playLayerRowBase + c)) }
+            }
         }
         return order.map { MeterBand(color: byCid[$0]!.color, energy: false, cellIdxs: byCid[$0]!.idxs) }
     }
