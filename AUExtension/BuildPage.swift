@@ -1998,8 +1998,10 @@ extension DiagView {
             let interiorW = cw * 8 + gap * 7
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)   // the 4-row browser (half-height cells)
             let leftInset = cw + gap                                        // the left page rail → the interior's left edge
-            let footerH = ch * 2.0 / 3.0                                     // the bottom footer row (Paul 2026-09-08): 2/3 the ferry height, spanning the interior body
-            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap - footerH - gap)  // below the ferry row: the 4-row browser + the docked card (room reserved for the footer)
+            let footerH = ch * 2.0 / 3.0                                     // the footer row (Paul 2026-09-08): 2/3 the ferry height, spanning the interior body — DIRECTLY under the grid rows
+            let footerY = interiorH + gap                                    // the footer sits flush beneath the last grid row (NOT at the bottom of the unit)
+            let cardY = footerY + footerH + gap                             // the card docks BELOW the footer (so it no longer covers it)
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the footer + the docked card
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: gap) {                                       // STOP (left) · PLAY-ferry buttons · PLAY (right) — Paul 2026-09-08
                     buildStopAllButton().frame(width: cw, height: ch)       // STOP — top-LEFT corner
@@ -2016,11 +2018,13 @@ extension DiagView {
                             }
                         }
                     }
-                    // The processor-editor card (Paul 2026-09-08): docked BELOW the 4-row browser, filling the freed lower
-                    // half, spanning the full grid-region width. Shows the slot picked from the chain.
-                    roomsProcessorCardAt(x: 0, y: interiorH + gap, w: cw * 10 + gap * 9, h: lowerH - interiorH - gap)
+                    // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
+                    roomsGridFooter(cells: 8, railW: cw, gap: gap, h: footerH)
+                        .frame(width: cw * 10 + gap * 9, height: footerH).offset(y: footerY)   // SELECT = pages (placeholder, not wired)
+                    // The processor-editor card (Paul 2026-09-08): docked BELOW the footer (so it no longer covers it),
+                    // filling the rest of the freed lower half, spanning the full grid-region width.
+                    roomsProcessorCardAt(x: 0, y: cardY, w: cw * 10 + gap * 9, h: max(0, lowerH - cardY))
                 }
-                roomsGridFooter(cells: 8, railW: cw, gap: gap, h: footerH)   // BOTTOM footer — SELECT = pages (placeholder, not wired)
             }
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
@@ -2221,11 +2225,12 @@ extension DiagView {
             let ferryW = (interiorW - CGFloat(7) * gap) / 8
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)  // the 4-row grid
             let leftInset = railW + gap                                     // full rail → the interior's left edge
-            let footerH = ch * 2.0 / 3.0                                     // the bottom footer row (Paul 2026-09-08): 2/3 the ferry height, spanning the interior body
-            // The lower region = everything under the ferry row: the 4-row grid on top, the docked CARD filling the rest
-            // (the freed space from 8→4 rows). No ▲PLAY sliver now, so only the ferry row (ch) sits above it. Room is
-            // reserved at the bottom for the footer row (footerH + gap).
-            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap - footerH - gap)
+            let footerH = ch * 2.0 / 3.0                                     // the footer row (Paul 2026-09-08): 2/3 the ferry height, DIRECTLY under the grid rows
+            let footerY = interiorH + gap                                    // flush beneath the last grid row
+            let cardY = footerY + footerH + gap                             // the card docks BELOW the footer (no longer covering it)
+            // The lower region = everything under the ferry row: the 4-row grid on top, then the footer, then the docked
+            // CARD filling the rest (the freed space from 8→4 rows).
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
                     buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the full-width left rail (Paul 2026-09-02)
@@ -2248,11 +2253,13 @@ extension DiagView {
                             VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH) } }   // RIGHT = numbered (the part-position selector / copy source)
                         }
                     }
-                    // The processor-editor card (Paul 2026-09-08): docked BELOW the 4-row grid, filling the freed lower half.
-                    // It spans the FULL grid-region width (every rail + interior cell). Shows the slot picked from the chain.
-                    roomsProcessorCardAt(x: 0, y: interiorH + gap, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: lowerH - interiorH - gap)
+                    // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
+                    roomsGridFooter(cells: cols, railW: railW, gap: gap, h: footerH)
+                        .frame(width: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), height: footerH).offset(y: footerY)   // PART = column-loop buttons (placeholder, not wired)
+                    // The processor-editor card (Paul 2026-09-08): docked BELOW the footer (no longer covering it), filling
+                    // the rest of the freed lower half. Spans the FULL grid-region width (every rail + interior cell).
+                    roomsProcessorCardAt(x: 0, y: cardY, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: max(0, lowerH - cardY))
                 }
-                roomsGridFooter(cells: cols, railW: railW, gap: gap, h: footerH)   // BOTTOM footer — PART = column-loop buttons (placeholder, not wired)
             }
             .padding(pad)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
