@@ -1116,7 +1116,20 @@ extension DiagView {
         }
     }
     func buildSetPartLen(_ n: Int?) {
+        let old = buildPartCols
         buildPartLen = n
+        let new = buildPartCols
+        // EXTENDING (e.g. 8 → 16, Paul 2026-09-08): TILE the existing pattern into the newly-revealed columns so the whole
+        // loop sounds — a bare widen left them empty, so the playhead swept the second half in silence. Only fill columns
+        // that are currently EMPTY (so re-extending never clobbers a second half you've already edited).
+        if new > old, old > 0 {
+            for c in old..<new where c < buildStagingCells.count {
+                guard buildStagingCells[c].allSatisfy({ $0 == nil }) else { continue }   // don't overwrite existing content
+                let src = c % old
+                if src < buildStagingCells.count { buildStagingCells[c] = buildStagingCells[src] }
+                if c < buildStagingSel.count, src < buildStagingSel.count { buildStagingSel[c] = buildStagingSel[src] }
+            }
+        }
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = n }   // keep buildParts authoritative for performLen mapping
         buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)            // keep the selection valid across the new width
         buildPublishScene()
