@@ -1835,51 +1835,51 @@ extension DiagView {
             // the live drift). Machine = the frame, emitter = the drift tint + a corner dot + the playing glow. SELECTED (not
             // playing) also brightens the frame so the ferry ↔ machine pairing is visible.
             let partMode = roomsRoom == .part   // Paul 2026-09-05: on the PART page the ferries are DARK like the part cells (the PLAY grid keeps its dusk blends)
-            RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
-                .overlay(RoundedRectangle(cornerRadius: 4).fill(partMode && set ? partCellFill(id) : mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // DARK on part / faint MACHINE wash on play
-                .overlay { if copyId != nil {                            // FAINT PULSING COPY — tap to duplicate the row-below cell here
-                    TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in
-                        let f = stagingPulseFraction(tl.date, period: 1.1)
-                        RoundedRectangle(cornerRadius: 4).fill(copyHue.opacity(0.06 + 0.12 * f))
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(copyHue.opacity(0.28 + 0.4 * f), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
-                            .overlay(Image(systemName: "plus").font(.system(size: min(13, g.size.height * 0.42), weight: .black)).foregroundColor(copyHue.opacity(0.4 + 0.4 * f)))
-                    }
-                } }
-                .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t)).padding(2) } }   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes (Paul 2026-09-05)
-                .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
-                .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: g.size.height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this ferry's hue
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(partMode && set ? partCellFrame(id) : (set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge), lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // DARK edge on part / MACHINE frame on play
-                .overlay { if buildSelectMode && set { RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
-                .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
-                .overlay { if copyId == nil { Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) } }   // PLAY/STOP (a COPY cell shows its own "+" instead)
-                .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
-                // SPLIT (Paul 2026-09-08): the ferry cell is TWO stacked buttons — the TOP ⅔ is the PLAY button (start/stop
-                // + the long-press ferry, as before); the BOTTOM ⅓ is a SELECTOR strip that loads this cell's machine into
-                // the chain/card (no start/stop). Two separate tap zones, so the gestures don't overlap.
-                .overlay {
-                    VStack(spacing: 0) {
-                        Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)   // TOP ⅔ — PLAY
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if copyId != nil { buildPlayFerryDuplicate(t); return }   // FAINT COPY → duplicate the row-below cell here + play
-                                if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
-                                if buildSelectMode { buildSelectPlayColumn(t); buildSelectMode = false }   // SELECT MODE: focus this ferry (no start/stop), then end SELECT (Paul 2026-08-31)
-                                else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
-                            }
-                            .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
-                                                pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
-                        ZStack {                                                     // BOTTOM ⅓ — SELECTOR: load this cell's machine
-                            Rectangle().fill(set ? mHue.opacity(focused ? 0.55 : 0.28) : Color.white.opacity(0.06))
-                            Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(9, g.size.height / 3 * 0.55), weight: .bold))
-                                .foregroundColor(set ? (focused ? .black : .white.opacity(0.85)) : buildDim)
+            // SPLIT (Paul 2026-09-08): the ferry cell is TWO DISTINCT stacked buttons with a gap between them — the SELECTOR
+            // (top ⅓) loads this cell's machine into the chain/card (no start/stop); the PLAY button (bottom ⅔) keeps the
+            // start/stop + long-press ferry.
+            let selH = max(10, g.size.height / 3)
+            let playH = max(12, g.size.height - selH - 3)
+            VStack(spacing: 3) {
+                // ── THE SELECTOR (top ⅓) ──
+                RoundedRectangle(cornerRadius: 4).fill(set ? mHue.opacity(focused ? 0.55 : 0.28) : Color.white.opacity(0.06))
+                    .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(10, selH * 0.5), weight: .bold))
+                        .foregroundColor(set ? (focused ? .black : .white.opacity(0.85)) : buildDim))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(focused ? 0.9 : 0.4) : buildEdge, lineWidth: focused ? 2 : 1))
+                    .frame(height: selH)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if set { buildSelectPlayColumn(t) } }        // SELECTOR: focus this cell's machine (no start/stop)
+                // ── THE PLAY BUTTON (bottom ⅔) ──
+                RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
+                    .overlay(RoundedRectangle(cornerRadius: 4).fill(partMode && set ? partCellFill(id) : mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // DARK on part / faint MACHINE wash on play
+                    .overlay { if copyId != nil {                            // FAINT PULSING COPY — tap to duplicate the row-below cell here
+                        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in
+                            let f = stagingPulseFraction(tl.date, period: 1.1)
+                            RoundedRectangle(cornerRadius: 4).fill(copyHue.opacity(0.06 + 0.12 * f))
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(copyHue.opacity(0.28 + 0.4 * f), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
+                                .overlay(Image(systemName: "plus").font(.system(size: min(13, playH * 0.5), weight: .black)).foregroundColor(copyHue.opacity(0.4 + 0.4 * f)))
                         }
-                        .frame(height: g.size.height / 3)
-                        .overlay(alignment: .top) { Rectangle().fill(Color.black.opacity(0.4)).frame(height: 1) }   // the divider between play + selector
-                        .contentShape(Rectangle())
-                        .onTapGesture { if set { buildSelectPlayColumn(t) } }        // SELECTOR: focus this cell's machine (no start/stop)
+                    } }
+                    .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t)).padding(2) } }   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes (Paul 2026-09-05)
+                    .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
+                    .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this ferry's hue
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(partMode && set ? partCellFrame(id) : (set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge), lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // DARK edge on part / MACHINE frame on play
+                    .overlay { if buildSelectMode && set { RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
+                    .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
+                    .overlay { if copyId == nil { Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) } }   // PLAY/STOP (a COPY cell shows its own "+" instead)
+                    .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if copyId != nil { buildPlayFerryDuplicate(t); return }   // FAINT COPY → duplicate the row-below cell here + play
+                        if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
+                        if buildSelectMode { buildSelectPlayColumn(t); buildSelectMode = false }   // SELECT MODE: focus this ferry (no start/stop), then end SELECT (Paul 2026-08-31)
+                        else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
                     }
-                }
+                    .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
+                                        pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
+            }
         }
     }
     // Move the ferry-row cursor (bottom-up) with a soft slide. (Paul 2026-08-31)
