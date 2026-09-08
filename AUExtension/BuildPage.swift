@@ -1812,7 +1812,7 @@ extension DiagView {
                 // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
-                    .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t)).padding(2) } }   // emitter constellation; stars blink on strikes
+                    .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t), live: true).padding(2) } }   // emitter constellation; the ONLY animated face (Paul 2026-09-08) — stars drift/blink on strikes
                     .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                     .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed colour-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -1827,6 +1827,9 @@ extension DiagView {
                                         pressing: { p in if !set { buildGridSelStampPressing(t + 8, p) } },
                                         perform: { if !set && roomsRoom == .select { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT → seed a part from the selected chain
             }
+            // SELECTED PLAY CELL (Paul 2026-09-08): an unmissable cyan ring + glow around the WHOLE ferry — this is the one
+            // whose part is loaded on the bench. Cyan = the app's selection accent (matches the edited-row keyline).
+            .overlay { if focused { RoundedRectangle(cornerRadius: 6).stroke(buildCyan, lineWidth: 3).shadow(color: buildCyan.opacity(0.8), radius: 4).allowsHitTesting(false) } }
         }
     }
     // buildPlayFerryStep (the ▲▼ cursor mover) + buildPlayFerryDuplicate (the faint-copy) are RETIRED (Paul 2026-09-08,
@@ -2760,13 +2763,9 @@ extension DiagView {
             } else {
                 cellBody
             }
-            // THE EDITED ROW pulses (Paul 2026-09-04): a BLACK face fading in/out OVER the cell's static colour — a strong,
-            // unmissable invite (the earlier machine-colour breathe was too subtle).
+            // THE EDITED ROW — a STATIC cyan keyline (Paul 2026-09-08: the black breathe strobed; a steady marker instead).
             if isEditedRow {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                    let breath = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 2.2)
-                    RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.7 * breath))
-                }.allowsHitTesting(false)
+                RoundedRectangle(cornerRadius: 5).stroke(buildCyan, lineWidth: 2.5).allowsHitTesting(false)
             }
             // AUTOMATION APPLIED → the lane label "AUTO N" on every extent cell (replaces the old dot).
             if inExtent {
@@ -3331,12 +3330,9 @@ extension DiagView {
         .frame(maxWidth: .infinity).frame(height: 36)                        // +50% over the halved 24 (Paul 2026-08-30)
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature colour for MIDI OUT); idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
-        // Paul 2026-09-05: NULL + PULSE — a fresh cell after a part promote invites setup; every unset toggle breathes a cyan keyline.
+        // NULL invite — a STATIC cyan keyline on every unset toggle (Paul 2026-09-08: the breathe strobed; a steady mark instead).
         .overlay(Group { if pulse {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let f = stagingPulseFraction(tl.date, period: 0.9)
-                RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.3 + 0.55 * f), lineWidth: 2)
-            }.allowsHitTesting(false)
+            RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.7), lineWidth: 2).allowsHitTesting(false)
         } })
         .contentShape(Rectangle())
         .onTapGesture(perform: action)                                       // TAP = this row (or the part default)
@@ -4607,8 +4603,10 @@ extension DiagView {
     //            and lit brightest as it sounds. The dots ARE the notes you hear (by construction) → no pitch/sequence
     //            mismatch. (The blueprint is rendered against a STANDARD chord, so it can NOT be trusted to match the live
     //            output — that was the disconnect: the sigil flashed on the beat grid but showed a different chord's notes.)
-    @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool = false, strikeIdx: [Int] = []) -> some View {
-        let feed = strikeIdx.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] }   // MIDI flowing? empty ⇒ stopped / no input ⇒ STATIC blueprint
+    // `live` = animate the drifting piano-roll (Paul 2026-09-08: ONLY the play ferries animate now; every other cell —
+    // SELECT · PART · row/side selectors — draws the STATIC blueprint constellation, no drift, no blink).
+    @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool = false, strikeIdx: [Int] = [], live: Bool = false) -> some View {
+        let feed = live ? strikeIdx.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] } : []   // MIDI flowing? empty ⇒ stopped / no input ⇒ STATIC blueprint
         if !feed.isEmpty && !animationsPaused {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
                 let now = tl.date
@@ -6007,11 +6005,8 @@ extension DiagView {
                 buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint, strikeIdx: sel ? (buildChainAuditionRow.map { [$0] } ?? []) : [])   // Paul 2026-09-05: SELECTED cell scrolls (only when playing) + its stars blink on live strikes
                     .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
             }
-            if sel {       // THE ACTIVE CELL — a breathing live frame (DARK on the light-grey SELECT cell, else white)
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                    let f = stagingPulseFraction(tl.date, period: 0.9)
-                    RoundedRectangle(cornerRadius: 6).stroke((selGrey ? Color.black : Color.white).opacity(0.45 + 0.5 * f), lineWidth: 3)
-                }
+            if sel {       // THE ACTIVE CELL — a STATIC strong frame (Paul 2026-09-08: was a breathing strobe)
+                RoundedRectangle(cornerRadius: 6).stroke(selGrey ? Color.black : Color.white, lineWidth: 3)
             }
             if buildSelectMode && present { RoundedRectangle(cornerRadius: 6).stroke(Color.white, lineWidth: 2.5) }   // SELECT MODE: every cell lights white — tap to focus (Paul 2026-08-31)
         }
