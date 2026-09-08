@@ -1556,19 +1556,25 @@ extension DiagView {
             AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 Spacer(minLength: 8)                                         // centre the chain row VERTICALLY
-                AnyView(HStack(alignment: .center, spacing: 0) {           // verb buttons on ONE side · MIDI CHAIN centred · VERTICAL PLAY + PLAYHEAD on the OPPOSITE side (Paul 2026-08-29)
-                    if room == .part {                                     // PART → verb buttons LEFT · vertical play RIGHT
-                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
-                    } else {                                               // SELECT → PLAY + SELECT column LEFT (opposite the right verb buttons)
-                        AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)
-                    }
-                    AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
-                    if room == .part {
-                        AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)   // PART → PLAY + SELECT column RIGHT (opposite the left verb buttons)
-                    } else {
-                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
-                    }
-                }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedColourChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
+                if room == .part, let sr = buildGridSelStampSourceRow, buildRowColour(sr) == nil {
+                    // ADD-A-ROW (Paul 2026-09-08): an EMPTY part row is selected → the chain area becomes the row-creator
+                    // menu (big buttons), in the SAME footprint as the chain block (blockH). The two toggle sets stay put.
+                    AnyView(buildRowCreatorMenu(sr, height: blockH))
+                } else {
+                    AnyView(HStack(alignment: .center, spacing: 0) {           // verb buttons on ONE side · MIDI CHAIN centred · VERTICAL PLAY + PLAYHEAD on the OPPOSITE side (Paul 2026-08-29)
+                        if room == .part {                                     // PART → verb buttons LEFT · vertical play RIGHT
+                            AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                        } else {                                               // SELECT → PLAY + SELECT column LEFT (opposite the right verb buttons)
+                            AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)
+                        }
+                        AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
+                        if room == .part {
+                            AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)   // PART → PLAY + SELECT column RIGHT (opposite the left verb buttons)
+                        } else {
+                            AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
+                        }
+                    }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedColourChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
+                }
                 Spacer(minLength: 8)
                 AnyView(buildEmitterToggles(castW: castW))                   // MIDI OUT A–D — pinned at the interior BOTTOM (the grid's last row line)
             }.frame(height: m.interiorH)
@@ -4088,6 +4094,47 @@ extension DiagView {
         var rng = SystemRandomNumberGenerator()
         if let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) { buildWriteColourMachine(cid, mutated) }
         refreshFromDocument()
+    }
+    // ── ADD A ROW (Paul 2026-09-08): when an EMPTY part row is selected on the right rail, the machine box's interior
+    // (the chain + verb/play buttons — everything between the two toggle sets) is REPLACED by these big creation buttons,
+    // in the SAME footprint. Each mints a colour onto the empty row (the machine box then edits it, available to sequence).
+    private func buildCreateRowColour(_ row: Int, chain: [ProcessorSlot]) {
+        guard row >= 0, row < 8 else { return }
+        buildRecordUndo()
+        let y = buildNewColour(hex: buildDistinctHue(), machine: chain)
+        buildSetRow(row, to: y)                                  // place the colour across the row's cells (selectable in any column)
+        buildRoomsSetActiveSide(row); buildSelectID(y); buildTapColourTab(row)   // focus the new row → the machine box now edits it
+        buildStagingSyncIfPlaying()
+    }
+    @ViewBuilder private func buildRowCreatorMenu(_ row: Int, height: CGFloat) -> some View {
+        let populated = (0..<8).filter { buildRowColour($0) != nil }
+        ScrollView(showsIndicators: false) {                     // scrolls if there are many rows — the SECTION stays a fixed `height`
+            VStack(spacing: 6) {
+                ForEach(populated, id: \.self) { r in
+                    buildRowCreatorButton("DUPLICATE ROW \(r + 1)", hue: buildRowColour(r).flatMap { colourColor($0) } ?? buildCyan) {
+                        buildCreateRowColour(row, chain: buildRowColour(r).map { buildColourChain($0) } ?? [])
+                    }
+                }
+                ForEach(populated, id: \.self) { r in
+                    buildRowCreatorButton("MUTATE ROW \(r + 1)", hue: buildRowColour(r).flatMap { colourColor($0) } ?? buildCyan) {
+                        let base = buildRowColour(r).map { buildColourChain($0) } ?? []
+                        var rng = SystemRandomNumberGenerator()
+                        buildCreateRowColour(row, chain: BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) ?? base)
+                    }
+                }
+                buildRowCreatorButton("RANDOMIZE", hue: buildCyan) { var rng = SystemRandomNumberGenerator(); buildCreateRowColour(row, chain: Dice.rollSimple(using: &rng)) }
+                buildRowCreatorButton("CREATE NEW", hue: buildCyan) { buildCreateRowColour(row, chain: []) }
+                buildRowCreatorButton("PICK FROM LIBRARY", hue: buildCyan) { buildOpenLibrary() }
+            }.padding(.vertical, 2)
+        }
+        .frame(height: height)
+    }
+    private func buildRowCreatorButton(_ label: String, hue: Color, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity).frame(minHeight: 34)
+            .background(RoundedRectangle(cornerRadius: 6).fill(hue.opacity(0.28)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(hue.opacity(0.85), lineWidth: 1.5))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
     }
     // <<< CLEAR — empty the SELECTED colour's midi chain (every processor box → "+"). (Paul 2026-08-18)
     // On the PART grid (Paul 2026-09-08) CLEAR ALSO removes the colour's PRESENCE from the part (its row); and when the
