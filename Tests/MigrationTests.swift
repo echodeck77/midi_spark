@@ -1144,6 +1144,39 @@ final class OnConfigTests: XCTestCase {
         XCTAssertEqual(pg.sel.count, 8)
         XCTAssertEqual(pg.idCounter, 0)
     }
+    // CR-8 decode-tolerance (Paul 2026-09-08 housekeeping): Colour · ProcessorSlot · SceneState · Receiver now have
+    // decode-tolerant inits. A MISSING key must DEFAULT (never throw → no whole-document factory reset), and a POPULATED
+    // instance must round-trip byte-for-VALUE (Equatable) so the init drops/mis-keys no field.
+    func testCentralTypesDecodeTolerantAndRoundTrip() throws {
+        // MISSING KEYS → defaults, no throw.
+        XCTAssertNoThrow(try JSONDecoder().decode(Colour.self, from: Data("{}".utf8)))
+        XCTAssertNoThrow(try JSONDecoder().decode(ProcessorSlot.self, from: Data("{}".utf8)))
+        XCTAssertNoThrow(try JSONDecoder().decode(SceneState.self, from: Data("{}".utf8)))
+        XCTAssertNoThrow(try JSONDecoder().decode(Receiver.self, from: Data("{}".utf8)))
+        let colDef = try JSONDecoder().decode(Colour.self, from: Data("{}".utf8))
+        XCTAssertEqual(colDef.colourID, "c0"); XCTAssertEqual(colDef.type, .arp)
+        let rDef = try JSONDecoder().decode(Receiver.self, from: Data("{}".utf8))
+        XCTAssertEqual(rDef.name, ""); XCTAssertEqual(rDef.channel, 0); XCTAssertFalse(rDef.muted)
+        // ROUND-TRIP populated instances → Equatable equality catches any dropped or mis-keyed field.
+        var col = Colour(colourID: "z9", type: .ratchet); col.transpose = 7; col.morph = 0.3
+        col.typeB = .strum; col.transposeB = -5; col.altColour = 2; col.transposeByType = [1, 2, 3]
+        col.name = "Zed"; col.defined = false; col.on = OnConfig(); col.templateChain = [ProcessorSlot(type: .euclid)]
+        XCTAssertEqual(try JSONDecoder().decode(Colour.self, from: try JSONEncoder().encode(col)), col, "Colour round-trips every field")
+
+        var slot = ProcessorSlot(type: .harmonize); slot.bypassed = true; slot.paramsAlt = ColourParams(); slot.bypassedAlt = true
+        XCTAssertEqual(try JSONDecoder().decode(ProcessorSlot.self, from: try JSONEncoder().encode(slot)), slot, "ProcessorSlot round-trips")
+
+        var sc = SceneState.empty(); sc.stepRate = .r1_8; sc.swing = 66; sc.rowLen = [4, nil, 8, nil, nil, nil, nil, nil]
+        sc.masterKey = -3; sc.rowLane = Array(repeating: 3, count: 8); sc.activeRow = [1, nil, 2, nil, nil, nil, nil, nil]; sc.row8On = Array(repeating: true, count: 8)
+        XCTAssertEqual(try JSONDecoder().decode(SceneState.self, from: try JSONEncoder().encode(sc)), sc, "SceneState round-trips")
+
+        var r = Receiver(); r.name = "In A"; r.channel = 3; r.channelMask = 0b101; r.mpeMerge = true; r.muted = true
+        r.inputEnabled = false; r.rangeLo = 24; r.rangeHi = 96; r.cable = 0b11; r.controllerMask = 0b1010
+        r.latchAdd = true; r.latchPiano = true; r.pianoNotes = [60, 64, 67]; r.scaleRoot = 2; r.scaleType = .majorPentatonic
+        r.scaleBaseOct = 4; r.scaleOctaves = 3; r.activeScale = 1; r.activeChord = 2; r.doorMode = .keys
+        r.replayPasses = 4; r.fileLoopBeats = 8; r.fileName = "clip.mid"; r.excludeDoor = 1; r.excludeMode = .only; r.excludeReject = .snap
+        XCTAssertEqual(try JSONDecoder().decode(Receiver.self, from: try JSONEncoder().encode(r)), r, "Receiver round-trips every field")
+    }
     // thruReceiverResolved clamps a decoded door index to 0…3 (the four doors A–D); an out-of-range value must not
     // reach the render as-is. (Coverage gap 2026-08-30.)
     func testThruReceiverResolvedClampsToDoorRange() {

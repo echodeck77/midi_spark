@@ -179,6 +179,32 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE 2026-09-08 WORKBENCH BATCH — VELOCITY processor · grid footers · PLAY-FERRIES-ARE-PARTS · add-a-row · a
+  housekeeping sweep (all on `main`, pushed; iOS builds, macOS suite green; DEVICE eye/ear owed on the UI). (1) VELOCITY
+  (`ProcessorType.velocity`, `76f2027`) — a per-step velocity SEQUENCER, a note-transparent DYNAMICS MODIFIER folded in
+  `emitDriverNote` (velLane/velPass/velSteps/velRate/velSpanN/velClock; `velLaneStep` pure): downstream of a driver it
+  sets each note's velocity from a per-step lane, TIME clock (own RATE grid) or NOTE clock (one column per note), SPAN
+  re-anchor, per-step PASSTHROUGH. Editor drag-across sliders + drag-paint bypass row (`fix/velocity-lane-drag`), euclid
+  brush dropped (`cd8f803`). SCALE compressor MODE deferred. (2) GRID FOOTERS (`f81b6ae`+`b700af8`) — a placeholder row
+  flush under both grids, 2/3 ferry height, interior-body width (SELECT=pages · PART=column-loop; NOT wired). (3)
+  **PLAY-FERRIES-ARE-PARTS** (spec `AcceptanceCriteria-play-ferries-as-parts.md`; Phases 1–3 `c21a7d3`…`ffb9bc0`, merge
+  `b4f18d3`) — each of the 8 play ferries IS a full `BuildPart` (`buildFerryParts`/`buildActiveFerry`, persisted via
+  `BuildPlayGridData.parts` + `partsResolved` migration). The ferry row is the SOLE navigation (SELECT|PART toggle
+  retired): a populated ferry's SELECTOR opens its part on the bench, an empty ferry → the SELECT browser; long-press an
+  empty ferry on SELECT seeds a part from the selected chain; CLEAR frees a ferry (empties the part → the ferry clears →
+  SELECT). Playback: the ACTIVE (on-bench) ferry plays via the STAGING step-sequencer (visible sweep, per-column selected
+  rung, live edits); BACKGROUND on-ferries via the play-layer flatten — up to 8 at once. Seed fills the whole first row;
+  extending a part to 16 tiles the pattern. Retired the SELECT-backed play cells / hand-authored passes / cursor. STILL
+  LEFT (flagged): an entangled dead-code cluster (`buildPlayCells`/`buildPlaySel`/`buildSelectMode`/… + the `.play`/`.reel`
+  room subtree) for a dedicated device-verified pass. (4) ADD-A-ROW (`buildRowCreatorMenu`, `e2ebf76`) — selecting an
+  EMPTY part row turns the machine-box interior into a fixed-footprint menu: DUPLICATE/MUTATE per populated row · RANDOMIZE
+  · CREATE NEW · PICK FROM LIBRARY, each minting a colour onto the row. (5) HOUSEKEEPING (5-agent survey, every finding
+  re-verified) — the emitter strip now maps the active ferry whenever it's ON + background ferries from their flatten
+  steps (was blank on some passes); the per-cell SOUNDING gate now covers all 256 cells (the 128-bit lo/hi gate that
+  dropped a 16-wide part's cols 8–15 is RETIRED — the UI derives the gate from the 256-wide `cellSoundVel > 0`); +CR-8
+  decode-tolerant `init(from:)` for `Colour`/`ProcessorSlot`/`SceneState`/`Receiver` (a future non-Optional field can no
+  longer factory-reset an older doc; +round-trip tests); composeScene occ scans the full 16-wide part; +VELOCITY TIME/SPAN
+  RouterTests. DEVICE-owed: the whole ferry UI + the strip + VELOCITY ear.**
 - **▶ RATCHET PATTERN v6 — SELF-CLOCKED PASS-THROUGH, ✅ DEVICE-VERIFIED (2026-09-07, on `main`, `6db4ae6` engine + `c6fcbb4`
   playhead; iOS builds, macOS 1072 green). SUPERSEDES Model B (v5) below. Paul's final ruling: "Ratchet pattern is NOT a driver.
   It receives MIDI, passes it through, unless the current column is active in which case it ratchets it the specified number of

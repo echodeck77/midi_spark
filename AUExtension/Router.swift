@@ -306,10 +306,9 @@ final class Router {
     private var nudgeSamples: Int64 = 0    // NUDGE: timing offset in samples (0 = none)
     // THE SEAL COMET (note-on/off gate): a bitmask of the cells CURRENTLY SOUNDING (≥1 active non-silent voice).
     // Snapshotted on the render thread each window (a live set, like snapshotEmitterSounding); the UI polls it so the
-    // spark travels for exactly as long as the note is held, and stops on release. TWO UInt64s (Paul 2026-08-29) since
-    // there are now 128 cells (rows 0–15) — lo = cells 0…63, hi = cells 64…127. Both scalars → a torn read stays benign.
-    private var cellSoundingLo: UInt64 = 0
-    private var cellSoundingHi: UInt64 = 0
+    // The per-cell SOUNDING gate is derived on the UI side from `cellSoundVel > 0` (256-wide, covers cols 8–15); the old
+    // 128-bit lo/hi bitmask was retired (Paul 2026-09-08 housekeeping) — it couldn't represent indices ≥128 (a 16-wide
+    // part's second half) and had no consumer left after the VC switched to the velocity feed.
     private var cellSoundVel = [UInt8](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity (max over the cell's active voices) — stays up while a note is HELD, unlike the strike feed. Feeds the emitter fader's per-colour floor (Paul 2026-09-07).
     private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
     // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
@@ -950,21 +949,15 @@ final class Router {
         }
     }
 
-    /// SEAL comet: snapshot which of the 128 cells (rows 0–15) are CURRENTLY SOUNDING (≥1 active, non-silent voice) into a
-    /// bitmask. Render thread, once per window after reconciliation (like snapshotEmitterSounding). The UI polls
-    /// `currentCellSounding` and drives the spark's life off the gate — travelling for exactly the held duration.
+    /// SEAL comet: snapshot each of the 256 cells' SOUNDING velocity (≥1 active, non-silent voice) into `cellSoundVel`.
+    /// Render thread, once per window after reconciliation (like snapshotEmitterSounding). The UI polls `cellSoundingVel-
+    /// Snapshot` and derives the sounding GATE from `> 0` (covering all cols incl. 8–15) — the spark lives for the held duration.
     func snapshotCellSounding() {
-        var lo: UInt64 = 0, hi: UInt64 = 0
-        for i in 0..<Snap.cells { cellSoundVel[i] = 0 }                    // per-cell sounding VELOCITY: reset then take the max over each cell's active voices
+        for i in 0..<Snap.cells { cellSoundVel[i] = 0 }                    // per-cell sounding VELOCITY: reset then take the max over each cell's active voices (256-wide; the UI derives the sounding GATE from this)
         for v in voices where v.active && !v.silent && v.cellIndex >= 0 && v.cellIndex < Snap.cells {
-            if v.cellIndex < 64 { lo |= UInt64(1) << UInt64(v.cellIndex) }
-            else { hi |= UInt64(1) << UInt64(v.cellIndex - 64) }
             if v.vel > cellSoundVel[Int(v.cellIndex)] { cellSoundVel[Int(v.cellIndex)] = v.vel }
         }
-        cellSoundingLo = lo; cellSoundingHi = hi
     }
-    /// UI-poll read of the per-cell sounding bitmask (main thread; benign render/UI staleness, as the other feeds).
-    func currentCellSounding() -> (lo: UInt64, hi: UInt64) { (cellSoundingLo, cellSoundingHi) }
     /// UI-poll read of the per-cell SOUNDING velocity (0…127), element-copied into a FRESH array so the main thread never
     /// shares the render buffer (a torn UInt8 read is benign — one stale bar). Feeds the emitter fader's per-colour floor.
     func cellSoundingVelSnapshot() -> [UInt8] {

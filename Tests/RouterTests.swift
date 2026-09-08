@@ -288,6 +288,38 @@ final class RouterTests: XCTestCase {
         var passVel = vel; passVel.params.velPass = [1, 1]   // every step passthrough
         XCTAssertEqual(vels([arp, passVel]), vels([arp]), "an all-passthrough VELOCITY leaves the arp's own velocities untouched")
     }
+    // VELOCITY TIME clock (Paul 2026-09-08 housekeeping — the DEFAULT path, previously fuzz-only): the lane advances on
+    // VELOCITY's OWN rate grid, not per note. At arp 1/16 into velRate 1/8, two arp notes share each 1/8 lane column →
+    // longer RUNS of one velocity than NOTE mode (which flips every note).
+    func testVelocityFoldTimeClockAdvancesOnItsOwnRateGrid() {
+        func vels(_ clock: RatchetClock) -> [Int] {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var vel = ProcessorSlot(type: .velocity); vel.params.velSteps = 2; vel.params.velLane = [30, 120]; vel.params.velRate = .r1_8; vel.params.velClock = clock
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, vel]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.vel) }
+        }
+        func transitions(_ a: [Int]) -> Int { zip(a, a.dropFirst()).filter { $0 != $1 }.count }
+        let t = vels(.time), n = vels(.note)
+        XCTAssertTrue(t.contains(30) && t.contains(120), "TIME: both lane values are heard")
+        XCTAssertLessThan(transitions(t), transitions(n), "TIME advances per RATE slot (2 arp notes per 1/8 → longer runs) vs NOTE flipping every note")
+    }
+    // VELOCITY SPAN re-anchor (Paul 2026-09-08 housekeeping — previously fuzz-only): velSpanN>0 re-anchors the lane every
+    // N columns, so only the first N lane values are ever read (vs free-run sweeping all velSteps).
+    func testVelocityFoldSpanReanchorsTheLane() {
+        func vels(_ span: Int) -> [Int] {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var vel = ProcessorSlot(type: .velocity); vel.params.velSteps = 4; vel.params.velLane = [40, 60, 80, 100]; vel.params.velRate = .r1_8; vel.params.velClock = .time; vel.params.velSpanN = span
+            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, vel]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.vel) }
+        }
+        let free = vels(0), span2 = vels(2)
+        XCTAssertFalse(span2.contains(80) || span2.contains(100), "SPAN=2 re-anchors every 2 columns → only lane[0],lane[1] (40,60) ever read")
+        XCTAssertTrue(free.contains(80) || free.contains(100), "free-run (SPAN=0) sweeps all 4 lane columns")
+    }
     // A chain whose ONLY driver is a fold-ratchet (COIN pass-through) must still DRIVE: chainDriverIndex skips isRatchetFold
     // but falls back to the last driver when there's no non-fold driver, so a lone [RATCHET COIN rtcFold] generates.
     func testLoneFoldableRatchetStillDrives() {
@@ -4528,13 +4560,13 @@ final class RouterTests: XCTestCase {
             beat += windowBeats; ts += Double(frames)
         }
         router.snapshotCellSounding()
-        let held = router.currentCellSounding()
-        XCTAssertEqual(held.lo & 1, 1, "cell (0,0) is holding a note → its sounding bit is set")
-        XCTAssertEqual(held.lo >> 1, 0, "no other cell sounds"); XCTAssertEqual(held.hi, 0)
+        let held = router.cellSoundingVelSnapshot()   // the 256-wide sounding-velocity feed (the UI derives the gate from > 0)
+        XCTAssertGreaterThan(held[0], 0, "cell (0,0) is holding a note → it reports sounding")
+        XCTAssertEqual(held.filter { $0 > 0 }.count, 1, "no other cell sounds")
         router.process(box: b, pool: chord([60, 64, 67]), playing: false, beatPos: beat, tempo: tempo,   // stop → release
                        sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         router.snapshotCellSounding()
-        let rel = router.currentCellSounding(); XCTAssertEqual(rel.lo, 0, "after release the gate clears"); XCTAssertEqual(rel.hi, 0)
+        XCTAssertEqual(router.cellSoundingVelSnapshot().filter { $0 > 0 }.count, 0, "after release the gate clears")
     }
 
     /// Run `b` for a few windows on a DIRECT router (so the caller can inspect drainCellStrikes /
@@ -4565,9 +4597,9 @@ final class RouterTests: XCTestCase {
         st.busEnabled = [false, true, true, true]                 // A muted → the claimant makes no sound
         let router = runDirect(SnapshotBuilder.build(from: st), chord([60]))
         router.snapshotCellSounding()
-        let mask = router.currentCellSounding()
-        XCTAssertEqual(mask.lo & 1, 0, "the muted claimant's SILENT ghost must NOT light its comet (cell 0)")
-        XCTAssertEqual((mask.lo >> 1) & 1, 1, "…while the audible non-claimant DOES light (cell 1) — the scene is live")
+        let mask = router.cellSoundingVelSnapshot()
+        XCTAssertEqual(mask[0], 0, "the muted claimant's SILENT ghost must NOT light its comet (cell 0)")
+        XCTAssertGreaterThan(mask[1], 0, "…while the audible non-claimant DOES light (cell 1) — the scene is live")
     }
 
     // SEAL comet — a MUTED (occupied) cell records NEITHER a strike NOR a sounding bit (tap-to-mute = dark comet).
@@ -4580,7 +4612,7 @@ final class RouterTests: XCTestCase {
         let router = runDirect(b, chord([60, 64, 67]))
         XCTAssertEqual(router.drainCellStrikes()[0], 0, "a muted cell records no strike")
         router.snapshotCellSounding()
-        let ms = router.currentCellSounding(); XCTAssertEqual(ms.lo, 0, "a muted cell lights no comet"); XCTAssertEqual(ms.hi, 0)
+        XCTAssertEqual(router.cellSoundingVelSnapshot().filter { $0 > 0 }.count, 0, "a muted cell lights no comet")
     }
 
     // SEAL comet — a FAN-OUT cell (emitting to ≥2 buses → ≥2 voices sharing one cellIndex) reports EXACTLY ONE
@@ -4594,9 +4626,9 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(strikes[0], 0, "the fan-out cell records a strike at its index")
         XCTAssertEqual(strikes.filter { $0 > 0 }.count, 1, "recorded ONCE, not per bus")
         router.snapshotCellSounding()
-        let fm = router.currentCellSounding()
-        XCTAssertEqual(fm.lo.nonzeroBitCount + fm.hi.nonzeroBitCount, 1, "exactly one sounding bit despite the fan-out")
-        XCTAssertEqual(fm.lo & 1, 1, "…at the cell's index")
+        let fm = router.cellSoundingVelSnapshot()
+        XCTAssertEqual(fm.filter { $0 > 0 }.count, 1, "exactly one sounding cell despite the fan-out")
+        XCTAssertGreaterThan(fm[0], 0, "…at the cell's index")
     }
 
     // CELL MACHINE stage-2: a RATCHET tail re-strikes the HEAD stage's WHOLE output set each repeat.
