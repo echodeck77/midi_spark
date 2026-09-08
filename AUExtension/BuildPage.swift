@@ -1769,37 +1769,7 @@ extension DiagView {
             .overlay(HStack(spacing: 5) { Image(systemName: "chevron.up"); Text("PLAY GRID"); Image(systemName: "chevron.up") }.font(.system(size: min(11, height * 0.7), weight: .heavy, design: .monospaced)).foregroundColor(roomsDoorInk(to: .play)))   // a chevron on EACH side (Paul 2026-08-31)
             .contentShape(Rectangle()).onTapGesture { roomsRoom = .play }
     }
-    @ViewBuilder func roomsSeamSliver(to room: Room, chevron: String, width: CGFloat, height: CGFloat) -> some View {
-        // The DESTINATION grid's name, written VERTICALLY as UPRIGHT characters — one per line (Paul 2026-09-06; was a
-        // sideways `.rotationEffect(.degrees(90))`), with a left/right chevron pointing to it (Paul 2026-08-31): on the SELECT
-        // page the seam → PART ("PART GRID", far RIGHT, ▸); on the PART page → SELECT ("SELECT GRID", far LEFT, ◂).
-        let label = room == .part ? "PART GRID" : (room == .select ? "SELECT GRID" : room.rawValue)
-        let toRight = room == .part
-        let ink = roomsDoorInk(to: .play)                                   // ALL nav buttons wear the PLAY-GRID colour (Paul 2026-08-31)
-        roomsDoorBar(to: .play)                                             // → the PLAY-GRID indigo (not the destination's own signature)
-            .frame(width: width, height: height)
-            .overlay(
-                VStack(spacing: 6) {
-                    Image(systemName: toRight ? "chevron.right" : "chevron.left").font(.system(size: min(13, width * 0.6), weight: .heavy))
-                    VStack(spacing: 1) {                                    // UPRIGHT, one character per line (a space becomes the word-break blank line)
-                        ForEach(Array(label.enumerated()), id: \.offset) { _, ch in
-                            Text(String(ch)).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        }
-                    }
-                }.foregroundColor(ink)
-            )
-            .contentShape(Rectangle()).onTapGesture { roomsRoom = room }
-    }
-    // THE SEAM COLUMN (Paul 2026-08-28) — the part↔select nav, relocated to the FAR side of the page (opposite the MIDI
-    // chain): a PARTIALLY-INVISIBLE single-column control that takes the grid's height into account so the visible seam
-    // aligns EXACTLY with the grid's interior rows (same ch + offset as the grid: below the ▲PLAY sliver + track row).
-    // The column width is set by the caller (50% of a grid cell) so it looks identical to the old in-grid seam.
-    @ViewBuilder func roomsSeamColumn(to room: Room, chevron: String, m: RoomsMetrics) -> some View {
-        GeometryReader { g in                                               // the shared lattice (m) places the seam over the grid's interior rows
-            roomsSeamSliver(to: room, chevron: chevron, width: g.size.width, height: m.interiorH)
-                .offset(y: m.interiorTop)                                    // the rest of the column is empty → partially invisible
-        }
-    }
+    // The part↔select SEAM sliver/column are RETIRED (Paul 2026-09-08, Phase 3): the ferry row is the sole navigation.
     // THE PLAY FERRY button (Paul 2026-08-29) — the SELECT grid's top-row buttons that FERRY the selected cell to the
     // PLAY grid. LONG-PRESS copies the currently-selected cell onto the play grid at THIS column's selected rung (→ its
     // grid position + the play bottom readout), with the rising-white overwrite warning (buildGridSelStampSweep, offset
@@ -1809,28 +1779,7 @@ extension DiagView {
     // THE FERRY-ROW CURSOR (Paul 2026-08-31): ▲▼ chooses which grid ROW the play-ferry buttons target — so you can ferry
     // a cell to row 1 of a column, then move the cursor and ferry another to row 3 (each cell stays independent). Sits in
     // the ferry row's left corner. Compact: ▲ · Rn · ▼ in one cell.
-    @ViewBuilder func roomsPlayFerryRowSelector() -> some View {
-        // BOTTOM-UP (Paul 2026-08-31): the play grid climbs — Row 1 at the bottom, UP goes to a new higher row (lit at Row 1),
-        // DOWN goes back. Big, touchable ▲/▼ each filling a half of the cell.
-        let canUp = buildPlayFerryRow < 7, canDown = buildPlayFerryRow > 0
-        GeometryReader { g in
-            let s = min(g.size.width, g.size.height) * 0.5
-            // ONE SOLID BLOCK (Paul 2026-09-01): a single indigo fill; the two chevrons are just tap-halves over it (only the
-            // CHEVRON dims at an edge, never the block) so it reads as one control, not two buttons.
-            ZStack {
-                RoundedRectangle(cornerRadius: 4).fill(roomsIndigo)
-                VStack(spacing: 0) {
-                    Image(systemName: "chevron.up").font(.system(size: s, weight: .black)).foregroundColor(canUp ? roomsDoorInk(to: .play) : .white.opacity(0.28))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle()).onTapGesture { if canUp { buildPlayFerryStep(1) } }
-                    Text("R\(buildPlayFerryRow + 1)").font(.system(size: 9, weight: .black, design: .monospaced)).foregroundColor(.white.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.5)
-                    Image(systemName: "chevron.down").font(.system(size: s, weight: .black)).foregroundColor(canDown ? roomsDoorInk(to: .play) : .white.opacity(0.28))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle()).onTapGesture { if canDown { buildPlayFerryStep(-1) } }
-                }
-            }
-        }
-    }
+    // The ▲▼ FERRY-ROW CURSOR is RETIRED (Paul 2026-09-08, Phase 3): a ferry is one PART now, not a column of per-row cells.
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
             // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): each ferry IS a BuildPart slot. The SELECTOR (top ⅓) opens
@@ -1874,25 +1823,8 @@ extension DiagView {
             }
         }
     }
-    // Move the ferry-row cursor (bottom-up) with a soft slide. (Paul 2026-08-31)
-    func buildPlayFerryStep(_ dir: Int) {
-        let n = max(0, min(7, buildPlayFerryRow + dir))
-        guard n != buildPlayFerryRow else { return }
-        withAnimation(.easeInOut(duration: 0.26)) { buildPlayFerryRow = n }
-    }
-    // DUPLICATE the ROW-BELOW's cell onto the cursor row (same colour) + start it playing immediately (Paul 2026-08-31).
-    func buildPlayFerryDuplicate(_ t: Int) {
-        let cur = buildPlayFerryRow
-        guard cur > 0, t >= 0, t < buildPlayCells.count, cur < buildPlayCells[t].count, (cur - 1) < buildPlayCells[t].count,
-              let src = buildPlayCells[t][cur - 1] else { return }
-        buildRecordUndo()
-        buildPlayCells[t][cur] = src                                     // same colour (a copy of the row below)
-        if t < buildPlaySel.count { buildPlaySel[t] = cur }             // the cursor row becomes this column's active rung
-        if t < buildPlayColOn.count { buildPlayColOn[t] = true }        // …and starts playing immediately
-        buildVoiceOwner = .none; au?.clearColourSolo()                  // the play layer is the voice
-        buildSelectPlayColumn(t)                                        // reflect it in the machine + deselect the source
-        buildPublishScene()
-    }
+    // buildPlayFerryStep (the ▲▼ cursor mover) + buildPlayFerryDuplicate (the faint-copy) are RETIRED (Paul 2026-09-08,
+    // Phase 3) — a ferry is one PART now, not a column of per-row cells.
     // ── THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts) — Phase 2 operations ──
     // Flatten ferry `t`'s stored part into the per-column PLAYBACK arrays (the SAME representation the engine already
     // plays, so up to 8 ferries sound at once). Mono line = the SELECTED RUNG per column (poly is future). If `t` is the

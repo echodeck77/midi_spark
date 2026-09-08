@@ -180,25 +180,8 @@ extension DiagView {
         }
         .onAppear { if roomsRoom == .part { roomsPartSetup() } else { roomsSelectSetup() } }
     }
-    // The SELECT GRID | PART GRID toggle segment — now hosted in the header (Paul 2026-09-08). Internal so buildHeaderControls
-    // (a different file) can render it.
-    func roomsGridToggle(_ label: String, room: Room) -> some View {
-        let active = roomsRoom == room
-        return Button { roomsSwitchGrid(room) } label: {
-            Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                .foregroundColor(active ? .black.opacity(0.82) : .white.opacity(0.68))
-                .padding(.horizontal, 12).frame(height: 30)
-                .background(RoundedRectangle(cornerRadius: 6).fill(active ? roomsAmber : Color.white.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? Color.clear : Color.white.opacity(0.18), lineWidth: 1))
-        }.buttonStyle(.plain)
-    }
-    // Switch which grid is showing (the merge). Reuses the existing per-grid setup so voice + selection stay correct;
-    // guarded to the two grid rooms (PLAY/REEL are reached via their own doors).
-    func roomsSwitchGrid(_ room: Room) {
-        guard roomsRoom != room, room == .select || room == .part else { return }
-        roomsRoom = room
-        if room == .part { roomsPartSetup() } else { roomsSelectSetup() }
-    }
+    // The SELECT|PART grid toggle + roomsSwitchGrid are RETIRED (Paul 2026-09-08, Phase 3): the ferry row is the sole
+    // navigation now. roomsPartSetup / roomsSelectSetup live on (called from buildActivateFerry / buildClearChain).
     @ViewBuilder private func roomsPlay(_ size: CGSize) -> some View {
         GeometryReader { g in
             let navH: CGFloat = 30
