@@ -1820,65 +1820,44 @@ extension DiagView {
     }
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
-            let sel = buildPlayFerryRow                                  // the ferry buttons show + act on the CURSOR ROW (▲▼-chosen), not a fixed rung (Paul 2026-08-31)
-            let id = (sel >= 0 && t < buildPlayCells.count && sel < buildPlayCells[t].count) ? buildPlayCells[t][sel] : nil
-            let set = id != nil                                          // has this column been ferried at the cursor row?
-            // FAINT COPY (Paul 2026-08-31): an EMPTY cursor cell whose ROW-BELOW holds a cell → a faint, pulsing copy of it;
-            // tap DUPLICATES it onto this row (same colour) + starts it playing.
-            let copyId: String? = (!set && sel > 0 && t < buildPlayCells.count && (sel - 1) < buildPlayCells[t].count) ? buildPlayCells[t][sel - 1] : nil
-            let copyHue = copyId.flatMap { colourColor($0) } ?? Color(hex: playHexes[t % playHexes.count])
-            let on = (t < buildPlayColOn.count && buildPlayColOn[t]) && (t < buildPlaySel.count && buildPlaySel[t] == buildPlayFerryRow)   // PLAYING iff the cursor row is this column's active rung
-            let mHue = id.flatMap { colourColor($0) } ?? Color(hex: playHexes[t % playHexes.count])   // MACHINE identity — dusk (the ferried cell's colour, or the play grid's dusk slot when empty; Paul 2026-08-30)
-            let eHue = emitterHue(t < buildPlayColEmit.count ? buildPlayColEmit[t] : [.a])  // EMITTER colour (routing)
-            let focused = set && id == ddSelectedColourID               // this play ferry is the SELECTED machine (Paul 2026-08-30)
-            // THREE STATES (Paul 2026-08-30): NULL · POPULATED (machine frame, calm) · PLAYING (bright frame + EMITTER glow +
-            // the live drift). Machine = the frame, emitter = the drift tint + a corner dot + the playing glow. SELECTED (not
-            // playing) also brightens the frame so the ferry ↔ machine pairing is visible.
-            let partMode = roomsRoom == .part   // Paul 2026-09-05: on the PART page the ferries are DARK like the part cells (the PLAY grid keeps its dusk blends)
-            // SPLIT (Paul 2026-09-08): the ferry cell is TWO DISTINCT stacked buttons with a gap between them — the SELECTOR
-            // (top ⅓) loads this cell's machine into the chain/card (no start/stop); the PLAY button (bottom ⅔) keeps the
-            // start/stop + long-press ferry.
+            // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): each ferry IS a BuildPart slot. The SELECTOR (top ⅓) opens
+            // the part on the bench (empty → the SELECT grid); the PLAY button (bottom ⅔) starts/stops it (several may
+            // play at once). A long-press on an EMPTY ferry (on SELECT) seeds a new part from the selected chain.
+            let part = t < buildFerryParts.count ? buildFerryParts[t] : nil
+            let set = part != nil
+            let repId: String? = part.flatMap { p in p.selID ?? p.stagingCells.flatMap({ $0 }).compactMap({ $0 }).first }   // the part's representative colour (for the ferry's identity hue)
+            let mHue = repId.flatMap { colourColor($0) } ?? Color(hex: colourHexes[t % colourHexes.count])
+            let eHue = emitterHue(part?.emitters ?? [.a])
+            let on = t < buildPlayColOn.count && buildPlayColOn[t]        // this part is sounding
+            let focused = buildActiveFerry == t                          // this part is the one loaded on the bench
             let selH = max(10, g.size.height / 3)
             let playH = max(12, g.size.height - selH - 3)
             VStack(spacing: 3) {
-                // ── THE SELECTOR (top ⅓) ──
+                // ── THE SELECTOR (top ⅓): open this ferry's part on the bench (empty → the SELECT grid) ──
                 RoundedRectangle(cornerRadius: 4).fill(set ? mHue.opacity(focused ? 0.55 : 0.28) : Color.white.opacity(0.06))
                     .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(10, selH * 0.5), weight: .bold))
                         .foregroundColor(set ? (focused ? .black : .white.opacity(0.85)) : buildDim))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(focused ? 0.9 : 0.4) : buildEdge, lineWidth: focused ? 2 : 1))
                     .frame(height: selH)
                     .contentShape(Rectangle())
-                    .onTapGesture { if set { buildSelectPlayColumn(t) } }        // SELECTOR: focus this cell's machine (no start/stop)
-                // ── THE PLAY BUTTON (bottom ⅔) ──
+                    .onTapGesture { buildActivateFerry(t) }
+                // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
-                    .overlay(RoundedRectangle(cornerRadius: 4).fill(partMode && set ? partCellFill(id) : mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // DARK on part / faint MACHINE wash on play
-                    .overlay { if copyId != nil {                            // FAINT PULSING COPY — tap to duplicate the row-below cell here
-                        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in
-                            let f = stagingPulseFraction(tl.date, period: 1.1)
-                            RoundedRectangle(cornerRadius: 4).fill(copyHue.opacity(0.06 + 0.12 * f))
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(copyHue.opacity(0.28 + 0.4 * f), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
-                                .overlay(Image(systemName: "plus").font(.system(size: min(13, playH * 0.5), weight: .black)).foregroundColor(copyHue.opacity(0.4 + 0.4 * f)))
-                        }
-                    } }
-                    .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t)).padding(2) } }   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes (Paul 2026-09-05)
+                    .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
+                    .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t)).padding(2) } }   // emitter constellation; stars blink on strikes
                     .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
-                    .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this ferry's hue
+                    .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed colour-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(partMode && set ? partCellFrame(id) : (set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge), lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))   // DARK edge on part / MACHINE frame on play
-                    .overlay { if buildSelectMode && set { RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))
                     .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
-                    .overlay { if copyId == nil { Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) } }   // PLAY/STOP (a COPY cell shows its own "+" instead)
+                    .overlay { Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) }   // PLAY/STOP (empty shows "+")
                     .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        if copyId != nil { buildPlayFerryDuplicate(t); return }   // FAINT COPY → duplicate the row-below cell here + play
-                        if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
-                        if buildSelectMode { buildSelectPlayColumn(t); buildSelectMode = false }   // SELECT MODE: focus this ferry (no start/stop), then end SELECT (Paul 2026-08-31)
-                        else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
-                    }
+                    .onTapGesture { if set { buildToggleFerryPlay(t) } else { buildActivateFerry(t) } }   // empty PLAY tap → open the browser too
                     .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
-                                        pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
+                                        pressing: { p in if !set { buildGridSelStampPressing(t + 8, p) } },
+                                        perform: { if !set && roomsRoom == .select { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT → seed a part from the selected chain
             }
         }
     }
@@ -1900,6 +1879,61 @@ extension DiagView {
         buildVoiceOwner = .none; au?.clearColourSolo()                  // the play layer is the voice
         buildSelectPlayColumn(t)                                        // reflect it in the machine + deselect the source
         buildPublishScene()
+    }
+    // ── THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts) — Phase 2 operations ──
+    // Flatten ferry `t`'s stored part into the per-column PLAYBACK arrays (the SAME representation the engine already
+    // plays, so up to 8 ferries sound at once). Mono line = the SELECTED RUNG per column (poly is future). If `t` is the
+    // ACTIVE (on-bench) ferry, its live edits are captured first so what plays matches what you're editing.
+    func buildFlattenFerry(_ t: Int) {
+        guard t >= 0, t < 8 else { return }
+        if buildActiveFerry == t { buildFerryParts[t] = buildCaptureBenchPart() }
+        guard let p = buildFerryParts[t] else {
+            if t < buildPlayColSteps.count { buildPlayColSteps[t] = [] }
+            if t < buildPlayColLen.count { buildPlayColLen[t] = 1 }
+            if t < buildPlayColStepRecv.count { buildPlayColStepRecv[t] = [] }
+            if t < buildPlayColStepEmit.count { buildPlayColStepEmit[t] = [] }
+            return
+        }
+        let len = max(1, min(Snap.maxCols, p.length ?? Snap.cols))
+        let rungAt: (Int) -> Int = { c in c < p.stagingSel.count ? p.stagingSel[c] : -1 }
+        buildPlayColSteps[t]     = (0..<len).map { c in let r = rungAt(c); return (r >= 0 && c < p.stagingCells.count && r < p.stagingCells[c].count) ? p.stagingCells[c][r] : nil }
+        buildPlayColLen[t]       = len
+        buildPlayColRate[t]      = p.rate
+        buildPlayColStepRecv[t]  = (0..<len).map { c in let r = rungAt(c); return r >= 0 ? (p.rowReceiver.flatMap { r < $0.count ? $0[r] : nil } ?? p.receiver) : p.receiver }
+        buildPlayColStepEmit[t]  = (0..<len).map { c in let r = rungAt(c); return r >= 0 ? (p.rowEmitters.flatMap { r < $0.count ? $0[r] : nil } ?? p.emitters) : p.emitters }
+    }
+    // SELECTOR tap: bring ferry `t`'s part onto the bench (empty ferry → the SELECT grid). The ferry is a LIVE VIEW of its
+    // part, so the outgoing ferry's bench edits are written back first.
+    func buildActivateFerry(_ t: Int) {
+        guard t >= 0, t < 8 else { return }
+        if let a = buildActiveFerry, a >= 0, a < 8, a != t { buildFerryParts[a] = buildCaptureBenchPart(); buildFlattenFerry(a) }   // write back the outgoing ferry
+        if let p = buildFerryParts[t] {
+            buildLoadBenchPart(p); buildActiveFerry = t; roomsRoom = .part
+        } else {
+            buildActiveFerry = nil; roomsRoom = .select                       // an empty ferry opens the browser
+        }
+        buildPublishScene()
+    }
+    // PLAY-button tap: toggle whether ferry `t`'s part sounds (flattened onto the play layer). Several ferries can be on.
+    func buildToggleFerryPlay(_ t: Int) {
+        guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
+        buildFlattenFerry(t)                                                  // reflect the latest part (incl. live edits if it's active)
+        if t < buildPlayColOn.count { buildPlayColOn[t].toggle(); if buildPlayColOn[t] { buildVoiceOwner = .none; au?.clearColourSolo(); buildHostHalted = false } }
+        buildPublishScene()
+    }
+    // LONG-PRESS an EMPTY ferry on the SELECT grid: create a NEW part seeded with the selected chain in row 0, store it in
+    // the ferry, and open it on the bench. A ferry always holds a part; the select grid only supplies the seed chain.
+    func buildSeedFerry(_ t: Int) {
+        guard t >= 0, t < 8, buildFerryParts[t] == nil, let hit = buildGridSelStampSource() else { return }
+        buildRecordUndo()
+        let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose)   // a fresh part colour carrying the selected chain (vivid part hue)
+        var p = BuildPart()
+        p.stagingCells[0][0] = y; p.stagingSel[0] = 0; p.selID = y; p.cast = [y]
+        let io = roomsStampSourceIO(); p.receiver = io.recv; p.emitters = io.emit
+        buildFerryParts[t] = p
+        buildSyncColours()
+        buildFlattenFerry(t)
+        buildActivateFerry(t)
     }
     // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
     // (default row 1). Writes ONLY the play grid's OWN store (buildPlayCells) — NOT the shared buildStagingCells — so it
@@ -4219,30 +4253,42 @@ extension DiagView {
     // THE ROOMS PLAY GRID (Paul 2026-08-30): capture the 8 play columns + their multi-step passes + the ephemeral colours
     // they reference, so a reload restores the whole play grid. Only when there's content (a populated/multi-step column).
     func buildCapturePlayGrid() -> BuildPlayGridData? {
-        let hasContent = (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }
+        var parts = buildFerryParts                                          // THE PLAY FERRIES ARE PARTS — the source of truth
+        if let a = buildActiveFerry, a >= 0, a < 8 { parts[a] = buildCaptureBenchPart() }   // fold in the active ferry's live bench edits (read-only capture)
+        let anyPart = parts.contains { $0 != nil }
+        let hasContent = anyPart || (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }
         guard hasContent else { return nil }
         var ids = Set<String>()
         for col in buildPlayCells { for cell in col { if let id = cell { ids.insert(id) } } }
         for col in buildPlayColSteps { for step in col { if let id = step { ids.insert(id) } } }
+        for p in parts.compactMap({ $0 }) {                                  // every colour a ferry part references
+            ids.formUnion(p.stagingCells.flatMap { $0.compactMap { $0 } }); ids.formUnion(p.cast)
+            ids.formUnion(p.rowUnder.compactMap { $0 }); if let s = p.selID { ids.insert(s) }
+        }
         let ephemeral = ids.filter { buildColourReg[$0] != nil }.sorted()
         let colours = ephemeral.map { id -> Colour in var c = Colour(colourID: id, type: .arp); c.defined = true; c.templateChain = buildColourReg[id]; c.transpose = buildColourTranspose[id] ?? 0; return c }
         var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = colourHueOverride[id] { hues[id] = h } }
-        return BuildPlayGridData(cells: buildPlayCells, sel: buildPlaySel, colOn: buildPlayColOn, colRecv: buildPlayColRecv,
-                                 colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
-                                 colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, colours: colours, hues: hues, idCounter: buildIDCounter)
+        var data = BuildPlayGridData(cells: buildPlayCells, sel: buildPlaySel, colOn: buildPlayColOn, colRecv: buildPlayColRecv,
+                                     colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
+                                     colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, colours: colours, hues: hues, idCounter: buildIDCounter)
+        data.parts = parts
+        return data
     }
     func buildRestorePlayGrid(_ d: BuildPlayGridData) {
         for c in d.colours { buildColourReg[c.colourID] = c.templateChain ?? []; if c.transpose != 0 { buildColourTranspose[c.colourID] = c.transpose } }
         for (id, hue) in d.hues { colourHueOverride[id] = hue }
         buildIDCounter = max(buildIDCounter, d.idCounter)
         buildSyncColours()
-        // Restore the arrays only when the shapes are exactly right (a valid round-trip is 8 columns × ≥8 rungs); a malformed
-        // doc keeps the empty defaults rather than risking an out-of-range ferry write later (defensive).
-        guard d.cells.count == 8, d.cells.allSatisfy({ $0.count >= 8 }), d.sel.count == 8, d.colOn.count == 8, d.colRecv.count == 8,
-              d.colEmit.count == 8, d.colLen.count == 8, d.colSteps.count == 8, d.colRate.count == 8, d.colStepRecv.count == 8, d.colStepEmit.count == 8 else { return }
-        buildPlayCells = d.cells; buildPlaySel = d.sel; buildPlayColOn = d.colOn; buildPlayColRecv = d.colRecv; buildPlayColEmit = d.colEmit
-        buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
-        buildPublishScene()   // republish so restored STARTED columns sound at once
+        buildFerryParts = d.partsResolved                                    // THE PLAY FERRIES ARE PARTS — restore/migrate the 8 slots (source of truth)
+        // Restore the legacy arrays only when the shapes are exactly right; a malformed doc keeps the defaults (defensive).
+        // (These are now derived playback state; the parts re-flatten below regardless, so `colOn` is what really matters.)
+        if d.cells.count == 8, d.cells.allSatisfy({ $0.count >= 8 }), d.sel.count == 8, d.colOn.count == 8, d.colRecv.count == 8,
+           d.colEmit.count == 8, d.colLen.count == 8, d.colSteps.count == 8, d.colRate.count == 8, d.colStepRecv.count == 8, d.colStepEmit.count == 8 {
+            buildPlayCells = d.cells; buildPlaySel = d.sel; buildPlayColOn = d.colOn; buildPlayColRecv = d.colRecv; buildPlayColEmit = d.colEmit
+            buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
+        }
+        for t in 0..<8 { buildFlattenFerry(t) }                              // regenerate each ferry's playback line from its part (canonical)
+        buildPublishScene()   // republish so restored STARTED ferries sound at once
     }
     // PART AUTOMATION (Paul 2026-09-02): capture the per-colour AUTO lanes for the save (prune colours with no active
     // lane AND no extents, so the map stays sparse). nil when nothing's armed → byte-identical fullState.

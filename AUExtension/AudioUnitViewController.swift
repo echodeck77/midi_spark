@@ -227,6 +227,12 @@ struct DiagView: View {
     @State var buildPlayColRate: [StepRate?] = Array(repeating: nil, count: 8)
     @State var buildPlayColStepRecv: [[Int]] = Array(repeating: [], count: 8)      // per-step door (from the flattened part row)
     @State var buildPlayColStepEmit: [[Set<Bus>]] = Array(repeating: [], count: 8) // per-step emitters (from the flattened part row)
+    // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts) — Phase 2: each of the 8
+    // ferries owns ONE full BuildPart (nil = empty). This is the SOURCE OF TRUTH; the buildPlayCol* arrays above are the
+    // derived PLAYBACK representation (flattened from a part when it plays). buildActiveFerry = the ferry whose part is
+    // loaded on the bench (nil = browsing the SELECT grid, no part active).
+    @State var buildFerryParts: [BuildPart?] = Array(repeating: nil, count: 8)
+    @State var buildActiveFerry: Int? = nil
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildVoiceOwner: BuildWorkshopVoice = .none   // SINGLE SOURCE OF TRUTH for the page-owned audition voice (none | chain | part). ddSolo/buildStagingPlaying are computed mirrors of this (Paul 2026-08-31) — one owner, so a play-ferry stop can never leave the shared audition sounding.
     // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.
