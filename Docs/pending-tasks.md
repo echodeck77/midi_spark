@@ -3,11 +3,32 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-04._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-08._
 
-## ★ PROMOTE ARCHIVES THE PART GRID → RESTORE is UNBUILT (2026-09-05)
+## ★ PLAY-FERRIES-ARE-PARTS — follow-ups (2026-09-08; feature DONE Phases 1–3, on `main`)
+The 8 play ferries are now full `BuildPart` slots + the sole navigation (spec `AcceptanceCriteria-play-ferries-as-parts.md`).
+OPEN:
+- **DEVICE-OWED (the whole ferry UX):** seed-from-select, ferry switch, up-to-8 simultaneous play (active via staging /
+  background via flatten), edit-write-back, CLEAR-empties-ferry → SELECT, 16-step tiling, and the ADD-A-ROW menu
+  (Duplicate/Mutate/Randomize/Create-new/Pick-from-Library on an empty part row).
+- **DEAD-CODE PASS (grep-verified, needs a dedicated device-verified sweep):** the entangled legacy play-grid cluster —
+  `buildPlayCells`/`buildPlaySel`/`buildSelectMode`, the SELECT-ferry cluster (`roomsAssignPlayColumn`→`roomsFlattenPartToPlay`
+  →`buildSelectPlayColumn`→`buildArchivePartToPlay`→`buildPlayCellPart` (write-only)→`buildPlayFerryRow`), and the vestigial
+  `.play`/`.reel` room subtree (`roomsPlay`/`roomsPlayGrid`/`roomsPlayStartStop`/`roomsReel`/`roomsPlayNavSliver` — confirm no
+  reel entry outside the room system before removing the enum cases + their switch arms). Plus standalone orphans a survey
+  flagged: `buildSetPartRate`/`roomsGridCellW`/`roomsPartPianoRoll`/`roomsPartMacroSection`/`buildAddCastColour`/`buildStagingTap`/
+  `partCellFill`/`partCellFrame`/`buildGridSelDriftFace` + `@State buildRowMode`/`brush`.
+- **PICK-FROM-LIBRARY (add-a-row):** currently opens `buildOpenLibrary` (the browser); may need a row-targeted placement so the
+  picked chain lands on the empty row directly. Also DUPLICATE copies the chain, not the register-home transpose.
+- **GRID FOOTERS are PLACEHOLDER, not wired** (SELECT=pages · PART=column-loop) — reserve-space only; behaviour unbuilt.
+- **VELOCITY processor:** DEVICE ear owed; the SCALE compressor MODE (floor/ceil/curve) is deferred (only the PATTERN lane shipped).
+
+## ★ PROMOTE ARCHIVES THE PART GRID → RESTORE is UNBUILT (2026-09-05) — ⚠ LIKELY SUPERSEDED by play-ferries-as-parts
 Promoting a part/cell from the part grid now stores a `BuildPartSnapshot` of the WHOLE grid on the play column
-(`buildPlayColPartSnapshot`) and CLEARS the grid (CLAUDE.md status). OPEN:
+(`buildPlayColPartSnapshot`) and CLEARS the grid (CLAUDE.md status). **NOTE (2026-09-08): the play grid was re-architected —
+each ferry IS a `BuildPart` (`buildFerryParts`, persisted) and per-cell play cells retired, so this promote/archive/restore
+model is probably obsolete; the "re-entering a ferried part" + "editing cells on the part grid" concerns below are resolved
+by the ratified playback model (active→staging, background→flatten, live edit-write-back). Reconcile/close on review.** OPEN:
 - **RESTORE** (the point of the archive) — a way to bring a play column's stored part snapshot back into the part grid. UI +
   action unbuilt.
 - **PERSISTENCE** — the snapshot is in-memory `@State`; to survive save/load it must ride the play grid's `BuildPlayGridData`
@@ -319,9 +340,9 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    - **✅ STATE MATRIX — DONE (2026-08-24, `bc40be2`):** the `stateMatrixRadio` widget (rows = states · cols = 8 steps ·
      radio-per-column · instant, no brush). Converted LENGTH · RATCHET PATTERN · TUTTI PATTERN (8×8) · BURST PATTERN.
      UI-only, reads the same slice arrays. DEVICE eye owed.
-   - **SLIDER LANE (§2): the component ALREADY EXISTS** as `modStepBars` (tap-set + drag-draw, variable step count) at its
-     origin STEP MOD. No new consumer to wire until VELOCITY/CHANCE/TIMING PATTERN land (Tier 3/5). Optional: rename it
-     `sliderLane` + reuse when the first new consumer is built.
+   - **✅ SLIDER LANE (§2) — DONE:** `modStepBars` was renamed to the shared `sliderLane` and now has 4 consumers
+     (STEP MOD · CHANCE · TIMING · VELOCITY 2026-09-07). Draw-across-the-bars was fixed 2026-09-07 (one gesture hit-tests
+     the column from the finger's X, was per-bar-captured).
    - **SPAN LADDER (§3) — Paul RULED: RATE × ladder (both)** (RATE = slice width · SPAN = loop period in columns). Staged:
      - **✅ STAGE 1 — DONE (2026-08-24, next commit):** the 3 WIDTH procs (EUCLID · BURST · LENGTH) — dial 1·2·3·4·6·8·×2·×4,
        `spanLadderBeats`, byte-identical CELL=1/ROW=8, polymeter for odd N. +1 test, fuzz-hammered. DEVICE ear owed.
@@ -422,7 +443,7 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
 5. **THE MATRIX/LANE CANDIDATES (ratified §5):** **✅ CHANCE PATTERN + ✅ TIMING LANE — DONE (2026-08-25).** CHANCE =
    the odds SLIDER LANE (SINGLE|PATTERN, step-aware `effectiveProbability`). TIMING = NUDGE FIXED|LANE (per-column ±8/16
    pocket; step = cell column). Together they delivered the SLIDER LANE species fully: `modStepBars`→shared `sliderLane`
-   with unipolar + CENTRE(bipolar) modes, now 3 consumers (STEP MOD · CHANCE · TIMING). **✅ DEST MATRIX — DONE
+   with unipolar + CENTRE(bipolar) modes, now 4 consumers (STEP MOD · CHANCE · TIMING · VELOCITY — Paul 2026-09-07). **✅ DEST MATRIX — DONE
    (2026-08-25):** a new routing-class `ProcessorType.dest` — the 8-slice per-onset EMITTER hocket via `chopMask`; UI =
    the STATE MATRIX (A–D × 8, radio). +1 test, fuzz-hammered. **✅ MUTE MATRIX — DONE (2026-08-25):** a new routing-class
    `ProcessorType.muteMatrix` — an A/B/C/D × 8 MULTI-SELECT grid; each GRID COLUMN removes the muted emitters (indexed by
@@ -431,7 +452,7 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    (nil ⇒ nothing muted, byte-identical). +1 RouterTest, fuzz-hammered. **The §5 matrix/lane family is now COMPLETE**
    (STATE MATRIX · SLIDER LANE · SPAN LADDER · CHANCE PATTERN · TIMING LANE · DEST MATRIX · MUTE MATRIX). ARRANGEMENT
    MATRIX = NOT ratified.
-6. **SLIDER LANE / WIDTH:** the `sliderLane` shared component now has 2 consumers (STEP MOD · CHANCE). Processor-editor
+6. **SLIDER LANE / WIDTH:** the `sliderLane` shared component now has 4 consumers (STEP MOD · CHANCE · TIMING · VELOCITY). Processor-editor
    WIDTH PASS 1 landed (compact segs + ≤600pt panel); **PASS 2 = two-column packing** of short fields (device-eye owed).
 
 ## ★ DESIGN INBOX 2026-08-22/23 — FILED + QUEUED (4 ferries read + filed to `Docs/`; sequencing = Paul's word)
