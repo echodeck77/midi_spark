@@ -1702,19 +1702,37 @@ extension DiagView {
     // NO outer box (buildProcessorPanel already draws its OWN selected-colour box + background) + NO padding, so that box
     // fills the whole card (Paul 2026-08-28) — only the panel's hue border shows, occupying the full space.
     @ViewBuilder func roomsProcessorCardAt(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> some View {
-        if let slot = buildEditSlot {
-            let chain = selectedColourChain()
-            if slot < chain.count, let cid = ddSelectedColourID {
-                buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
-                .frame(width: w, height: h)                                   // fixed card box — the panel pins its header + scrolls its body inside this
-                .offset(x: x, y: y)
-                .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
-                .onChange(of: ddSelectedColourID) { newID in
-                    guard let newID, newID != buildEditorSnapCid else { return }
-                    buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = newID
-                }
+        let chain = selectedColourChain()
+        // §MERGE (Paul 2026-09-08): the card region is PERMANENT — always present below the grid, reflecting the selected
+        // row/cell. Its CONTENT is the processor picked from the chain (buildEditSlot). With no pick (or an empty/stale
+        // chain) it shows an invitation, so the space always reads as "the editor lives here".
+        if let slot = buildEditSlot, slot < chain.count, let cid = ddSelectedColourID {
+            buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
+            .frame(width: w, height: h)                                   // fixed card box — the panel pins its header + scrolls its body inside this
+            .offset(x: x, y: y)
+            .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
+            .onChange(of: ddSelectedColourID) { newID in
+                guard let newID, newID != buildEditorSnapCid else { return }
+                buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = newID
             }
+        } else {
+            roomsCardPlaceholder(empty: chain.isEmpty).frame(width: w, height: h).offset(x: x, y: y)
         }
+    }
+    // The always-present card region when no processor is being viewed: an invitation to pick one from the chain (or,
+    // when the selected cell has no chain yet, to add one). Keeps the below-grid section permanently visible (Paul 2026-09-08).
+    @ViewBuilder private func roomsCardPlaceholder(empty: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(
+                VStack(spacing: 8) {
+                    Image(systemName: empty ? "plus.rectangle.on.rectangle" : "hand.tap")
+                        .font(.system(size: 22, weight: .semibold)).foregroundColor(.white.opacity(0.28))
+                    Text(empty ? "ADD A PROCESSOR FROM THE CHAIN" : "TAP A PROCESSOR IN THE CHAIN TO EDIT IT")
+                        .font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.4))
+                        .multilineTextAlignment(.center)
+                }.padding(12)
+            )
     }
     // ── THE NAV SLIVERS — thin navigation bars that are a COMPONENT OF THE GRID BOX (Paul 2026-08-28). The ▲PLAY sliver
     // sits directly above the top-row selector buttons (1/3 cell tall, spanning cols 1–8); the SEAM sliver sits beside
