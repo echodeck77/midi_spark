@@ -1109,7 +1109,7 @@ extension DiagView {
     }
     // §E 16-STEP (Paul 2026-09-02): the CURRENT part's STEP COUNT (its active width = loop length). nil ⇒ the 8-wide
     // default (byte-identical); 16 ⇒ the part grid renders + loops 16 columns. A compact 8|16 menu beside the rate pill.
-    @ViewBuilder private func buildStepsControl() -> some View {
+    @ViewBuilder func buildStepsControl() -> some View {
         Menu {
             Button { buildSetPartLen(nil) } label: { Label("8 STEPS", systemImage: buildPartCols <= 8 ? "checkmark" : "circle") }
             Button { buildSetPartLen(16) }  label: { Label("16 STEPS", systemImage: buildPartCols == 16 ? "checkmark" : "circle") }
