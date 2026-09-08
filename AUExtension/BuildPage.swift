@@ -1928,7 +1928,8 @@ extension DiagView {
         buildRecordUndo()
         let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose)   // a fresh part colour carrying the selected chain (vivid part hue)
         var p = BuildPart()
-        p.stagingCells[0][0] = y; p.stagingSel[0] = 0; p.selID = y; p.cast = [y]
+        for c in 0..<Snap.cols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }      // seed the chain across the WHOLE first row (an 8-step loop), all columns' rung selected → the part plays a full sequence, not one cell (Paul 2026-09-08)
+        p.selID = y; p.cast = [y]
         let io = roomsStampSourceIO(); p.receiver = io.recv; p.emitters = io.emit
         buildFerryParts[t] = p
         buildSyncColours()
@@ -2847,7 +2848,7 @@ extension DiagView {
     // THE PART PLAYHEAD — a 2pt line sweeping the 8 interior columns, phase-locked to the beat (reuses the buildPlayhead
     // math: extrapolated beat → musical/swung column progress → x). Flexible-cell variant for the rooms grid.
     @ViewBuilder private func roomsPartPlayhead(colW: CGFloat, gap: CGFloat, height: CGFloat) -> some View {
-        if d.playing && buildStagingPlaying {
+        if d.playing && (buildStagingPlaying || buildActiveFerryPlaying) {   // follow the active ferry's play-layer line (Paul 2026-09-08), not only the old staging voice
             let sb = buildPartRate?.beats ?? stepBeats
             let cols = buildPartCols                                        // §E: the active width
             let width = colW * CGFloat(cols) + gap * CGFloat(cols - 1)
@@ -3710,6 +3711,9 @@ extension DiagView {
     // ~11 WRITE sites route through buildVoiceOwner now, so "who is the voice" lives in ONE place.
     var ddSolo: Bool { buildVoiceOwner == .chain }               // the SELECT chain audition
     var buildStagingPlaying: Bool { buildVoiceOwner == .part }   // the PART sequencer audition
+    // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the bench shows the ACTIVE ferry's part; playback happens on the play
+    // layer, so the part-grid playhead follows the active ferry's own on/off (not the old staging voice).
+    var buildActiveFerryPlaying: Bool { if let a = buildActiveFerry, a >= 0, a < buildPlayColOn.count { return buildPlayColOn[a] }; return false }
     // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADERS read this so
     // they highlight the new state IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
     var buildDisplayVoice: BuildWorkshopVoice { buildPendingWorkshopVoice ?? buildWorkshopVoice }
@@ -3869,6 +3873,7 @@ extension DiagView {
     var buildCanRedo: Bool { !buildRedoStack.isEmpty }
 
     private func buildPublishScene() {
+        if let a = buildActiveFerry { buildFlattenFerry(a) }     // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): keep the active ferry's playback line in step with the bench edits (captures the bench + re-flattens) so a selection/content change is heard at once
         buildGridSelComputeRowRolls()                            // Paul 2026-09-05: keep the PART cells' always-visible constellation current on every change
         buildComputePlayColRolls()                               // …and the PLAY columns' faces
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
