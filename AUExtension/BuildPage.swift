@@ -1854,15 +1854,32 @@ extension DiagView {
                 .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
                 .overlay { if copyId == nil { Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: min(12, g.size.height * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) } }   // PLAY/STOP (a COPY cell shows its own "+" instead)
                 .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if copyId != nil { buildPlayFerryDuplicate(t); return }   // FAINT COPY → duplicate the row-below cell here + play
-                    if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
-                    if buildSelectMode { buildSelectPlayColumn(t); buildSelectMode = false }   // SELECT MODE: focus this ferry (no start/stop), then end SELECT (Paul 2026-08-31)
-                    else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
+                // SPLIT (Paul 2026-09-08): the ferry cell is TWO stacked buttons — the TOP ⅔ is the PLAY button (start/stop
+                // + the long-press ferry, as before); the BOTTOM ⅓ is a SELECTOR strip that loads this cell's machine into
+                // the chain/card (no start/stop). Two separate tap zones, so the gestures don't overlap.
+                .overlay {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)   // TOP ⅔ — PLAY
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if copyId != nil { buildPlayFerryDuplicate(t); return }   // FAINT COPY → duplicate the row-below cell here + play
+                                if t < buildPlaySel.count { buildPlaySel[t] = buildPlayFerryRow }
+                                if buildSelectMode { buildSelectPlayColumn(t); buildSelectMode = false }   // SELECT MODE: focus this ferry (no start/stop), then end SELECT (Paul 2026-08-31)
+                                else { buildTogglePlayColumn(t); buildSelectPlayColumn(t) }        // TAP = make the cursor row this column's active rung, then start/stop + SELECT it
+                            }
+                            .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
+                                                pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
+                        ZStack {                                                     // BOTTOM ⅓ — SELECTOR: load this cell's machine
+                            Rectangle().fill(set ? mHue.opacity(focused ? 0.55 : 0.28) : Color.white.opacity(0.06))
+                            Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(9, g.size.height / 3 * 0.55), weight: .bold))
+                                .foregroundColor(set ? (focused ? .black : .white.opacity(0.85)) : buildDim)
+                        }
+                        .frame(height: g.size.height / 3)
+                        .overlay(alignment: .top) { Rectangle().fill(Color.black.opacity(0.4)).frame(height: 1) }   // the divider between play + selector
+                        .contentShape(Rectangle())
+                        .onTapGesture { if set { buildSelectPlayColumn(t) } }        // SELECTOR: focus this cell's machine (no start/stop)
+                    }
                 }
-                .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
-                                    pressing: { p in buildGridSelStampPressing(t + 8, p) }, perform: { roomsAssignPlayColumn(t) })   // HOLD = ferry the selected cell here
         }
     }
     // Move the ferry-row cursor (bottom-up) with a soft slide. (Paul 2026-08-31)
