@@ -65,11 +65,6 @@ struct ArrangementBar: View {
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
                 swingControl                                                       // SWING — straight on the header (Paul 2026-08-19)
                 clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate (SWING moved out to the header)
-                if d.playing {
-                    Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
-                        .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).fixedSize()
-                        .helpAnchor("#transport-readout")
-                }
                 undoRedo.helpAnchor("#undo")                                       // labelled UNDO/REDO, moved to the right (user 2026-08-03)
                 helpButton                                                         // "?" → the in-app manual at the last-touched control
                 cogOrCan.helpAnchor("#cog-open")                                    // ⚙ ⇄ 🗑 (the can in place during a drag)

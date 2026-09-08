@@ -160,57 +160,41 @@ extension DiagView {
     }
 
     // ── THE ROOMS ─────────────────────────────────────────────────────────────────────────────────
-    // THE MERGED WORKBENCH (Paul 2026-09-08) — SELECT and PART are now ONE page. A top TOGGLE BAR switches which GRID
-    // shows (the library/SELECT grid ↔ the part/PART grid); the machine column (chain + I/O) stays fixed on the RIGHT so
-    // it never jumps when you flip grids. Replaces the separate roomsSelect/roomsPart rooms + their far-side SEAM
-    // navigation. roomsRoom still holds which grid is active (.select or .part), so every existing per-grid path
-    // (setup, voice sync, ferries, the docked card) is reused verbatim. Play is driven by the ferries + START/STOP
-    // (the standalone PLAY grid is being retired — a later increment).
+    // THE MERGED WORKBENCH (Paul 2026-09-08) — SELECT and PART are now ONE page. The SELECT GRID | PART GRID toggle now
+    // lives in the HEADER (buildHeaderControls); this body is just the active GRID (2/3, LEFT) + the fixed machine column
+    // (1/3, RIGHT). roomsRoom still holds which grid is active (.select or .part), so every existing per-grid path
+    // (setup, voice sync, ferries, the docked card) is reused verbatim.
     @ViewBuilder private func roomsWorkbench(_ size: CGSize) -> some View {
         GeometryReader { g in
-            let navH: CGFloat = 30
             let avail = g.size.width - 16 - 6                             // page padding (16) + 1 HStack gap (6)
             let gridW = avail * 2 / 3
             let chainW = avail - gridW
-            let bodyH = g.size.height - 16 - navH - 6                     // content height below the toggle bar
+            let bodyH = g.size.height - 16                                // no in-body toggle bar now — the body fills the page (Paul 2026-09-08)
             let m = RoomsMetrics(height: bodyH)                           // the ONE lattice for the grid body
-            VStack(spacing: 6) {
-                roomsGridToggleBar(gridW: gridW).frame(height: navH)
-                HStack(alignment: .top, spacing: 6) {
-                    Group {
-                        if roomsRoom == .part { roomsPartGrid(m: m) } else { roomsSelectGridUnit(m: m) }
-                    }.frame(width: gridW, height: bodyH)                  // the active GRID (2/3, LEFT — same side for both)
-                    chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box (1/3, RIGHT — fixed)
-                }
+            HStack(alignment: .top, spacing: 6) {
+                Group {
+                    if roomsRoom == .part { roomsPartGrid(m: m) } else { roomsSelectGridUnit(m: m) }
+                }.frame(width: gridW, height: bodyH)                      // the active GRID (2/3, LEFT — same side for both)
+                chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box (1/3, RIGHT — fixed)
             }.padding(8)
         }
         .onAppear { if roomsRoom == .part { roomsPartSetup() } else { roomsSelectSetup() } }
     }
-    // The grid TOGGLE BAR — SELECT GRID | PART GRID (the merge's core control) + STEPS (part width, part only) +
-    // START/STOP the play layer + the REEL door.
-    @ViewBuilder private func roomsGridToggleBar(gridW: CGFloat) -> some View {
-        HStack(spacing: 8) {
-            roomsGridToggle("SELECT GRID", room: .select)
-            roomsGridToggle("PART GRID", room: .part)
-            if roomsRoom == .part { buildStepsControl() }                 // 8|16 step width (part only)
-            Spacer()
-            roomsPlayStartStop().frame(width: max(110, gridW * 0.3))
-            navDoor("REEL", to: .reel)
-        }
-    }
-    private func roomsGridToggle(_ label: String, room: Room) -> some View {
+    // The SELECT GRID | PART GRID toggle segment — now hosted in the header (Paul 2026-09-08). Internal so buildHeaderControls
+    // (a different file) can render it.
+    func roomsGridToggle(_ label: String, room: Room) -> some View {
         let active = roomsRoom == room
         return Button { roomsSwitchGrid(room) } label: {
             Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
                 .foregroundColor(active ? .black.opacity(0.82) : .white.opacity(0.68))
-                .padding(.horizontal, 14).frame(height: 26)
+                .padding(.horizontal, 12).frame(height: 30)
                 .background(RoundedRectangle(cornerRadius: 6).fill(active ? roomsAmber : Color.white.opacity(0.08)))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? Color.clear : Color.white.opacity(0.18), lineWidth: 1))
         }.buttonStyle(.plain)
     }
     // Switch which grid is showing (the merge). Reuses the existing per-grid setup so voice + selection stay correct;
     // guarded to the two grid rooms (PLAY/REEL are reached via their own doors).
-    private func roomsSwitchGrid(_ room: Room) {
+    func roomsSwitchGrid(_ room: Room) {
         guard roomsRoom != room, room == .select || room == .part else { return }
         roomsRoom = room
         if room == .part { roomsPartSetup() } else { roomsSelectSetup() }

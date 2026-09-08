@@ -1025,12 +1025,12 @@ extension DiagView {
     @ViewBuilder func buildHeaderControls() -> some View {
         HStack(alignment: .center, spacing: 8) {
             if !reelShowPopup {
-                buildRateControl()                              // the per-part rate
+                roomsGridToggle("SELECT GRID", room: .select)   // §MERGE (Paul 2026-09-08): the grid toggle moved onto the header
+                roomsGridToggle("PART GRID", room: .part)
                 buildStepsControl()                             // §E: the per-part STEP count (8 | 16)
                 buildConfigButton("MIDI IN")  { buildMidiConfigOpen = true }    // the MIDI-IN doors sheet
                 buildConfigButton("MIDI OUT") { buildMidiOutConfigOpen = true } // the emitter stamp-channels sheet
                 buildConfigButton("RACK")     { buildRackConfigOpen = true }    // the rack / OUTPUT CHAIN sheet (config-sheets §6)
-                buildConfigButton("ROW 8")    { buildRow8EditSlot = max(0, buildRow8EditSlot); buildRow8EditOpen = true }   // the ROW 8 action-cell authoring page (Paul 2026-08-24: edit lives in the header, after RACK)
             }
             buildReelButton()                                   // RECORD — top-right (Paul 2026-08-23); handles the pass-browser hide + share anchor
         }
@@ -1044,6 +1044,16 @@ extension DiagView {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: 5).fill(anyPlaying ? roomsIndigo : roomsIndigo.opacity(0.35)))   // PLAY-GRID indigo (dimmer when idle)
             .contentShape(Rectangle()).onTapGesture { buildStopAllOnTransportStop() }
+    }
+    // THE PLAY toggle — start/stop every populated play column. Lives in the grid's top-RIGHT corner (where the ▲▼ ferry
+    // cursor used to be), styled to MIRROR the STOP button on the opposite (left) end (Paul 2026-09-08). Cell-sized.
+    @ViewBuilder func buildPlayAllButton() -> some View {
+        let playing = buildPlayPlaying
+        Image(systemName: "play.fill").font(.system(size: 15, weight: .black))
+            .foregroundColor(roomsDoorInk(to: .play))                                             // white ink — like the STOP button
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(playing ? roomsIndigo : roomsIndigo.opacity(buildPlayPopulated ? 0.55 : 0.35)))   // lit indigo while playing; dimmer idle (dimmest with nothing to play)
+            .contentShape(Rectangle()).onTapGesture { buildTogglePlayGrid() }
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -1081,27 +1091,8 @@ extension DiagView {
         }
     }
 
-    // PER-PART CLOCK (Paul 2026-08-19): the CURRENT part's step RATE — a compact PILL FLOATING at the part grid's top-
-    // right edge (not a grid cell). A part deployed at a different rate plays at a DIFFERENT TEMPO. "—" = scene default.
-    // (LENGTH dropped from here — it's now driven by the staging LOOP KEYS on promote. Paul 2026-08-19.)
-    @ViewBuilder private func buildRateControl() -> some View {
-        Menu {
-            Button { buildSetPartRate(nil) } label: { Label("DEFAULT (scene rate)", systemImage: buildPartRate == nil ? "checkmark" : "circle") }
-            ForEach(StepRate.allCases, id: \.self) { r in
-                Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
-            }
-        } label: {
-            let effRate = buildPartRate ?? StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)]   // the ACTUAL rate — the part override, else the scene default
-            HStack(spacing: 4) {                                              // MATCH the header clock chip's format (Paul 2026-08-23)
-                Image(systemName: "timer").font(.system(size: 10, weight: .semibold))
-                Text(effRate.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
-            }
-            .foregroundColor(buildCyan)
-            .padding(.horizontal, 8).frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-            .contentShape(Rectangle())
-        }
-    }
+    // (The per-part RATE pill was removed from the header 2026-09-08 — the header clock chip carries the step rate; the
+    // per-part-rate model + setter stay.)
     func buildSetPartRate(_ r: StepRate?) {
         buildPartRate = r
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative for performRate mapping
@@ -1991,10 +1982,10 @@ extension DiagView {
             let leftInset = cw + gap                                        // the left page rail → the interior's left edge
             let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the docked card
             VStack(alignment: .leading, spacing: gap) {
-                HStack(spacing: gap) {                                       // ▲▼ row cursor + PLAY-ferry row + right corner (no ▲PLAY now)
-                    roomsPlayFerryRowSelector().frame(width: cw, height: ch)
+                HStack(spacing: gap) {                                       // STOP (left) · PLAY-ferry buttons · PLAY (right) — Paul 2026-09-08
+                    buildStopAllButton().frame(width: cw, height: ch)       // STOP — top-LEFT corner
                     ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
-                    buildStopAllButton().frame(width: cw, height: ch)       // STOP — the select grid's top-right corner (Paul 2026-08-31)
+                    buildPlayAllButton().frame(width: cw, height: ch)       // PLAY — top-RIGHT corner (mirrors STOP)
                 }
                 ZStack(alignment: .topLeading) {                            // the 4-row browser + the docked card below
                     VStack(spacing: gap) {
@@ -2200,7 +2191,7 @@ extension DiagView {
                 HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
                     buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the full-width left rail (Paul 2026-09-02)
                     ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: ferryW, height: ch) }   // ALWAYS 8 ferries (the play layer), widening to fill when the part is 16 wide (Paul 2026-09-04)
-                    roomsPlayFerryRowSelector().frame(width: railW, height: ch) // the ▲▼ row cursor — top-RIGHT, over the full-width right rail
+                    buildPlayAllButton().frame(width: railW, height: ch)     // PLAY — top-RIGHT, mirrors STOP on the left (Paul 2026-09-08, replaced the ▲▼ cursor)
                 }
                 ZStack(alignment: .topLeading) {                           // the lower region: the 4-row grid on top, the docked CARD beneath
                     VStack(alignment: .leading, spacing: gap) {
