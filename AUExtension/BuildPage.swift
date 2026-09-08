@@ -1977,8 +1977,9 @@ extension DiagView {
             let rows = DiagView.roomsGridRows                                 // §MERGE: 4 interior rows
             let cw = max(6, (g.size.width - 2 * pad - 9 * gap) / 10)           // 10 cols (LEFT page rail + 8 interior + right side button)
             let ch = m.ch
+            let rowH = ch * 0.5                                             // §MERGE (Paul 2026-09-08): interior cells are HALF the ferry-cell height
             let interiorW = cw * 8 + gap * 7
-            let interiorH = ch * CGFloat(rows) + gap * CGFloat(rows - 1)     // the 4-row browser
+            let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)   // the 4-row browser (half-height cells)
             let leftInset = cw + gap                                        // the left page rail → the interior's left edge
             let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the docked card
             VStack(alignment: .leading, spacing: gap) {
@@ -1991,9 +1992,9 @@ extension DiagView {
                     VStack(spacing: gap) {
                         ForEach(0..<rows, id: \.self) { r in                  // LEFT page rail (category) + interior cells + right side button
                             HStack(spacing: gap) {
-                                roomsSelectPage(r).frame(width: cw, height: ch)  // the CATEGORY selector (ARP·RIFF·RATCHET·CC)
-                                ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: ch) }
-                                roomsSideButton(r).frame(width: cw, height: ch)
+                                roomsSelectPage(r).frame(width: cw, height: rowH)  // the CATEGORY selector (ARP·RIFF·RATCHET·CC)
+                                ForEach(0..<8, id: \.self) { c in roomsSelectGridCell(r * 8 + c).frame(width: cw, height: rowH) }
+                                roomsSideButton(r).frame(width: cw, height: rowH)
                             }
                         }
                     }
@@ -2176,7 +2177,7 @@ extension DiagView {
             let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 2))   // cell width (cols interior + 2 full-width rails)
             let railW = cw                                                   // the side rails + the STOP/▲▼ header slots = a full cell (Paul 2026-09-02)
             let ch = m.ch
-            let rowH = ch                                                    // §MERGE: full-height interior cells now (no shrink — the freed rows go to the card)
+            let rowH = ch * 0.5                                             // §MERGE (Paul 2026-09-08): interior cells are HALF the ferry-cell height (freed space → the card)
             let interiorW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
             // The PLAY LAYER is ALWAYS 8 columns (buildPlayColOn etc.), independent of the part grid width. So there are
             // always 8 play ferries — when the part is 16 steps wide they simply widen to fill the interior (a ferry per
@@ -2195,8 +2196,8 @@ extension DiagView {
                 }
                 ZStack(alignment: .topLeading) {                           // the lower region: the 4-row grid on top, the docked CARD beneath
                     VStack(alignment: .leading, spacing: gap) {
-                        HStack(alignment: .top, spacing: gap) {             // body: left rail | interior+playhead | right rail
-                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH) } }
+                        HStack(alignment: .top, spacing: gap) {             // body: LEFT chevron rail | interior+playhead | RIGHT numbered rail (Paul 2026-09-08 — rails swapped)
+                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }   // LEFT = chevron (row-select for playback)
                             ZStack(alignment: .topLeading) {
                                 VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } } } }
                                 roomsPartPlayhead(colW: cw, gap: gap, height: interiorH).allowsHitTesting(false)
@@ -2206,7 +2207,7 @@ extension DiagView {
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
                                 .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: rowH, gap: gap, cols: cols) }
                                 .onEnded { _ in buildPartDragLast = nil; buildPartDragAnchor = nil })
-                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }
+                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH) } }   // RIGHT = numbered (the part-position selector / copy source)
                         }
                     }
                     // The processor-editor card (Paul 2026-09-08): docked BELOW the 4-row grid, filling the freed lower half.
@@ -2781,8 +2782,9 @@ extension DiagView {
             }
         }
     }
-    // TAP a PART LEFT side button — it becomes the SELECTED slot (the always-one selection, shared with SELECT) + the
-    // copy source, and reflects its chain in the panel. It does NOT select a grid row — the RIGHT rail does that. (Paul 2026-08-28)
+    // TAP the PART NUMBERED rail (now on the RIGHT, Paul 2026-09-08) — it becomes the SELECTED slot (the always-one
+    // selection, shared with SELECT) + the copy source, and reflects its chain in the panel. It does NOT select a grid
+    // row — the CHEVRON rail (now on the LEFT, roomsPartRightRail) does that. (Paul 2026-08-28)
     private func roomsTapPartSide(_ n: Int) {
         if buildFerryHeld { buildFerryHeld = false; return }            // released-early hold → don't steal focus / re-audition the playing cell
         buildRoomsSetActiveSide(n)                                      // this left button is THE selected slot (+ copy source); clears any library-cell source
