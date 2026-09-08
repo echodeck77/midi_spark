@@ -79,10 +79,15 @@ should play — it must sequence like a step sequencer (visible sweep, per-colum
   activate it. Bench edits write back to `parts[buildActiveFerry]`. Selecting reads "on" ferries and flattens each for
   simultaneous playback (reuse the existing flatten). Device-verify: seed, switch, simultaneous play, edit persists.
 
-**Phase 3 — retire the toggle + SELECT-backed cells + hand-authored passes.**
-- Remove the part/select toggle; the ferry row drives the view. Fold `roomsAssignPlayColumn`'s single-cell path into
-  seed-a-part. Delete the per-cell `buildPlayCellPart` 8×8 + per-row `buildPlayCells` once `parts[8]` is the source of
-  truth. Tidy dead state. Device-verify the whole nav has no toggle and nothing regressed.
+**Phase 3 — retire the toggle + dead state. ✅ DONE (Paul 2026-09-08).**
+- (1/3) CLEAR removes a colour's part-grid presence; an emptied part clears its ferry → the SELECT browser (the
+  empty-ferry-only nav — Paul's ruling). (2/3) The SELECT|PART header toggle is gone; the ferry row is the sole
+  navigation (buildActivateFerry/buildClearChain run the old toggle's per-grid setup). (3/3) Removed the grep-verified
+  dead orphans (roomsGridToggle/roomsSwitchGrid, the seam sliver/column, the ▲▼ cursor cluster).
+- STILL LEFT for a dedicated device-verified pass (entangled with live callers, no user-visible gain): buildPlayCells
+  (×25) · buildPlaySel (×20) · buildSelectMode (×12) · buildPlayFerryRow · buildTogglePlayColumn/buildSelectPlayColumn ·
+  roomsAssignPlayColumn/roomsFlattenPartToPlay · roomsPlayNavSliver/roomsPlayGrid (the vestigial .play room). SELECT-backed
+  play cells + hand-authored passes are already inert (the ferries only read buildFerryParts).
 
 ## Notes
 - Ferries are fixed at **8** (matches the 8 play-layer engine rows).
