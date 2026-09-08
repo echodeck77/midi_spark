@@ -94,6 +94,10 @@ struct BuildPlayGridData: Codable, Equatable {
     // persistent WORKING part is the bench's home for un-ferried WIP. Both additive-Optional → old docs decode to nil.
     var playCellPart: [[BuildPart?]]? = nil   // 8×8 [col][row]; a part-backed cell's stored part
     var workingPart: BuildPart? = nil         // the "65th" part — the bench's home for un-ferried WIP
+    // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts): each of the 8 ferries owns
+    // ONE full BuildPart (nil ⇒ an empty ferry). This SUPERSEDES the 8×8 `playCellPart`; additive-Optional → an old doc
+    // decodes `parts == nil` and migrates via `partsResolved` (below). Phase 1: the model + persistence only (invisible).
+    var parts: [BuildPart?]? = nil
 }
 extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedData pattern) — a field added later never fails an older save
     init(from decoder: Decoder) throws {
@@ -113,6 +117,16 @@ extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedDat
         idCounter   = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
         playCellPart = try c.decodeIfPresent([[BuildPart?]].self, forKey: .playCellPart)   // PLAY-GRID FERRY EDITING (2026-09-05); nil = absent
         workingPart  = try c.decodeIfPresent(BuildPart.self, forKey: .workingPart)
+        parts        = try c.decodeIfPresent([BuildPart?].self, forKey: .parts)             // THE PLAY FERRIES ARE PARTS (2026-09-08); nil = absent → partsResolved migrates
+    }
+    /// THE 8 FERRY PARTS (Paul 2026-09-08), migration-aware: `parts` when present (padded/clamped to 8), else derived
+    /// from the legacy per-cell `playCellPart` — each ferry COLUMN's first part-backed cell — else all-nil. Always 8 slots.
+    var partsResolved: [BuildPart?] {
+        if let p = parts { var a = p; while a.count < 8 { a.append(nil) }; return Array(a.prefix(8)) }
+        if let pc = playCellPart {
+            return (0..<8).map { t in t < pc.count ? (pc[t].first(where: { $0 != nil }) ?? nil) : nil }
+        }
+        return Array(repeating: nil, count: 8)
     }
 }
 

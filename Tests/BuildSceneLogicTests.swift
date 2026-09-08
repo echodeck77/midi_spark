@@ -794,4 +794,29 @@ final class BuildSceneLogicTests: XCTestCase {
         let old = try JSONDecoder().decode(BuildPlayGridData.self, from: try JSONSerialization.data(withJSONObject: obj))
         XCTAssertNil(old.playCellPart); XCTAssertNil(old.workingPart)
     }
+    /// THE PLAY FERRIES ARE PARTS — Phase 1 (Paul 2026-09-08): the 8-slot `parts` round-trips through Codable; a doc with
+    /// the legacy per-cell `playCellPart` but NO `parts` MIGRATES via `partsResolved` (each ferry column's first part-backed
+    /// cell); a blank doc resolves to 8 empty slots. (No throw on a missing key — the CR-8 decode-tolerance class.)
+    func testFerryPartsRoundTripAndMigrateFromCellParts() throws {
+        var g = BuildPlayGridData()
+        var p2 = BuildPart(); p2.selID = "ferry2"
+        var slots = Array(repeating: BuildPart?.none, count: 8); slots[2] = p2
+        g.parts = slots
+        let back = try JSONDecoder().decode(BuildPlayGridData.self, from: try JSONEncoder().encode(g))
+        XCTAssertEqual(back.parts?[2]?.selID, "ferry2", "the ferry part round-trips")
+        XCTAssertNil(back.parts?[0] ?? nil, "an empty ferry stays nil")
+        XCTAssertEqual(back.partsResolved[2]?.selID, "ferry2", "partsResolved returns the present parts")
+        // MIGRATION: an old doc with per-cell playCellPart but no `parts` → derive per column
+        var oldDoc = BuildPlayGridData()
+        var cellParts = Array(repeating: Array(repeating: BuildPart?.none, count: 8), count: 8)
+        var cp = BuildPart(); cp.selID = "col5row3"; cellParts[5][3] = cp
+        oldDoc.playCellPart = cellParts
+        XCTAssertNil(oldDoc.parts, "no explicit ferry parts on the old doc")
+        XCTAssertEqual(oldDoc.partsResolved[5]?.selID, "col5row3", "migrates the column's first part-backed cell into its ferry slot")
+        XCTAssertNil(oldDoc.partsResolved[0], "a column with no part-backed cell migrates to an empty ferry")
+        // BLANK: neither field → 8 empty slots
+        let blank = BuildPlayGridData()
+        XCTAssertEqual(blank.partsResolved.count, 8)
+        XCTAssertTrue(blank.partsResolved.allSatisfy { $0 == nil })
+    }
 }
