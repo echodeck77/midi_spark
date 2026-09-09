@@ -3211,9 +3211,17 @@ extension DiagView {
                     let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                     let ph = (live.truncatingRemainder(dividingBy: barBeats)) / barBeats
                     let p = ph < 0 ? ph + 1 : ph                     // 0…1 across the cell over one bar
-                    Rectangle().fill(Color.white.opacity(0.6)).frame(width: 1.5)
-                        .position(x: CGFloat(p) * g.size.width, y: g.size.height / 2)
-                        .allowsHitTesting(false)
+                    let x = CGFloat(p) * g.size.width
+                    // P3 THE BEAT-SWEEP (Paul 2026-09-09): a bright head with a trailing glow, swept in beat-time — the
+                    // ferry's playing motion (the ratified "bright line swept in time"). White so it reads on any hue.
+                    ZStack(alignment: .leading) {
+                        LinearGradient(colors: [.white.opacity(0), .white.opacity(0.28)], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: 20, height: g.size.height)
+                            .position(x: x - 10, y: g.size.height / 2)          // the trail, behind the head
+                        Rectangle().fill(Color.white.opacity(0.95)).frame(width: 2, height: g.size.height)
+                            .position(x: x, y: g.size.height / 2)               // the bright leading edge
+                    }
+                    .allowsHitTesting(false)
                 }
             }
         }
