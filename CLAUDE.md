@@ -179,6 +179,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET PATTERN standalone = PASS-THROUGH + unselect-to-mute (2026-09-09, on `main`, merge of `fix/ratchet-passthrough`;
+  iOS builds, macOS 1080 green incl. fuzz; DEVICE EAR OWED). Paul's priority-1 fix. A lone (SINGLE-SLOT) RATCHET PATTERN cell
+  is now a PROCESSOR of the input, NOT a self-clocked generator: it PASSES the held chord through, and its OWN clock
+  (rtcRate·STEPS·SPAN·rotate) only decides the per-column treatment — **count 1 = sustain (rate-INDEPENDENT legato hold) · 2…8 =
+  ratchet N over the column's slot · 0 = OFF/mute**. No input → silence. Fixes "a short chord stab plays for each step" (the old
+  standalone `emitRatchetModal .pattern` GENERATED a note per column-tick regardless of input) + adds unselect-to-mute (both
+  confirmed by Paul; the OFF state REVERSES the earlier "no rest-as-silence" ruling — he now wants it). **ENGINE:** a per-window
+  subsystem `emitColumnRatchetPattern` (called before the pool guard, like emitColumnMod/Glide) — a STATELESS diff-reconcile
+  modelled on `reconcileBypass`, owning IMMORTAL `rtcHold` voices (a new `Voice` tag, EXCLUDED from the grid hold-reconcile;
+  `allNotesOff` closes them on every transport/scene edge → no stuck notes). PASS sustains keyed on (wire,bus,colour) so a ROW of
+  same-colour cells sustains SEAMLESSLY (adopt across cells); RATCHET columns window-scan staccato sub-strikes (`ratchetStrikeAt`).
+  `emitRatchetModal .pattern` returns early for single-slot cells (the subsystem owns them); the `[ARP→RATCHET PATTERN]` per-note
+  FOLD is unchanged + gains OFF=mute (drops the driven note). Builder clamp `1→0` so OFF survives; the matrix editor gains a `0/·`
+  OFF state. **KEY BUG caught in test (not device):** first read the ratchet params from `colour.a` — wrong for a chain cell whose
+  colour is a passgate; the resolved slot is `cell.proc`. **v1 SCOPE:** single-slot standalone only (a `[RATCHET PATTERN → X]`
+  chain keeps the old generator — flagged follow-up). +2 tests (RouterTests rate-independence/ratchet-adds/OFF-mutes/no-input;
+  DerivationsTests rewritten from the retired self-clock test). Spec `AcceptanceCriteria-ratchet-passthrough.md`. Part of the
+  launch-set work (`PLAN-stream-unification.md`, on branch `feature/grid-rebuild`): RATCHET was Paul's P1; RIFF + MOD are the next
+  launch-critical finishing targets, all well-tested processors ship, only hocket + weave shelved.**
 - **▶ THE 2026-09-08 WORKBENCH BATCH — VELOCITY processor · grid footers · PLAY-FERRIES-ARE-PARTS · add-a-row · a
   housekeeping sweep (all on `main`, pushed; iOS builds, macOS suite green; DEVICE eye/ear owed on the UI). (1) VELOCITY
   (`ProcessorType.velocity`, `76f2027`) — a per-step velocity SEQUENCER, a note-transparent DYNAMICS MODIFIER folded in
