@@ -98,6 +98,18 @@ func mixHex(_ a: UInt32, _ b: UInt32, _ t: Double) -> UInt32 {
     return (r << 16) | (g << 8) | bl
 }
 
+// ── THE FERRY-SHADE PALETTE (Paul 2026-09-08, PLAN-grid-rebuild) ────────────────────────────────────────────────────
+// Eight jewel-toned base hues, ONE per play ferry — the obvious, referenceable identity a part carries (the ferry, its
+// part rows, and the machine-box header echo all wear it). A part's four rows are DARKENING shades of its ferry's base
+// (base at row 0 → progressively darker), so one hue reads as one family and the base stays vivid at the top. This is the
+// grid's colour system going forward — it supersedes the by-position partRowHexes + the dusk playHexes on the grid.
+let ferryHexes: [UInt32] = [0xD9524B, 0xD98A3A, 0xD4B23F, 0x54A85C, 0x2FA6A0, 0x4A7FCC, 0x8E68C8, 0xD46A9C]
+func ferryBaseHex(_ ferry: Int) -> UInt32 { ferryHexes[((ferry % ferryHexes.count) + ferryHexes.count) % ferryHexes.count] }
+/// A part ROW's colour = its ferry's base darkened by the row index (0 = base · 1…3 progressively darker). Four
+/// differentiable shades of one hue (Paul 2026-09-08: DARKEN only). `row` clamps to 0…3.
+func ferryShadeHex(_ base: UInt32, _ row: Int) -> UInt32 { mixHex(base, 0x000000, [0.0, 0.20, 0.38, 0.55][max(0, min(3, row))]) }
+func ferryShade(_ base: UInt32, _ row: Int) -> Color { Color(hex: ferryShadeHex(base, row)) }
+
 // THE RECEIVER SIGNATURE GREYS (Paul 2026-08-30): the four MIDI-IN receivers A→D are now 4 shades of grey, LIGHT→DARK — their
 // identity machine going forward (the OMNI/ENABLE button on the receiver strip + the MIDI-IN toggle chips). Kept light enough
 // for black labels. (Distinct from the vivid emitter signature machines + the machine hues.)

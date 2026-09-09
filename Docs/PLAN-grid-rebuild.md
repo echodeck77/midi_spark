@@ -1,5 +1,15 @@
 # PLAN — GRID VISUAL REBUILD (clean-slate)
 
+**STATUS (2026-09-09, branch `feature/grid-rebuild-v2`, off the renamed main):** P1 palette DONE + eye-tested (Paul). P2
+DONE — `GridSkin.roomsRibbonFace` (static piano-roll ribbon) is the cell face; `buildOutputFace` delegates to it, so all
+faces (part · SELECT · row-selector · ferry) are calm, the constellation drift stripped; iOS builds. **PAUSED for Paul's
+device eye on P2** before P3+. Remaining, all device-gated (unverifiable by build — geometry/colour I can't see):
+**P2b** wire the ferry-shade palette into the part-cell grounds + ferry identity (how dark the shaded ground reads behind
+the bright ribbon = tuning) · **P3** ferry beat-sweep + lift-&-bloom + machine-header echo (sweep geometry on a narrow
+ferry) · **P4** delete the now-thin old faces (`drawConstellation` still used by the `.play` `buildNoteSweep`; convert or
+leave) · **P5** device tune (ribbon density, shade darkness, sweep contrast).
+
+
 Ratified direction (Paul 2026-09-08): **piano-roll ribbon cells · beat-sweep playing ferries · lift-and-bloom selected
 ferry · the ferry-shade palette**, meeting `AcceptanceCriteria-grid-presentation.md`. Reference mock:
 `claude.ai/code/artifact/c8369ad5…` (combined). This plan rebuilds the grid's VISUAL layer from scratch and deletes the
@@ -72,9 +82,10 @@ so the old stylings can't leak in. Pure-ish SwiftUI/Canvas reading the feeds abo
 - **Ribbon data at cell size:** `gridSelRollBars` may overshoot a tiny cell; thin/clamp in `GridSkin`, not in the feed.
 - **Two instances:** only this instance is active (Paul 2026-09-08) — but BuildPage is large + shared; commit per phase.
 
-## OPEN DECISIONS (need your call before/within P1–P3)
-- Palette **shade-steps** (swatch defaults 42/12 lighten · 24/50 darken?).
-- **Selection marker:** lift & bloom replaces the cyan ring — keep a faint cyan accent as belt-and-braces, or lift only?
-- **Machine-box echo:** full colour frame, or just the header bar (the mock uses the header)?
-- **Ribbon density:** max bars per cell (device-tune).
-- **Playhead:** keep the part-grid sweep line + per-cell playhead, or let the beat-sweep-on-ferries carry all motion?
+## DECISIONS (Paul 2026-09-08 — RATIFIED)
+- **Shade-steps:** DARKEN — the base at row 0, progressively darker down the rows (no lightening). `ferryShade` steps
+  ≈ 0% · 20% · 38% · 55% toward black (row 0…3); the base stays vivid at the top.
+- **Selection marker:** lift & bloom PLUS a faint **cyan** accent (belt-and-braces) — keep the cyan.
+- **Machine-box echo:** the **header bar** only (not a full frame).
+- **Ribbon density:** agreed — a calm default, retuned on device.
+- **Playhead:** NONE — remove the part-grid sweep line + per-cell playhead; the ferry BEAT SWEEP is the only motion.
