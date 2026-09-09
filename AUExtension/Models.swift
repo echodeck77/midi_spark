@@ -61,6 +61,9 @@ enum ModRate: String, Codable, CaseIterable {
 // CC-stage §1 SOURCE — the stage's spine. SHAPE = an LFO · FOLLOW = tracks the sounding material · STEPS = an
 // 8-step pattern · STRIKE = a per-entry AR envelope · EXTERN = re-emits an incoming CC, transformed. §12 append-only.
 enum ModSource: String, Codable, CaseIterable { case shape = "SHAPE", follow = "FOLLOW", steps = "STEPS", strike = "STRIKE", extern = "EXTERN" }
+// MOD EXTERN mode (design-cc-stage §6): RE-EMIT = re-range the incoming CC (today) · SCALE = the incoming CC scales the
+// cell's SHAPE depth (rhythm from us, amount from the wheel). (Paul 2026-09-09.)
+enum ModExternMode: String, Codable, CaseIterable { case reEmit = "RE-EMIT", scale = "SCALE" }
 // MOD TARGET (Paul 2026-08-20): CC = emit a MIDI CC (today) · CHAIN = modulate a chain param INTERNALLY (no CC), writing
 // the param's offset lane — MOD composes with macros on the same lane. `modChainParam` = which param (the macro list).
 enum ModTarget: String, Codable, CaseIterable { case cc = "CC", chain = "CHAIN" }
@@ -259,6 +262,11 @@ struct ColourParams: Codable, Equatable {
     var modReset: Bool? = true          // ON LEAVE: reset to MIN on column exit · OFF = leave-as-landed
     var modTarget: ModTarget? = nil     // SEND: CC (emit a controller, default) | CHAIN (modulate a chain param, no CC) — Paul 2026-08-20
     var modChainParam: MacroParam? = nil    // CHAIN target: which param (gate · spread · curve · …) the offset lands on
+    // MOD finishing (design-cc-stage, Paul 2026-09-09) — all additive-Optional (nil ⇒ today's behaviour):
+    var modFree: Bool? = nil            // FREE / the LFO cell (§16): speak continuously regardless of the playhead — the grid becomes a mod-matrix. nil/false = schedule-gated (today).
+    var modPhase: Double? = nil         // SHAPE PHASE offset 0…1 = 0–360° (§14②) — two cells' sines in quadrature. nil = 0.
+    var modQuantize: Int? = nil         // QUANTIZE (§14①): snap the output to N levels (0/1 = off · 2…32 = stepped control). nil = off.
+    var modExternMode: ModExternMode? = nil   // EXTERN (§6): RE-EMIT (re-range the incoming CC, today) | SCALE (the incoming CC scales the SHAPE's depth). nil = RE-EMIT.
     // GLIDE (notes→pitch-bend translator). Append-only Optional.
     var glideTime: Double? = 0.25       // slide duration per transition, beats (0 = instant pitch-jump)
     var glideRange: Int? = 2            // ± bend range in semitones (1…48) — must match the synth

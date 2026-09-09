@@ -586,6 +586,10 @@ enum SnapshotBuilder {
         if let v = p.modAttack { out.modAttack = clamp(v, 0.01, 4) }
         if let v = p.modRelease { out.modRelease = clamp(v, 0.01, 4) }
         if let v = p.modExternCC { out.modExternCC = clamp(v, 0, 127) }
+        if let v = p.modFree { out.modFree = v }                       // FREE / LFO cell (§16)
+        if let v = p.modPhase { out.modPhase = v }                     // SHAPE phase offset (§14②)
+        if let v = p.modQuantize { out.modQuantize = clamp(v, 0, 32) } // QUANTIZE output levels (§14①)
+        if let v = p.modExternMode { out.modExternMode = v }           // EXTERN RE-EMIT | SCALE (§6)
         // GLIDE
         if let v = p.glideTime { out.glideTime = clamp(v, 0, 4) }
         if let v = p.glideRange { out.glideRange = clamp(v, 1, 48) }

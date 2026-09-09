@@ -3650,6 +3650,21 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.isEmpty, "a MOD cell sounds NO notes")
         assertNothingLeftSounding(e)
     }
+    // FREE / THE LFO CELL (design-cc-stage §16, Paul 2026-09-09): a FREE MOD cell speaks EVERY window regardless of the
+    // playhead. Placed in COLUMN 3 and run only within column 0's window, a schedule-gated (CELL) MOD is silent (never
+    // active), but a FREE MOD emits — the grid as a mod-matrix.
+    func testModFreeCellSpeaksOffThePlayhead() {
+        let cs = arpColours()
+        func modBox(free: Bool) -> SnapshotBox {
+            var mod = ProcessorSlot(type: .mod)
+            mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modRate = .r1; mod.params.modFree = free
+            return box(colours: cs) { $0.cells[3][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }   // COLUMN 3
+        }
+        let eCell = RecordingEmitter(); run(modBox(free: false), chord([60]), beats: 1.5, into: eCell)   // playhead stays in column 0 (S=2)
+        let eFree = RecordingEmitter(); run(modBox(free: true),  chord([60]), beats: 1.5, into: eFree)
+        XCTAssertEqual(modCC74Events(eCell).count, 0, "a schedule-gated MOD in column 3 is SILENT while column 0 is active")
+        XCTAssertGreaterThan(modCC74Events(eFree).count, 0, "a FREE MOD (the LFO cell) speaks regardless of the playhead")
+    }
     // SPAN ROW (Paul 2026-08-19): one LFO cycle spans the whole bar (vs the per-rate CELL). A RAMP resets once per
     // cycle, so counting the big value-drops = counting cycles: ROW has far fewer than the fast per-rate CELL.
     func testModSpanRowStretchesOneCycleAcrossTheBar() {
