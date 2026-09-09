@@ -492,7 +492,7 @@ enum SnapshotBuilder {
         if let v = p.rtcQuota { out.rtcQuota = clamp(v, 0, 4) }
         if let v = p.rtcOddsVel { out.rtcOddsVel = v }
         if let v = p.rtcFold { out.rtcFold = v }
-        if let v = p.rtcSlices { var s = v; while s.count < 32 { s.append(1) }; out.rtcSlices = Array(s.prefix(32)).map { clamp($0, 1, 8) } }   // PATTERN: per-column strike counts, up to 32 (1 = passthrough · 2…8 = ratchet · NO REST — Paul 2026-09-07)
+        if let v = p.rtcSlices { var s = v; while s.count < 32 { s.append(1) }; out.rtcSlices = Array(s.prefix(32)).map { clamp($0, 0, 8) } }   // PATTERN: per-column strike counts, up to 32 (0 = OFF/mute · 1 = passthrough · 2…8 = ratchet — Paul 2026-09-08)
         out.rtcSteps = clamp(p.rtcSteps ?? 8, 1, 32)   // PATTERN: the matrix length (playhead sweeps this many columns at RATE)
         if let v = p.rtcRate { out.rtcRateBeats = max(0.03125, v.beats) }
         out.rtcClock = p.rtcClock ?? .time   // PATTERN clock: TIME (own RATE) · NOTE (advance per note through) — Paul 2026-09-07

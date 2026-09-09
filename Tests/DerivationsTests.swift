@@ -2132,14 +2132,21 @@ final class DerivationsTests: XCTestCase {
     }
     // RATCHET PATTERN v3 (Paul 2026-09-06, RIFF-shaped): a SELF-CLOCKED ratchet — fires the chord at its OWN RATE, no per-slice
     // matrix. A faster RATE = more strikes (its own clock drives the density); the whole chord sounds each strike.
-    func testRtcPatternSelfClockedFiresAtItsOwnRate() {
-        func pat(_ rate: ArpRate) -> ProcessorSlot {
-            var s = ProcessorSlot(type: .ratchet); s.params.rtcMode = .pattern; s.params.rtcRate = rate; s.params.rtcSteps = 8; return s
+    // STANDALONE RATCHET PATTERN = PASS-THROUGH, not a self-clocked generator (Paul 2026-09-08, supersedes the old
+    // "faster rate = more strikes" self-clock model). A single-slot ratchet-pattern PASSES the input through: count 1 =
+    // sustain (RATE-INDEPENDENT — the definitive fix for "a stab plays for each step"), 2…8 = ratchet (adds strikes).
+    func testRtcPatternStandaloneIsPassThrough() {
+        func pat(_ counts: [Int], _ rate: ArpRate) -> ProcessorSlot {
+            var s = ProcessorSlot(type: .ratchet); s.params.rtcMode = .pattern; s.params.rtcRate = rate
+            s.params.rtcSteps = counts.count; s.params.rtcSlices = counts; s.params.ramp = 0; return s
         }
-        let fast = Accept.onsA([pat(.r1_16)]).count, slow = Accept.onsA([pat(.r1_4)]).count
-        XCTAssertGreaterThan(fast, 0, "a self-clocked PATTERN ratchet fires at its RATE")
-        XCTAssertGreaterThan(fast, slow, "a faster RATE = more strikes (the ratchet's own clock sets the density)")
-        XCTAssertEqual(Accept.notesA([pat(.r1_16)]), [60, 64, 67], "each strike sounds the whole chord")
+        let passFast = Accept.onsA([pat(Array(repeating: 1, count: 8), .r1_16)]).count
+        let passSlow = Accept.onsA([pat(Array(repeating: 1, count: 8), .r1_4)]).count
+        let ratFast  = Accept.onsA([pat(Array(repeating: 3, count: 8), .r1_16)]).count
+        XCTAssertGreaterThan(passFast, 0, "pass-through sounds the held chord")
+        XCTAssertEqual(passFast, passSlow, "PASS-THROUGH is RATE-INDEPENDENT — it passes the input, never generates per step")
+        XCTAssertGreaterThan(ratFast, passFast, "ratchet columns (×3) add strikes over pass-through")
+        XCTAssertEqual(Accept.notesA([pat(Array(repeating: 1, count: 8), .r1_16)]), [60, 64, 67], "the whole chord passes through")
     }
 
     // ARP OCT DIRECTION (Paul 2026-08-22): the PATTERN orders WITHIN a lap; OCT DIRECTION orders the LAPS. DOWN = top octave first.

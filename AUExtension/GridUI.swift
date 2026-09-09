@@ -449,12 +449,16 @@ struct ProcessorBox: View {
                     numPair(p.rtcSteps ?? 8, 1...32) { v in setParam { $0.rtcSteps = v } } }
                 field("CLOCK — how the playhead advances", \.rtcClock) {
                     seg(["TIME", "NOTE"], sel: clockMode == .note ? "NOTE" : "TIME") { i in setParam { $0.rtcClock = (i == 1 ? .note : .time) } } }
-                field("PER STEP — tap a column  (1 = pass through · 2–8 = ratchet)", \.rtcSlices) {
-                    stateMatrixRadio([1, 2, 3, 4, 5, 6, 7, 8], steps: steps, clock: ratchetClock,
-                        header: { v in AnyView(Text("\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
+                field("PER STEP — tap a column  (· = off/mute · 1 = pass · 2–8 = ratchet)", \.rtcSlices) {
+                    stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7, 8], steps: steps, clock: ratchetClock,
+                        header: { v in
+                            let label: String = v == 0 ? "·" : String(v)
+                            let op: Double = v == 0 ? 0.5 : 0.75
+                            return AnyView(Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color.white.opacity(op)).frame(width: 22, alignment: .leading))
+                        },
                         eFill: false,   // euclid control removed (Paul 2026-09-07)
                         onRotate: { d in setParam { $0.rtcRotate = ((($0.rtcRotate ?? 0) + d) % steps + steps) % steps } },
-                        selected: { i in let a = p.rtcSlices ?? []; return i >= 0 && i < a.count ? max(1, a[i]) : 1 },
+                        selected: { i in let a = p.rtcSlices ?? []; return i >= 0 && i < a.count ? max(0, a[i]) : 1 },
                         set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 1, count: steps); while s.count < steps { s.append(1) }; s[i] = v; $0.rtcSlices = s } })
                 }
             }

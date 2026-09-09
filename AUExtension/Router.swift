@@ -60,6 +60,10 @@ final class Router {
                                      // boundary-close must SKIP it, else a glide note sustained across a column boundary
                                      // is wrongly cut (marked a holdCandidate, no hold cell adopts it → closed). BUG fix
                                      // 2026-08-29. Set from `meter` in openVoice (the two flag the identical voice set).
+        var rtcHold = false          // RATCHET PATTERN standalone (Paul 2026-09-08): an IMMORTAL pass-through sustain voice
+                                     // owned entirely by emitColumnRatchetPattern (a stateless per-window diff-reconcile, like
+                                     // reconcileBypass). Excluded from the grid hold-reconcile (emitColumnHolds candidate loop)
+                                     // so the grid boundary never closes it; allNotesOff closes it on every transport/scene edge.
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -453,6 +457,13 @@ final class Router {
     // fixed buffer (no render-path alloc — was a fresh `[(Int,UInt8)]` per generator/weave/tutti/length cell). The
     // emitters bind `srcNoteBuf[0..<srcNoteCount]` — a view whose 0-based indices match, so their reads are unchanged.
     private var srcNoteBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
+    // STANDALONE RATCHET PATTERN (Paul 2026-09-08): the desired PASS sustain set for ONE cell — reused fixed scratch
+    // (no render-path alloc). Max 16 held notes × 4 buses = 64 (wire, bus, velocity) triples.
+    private var rtcDesWire = [UInt8](repeating: 0, count: 128)
+    private var rtcDesBus  = [UInt8](repeating: 0, count: 128)
+    private var rtcDesVel  = [UInt8](repeating: 0, count: 128)
+    private var rtcDesCI   = [Int16](repeating: -1, count: 128)   // adoption key: colour (a row of same-colour cells sustains seamlessly)
+    private var rtcDesCell = [Int16](repeating: -1, count: 128)   // the cell that first opens a wire (SEAL/roll stamp)
     private var lenEventBuf = [(on: Double, off: Double)](repeating: (0, 0), count: 8)   // LENGTH: reused no-alloc scratch (invariant 3)
     private var srcNoteCount = 0
     // Render-hot-loop scratch for the pattern helpers (no per-window array alloc — invariant 3). euclid/burst are
@@ -812,7 +823,7 @@ final class Router {
     private func openVoice(note: UInt8, chan: UInt8, cable: UInt8, bus: UInt8,
                            onSample: Int64, offSample: Int64,
                            velocity: UInt8 = 96, out: MIDIEmitter?, silent: Bool = false,
-                           bypassRecv: Int8 = -1, meter: Bool = false) -> Int {
+                           bypassRecv: Int8 = -1, meter: Bool = false, rtcHold: Bool = false) -> Int {
         guard let out else { return -1 }
         // Claim a slot BEFORE emitting: at capacity we DROP the note (return −1 without emitting) rather
         // than emit an on we can't schedule an off for — an untrackable note would hang. The drop is CLEAN
@@ -868,7 +879,8 @@ final class Router {
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
         voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < Snap.cells) ? Int16(currentCellIndex) : -1   // SEAL sounding gate (Int16 now — was the grid's hard ceiling at Int8's 127)
         voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
-        voices[slot].glideAnchor = meter       // GLIDE: `meter` marks glide direct-injection voices (its sole users — see
+        voices[slot].rtcHold = rtcHold         // RATCHET PATTERN standalone: tag the immortal pass-through sustain (owned by emitColumnRatchetPattern)
+        voices[slot].glideAnchor = meter && !rtcHold  // GLIDE: `meter` marks glide direct-injection voices (its sole users — see
                                                // the comment above + the Voice.glideAnchor note); tag them so the
                                                // hold-continuity boundary-close skips them. A reused slot always resets
                                                // this (openVoice rewrites every field), so a later non-glide voice is clean.
@@ -1688,7 +1700,7 @@ final class Router {
         // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
         // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+colour+face), so
         // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
-        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 && !voices[i].glideAnchor
+        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 && !voices[i].glideAnchor && !voices[i].rtcHold
             && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) }   // BYPASS + GLIDE voices are immortal but NOT grid holds — never adopt/close them here; per-part clock scopes to the row
         // Proceed while the LIVE pool has notes OR any receiver is latch-armed: an armed receiver's FROZEN pool
         // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
@@ -2563,6 +2575,11 @@ final class Router {
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
             }
         }
+        // STANDALONE RATCHET PATTERN (Paul 2026-09-08): a per-window pass-through subsystem (scans all cells, owns its
+        // immortal sustains) — BEFORE the pool guard so it closes on release. One call handles uniform + per-row clocks.
+        emitColumnRatchetPattern(box: box, uniformFast: uniformFast, effColumn: effColumn, pool: pool,
+                                 beatPos: beatPos, windowBeats: modWindowBeats, windowStart: windowStart, windowEnd: windowEnd,
+                                 beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
 
         guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
@@ -3980,7 +3997,8 @@ final class Router {
                 let g = Int((localBeat / advBeats).rounded(.down))                    // TIME: which column at this note's time · NOTE: this note's ordinal
                 let col = (((g + rp.rtcRotate) % steps) + steps) % steps
                 let raw = col < rp.rtcSlices.count ? rp.rtcSlices[col] : 1
-                if raw >= 2 { foldBurst = min(8, raw); slotBeats = advBeats }         // active column → ratchet N over the advance slot (own rate, or the note gap in NOTE mode) · 1 = passthrough
+                if raw == 0 { cur.reset(); cur.rebuildSorted() }                      // OFF column → MUTE this driven note (unselect-to-mute, Paul 2026-09-08)
+                else if raw >= 2 { foldBurst = min(8, raw); slotBeats = advBeats }    // active column → ratchet N over the advance slot (own rate, or the note gap in NOTE mode) · 1 = passthrough
             } else {   // COIN pass-through (velFactor 1.0 in fold mode)
                 let step = Int((m / S).rounded())
                 if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
@@ -4372,6 +4390,11 @@ final class Router {
         guard S > 0 else { return }
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a), mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         if mode == .pattern {
+            // STANDALONE RATCHET PATTERN (Paul 2026-09-08): a SINGLE-SLOT ratchet-pattern cell is a PASS-THROUGH PROCESSOR
+            // of the input, not a generator — handled entirely by emitColumnRatchetPattern (sustain on count-1, ratchet on
+            // 2…8, gap on 0, gated on live input). So DON'T generate here. Multi-slot chains ([RATCHET PATTERN→X]) keep the
+            // self-clocked generator below for now (flagged follow-up).
+            if cell.procs.count <= 1 { return }
             // PATTERN — a SELF-CLOCKED step MATRIX (Paul 2026-09-07, RIFF-shaped): the playhead sweeps STEPS columns at RATE
             // (the ratchet's OWN clock, re-anchored by SPAN — FREE = free-run); each column holds a COUNT — 1 = passthrough
             // (one hit), 2…8 = RATCHET that many (subdividing the column's RATE slot into count staccato sub-strikes). Window-
@@ -4426,6 +4449,126 @@ final class Router {
                 }
             }
             col += S
+        }
+    }
+
+    /// Is any RATCHET PATTERN standalone sustain voice active? (fast-path guard, mirrors anyBypassVoiceActive)
+    private func anyRtcHoldVoiceActive() -> Bool {
+        for i in voices.indices where voices[i].active && voices[i].rtcHold { return true }
+        return false
+    }
+    private func rtcHoldVoiceExists(note: UInt8, bus: UInt8, ci: Int16) -> Bool {
+        for i in voices.indices where voices[i].active && voices[i].rtcHold && voices[i].note == note && voices[i].bus == bus && voices[i].colourIndex == ci { return true }
+        return false
+    }
+
+    /// STANDALONE RATCHET PATTERN (Paul 2026-09-08) — a PROCESSOR of the input, NOT a generator. Called EVERY window
+    /// (before the pool guard, like emitColumnMod/Glide). Scans every SINGLE-SLOT ratchet-pattern cell; the ratchet's OWN
+    /// clock (rtcRate·STEPS·SPAN·rotate) decides the treatment, the INPUT decides whether anything sounds:
+    ///   • count 1 (PASS)      → sustain the held chord as an IMMORTAL legato hold (adopted across windows + grid columns).
+    ///   • count 2…8 (RATCHET) → close the sustain + window-scan N staccato sub-strikes over the column's rate slot.
+    ///   • count 0 (OFF)       → close the sustain (a gap — unselect-to-mute).
+    ///   • cell not the active column for its row / no input → close its sustains.
+    /// Stateless diff-reconcile (like reconcileBypass): the immortal rtcHold voices are owned entirely here (excluded from
+    /// the grid hold-reconcile); allNotesOff closes them on every transport/scene edge → no stuck notes. v1: single-slot
+    /// cells only (a [RATCHET PATTERN → X] chain keeps the old self-clocked generator — flagged follow-up).
+    private func emitColumnRatchetPattern(box: SnapshotBox, uniformFast: Bool, effColumn: Int, pool livePool: NotePool,
+                                          beatPos: Double, windowBeats: Double, windowStart: Int64, windowEnd: Int64,
+                                          beatsPerSample: Double, S: Double, a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+        var hasCell = false
+        for i in 0..<Snap.cells {
+            let c = box.cells[i]
+            if c.colourIndex >= 0 && c.procs.count <= 1 && c.proc.type == .ratchet && c.proc.rtcMode == .pattern { hasCell = true; break }
+        }
+        guard hasCell || anyRtcHoldVoiceActive() else { return }
+        let savedCI = currentColourIndex, savedCell = currentCellIndex, savedAlt = currentAlt
+        defer { currentColourIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
+
+        // PHASE 1 — across ALL active single-slot ratchet-pattern cells: gather the GLOBAL desired PASS sustain set
+        // (deduped by wire+bus+colour, so a row of same-colour cells sustains SEAMLESSLY — cell N+1 adopts cell N's
+        // voice), and emit the RATCHET (count 2…8) staccato sub-strikes immediately (non-immortal).
+        var nDes = 0
+        for idx in 0..<Snap.cells {
+            let cell = box.cells[idx]
+            guard cell.colourIndex >= 0 && cell.procs.count <= 1 && cell.proc.type == .ratchet && cell.proc.rtcMode == .pattern else { continue }
+            let row = idx % Snap.rows, col = idx / Snap.rows
+            let effCol = uniformFast ? effColumn : rowEffColBuf[row]
+            let sRow = uniformFast ? S : rowSBuf[row]
+            let ci = Int(cell.colourIndex)
+            let colour = box.colours[ci]
+            let p = cell.proc   // the RESOLVED ratchet-pattern params (templateChain/processors head), NOT colour.a (which is the colour's own face — a passgate/other for a chain cell)
+            let audible = !(cell.busMask == 0 || cellSoloedOut(col, row) || (!cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row))) || soloSilenced(cell) || !onSceneAudible(colour.on, pass: diag.pass))
+            guard (col == effCol) && audible else { continue }
+            currentColourIndex = Int16(ci); currentCellIndex = idx; currentAlt = false
+            let cellPool = effectivePool(for: cell, live: livePool)
+            let srcN = cellPool.srcCount(for: cell)
+            guard srcN > 0 else { continue }
+            let rate = max(0.03125, p.rtcRateBeats)
+            let steps = max(1, min(32, p.rtcSteps))
+            let spanBeats = p.rtcSpanN > 0 ? Double(p.rtcSpanN) * rate : 0
+            let mWinStart = musicalOf(beatPos, stepBeats: sRow, a: a)
+            let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: sRow, a: a)
+            func columnCount(atTick tickStart: Double) -> Int {   // the ratchet's OWN-clock column count at a tick start
+                let localTick = spanBeats > 0 ? Int(((tickStart - columnStart(tickStart, spanBeats)) / rate).rounded(.down)) : Int((tickStart / rate).rounded(.down))
+                let cc = (((localTick + p.rtcRotate) % steps) + steps) % steps
+                return max(0, min(8, cc < p.rtcSlices.count ? p.rtcSlices[cc] : 1))
+            }
+            let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver) + p.stageOct * 12
+            let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+            // PASS (count 1 at the window start) → contribute this cell's held chord to the global desired sustain.
+            if columnCount(atTick: Double(Int((mWinStart / rate).rounded(.down))) * rate) == 1 {
+                for k in 0..<srcN {
+                    let sn = cellPool.srcAscending(k, for: cell)
+                    let n = Int(sn) + transpose
+                    guard n >= 0 && n <= 127 else { continue }
+                    let vel = max(1, cellPool.velocity(sn))
+                    for b in UInt8(0)..<4 where bm & (1 << b) != 0 {
+                        let sw = n + emitterOctaveShift(Int(b)) + masterKey
+                        guard sw >= 0 && sw <= 127, let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }
+                        var dup = false
+                        for d in 0..<nDes where rtcDesWire[d] == w && rtcDesBus[d] == b && rtcDesCI[d] == Int16(ci) { dup = true; break }
+                        if !dup && nDes < rtcDesWire.count { rtcDesWire[nDes] = w; rtcDesBus[nDes] = b; rtcDesVel[nDes] = vel; rtcDesCI[nDes] = Int16(ci); rtcDesCell[nDes] = Int16(idx); nDes += 1 }
+                    }
+                }
+            }
+            // RATCHET columns (count 2…8) in the window → staccato sub-strikes (non-immortal, gated on live input).
+            let ramp = p.ramp
+            let cycleBeats = Double(Snap.cols) * sRow
+            var tk = Int((mWinStart / rate).rounded(.down)) - 1
+            while true {
+                let tickStart = Double(tk) * rate
+                if tickStart >= mWinEnd { break }
+                let ct = columnCount(atTick: tickStart)
+                if ct >= 2 {
+                    let sub = rate / Double(ct)
+                    for j in 0..<ct {
+                        let tau = tickStart + Double(j) * sub
+                        if tau < mWinStart || tau >= mWinEnd { continue }
+                        let tbm = chopMask(cell, m: tau, S: sRow, base: bm); if tbm == 0 { continue }
+                        let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: sRow, a: a)
+                        let offT = sampleOf(musical: tau + sub * 0.6, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: sRow, a: a)
+                        ratchetStrikeAt(cell: cell, row: row, transpose: transpose, emits: true, pool: cellPool, bm: bm, tbm: tbm,
+                                        onTime: onT, offTime: offT, m: tau, repIdx: j, count: ct, ramp: ramp, chainDriver: -1,
+                                        windowEnd: windowEnd, S: sRow, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
+                    }
+                }
+                tk += 1
+            }
+        }
+        // PHASE 2 — reconcile ALL rtcHold voices vs the global desired set: close those no longer wanted (released /
+        // gap / RATCHET column / playhead left), open the missing (own cable + All copy, both IMMORTAL).
+        for i in voices.indices where voices[i].active && voices[i].rtcHold {
+            var keep = false
+            for d in 0..<nDes where rtcDesWire[d] == voices[i].note && rtcDesBus[d] == voices[i].bus && rtcDesCI[d] == voices[i].colourIndex { keep = true; break }
+            if !keep { closeVoice(i, atSample: windowStart, out: out) }
+        }
+        for d in 0..<nDes {
+            let w = rtcDesWire[d], b = rtcDesBus[d], ci = rtcDesCI[d]
+            if rtcHoldVoiceExists(note: w, bus: b, ci: ci) { continue }
+            currentColourIndex = ci; currentCellIndex = Int(rtcDesCell[d]); currentAlt = false
+            let ch = (busChannels[Int(b)] &- 1) & 15
+            _ = openVoice(note: w, chan: ch, cable: b + 1, bus: b, onSample: windowStart, offSample: .max, velocity: rtcDesVel[d], out: out, meter: true, rtcHold: true)
+            _ = openVoice(note: w, chan: ch, cable: 0,     bus: b, onSample: windowStart, offSample: .max, velocity: rtcDesVel[d], out: out, meter: false, rtcHold: true)
         }
     }
 
