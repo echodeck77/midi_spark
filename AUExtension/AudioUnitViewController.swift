@@ -1185,7 +1185,8 @@ struct DiagView: View {
                        stepIndex: stepIndex, swing: swing,                      // LAYOUT v2: the clock now lives in the header
                        onStep: { au?.setStepRateIndex($0); refreshTiming() },
                        onSwing: { au?.setSwing($0); refreshTiming() },
-                       headerExtras: AnyView(buildHeaderControls()))            // BUILD: RECORD · RATE · MIDI/RACK CONFIG in the header (Paul 2026-08-23)
+                       headerExtras: AnyView(buildHeaderControls()),           // BUILD: RECORD · RATE · MIDI/RACK CONFIG in the header (Paul 2026-08-23)
+                       playStrip: AnyView(buildPlayStrip()))                    // THE PLAY STRIP — transport + sweeping playhead (Paul 2026-09-09)
     }
     // §3 PRESETS wiring
     func openPresets() {

@@ -1057,6 +1057,36 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 5).fill(LinearGradient(colors: [Color(hex: selHex), Color(hex: mixHex(selHex, 0x000000, 0.45))], startPoint: .top, endPoint: .bottom)).opacity(playing ? 1.0 : (buildPlayPopulated ? 0.6 : 0.4)))   // the SELECTED colour, faded with a gradient (dimmer idle · dimmest with nothing to play)
             .contentShape(Rectangle()).onTapGesture { buildTogglePlayGrid() }
     }
+    // THE PLAY STRIP (Paul 2026-09-09) — the transport, in the HEADER right of the preset button (replaces the grid's
+    // corner STOP/PLAY buttons). A play/stop toggle + a playhead that sweeps L→R across the strip in beat-time while
+    // playing (host transport only, like the ferry sweep). Tap toggles the play grid.
+    @ViewBuilder func buildPlayStrip() -> some View {
+        let playing = buildPlayPlaying
+        HStack(spacing: 7) {
+            Image(systemName: playing ? "stop.fill" : "play.fill").font(.system(size: 12, weight: .black))
+                .foregroundColor(playing ? roomsIndigo : .white.opacity(0.85))
+            GeometryReader { g in
+                let barBeats = Double(Snap.cols) * max(0.0001, stepBeats)
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.10))                       // the track
+                    if playing && d.playing {
+                        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                            let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                            let ph = (live.truncatingRemainder(dividingBy: barBeats)) / barBeats
+                            let p = CGFloat(ph < 0 ? ph + 1 : ph)
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 3).fill(roomsIndigo.opacity(0.45)).frame(width: max(0, p * g.size.width))   // progress fill
+                                Rectangle().fill(Color.white.opacity(0.9)).frame(width: 2).offset(x: p * g.size.width - 1)                  // the sweeping head
+                            }
+                        }
+                    }
+                }
+            }.frame(width: 96, height: 12)
+        }
+        .padding(.horizontal, 9).frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+        .contentShape(Rectangle()).onTapGesture { buildTogglePlayGrid() }
+    }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.8)
@@ -2194,10 +2224,10 @@ extension DiagView {
             let cardY = footerY + footerH + gap                             // the card docks BELOW the footer (so it no longer covers it)
             let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the footer + the docked card
             VStack(alignment: .leading, spacing: gap) {
-                HStack(spacing: gap) {                                       // STOP (left) · PLAY-ferry buttons · PLAY (right) — Paul 2026-09-08
-                    buildStopAllButton().frame(width: cw, height: ch)       // STOP — top-LEFT corner
+                HStack(spacing: gap) {                                       // the PLAY-ferry row (transport moved to the header play strip — Paul 2026-09-09)
+                    Color.clear.frame(width: cw, height: ch)                 // left rail slot — keeps the ferries aligned with the grid's left rail
                     ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: cw, height: ch) }   // the PLAY-ferry buttons (select → play)
-                    buildPlayAllButton().frame(width: cw, height: ch)       // PLAY — top-RIGHT corner (mirrors STOP)
+                    Color.clear.frame(width: cw, height: ch)                 // right rail slot
                 }
                 ZStack(alignment: .topLeading) {                            // the 4-row browser + the docked card below
                     VStack(spacing: gap) {
@@ -2425,10 +2455,10 @@ extension DiagView {
             // CARD filling the rest (the freed space from 8→4 rows).
             let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)
             VStack(alignment: .leading, spacing: gap) {
-                HStack(spacing: gap) {                                      // the PLAY-ferry row — STOP (left) · ferries · ▲▼ row cursor (right)
-                    buildStopAllButton().frame(width: railW, height: ch)     //   STOP — top-LEFT, over the full-width left rail (Paul 2026-09-02)
+                HStack(spacing: gap) {                                      // the PLAY-ferry row (transport moved to the header play strip — Paul 2026-09-09)
+                    Color.clear.frame(width: railW, height: ch)              // left rail slot — keeps the ferries aligned with the grid's left rail
                     ForEach(0..<8, id: \.self) { c in roomsPlayFerry(c).frame(width: ferryW, height: ch) }   // ALWAYS 8 ferries (the play layer), widening to fill when the part is 16 wide (Paul 2026-09-04)
-                    buildPlayAllButton().frame(width: railW, height: ch)     // PLAY — top-RIGHT, mirrors STOP on the left (Paul 2026-09-08, replaced the ▲▼ cursor)
+                    Color.clear.frame(width: railW, height: ch)              // right rail slot
                 }
                 ZStack(alignment: .topLeading) {                           // the lower region: the 4-row grid on top, the docked CARD beneath
                     VStack(alignment: .leading, spacing: gap) {
