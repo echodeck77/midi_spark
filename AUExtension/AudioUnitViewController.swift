@@ -142,7 +142,7 @@ struct DiagView: View {
     @State var buildReturnPart: Int? = nil               // QoL: the UNDEFINED bench to auto-return to after promoting a restored part (Paul 2026-08-15)
     @State var buildPartEmitters: Set<Bus> = [.a]        // the CURRENT part's output emitters (part-owned I/O; every machine follows)
     @State var buildPartRate: StepRate? = nil            // PER-PART CLOCK (Paul 2026-08-19): the CURRENT part's step rate (nil ⇒ scene default) — deployed parts play at independent tempos
-    @State var buildPartLen: Int? = nil                  // PER-PART CLOCK: the CURRENT part's loop length 1…8 (nil ⇒ 8) — a shorter part loops sooner (Stage D UI later)
+    @State var buildPartLen: Int? = Snap.maxCols         // PER-PART CLOCK: the CURRENT part's loop length 1…16 — DEFAULTS to 16 steps (Paul 2026-09-09); a loaded part restores its own length (nil ⇒ 8 for old docs)
     @State var buildPartCast: [String] = []              // the CURRENT part's cast MEMBERSHIP (visible palette over the global store); §2 cast view
     @State var buildCastSlots: [Int: String] = [:]       // §2 explicit slot→machineID for non-default machines (long-press places a machine on its pressed cell)
     @State var buildAuditionID: String? = nil            // the standing uncommitted "create a duplicate" candidate (ephemeral), auditioned after a PLACE

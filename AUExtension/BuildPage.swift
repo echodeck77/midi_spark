@@ -1151,12 +1151,14 @@ extension DiagView {
         let old = buildPartCols
         buildPartLen = n
         let new = buildPartCols
-        // EXTENDING (e.g. 8 → 16, Paul 2026-09-08): TILE the existing pattern into the newly-revealed columns so the whole
-        // loop sounds — a bare widen left them empty, so the playhead swept the second half in silence. Only fill columns
-        // that are currently EMPTY (so re-extending never clobbers a second half you've already edited).
+        // EXTENDING (e.g. 8 → 16, Paul 2026-09-08/09): TILE the existing pattern into the newly-revealed columns so the
+        // whole loop sounds — a bare widen left them empty, so the playhead swept the second half in silence. FORCE-tile
+        // every revealed column from its modulo source (was: only fill empty columns — but a part that was ever 16-wide
+        // could keep a STALE, top-row-empty second half → the "rightmost 8 cells on the top row missing" bug, Paul 2026-09-09).
+        // Extend only ever reveals columns that were HIDDEN at the narrower width, so re-tiling them to the current pattern
+        // is exactly what "extend = tile" means.
         if new > old, old > 0 {
             for c in old..<new where c < buildStagingCells.count {
-                guard buildStagingCells[c].allSatisfy({ $0 == nil }) else { continue }   // don't overwrite existing content
                 let src = c % old
                 if src < buildStagingCells.count { buildStagingCells[c] = buildStagingCells[src] }
                 if c < buildStagingSel.count, src < buildStagingSel.count { buildStagingSel[c] = buildStagingSel[src] }
@@ -2140,7 +2142,8 @@ extension DiagView {
         buildRecordUndo()
         let y = buildNewTabMachine(t, machine: hit.chain, transpose: hit.transpose)   // a fresh part machine carrying the selected chain (vivid part hue)
         var p = BuildPart()
-        for c in 0..<Snap.cols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }      // seed the chain across the WHOLE first row (an 8-step loop), all columns' rung selected → the part plays a full sequence, not one cell (Paul 2026-09-08)
+        p.length = Snap.maxCols                                                       // seed a full 16-step part (Paul 2026-09-09: the grid defaults to 16)
+        for c in 0..<Snap.maxCols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }   // seed the chain across the WHOLE first row (a 16-step loop), all columns' rung selected → the part plays a full sequence, not one cell (Paul 2026-09-08/09)
         p.selID = y; p.cast = [y]
         let io = roomsStampSourceIO(); p.receiver = io.recv; p.emitters = io.emit
         buildFerryParts[t] = p
