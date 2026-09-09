@@ -819,4 +819,31 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(blank.partsResolved.count, 8)
         XCTAssertTrue(blank.partsResolved.allSatisfy { $0 == nil })
     }
+
+    // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): the per-ferry name/hue/launch fields round-trip through the document,
+    // and an older save (missing keys) decodes to the resolved defaults — LOOP · LATCH · SYNC · choke OFF (CR-8 guard).
+    func testFerryLaunchSettingsRoundTripAndDefault() throws {
+        var p = BuildPart()
+        p.ferryName = "BASSLINE"; p.ferryHue = 0x00FF88
+        p.launchPlayback = .oneShot; p.launchTrigger = .spring; p.launchStart = .instant; p.chokeGroup = 3
+        let back = try JSONDecoder().decode(BuildPart.self, from: try JSONEncoder().encode(p))
+        XCTAssertEqual(back.ferryName, "BASSLINE")
+        XCTAssertEqual(back.ferryHue, 0x00FF88)
+        XCTAssertEqual(back.launchPlayback, .oneShot)
+        XCTAssertEqual(back.launchTrigger, .spring)
+        XCTAssertEqual(back.launchStart, .instant)
+        XCTAssertEqual(back.chokeGroup, 3)
+        // An OLD part JSON with none of the launch keys decodes to nil → the resolvers give today's behaviour.
+        let old = try JSONDecoder().decode(BuildPart.self, from: Data(#"{"selID":"gold"}"#.utf8))
+        XCTAssertNil(old.ferryName); XCTAssertNil(old.ferryHue); XCTAssertNil(old.chokeGroup)
+        XCTAssertEqual(old.launchPlaybackResolved, .loop)
+        XCTAssertEqual(old.launchTriggerResolved, .latch)
+        XCTAssertEqual(old.launchStartResolved, .sync)
+        XCTAssertEqual(old.chokeGroupResolved, 0)
+        // The settings survive a whole-BuildPlayGridData round-trip on a ferry slot.
+        var g = BuildPlayGridData(); var slots = Array(repeating: BuildPart?.none, count: 8); slots[4] = p; g.parts = slots
+        let gback = try JSONDecoder().decode(BuildPlayGridData.self, from: try JSONEncoder().encode(g))
+        XCTAssertEqual(gback.partsResolved[4]?.ferryName, "BASSLINE")
+        XCTAssertEqual(gback.partsResolved[4]?.launchStart, .instant)
+    }
 }
