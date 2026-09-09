@@ -3044,11 +3044,13 @@ extension DiagView {
     // whole row is the current per-column selection. (Paul 2026-08-28)
     @ViewBuilder private func roomsPartRightRail(_ n: Int) -> some View {
         let rowSel = buildStagingSel.allSatisfy { $0 == n }
+        let rowSelectedAny = buildStagingSel.prefix(buildPartCols).contains(n)   // row n is the active rung in AT LEAST ONE column (Paul 2026-09-10)
         // THE LEFT RAIL = the DARK VERSION of the right rail (Paul 2026-09-09): plain dark unless the whole row is
         // selected for playback, then a DARK shade of the row's ferry colour (same hue family as the right rail, darker).
         RoundedRectangle(cornerRadius: 5).fill(rowSel ? Color(hex: mixHex(partFerryHue(n), 0x0E1116, 0.68)) : Color.white.opacity(0.05))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(rowSel ? Color.white.opacity(0.6) : buildEdge, lineWidth: 1))
-            .overlay(Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.7)))   // same as the old gui's right rail
+            // The chevron takes the ROW's colour when the row is selected at ANY column, else stays neutral (Paul 2026-09-10).
+            .overlay(Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundColor(rowSelectedAny ? Color(hex: partFerryHue(n)) : Color.white.opacity(0.7)))   // same as the old gui's right rail
             .contentShape(Rectangle())
             .onTapGesture { buildPartTouched = true; buildSelectRow(n) }  // select the WHOLE row for playback (user edit)
     }
@@ -4352,6 +4354,7 @@ extension DiagView {
         buildRecordUndo()
         let y = buildNewMachine(hex: buildDistinctHue(), machine: chain)
         buildSetRow(row, to: y)                                  // place the machine across the row's cells (selectable in any column)
+        buildSelectRow(row)                                      // AUTO-SELECT the new row across every column (Paul 2026-09-10)
         buildRoomsSetActiveSide(row); buildSelectID(y); buildTapMachineTab(row)   // focus the new row → the machine box now edits it
         buildStagingSyncIfPlaying()
     }
