@@ -1,44 +1,44 @@
 import SwiftUI
 // The DRAG&DROP page (and all its drag/palette/grid/machinery/dice code) was REMOVED (user 2026-08-13) — the BUILD
-// page superseded it. This file now holds ONLY the colour-management cluster still shared with BUILD (ddSelectColour/
-// ddCreateColour/ddColourShown/ddColourIsPlaced/ddRepresentativeCell/ddEngageSolo/ddEnsureSelection/ddSelectedColourID
+// page superseded it. This file now holds ONLY the machine-management cluster still shared with BUILD (ddSelectMachine/
+// ddCreateMachine/ddMachineShown/ddMachineIsPlaced/ddRepresentativeCell/ddEngageSolo/ddEnsureSelection/ddSelectedMachineID
 // + their internals). (The `ddZone`/`DDZonePref` drop-frame plumbing went with the flowDiagram, 2026-09-01.)
 
 extension DiagView {
-    var ddSelectedColourID: String? {
-        if let b = buildSelID { return b }   // BUILD's ID-based selection wins (supports ephemeral colours beyond the 16)
-        if ddColourSel >= 0 && ddColourSel < colourIDs.count { return colourIDs[ddColourSel] }
-        return editingCell?.colourID
+    var ddSelectedMachineID: String? {
+        if let b = buildSelID { return b }   // BUILD's ID-based selection wins (supports ephemeral machines beyond the 16)
+        if ddMachineSel >= 0 && ddMachineSel < machineIDs.count { return machineIDs[ddMachineSel] }
+        return editingCell?.machineID
     }
-    // LANDSCAPE header (user 2026-08-10): the colour's EXAMPLE CELL (swatch) + its name GOLD, with the cell COUNT to
+    // LANDSCAPE header (user 2026-08-10): the machine's EXAMPLE CELL (swatch) + its name GOLD, with the cell COUNT to
     // the right — sits ABOVE the palette grid, lined up with the top of the grid.
-    func ddColourIsPlaced(_ id: String) -> Bool {      // internal: shared with the BUILD page
-        for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { return true } }
+    func ddMachineIsPlaced(_ id: String) -> Bool {      // internal: shared with the BUILD page
+        for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.machineID == id { return true } }
         return false
     }
-    /// A palette slot shows a colour when it's been CREATED (defined flag) or has placed cells; else it's a "+" slot.
-    func ddColourShown(_ i: Int) -> Bool {             // internal: shared with the BUILD page
-        (i < docColours.count && docColours[i].defined == true) || ddColourIsPlaced(colourIDs[i])
+    /// A palette slot shows a machine when it's been CREATED (defined flag) or has placed cells; else it's a "+" slot.
+    func ddMachineShown(_ i: Int) -> Bool {             // internal: shared with the BUILD page
+        (i < docMachines.count && docMachines[i].defined == true) || ddMachineIsPlaced(machineIDs[i])
     }
-    /// Tap a "+" slot → CREATE a new colour (mark it defined; its default machine is the colour's own head). It shows
+    /// Tap a "+" slot → CREATE a new machine (mark it defined; its default machine is the machine's own head). It shows
     /// as a swatch, selected; drag it onto the grid to place + edit (no cells yet, so the machinery invites a place).
-    func ddCreateColour(_ i: Int) {
-        guard i >= 0 && i < colourIDs.count else { return }
-        au?.editDocument { doc in if i < doc.colours.count { doc.colours[i].defined = true } }
+    func ddCreateMachine(_ i: Int) {
+        guard i >= 0 && i < machineIDs.count else { return }
+        au?.editDocument { doc in if i < doc.machines.count { doc.machines[i].defined = true } }
         refreshFromDocument()
-        ddColourSel = i
-        ddScopeToColour(colourIDs[i], anchor: nil)
+        ddMachineSel = i
+        ddScopeToMachine(machineIDs[i], anchor: nil)
     }
-    private func ddColourCells(_ id: String) -> [GridPos] {
+    private func ddMachineCells(_ id: String) -> [GridPos] {
         var out: [GridPos] = []
-        for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { out.append(GridPos(col: c, row: r)) } }
+        for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.machineID == id { out.append(GridPos(col: c, row: r)) } }
         return out
     }
-    /// THE PER-COLOUR MODEL (user 2026-08-09): a colour IS a machine — selecting one scopes the edit to EVERY cell of
-    /// that colour, so every machinery edit (add/remove/params/split) applies colour-wide. The anchor cell just drives
+    /// THE PER-MACHINE MODEL (user 2026-08-09): a machine IS a machine — selecting one scopes the edit to EVERY cell of
+    /// that machine, so every machinery edit (add/remove/params/split) applies machine-wide. The anchor cell just drives
     /// what the flow diagram DISPLAYS. `editPointedCell`/`editChop`/`{add,edit,remove}SlotCells` all fan out to `sel`.
-    func ddScopeToColour(_ id: String, anchor: (Int, Int)?, engage: Bool = true) {   // internal: shared with BUILD's buildSelectID
-        let cells = ddColourCells(id)
+    func ddScopeToMachine(_ id: String, anchor: (Int, Int)?, engage: Bool = true) {   // internal: shared with BUILD's buildSelectID
+        let cells = ddMachineCells(id)
         sel.reset(); for p in cells { sel.add(p) }
         if let a = anchor { selCol = a.0; selRow = a.1 }
         else if let first = cells.first { selCol = first.col; selRow = first.row }
@@ -48,25 +48,25 @@ extension DiagView {
     }
     /// STICKY ROUTING (user 2026-08-10): a fresh cell inherits the LAST receiver + emitters chosen on the page (else
     /// the model default R1 + Emitter A). Captured from the anchor cell on select + after a routing edit.
-    /// Engage PLAY: THIS CELL for the current selection. A PLACED cell freezes on its grid slot; an UNPLACED colour
+    /// Engage PLAY: THIS CELL for the current selection. A PLACED cell freezes on its grid slot; an UNPLACED machine
     /// (no cell yet) plays via a SYNTHETIC preview cell at an empty slot (its sticky receiver + emitters + machine).
-    /// If neither is possible (no colour selected, or the grid is full for a preview) the toggle springs back off.
+    /// If neither is possible (no machine selected, or the grid is full for a preview) the toggle springs back off.
     func ddEngageSolo() {
-        if selCol >= 0, selRow >= 0 { au?.setColourSolo(col: selCol, row: selRow); return }
-        if let cid = ddSelectedColourID, au?.setColourSoloPreview(colourID: cid, inputReceiver: ddStickyReceiver, buses: Array(ddStickyBuses)) == true { return }
-        buildVoiceOwner = .none; au?.clearColourSolo()
+        if selCol >= 0, selRow >= 0 { au?.setMachineSolo(col: selCol, row: selRow); return }
+        if let cid = ddSelectedMachineID, au?.setMachineSoloPreview(machineID: cid, inputReceiver: ddStickyReceiver, buses: Array(ddStickyBuses)) == true { return }
+        buildVoiceOwner = .none; au?.clearMachineSolo()
     }
     func ddCaptureStickyRouting() {
         guard let c = editingCell else { return }
         ddStickyReceiver = c.inputReceiver ?? 0
         ddStickyBuses = c.buses.isEmpty ? [.a] : c.buses
     }
-    /// The placed cells of a colour — the cross-file-visible read `editPointedCell` uses to detect an unplaced colour.
-    func ddColourCellsPublic(_ id: String) -> [GridPos] { ddColourCells(id) }
-    /// UNPLACED-colour routing: apply a cell mutation to a synthetic cell carrying the current sticky routing, then
-    /// read the result back into the sticky — so a receiver/emitter tap on a not-yet-placed colour sticks + shows.
+    /// The placed cells of a machine — the cross-file-visible read `editPointedCell` uses to detect an unplaced machine.
+    func ddMachineCellsPublic(_ id: String) -> [GridPos] { ddMachineCells(id) }
+    /// UNPLACED-machine routing: apply a cell mutation to a synthetic cell carrying the current sticky routing, then
+    /// read the result back into the sticky — so a receiver/emitter tap on a not-yet-placed machine sticks + shows.
     func ddApplyStickyRoutingMutation(_ id: String, _ mutate: (inout Cell) -> Void) {
-        var c = Cell(colourID: id)
+        var c = Cell(machineID: id)
         c.inputReceiver = ddStickyReceiver
         c.buses = ddStickyBuses
         mutate(&c)

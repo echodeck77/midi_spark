@@ -7,8 +7,8 @@ import XCTest
 
 final class EffectiveParamsTests: XCTestCase {
 
-    /// A minimal valid document (macro tests don't touch colours/scenes).
-    private func doc() -> PluginState { PluginState(colours: [], scenes: [SceneState.empty()]) }
+    /// A minimal valid document (macro tests don't touch machines/scenes).
+    private func doc() -> PluginState { PluginState(machines: [], scenes: [SceneState.empty()]) }
 
     // MARK: M0 — the macro state model
 
@@ -180,11 +180,11 @@ final class EffectiveParamsTests: XCTestCase {
     /// are untouched — the whole point of the offset model (performance, not identity).
     func testBuilderFoldsMacroOffsetIntoResolvedChainButNotTheDocument() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold")
+        var cell = Cell(machineID: "gold")
         var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
         cell.processors = [slot]
         s.cells[0][0] = cell
-        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
         doc.macros = doc.macrosResolved
         doc.macros?[0] = Macro(name: "GATE", value: 0.5, fixed: false,
                                targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4)])
@@ -194,9 +194,9 @@ final class EffectiveParamsTests: XCTestCase {
 
         // The base is untouched: the DOCUMENT slot param is still 0.5, and the seal (document-derived) is stable.
         XCTAssertEqual(doc.scenes[0].cells[0][0]?.processors?[0].params.gate, 0.5)
-        let sealWith = sealHash(cell, colours: doc.colours)
+        let sealWith = sealHash(cell, machines: doc.machines)
         var docNoMacro = doc; docNoMacro.macros = nil
-        XCTAssertEqual(sealHash(cell, colours: docNoMacro.colours), sealWith)   // macro presence never moves the seal
+        XCTAssertEqual(sealHash(cell, machines: docNoMacro.machines), sealWith)   // macro presence never moves the seal
     }
 
     /// M2 — the PER-CELL value store (§A2 PUNCH/SPAN): ONE macro targets TWO cells with the same delta; a per-cell
@@ -204,10 +204,10 @@ final class EffectiveParamsTests: XCTestCase {
     /// base (the global value 0). This is the load-bearing engine bit — a PUNCH-drawn cell is independent.
     func testPerCellMacroValueShiftsOneCellNotItsNeighbour() {
         var s = SceneState.empty()
-        func gateCell() -> Cell { var c = Cell(colourID: "gold"); var sl = ProcessorSlot(type: .arp); sl.params.gate = 0.5; c.processors = [sl]; return c }
+        func gateCell() -> Cell { var c = Cell(machineID: "gold"); var sl = ProcessorSlot(type: .arp); sl.params.gate = 0.5; c.processors = [sl]; return c }
         s.cells[0][0] = gateCell()
         s.cells[1][0] = gateCell()
-        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
         doc.macros = doc.macrosResolved
         doc.macros?[0] = Macro(name: "GATE", value: 0, fixed: false,   // GLOBAL value 0 → no shift anywhere by default
                                targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4),
@@ -227,9 +227,9 @@ final class EffectiveParamsTests: XCTestCase {
     /// M2 byte-identity: an empty per-cell store changes nothing (the whole macroCellValues path is inert when unused).
     func testEmptyPerCellStoreIsByteIdentical() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold"); var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5; cell.processors = [slot]
+        var cell = Cell(machineID: "gold"); var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5; cell.processors = [slot]
         s.cells[0][0] = cell
-        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
         doc.macros = doc.macrosResolved
         doc.macros?[0] = Macro(name: "G", value: 0.5, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4)])
         let a = SnapshotBuilder.build(from: doc)
@@ -258,11 +258,11 @@ final class EffectiveParamsTests: XCTestCase {
     /// Macro at 0 through the builder is home — the resolved chain equals the un-macro'd build.
     func testBuilderMacroAtZeroMatchesNoMacro() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold")
+        var cell = Cell(machineID: "gold")
         var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
         cell.processors = [slot]
         s.cells[0][0] = cell
-        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
         let plain = SnapshotBuilder.build(from: doc).cells[0].procs[0].gate
 
         doc.macros = doc.macrosResolved
@@ -275,11 +275,11 @@ final class EffectiveParamsTests: XCTestCase {
     func testABBindingReconstructsBAtOneAndAAtZero() {
         let A = 0.3, B = 0.9
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold")
+        var cell = Cell(machineID: "gold")
         var slot = ProcessorSlot(type: .arp); slot.params.gate = A     // the A state lives in the document
         cell.processors = [slot]
         s.cells[0][0] = cell
-        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
         doc.macros = doc.macrosResolved
         doc.macros?[0].targets = [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: B - A)]   // the authored delta
 
@@ -296,11 +296,11 @@ final class EffectiveParamsTests: XCTestCase {
     /// A gold ARP chain cell at (col,row) with the given head gate, ready for macro targeting.
     private func chainCellDoc(gate: Double, at pos: (Int, Int) = (0, 0)) -> PluginState {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold")
+        var cell = Cell(machineID: "gold")
         var slot = ProcessorSlot(type: .arp); slot.params.gate = gate
         cell.processors = [slot]
         s.cells[pos.0][pos.1] = cell
-        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
         doc.macros = doc.macrosResolved
         return doc
     }
@@ -343,10 +343,10 @@ final class EffectiveParamsTests: XCTestCase {
     func testBuilderMacroModulatesEveryTargetedCell() {
         var s = SceneState.empty()
         for pos in [(0, 0), (3, 5)] {
-            var cell = Cell(colourID: "gold"); var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
+            var cell = Cell(machineID: "gold"); var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
             cell.processors = [slot]; s.cells[pos.0][pos.1] = cell
         }
-        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
         doc.macros = doc.macrosResolved
         doc.macros?[0] = Macro(value: 1.0, targets: [
             MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.3),
@@ -466,61 +466,61 @@ final class EffectiveParamsTests: XCTestCase {
 
     // MARK: Snapshot effective* — the quantize/clamp helpers (render-side, §3.2)
 
-    private func snapColour(_ mutate: (inout SnapParams) -> Void) -> SnapColour {
-        var sc = SnapColour(); mutate(&sc.a); return sc
+    private func snapMachine(_ mutate: (inout SnapParams) -> Void) -> SnapMachine {
+        var sc = SnapMachine(); mutate(&sc.a); return sc
     }
 
     /// RATCHET repeats quantize to the nearest LEGAL count in [2,3,4,6,8], first-wins on a tie.
     func testEffectiveRepeatsQuantizesToLegalCount() {
-        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 2 }), 2)
-        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 5 }), 4, "5 is equidistant 4/6 → first (4) wins")
-        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 7 }), 6, "7 is equidistant 6/8 → first (6) wins")
-        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 8 }), 8)
+        XCTAssertEqual(effectiveRepeats(snapMachine { $0.count = 2 }), 2)
+        XCTAssertEqual(effectiveRepeats(snapMachine { $0.count = 5 }), 4, "5 is equidistant 4/6 → first (4) wins")
+        XCTAssertEqual(effectiveRepeats(snapMachine { $0.count = 7 }), 6, "7 is equidistant 6/8 → first (6) wins")
+        XCTAssertEqual(effectiveRepeats(snapMachine { $0.count = 8 }), 8)
     }
 
     /// The scalar effective* helpers saturate at their native bounds — no trap, no off-by-one in the voice switch.
     func testEffectiveScalarClamps() {
-        XCTAssertEqual(effectiveOctaves(snapColour { $0.octaves = 9 }), 4, "octaves clamp 1…4")
-        XCTAssertEqual(effectiveOctaves(snapColour { $0.octaves = 0 }), 1)
+        XCTAssertEqual(effectiveOctaves(snapMachine { $0.octaves = 9 }), 4, "octaves clamp 1…4")
+        XCTAssertEqual(effectiveOctaves(snapMachine { $0.octaves = 0 }), 1)
         // harmIntervals voice select: 0/1 pick .0/.1, any other index picks .2; each clamps ±24.
-        let c = snapColour { $0.harmIntervals = (100, -100, 7) }
+        let c = snapMachine { $0.harmIntervals = (100, -100, 7) }
         XCTAssertEqual(effectiveHarmInterval(c, voice: 0), 24)
         XCTAssertEqual(effectiveHarmInterval(c, voice: 1), -24)
         XCTAssertEqual(effectiveHarmInterval(c, voice: 2), 7)
         XCTAssertEqual(effectiveHarmInterval(c, voice: 99), 7, "an out-of-range voice falls to the 3rd interval")
         // rateIndex saturates into the arpRateBeats ladder rather than trapping.
-        XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = 127 }), Snap.arpRateBeats.last!)
-        XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = -5 }), Snap.arpRateBeats.first!)
+        XCTAssertEqual(effectiveRateBeats(snapMachine { $0.rateIndex = 127 }), Snap.arpRateBeats.last!)
+        XCTAssertEqual(effectiveRateBeats(snapMachine { $0.rateIndex = -5 }), Snap.arpRateBeats.first!)
     }
 
     /// The unit-range render-side reads saturate at their floors/ceilings (the render thread's last line of defence
     /// even though `resolve` already clamps on ingest): ramp/spread/probability ∈ [0,1], harmVelScale ∈ [0.1,1].
     func testEffectiveUnitRangeScalarsClamp() {
-        XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = 2 }), 1)
-        XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = -1 }), 0)
-        XCTAssertEqual(effectiveSpread(snapColour { $0.spread = 5 }), 1)
-        XCTAssertEqual(effectiveSpread(snapColour { $0.spread = -0.5 }), 0)
-        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = 3 }.a), 1)
-        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = -2 }.a), 0)
-        XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = 5 }), 1)
-        XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = -1 }), 0.1, "the floor is 0.1, not 0")
+        XCTAssertEqual(effectiveRamp(snapMachine { $0.ramp = 2 }), 1)
+        XCTAssertEqual(effectiveRamp(snapMachine { $0.ramp = -1 }), 0)
+        XCTAssertEqual(effectiveSpread(snapMachine { $0.spread = 5 }), 1)
+        XCTAssertEqual(effectiveSpread(snapMachine { $0.spread = -0.5 }), 0)
+        XCTAssertEqual(effectiveProbability(snapMachine { $0.probability = 3 }.a), 1)
+        XCTAssertEqual(effectiveProbability(snapMachine { $0.probability = -2 }.a), 0)
+        XCTAssertEqual(effectiveHarmVelScale(snapMachine { $0.harmVelScale = 5 }), 1)
+        XCTAssertEqual(effectiveHarmVelScale(snapMachine { $0.harmVelScale = -1 }), 0.1, "the floor is 0.1, not 0")
     }
 
     // CHANCE PATTERN (Paul 2026-08-22 §5): effectiveProbability(step:) reads the rotated 8-slice odds; step wraps mod 8;
     // a missing slice falls back to pass (100%); SINGLE mode ignores step. (Only the SINGLE clamp path was tested before.)
     func testEffectiveProbabilityPatternReadsTheRotatedSlice() {
         let slices = [100, 0, 70, 0, 100, 0, 70, 0]
-        let p = snapColour { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = 0 }.a
+        let p = snapMachine { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = 0 }.a
         XCTAssertEqual(effectiveProbability(p, step: 0), 1.0, "slice 0 = 100%")
         XCTAssertEqual(effectiveProbability(p, step: 1), 0.0, "slice 1 = 0%")
         XCTAssertEqual(effectiveProbability(p, step: 9), effectiveProbability(p, step: 1), "step wraps mod 8")
-        let pr = snapColour { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = 1 }.a
+        let pr = snapMachine { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = 1 }.a
         XCTAssertEqual(effectiveProbability(pr, step: 0), 0.0, "rotate 1 → step 0 reads slice 1")
-        let pn = snapColour { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = -1 }.a
+        let pn = snapMachine { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = -1 }.a
         XCTAssertEqual(effectiveProbability(pn, step: 1), 1.0, "negative rotate wraps: step 1 → slice 0 = 100%")
-        let ps = snapColour { $0.chanceMode = .pattern; $0.chanceSlices = [50]; $0.chanceRotate = 0 }.a
+        let ps = snapMachine { $0.chanceMode = .pattern; $0.chanceSlices = [50]; $0.chanceRotate = 0 }.a
         XCTAssertEqual(effectiveProbability(ps, step: 3), 1.0, "a missing slice falls back to pass (100%)")
-        let single = snapColour { $0.probability = 0.5 }.a
+        let single = snapMachine { $0.probability = 0.5 }.a
         XCTAssertEqual(effectiveProbability(single, step: 5), effectiveProbability(single, step: 0), "SINGLE ignores step")
     }
 

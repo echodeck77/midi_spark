@@ -14,7 +14,7 @@ enum BuildWorkshopVoice { case none, chain, part }
 // THE FORM (user 2026-08-11: THREE EQUAL COLUMNS + the machinery strip along the bottom; NO focus highlight):
 //   • LEFT COLUMN (the build flow, top→bottom): [● PLAY THIS CELL] → [PART ▾][+ NEW] → 1·INPUT (R1–R4, MIDI ⎓ | PIANO
 //     ⌨ per door; a PIANO door reveals its octave keyboard) → 2·THE CAST (the FULL 4×4 palette, 16 slots) · 🎲
-//     RANDOMIZE (the chain's die = roll the colour's machine) → 3·OUTPUT (A–D) → [APPLY TO STAGING →] → LITTER.
+//     RANDOMIZE (the chain's die = roll the machine's machine) → 3·OUTPUT (A–D) → [APPLY TO STAGING →] → LITTER.
 //   • MIDDLE COLUMN — STAGING (the workshop 8×8: row rail · loop keys · variation rows), with the VERBS in their own
 //     box BELOW: [PLACE · MOVE · DELETE] (spring-held workbench verbs) then [APPLY TO PLAY → · MUTATE · 🎲 RE-ROLL].
 //   • RIGHT COLUMN — the PLAY grid: five FIXED bands. THE TARGET DECIDES THE VERB: APPLY TO PLAY arms the bands →
@@ -41,21 +41,21 @@ private enum BuildGeom {
     static var castW: CGFloat { castSwatch * 8 + castGap * 7 }   // the cast's total width — INPUT/OUTPUT rows match it
 }
 
-// Placeholder cast hues (mockup palette). Real colours come from the part's cast when the palette is wired.
+// Placeholder cast hues (mockup palette). Real machines come from the part's cast when the palette is wired.
 private let buildPanel = Color(red: 0.08, green: 0.09, blue: 0.11)
 private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
-// PART AUTOMATION (Paul 2026-09-01): each chain (colour) gets FIVE Auto lanes — a DIRECT param automation (macros dropped
+// PART AUTOMATION (Paul 2026-09-01): each chain (machine) gets FIVE Auto lanes — a DIRECT param automation (macros dropped
 // to v2). A lane picks a processor param, sets its BEFORE→AFTER, a SPAN that shapes the curve/repeat WITHIN the painted
 // extent (disabled for binary params), and an EXTENT of grid cells (painted via APPLY). Baked per-cell at build (rides the
-// M2 substrate). Per-colour (shared across the colour's cells). `AutoLane`/`PartAutoColour` live in BuildModel.swift
+// M2 substrate). Per-machine (shared across the machine's cells). `AutoLane`/`PartAutoMachine` live in BuildModel.swift
 // (Foundation-only, in the test target + Codable so the automation travels with the document).
 private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 private let buildRed   = Color(red: 0.91, green: 0.36, blue: 0.44)   // ROW 8 CLEAR + destructive verbs
 private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
-// THE ROOM SIGNATURES (Paul 2026-08-29, §8b WAYFINDING): each room owns a colour and every DOOR wears its DESTINATION's
-// signature — RAINBOW = SELECT (a multicolour strip, refuses one hue) · AMBER = PART · INDIGO = PLAY (retires cyan) ·
+// THE ROOM SIGNATURES (Paul 2026-08-29, §8b WAYFINDING): each room owns a machine and every DOOR wears its DESTINATION's
+// signature — RAINBOW = SELECT (a multimachine strip, refuses one hue) · AMBER = PART · INDIGO = PLAY (retires cyan) ·
 // RED = REEL/record. Hex are starting points (Paul's glass tunes; the STRUCTURE is the instruction).
 // TIDE & EMBER (Paul 2026-09-01): direction as temperature — IN cool, OUT warm; PART wears the warm "ember" signature,
 // PLAY the cool "tide" one. (roomsIndigo keeps its name but now holds a sea-blue.)
@@ -82,7 +82,7 @@ struct BuildSnapshot {
     var performStagingRow: [Int]; var performLane: UInt16
     var scenes: [BuildSceneSnapshot]; var activeScene: Int; var row8Cells: [Row8Cell]; var row8On: [Bool]
     var selID: String?; var selReceiver: Int
-    var colourReg: [String: [ProcessorSlot]]; var colourTranspose: [String: Int]; var hueOverride: [String: UInt32]
+    var machineReg: [String: [ProcessorSlot]]; var machineTranspose: [String: Int]; var hueOverride: [String: UInt32]
     var idCounter: Int
     // THE ROOMS PLAY GRID (2026-08-31): the 10 parallel play-column arrays — added so play-grid edits (▲▼ swaps, ferries)
     // are undoable. Was omitted → the play grid had NO undo coverage. (Persistence via BuildPlayGridData is orthogonal.)
@@ -94,7 +94,7 @@ private let buildRollLife = 1.6   // seconds a note takes to cross the cell
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
 // The part grid's ROW-BUTTON mode (Paul 2026-08-16): a radio that changes what the left row buttons DO — SELECT the
-// whole row's rung · PLACE the selected colour · MUTATE a value-tweaked variant of it.
+// whole row's rung · PLACE the selected machine · MUTATE a value-tweaked variant of it.
 enum BuildRowMode: String, CaseIterable { case select = "SELECT", place = "PLACE", mutate = "MUTATE" }
 enum BuildFill { case none, cell, grid }   // header playhead fill period: none · one step (.cell) · the whole loop (.grid)
 
@@ -874,7 +874,7 @@ extension DiagView {
         }
     }
     // ═══ THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-04) — the door reuses the CHORDS PROCESSOR wholesale: each of four
-    // instances IS a ColourParams, and the pop-up mounts the processor's own ProcessorBox editor, so the controls are LITERALLY
+    // instances IS a MachineParams, and the pop-up mounts the processor's own ProcessorBox editor, so the controls are LITERALLY
     // identical and future CHORDS work reflects on the door for free. ═══
     /// The strip/tab label for a CHORD door ("A · CHRD"), else nil. Parallels `Receiver.scaleLabel`. (The live chord changes on
     /// the beat, so the strip names the door, not a frozen chord.)
@@ -898,12 +898,12 @@ extension DiagView {
         }.frame(width: w, alignment: .leading)
     }
     // The FOUR-SEQUENCE editor — the slot RADIO (tap = switch active, live) over the CHORDS PROCESSOR's OWN ProcessorBox editor
-    // bound to the active instance's ColourParams. Identical controls to the grid processor; future changes reflect here.
+    // bound to the active instance's MachineParams. Identical controls to the grid processor; future changes reflect here.
     @ViewBuilder private func buildChordSeqEditor(_ i: Int, _ r: Receiver) -> some View {
         let w: CGFloat = 560
         let seqs = r.chordSeqsResolved, active = r.activeChordResolved
         let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
-        let synth: Colour = { var c = Colour(colourID: "chordDoor\(i)", type: .chords); c.paramsA = seqs[active]; return c }()
+        let synth: Machine = { var c = Machine(machineID: "chordDoor\(i)", type: .chords); c.paramsA = seqs[active]; return c }()
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {                                       // the 4 sequence slots — RADIO (one active)
                 ForEach(0..<4, id: \.self) { k in
@@ -918,7 +918,7 @@ extension DiagView {
             }.frame(width: w)
             Text("SEQUENCE \(active + 1) — the same chord sequencer as the processor").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
             ProcessorBox(
-                colour: synth, colourIndex: -1, face: .a,
+                machine: synth, machineIndex: -1, face: .a,
                 onEdit: { mutate in
                     buildRecvEdit {
                         var tmp = synth; mutate(&tmp); au?.setReceiverChordSeq(i, active, tmp.paramsA)
@@ -1369,10 +1369,10 @@ extension DiagView {
                                with: .color(.white.opacity(0.10)), lineWidth: 0.5)
                     n += 12
                 }
-                // NOTES — each painted the COLOUR of the cell that played it (upcoming + already-played alike);
-                // falls back to the lane hue when the pass predates the colour tag. (Paul 2026-08-19)
+                // NOTES — each painted the MACHINE of the cell that played it (upcoming + already-played alike);
+                // falls back to the lane hue when the pass predates the machine tag. (Paul 2026-08-19)
                 for note in notes {
-                    let nc = note.colour != 0 ? Color(hex: note.colour) : hue
+                    let nc = note.machine != 0 ? Color(hex: note.machine) : hue
                     let x = CGFloat(note.start / cyc) * sz.width
                     let w = max(2, CGFloat((note.end - note.start) / cyc) * sz.width)
                     let y = yOf(Int(note.note))
@@ -1447,29 +1447,29 @@ extension DiagView {
     }
     private var reelEffCycle: Double { reelRangeCyc > 0 ? reelRangeCyc : reelCycle }   // the roll's x-axis span: the range total, or the single pass length
 
-    // The selected colour's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.
+    // The selected machine's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.
     // THE ONE machine hue, DERIVED FROM POSITION (Paul 2026-09-06). A bench focus (a ferry / part row) has no intrinsic
-    // "true colour" — its colour IS its row position (design-cell-language decision 4, partRowHexes), derived at render,
-    // NEVER a stored per-colour hue (the old colourHueOverride used a DIFFERENT palette, colourHexes, and diverged →
+    // "true machine" — its machine IS its row position (design-cell-language decision 4, partRowHexes), derived at render,
+    // NEVER a stored per-machine hue (the old machineHueOverride used a DIFFERENT palette, machineHexes, and diverged →
     // "orange cell, red machine"). Every MIDI-chain-machine surface (box · chain boxes · cards · AUTO band · meter · part
-    // roll) funnels through here, so touching a cell always shows its true colour. Play cell → its dusk (positional by
-    // column, still via colourColor); a plain SELECT browse audition → the callers grey it.
+    // roll) funnels through here, so touching a cell always shows its true machine. Play cell → its dusk (positional by
+    // column, still via machineHue); a plain SELECT browse audition → the callers grey it.
     fileprivate var buildSelHue: Color {
-        if let n = buildGridSelStampSourceRow { return partPosHue(n) }   // BENCH: the focused ferry/part row = its position colour
-        return colourColor(ddSelectedColourID ?? "") ?? buildCyan       // play dusk / browse (greyed by callers) / fallback
+        if let n = buildGridSelStampSourceRow { return partPosHue(n) }   // BENCH: the focused ferry/part row = its position machine
+        return machineHue(ddSelectedMachineID ?? "") ?? buildCyan       // play dusk / browse (greyed by callers) / fallback
     }
     // THE MACHINE DISPLAY HUE (Paul 2026-08-30): the ONE hue for the machine BOX + MIDI CHAIN + PLAY button, so the three
-    // stay consistent. Colour is a thing on the PART/PLAY grids + ferries only — it has LEFT the SELECT grid (its cells show
-    // the inverse light grey). So a PLAIN select-grid audition (the transient gsAud, which carries no colour) shows the
-    // machine that SAME light grey. But once a REAL colour is the selection — a ferry has just been copied and becomes
-    // selected, or PART's own machine — the box + chain + play button all wear THAT colour (not grey/white). PART always
-    // wears its machine's colour. (The machine box only appears on SELECT + PART.)
+    // stay consistent. Machine is a thing on the PART/PLAY grids + ferries only — it has LEFT the SELECT grid (its cells show
+    // the inverse light grey). So a PLAIN select-grid audition (the transient gsAud, which carries no machine) shows the
+    // machine that SAME light grey. But once a REAL machine is the selection — a ferry has just been copied and becomes
+    // selected, or PART's own machine — the box + chain + play button all wear THAT machine (not grey/white). PART always
+    // wears its machine's machine. (The machine box only appears on SELECT + PART.)
     // The part's DEFAULT output emitters — its chosen set, or emitter A when none. A row/cell/ferry inherits this when
     // it has no emitters of its own. (refactor 2026-08-30: was `buildPartEmitters.isEmpty ? [.a] : buildPartEmitters`
     // inlined at ~10 sites.)
     var buildDefaultEmitters: Set<Bus> { buildIONullPending ? [] : (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters) }   // Paul 2026-09-05: null-pending ⇒ NO emitter (busMask 0 → the fresh cell is SILENT until wired)
     // Two BRIGHT shades that alternate each new SELECT pick (buildSelectGreyAlt flips on selection) so the machine section
-    // visibly shifts even though the audition colour is always the same transient "gsAud" (Paul 2026-09-01).
+    // visibly shifts even though the audition machine is always the same transient "gsAud" (Paul 2026-09-01).
     var buildSelectGrey: Color { Color(white: buildSelectGreyAlt ? 0.90 : 0.80) }
     // THE MACHINE BINDING (Paul 2026-09-01, state-unification): the ONE truth for what the machine represents + its play
     // state, gathered from the four @State axes into the pure BuildSceneLogic resolver. The machine hue, the play button,
@@ -1490,13 +1490,13 @@ extension DiagView {
         BuildSceneLogic.machineBinding(selID: buildSelID, audID: buildGridSelAudID, onSelectPage: room == .select,
                                        chainActive: buildDisplayVoice == .chain, partActive: buildDisplayVoice == .part,
                                        selectedPlayCol: room == .select ? buildSelectedPlayCol : nil, playColOn: buildPlayColOn,
-                                       source: buildSelectSource)   // grey ⇔ .browseCell; a .ferryRow keeps its colour (Paul 2026-09-06)
+                                       source: buildSelectSource)   // grey ⇔ .browseCell; a .ferryRow keeps its machine (Paul 2026-09-06)
     }
     func buildMachineHue(_ room: Room) -> Color {
         buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else buildSelHue (now positional for a bench focus, dusk for a play cell)
     }
-    // THE ONE HUE for every machine/card/editor surface (Paul 2026-08-31: the processor card was a DIFFERENT colour to the
-    // machine box — a throwback to the multi-colour select grid, because the card read raw buildSelHue while the box read
+    // THE ONE HUE for every machine/card/editor surface (Paul 2026-08-31: the processor card was a DIFFERENT machine to the
+    // machine box — a throwback to the multi-machine select grid, because the card read raw buildSelHue while the box read
     // the room-aware buildMachineHue). Both now resolve through this single accessor, so the card can never diverge again.
     var buildCardHue: Color { buildMachineHue(roomsRoom) }
 
@@ -1505,7 +1505,7 @@ extension DiagView {
     // (buildPortrait retired 2026-08-24 — LANDSCAPE-ONLY; git history keeps the vertical-stack layout if ever needed.)
 
 
-    // The verb button stack, right of the MIDI chain. LEFT chevrons (<<<) act on the SELECTED colour's midi chain;
+    // The verb button stack, right of the MIDI chain. LEFT chevrons (<<<) act on the SELECTED machine's midi chain;
     // RIGHT chevrons (>>>) act on the PART grid. LIBRARY opens the cell library. (Paul 2026-08-18)
     @ViewBuilder private func buildChainButtonStack(width: CGFloat, height: CGFloat, showGrid: Bool = true) -> some View {
         VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs
@@ -1534,7 +1534,7 @@ extension DiagView {
     // components Paul named — PLAY THIS MIDI CHAIN button · MIDI-IN receiver toggles · the MIDI chain (2×4 boxes) +
     // its side-button stack · MIDI-OUT emitter toggles — reusing the private left-column helpers VERBATIM (no
     // recreation). Only THIS assembler is internal so RoomsPage.swift can call it; the pieces stay private to this
-    // file. Functionality (which colour/row it edits) may be un-wired in the new shell — that's wired in later. (Paul 2026-08-28)
+    // file. Functionality (which machine/row it edits) may be un-wired in the new shell — that's wired in later. (Paul 2026-08-28)
     // THE LEFT PANEL — mapped onto the grid's LATTICE (design ferry INSTRUCTIONS-layout-lattice, 2026-08-29). The panel
     // mirrors the grid's band structure EXACTLY — VStack(spacing: gap){ PLAY(navH) · RECORD(ch) · interior(interiorH) }
     // .padding(pad) — so BAND 1 (PLAY) rhymes with the ▲PLAY door, BAND 2 (RECORD) rhymes with the header row, and the
@@ -1550,13 +1550,13 @@ extension DiagView {
         let blockW = 4 * swW + 3 * cgap                                     // its intrinsic width (~half castW)
         let sideW  = max(1, (castW - blockW) / 2)                           // EQUAL flanks → the chain stays CENTRED in its box; the (narrower) buttons fill ONE flank
         // On the SELECT grid a running cell is shown in the INVERSE LIGHT GREY (not its hue), so the machine box matches that
-        // same light grey while a cell runs there — instead of the chain's colour (Paul 2026-08-30).
-        let boxHue: Color = buildMachineHue(room)   // grey on SELECT (colour left it), the machine colour on PART — Paul 2026-08-30
+        // same light grey while a cell runs there — instead of the chain's machine (Paul 2026-08-30).
+        let boxHue: Color = buildMachineHue(room)   // grey on SELECT (machine left it), the machine machine on PART — Paul 2026-08-30
         VStack(spacing: gap) {
             AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 Spacer(minLength: 8)                                         // centre the chain row VERTICALLY
-                if room == .part, let sr = buildGridSelStampSourceRow, buildRowColour(sr) == nil {
+                if room == .part, let sr = buildGridSelStampSourceRow, buildRowMachine(sr) == nil {
                     // ADD-A-ROW (Paul 2026-09-08): an EMPTY part row is selected → the chain area becomes the row-creator
                     // menu (big buttons), in the SAME footprint as the chain block (blockH). The two toggle sets stay put.
                     AnyView(buildRowCreatorMenu(sr, height: blockH))
@@ -1573,7 +1573,7 @@ extension DiagView {
                         } else {
                             AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
                         }
-                    }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedColourChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
+                    }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedMachineChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
                 }
                 Spacer(minLength: 8)
                 AnyView(buildEmitterToggles(castW: castW))                   // MIDI OUT A–D — pinned at the interior BOTTOM (the grid's last row line)
@@ -1584,9 +1584,9 @@ extension DiagView {
         .background(Rectangle().fill(Color.white.opacity(0.05)))                 // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
         // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
         // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
-        // PAIRING: the selected-colour box wears the focused machine's hue — or the SELECT running-cell light grey (boxHue).
-        // GLOWING border (Paul 2026-08-31): the selected-colour's machine box (its toggles · MIDI chain · button box) wears a
-        // soft hue glow around its frame so the current colour reads at a glance.
+        // PAIRING: the selected-machine box wears the focused machine's hue — or the SELECT running-cell light grey (boxHue).
+        // GLOWING border (Paul 2026-08-31): the selected-machine's machine box (its toggles · MIDI chain · button box) wears a
+        // soft hue glow around its frame so the current machine reads at a glance.
         .overlay(Rectangle().stroke(boxHue.opacity(0.9), lineWidth: 2.5)
             .shadow(color: boxHue.opacity(0.75), radius: 5)
             .shadow(color: boxHue.opacity(0.5), radius: 9))                       // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
@@ -1611,7 +1611,7 @@ extension DiagView {
         let isFerry: Bool = { if case .playFerry = bind.kind { return true } else { return false } }()
         let active = isFerry ? bind.playing : (bind.playing && d.playing)
         let sweeping = active && d.playing                             // the playhead moves ONLY while the host transport runs
-        let hue: Color = bind.isGrey ? buildSelectGrey : buildSelHue   // SAME hue as the machine box + chain (grey on SELECT audition, the machine/ferry colour otherwise)
+        let hue: Color = bind.isGrey ? buildSelectGrey : buildSelHue   // SAME hue as the machine box + chain (grey on SELECT audition, the machine/ferry machine otherwise)
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
             if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when armed/playing
@@ -1685,8 +1685,8 @@ extension DiagView {
         // CARRY THE PLAYING PART CELL (Paul 2026-09-03): part→select while the part is PLAYING keeps that cell sounding on
         // the SELECT grid — a ONE-row (uniform) selection carries that exact cell; a MULTI-row selection carries the LAST-
         // selected side ferry (the active side button). Play ferries are a separate persistent layer and continue regardless.
-        if carryFromPart, let row = buildPartCarryRow(), let cid = buildRowColour(row) {
-            buildSelectID(cid)                                              // the SELECT audition target = the playing part cell's colour
+        if carryFromPart, let row = buildPartCarryRow(), let cid = buildRowMachine(row) {
+            buildSelectID(cid)                                              // the SELECT audition target = the playing part cell's machine
             buildApplyWorkshopVoice(.chain)                                 // continue it as the SELECT chain audition (seamless)
         } else {
             // No startup randomization (Paul 2026-08-29): the corpus is split into deterministic PAGES via the left rail
@@ -1699,9 +1699,9 @@ extension DiagView {
     // button); nil if nothing populated carries. Used only when the part was playing (roomsSelectSetup).
     private func buildPartCarryRow() -> Int? {
         let distinct = Set(buildStagingSel.prefix(buildPartCols).filter { $0 >= 0 })
-        if distinct.count == 1, let r = distinct.first, buildRowColour(r) != nil { return r }   // ONE row → the same cell
-        if let s = buildGridSelStampSourceRow, buildRowColour(s) != nil { return s }             // MULTIPLE → the last selected side ferry
-        return distinct.first { buildRowColour($0) != nil }                                      // fallback: any populated selected row
+        if distinct.count == 1, let r = distinct.first, buildRowMachine(r) != nil { return r }   // ONE row → the same cell
+        if let s = buildGridSelStampSourceRow, buildRowMachine(s) != nil { return s }             // MULTIPLE → the last selected side ferry
+        return distinct.first { buildRowMachine($0) != nil }                                      // fallback: any populated selected row
     }
 
     // ── NEW INTERFACE — the PROCESSOR CARD overlay. A populated chain box opens its editor (buildProcessorPanel) as a
@@ -1709,21 +1709,21 @@ extension DiagView {
     // it stays reachable. Attached as an .overlay on the grid, so it's automatically clipped to the grid's frame; the
     // fractional insets carve out the side-button column(s) + the top selector row. (Paul 2026-08-28)
     // The card positioned at an EXPLICIT rect (the grid units compute the interior 8×8 rect + place it there). Non-modal.
-    // NO outer box (buildProcessorPanel already draws its OWN selected-colour box + background) + NO padding, so that box
+    // NO outer box (buildProcessorPanel already draws its OWN selected-machine box + background) + NO padding, so that box
     // fills the whole card (Paul 2026-08-28) — only the panel's hue border shows, occupying the full space.
     @ViewBuilder func roomsProcessorCardAt(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> some View {
-        let chain = selectedColourChain()
+        let chain = selectedMachineChain()
         // §MERGE (Paul 2026-09-08): the card region is PERMANENT — always present below the grid, reflecting the selected
         // row/cell. Its CONTENT is the processor picked from the chain (buildEditSlot). With no pick (or an empty/stale
         // chain) it shows an invitation, so the space always reads as "the editor lives here".
-        if let slot = buildEditSlot, slot < chain.count, let cid = ddSelectedColourID {
+        if let slot = buildEditSlot, slot < chain.count, let cid = ddSelectedMachineID {
             buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
             .frame(width: w, height: h)                                   // fixed card box — the panel pins its header + scrolls its body inside this
             .offset(x: x, y: y)
-            .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // OPEN snapshot for CANCEL
-            .onChange(of: ddSelectedColourID) { newID in
+            .onAppear { buildEditorSnapshot = selectedMachineChain(); buildEditorSnapCid = ddSelectedMachineID }   // OPEN snapshot for CANCEL
+            .onChange(of: ddSelectedMachineID) { newID in
                 guard let newID, newID != buildEditorSnapCid else { return }
-                buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = newID
+                buildEditorSnapshot = selectedMachineChain(); buildEditorSnapCid = newID
             }
         } else {
             roomsCardPlaceholder(empty: chain.isEmpty).frame(width: w, height: h).offset(x: x, y: y)
@@ -1780,7 +1780,7 @@ extension DiagView {
     // PLAY grid. LONG-PRESS copies the currently-selected cell onto the play grid at THIS column's selected rung (→ its
     // grid position + the play bottom readout), with the rising-white overwrite warning (buildGridSelStampSweep, offset
     // +8 so the play-ferry fill never collides with the PART-ferry side buttons that share the select grid). Each button
-    // shows a PLAY ICON in its predetermined PLAY colour (INDIGO); the button itself stays neutral — a white "set" keyline
+    // shows a PLAY ICON in its predetermined PLAY machine (INDIGO); the button itself stays neutral — a white "set" keyline
     // + brighter field mark a column that has been ferried (was a number on a hue field).
     // THE FERRY-ROW CURSOR (Paul 2026-08-31): ▲▼ chooses which grid ROW the play-ferry buttons target — so you can ferry
     // a cell to row 1 of a column, then move the cursor and ferry another to row 3 (each cell stays independent). Sits in
@@ -1793,8 +1793,8 @@ extension DiagView {
             // play at once). A long-press on an EMPTY ferry (on SELECT) seeds a new part from the selected chain.
             let part = t < buildFerryParts.count ? buildFerryParts[t] : nil
             let set = part != nil
-            let repId: String? = part.flatMap { p in p.selID ?? p.stagingCells.flatMap({ $0 }).compactMap({ $0 }).first }   // the part's representative colour (for the ferry's identity hue)
-            let mHue = repId.flatMap { colourColor($0) } ?? Color(hex: colourHexes[t % colourHexes.count])
+            let repId: String? = part.flatMap { p in p.selID ?? p.stagingCells.flatMap({ $0 }).compactMap({ $0 }).first }   // the part's representative machine (for the ferry's identity hue)
+            let mHue = repId.flatMap { machineHue($0) } ?? Color(hex: machineHexes[t % machineHexes.count])
             let eHue = emitterHue(part?.emitters ?? [.a])
             let on = t < buildPlayColOn.count && buildPlayColOn[t]        // this part is sounding
             let focused = buildActiveFerry == t                          // this part is the one loaded on the bench
@@ -1814,7 +1814,7 @@ extension DiagView {
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
                     .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t), live: true).padding(2) } }   // emitter constellation; the ONLY animated face (Paul 2026-09-08) — stars drift/blink on strikes
                     .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
-                    .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed colour-bloom in this ferry's hue
+                    .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed machine-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))
                     .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
@@ -1889,7 +1889,7 @@ extension DiagView {
         } else {
             if willOn { buildFlattenFerry(t) } else { buildClearFerryPlayback(t) }   // background → the play layer
         }
-        if willOn { au?.clearColourSolo(); buildHostHalted = false }
+        if willOn { au?.clearMachineSolo(); buildHostHalted = false }
         buildPublishScene()
     }
     // Clear ferry `t`'s play-layer playback line — when it stops, OR when it becomes the ACTIVE ferry (then it plays via
@@ -1907,20 +1907,20 @@ extension DiagView {
     func buildSeedFerry(_ t: Int) {
         guard t >= 0, t < 8, buildFerryParts[t] == nil, let hit = buildGridSelStampSource() else { return }
         buildRecordUndo()
-        let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose)   // a fresh part colour carrying the selected chain (vivid part hue)
+        let y = buildNewTabMachine(t, machine: hit.chain, transpose: hit.transpose)   // a fresh part machine carrying the selected chain (vivid part hue)
         var p = BuildPart()
         for c in 0..<Snap.cols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }      // seed the chain across the WHOLE first row (an 8-step loop), all columns' rung selected → the part plays a full sequence, not one cell (Paul 2026-09-08)
         p.selID = y; p.cast = [y]
         let io = roomsStampSourceIO(); p.receiver = io.recv; p.emitters = io.emit
         buildFerryParts[t] = p
-        buildSyncColours()
+        buildSyncMachines()
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }              // a seeded ferry starts playing at once (via the staging sequencer once activated)
         buildActivateFerry(t)
     }
     // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
     // (default row 1). Writes ONLY the play grid's OWN store (buildPlayCells) — NOT the shared buildStagingCells — so it
     // appears at the play grid's selected position + column t's bottom readout, and NEVER touches the part-grid side
-    // buttons (the bug this fixes). Mints a colour carrying the source chain + register home; a confirm flash.
+    // buttons (the bug this fixes). Mints a machine carrying the source chain + register home; a confirm flash.
     private func roomsAssignPlayColumn(_ t: Int) {
         guard t >= 0 && t < 8 else { return }
         if roomsRoom == .part { roomsFlattenPartToPlay(t); return }           // PART page → FLATTEN the part into a multi-step pass (Paul 2026-08-30)
@@ -1931,9 +1931,9 @@ extension DiagView {
         buildPlayColLen[t] = 1; buildPlayColSteps[t] = []; buildPlayColRate[t] = nil   // a SELECT single-cell ferry clears any prior multi-step pass on this column
         buildPlayColStepRecv[t] = []; buildPlayColStepEmit[t] = []
         let r = max(0, min(7, buildPlayFerryRow))   // the FERRY CURSOR row (▲▼-chosen) — Paul 2026-08-31
-        let y = buildNewTabColour(t, machine: hit.chain, transpose: hit.transpose, hex: playHexes[t % playHexes.count])   // a colour carrying the chain + register home, in the PLAY grid's DUSK hue per column (Paul 2026-08-30)
+        let y = buildNewTabMachine(t, machine: hit.chain, transpose: hit.transpose, hex: playHexes[t % playHexes.count])   // a machine carrying the chain + register home, in the PLAY grid's DUSK hue per column (Paul 2026-08-30)
         buildPlayCells[t][r] = y
-        buildPlayCellPart[t][r] = nil   // a SELECT ferry is SELECT-BACKED (its colourID is the cell); clear any stale part-backing so unpack clears the bench to this one cell (Paul 2026-09-05)
+        buildPlayCellPart[t][r] = nil   // a SELECT ferry is SELECT-BACKED (its machineID is the cell); clear any stale part-backing so unpack clears the bench to this one cell (Paul 2026-09-05)
         let io = roomsStampSourceIO()                                        // COPY the source's I/O (Paul 2026-08-29: "play will have the copied settings")
         if t < buildPlayColRecv.count { buildPlayColRecv[t] = io.recv }
         if t < buildPlayColEmit.count { buildPlayColEmit[t] = io.emit }
@@ -1942,7 +1942,7 @@ extension DiagView {
         // extra voice) — parallel to the select→part ferry, which switches playback to the held target. The play layer
         // then sounds via its persistent voice; the previously-auditioning library cell goes quiet.
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }
-        buildVoiceOwner = .none; au?.clearColourSolo()                       // the SELECT/PART shared audition stops — the play layer is the voice now
+        buildVoiceOwner = .none; au?.clearMachineSolo()                       // the SELECT/PART shared audition stops — the play layer is the voice now
         buildSelectPlayColumn(t)                                             // the FERRIED play cell becomes THE selection (deselects the source; machine strip + I/O toggles reflect it — Paul 2026-08-30)
         if srcRow != nil { buildArchivePartToPlay(t, r) }                    // Paul 2026-09-05: promoted FROM the part grid → archive the whole part onto this play CELL (for lossless unpack) + clear the bench
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
@@ -1950,7 +1950,7 @@ extension DiagView {
         buildPublishScene()                                                  // republish: the started column plays, the audition is off
     }
     // FLATTEN THE PART → a multi-step play pass (Paul 2026-08-30). Long-pressing a play ferry on the PART page captures the
-    // current part's SEQUENCE — its per-column selected-rung colours across the loop length — onto play column t as an N-step
+    // current part's SEQUENCE — its per-column selected-rung machines across the loop length — onto play column t as an N-step
     // pass (playColSteps/Len/Rate). The play layer then sweeps + loops that pass at the part's tempo, disjoint from the part
     // rows. v1: one output (the part's default door + emitters) for the whole pass; per-step I/O is a follow-up.
     private func roomsFlattenPartToPlay(_ t: Int) {
@@ -1976,7 +1976,7 @@ extension DiagView {
             let rung = c < buildStagingSel.count ? buildStagingSel[c] : -1
             return rung >= 0 ? buildRowEmittersResolved(rung) : (buildDefaultEmitters)
         }
-        buildPlayCells[t][r] = buildNewTabColour(t, machine: buildColourChain(rep), hex: playHexes[t % playHexes.count])   // a DUSK representative (carries the first step's chain) so the play column reads dusk, not the part's vivid hue (Paul 2026-08-30)
+        buildPlayCells[t][r] = buildNewTabMachine(t, machine: buildMachineChain(rep), hex: playHexes[t % playHexes.count])   // a DUSK representative (carries the first step's chain) so the play column reads dusk, not the part's vivid hue (Paul 2026-08-30)
         buildPlaySel[t] = r
         buildPlayColRecv[t] = buildSelReceiver                               // the column DEFAULT (the ferry dot/drift tint + any rest-step fallback)
         buildPlayColEmit[t] = buildDefaultEmitters
@@ -1985,7 +1985,7 @@ extension DiagView {
         // then CLEARS the grid; and ARMS the fresh-I/O pulse so the NEXT new select-grid cell starts null + inviting.
         buildArchivePartToPlay(t, r)
         buildPartJustPromoted = true
-        buildVoiceOwner = .none; au?.clearColourSolo()                      // the part/chain shared audition stops — the play column now carries the sequence (no doubling)
+        buildVoiceOwner = .none; au?.clearMachineSolo()                      // the part/chain shared audition stops — the play column now carries the sequence (no doubling)
         buildSelectPlayColumn(t)
         buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
@@ -1994,7 +1994,7 @@ extension DiagView {
     // The I/O the ferry SOURCE is currently playing through (Paul 2026-08-29: the play cell copies the settings). An aimed
     // side-row source uses that row's resolved door/emitters; otherwise the SELECT audition's door + emitters.
     private func roomsStampSourceIO() -> (recv: Int, emit: Set<Bus>) {
-        if let s = buildGridSelStampSourceRow, buildRowColour(s) != nil {
+        if let s = buildGridSelStampSourceRow, buildRowMachine(s) != nil {
             return (buildRowReceiverResolved(s), buildRowEmittersResolved(s))
         }
         return (buildSelReceiver, buildDefaultEmitters)
@@ -2127,16 +2127,16 @@ extension DiagView {
     //   TAP        = make this the ACTIVE selection (white border) + play/load its chain (reflected in the chain/IN/OUT
     //                panel) + arm it as a STAMP SOURCE when populated (buildGridSelStampSourceRow).
     //   LONG-PRESS = copy the active source (a browse CELL *or* another SIDE BUTTON) onto this slot — the rising white
-    //                fill → white-fade CONFIRM revealing the part's fixed-by-row-position colour (partPosHex(n)).
+    //                fill → white-fade CONFIRM revealing the part's fixed-by-row-position machine (partPosHex(n)).
     // The stamp writes the shared part row, so the PART grid's slot + row light up too (one model, two rooms). (Paul 2026-08-28)
     @ViewBuilder func roomsSideButton(_ n: Int, part: Bool = false) -> some View {
         GeometryReader { g in roomsSideChip(n, height: g.size.height, part: part) }
     }
     @ViewBuilder private func roomsSideChip(_ n: Int, height: CGFloat, part: Bool) -> some View {
-        let populated = buildRowColour(n) != nil                          // this slot/row holds a chain
+        let populated = buildRowMachine(n) != nil                          // this slot/row holds a chain
         let active = buildGridSelStampSourceRow == n                      // THE active side button
         let mHue = partPosHue(n)                                          // ROW-POSITION identity (design-cell-language decision 4: "row 7 always yellow") — the BRIGHT row hue, used only for the number / focus inverse / stamp bloom
-        let eHue = emitterHue(buildRowEmittersResolved(n))               // EMITTER colour (routing)
+        let eHue = emitterHue(buildRowEmittersResolved(n))               // EMITTER machine (routing)
         let selectedVis = active && (populated || part)   // PART rail: an EMPTY slot can be selected too (Paul 2026-09-03), so it highlights when active
         // IS THIS ROW'S CELL SOUNDING? PART grid → the SEQUENCER's active rung; SELECT→part ferry → the AIMED audition
         // (the select page's extra voice; the sequenced part does NOT run on select).
@@ -2161,10 +2161,10 @@ extension DiagView {
                 buildOutputFace(buildGridSelRowRoll[n] ?? [], tint: eHue, playing: playing,
                                 strikeIdx: playing ? (buildChainAuditionRow.map { [$0] } ?? []) : [])
             } }
-            .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT colour-bloom (reveal) in this row's hue
+            .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT machine-bloom (reveal) in this row's hue
             .clipShape(RoundedRectangle(cornerRadius: 5))
             // INVERTED when this row is the FOCUSED machine (shown in the machine view): the WHOLE chip becomes the
-            // row-position colour and the number goes to an alpha knockout (Paul 2026-09-04, kept as the part-rail focus
+            // row-position machine and the number goes to an alpha knockout (Paul 2026-09-04, kept as the part-rail focus
             // tell per Paul 2026-09-06). Part rail only.
             .overlay { if part && selectedVis { RoundedRectangle(cornerRadius: 5).fill(mHue) } }
             // FRAME (Paul 2026-09-06): BOTH rails now wear the DARK, FLAT partPosFrame (never brightens on play — only the
@@ -2186,7 +2186,7 @@ extension DiagView {
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                if buildSelectMode { if let cid = buildRowColour(n) { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this row's colour, then end SELECT (Paul 2026-08-31)
+                if buildSelectMode { if let cid = buildRowMachine(n) { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this row's machine, then end SELECT (Paul 2026-08-31)
                 else { part ? roomsTapPartSide(n) : roomsTapSide(n) }
             }
             .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
@@ -2200,14 +2200,14 @@ extension DiagView {
         buildGridSelStampFire(n)
         guard did else { return }
         buildRoomsSetActiveSide(n)                                       // the TARGET side button is now the active selection
-        if buildRowColour(n) != nil { if !part { buildGridSelAimRow(n) }; buildTapColourTab(n) }   // reflect its chain — PART: FOCUS only, never selects a grid rung (Paul 2026-09-02)
+        if buildRowMachine(n) != nil { if !part { buildGridSelAimRow(n) }; buildTapMachineTab(n) }   // reflect its chain — PART: FOCUS only, never selects a grid rung (Paul 2026-09-02)
     }
     // TAP a SELECT side button — a POPULATED one becomes the active selection + stamp source (and auditions its chain); an
     // EMPTY one only AIMS (targets a future stamp) — it must not read as selected when the user hasn't committed. (Paul 2026-08-29)
     private func roomsTapSide(_ n: Int) {
         if buildFerryHeld { buildFerryHeld = false; return }            // released-early hold → don't steal focus / re-audition the playing cell
         buildGridSelAimRow(n)                                            // aim this row as the stamp/commit target (+ audition if populated)
-        if buildRowColour(n) != nil { buildRoomsSetActiveSide(n) }      // only a POPULATED button becomes THE active selection + copy source
+        if buildRowMachine(n) != nil { buildRoomsSetActiveSide(n) }      // only a POPULATED button becomes THE active selection + copy source
     }
     // ── THE PART GRID UNIT (rooms) — the old-gui part/staging grid + its nav slivers, ALL in ONE box (Paul 2026-08-28):
     // a LEFT seam sliver (◂ → SELECT, beside the left side buttons) · LEFT row-slots (the selection) · an 8×8 interior
@@ -2289,7 +2289,7 @@ extension DiagView {
     // weighted-mean pitch, the zoom the weighted spread (each note weighted by how much it overlaps the window). Because that's
     // a continuous function of the scroll, the axis is STILL on a sustained chord and eases to re-frame only when the pitch
     // content actually shifts — a stylish "the view follows the music" scale, floored to 1.5 octaves. Notes stay horizontal
-    // (accurate); outliers pin to the edge. Each visible STEP is framed in the SELECTED cell's colour; a note blooms under the
+    // (accurate); outliers pin to the edge. Each visible STEP is framed in the SELECTED cell's machine; a note blooms under the
     // playhead. No keyboard gutter.
     // The CAMERA fit for the part roll — weighted mean μ (pan) + weighted spread σ (zoom) over the notes overlapping the
     // window. The overlap-fraction weight tapers to 0 at the edges, so a note entering ramps its influence smoothly → the
@@ -2345,8 +2345,8 @@ extension DiagView {
                         // STEP BOXES — one per step, SCROLLING with the window (the "boxes moving with the notes"); subtle so they
                         // don't compete with the current-cell highlight.
                         // COLUMN BOXES = THE CELL (Paul 2026-09-04): each step column plays ONE selected cell, so its box on the
-                        // roll is a BORDER in THAT CELL'S colour framing the section of notes that cell produces (no fill — Paul).
-                        // The notes themselves are the emitter colour (drawn below). A column with no selected cell = a faint frame.
+                        // roll is a BORDER in THAT CELL'S machine framing the section of notes that cell produces (no fill — Paul).
+                        // The notes themselves are the emitter machine (drawn below). A column with no selected cell = a faint frame.
                         let stepW = size.width / 8
                         let firstStep = Int(floor(winStart / sb))
                         for st in firstStep...(firstStep + 8) {
@@ -2355,7 +2355,7 @@ extension DiagView {
                             let cid = (rung >= 0 && col < buildStagingCells.count && rung < buildStagingCells[col].count) ? buildStagingCells[col][rung] : nil
                             let frame = CGRect(x: xOf(Double(st) * sb) + 1, y: 1, width: stepW - 2, height: size.height - 2)
                             if cid != nil, rung >= 0 {
-                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(partPosHue(rung).opacity(0.9)), lineWidth: 1.5)   // a BORDER in the CELL's POSITION colour (derive-from-position, Paul 2026-09-06) around the section (no fill)
+                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(partPosHue(rung).opacity(0.9)), lineWidth: 1.5)   // a BORDER in the CELL's POSITION machine (derive-from-position, Paul 2026-09-06) around the section (no fill)
                             } else {
                                 ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.08)), lineWidth: 1)
                             }
@@ -2372,7 +2372,7 @@ extension DiagView {
                             let busList = Bus.allCases.filter { set.contains($0) }               // A,B,C,D order
                             let idx = busList.firstIndex(of: b) ?? 0
                             let cnt = max(1, busList.count)
-                            let emit = emitterColour(b)
+                            let emit = emitterHue(b)
                             let yTop = min(size.height - barH, max(0, cy(Double(n.note)) - barH / 2))
                             let bandH = barH / CGFloat(cnt)
                             for off in [-cyc, 0, cyc] {
@@ -2396,16 +2396,16 @@ extension DiagView {
     }
     // SECTION 2 — THE AUTO FLOW (Paul 2026-09-01, rev 2): AUTO-lane + PROCESSOR selector buttons over a PARAMETER TABLE
     // (each param + BEFORE/AFTER — a lane alters MULTIPLE params as a GROUP), + a right stack MERGE · RATE · APPLY. Macros
-    // dropped (v2). Per-colour lanes. FLAGGED next stage: the APPLY grid-paint of the extent + the per-cell engine fold.
+    // dropped (v2). Per-machine lanes. FLAGGED next stage: the APPLY grid-paint of the extent + the per-cell engine fold.
     func buildAutoLanesFor(_ cid: String) -> [AutoLane] {
         let a = buildAutoLanes[cid]?.lanes ?? []
         return (0..<5).map { $0 < a.count ? a[$0] : AutoLane() }
     }
-    // The ACTIVE lane of the FOCUSED colour (−1 = NONE). Per-colour (each colour's automation is independent).
-    func buildAutoActive() -> Int { buildAutoLanes[ddSelectedColourID ?? ""]?.activeLane ?? -1 }
+    // The ACTIVE lane of the FOCUSED machine (−1 = NONE). Per-machine (each machine's automation is independent).
+    func buildAutoActive() -> Int { buildAutoLanes[ddSelectedMachineID ?? ""]?.activeLane ?? -1 }
     func buildAutoSetActive(_ i: Int) {
-        let cid = ddSelectedColourID ?? ""; guard !cid.isEmpty else { return }
-        var pa = buildAutoLanes[cid] ?? PartAutoColour()
+        let cid = ddSelectedMachineID ?? ""; guard !cid.isEmpty else { return }
+        var pa = buildAutoLanes[cid] ?? PartAutoMachine()
         if pa.lanes.count < 5 { pa.lanes += Array(repeating: AutoLane(), count: 5 - pa.lanes.count) }
         // DEFAULT SPAN ON ARM (Paul 2026-09-04): arming a lane with no span yet applies a WHOLE-PART sweep immediately, so
         // the automation is audible at once (drag on the grid to draw a tighter span). span-only: no punch step needed.
@@ -2416,8 +2416,8 @@ extension DiagView {
         buildPublishScene()   // P3: selecting a lane ENABLES it → republish so it plays immediately
     }
     func buildSetAutoLane(_ mutate: (inout AutoLane) -> Void) {
-        let cid = ddSelectedColourID ?? ""; guard !cid.isEmpty else { return }
-        var pa = buildAutoLanes[cid] ?? PartAutoColour()
+        let cid = ddSelectedMachineID ?? ""; guard !cid.isEmpty else { return }
+        var pa = buildAutoLanes[cid] ?? PartAutoMachine()
         if pa.lanes.count < 5 { pa.lanes += Array(repeating: AutoLane(), count: 5 - pa.lanes.count) }
         let li = pa.activeLane >= 0 ? pa.activeLane : 0
         mutate(&pa.lanes[max(0, min(4, li))]); buildAutoLanes[cid] = pa
@@ -2427,10 +2427,10 @@ extension DiagView {
     // param + its BEFORE/AFTER, so a lane alters MULTIPLE params as a GROUP — with a right-side stack MERGE · RATE · APPLY.
     // THE AUTO FLOW (Paul 2026-09-01, rev 3 — IMMEDIATE PUNCH): a thin selector — AUTO 1–5 · MACHINE · PARAM (pre-mapped
     // useful default) — then you PUNCH values straight onto the main part grid (drag a cell = its value for that param),
-    // felt with the fewest steps. Tap a lane to arm; the grid becomes a value canvas for the selected colour's cells.
+    // felt with the fewest steps. Tap a lane to arm; the grid becomes a value canvas for the selected machine's cells.
     // (before/after/merge/span/apply all dropped.) FLAGGED next: bake the punched per-cell values into the render (audible).
     @ViewBuilder func roomsPartMacroSection() -> some View {
-        let cid = ddSelectedColourID ?? ""
+        let cid = ddSelectedMachineID ?? ""
         let chain = buildFocusedChain()
         let active = buildAutoActive()
         let lanes = buildAutoLanesFor(cid)
@@ -2453,7 +2453,7 @@ extension DiagView {
             if active < 0 {                                                  // NONE → FOOTER ONLY (Paul 2026-09-02): just the tab strip, no panel — a spacious part page. Touch a tab → the panel appears.
                 EmptyView()
             } else if chain.isEmpty {
-                macroHint("add a machine to this colour").frame(maxWidth: .infinity, maxHeight: .infinity)
+                macroHint("add a machine to this machine").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // TWO COLUMNS (Paul 2026-09-04): LEFT ~80% = MACHINE · PARAM · SWEEP; RIGHT ~20% = the SPAN ladder.
                 GeometryReader { gg in
@@ -2545,7 +2545,7 @@ extension DiagView {
     // underline (amber when active, a faint baseline when not), sitting over the controls it reveals. The active-cell dot
     // marks a lane that already holds an extent.
     @ViewBuilder private func autoTab(_ t: String, on: Bool, dot: Bool, _ tap: @escaping () -> Void) -> some View {
-        let tabHue = buildSelHue   // AUTO tabs wear the colour of the MACHINE the automation is applied to (Paul 2026-09-04)
+        let tabHue = buildSelHue   // AUTO tabs wear the machine of the MACHINE the automation is applied to (Paul 2026-09-04)
         VStack(spacing: 0) {
             HStack(spacing: 4) {
                 if dot { Circle().fill(tabHue).frame(width: 4, height: 4) }
@@ -2661,7 +2661,7 @@ extension DiagView {
         }.frame(height: 30).frame(maxWidth: .infinity)
     }
     @ViewBuilder private func macroColHead(_ t: String) -> some View {
-        Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildSelHue.opacity(0.85))   // the AUTO section's row headers wear the SELECTED colour (Paul 2026-09-04)
+        Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildSelHue.opacity(0.85))   // the AUTO section's row headers wear the SELECTED machine (Paul 2026-09-04)
     }
     @ViewBuilder private func macroHint(_ t: String) -> some View {
         Text(t).font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.28)).frame(maxWidth: .infinity, alignment: .center)
@@ -2685,54 +2685,54 @@ extension DiagView {
     }
     // (SPAN-ONLY, Paul 2026-09-04: the old PUNCH context/toggle — buildAutoArmedParam / buildAutoToggle — are retired;
     // a lane's extent is now a drawn SPAN, drag-authored in buildPartGridDrag.)
-    // SPAN-ONLY (Paul 2026-09-04): a cell HAS the automation applied iff it is the SELECTED colour's cell and its column is
+    // SPAN-ONLY (Paul 2026-09-04): a cell HAS the automation applied iff it is the SELECTED machine's cell and its column is
     // at/after the span start (the span tiles rightward across the row). Drives the "AUTO N" label + the amber highlight.
     func buildAutoInExtent(_ idx: Int) -> Bool {
         let active = buildAutoActive(); guard active >= 0 else { return false }
         let col = idx / Snap.rows, row = idx % Snap.rows
         guard col < buildStagingCells.count, row < buildStagingCells[col].count,
-              buildStagingCells[col][row] == ddSelectedColourID else { return false }   // the AUTOMATED colour's cell only
-        let start = max(0, buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, active))].spanStart ?? 0)
+              buildStagingCells[col][row] == ddSelectedMachineID else { return false }   // the AUTOMATED machine's cell only
+        let start = max(0, buildAutoLanesFor(ddSelectedMachineID ?? "")[max(0, min(4, active))].spanStart ?? 0)
         return col >= start
     }
     // A cell's ramp position (0…1) WITHIN its span tile — rank = (col − start) mod len — so the STATE playhead + any
     // per-cell shading read the tiling sweep. nil = before the span / no lane.
     func buildAutoRampFrac(_ idx: Int) -> Double? {
         let active = buildAutoActive(); guard active >= 0 else { return nil }
-        let lane = buildAutoLanesFor(ddSelectedColourID ?? "")[max(0, min(4, active))]
+        let lane = buildAutoLanesFor(ddSelectedMachineID ?? "")[max(0, min(4, active))]
         let col = idx / Snap.rows
         let start = max(0, lane.spanStart ?? 0), len = max(1, lane.spanLen ?? buildPartCols)
         guard col >= start else { return nil }
         let rank = (col - start) % len
         return len > 1 ? Double(rank) / Double(len - 1) : 1
     }
-    // SHARED grid-cell body (Paul 2026-08-30 colour language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
+    // SHARED grid-cell body (Paul 2026-08-30 machine language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
-    // colour is the one FOCUSED in the machine strip/card (abundantly-clear cell↔machine pairing). The rung-SELECTED state
+    // machine is the one FOCUSED in the machine strip/card (abundantly-clear cell↔machine pairing). The rung-SELECTED state
     // reads as a brighter wash + a medium frame (it's the one that plays — the drift already confirms it).
     @ViewBuilder private func roomsGridCellBody<S: View>(id: String?, selected: Bool, fade: Bool = true, hollow: Bool = false, flatFill: Color? = nil, flatFrame: Color? = nil, @ViewBuilder sweep: () -> S) -> some View {
-        let mHue = id.flatMap { colourColor($0) } ?? buildCell            // the machine's identity hue
+        let mHue = id.flatMap { machineHue($0) } ?? buildCell            // the machine's identity hue
         // FOCUS = the machine shown in the strip/card. While a SELECT ferry is aimed the shown machine is the transient
-        // gsAud, so ALSO pair the MIRRORED part row's REAL colour (#6, Paul 2026-08-30) — else that row's cells, whose id is
-        // the real colour, never light focused during ferry editing even though the card is editing them.
-        let mirrorCid = buildFerryMirrorRow.flatMap { buildRowColour($0) }
-        let focused = id != nil && (id == ddSelectedColourID || (mirrorCid != nil && id == mirrorCid))
+        // gsAud, so ALSO pair the MIRRORED part row's REAL machine (#6, Paul 2026-08-30) — else that row's cells, whose id is
+        // the real machine, never light focused during ferry editing even though the card is editing them.
+        let mirrorCid = buildFerryMirrorRow.flatMap { buildRowMachine($0) }
+        let focused = id != nil && (id == ddSelectedMachineID || (mirrorCid != nil && id == mirrorCid))
         // fade=false = the PART grid's UNIFORM look (Paul 2026-09-03): NOTHING is dimmed AND the machine-in-view FOCUS
         // highlight is suppressed — EVERY populated cell reads at full brightness; the ONLY per-cell mark is the selected
         // rung's white outline (added by the caller). So focusing a machine (e.g. tapping the numbered side rail) loads it
         // into the editor/strip WITHOUT lighting its cells on the grid.
         let lit = selected || !fade
         let showFocus = fade && focused
-        // PART GRID (Paul 2026-09-05): a populated cell is a FLAT, DARK, FIXED-ROW colour + a row-colour frame — no wash/
+        // PART GRID (Paul 2026-09-05): a populated cell is a FLAT, DARK, FIXED-ROW machine + a row-machine frame — no wash/
         // opacity math, no focus brighten (flatFill supplied). Empty/HOLLOW cells stay the dark stage. Otherwise (SELECT
         // audition etc.) the legacy machine-hue wash.
         let useFlat = flatFill != nil && id != nil && !hollow
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                // DARK STAGE
-            .overlay(RoundedRectangle(cornerRadius: 5).fill(useFlat ? flatFill! : mHue.opacity(id == nil || hollow ? 0 : (lit ? 0.30 : 0.13))))   // FLAT row colour, or the machine-hue wash
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(useFlat ? flatFill! : mHue.opacity(id == nil || hollow ? 0 : (lit ? 0.30 : 0.13))))   // FLAT row machine, or the machine-hue wash
             .overlay { sweep() }                                        // the EMITTER-coloured constellation
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(useFlat ? (flatFrame ?? buildEdge) : (id == nil ? buildEdge : mHue.opacity(showFocus ? 1.0 : (lit ? 0.7 : 0.4))),
-                                                              lineWidth: useFlat ? 1.5 : (showFocus ? 2.5 : (lit ? 2 : 1))))   // ROW-colour frame (part) / MACHINE-HUE FRAME (else)
+                                                              lineWidth: useFlat ? 1.5 : (showFocus ? 2.5 : (lit ? 2 : 1))))   // ROW-machine frame (part) / MACHINE-HUE FRAME (else)
             .overlay { if buildSelectMode && id != nil { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
     }
     // A PART interior cell — RENDERING ONLY (Paul 2026-09-02): the whole grid is DIMMED except the SELECTED rung; taps +
@@ -2742,14 +2742,14 @@ extension DiagView {
         let id = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil   // Rooms4: bounds-safe against a ragged decoded doc
         let selected = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r   // the ONE selected rung for column c
         let idx = c * Snap.rows + r
-        // When an AUTO tab is selected, every cell that ISN'T the selected rung loses its face colour (drops to the
+        // When an AUTO tab is selected, every cell that ISN'T the selected rung loses its face machine (drops to the
         // background) but keeps its border — so the sweep's target rung stands out. (Paul 2026-09-04)
         let hollow = buildAutoActive() >= 0 && !selected
         let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
                           flatFill: partPosFill(r), flatFrame: partPosFrame(r),   // Paul 2026-09-06: DARK, FLAT, FIXED-BY-ROW-POSITION hue (design-cell-language decision 4 — was the machine hue)
                           sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: emitterHue(buildRowEmittersResolved(r)), playing: buildStagingPlaying && selected, strikeIdx: [idx]) })   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
-        // punch look), so it is always clear + legible and NEVER becomes another colour. It fades only VERY slightly while
+        // punch look), so it is always clear + legible and NEVER becomes another machine. It fades only VERY slightly while
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
         let selRing = buildAutoActive() >= 0 ? Color.white.opacity(0.8) : Color.white
         let isEditedRow = buildGridSelStampSourceRow == r   // the row whose machine is currently in the editor/view
@@ -2779,7 +2779,7 @@ extension DiagView {
     }
     // THE PART GRID GESTURE (Paul 2026-09-02): ONE drag over the interior handles tap AND drag selection — so empty cells
     // select too and a drag PAINTS the per-column rung. Maps the finger to (col,row); acts once per cell entered. Punch mode
-    // toggles this colour's extent; SELECT mode focuses; otherwise the FIRST cell tap-toggles the rung (deselect if it was
+    // toggles this machine's extent; SELECT mode focuses; otherwise the FIRST cell tap-toggles the rung (deselect if it was
     // the selected one) and subsequent dragged cells paint-select. (buildPartDragLast @State lives in the VC struct.)
     func buildPartGridDrag(_ loc: CGPoint, cw: CGFloat, ch: CGFloat, gap: CGFloat, cols: Int) {
         let c = Int(loc.x / (cw + gap)), r = Int(loc.y / (ch + gap))
@@ -2802,7 +2802,7 @@ extension DiagView {
         let cid = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil
         let cur = c < buildStagingSel.count ? buildStagingSel[c] : -1
         // ONE pure decision (BuildSceneLogic.partGridTap) — rung selection / SELECT-mode focus; empty cells stay selectable.
-        switch BuildSceneLogic.partGridTap(col: c, row: r, currentRung: cur, cid: cid, selectedColourID: ddSelectedColourID,
+        switch BuildSceneLogic.partGridTap(col: c, row: r, currentRung: cur, cid: cid, selectedMachineID: ddSelectedMachineID,
                                            selectMode: buildSelectMode, firstTapOfGesture: first) {
         case .focus(let fid): buildSelectID(fid); buildSelectMode = false
         case .exitSelectMode: buildSelectMode = false
@@ -2846,29 +2846,29 @@ extension DiagView {
     private func roomsTapPartSide(_ n: Int) {
         if buildFerryHeld { buildFerryHeld = false; return }            // released-early hold → don't steal focus / re-audition the playing cell
         buildRoomsSetActiveSide(n)                                      // this left button is THE selected slot (+ copy source); clears any library-cell source
-        if buildRowColour(n) != nil { buildTapColourTab(n) }           // reflect its chain in the MIDI CHAIN panel (does NOT touch the grid rung selection)
+        if buildRowMachine(n) != nil { buildTapMachineTab(n) }           // reflect its chain in the MIDI CHAIN panel (does NOT touch the grid rung selection)
     }
     // Entering PART: hand a running chain audition to the part voice; keep ONE left button selected (default: the
     // last-selected SELECT side button, else the first) + reflect its chain; if NO rung is selected anywhere, seed one
     // rung per column from a populated row; refresh the side faces. (Paul 2026-08-28)
     func roomsPartSetup() {
-        // The row CURRENTLY PLAYING coming in from SELECT = the part row holding the auditioned colour (Paul 2026-09-02).
-        let playingRow = ddSelectedColourID.flatMap { cid in (0..<8).first { buildRowColour($0) == cid } }
+        // The row CURRENTLY PLAYING coming in from SELECT = the part row holding the auditioned machine (Paul 2026-09-02).
+        let playingRow = ddSelectedMachineID.flatMap { cid in (0..<8).first { buildRowMachine($0) == cid } }
         buildGridSelComputeRowRolls()                                  // the side buttons' part-chain fingerprints
         // FOCUS IS USER-DRIVEN (Paul 2026-09-03: "the 1-8 buttons change focus by itself — fix"). Only set a default on the
         // FIRST entry (nothing focused yet); NEVER override the user's own pick on a re-entry. The side buttons are the sole
         // way focus changes (a plain tap selects any slot — populated or empty; long-press still copies).
         if buildGridSelStampSourceRow == nil {
-            let focus = playingRow ?? (0..<8).first { buildRowColour($0) != nil } ?? 0
+            let focus = playingRow ?? (0..<8).first { buildRowMachine($0) != nil } ?? 0
             buildRoomsSetActiveSide(focus)
-            if buildRowColour(focus) != nil { buildTapColourTab(focus) }
+            if buildRowMachine(focus) != nil { buildTapMachineTab(focus) }
         }
         // ENTRY DEFAULT: until the user has EDITED the part grid, default the selected row to the one CURRENTLY PLAYING
         // (the SELECT audition's row), else the first populated row. Once touched, the user's own selection is respected.
-        if !buildPartTouched, let pr = playingRow ?? (0..<8).first(where: { buildRowColour($0) != nil }) {
+        if !buildPartTouched, let pr = playingRow ?? (0..<8).first(where: { buildRowMachine($0) != nil }) {
             buildSelectRow(pr)                                         // programmatic — does NOT mark touched
         } else if buildStagingSel.allSatisfy({ $0 < 0 }) {            // (edited but nothing selected) → seed one-per-column with a default row
-            let row = (0..<8).first { buildRowColour($0) != nil } ?? (buildGridSelStampSourceRow ?? 0)
+            let row = (0..<8).first { buildRowMachine($0) != nil } ?? (buildGridSelStampSourceRow ?? 0)
             buildSelectRow(row)
         }
         roomsSyncVoice(.part)                                          // chain→part (nothing from SELECT plays here)
@@ -2883,7 +2883,7 @@ extension DiagView {
         switch room {
         case .select:
             // Auto-audition ONLY when the selection is a real SELECT-grid cell (buildGridSelSel). Otherwise the machine would
-            // PLAY a colour with NO visible cell showing it — e.g. a part colour carried in from PART, or a ferry colour that
+            // PLAY a machine with NO visible cell showing it — e.g. a part machine carried in from PART, or a ferry machine that
             // would then double the play layer (Paul 2026-08-31: "it'll be playing but the UI doesn't show that").
             if buildGridSelSel != nil { buildApplyWorkshopVoice(.chain) } else { buildApplyWorkshopVoice(.none) }
         case .part:   buildApplyWorkshopVoice(.part)     // extra = the sequenced part; audition OFF (play layer persists)
@@ -2899,7 +2899,7 @@ extension DiagView {
         buildPlayColOn[c].toggle()
         // Starting a play column: the play LAYER is the voice — the shared select/part audition must be OFF, else it would
         // keep sounding this chain on rows 0…7 and this column's own stop (buildPlayColOn) could never silence it (Paul 2026-08-31).
-        if buildPlayColOn[c] { buildVoiceOwner = .none; au?.clearColourSolo(); buildHostHalted = false }   // an explicit start re-enables free-run after a host halt
+        if buildPlayColOn[c] { buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false }   // an explicit start re-enables free-run after a host halt
         buildPublishScene()
     }
     // SELECT a play column's cell → the machine strip + the I/O toggles reflect it (Paul 2026-08-30: play-ferry selection,
@@ -2913,7 +2913,7 @@ extension DiagView {
         buildVoiceOwner = .none                                      // a play column owns its OWN voice (the play layer) — never route it through the shared audition (else buildSelectID would re-inject it there, unstoppable by the ferry). Paul 2026-08-31
         buildSelectID(cid)
     }
-    // The PLAY column currently selected — its selected-rung cell's colour == buildSelID. The play-grid analogue of
+    // The PLAY column currently selected — its selected-rung cell's machine == buildSelID. The play-grid analogue of
     // buildSelectedRow (which only searches STAGING rows), so the I/O toggles reflect + edit a ferried play cell's OWN
     // receiver/emitters. nil unless buildSelID names a live play cell. (Paul 2026-08-30)
     var buildSelectedPlayCol: Int? {
@@ -2927,7 +2927,7 @@ extension DiagView {
     func buildTogglePlayGrid() {
         let anyOn = buildPlayColOn.contains(true)
         for c in 0..<8 { buildPlayColOn[c] = anyOn ? false : buildPlayColHasContent(c) }
-        if !anyOn { buildVoiceOwner = .none; au?.clearColourSolo(); buildHostHalted = false }   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02) + re-enables free-run after a host halt
+        if !anyOn { buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false }   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02) + re-enables free-run after a host halt
         buildPublishScene()
     }
     // Column c has a populated selected rung (something to sound).
@@ -2983,7 +2983,7 @@ extension DiagView {
         let selected = c < buildPlaySel.count && buildPlaySel[c] == r
         let on = (c < buildPlayColOn.count && buildPlayColOn[c]) && selected
         roomsGridCellBody(id: id, selected: selected, sweep: {
-            buildNoteSweep(indices: buildPlayColSweepIndices(c), active: on, id: id, emitter: c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])   // CONTINUOUS drift in the EMITTER colour (multi-step gathers all steps)
+            buildNoteSweep(indices: buildPlayColSweepIndices(c), active: on, id: id, emitter: c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])   // CONTINUOUS drift in the EMITTER machine (multi-step gathers all steps)
             roomsCellPlayhead(active: on)   // PER-CELL PLAYHEAD — the pass sweeping L→R
         })
             .contentShape(Rectangle())
@@ -2992,12 +2992,12 @@ extension DiagView {
                 if c < buildPlayColOn.count, buildPlayColOn[c] { buildPublishScene() }   // Rooms1: a rung change while playing must re-publish so the engine FOLLOWS the selection (was UI-only → audio stayed on the old rung / kept sounding after deselect)
             }
     }
-    // A PLAY bottom-row button — column c's PER-COLUMN TRANSPORT (Paul 2026-08-29): shows the selected cell's colour + a
+    // A PLAY bottom-row button — column c's PER-COLUMN TRANSPORT (Paul 2026-08-29): shows the selected cell's machine + a
     // play/stop icon reflecting the column's independent state; TAP = start/stop THIS column. Empty column → inert readout.
     @ViewBuilder private func roomsPlayBottom(_ c: Int) -> some View {
         let sel = c < buildPlaySel.count ? buildPlaySel[c] : -1
         let id = (sel >= 0 && c < buildPlayCells.count && sel < buildPlayCells[c].count) ? buildPlayCells[c][sel] : nil
-        let hue = id.flatMap { colourColor($0) }
+        let hue = id.flatMap { machineHue($0) }
         let populated = buildPlayColPopulated(c)
         let on = c < buildPlayColOn.count && buildPlayColOn[c]
         RoundedRectangle(cornerRadius: 4).fill(hue?.opacity(on ? 1.0 : 0.55) ?? Color.white.opacity(0.11))
@@ -3305,7 +3305,7 @@ extension DiagView {
         buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
-    // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every colour follows). (Paul 2026-08-18)
+    // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every machine follows). (Paul 2026-08-18)
     @ViewBuilder private func buildEmitterToggles(castW: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
@@ -3315,7 +3315,7 @@ extension DiagView {
                 let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) }
                     ?? buildSelectedPlayCol.map { ($0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a]).contains(b) }
                     ?? ((buildDefaultEmitters).contains(b))
-                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildIONullPending ? false : on, accent: emitterColour(b), pulse: buildIONullPending, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE colour (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
+                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildIONullPending ? false : on, accent: emitterHue(b), pulse: buildIONullPending, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE machine (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
             }
         }
         .frame(width: castW)
@@ -3328,7 +3328,7 @@ extension DiagView {
         Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         .foregroundColor(on ? Color.black : buildDim)
         .frame(maxWidth: .infinity).frame(height: 36)                        // +50% over the halved 24 (Paul 2026-08-30)
-        .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature colour for MIDI OUT); idle mutes
+        .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature machine for MIDI OUT); idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
         // NULL invite — a STATIC cyan keyline on every unset toggle (Paul 2026-09-08: the breathe strobed; a steady mark instead).
         .overlay(Group { if pulse {
@@ -3347,33 +3347,33 @@ extension DiagView {
             } else { withAnimation { buildIOHoldMsg = nil } }
         })
     }
-    private func buildTapColourTab(_ n: Int) {
-        if let cid = buildRowColour(n) {                         // a SET tab → SELECT its colour ONLY (does NOT set the playing rung — Paul 2026-08-20)
-            buildSelectID(cid)                                   // the grid cells / loop keys set the rung; the row button just picks the colour to edit
+    private func buildTapMachineTab(_ n: Int) {
+        if let cid = buildRowMachine(n) {                         // a SET tab → SELECT its machine ONLY (does NOT set the playing rung — Paul 2026-08-20)
+            buildSelectID(cid)                                   // the grid cells / loop keys set the rung; the row button just picks the machine to edit
             buildStagingSyncIfPlaying()
         } else {
             buildPopulateTab(n)                                  // an EMPTY tab → create/copy/place, then pulse until edited
         }
     }
-    // Touch an EMPTY tab: mint tab n's colour with an EMPTY chain (NO duplication of the current settings — Paul
+    // Touch an EMPTY tab: mint tab n's machine with an EMPTY chain (NO duplication of the current settings — Paul
     // 2026-08-25), place it on row n, default its I/O to the LAST-USED receivers/emitters, select it, and mark it
     // PENDING (flashing). The flash stays until a change is made to the processors, emitters, or receivers (see
     // buildApplyChain + buildClearPendingOnEdit). Only one pending → revert the previous unedited candidate first.
     private func buildPopulateTab(_ n: Int) {
-        buildRecordUndo()   // BUILD UNDO: tapping an empty row-tab mints a colour + places it on a row (U4 fix 2026-08-27)
+        buildRecordUndo()   // BUILD UNDO: tapping an empty row-tab mints a machine + places it on a row (U4 fix 2026-08-27)
         let sourceChain: [ProcessorSlot] = []                    // a fresh EMPTY row (was: a copy of the last-selected chain)
         if let p = buildPendingTab, p != n {                     // ONE pending → discard the previous unedited candidate
-            if let old = buildRowColour(p) { buildPartCast.removeAll { $0 == old } }
+            if let old = buildRowMachine(p) { buildPartCast.removeAll { $0 == old } }
             buildSetRow(p, to: nil)
         }
-        let y = buildNewTabColour(n, machine: sourceChain)       // tab n's fixed hue + the empty chain
+        let y = buildNewTabMachine(n, machine: sourceChain)       // tab n's fixed hue + the empty chain
         buildPartCast.append(y)
         buildSetRow(n, to: y)                                    // placed on part-grid row n
         if n < buildRowReceiver.count { buildRowReceiver[n] = ddStickyReceiver; buildRowEmitters[n] = ddStickyBuses }   // DEFAULT the new row's I/O to the LAST-USED receivers/emitters (Paul 2026-08-18/25)
         for c in 0..<Snap.maxCols { buildStagingSel[c] = n }   // §E: the 16-col staging storage (width governs view/play)
         buildSelectID(y)
         buildPendingTab = n
-        buildPendingSource = selectedColourChain()               // == [] here; buildApplyChain clears the flash once the chain diverges
+        buildPendingSource = selectedMachineChain()               // == [] here; buildApplyChain clears the flash once the chain diverges
         buildStagingSyncIfPlaying()
     }
     // The PENDING (flashing) row ends its flash the moment the user changes its EMITTERS or RECEIVERS — the processor
@@ -3385,7 +3385,7 @@ extension DiagView {
     // The chain as the block's lower half: 8 processor boxes, each the size of 2×2 cast cells, laid 1·2·3·4 /
     // 5·6·7·8 with NO connectors. Empty slots read as their number (1–8); populated show the processor type.
     @ViewBuilder private func buildProcessorBlock(castW: CGFloat, cell: CGFloat, hue: Color) -> some View {
-        let chain = selectedColourChain()
+        let chain = selectedMachineChain()
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                            // same swatch width as the cast → boxes sit on the 8-column grid
         let boxW = swW * 2 + gap                                   // 2 cast columns wide
@@ -3429,7 +3429,7 @@ extension DiagView {
                 .allowsHitTesting(false)
         }
     }
-    // A structural signature of the selected chain (type + bypass per slot + which colour) — the comets recompute when it
+    // A structural signature of the selected chain (type + bypass per slot + which machine) — the comets recompute when it
     // changes. (Param-only edits keep the same signature; the comets refresh on the next structural change / reselect — v1.)
     // NOTE COMETS along the MIDI chain (Paul 2026-08-31): a CIRCLE at each end (the door entry, aligned with the input/A
     // side + the top chain row · the wire exit, aligned with the D side), and comets flowing DOOR ┈▶ slot 0 ┈▶ … ┈▶ slot 7
@@ -3594,8 +3594,8 @@ extension DiagView {
     }
 
 
-    // §2: the INPUT door is PART-owned — one door for the whole part (every colour follows). Applied uniformly at
-    // scene-build + audition; no per-colour cell fanning.
+    // §2: the INPUT door is PART-owned — one door for the whole part (every machine follows). Applied uniformly at
+    // scene-build + audition; no per-machine cell fanning.
     private func buildSelectDoor(_ i: Int) {
         buildRecordUndo()   // BUILD UNDO: pick the input door (receiver)
         buildIONullPending = false                               // Paul 2026-09-05: picking the door dismisses the fresh-cell null/pulse invitation
@@ -3655,25 +3655,25 @@ extension DiagView {
         buildPublishScene()
     }
 
-    // The MIDI-CHAIN voice. Paul 2026-08-15: it plays the selected colour's machine RAW — behind the scenes a 1-row play
+    // The MIDI-CHAIN voice. Paul 2026-08-15: it plays the selected machine's machine RAW — behind the scenes a 1-row play
     // grid whose EVERY column is "selected", so the machine sounds on every column with NONE of the part grid's column
     // rules. It rides the SAME ephemeral scene as the part/piece (buildPublishScene injects it), so it coexists with the
     // play grid instead of owning the render via an isolating solo. `ddSolo` is just the "chain is the voice" flag now.
     func buildSelectMachineVoice() {
-        buildSeedCastIfNeeded()                                  // §2: part 1's cast reflects the already-defined colours (once); selects within the cast
+        buildSeedCastIfNeeded()                                  // §2: part 1's cast reflects the already-defined machines (once); selects within the cast
         ddStickyReceiver = buildSelReceiver                      // §2: the chain audition uses the PART's I/O (door + emitters)
         ddStickyBuses = buildDefaultEmitters
-        // A document colour never given a chain shows an EMPTY chain but has a nil templateChain; make it an explicit []
-        // once so the palette's shown-empty chain matches the raw sound (the injected cell reads buildColourChain, which
+        // A document machine never given a chain shows an EMPTY chain but has a nil templateChain; make it an explicit []
+        // once so the palette's shown-empty chain matches the raw sound (the injected cell reads buildMachineChain, which
         // is [] here → a born-audible passthrough — never the legacy A-face arp). Only fires when the chain is unstored.
-        if let cid = ddSelectedColourID, buildColourReg[cid] == nil, au?.colourHasStoredChain(cid) == false {
-            au?.withChainColour(cid) { $0 = [] }; refreshFromDocument()   // document colour only — ephemeral colours always carry a registry machine
+        if let cid = ddSelectedMachineID, buildMachineReg[cid] == nil, au?.machineHasStoredChain(cid) == false {
+            au?.withChainMachine(cid) { $0 = [] }; refreshFromDocument()   // document machine only — ephemeral machines always carry a registry machine
         }
         buildVoiceOwner = .chain                                // the chain is the voice — sounded RAW via the ephemeral scene (CHAIN ⟂ PART; the PIECE keeps sounding via the scene)
         buildPublishScene()
     }
     private func buildSelectStagingVoice() {
-        au?.clearColourSolo()                                    // CHAIN ⟂ PART: leaving the chain audition
+        au?.clearMachineSolo()                                    // CHAIN ⟂ PART: leaving the chain audition
         buildVoiceOwner = .part                                 // the PART is the voice (the PIECE keeps sounding ALONGSIDE)
         buildPublishScene()
     }
@@ -3713,7 +3713,7 @@ extension DiagView {
     }
     // Stop BOTH shop sections (the header's STOP action). The PIECE (play grid) is independent and keeps sounding.
     private func buildStopWorkshop() {
-        au?.clearColourSolo()
+        au?.clearMachineSolo()
         buildVoiceOwner = .none
         buildPublishScene()
     }
@@ -3724,7 +3724,7 @@ extension DiagView {
         if let v = buildPendingWorkshopVoice {
             buildPendingWorkshopVoice = nil; buildPendingReengage = false
             buildApplyWorkshopVoice(v)
-        } else if buildPendingReengage {                 // a palette colour change → re-inject the new chain colour on the boundary
+        } else if buildPendingReengage {                 // a palette machine change → re-inject the new chain machine on the boundary
             buildPendingReengage = false
             if ddSolo { buildPublishScene() }
         }
@@ -3732,11 +3732,11 @@ extension DiagView {
 
     // Publish the ephemeral scene for the ACTIVE voices. §correction (2026-08-13): the PIECE is INDEPENDENT of the
     // audition — PLAY THIS PART + START/STOP THE PLAY GRID sound TOGETHER (the shopping/alongside workflow). Each
-    // staging/perform cell takes its PART-owned I/O + the colour's machine (or a staged variation chain). Paul 2026-08-15:
+    // staging/perform cell takes its PART-owned I/O + the machine's machine (or a staged variation chain). Paul 2026-08-15:
     // the MIDI CHAIN now ALSO rides this scene (a 1-row grid, every column active → raw, no part-grid column rules), so it
     // sounds ALONGSIDE the play grid instead of owning the render via a solo.
     // The SHELL: gather @State into a pure input, let BuildSceneLogic.composeScene do the work (testable), publish it.
-    // SCENES V2 (Paul 2026-08-12): capture the current play-grid ARRANGEMENT (not the shared parts/colours) into a snapshot.
+    // SCENES V2 (Paul 2026-08-12): capture the current play-grid ARRANGEMENT (not the shared parts/machines) into a snapshot.
     func buildCaptureCurrentScene() -> BuildSceneSnapshot {   // internal: the reel poll (other file) captures per-pass state (#5)
         BuildSceneSnapshot(performCells: buildPerformCells, performChain: buildPerformChain, performRecv: buildPerformRecv,
                            performEmit: buildPerformEmit, performPart: buildPerformPart, performMute: buildPerformMute,
@@ -3754,7 +3754,7 @@ extension DiagView {
     /// SCENES V2 (Paul 2026-08-24): USE THE EXISTING scene strip (ArrangementBar, below the main header). It drives the
     /// document's `activeScene`; the VC polls it into `activeSceneIdx`. When it changes, BUILD SAVES the arrangement it was
     /// showing into the old slot and RESTORES the target slot's — so the existing chips switch play-grid arrangements. The
-    /// parts/colours/master stay shared (a scene arranges the same band). v1: in-memory, instant (pass-quant + persist = follow-ups).
+    /// parts/machines/master stay shared (a scene arranges the same band). v1: in-memory, instant (pass-quant + persist = follow-ups).
     func buildSyncSceneSwitch(_ newIdx: Int) {
         guard newIdx >= 0, newIdx != buildActiveScene else { return }
         while buildScenes.count <= max(newIdx, buildActiveScene) { buildScenes.append(buildCaptureCurrentScene()) }   // grow lazily (a fresh slot = a copy of the current)
@@ -3790,8 +3790,8 @@ extension DiagView {
                       performEmit: buildPerformEmit, performPart: buildPerformPart, performMute: buildPerformMute,
                       performStagingRow: buildPerformStagingRow, performLane: buildPerformLane,
                       scenes: buildScenes, activeScene: buildActiveScene, row8Cells: buildRow8Cells, row8On: buildRow8On,
-                      selID: buildSelID, selReceiver: buildSelReceiver, colourReg: buildColourReg,
-                      colourTranspose: buildColourTranspose, hueOverride: colourHueOverride, idCounter: buildIDCounter,
+                      selID: buildSelID, selReceiver: buildSelReceiver, machineReg: buildMachineReg,
+                      machineTranspose: buildMachineTranspose, hueOverride: machineHueOverride, idCounter: buildIDCounter,
                       playCells: buildPlayCells, playSel: buildPlaySel, playColOn: buildPlayColOn, playColRecv: buildPlayColRecv,
                       playColEmit: buildPlayColEmit, playColLen: buildPlayColLen, playColSteps: buildPlayColSteps,
                       playColRate: buildPlayColRate, playColStepRecv: buildPlayColStepRecv, playColStepEmit: buildPlayColStepEmit,
@@ -3820,16 +3820,16 @@ extension DiagView {
         buildPerformStagingRow = s.performStagingRow; buildPerformLane = s.performLane
         buildScenes = s.scenes; buildActiveScene = s.activeScene; buildRow8Cells = s.row8Cells; buildRow8On = s.row8On
         buildSelID = s.selID; buildSelReceiver = s.selReceiver
-        buildColourReg = s.colourReg; buildColourTranspose = s.colourTranspose; colourHueOverride = s.hueOverride
+        buildMachineReg = s.machineReg; buildMachineTranspose = s.machineTranspose; machineHueOverride = s.hueOverride
         buildIDCounter = s.idCounter
         buildPlayCells = s.playCells; buildPlaySel = s.playSel; buildPlayColOn = s.playColOn; buildPlayColRecv = s.playColRecv
         buildPlayColEmit = s.playColEmit; buildPlayColLen = s.playColLen; buildPlayColSteps = s.playColSteps
         buildPlayColRate = s.playColRate; buildPlayColStepRecv = s.playColStepRecv; buildPlayColStepEmit = s.playColStepEmit
-        au?.restoreDocumentFromUndo(s.doc)          // the document (document-colour chains / receivers / rack) restored WITHOUT recording
-        buildSyncColours()                          // push the ephemeral registry to the render
+        au?.restoreDocumentFromUndo(s.doc)          // the document (document-machine chains / receivers / rack) restored WITHOUT recording
+        buildSyncMachines()                          // push the ephemeral registry to the render
         buildPublishScene()                         // re-publish the composed scene
         receivers = au?.uiReceivers() ?? receivers
-        refreshFromDocument()                       // reload document-derived state (docColours, receivers, rack, ROW 8…)
+        refreshFromDocument()                       // reload document-derived state (docMachines, receivers, rack, ROW 8…)
         buildUndoKey = nil                          // a fresh coalesce run after any undo/redo
     }
     /// A door-sheet receiver-config edit (channel · range · scale · exclude · …): record a BUILD-undo step (coalesced into
@@ -3852,7 +3852,7 @@ extension DiagView {
         // BACKGROUND ferry's play-layer line is (re)flattened only when it goes on / when it stops being the active one.
         buildGridSelComputeRowRolls()                            // Paul 2026-09-05: keep the PART cells' always-visible constellation current on every change
         buildComputePlayColRolls()                               // …and the PLAY columns' faces
-        au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
+        au?.clearMachineSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateMachine path, so the scene sweeps freely
         // (the loop keys now DRIVE the lap — same `laneMask` as the GRID tab; a held column-set laps the workshop. Paul 2026-08-19)
         var input = BuildSceneLogic.Input()
         input.stagingPlaying = buildStagingPlaying
@@ -3864,12 +3864,12 @@ extension DiagView {
         input.performEmit = buildPerformEmit
         input.performRecv = buildPerformRecv
         // RESOLVE the effective chain per PERFORM cell (Paul 2026-08-23): a per-cell VARIATION if it has one, else the
-        // colour's OWN machine (buildColourChain → [] for a NO-MACHINE colour). composeScene then passes it EXPLICITLY,
+        // machine's OWN machine (buildMachineChain → [] for a NO-MACHINE machine). composeScene then passes it EXPLICITLY,
         // so a no-machine cell is a passthrough (live wire) in the play grid too — not only via PLAY THIS MIDI CHAIN.
         input.performChain = (0..<Snap.maxCols).map { c in (0..<8).map { r -> [ProcessorSlot] in   // §E: 16 part columns × 8 rows
             let v = (c < buildPerformChain.count && r < buildPerformChain[c].count) ? buildPerformChain[c][r] : []
             let cid = (c < buildPerformCells.count && r < buildPerformCells[c].count) ? buildPerformCells[c][r] : nil
-            return v.isEmpty ? buildColourChain(cid ?? "") : v
+            return v.isEmpty ? buildMachineChain(cid ?? "") : v
         } }
         input.stagingCells = buildStagingCells
         input.stagingSel = buildStagingSel
@@ -3878,16 +3878,16 @@ extension DiagView {
         input.rowReceiver = (0..<8).map { buildRowReceiverResolved($0) }     // per-row I/O, resolved (nil → part default)
         input.rowEmitters = (0..<8).map { buildRowEmittersResolved($0) }
         // RESOLVE the effective chain per STAGING row (same rule as PERFORM/CHAIN): the row's VARIATION if present, else
-        // the row colour's OWN machine ([] for a no-machine colour → passthrough wire). (Paul 2026-08-23)
+        // the row machine's OWN machine ([] for a no-machine machine → passthrough wire). (Paul 2026-08-23)
         input.rowChain = (0..<8).map { r -> [ProcessorSlot] in
             let v = r < buildRowChain.count ? buildRowChain[r] : []
-            return v.isEmpty ? buildColourChain(buildRowColour(r) ?? "") : v
+            return v.isEmpty ? buildMachineChain(buildRowMachine(r) ?? "") : v
         }
-        if ddSolo, let cid = ddSelectedColourID {
-            input.chainColourID = cid
-            input.chainMachine = buildColourChain(cid)
+        if ddSolo, let cid = ddSelectedMachineID {
+            input.chainMachineID = cid
+            input.chainMachine = buildMachineChain(cid)
         }
-        let selR = buildSelectedRow                                          // the chain audition takes the SELECTED colour's row I/O
+        let selR = buildSelectedRow                                          // the chain audition takes the SELECTED machine's row I/O
         input.chainReceiver = selR.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         input.chainEmitters = selR.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters)
         // PER-PART CLOCK (Paul 2026-08-19): each play-grid ROW takes its owning deployed part's rate/length; the STAGING
@@ -3910,7 +3910,7 @@ extension DiagView {
         input.playColChain = (0..<8).map { c -> [ProcessorSlot] in
             let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
             guard r >= 0, r < 8, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return [] }
-            return buildColourChain(cid)
+            return buildMachineChain(cid)
         }
         // MULTI-STEP PASS (Paul 2026-08-30): a flattened part rides a play column as N steps — resolve each step's chain here.
         input.playColLen = buildPlayColLen
@@ -3921,7 +3921,7 @@ extension DiagView {
         input.playColStepChain = (0..<8).map { c -> [[ProcessorSlot]] in
             let len = c < buildPlayColLen.count ? buildPlayColLen[c] : 1
             guard len > 1, c < buildPlayColSteps.count else { return [] }
-            return buildPlayColSteps[c].map { cid in cid.map { buildColourChain($0) } ?? [] }
+            return buildPlayColSteps[c].map { cid in cid.map { buildMachineChain($0) } ?? [] }
         }
         input.partAuto = buildAutoLanes                                       // PART AUTOMATION (Paul 2026-09-02): bake the active AUTO lanes per cell
         input.partWidth = buildPartCols                                       // SPAN-ONLY (Paul 2026-09-04): the part's active width = the default span + tile reference
@@ -3948,7 +3948,7 @@ extension DiagView {
         if buildPerformPlaying { buildPerformPlaying = false; changed = true }   // the PIECE is a free-run gate term too — STOP must clear it (else free-run stays enabled with no lit button)
         for i in buildPlayColOn.indices where buildPlayColOn[i] { buildPlayColOn[i] = false; changed = true }
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
-        if changed { au?.clearColourSolo(); buildPublishScene() }
+        if changed { au?.clearMachineSolo(); buildPublishScene() }
     }
     // THE HOST TRANSPORT drives 8×8's playback (Paul 2026-09-02): hitting STOP in the host HALTS play (silence) but does
     // NOT de-arm any cell — the armed state (owner + play columns + rung selections) is kept, so PLAY resumes IN SYNC with
@@ -3961,10 +3961,10 @@ extension DiagView {
             buildHostHalted = true; buildPublishScene()                           // HALT: keep every cell armed, suppress free-run → silence until the host resumes (the VC's own stop-edge commits any pending voice switch)
         }
     }
-    // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
+    // The staging row currently being EDITED = the row holding the selected machine (nil ⇒ nothing on a row). (Paul 2026-08-18)
     private var buildSelectedRow: Int? {
         guard let id = buildSelID else { return nil }
-        return (0..<8).first { buildRowColour($0) == id }
+        return (0..<8).first { buildRowMachine($0) == id }
     }
     // PER-ROW I/O resolution (Paul 2026-08-18): a row's OWN door/emitters, or the part default when unset (nil).
     private func buildRowReceiverResolved(_ r: Int) -> Int {
@@ -3976,73 +3976,73 @@ extension DiagView {
         return buildDefaultEmitters
     }
 
-    // A colour's OWN machine (templateChain), audible slots only.
-    // A colour's machine — EPHEMERAL registry (beyond the 16) OR the document templateChain (the canonical 16).
-    private func buildColourMachine(_ cid: String) -> [ProcessorSlot] {
-        buildColourReg[cid] ?? (docColours.first { $0.colourID == cid }?.templateChain ?? [])
+    // A machine's OWN machine (templateChain), audible slots only.
+    // A machine's machine — EPHEMERAL registry (beyond the 16) OR the document templateChain (the canonical 16).
+    private func buildMachineSlots(_ cid: String) -> [ProcessorSlot] {
+        buildMachineReg[cid] ?? (docMachines.first { $0.machineID == cid }?.templateChain ?? [])
     }
-    private func buildColourChain(_ cid: String) -> [ProcessorSlot] {
-        buildColourMachine(cid).filter { !buildIsEmptySlot($0) }
+    private func buildMachineChain(_ cid: String) -> [ProcessorSlot] {
+        buildMachineSlots(cid).filter { !buildIsEmptySlot($0) }
     }
-    // Write a colour's machine to the right store, and reflect it live.
-    private func buildWriteColourMachine(_ cid: String, _ chain: [ProcessorSlot]) {
-        if buildColourReg[cid] != nil { buildColourReg[cid] = chain; buildSyncColours() }   // ephemeral
-        else { au?.setColourChain(cid, chain); refreshFromDocument() }                       // document colour
+    // Write a machine's machine to the right store, and reflect it live.
+    private func buildWriteMachineSlots(_ cid: String, _ chain: [ProcessorSlot]) {
+        if buildMachineReg[cid] != nil { buildMachineReg[cid] = chain; buildSyncMachines() }   // ephemeral
+        else { au?.setMachineChain(cid, chain); refreshFromDocument() }                       // document machine
         buildStagingSyncIfPlaying()
     }
-    // Push the ephemeral colour registry to the AU so renderDoc appends them (their machines resolve).
-    func buildSyncColours() { au?.setBuildEphemeralColours(buildColourReg.map { (id: $0.key, machine: $0.value, transpose: buildColourTranspose[$0.key] ?? 0) }) }
-    // Allocate a NEW colour carrying `machine` + a custom hue: a free DOCUMENT slot if one remains, else an unlimited
-    // EPHEMERAL colour ("b<n>"). Returns its id. (Paul 2026-08-15 — lifts the 16-slot cap.)
-    private func buildNewColour(hex rawHex: UInt32, machine: [ProcessorSlot]) -> String {
-        let hex = buildUniqueHue(rawHex)                                     // RULE: no two colours share a hue (Paul 2026-08-16)
+    // Push the ephemeral machine registry to the AU so renderDoc appends them (their machines resolve).
+    func buildSyncMachines() { au?.setBuildEphemeralMachines(buildMachineReg.map { (id: $0.key, machine: $0.value, transpose: buildMachineTranspose[$0.key] ?? 0) }) }
+    // Allocate a NEW machine carrying `machine` + a custom hue: a free DOCUMENT slot if one remains, else an unlimited
+    // EPHEMERAL machine ("b<n>"). Returns its id. (Paul 2026-08-15 — lifts the 16-slot cap.)
+    private func buildNewMachine(hex rawHex: UInt32, machine: [ProcessorSlot]) -> String {
+        let hex = buildUniqueHue(rawHex)                                     // RULE: no two machines share a hue (Paul 2026-08-16)
         if let j = buildFirstUndefinedGlobal() {
-            let id = colourIDs[j]
-            ddCreateColour(j); au?.withChainColour(id) { $0 = machine }; refreshFromDocument()
-            colourHueOverride[id] = hex
+            let id = machineIDs[j]
+            ddCreateMachine(j); au?.withChainMachine(id) { $0 = machine }; refreshFromDocument()
+            machineHueOverride[id] = hex
             return id
         }
         buildIDCounter += 1
         let id = "b\(buildIDCounter)"
-        buildColourReg[id] = machine; colourHueOverride[id] = hex; buildSyncColours()
+        buildMachineReg[id] = machine; machineHueOverride[id] = hex; buildSyncMachines()
         return id
     }
-    // Select a colour BY ID (document or ephemeral) — the ID-based BUILD selection.
+    // Select a machine BY ID (document or ephemeral) — the ID-based BUILD selection.
     private func buildSelectID(_ id: String) {
-        buildExitPlaceMode()                                     // choosing a colour is a non-(play-row) touch → leave PLACE mode
+        buildExitPlaceMode()                                     // choosing a machine is a non-(play-row) touch → leave PLACE mode
         buildSelID = id                                          // the DISPLAY selection updates immediately (target, footer, highlight)
-        ddColourSel = colourIDs.firstIndex(of: id) ?? -1
+        ddMachineSel = machineIDs.firstIndex(of: id) ?? -1
         ddStickyReceiver = buildSelReceiver
         ddStickyBuses = buildDefaultEmitters
-        ddScopeToColour(id, anchor: nil, engage: false)          // BUILD never uses the AU solo — the chain plays via the scene
-        if ddSolo {                                              // auditioning the chain → re-inject the newly-selected colour
+        ddScopeToMachine(id, anchor: nil, engage: false)          // BUILD never uses the AU solo — the chain plays via the scene
+        if ddSolo {                                              // auditioning the chain → re-inject the newly-selected machine
             if d.playing { buildPendingReengage = true }         // SEAMLESS: swap on the next cell boundary
             else { buildPublishScene() }                         // stopped → immediate
         }
     }
-    // The base hue of a colour (its override if any, else its palette hex).
-    private func buildBaseHex(_ id: String) -> UInt32 { colourHueOverride[id] ?? colourIDs.firstIndex(of: id).map { colourHexes[$0] } ?? 0x808080 }
-    // Every hue currently IN USE by a live colour: the materialised document colours + every ephemeral/recoloured
-    // override. An UNASSIGNED canonical hex is NOT counted — so a new colour can claim a genuinely distinct
+    // The base hue of a machine (its override if any, else its palette hex).
+    private func buildBaseHex(_ id: String) -> UInt32 { machineHueOverride[id] ?? machineIDs.firstIndex(of: id).map { machineHexes[$0] } ?? 0x808080 }
+    // Every hue currently IN USE by a live machine: the materialised document machines + every ephemeral/recoloured
+    // override. An UNASSIGNED canonical hex is NOT counted — so a new machine can claim a genuinely distinct
     // canonical hue rather than a near-shade of its source. (Paul 2026-08-17)
     private func buildUsedHues() -> Set<UInt32> {
-        var used = Set(colourHueOverride.values)
-        for (i, id) in colourIDs.enumerated() where ddColourShown(i) { used.insert(buildBaseHex(id)) }
+        var used = Set(machineHueOverride.values)
+        for (i, id) in machineIDs.enumerated() where ddMachineShown(i) { used.insert(buildBaseHex(id)) }
         return used
     }
     // A hue guaranteed UNUSED and, wherever possible, VISIBLY distinct: an unassigned canonical palette hue first,
     // else a canonical seed perturbed until it clears everything in use. The engine behind the "no two alike" rule.
     private func buildDistinctHue() -> UInt32 {
         let used = buildUsedHues()
-        if let fresh = colourHexes.first(where: { !used.contains($0) }) { return fresh }
-        for seed in colourHexes {
+        if let fresh = machineHexes.first(where: { !used.contains($0) }) { return fresh }
+        for seed in machineHexes {
             var h = seed, n = 0
             while used.contains(h) && n < 128 { n += 1; h = buildPerturbHex(seed, by: n) }
             if !used.contains(h) { return h }
         }
         return 0x808080
     }
-    // STRONG RULE (Paul 2026-08-17): no two colours may EVER share a hue. Keep `hex` if it is free, else nudge to
+    // STRONG RULE (Paul 2026-08-17): no two machines may EVER share a hue. Keep `hex` if it is free, else nudge to
     // the nearest distinct shade, and if THAT still collides fall back to a guaranteed-distinct hue. Never returns
     // a used hue.
     private func buildUniqueHue(_ hex: UInt32) -> UInt32 {
@@ -4052,16 +4052,16 @@ extension DiagView {
         while used.contains(h) && n < 128 { n += 1; h = buildPerturbHex(hex, by: n) }
         return used.contains(h) ? buildDistinctHue() : h
     }
-    // STRONG RULE: no two PALETTE (cast) colours share a hue. Any member whose hue duplicates an earlier member is
+    // STRONG RULE: no two PALETTE (cast) machines share a hue. Any member whose hue duplicates an earlier member is
     // recoloured to a distinct hue. Call after any cast mutation.
     private func buildEnforceCastHues() {
         var seen = Set<UInt32>(); var changed = false
         for id in buildPartCast {
             let h = buildBaseHex(id)
-            if seen.contains(h) { let nh = buildDistinctHue(); colourHueOverride[id] = nh; seen.insert(nh); changed = true }
+            if seen.contains(h) { let nh = buildDistinctHue(); machineHueOverride[id] = nh; seen.insert(nh); changed = true }
             else { seen.insert(h) }
         }
-        if changed { buildSyncColours() }
+        if changed { buildSyncMachines() }
     }
     private func buildPerturbHex(_ h: UInt32, by d: Int) -> UInt32 {
         func ch(_ shift: Int) -> UInt32 { let c = Int((h >> shift) & 0xFF); return UInt32(max(0, min(255, c + (c < 128 ? d : -d)))) }   // push each channel toward its extreme by an increasing step
@@ -4076,50 +4076,50 @@ extension DiagView {
     // Push the current staging grid to the engine IF the staging voice is live (call after any staging-grid edit).
     private func buildStagingSyncIfPlaying() { buildPublishScene() }   // re-publish the combined (part + piece) scene after an edit
 
-    // BUILD RANDOMIZE — the SIMPLER roll (a short 1–3-slot all-contributing chain, no macros); writes it colour-wide.
+    // BUILD RANDOMIZE — the SIMPLER roll (a short 1–3-slot all-contributing chain, no macros); writes it machine-wide.
     private func buildRandomizeSimple() {
-        guard let cid = ddSelectedColourID else { return }
+        guard let cid = ddSelectedMachineID else { return }
         var rng = SystemRandomNumberGenerator()
-        au?.withChainColour(cid) { $0 = Dice.rollSimple(using: &rng) }
+        au?.withChainMachine(cid) { $0 = Dice.rollSimple(using: &rng) }
         refreshFromDocument()
     }
-    // <<< MUTATE — nudge the SELECTED colour's midi chain in place (a value-tweaked variant of its OWN machine). (Paul 2026-08-18)
+    // <<< MUTATE — nudge the SELECTED machine's midi chain in place (a value-tweaked variant of its OWN machine). (Paul 2026-08-18)
     private func buildMutateChain() {
-        guard let cid = ddSelectedColourID else { return }
-        let base = buildColourChain(cid)
+        guard let cid = ddSelectedMachineID else { return }
+        let base = buildMachineChain(cid)
         var rng = SystemRandomNumberGenerator()
-        if let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) { buildWriteColourMachine(cid, mutated) }
+        if let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) { buildWriteMachineSlots(cid, mutated) }
         refreshFromDocument()
     }
     // ── ADD A ROW (Paul 2026-09-08): when an EMPTY part row is selected on the right rail, the machine box's interior
     // (the chain + verb/play buttons — everything between the two toggle sets) is REPLACED by these big creation buttons,
-    // in the SAME footprint. Each mints a colour onto the empty row (the machine box then edits it, available to sequence).
-    private func buildCreateRowColour(_ row: Int, chain: [ProcessorSlot]) {
+    // in the SAME footprint. Each mints a machine onto the empty row (the machine box then edits it, available to sequence).
+    private func buildCreateRowMachine(_ row: Int, chain: [ProcessorSlot]) {
         guard row >= 0, row < 8 else { return }
         buildRecordUndo()
-        let y = buildNewColour(hex: buildDistinctHue(), machine: chain)
-        buildSetRow(row, to: y)                                  // place the colour across the row's cells (selectable in any column)
-        buildRoomsSetActiveSide(row); buildSelectID(y); buildTapColourTab(row)   // focus the new row → the machine box now edits it
+        let y = buildNewMachine(hex: buildDistinctHue(), machine: chain)
+        buildSetRow(row, to: y)                                  // place the machine across the row's cells (selectable in any column)
+        buildRoomsSetActiveSide(row); buildSelectID(y); buildTapMachineTab(row)   // focus the new row → the machine box now edits it
         buildStagingSyncIfPlaying()
     }
     @ViewBuilder private func buildRowCreatorMenu(_ row: Int, height: CGFloat) -> some View {
-        let populated = (0..<8).filter { buildRowColour($0) != nil }
+        let populated = (0..<8).filter { buildRowMachine($0) != nil }
         ScrollView(showsIndicators: false) {                     // scrolls if there are many rows — the SECTION stays a fixed `height`
             VStack(spacing: 6) {
                 ForEach(populated, id: \.self) { r in
-                    buildRowCreatorButton("DUPLICATE ROW \(r + 1)", hue: buildRowColour(r).flatMap { colourColor($0) } ?? buildCyan) {
-                        buildCreateRowColour(row, chain: buildRowColour(r).map { buildColourChain($0) } ?? [])
+                    buildRowCreatorButton("DUPLICATE ROW \(r + 1)", hue: buildRowMachine(r).flatMap { machineHue($0) } ?? buildCyan) {
+                        buildCreateRowMachine(row, chain: buildRowMachine(r).map { buildMachineChain($0) } ?? [])
                     }
                 }
                 ForEach(populated, id: \.self) { r in
-                    buildRowCreatorButton("MUTATE ROW \(r + 1)", hue: buildRowColour(r).flatMap { colourColor($0) } ?? buildCyan) {
-                        let base = buildRowColour(r).map { buildColourChain($0) } ?? []
+                    buildRowCreatorButton("MUTATE ROW \(r + 1)", hue: buildRowMachine(r).flatMap { machineHue($0) } ?? buildCyan) {
+                        let base = buildRowMachine(r).map { buildMachineChain($0) } ?? []
                         var rng = SystemRandomNumberGenerator()
-                        buildCreateRowColour(row, chain: BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) ?? base)
+                        buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) ?? base)
                     }
                 }
-                buildRowCreatorButton("RANDOMIZE", hue: buildCyan) { var rng = SystemRandomNumberGenerator(); buildCreateRowColour(row, chain: Dice.rollSimple(using: &rng)) }
-                buildRowCreatorButton("CREATE NEW", hue: buildCyan) { buildCreateRowColour(row, chain: []) }
+                buildRowCreatorButton("RANDOMIZE", hue: buildCyan) { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng)) }
+                buildRowCreatorButton("CREATE NEW", hue: buildCyan) { buildCreateRowMachine(row, chain: []) }
                 buildRowCreatorButton("PICK FROM LIBRARY", hue: buildCyan) { buildOpenLibrary() }
             }.padding(.vertical, 2)
         }
@@ -4132,18 +4132,18 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(hue.opacity(0.85), lineWidth: 1.5))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
-    // <<< CLEAR — empty the SELECTED colour's midi chain (every processor box → "+"). (Paul 2026-08-18)
-    // On the PART grid (Paul 2026-09-08) CLEAR ALSO removes the colour's PRESENCE from the part (its row); and when the
+    // <<< CLEAR — empty the SELECTED machine's midi chain (every processor box → "+"). (Paul 2026-08-18)
+    // On the PART grid (Paul 2026-09-08) CLEAR ALSO removes the machine's PRESENCE from the part (its row); and when the
     // whole part is thereby empty it clears the ACTIVE FERRY too → an empty ferry, which is how you reach the SELECT
     // browser (the empty-ferry-only navigation, once the toggle is gone).
     private func buildClearChain() {
-        buildRecordUndo()   // BUILD UNDO: clear the selected colour's chain
-        guard let cid = ddSelectedColourID else { return }
-        buildWriteColourMachine(cid, [])
+        buildRecordUndo()   // BUILD UNDO: clear the selected machine's chain
+        guard let cid = ddSelectedMachineID else { return }
+        buildWriteMachineSlots(cid, [])
         if roomsRoom == .part {
-            for r in 0..<8 where buildRowColour(r) == cid { buildSetRow(r, to: nil) }          // remove the colour's presence on the part grid (its row)
+            for r in 0..<8 where buildRowMachine(r) == cid { buildSetRow(r, to: nil) }          // remove the machine's presence on the part grid (its row)
             buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)
-            if (0..<8).allSatisfy({ buildRowColour($0) == nil }), let a = buildActiveFerry, a >= 0, a < 8 {   // the whole part is now empty → clear the ferry cell
+            if (0..<8).allSatisfy({ buildRowMachine($0) == nil }), let a = buildActiveFerry, a >= 0, a < 8 {   // the whole part is now empty → clear the ferry cell
                 buildFerryParts[a] = nil
                 if a < buildPlayColOn.count { buildPlayColOn[a] = false }
                 buildClearFerryPlayback(a)
@@ -4154,43 +4154,43 @@ extension DiagView {
         }
         refreshFromDocument()
     }
-    // <<< COPY / PASTE (Paul 2026-08-25): COPY grabs the SELECTED colour's chain into a buffer; PASTE drops that chain
-    // into a NEW row (mints a fresh colour carrying it on the first empty row, then selects it). PASTE is disabled
+    // <<< COPY / PASTE (Paul 2026-08-25): COPY grabs the SELECTED machine's chain into a buffer; PASTE drops that chain
+    // into a NEW row (mints a fresh machine carrying it on the first empty row, then selects it). PASTE is disabled
     // until the buffer holds a non-empty chain. Used to copy one chain into a new row position.
     private func buildCopyChain() {
-        let chain = selectedColourChain()
+        let chain = selectedMachineChain()
         guard !chain.isEmpty else { return }               // nothing to copy → leave the buffer (paste stays disabled)
         buildChainClipboard = chain
     }
     private func buildPasteChain() {
-        buildRecordUndo()   // BUILD UNDO: paste a chain onto a new colour
+        buildRecordUndo()   // BUILD UNDO: paste a chain onto a new machine
         guard let chain = buildChainClipboard, !chain.isEmpty else { return }
-        guard let row = (0..<8).first(where: { buildRowColour($0) == nil }) else { return }   // the first EMPTY row (a new position)
-        let newID = buildNewColour(hex: buildDistinctHue(), machine: chain)
+        guard let row = (0..<8).first(where: { buildRowMachine($0) == nil }) else { return }   // the first EMPTY row (a new position)
+        let newID = buildNewMachine(hex: buildDistinctHue(), machine: chain)
         if row < buildRowUnder.count { buildRowUnder[row] = nil }   // an empty row displaces nothing
         buildSetRow(row, to: newID)
-        buildSelectID(newID)                               // focus the pasted colour
+        buildSelectID(newID)                               // focus the pasted machine
         for c in 0..<Snap.maxCols { buildStagingSel[c] = row }        // select the whole new row (like PLACE/MUTATE) — §E 16-col
         buildStagingSyncIfPlaying()
     }
 
-    // The selected colour's OWN processors (its templateChain) — shown on the footer. Interior EMPTY boxes (passthrough
+    // The selected machine's OWN processors (its templateChain) — shown on the footer. Interior EMPTY boxes (passthrough
     // placeholders) are kept so a processor's POSITION is remembered even with empty boxes to its left; TRAILING empties
-    // collapse to "+" capacity slots. A fully blank/new colour → [] (all boxes are "+").
-    private func selectedColourChain() -> [ProcessorSlot] {
-        guard let cid = ddSelectedColourID else { return [] }
-        var chain = buildColourMachine(cid)
+    // collapse to "+" capacity slots. A fully blank/new machine → [] (all boxes are "+").
+    private func selectedMachineChain() -> [ProcessorSlot] {
+        guard let cid = ddSelectedMachineID else { return [] }
+        var chain = buildMachineSlots(cid)
         while let last = chain.last, buildIsEmptySlot(last) { chain.removeLast() }
         return chain
     }
-    // The FOCUSED machine's chain for the AUTO flow (Paul 2026-09-01): the selected colour's built chain, else its A-FACE
-    // as a single slot. A canonical/factory colour stores its machine as `type`+`paramsA` (not a templateChain), which
-    // buildColourMachine doesn't surface — the SnapshotBuilder resolves exactly this fallback, so mirror it here so the
-    // PROCESSOR list populates for ANY focused colour that actually has a processor (was empty for A-face colours).
+    // The FOCUSED machine's chain for the AUTO flow (Paul 2026-09-01): the selected machine's built chain, else its A-FACE
+    // as a single slot. A canonical/factory machine stores its machine as `type`+`paramsA` (not a templateChain), which
+    // buildMachineSlots doesn't surface — the SnapshotBuilder resolves exactly this fallback, so mirror it here so the
+    // PROCESSOR list populates for ANY focused machine that actually has a processor (was empty for A-face machines).
     func buildFocusedChain() -> [ProcessorSlot] {
-        let c = selectedColourChain()
+        let c = selectedMachineChain()
         if !c.isEmpty { return c }
-        guard let cid = ddSelectedColourID, let col = docColours.first(where: { $0.colourID == cid }) else { return [] }
+        guard let cid = ddSelectedMachineID, let col = docMachines.first(where: { $0.machineID == cid }) else { return [] }
         var s = ProcessorSlot(type: col.type); s.params = col.paramsA
         return buildIsEmptySlot(s) ? [] : [s]
     }
@@ -4226,13 +4226,13 @@ extension DiagView {
     func buildLoadBenchPart(_ p: BuildPart) {
         let ns = buildNormalizeStaging(p.stagingCells, p.stagingSel); buildStagingCells = ns.cells; buildStagingSel = ns.sel
         buildRowChain = p.rowChain; buildRowShade = p.rowShade; buildRowUnder = p.rowUnder
-        buildSelID = p.selID; ddColourSel = p.selID.flatMap { colourIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast; buildCastSlots = p.castSlots
+        buildSelID = p.selID; ddMachineSel = p.selID.flatMap { machineIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast; buildCastSlots = p.castSlots
         buildRowReceiver = p.rowReceiver ?? Array(repeating: nil, count: 8)   // PER-ROW I/O — old parts have nil → all rows inherit (Paul 2026-08-18)
         buildRowEmitters = p.rowEmitters ?? Array(repeating: nil, count: 8)
         buildPartRate = p.rate; buildPartLen = p.length                       // PER-PART CLOCK (Paul 2026-08-19)
-        buildReslotCast()                                       // migrate old parts + backfill any extra colour missing a slot
-        buildEnforceCastHues()                                  // strong rule: no two palette colours share a hue
-        buildPulseColourID = nil; buildAuditionID = nil; buildDeletedRows = [:]   // transient — never crosses a part
+        buildReslotCast()                                       // migrate old parts + backfill any extra machine missing a slot
+        buildEnforceCastHues()                                  // strong rule: no two palette machines share a hue
+        buildPulseMachineID = nil; buildAuditionID = nil; buildDeletedRows = [:]   // transient — never crosses a part
         buildPartTouched = !buildStagingSel.allSatisfy { $0 < 0 }   // a part that already has a selection is "touched" (respect it); an empty part re-defaults on PART entry
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
@@ -4252,8 +4252,8 @@ extension DiagView {
 
     // ── PERSISTENCE (Paul 2026-08-16): the single UNASSIGNED part is saved with the document ("saving = committing").
     // CAPTURE is READ-ONLY (never touches @State, so it's safe to call from the 4 Hz poll): the live workshop if the
-    // current part is the unassigned one, else the stored unassigned part. Bundles the EPHEMERAL colours it references
-    // (machine + hue) so it reconstructs on load; canonical document colours are always present, so they aren't bundled.
+    // current part is the unassigned one, else the stored unassigned part. Bundles the EPHEMERAL machines it references
+    // (machine + hue) so it reconstructs on load; canonical document machines are always present, so they aren't bundled.
     func buildCaptureUnassigned() -> BuildUnassignedData? {
         let part: BuildPart
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count, !buildParts[buildCurrentPart].deployed {
@@ -4267,27 +4267,27 @@ extension DiagView {
             part = stored                                       // viewing a deployed part → the unassigned one is stored
         } else { return nil }
         guard part.stagingCells.contains(where: { $0.contains { $0 != nil } }) else { return nil }   // no content yet → nothing to save
-        var ids = Set(part.cast)                                // every colour the part could reference
+        var ids = Set(part.cast)                                // every machine the part could reference
         ids.formUnion(part.stagingCells.flatMap { $0.compactMap { $0 } })
         ids.formUnion(part.rowUnder.compactMap { $0 })
         if let s = part.selID { ids.insert(s) }
-        let ephemeral = ids.filter { buildColourReg[$0] != nil }.sorted()
-        let colours = ephemeral.map { id -> Colour in var c = Colour(colourID: id, type: .arp); c.defined = true; c.templateChain = buildColourReg[id]; c.transpose = buildColourTranspose[id] ?? 0; return c }   // carry the register-home so a saved ensemble restores in the right octave (BUG state-loss 2026-08-29)
-        var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = colourHueOverride[id] { hues[id] = h } }
-        return BuildUnassignedData(part: part, colours: colours, hues: hues, idCounter: buildIDCounter)
+        let ephemeral = ids.filter { buildMachineReg[$0] != nil }.sorted()
+        let machines = ephemeral.map { id -> Machine in var c = Machine(machineID: id, type: .arp); c.defined = true; c.templateChain = buildMachineReg[id]; c.transpose = buildMachineTranspose[id] ?? 0; return c }   // carry the register-home so a saved ensemble restores in the right octave (BUG state-loss 2026-08-29)
+        var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = machineHueOverride[id] { hues[id] = h } }
+        return BuildUnassignedData(part: part, machines: machines, hues: hues, idCounter: buildIDCounter)
     }
-    // RESTORE the saved unassigned part on load: re-register its ephemeral colours + hues, lift the id counter past
-    // them (so new colours don't collide), then place it as the single unassigned part and load it into the workshop.
+    // RESTORE the saved unassigned part on load: re-register its ephemeral machines + hues, lift the id counter past
+    // them (so new machines don't collide), then place it as the single unassigned part and load it into the workshop.
     func buildRestoreUnassigned(_ u: BuildUnassignedData) {
-        for c in u.colours { buildColourReg[c.colourID] = c.templateChain ?? []; if c.transpose != 0 { buildColourTranspose[c.colourID] = c.transpose } }   // restore the register-home too (BUG state-loss 2026-08-29)
-        for (id, hue) in u.hues { colourHueOverride[id] = hue }
+        for c in u.machines { buildMachineReg[c.machineID] = c.templateChain ?? []; if c.transpose != 0 { buildMachineTranspose[c.machineID] = c.transpose } }   // restore the register-home too (BUG state-loss 2026-08-29)
+        for (id, hue) in u.hues { machineHueOverride[id] = hue }
         buildIDCounter = max(buildIDCounter, u.idCounter)
-        buildSyncColours()
+        buildSyncMachines()
         var part = u.part; part.deployed = false
         if let i = buildParts.firstIndex(where: { !$0.deployed }) { buildParts[i] = part; buildLoadPart(i) }
         else { buildParts.append(part); buildLoadPart(buildParts.count - 1) }
     }
-    // THE ROOMS PLAY GRID (Paul 2026-08-30): capture the 8 play columns + their multi-step passes + the ephemeral colours
+    // THE ROOMS PLAY GRID (Paul 2026-08-30): capture the 8 play columns + their multi-step passes + the ephemeral machines
     // they reference, so a reload restores the whole play grid. Only when there's content (a populated/multi-step column).
     func buildCapturePlayGrid() -> BuildPlayGridData? {
         var parts = buildFerryParts                                          // THE PLAY FERRIES ARE PARTS — the source of truth
@@ -4298,24 +4298,24 @@ extension DiagView {
         var ids = Set<String>()
         for col in buildPlayCells { for cell in col { if let id = cell { ids.insert(id) } } }
         for col in buildPlayColSteps { for step in col { if let id = step { ids.insert(id) } } }
-        for p in parts.compactMap({ $0 }) {                                  // every colour a ferry part references
+        for p in parts.compactMap({ $0 }) {                                  // every machine a ferry part references
             ids.formUnion(p.stagingCells.flatMap { $0.compactMap { $0 } }); ids.formUnion(p.cast)
             ids.formUnion(p.rowUnder.compactMap { $0 }); if let s = p.selID { ids.insert(s) }
         }
-        let ephemeral = ids.filter { buildColourReg[$0] != nil }.sorted()
-        let colours = ephemeral.map { id -> Colour in var c = Colour(colourID: id, type: .arp); c.defined = true; c.templateChain = buildColourReg[id]; c.transpose = buildColourTranspose[id] ?? 0; return c }
-        var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = colourHueOverride[id] { hues[id] = h } }
+        let ephemeral = ids.filter { buildMachineReg[$0] != nil }.sorted()
+        let machines = ephemeral.map { id -> Machine in var c = Machine(machineID: id, type: .arp); c.defined = true; c.templateChain = buildMachineReg[id]; c.transpose = buildMachineTranspose[id] ?? 0; return c }
+        var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = machineHueOverride[id] { hues[id] = h } }
         var data = BuildPlayGridData(cells: buildPlayCells, sel: buildPlaySel, colOn: buildPlayColOn, colRecv: buildPlayColRecv,
                                      colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
-                                     colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, colours: colours, hues: hues, idCounter: buildIDCounter)
+                                     colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, machines: machines, hues: hues, idCounter: buildIDCounter)
         data.parts = parts
         return data
     }
     func buildRestorePlayGrid(_ d: BuildPlayGridData) {
-        for c in d.colours { buildColourReg[c.colourID] = c.templateChain ?? []; if c.transpose != 0 { buildColourTranspose[c.colourID] = c.transpose } }
-        for (id, hue) in d.hues { colourHueOverride[id] = hue }
+        for c in d.machines { buildMachineReg[c.machineID] = c.templateChain ?? []; if c.transpose != 0 { buildMachineTranspose[c.machineID] = c.transpose } }
+        for (id, hue) in d.hues { machineHueOverride[id] = hue }
         buildIDCounter = max(buildIDCounter, d.idCounter)
-        buildSyncColours()
+        buildSyncMachines()
         buildFerryParts = d.partsResolved                                    // THE PLAY FERRIES ARE PARTS — restore/migrate the 8 slots (source of truth)
         // Restore the legacy arrays only when the shapes are exactly right; a malformed doc keeps the defaults (defensive).
         // (These are now derived playback state; the parts re-flatten below regardless, so `colOn` is what really matters.)
@@ -4327,13 +4327,13 @@ extension DiagView {
         for t in 0..<8 { buildFlattenFerry(t) }                              // regenerate each ferry's playback line from its part (canonical)
         buildPublishScene()   // republish so restored STARTED ferries sound at once
     }
-    // PART AUTOMATION (Paul 2026-09-02): capture the per-colour AUTO lanes for the save (prune colours with no active
+    // PART AUTOMATION (Paul 2026-09-02): capture the per-machine AUTO lanes for the save (prune machines with no active
     // lane AND no extents, so the map stays sparse). nil when nothing's armed → byte-identical fullState.
-    func buildCaptureAuto() -> [String: PartAutoColour]? {
+    func buildCaptureAuto() -> [String: PartAutoMachine]? {
         let live = buildAutoLanes.filter { $0.value.activeLane >= 0 || $0.value.lanes.contains(where: { $0.spanStart != nil || $0.spanLen != nil }) }   // span-only: a lane has content if it holds a span
         return live.isEmpty ? nil : live
     }
-    func buildRestoreAuto(_ d: [String: PartAutoColour]) { buildAutoLanes = d; buildPublishScene() }
+    func buildRestoreAuto(_ d: [String: PartAutoMachine]) { buildAutoLanes = d; buildPublishScene() }
     // The per-poll persistence tick (BUILD active only): restore a just-loaded part ONCE, then keep the save-state current.
     func buildPersistTick() {
         guard activeTab == .build else { return }
@@ -4346,28 +4346,28 @@ extension DiagView {
         au?.setBuildPlayGrid(buildCapturePlayGrid())                             // …and the play grid
         au?.setPartAuto(buildCaptureAuto())                                      // …and the AUTO lanes
     }
-    // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter colours, one per processor type (arp/ratchet/euclid/echo
+    // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter machines, one per processor type (arp/ratchet/euclid/echo
     // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in
     // every part's cast. Each carries a single-processor machine at that type's default settings.
     static let buildDefaultTypes: [ProcessorType] = [.arp, .ratchet, .euclid, .weave, .echo, .strum, .chance, .split, .tutti, .length, .harmonize, .drone]
-    // Mint a TAB colour: an ephemeral colour carrying `machine` with tab n's FIXED hue (colourHexes[n]), verbatim
-    // (no uniquify — a tab always shows the same colour). (Paul 2026-08-17 — the 8-tab model)
-    private func buildNewTabColour(_ n: Int, machine: [ProcessorSlot], transpose: Int = 0, hex hexOverride: UInt32? = nil) -> String {
-        let hex = hexOverride ?? (n < colourHexes.count ? colourHexes[n] : 0x808080)   // PLAY columns pass a DUSK hex; PART keeps the vivid colourHexes (Paul 2026-08-30)
+    // Mint a TAB machine: an ephemeral machine carrying `machine` with tab n's FIXED hue (machineHexes[n]), verbatim
+    // (no uniquify — a tab always shows the same machine). (Paul 2026-08-17 — the 8-tab model)
+    private func buildNewTabMachine(_ n: Int, machine: [ProcessorSlot], transpose: Int = 0, hex hexOverride: UInt32? = nil) -> String {
+        let hex = hexOverride ?? (n < machineHexes.count ? machineHexes[n] : 0x808080)   // PLAY columns pass a DUSK hex; PART keeps the vivid machineHexes (Paul 2026-08-30)
         buildIDCounter += 1
         let id = "b\(buildIDCounter)"
-        buildColourReg[id] = machine
-        if transpose != 0 { buildColourTranspose[id] = transpose } else { buildColourTranspose[id] = nil }   // REGISTER HOME
-        colourHueOverride[id] = hex
-        buildSyncColours()
+        buildMachineReg[id] = machine
+        if transpose != 0 { buildMachineTranspose[id] = transpose } else { buildMachineTranspose[id] = nil }   // REGISTER HOME
+        machineHueOverride[id] = hex
+        buildSyncMachines()
         return id
     }
-    // A NEW part starts EMPTY — NO default colour/midi chain, no rung selected (Paul 2026-08-19). The user adds a colour
-    // (tap a tab / RANDOMIZE) when ready. (Was: TAB 1 seeded with a default passthrough colour.)
+    // A NEW part starts EMPTY — NO default machine/midi chain, no rung selected (Paul 2026-08-19). The user adds a machine
+    // (tap a tab / RANDOMIZE) when ready. (Was: TAB 1 seeded with a default passthrough machine.)
     private func buildSeedTab1() {
         buildPartCast = []; buildCastSlots = [:]
-        for c in 0..<Snap.maxCols { buildStagingSel[c] = -1 }                 // nothing selected → nothing plays until a colour is added (§E 16-col)
-        buildSelID = nil; ddColourSel = -1
+        for c in 0..<Snap.maxCols { buildStagingSel[c] = -1 }                 // nothing selected → nothing plays until a machine is added (§E 16-col)
+        buildSelID = nil; ddMachineSel = -1
         buildPartTouched = false                                             // a fresh part re-defaults its row to the playing one on PART entry
     }
     // Seed the workshop ONCE, on first BUILD appear. (Was: 8×4 default cast; now the single TAB 1.) §2.
@@ -4378,10 +4378,10 @@ extension DiagView {
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].cast = buildPartCast }
     }
     // Keep the selection within the PART's cast (its own palette). A fresh, EMPTY cast → NO selection: the footer + the
-    // machine audition have nothing until the user adds a colour. Replaces the global ddEnsureSelection on BUILD. §2.
+    // machine audition have nothing until the user adds a machine. Replaces the global ddEnsureSelection on BUILD. §2.
     func buildEnsureCastSelection() {
-        if let cid = ddSelectedColourID, buildPartCast.contains(cid) { return }   // already a valid cast member
-        if let first = buildPartCast.first { buildSelectID(first) } else { buildSelID = nil; ddColourSel = -1 }
+        if let cid = ddSelectedMachineID, buildPartCast.contains(cid) { return }   // already a valid cast member
+        if let first = buildPartCast.first { buildSelectID(first) } else { buildSelID = nil; ddMachineSel = -1 }
     }
 
     // A brief centre banner (reuses the HOLD-TO-ALL banner surface), auto-clears. (Paul 2026-08-19)
@@ -4425,17 +4425,17 @@ extension DiagView {
 
 
     // THE PALETTE GRID stays 8×4 (32 slots). The 8 DEFAULTS occupy the TOP-LEFT 4×2 block (a proportion of the grid);
-    // user-added colours fill from the BOTTOM-RIGHT corner (slot 31 first, then 30, …) so a new colour "starts bottom-right".
+    // user-added machines fill from the BOTTOM-RIGHT corner (slot 31 first, then 30, …) so a new machine "starts bottom-right".
     private var buildCastDefaultCount: Int { min(Self.buildDefaultTypes.count, buildPartCast.count) }
     // Is a slot part of the top-left 4×2 DEFAULT block (which is positional), vs the freely-placeable extras region?
     private func buildIsDefaultSlot(_ slot: Int) -> Bool { let row = slot / 8, col = slot % 8; return row < 2 && col < 4 }
-    // The bottom-right-most FREE add slot — where the next auto-added colour lands (nil once the palette is full).
+    // The bottom-right-most FREE add slot — where the next auto-added machine lands (nil once the palette is full).
     private func buildFirstFreeCastSlot() -> Int? {
         for slot in stride(from: 31, through: 0, by: -1) where !buildIsDefaultSlot(slot) && buildCastSlots[slot] == nil { return slot }
         return nil
     }
     // Reconcile buildCastSlots with membership: drop stale slots, and give every extra member a slot (migrates old
-    // parts saved before castSlots existed, and keeps auto-added colours visible).
+    // parts saved before castSlots existed, and keeps auto-added machines visible).
     private func buildReslotCast() {
         buildCastSlots = buildCastSlots.filter { buildPartCast.contains($0.value) && !buildIsDefaultSlot($0.key) }
         let dc = buildCastDefaultCount
@@ -4445,46 +4445,46 @@ extension DiagView {
             if !slotted.contains(id), let s = buildFirstFreeCastSlot() { buildCastSlots[s] = id; slotted.insert(id) }
         }
     }
-    // The next UNDEFINED global colour to materialize (nil = all 16 exist).
-    private func buildFirstUndefinedGlobal() -> Int? { (0..<colourIDs.count).first { !ddColourShown($0) } }
-    // ADD a fresh (passthrough) colour to THIS part's cast: a free DOCUMENT slot if one remains, else an unlimited
-    // EPHEMERAL colour with a canonical-ish hue. Then select it. (Paul 2026-08-15 — no 16-colour cap.)
-    // Long-pressing an empty cast cell CLONES the last-used colour: a brand-new colour carrying the SAME machine
-    // (settings) as the currently-selected colour — the last one placed or whose settings were changed — under a
-    // fresh unique hue. Falls back to a blank colour when nothing is selected yet. (Paul 2026-08-17)
-    private func buildAddCastColour(atSlot slot: Int? = nil) {
-        buildRecordUndo()   // BUILD UNDO: record BEFORE minting so undo reverts the new colour + its placement (U6 fix 2026-08-27)
+    // The next UNDEFINED global machine to materialize (nil = all 16 exist).
+    private func buildFirstUndefinedGlobal() -> Int? { (0..<machineIDs.count).first { !ddMachineShown($0) } }
+    // ADD a fresh (passthrough) machine to THIS part's cast: a free DOCUMENT slot if one remains, else an unlimited
+    // EPHEMERAL machine with a canonical-ish hue. Then select it. (Paul 2026-08-15 — no 16-machine cap.)
+    // Long-pressing an empty cast cell CLONES the last-used machine: a brand-new machine carrying the SAME machine
+    // (settings) as the currently-selected machine — the last one placed or whose settings were changed — under a
+    // fresh unique hue. Falls back to a blank machine when nothing is selected yet. (Paul 2026-08-17)
+    private func buildAddCastMachine(atSlot slot: Int? = nil) {
+        buildRecordUndo()   // BUILD UNDO: record BEFORE minting so undo reverts the new machine + its placement (U6 fix 2026-08-27)
         let id: String
         if let j = buildFirstUndefinedGlobal() {
-            buildCreateColour(j); id = colourIDs[j]
+            buildCreateMachine(j); id = machineIDs[j]
         } else {
             buildIDCounter += 1; id = "b\(buildIDCounter)"
-            buildColourReg[id] = []; colourHueOverride[id] = colourHexes[buildIDCounter % colourHexes.count]; buildSyncColours()
+            buildMachineReg[id] = []; machineHueOverride[id] = machineHexes[buildIDCounter % machineHexes.count]; buildSyncMachines()
         }
         if !buildPartCast.contains(id) { buildPartCast.append(id) }
         buildPlaceCastSlot(id, slot)
         buildEnforceCastHues()                                                                // strong rule: never two alike in the cast
         buildSelectID(id)
     }
-    // Assign a NON-default colour its cast slot: the requested one if it's a free extras cell, else the first free.
-    // The undo step is recorded by each CALLER (before it mints the colour) so undo reverts the whole action — not
-    // just this placement (U6 fix 2026-08-27; the three callers are buildCloneLastColour/buildAddCastColour/buildCommitPulse).
+    // Assign a NON-default machine its cast slot: the requested one if it's a free extras cell, else the first free.
+    // The undo step is recorded by each CALLER (before it mints the machine) so undo reverts the whole action — not
+    // just this placement (U6 fix 2026-08-27; the three callers are buildCloneLastMachine/buildAddCastMachine/buildCommitPulse).
     private func buildPlaceCastSlot(_ id: String, _ requested: Int?) {
-        buildCastSlots = buildCastSlots.filter { $0.value != id }                             // this colour claims exactly one slot
+        buildCastSlots = buildCastSlots.filter { $0.value != id }                             // this machine claims exactly one slot
         if let s = requested, !buildIsDefaultSlot(s), buildCastSlots[s] == nil { buildCastSlots[s] = id }
         else if let s = buildFirstFreeCastSlot() { buildCastSlots[s] = id }
     }
-    // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette colour (carrying its machine); an existing
-    // colour is simply selected. Either way the colour is SELECTED (its machine loads into the footer) — and THE TARGET
+    // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette machine (carrying its machine); an existing
+    // machine is simply selected. Either way the machine is SELECTED (its machine loads into the footer) — and THE TARGET
     // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
-    // Create a colour on BUILD as a PASSTHROUGH machine (empty chain → unprocessed MIDI). A bare `defined` colour
-    // has a nil templateChain, which the engine resolves via the LEGACY A-face — and every default colour is type
+    // Create a machine on BUILD as a PASSTHROUGH machine (empty chain → unprocessed MIDI). A bare `defined` machine
+    // has a nil templateChain, which the engine resolves via the LEGACY A-face — and every default machine is type
     // .arp, so it would play an arp the user can't see in the (empty) chain. Store a passthrough placeholder so the
     // audio matches the shown-empty chain. (user 2026-08-12)
-    private func buildCreateColour(_ i: Int) {
-        guard i < colourIDs.count else { return }
-        ddCreateColour(i)
-        au?.withChainColour(colourIDs[i]) { $0 = [] }          // [] → a bypassed-passgate passthrough (not the arp A-face)
+    private func buildCreateMachine(_ i: Int) {
+        guard i < machineIDs.count else { return }
+        ddCreateMachine(i)
+        au?.withChainMachine(machineIDs[i]) { $0 = [] }          // [] → a bypassed-passgate passthrough (not the arp A-face)
         refreshFromDocument()
     }
 
@@ -4493,11 +4493,11 @@ extension DiagView {
 
 
     // A staging cell tap. In PLAY mode the verbs are DISABLED — a tap on a STOCKED cell just makes it the active
-    // (playing) cell for its column. In EDIT mode: PLACE stocks the selected colour, DELETE clears, etc.
+    // (playing) cell for its column. In EDIT mode: PLACE stocks the selected machine, DELETE clears, etc.
     private func buildStagingTap(_ c: Int, _ r: Int) {
         buildPartTouched = true                                   // a cell tap is a part-grid edit → stop auto-defaulting the row on entry
-        if let id = buildStagingCells[c][r] {                     // touching a STOCKED cell offers its colour+settings as a PULSING palette candidate
-            buildPulseColourID = id
+        if let id = buildStagingCells[c][r] {                     // touching a STOCKED cell offers its machine+settings as a PULSING palette candidate
+            buildPulseMachineID = id
             buildPulseChain = (r < buildRowChain.count && !buildRowChain[r].isEmpty) ? buildRowChain[r] : []
         }
         // A cell tap always SELECTS / DESELECTS one rung per column (populated or NOT — Paul 2026-08-15). EDIT mode is
@@ -4506,10 +4506,10 @@ extension DiagView {
         buildStagingSyncIfPlaying()
     }
 
-    private func buildRowColour(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<Snap.maxCols).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe; §E: scan all 16 columns
-    private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one colour
+    private func buildRowMachine(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<Snap.maxCols).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe; §E: scan all 16 columns
+    private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one machine
         for c in 0..<Snap.maxCols { buildStagingCells[c][r] = cid }   // §E: fill the whole 16-col row (width governs view/play)
-        if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the colour's OWN machine (no per-row variation override)
+        if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the machine's OWN machine (no per-row variation override)
         if r < buildRowShade.count { buildRowShade[r] = 0 }
         buildDeletedRows[r] = nil
     }
@@ -4564,15 +4564,15 @@ extension DiagView {
     }
     // MULTI-STEP PASS (Paul 2026-08-30): a play column's pass strikes across several engine cells (col step, row 8+c → index
     // step*Snap.rows + 8+c), so the ferry gathers ALL its steps' feeds → the whole pass's notes drift, not just step 0.
-    // THE PART cell colour (Paul 2026-09-05 v2): a DARK, SATURATED, FLAT version of the row's MACHINE hue (row 7 = its yellow
+    // THE PART cell machine (Paul 2026-09-05 v2): a DARK, SATURATED, FLAT version of the row's MACHINE hue (row 7 = its yellow
     // machine, etc.) — matches the row selector (same hue), no wash/fade. The bright emitter constellation rides on top.
     private func partCellFill(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.16)) } ?? buildCell }   // DEEP dark (Paul 2026-09-05: "primary as fuck" → much darker, just a hint of hue over the ground). MACHINE hue — kept for the PLAY ferry (roomsPlayFerry) only.
     private func partCellFrame(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.34)) } ?? buildEdge }   // a subtly-lighter dark edge — never the bright hue
     // FIXED-BY-ROW-POSITION dark-flat ground for the BENCH surfaces — the part cells + the part/SELECT→part side rails
     // (design-cell-language.md decision 4, RATIFIED: "row 7 always yellow", fixed by POSITION not machine identity; Paul
-    // 2026-09-06 — "dark colours for the side rails and bright colours for the emitters", using partRowHexes). The dark
+    // 2026-09-06 — "dark machines for the side rails and bright machines for the emitters", using partRowHexes). The dark
     // ground = the row's fixed hue mixed deep into the stage; the BRIGHT row hue (partPosHue) is reserved for the identity
-    // number, the focus inverse, and the stamp bloom, while the constellation stays the bright EMITTER colour.
+    // number, the focus inverse, and the stamp bloom, while the constellation stays the bright EMITTER machine.
     private func partPosHex(_ row: Int) -> UInt32 { partRowHexes[((row % partRowHexes.count) + partRowHexes.count) % partRowHexes.count] }
     private func partPosHue(_ row: Int) -> Color { Color(hex: partPosHex(row)) }
     private func partPosFill(_ row: Int) -> Color { Color(hex: mixHex(0x0E1116, partPosHex(row), 0.16)) }   // DARK + FLAT, the same recipe as partCellFill but keyed on POSITION
@@ -4630,7 +4630,7 @@ extension DiagView {
     }
     @ViewBuilder private func buildNoteSweep(indices: [Int], active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
       if active, id != nil {
-        let hue = emitterHue(emitter)   // ROUTING channel (Paul 2026-08-30): the drift is the cell's EMITTER colour, not its machine hue
+        let hue = emitterHue(emitter)   // ROUTING channel (Paul 2026-08-30): the drift is the cell's EMITTER machine, not its machine hue
         let notes = indices.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] }
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || notes.isEmpty)) { tl in
             let now = tl.date
@@ -4667,38 +4667,38 @@ extension DiagView {
     private func buildExitPlaceMode() { if buildPlaceArmed { buildPlaceArmed = false } }
 
 
-    // Open the library IN BUILD CONTEXT: its Save/Stamp act on the selected colour's chain. Remember the colour's
+    // Open the library IN BUILD CONTEXT: its Save/Stamp act on the selected machine's chain. Remember the machine's
     // CURRENT chain so a preview can be reverted if the user leaves without APPLY.
     func buildOpenLibrary() {
         cellLibraryFromBuild = true
-        buildLibraryOriginalChain = buildSelID.map { buildColourMachine($0) }
+        buildLibraryOriginalChain = buildSelID.map { buildMachineSlots($0) }
         buildLibraryPreviewed = false
         cellLibraryList = au?.libraryCellSummaries() ?? []
         showCellLibrary = true
     }
-    // Save the SELECTED colour's chain as a named library cell.
-    func buildSaveColourToLibrary(_ name: String) {
+    // Save the SELECTED machine's chain as a named library cell.
+    func buildSaveMachineToLibrary(_ name: String) {
         guard let cid = buildSelID else { return }
-        au?.saveChainToLibrary(colourID: cid, chain: buildColourMachine(cid), name: name)
+        au?.saveChainToLibrary(machineID: cid, chain: buildMachineSlots(cid), name: name)
         cellLibraryList = au?.libraryCellSummaries() ?? []
     }
-    // PREVIEW a library cell: temporarily overwrite the selected colour's chain so it auditions live. Reverted on
+    // PREVIEW a library cell: temporarily overwrite the selected machine's chain so it auditions live. Reverted on
     // close unless the user commits with APPLY.
     func buildPreviewLibrary(_ cell: Cell?) {
         guard let cell, let cid = buildSelID else { return }
-        buildWriteColourMachine(cid, cell.processors ?? [])
+        buildWriteMachineSlots(cid, cell.processors ?? [])
         buildLibraryPreviewed = true
     }
-    // APPLY — commit a library cell's chain ONTO the selected colour (keeps the colour + its I/O); no revert.
+    // APPLY — commit a library cell's chain ONTO the selected machine (keeps the machine + its I/O); no revert.
     func buildStampLibrary(_ cell: Cell?) {
         guard let cell, let cid = buildSelID else { return }
-        buildWriteColourMachine(cid, cell.processors ?? [])
+        buildWriteMachineSlots(cid, cell.processors ?? [])
         buildLibraryPreviewed = false; buildLibraryOriginalChain = nil
         showCellLibrary = false; cellLibraryFromBuild = false
     }
-    // CLOSE without APPLY → restore the colour's original chain if a preview changed it.
+    // CLOSE without APPLY → restore the machine's original chain if a preview changed it.
     func buildCloseLibrary() {
-        if buildLibraryPreviewed, let cid = buildSelID { buildWriteColourMachine(cid, buildLibraryOriginalChain ?? []) }
+        if buildLibraryPreviewed, let cid = buildSelID { buildWriteMachineSlots(cid, buildLibraryOriginalChain ?? []) }
         buildLibraryPreviewed = false; buildLibraryOriginalChain = nil
         showCellLibrary = false; cellLibraryFromBuild = false
     }
@@ -4727,12 +4727,12 @@ extension DiagView {
                 buildReceiverFader(i, letter: spanner != nil ? "" : letter)     // velocity INDICATOR — draggable to override input velocity (spring-back on release)
             }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                                // EQUAL rows, top → bottom
-                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: receiverGrey(i)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE) — the receiver's SIGNATURE GREY (Paul 2026-08-30)
+                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, machine: receiverGrey(i)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE) — the receiver's SIGNATURE GREY (Paul 2026-08-30)
                 buildReceiverLatchButton(i, rec)                                    // LATCH — SET (no mode) / mode label / "LAST N" · pulses when ready · solid when armed
                 buildOctRow(oct: i < receiverOctave.count ? receiverOctave[i] : 0, onDown: { nudgeReceiverOctave(i, -1) }, onUp: { nudgeReceiverOctave(i, 1) })   // OCT −/+ (between LATCH and S/M)
                 HStack(spacing: 3) {                                            // SOLO (left) · MUTE (right)
-                    buildRecMini("S", on: soloed, colour: buildCyan) { toggleReceiverSolo(i) }
-                    buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
+                    buildRecMini("S", on: soloed, machine: buildCyan) { toggleReceiverSolo(i) }
+                    buildRecMini("M", on: rec.muted, machine: buildPink) { toggleReceiverMute(i) }
                 }
             }.frame(height: h)
         }
@@ -4797,28 +4797,28 @@ extension DiagView {
         receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
     }
     // A shared OCTAVE nudge row (Paul 2026-08-30): just two boxes, − and +, NO middle value box. The active box LIGHTS by
-    // the current octave amount — ORANGE for ±1, RED for ±2 (and beyond). The colour IS the octave readout. (±3 range.)
+    // the current octave amount — ORANGE for ±1, RED for ±2 (and beyond). The machine IS the octave readout. (±3 range.)
     @ViewBuilder private func buildOctRow(oct: Int, onDown: @escaping () -> Void, onUp: @escaping () -> Void) -> some View {
         let orange = Color(hex: 0xFF9F0A), red = Color(hex: 0xFF453A)
         HStack(spacing: 3) {
-            buildRecMini("−", on: oct < 0, colour: oct <= -2 ? red : orange, action: onDown)   // lit when octave is DOWN
-            buildRecMini("+", on: oct > 0, colour: oct >= 2 ? red : orange, action: onUp)        // lit when octave is UP
+            buildRecMini("−", on: oct < 0, machine: oct <= -2 ? red : orange, action: onDown)   // lit when octave is DOWN
+            buildRecMini("+", on: oct > 0, machine: oct >= 2 ? red : orange, action: onUp)        // lit when octave is UP
         }
     }
     // The INTERACTIVE input-velocity indicator: the incoming-velocity meter (sustained while held, brief attack flash)
     // normally; DRAG to force this door's input velocity (top = 127 · bottom = 0) via setReceiverVel; release springs
     // back to the natural velocity — the receiver mirror of buildEmitterFader. (Paul 2026-08-18)
-    // One velocity-meter colour band + whether it wears the ENERGY effect (only the SELECTED colour's band — Paul 2026-08-31).
-    private struct MeterBand { let color: Color; let energy: Bool; var cellIdxs: [Int] = [] }   // cellIdxs (emitter strips only, Paul 2026-09-07): the grid cells this colour feeds → each band rises to ITS OWN velocity from cellHitVel
-    // The velocity-meter FILL as vertical colour bands (one per feeding/playing cell) rising to `level`. (Paul 2026-08-31)
-    // `faded` (the receiver strips): EVERY band fades to alpha 0 at the bottom; the SELECTED colour's band ALSO gets the
+    // One velocity-meter machine band + whether it wears the ENERGY effect (only the SELECTED machine's band — Paul 2026-08-31).
+    private struct MeterBand { let color: Color; let energy: Bool; var cellIdxs: [Int] = [] }   // cellIdxs (emitter strips only, Paul 2026-09-07): the grid cells this machine feeds → each band rises to ITS OWN velocity from cellHitVel
+    // The velocity-meter FILL as vertical machine bands (one per feeding/playing cell) rising to `level`. (Paul 2026-08-31)
+    // `faded` (the receiver strips): EVERY band fades to alpha 0 at the bottom; the SELECTED machine's band ALSO gets the
     // INVERTED overlay (screen-blended) so it reads as energy — the pinched waist. No feed at all → a light-grey band with a
     // downward-moving shimmer ("notes that aren't on a cell", e.g. a scale-door audition), NOT cyan. Emitters (faded=false)
     // stay flat.
     @ViewBuilder private func buildMeterBands(_ bands: [MeterBand], level: Double, bandLevels: [Double]? = nil, height: CGFloat, override: Color?, faded: Bool = false) -> some View {
         if let bl = bandLevels, override == nil, !bands.isEmpty {
-            // PER-BAND (emitters, Paul 2026-09-07): each colour strip rises to ITS OWN velocity (bottom-anchored), not the
-            // shared emitter peak. Same flat fill + colours + spacing as below — only the per-strip HEIGHT differs. Override +
+            // PER-BAND (emitters, Paul 2026-09-07): each machine strip rises to ITS OWN velocity (bottom-anchored), not the
+            // shared emitter peak. Same flat fill + machines + spacing as below — only the per-strip HEIGHT differs. Override +
             // the receiver/no-feed paths (bandLevels nil) fall through UNCHANGED to the original block below.
             HStack(spacing: bands.count > 1 ? 0.7 : 0) {
                 ForEach(bands.indices, id: \.self) { k in
@@ -4843,7 +4843,7 @@ extension DiagView {
                     if faded {
                         ZStack {
                             Rectangle().fill(LinearGradient(colors: [c.opacity(0.92), c.opacity(0)], startPoint: .top, endPoint: .bottom))   // ALL bands: fade to 0 at the bottom
-                            if bands[k].energy {   // the SELECTED colour only: the inverted overlay → the energy waist + glow
+                            if bands[k].energy {   // the SELECTED machine only: the inverted overlay → the energy waist + glow
                                 Rectangle().fill(LinearGradient(colors: [c.opacity(0), c.opacity(0.92)], startPoint: .top, endPoint: .bottom)).blendMode(.screen)
                             }
                         }.compositingGroup()
@@ -4860,7 +4860,7 @@ extension DiagView {
     // The velocity-meter fill when NO cell feeds this door but it IS receiving (a scale-door audition, or any input not on a
     // placed cell): light grey + transparency + a soft band drifting DOWNWARD. (Paul 2026-08-31, replaces the cyan fallback.)
     @ViewBuilder private func buildMeterNoFeedBand() -> some View {
-        // STATIC light grey (Paul 2026-08-31: no animation for input not assigned to a colour) — a calm translucent fill.
+        // STATIC light grey (Paul 2026-08-31: no animation for input not assigned to a machine) — a calm translucent fill.
         Rectangle().fill(Color(white: 0.82).opacity(0.34))
     }
     @ViewBuilder private func buildReceiverFader(_ i: Int, letter: String) -> some View {
@@ -4879,7 +4879,7 @@ extension DiagView {
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
                         // SIMPLE VELOCITY INDICATOR (Paul 2026-09-06): one flat bar rising to the input level — cyan for the
-                        // metered/held velocity, pink while dragging the override. The per-machine feed colours + the chord/key
+                        // metered/held velocity, pink while dragging the override. The per-machine feed machines + the chord/key
                         // "energy" meter treatment were stripped back; the level itself (held · attack flash · override) is unchanged.
                         RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9))
                             .frame(height: g.size.height * CGFloat(min(1, max(0, level))))
@@ -4911,20 +4911,20 @@ extension DiagView {
         return chans.count == 1 ? "CH \(chans[0] + 1)" : "CH ×\(chans.count)"
     }
     // A small square-ish Mute/Solo toggle.
-    @ViewBuilder private func buildRecMini(_ label: String, on: Bool, colour: Color, action: @escaping () -> Void) -> some View {
+    @ViewBuilder private func buildRecMini(_ label: String, on: Bool, machine: Color, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : .white.opacity(0.7))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 4).fill(on ? colour : buildCell))
+            .background(RoundedRectangle(cornerRadius: 4).fill(on ? machine : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
-    // A PROMINENT toggle (thicker edge, bold, strong lit colour) — used for LATCH and ENABLE.
-    @ViewBuilder private func buildRecProminent(_ label: String, on: Bool, colour: Color, action: @escaping () -> Void) -> some View {
+    // A PROMINENT toggle (thicker edge, bold, strong lit machine) — used for LATCH and ENABLE.
+    @ViewBuilder private func buildRecProminent(_ label: String, on: Bool, machine: Color, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(on ? .black : .white.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.6)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(on ? colour : buildCell))
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? machine : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.clear : buildEdge, lineWidth: 1.5))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
@@ -4944,11 +4944,11 @@ extension DiagView {
                 buildEmitterFader(i, letter: spanner != nil ? "" : letter)    // interactive velocity fader — drag to override output velocity
             }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                               // EQUAL rows, top → bottom (mirrors the receiver control)
-                buildRecProminent("CH \(ch)", on: !muted, colour: emitterColour(Bus.allCases[i])) { toggleEmitter(i) }   // TOP: CH n — lit in the emitter's SIGNATURE colour (consistent with the MIDI-OUT toggles, Paul 2026-08-30); acts as the MUTE
-                if showRack { buildRecProminent("RACK", on: racked, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleRack(i) } }   // RACK (hidden on the column strip, Paul 2026-08-30)
-                buildRecProminent("···", on: false, colour: buildDim) { }      // PLACEHOLDER (Paul 2026-08-30) — a future emitter control, between CH and OCT
+                buildRecProminent("CH \(ch)", on: !muted, machine: emitterHue(Bus.allCases[i])) { toggleEmitter(i) }   // TOP: CH n — lit in the emitter's SIGNATURE machine (consistent with the MIDI-OUT toggles, Paul 2026-08-30); acts as the MUTE
+                if showRack { buildRecProminent("RACK", on: racked, machine: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleRack(i) } }   // RACK (hidden on the column strip, Paul 2026-08-30)
+                buildRecProminent("···", on: false, machine: buildDim) { }      // PLACEHOLDER (Paul 2026-08-30) — a future emitter control, between CH and OCT
                 buildOctRow(oct: i < emitterOctave.count ? emitterOctave[i] : 0, onDown: { nudgeEmitterOctave(i, -1) }, onUp: { nudgeEmitterOctave(i, 1) })   // OCT −/+
-                buildRecMini("SOLO", on: soloed, colour: buildCyan) { toggleEmitterSolo(i) }   // SOLO only (CH is the mute)
+                buildRecMini("SOLO", on: soloed, machine: buildCyan) { toggleEmitterSolo(i) }   // SOLO only (CH is the mute)
             }.frame(height: h)
         }
     }
@@ -4978,18 +4978,18 @@ extension DiagView {
         }
     }
 
-    // (buildReceiverFeedColours removed 2026-09-06 — the receiver strip is a simple velocity indicator again; the fader no
-    //  longer tints by the machines it feeds. The emitter side keeps its own buildEmitterPlayingColours below.)
-    // The colours of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
+    // (buildReceiverFeedMachines removed 2026-09-06 — the receiver strip is a simple velocity indicator again; the fader no
+    //  longer tints by the machines it feeds. The emitter side keeps its own buildEmitterPlayingHues below.)
+    // The machines of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
     // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
-    private func buildEmitterPlayingColours(_ e: Bus) -> [MeterBand] {
-        // One band per COLOUR feeding e, in first-seen order; each band ACCUMULATES the grid cells that colour occupies so
-        // the fader can rise each strip to that colour's OWN velocity (max decayed cellHitVel across its cells). (Paul 2026-09-07)
+    private func buildEmitterPlayingHues(_ e: Bus) -> [MeterBand] {
+        // One band per MACHINE feeding e, in first-seen order; each band ACCUMULATES the grid cells that machine occupies so
+        // the fader can rise each strip to that machine's OWN velocity (max decayed cellHitVel across its cells). (Paul 2026-09-07)
         var order: [String] = []
         var byCid: [String: (color: Color, idxs: [Int])] = [:]
         func add(_ cid: String?, color: Color? = nil, idx: Int? = nil) {
             guard let cid else { return }
-            if byCid[cid] == nil { order.append(cid); byCid[cid] = (color ?? colourColor(cid) ?? buildCyan, []) }
+            if byCid[cid] == nil { order.append(cid); byCid[cid] = (color ?? machineHue(cid) ?? buildCyan, []) }
             if let idx { byCid[cid]!.idxs.append(idx) }
         }
         // The ACTIVE ferry plays via the STAGING sequencer (rows 0–7). Map its selected rungs whenever it is ON — not only
@@ -4998,12 +4998,12 @@ extension DiagView {
         let activeOn = buildActiveFerry.map { $0 >= 0 && $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? false
         if buildStagingPlaying || activeOn {                                                         // PART: the selected rungs that emit on e
             for c in 0..<Snap.maxCols { let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
-                if r >= 0, buildRowColour(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowColour(r), idx: c * Snap.rows + r) } }
+                if r >= 0, buildRowMachine(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowMachine(r), idx: c * Snap.rows + r) } }
         }
-        // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette colour. (Paul 2026-08-31)
-        if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedColourID, color: buildMachineHue(roomsRoom), idx: buildChainAuditionRow) }
+        // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette machine. (Paul 2026-08-31)
+        if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedMachineID, color: buildMachineHue(roomsRoom), idx: buildChainAuditionRow) }
         // BACKGROUND ferries (Paul 2026-09-08): a non-active "on" ferry plays via the FLATTEN on play-layer row (base+c) —
-        // map EVERY non-nil step's colour that emits on e (its index = step·rows + (base+c)), so a multi-colour part shows
+        // map EVERY non-nil step's machine that emits on e (its index = step·rows + (base+c)), so a multi-machine part shows
         // all its bands and every step reflects, not just step 0. (The active ferry is on the STAGING branch above.)
         for c in 0..<8 where c != buildActiveFerry && c < buildPlayColOn.count && buildPlayColOn[c] {
             let steps = c < buildPlayColSteps.count ? buildPlayColSteps[c] : []
@@ -5020,7 +5020,7 @@ extension DiagView {
     // output velocity (top = 127 · bottom = 0/KILL) via setVelOverride, and releases (springs back) on lift.
     @ViewBuilder private func buildEmitterFader(_ i: Int, letter: String) -> some View {
         let override = i < emitDragVel.count ? emitDragVel[i] : nil
-        let playing = buildEmitterPlayingColours(Bus.allCases[i])   // the colour(s) of every cell playing through this emitter (vertical bands if >1)
+        let playing = buildEmitterPlayingHues(Bus.allCases[i])   // the machine(s) of every cell playing through this emitter (vertical bands if >1)
         VStack(spacing: 2) {
             Text(letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildDim)   // NO drag-velocity number over the slider (Paul 2026-08-30)
             GeometryReader { g in
@@ -5032,8 +5032,8 @@ extension DiagView {
                         let age = tl.date.timeIntervalSince(i < meters.emitPeakAt.count ? meters.emitPeakAt[i] : .distantPast)
                         return max(0, min(1, (i < meters.emitPeak.count ? meters.emitPeak[i] : 0) * (1 - age / 0.9)))
                     }()
-                    // PER-COLOUR velocity (Paul 2026-09-07, SMOOTHED — "too jumpy"): each band rises to ITS OWN velocity, as max
-                    // over the colour's cells of a SINGLE smooth curve: while the cell is SOUNDING it HOLDS STEADY at the sounding
+                    // PER-MACHINE velocity (Paul 2026-09-07, SMOOTHED — "too jumpy"): each band rises to ITS OWN velocity, as max
+                    // over the machine's cells of a SINGLE smooth curve: while the cell is SOUNDING it HOLDS STEADY at the sounding
                     // velocity (cellSoundVel — no per-note flash-to-full, which was the jumpiness); once RELEASED it decays smoothly
                     // over 0.9 s from the note's velocity (timestamp-based off cellReleasedAt, so it's frame-smooth, not 4 Hz-stepped).
                     // Held chords sit steady, releases fall like the old meter; the rhythm still reads as each note's held pulse.
@@ -5054,7 +5054,7 @@ extension DiagView {
                     }
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
-                        buildMeterBands(playing, level: level, bandLevels: bandLevels, height: g.size.height, override: override != nil ? buildPink : nil)   // per-colour strip heights (tinted by the playing cell(s))
+                        buildMeterBands(playing, level: level, bandLevels: bandLevels, height: g.size.height, override: override != nil ? buildPink : nil)   // per-machine strip heights (tinted by the playing cell(s))
                     }
                 }
                 .contentShape(Rectangle())
@@ -5120,23 +5120,23 @@ extension DiagView {
         let raw = period > 0 ? (musical / period).truncatingRemainder(dividingBy: 1) : 0
         return CGFloat(max(0, min(1, raw < 0 ? raw + 1 : raw)))
     }
-    // CANCEL: revert the CURRENT target colour to the snapshot taken when the editor opened, then close. (Exit any other
+    // CANCEL: revert the CURRENT target machine to the snapshot taken when the editor opened, then close. (Exit any other
     // way = SAVE the live edits.) After an overwrite-and-follow the snapshot is the target's committed chain (a no-op).
     private func buildEditorCancel() {
-        if let cid = buildEditorSnapCid { buildWriteColourMachine(cid, buildEditorSnapshot) }
+        if let cid = buildEditorSnapCid { buildWriteMachineSlots(cid, buildEditorSnapshot) }
         buildEditSlot = nil; buildStageEye = false
     }
 
     @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, contentW: CGFloat) -> some View {
         let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {                               // HEADER: colour + name · BYPASS · CANCEL · DELETE
+            HStack(spacing: 10) {                               // HEADER: machine + name · BYPASS · CANCEL · DELETE
                 RoundedRectangle(cornerRadius: 8).fill(hue).frame(width: 34, height: 34)
                 Image(systemName: emblemSymbol(proc.type)).font(.system(size: 20, weight: .black)).foregroundColor(.white)
                 Text(buildProcLabel(proc)).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)   // type + its fixed mode (the radio moved to the card)
                 Spacer()
                 // HOLD-BYPASS A/B (idea 23): TAP = toggle (persistent); HOLD = momentary flip (hear it in/out, restore on
-                // release). The momentary uses the same undoable bypass edit (v1: may add an undo step for a placed colour).
+                // release). The momentary uses the same undoable bypass edit (v1: may add an undo step for a placed machine).
                 Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
                     .foregroundColor(.white)
                     .padding(.horizontal, 14).frame(height: 34)
@@ -5220,7 +5220,7 @@ extension DiagView {
                         .background(RoundedRectangle(cornerRadius: 6).fill(armed ? roomsRedSig : buildCyan))
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            if armed { if au?.commitRiffCapture(colourID: cid) == true { buildPublishScene() }; buildRiffCaptureArmed = false }
+                            if armed { if au?.commitRiffCapture(machineID: cid) == true { buildPublishScene() }; buildRiffCaptureArmed = false }
                             else { au?.armRiffCapture(door: door); buildRiffCaptureArmed = true }
                         }
                     if armed {
@@ -5253,12 +5253,12 @@ extension DiagView {
     }
 
     // §1 TRUTH STRIPS (Paul 2026-08-22, the TUTTI-confusion cure): a slim IN | OUT band above the controls. IN = the
-    // held-note silhouette at the colour's INPUT door — and when NOTHING is held it TEACHES ("nothing held — LATCH or
+    // held-note silhouette at the machine's INPUT door — and when NOTHING is held it TEACHES ("nothing held — LATCH or
     // play at INPUT A"), so silence explains itself instead of reading as breakage (the spec's §7 teach-in-place law).
     // OUT = a live mini-roll of what the plugin emits (the processor's effect made visible). v1: OUT aggregates the whole
     // board — during a chain audition (part stopped) that IS the chain's output. Tap-to-expand (the §4 STAGE EYE) is later.
     // Is the EDITED cell the one actually sounding right now? In "PLAY THIS MIDI CHAIN" the OUT IS this chain (true). In
-    // "PLAY THIS PART" it's only this cell when the edited colour's rung is the active one under the playhead — otherwise
+    // "PLAY THIS PART" it's only this cell when the edited machine's rung is the active one under the playhead — otherwise
     // the OUT strip is showing OTHER cells of the part, so we say so + dim it (idea 24 follow-up, Paul 2026-08-25).
     private var buildTruthOutContext: (label: String, live: Bool) {
         switch buildDisplayVoice {
@@ -5320,7 +5320,7 @@ extension DiagView {
     // (rolls scroll, "now" = the right edge; the mechanism is the live machine with a lit current column). The fully
     // column-aligned sweep (output tagged by its emitting step) is v2. EUCLID draws its pulse pattern; others a step lane.
     @ViewBuilder func buildStageEyeView(slot: Int, size: CGSize) -> some View {
-        let chain = selectedColourChain()
+        let chain = selectedMachineChain()
         if slot < chain.count {
             let proc = chain[slot]
             let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
@@ -5488,7 +5488,7 @@ extension DiagView {
         case .random:        return Int(splitmix64Mix(UInt64(i) &+ 0x9E3779B9) % UInt64(cyc))
         }
     }
-    // The IN silhouette: a compact C1–C7 piano (proper white/black keys), held notes filled the colour hue.
+    // The IN silhouette: a compact C1–C7 piano (proper white/black keys), held notes filled the machine hue.
     private func buildInKeyboard(_ held: [Int], hue: Color) -> some View {
         let set = Set(held)
         return pianoKeysCanvas(lo: 24, hi: 96) { midi in set.contains(midi) ? hue : nil }   // C1..C7
@@ -5538,24 +5538,24 @@ extension DiagView {
         }
     }
 
-    // ProcessorBox for a BUILD colour-template slot — mirrors DiagView.slotBox but writes COLOUR-scoped (the selected
-    // colour's templateChain via withChainColour). Our own header carries Delete/Bypass, so the box's chrome is hidden.
+    // ProcessorBox for a BUILD machine-template slot — mirrors DiagView.slotBox but writes MACHINE-scoped (the selected
+    // machine's templateChain via withChainMachine). Our own header carries Delete/Bypass, so the box's chrome is hidden.
     @ViewBuilder private func buildSlotBox(_ i: Int, _ slot: ProcessorSlot, cid: String) -> some View {
-        let sc: Colour = { var c = Colour(colourID: cid, type: slot.type); c.paramsA = slot.params; return c }()
+        let sc: Machine = { var c = Machine(machineID: cid, type: slot.type); c.paramsA = slot.params; return c }()
         // RATCHET PATTERN NOTE clock (Paul 2026-09-07): the playhead advances one column per note through, at the rate notes
         // arrive = the nearest upstream DRIVER's note rate. Read it from the chain so the visual sweeps in NOTE mode (0 = none).
         let driverNoteRate: Double = {
             guard slot.type == .ratchet else { return 0 }
-            let chain = buildColourChain(cid); let drivers: Set<ProcessorType> = [.arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave, .riff, .hocket]
+            let chain = buildMachineChain(cid); let drivers: Set<ProcessorType> = [.arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave, .riff, .hocket]
             var k = min(i, chain.count) - 1
             while k >= 0 { if drivers.contains(chain[k].type) { return chain[k].params.rate?.beats ?? 0 }; k -= 1 }
             return 0
         }()
         ProcessorBox(
-            colour: sc, colourIndex: -1, face: .a,
+            machine: sc, machineIndex: -1, face: .a,
             onEdit: { mutate in
                 buildChainEditSlot(i) { s in
-                    var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
+                    var tmp = Machine(machineID: cid, type: s.type); tmp.paramsA = s.params
                     mutate(&tmp); s.params = tmp.paramsA
                 }
             },
@@ -5575,50 +5575,50 @@ extension DiagView {
             avoidChainInputDoor: buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver)   // the door feeding THIS chain → the OUTPUT piano predicts from its notes
     }
 
-    // BUILD chain edits — colour-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
-    // whole with setColourChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
+    // BUILD chain edits — machine-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
+    // whole with setMachineChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
     private func buildApplyChain(_ chain: [ProcessorSlot]) {
-        guard let cid = ddSelectedColourID else { return }   // guard ABOVE the record so a nil selection never pushes a no-op undo step (U10 fix 2026-08-27)
+        guard let cid = ddSelectedMachineID else { return }   // guard ABOVE the record so a nil selection never pushes a no-op undo step (U10 fix 2026-08-27)
         buildRecordUndo("chain")   // BUILD UNDO: chain edit (add/remove/move/param) — coalesced so a param scrub is one step
         // idea 24 TOUCH-TO-DIFF: every chain edit funnels here — stamp the edit clock so the OUT read-out glows and the
         // notes the NEW settings produce (born after the gesture started) stand out from the old ones, as you drag.
         let now = Date(); if buildEditStartedAt == nil { buildEditStartedAt = now }; buildLastEditAt = now
-        buildWriteColourMachine(cid, chain)
+        buildWriteMachineSlots(cid, chain)
         // FERRY MIRROR (Paul 2026-08-30): a SELECT-grid ferry aim edits the transient gsAud (so the audition stays quantized-
         // swappable). Card edits were auditioned but never written back — an ARP change was HEARD in the audition so it read
         // as "working", a PASSGATE change wasn't obvious → "not applied", and NEITHER persisted to the part row. Mirror the
-        // edited chain (minus its baked register-home) straight to the aimed row's REAL colour so the part row updates too.
-        if cid == buildGridSelAudID, let mr = buildFerryMirrorRow, let real = buildRowColour(mr) {
-            let t = buildColourTranspose[real] ?? 0
-            buildWriteColourMachine(real, buildStripRegisterHome(chain, transpose: t))
+        // edited chain (minus its baked register-home) straight to the aimed row's REAL machine so the part row updates too.
+        if cid == buildGridSelAudID, let mr = buildFerryMirrorRow, let real = buildRowMachine(mr) {
+            let t = buildMachineTranspose[real] ?? 0
+            buildWriteMachineSlots(real, buildStripRegisterHome(chain, transpose: t))
         }
         // PLACED: a pending tab whose chain has diverged from its source is committed (stops pulsing). (2026-08-17)
-        if let p = buildPendingTab, buildRowColour(p) == cid, chain != buildPendingSource {
+        if let p = buildPendingTab, buildRowMachine(p) == cid, chain != buildPendingSource {
             buildPendingTab = nil; buildPendingSource = []
         }
     }
-    // Reverse buildGridSelLoadChain's register-home bake: it inserts a leading TRANSPOSE utility (== the colour's own
-    // transpose) so the ephemeral audition swaps atomically. Dropping it before writing to the REAL colour (which stores
-    // the register home in buildColourTranspose, not as a slot) avoids double-transposing. No baked slot ⇒ returned as-is.
+    // Reverse buildGridSelLoadChain's register-home bake: it inserts a leading TRANSPOSE utility (== the machine's own
+    // transpose) so the ephemeral audition swaps atomically. Dropping it before writing to the REAL machine (which stores
+    // the register home in buildMachineTranspose, not as a slot) avoids double-transposing. No baked slot ⇒ returned as-is.
     private func buildStripRegisterHome(_ chain: [ProcessorSlot], transpose: Int) -> [ProcessorSlot] {
         guard transpose != 0, let first = chain.first, first.type == .transpose,
               (first.params.utilTranspose ?? 0) == max(-24, min(24, transpose)) else { return chain }
         return Array(chain.dropFirst())
     }
     private func buildChainEditSlot(_ i: Int, _ mutate: (inout ProcessorSlot) -> Void) {
-        var c = selectedColourChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c)
+        var c = selectedMachineChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c)
     }
     private func buildChainToggleBypass(_ i: Int) { buildChainEditSlot(i) { $0.bypassed.toggle() } }
     private func buildChainSetType(_ i: Int, _ t: ProcessorType) { buildChainEditSlot(i) { $0.type = t } }
     private func buildChainRemoveSlot(_ i: Int) {                  // DELETE → leave an empty (passthrough) box, keep positions
-        var c = selectedColourChain(); guard i < c.count else { return }; c[i] = buildPassthroughSlot(); buildApplyChain(c)
+        var c = selectedMachineChain(); guard i < c.count else { return }; c[i] = buildPassthroughSlot(); buildApplyChain(c)
     }
     // DRAG-TO-REORDER (Paul 2026-08-25): a POSITIONAL move — the dragged processor LANDS at the target box (box index `to`,
     // OVERWRITING whatever was there) and its ORIGINAL box is vacated (→ empty passthrough). Nothing else shifts. So RIFF on
     // box 1 + ARP on box 2, RIFF→box 3 ⇒ box 1 empty · box 2 ARP · box 3 RIFF. The chain folds in box order (composeChainSet).
     private func buildChainMoveSlot(from: Int, to: Int) {
         guard from != to, from >= 0, to >= 0, to < 8 else { return }
-        var c = selectedColourChain()
+        var c = selectedMachineChain()
         guard from < c.count else { return }
         let moved = c[from]
         while c.count <= to { c.append(buildPassthroughSlot()) }   // extend to reach the target box (dropping onto an empty slot)
@@ -5642,7 +5642,7 @@ extension DiagView {
         let name: String            // storefront name (e.g. "RATCHET COIN", "LFO")
         let blurb: String           // catalog one-liner
         let type: ProcessorType     // the frozen engine ID this card opens
-        let apply: (inout ColourParams) -> Void   // pre-set the mode ({ } for a single-mode card)
+        let apply: (inout MachineParams) -> Void   // pre-set the mode ({ } for a single-mode card)
     }
     struct BuildCardGroup { let title: String; let note: String?; let cards: [BuildCard] }
 
@@ -5651,7 +5651,7 @@ extension DiagView {
     // To change mode you pick a different card. Grouped by musical intent; each card carries a plain one-liner.
     // Codable type IDs never rename — a split card is (type + a params mode-preset).
     private var buildCatalog: [BuildCardGroup] {
-        func C(_ n: String, _ b: String, _ t: ProcessorType, _ a: @escaping (inout ColourParams) -> Void = { _ in }) -> BuildCard {
+        func C(_ n: String, _ b: String, _ t: ProcessorType, _ a: @escaping (inout MachineParams) -> Void = { _ in }) -> BuildCard {
             BuildCard(name: n, blurb: b, type: t, apply: a)
         }
         return [
@@ -5747,14 +5747,14 @@ extension DiagView {
 
     // ADD a catalog CARD at box `i`: populate the box with the card's type, pre-set its mode, open its editor.
     private func buildChainAddCard(_ i: Int, _ card: BuildCard) {
-        if ddSelectedColourID == nil {                                    // no colour holds the chain (SELECT grid, nothing auditioned since the auto-audition was retired) →
-            buildColourReg[buildGridSelAudID] = []                        // start a FRESH transient so buildApplyChain has a target + the card can open (BUG fix 2026-08-29)
-            colourHueOverride[buildGridSelAudID] = colourHexes.first ?? 0x808080
-            buildColourTranspose[buildGridSelAudID] = 0
-            buildSyncColours()
+        if ddSelectedMachineID == nil {                                    // no machine holds the chain (SELECT grid, nothing auditioned since the auto-audition was retired) →
+            buildMachineReg[buildGridSelAudID] = []                        // start a FRESH transient so buildApplyChain has a target + the card can open (BUG fix 2026-08-29)
+            machineHueOverride[buildGridSelAudID] = machineHexes.first ?? 0x808080
+            buildMachineTranspose[buildGridSelAudID] = 0
+            buildSyncMachines()
             buildSelID = buildGridSelAudID
         }
-        var c = selectedColourChain()
+        var c = selectedMachineChain()
         while c.count <= i { c.append(buildPassthroughSlot()) }
         var slot = ProcessorSlot(type: card.type)
         card.apply(&slot.params)
@@ -5816,11 +5816,11 @@ extension DiagView {
     // a COMPLETE MIDI chain. Tap = audition it live against the current input (mutually-exclusive, quantized next-step,
     // the deployed piece plays on); the RIGHT column shows the selected chain read-only; COMMIT overwrites the ARRIVAL
     // row's chain (one undo), CANCEL restores. It rides the EXISTING chain-audition path (ddSolo + buildPublishScene)
-    // on ONE reusable transient ephemeral colour, so the document is untouched until COMMIT (non-destructive by
+    // on ONE reusable transient ephemeral machine, so the document is untouched until COMMIT (non-destructive by
     // construction). Banks v1: DEALT (Dice.rollEnsemble ×8 = 64 seeded chains, RE-DEAL) + MY LIBRARY (saved + factory
     // cells). FACTORY-as-a-curated-bank + EXCLUSIVE-OFF layering are deferred (flagged for Paul). The reel records every
     // audition for free (real emission). §6 governor: ordinary derivation, standing caps apply.
-    private var buildGridSelAudID: String { "gsAud" }   // the ONE reusable transient colour that carries the browsed chain
+    private var buildGridSelAudID: String { "gsAud" }   // the ONE reusable transient machine that carries the browsed chain
 
     func buildOpenGridSel() {
         buildGridSelArrivalRow = buildSelectedRow                        // FREEZE the arrival row (buildSelectedRow resolves live)
@@ -5889,7 +5889,7 @@ extension DiagView {
         guard let src = buildGridSelStampSource(), i >= 0, i < 64 else { return }
         var chain = src.chain
         if src.transpose != 0 { var t = ProcessorSlot(type: .transpose); t.params.utilTranspose = max(-24, min(24, src.transpose)); chain.insert(t, at: 0) }   // bake the register home
-        buildGridSelOverride[i] = (chain, colourHexes[i % 16])          // the NEW instance (in-memory; disk library untouched)
+        buildGridSelOverride[i] = (chain, machineHexes[i % 16])          // the NEW instance (in-memory; disk library untouched)
         buildGridSelComputeCellRolls()                                  // recompute the faces (picks up the override)
         buildGridSelAudition(i)                                         // the copied cell becomes the active/selected cell + auditions
     }
@@ -5901,7 +5901,7 @@ extension DiagView {
         if buildGridSelTab == 0 {
             guard i >= 0 && i < buildGridSelDealt.count else { return nil }
             let e = buildGridSelDealt[i]
-            return (e.chain, e.transpose, colourHexes[((i % 8) * 2) % 16])
+            return (e.chain, e.transpose, machineHexes[((i % 8) * 2) % 16])
         } else {
             guard i >= 0 && i < buildGridSelCatIndices.count else { return nil }   // CATEGORY: grid position i → the i-th library entry in the current category
             let L = buildGridSelCatIndices[i]
@@ -5909,13 +5909,13 @@ extension DiagView {
             let name = buildGridSelLib[L].name
             // Resolve by SECTION, not by name — a saved cell may share a factory cell's name (saved rows are [0, factoryFrom)).
             let cell = L >= buildGridSelLibFactoryFrom ? au?.factoryLibraryCell(name: name) : au?.loadLibraryCell(name: name)
-            return (cell?.processors ?? [], 0, colourHexes[i % 16])       // hue position-based
+            return (cell?.processors ?? [], 0, machineHexes[i % 16])       // hue position-based
         }
     }
     private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelOverride[i] != nil || (buildGridSelTab == 0 ? i < buildGridSelDealt.count : i < buildGridSelCatIndices.count) }   // a cell-to-cell COPY makes an empty position present too (Paul 2026-08-28); library filtered by CATEGORY (2026-08-29)
-    private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelOverride[i]?.hex ?? (buildGridSelTab == 0 ? colourHexes[((i % 8) * 2) % 16] : colourHexes[i % 16]) }
+    private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelOverride[i]?.hex ?? (buildGridSelTab == 0 ? machineHexes[((i % 8) * 2) % 16] : machineHexes[i % 16]) }
 
-    // AUDITION — register the browsed chain on the ONE transient colour, select it, and drive the existing chain-voice
+    // AUDITION — register the browsed chain on the ONE transient machine, select it, and drive the existing chain-voice
     // path: turn the chain voice ON (quantized) if not already, else swap which chain (quantized). Piece plays on.
     private func buildGridSelAudition(_ i: Int) {
         guard let hit = buildGridSelChainAt(i) else { return }
@@ -5935,22 +5935,22 @@ extension DiagView {
         buildGridSelStampSourceRow = nil
         buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i, play: false)
     }
-    // Load a chain onto the ONE transient audition colour, select it, and drive the chain voice (quantized). Shared by a
+    // Load a chain onto the ONE transient audition machine, select it, and drive the chain voice (quantized). Shared by a
     // cell audition (sel = the cell index → the commit source) and a ROW press (sel = nil → a view/hear of that part's chain).
     private func buildGridSelLoadChain(_ raw: [ProcessorSlot], transpose: Int, hex: UInt32, sel: Int?, play: Bool = true) {
         buildGridSelSel = sel
         buildGridSelActiveRoll = gridSelRollBars(raw)                     // the piano-roll shown on the cell + the right column
-        // BAKE the register home into the CHAIN (a leading TRANSPOSE utility) rather than the ephemeral colour's transpose:
-        // the chain is baked into the published scene + swapped atomically at the STEP boundary, whereas the colour's
+        // BAKE the register home into the CHAIN (a leading TRANSPOSE utility) rather than the ephemeral machine's transpose:
+        // the chain is baked into the published scene + swapped atomically at the STEP boundary, whereas the machine's
         // transpose is re-resolved on every rebuild — so an ephemeral transpose would jump the still-sounding old chain a
-        // step early on a quantized swap. This keeps the whole swap quantized. (transpose stays 0 on the transient colour.)
+        // step early on a quantized swap. This keeps the whole swap quantized. (transpose stays 0 on the transient machine.)
         var chain = raw
         if transpose != 0 { var t = ProcessorSlot(type: .transpose); t.params.utilTranspose = max(-24, min(24, transpose)); chain.insert(t, at: 0) }
-        buildColourReg[buildGridSelAudID] = chain
-        colourHueOverride[buildGridSelAudID] = hex
-        buildColourTranspose[buildGridSelAudID] = 0
-        buildSyncColours()
-        buildSelID = buildGridSelAudID; ddColourSel = -1                  // ddSelectedColourID now returns the transient
+        buildMachineReg[buildGridSelAudID] = chain
+        machineHueOverride[buildGridSelAudID] = hex
+        buildMachineTranspose[buildGridSelAudID] = 0
+        buildSyncMachines()
+        buildSelID = buildGridSelAudID; ddMachineSel = -1                  // ddSelectedMachineID now returns the transient
         guard play else { return }                                        // FOCUS ONLY (SELECT mode): shown in the machine, voice untouched (Paul 2026-08-31)
         let instant = !buildGridSelQuantStep || !d.playing
         if !ddSolo {                                                       // chain voice OFF → turn it on
@@ -5961,20 +5961,20 @@ extension DiagView {
         }
     }
     // Stop the transient audition but KEEP the browser open (tab-switch / RE-DEAL): silence the chain voice, reap the
-    // transient, and re-select the pre-open colour so nothing is stranded. The deployed piece plays on.
+    // transient, and re-select the pre-open machine so nothing is stranded. The deployed piece plays on.
     private func buildGridSelStopAudition() {
         buildFerryMirrorRow = nil                                        // stop mirroring — the transient is being reaped
         guard buildGridSelSel != nil || ddSolo || buildPendingWorkshopVoice != nil || buildPendingReengage else { return }
         buildGridSelSel = nil; buildGridSelActiveRoll = []
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
-        buildColourReg[buildGridSelAudID] = nil; colourHueOverride[buildGridSelAudID] = nil; buildColourTranspose[buildGridSelAudID] = nil
+        buildMachineReg[buildGridSelAudID] = nil; machineHueOverride[buildGridSelAudID] = nil; buildMachineTranspose[buildGridSelAudID] = nil
         if buildVoiceOwner == .chain { buildVoiceOwner = .none }
-        buildSelID = buildGridSelPriorSel; ddColourSel = colourIDs.firstIndex(of: buildGridSelPriorSel ?? "") ?? -1
-        au?.clearColourSolo(); buildSyncColours(); buildPublishScene()
+        buildSelID = buildGridSelPriorSel; ddMachineSel = machineIDs.firstIndex(of: buildGridSelPriorSel ?? "") ?? -1
+        au?.clearMachineSolo(); buildSyncMachines(); buildPublishScene()
     }
     // HOLD-TO-STAMP (Paul 2026-08-26): while a browse CELL auditions, HOLDING a part-row stamps the auditioning chain onto
-    // that row — KEEPING the row's own colour — WITHOUT closing the browser (so you can stamp one machine onto several
-    // parts). A populated row keeps its hue + register (chain overwritten); an empty row mints a colour carrying the chain.
+    // that row — KEEPING the row's own machine — WITHOUT closing the browser (so you can stamp one machine onto several
+    // parts). A populated row keeps its hue + register (chain overwritten); an empty row mints a machine carrying the chain.
     // Fires a white→fade FLASH on the row. Requires a browse cell to be the source (buildGridSelSel != nil).
     private var buildGridSelCanStamp: Bool { buildGridSelStampSource() != nil }
     // The active STAMP SOURCE — one of two (mutually exclusive, "one thing is active"): a browse CELL
@@ -5983,25 +5983,25 @@ extension DiagView {
     private func buildGridSelStampSource() -> (chain: [ProcessorSlot], transpose: Int)? {
         // Resolve the three candidates from @State, then defer to the pure, unit-tested priority (roomsStampSource):
         // the live audition (gsAud) holds card EDITS — on SELECT BOTH a browse cell AND an aimed side button load + edit
-        // it (buildSelID == gsAud), so it wins (register home baked → transpose 0). PART edits the REAL colour instead
+        // it (buildSelID == gsAud), so it wins (register home baked → transpose 0). PART edits the REAL machine instead
         // (buildSelID != gsAud there → falls through to the browse cell / side row, which already reflects the edit).
-        // (BUG 2026-08-29: the old code read buildGridSelChainAt/buildColourChain = the ORIGINAL, dropping edits.)
+        // (BUG 2026-08-29: the old code read buildGridSelChainAt/buildMachineChain = the ORIGINAL, dropping edits.)
         roomsStampSource(
-            auditionEdited: buildSelID == buildGridSelAudID ? buildColourReg[buildGridSelAudID] : nil,
+            auditionEdited: buildSelID == buildGridSelAudID ? buildMachineReg[buildGridSelAudID] : nil,
             libraryCell: buildGridSelSel.flatMap { buildGridSelChainAt($0) }.map { ($0.chain, $0.transpose) },
-            sideRow: buildGridSelStampSourceRow.flatMap { s in buildRowColour(s).map { (buildColourChain($0), buildColourTranspose[$0] ?? 0) } })
+            sideRow: buildGridSelStampSourceRow.flatMap { s in buildRowMachine(s).map { (buildMachineChain($0), buildMachineTranspose[$0] ?? 0) } })
     }
     // Make the side button the ONE active source (clear the library-cell source) — "one thing is active". (Paul 2026-08-28)
     private func buildRoomsSetActiveSide(_ n: Int) { buildGridSelStampSourceRow = n; buildGridSelSel = nil }
     private func buildGridSelStampCommit(_ row: Int) {
         guard let hit = buildGridSelStampSource() else { return }
         buildRecordUndo()   // BUILD UNDO: capture the auditioning chain onto a part row
-        // CAPTURE-INTO-MIRROR (Paul 2026-08-29): every long-press makes a FRESH cell in the row's PREDETERMINED colour
-        // (colourHexes[row]) carrying whatever's CURRENTLY PLAYING (hit = the audition's chain + its register home), written
+        // CAPTURE-INTO-MIRROR (Paul 2026-08-29): every long-press makes a FRESH cell in the row's PREDETERMINED machine
+        // (machineHexes[row]) carrying whatever's CURRENTLY PLAYING (hit = the audition's chain + its register home), written
         // to the part ROW — so the ferry button and that part row are ONE cell thereafter (edits mirror). An INDEPENDENT
-        // copy: not linked to the source. (Was: keep an existing row's colour + overwrite only the chain.)
-        if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }
-        let y = buildNewTabColour(row, machine: hit.chain, transpose: hit.transpose)
+        // copy: not linked to the source. (Was: keep an existing row's machine + overwrite only the chain.)
+        if row < buildRowUnder.count { buildRowUnder[row] = buildRowMachine(row) }
+        let y = buildNewTabMachine(row, machine: hit.chain, transpose: hit.transpose)
         if !buildPartCast.contains(y) { buildPartCast.append(y) }
         buildSetRow(row, to: y)
         if row < buildRowReceiver.count { buildRowReceiver[row] = ddStickyReceiver; buildRowEmitters[row] = ddStickyBuses }
@@ -6016,9 +6016,9 @@ extension DiagView {
         let hue = Color(hex: buildGridSelCellHex(i))
         let sel = buildGridSelSel == i
         // greyUnlessSel (SELECT grid, Paul 2026-08-29): an unselected present cell is a DARK-GREY button with a LIGHT-GREY
-        // piano roll; only the SELECTED cell wears its chain's colour + white roll. Else (old grid selector) = coloured.
+        // piano roll; only the SELECTED cell wears its chain's machine + white roll. Else (old grid selector) = coloured.
         let unselGrey = greyUnlessSel && !sel
-        // SELECT grid (greyUnlessSel): the PLAYING (selected) cell is ONE colour — the INVERSE of the unselected dark-grey
+        // SELECT grid (greyUnlessSel): the PLAYING (selected) cell is ONE machine — the INVERSE of the unselected dark-grey
         // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
         let selGrey = greyUnlessSel && sel
         let fill = present ? (sel ? (selGrey ? buildSelectGrey : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)   // selGrey ALTERNATES two bright shades per selection (matches the machine box; Paul 2026-09-01)
@@ -6049,7 +6049,7 @@ extension DiagView {
     // keep buildGridSelDriftFace/buildNoteSweep). A PRECISE one-frame piano roll of the chain's real output (gridSelRollBars
     // = an offline render → each note's start · LENGTH (x0→x1 = bar width) · PITCH lane · VELOCITY (opacity)). STATIC at the
     // real note positions when idle; when the cell is auditioning it SCROLLS LEFT→RIGHT, beat-locked to the music (the same
-    // extrapolated beat the cell playheads use). Same colour scheme (the caller's `tint`).
+    // extrapolated beat the cell playheads use). Same machine scheme (the caller's `tint`).
     @ViewBuilder private func buildGridSelPianoRoll(_ bars: [GridSelBar], playing: Bool, tint: Color, strikeIdx: [Int] = []) -> some View {
         buildOutputFace(bars, tint: tint, playing: playing, strikeIdx: strikeIdx)   // SELECT face = the unified expected-output constellation (Paul 2026-09-05 v2)
     }
@@ -6079,7 +6079,7 @@ extension DiagView {
     // on open; rows only change on COMMIT (which closes the selector), so no live recompute is needed.
     private func buildGridSelComputeRowRolls() {
         var chains: [(Int, [ProcessorSlot])] = []
-        for n in 0..<8 { if let cid = buildRowColour(n) { chains.append((n, buildColourChain(cid))) } }
+        for n in 0..<8 { if let cid = buildRowMachine(n) { chains.append((n, buildMachineChain(cid))) } }
         DispatchQueue.global(qos: .userInitiated).async {   // Paul 2026-09-05: no eager clear (avoids the blank-then-redraw flash)
             var out: [Int: [GridSelBar]] = [:]
             for (n, chain) in chains { out[n] = gridSelRollBars(chain) }
@@ -6087,13 +6087,13 @@ extension DiagView {
         }
     }
     // Paul 2026-09-05: the PLAY columns' offline expected-output bars — the always-visible constellation on the play/ferry
-    // cells (the selected rung's colour chain per column). Cheap (≤8), off-main; refreshed from buildPublishScene.
+    // cells (the selected rung's machine chain per column). Cheap (≤8), off-main; refreshed from buildPublishScene.
     private func buildComputePlayColRolls() {
         var chains: [(Int, [ProcessorSlot])] = []
         for t in 0..<8 {
             let sel = t < buildPlaySel.count ? buildPlaySel[t] : 0
             if t < buildPlayCells.count, sel >= 0, sel < buildPlayCells[t].count, let cid = buildPlayCells[t][sel] {
-                chains.append((t, buildColourChain(cid)))
+                chains.append((t, buildMachineChain(cid)))
             }
         }
         DispatchQueue.global(qos: .userInitiated).async {   // Paul 2026-09-05: no eager clear (avoids the blank-then-redraw flash)
@@ -6127,13 +6127,13 @@ extension DiagView {
                 Rectangle().fill(Color.white.opacity(0.9)).frame(height: max(0, height * CGFloat(f)))   // rising WHITE progress while held
             }
         } else if buildGridSelStampFlashRow == n, let fs = buildGridSelStampFlashAt {
-            // THE REVEAL (Paul 2026-09-01): on COMMIT the cell BLOOMS its real machine COLOUR — a saturated wash of `hue`
+            // THE REVEAL (Paul 2026-09-01): on COMMIT the cell BLOOMS its real machine MACHINE — a saturated wash of `hue`
             // eases out over ~0.6s, settling to the now-populated cell. The disposable grey draft "becomes real" in its own
-            // colour (colour = kept). Was a plain white flash — invisible as a colour payoff on these mostly-dark cells.
+            // machine (machine = kept). Was a plain white flash — invisible as a machine payoff on these mostly-dark cells.
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let raw = min(1.0, tl.date.timeIntervalSince(fs) / 0.6)
                 let e = 1 - (1 - raw) * (1 - raw)                                   // ease-out
-                Rectangle().fill(hue.opacity(0.9 * (1 - e)))                        // full colour → clear (the bloom)
+                Rectangle().fill(hue.opacity(0.9 * (1 - e)))                        // full machine → clear (the bloom)
             }
         }
     }
@@ -6144,9 +6144,9 @@ extension DiagView {
         receivers = au?.uiReceivers() ?? receivers
         // LOAD the pressed part's own chain into the MIDI CHAIN panel + audition it (Paul 2026-08-26). sel = nil → it's a
         // view/hear of what's on the row, not a commit source (re-deal or tap a cell to change it). Empty row → clear.
-        if let cid = buildRowColour(n) {
+        if let cid = buildRowMachine(n) {
             buildFerryMirrorRow = n                                       // a POPULATED ferry aim MIRRORS this row: card edits on gsAud write straight back to it (Paul 2026-08-30)
-            buildGridSelLoadChain(buildColourChain(cid), transpose: buildColourTranspose[cid] ?? 0, hex: buildBaseHex(cid), sel: nil)
+            buildGridSelLoadChain(buildMachineChain(cid), transpose: buildMachineTranspose[cid] ?? 0, hex: buildBaseHex(cid), sel: nil)
         } else {
             buildFerryMirrorRow = nil                                     // empty row → no mirror target
             buildGridSelStopAudition()                                    // empty part → nothing to load; silence the transient

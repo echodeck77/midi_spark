@@ -24,11 +24,11 @@ final class RouterTests: XCTestCase {
 
     // MARK: setup helpers
 
-    /// A one-scene document with the given colours + cell layout, then its resolved SnapshotBox.
-    private func box(colours cs: [Colour], busChannels: [Int] = [1, 2, 3, 4], masterMute: Bool = false,
+    /// A one-scene document with the given machines + cell layout, then its resolved SnapshotBox.
+    private func box(machines cs: [Machine], busChannels: [Int] = [1, 2, 3, 4], masterMute: Bool = false,
                      _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: cs, scenes: [s]); st.busChannels = busChannels; st.masterMute = masterMute
+        var st = PluginState(machines: cs, scenes: [s]); st.busChannels = busChannels; st.masterMute = masterMute
         return SnapshotBuilder.build(from: st)
     }
 
@@ -79,13 +79,13 @@ final class RouterTests: XCTestCase {
         }
     }
 
-    private func arpColours() -> [Colour] { colourIDs.map { Colour(colourID: $0, type: .arp) } }
+    private func arpMachines() -> [Machine] { machineIDs.map { Machine(machineID: $0, type: .arp) } }
 
     // MARK: tests
 
     func testArpSoundsAndLeavesNothingStuck() {
         // One ARP cell (col 0, bus A) over a 3-note chord, run a full 8-column cycle then stop.
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 16, into: e)          // S=2 → one full cycle
         XCTAssertGreaterThan(e.ons.count, 0, "the arp should have sounded during column 0's window")
@@ -95,9 +95,9 @@ final class RouterTests: XCTestCase {
     func testPlayCellOnlySilencesEveryOtherCell() {
         // EDIT "play this cell only" (user 2026-08-08): two ARP cells in the SAME column, rows 0 (bus A/cable 1)
         // and 1 (bus B/cable 2). Solo the (col0,row1) cell → only cable 2 lights; the other falls silent.
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-            $0.cells[0][1] = Cell(colourID: "orange", buses: [.b])
+        let b = box(machines: arpMachines()) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+            $0.cells[0][1] = Cell(machineID: "orange", buses: [.b])
         }
         let soloed = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 16, into: soloed, soloCellMask: UInt64(1) << UInt64(0 * 8 + 1))
@@ -114,8 +114,8 @@ final class RouterTests: XCTestCase {
     // GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE render integration.
     func testEuclidStrikesChordOnEuclideanPulses() {
         // 4-of-8 euclid over a 3-note chord in one column (S = 2 beats): 4 pulses × 3 notes = 12 note-ons, no stuck.
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 2, into: e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "4 euclid pulses × the 3-note chord")
@@ -126,8 +126,8 @@ final class RouterTests: XCTestCase {
         // not on a block boundary — the case the old window-scan dropped, losing every column's step-0 pulse (K→K−1;
         // K=1 silent). Existing euclid tests hid it by starting the run exactly on column 0's boundary. All 4 pulses
         // (incl. the downbeat at 2.0) must sound: 4 × 3 = 12.
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[1][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[1][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 4, into: e)   // column 1 is active over [2,4); its downbeat at 2.0 is mid-block
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "the column-1 downbeat must not be dropped (was 9 = K−1 per cycle)")
@@ -139,14 +139,14 @@ final class RouterTests: XCTestCase {
     // EVERY column to step 0 (always a hit) → all 8 columns fire = 8 × 3 = 24. Proves SPAN re-syncs, not scales speed.
     func testEuclidSpanReAnchorsThePattern() {
         func ons(spanN: Int?) -> Int {
-            let b = box(colours: colourIDs.map { id -> Colour in
-                guard id == "gold" else { return Colour(colourID: id, type: .arp) }
-                var c = Colour(colourID: "gold", type: .euclid)
+            let b = box(machines: machineIDs.map { id -> Machine in
+                guard id == "gold" else { return Machine(machineID: id, type: .arp) }
+                var c = Machine(machineID: "gold", type: .euclid)
                 c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidRate = .r1_8; c.paramsA.euclidSpanN = spanN
                 return c
             }) { s in
                 s.stepRate = .r1_8                                       // 0.5-beat columns == the euclid rate → one step per column
-                for col in 0..<8 { s.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }   // the whole row → the pattern plays continuously
+                for col in 0..<8 { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }   // the whole row → the pattern plays continuously
             }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e)   // exactly 8 columns (no pass-2 edge)
             assertNothingLeftSounding(e)
@@ -162,9 +162,9 @@ final class RouterTests: XCTestCase {
         func run2(_ withDest: Bool) -> [RecordingEmitter.Ev] {
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
             var dest = ProcessorSlot(type: .dest); dest.params.destSlices = [0, 1, 2, 3, 0, 1, 2, 3]
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) {
-                $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a, .b, .c, .d]); c.processors = withDest ? [arp, dest] : [arp]; return c }()
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) {
+                $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = withDest ? [arp, dest] : [arp]; return c }()
             }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
@@ -180,9 +180,9 @@ final class RouterTests: XCTestCase {
         func run2(_ withMute: Bool, _ mask: Int) -> RecordingEmitter {
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
             var mute = ProcessorSlot(type: .muteMatrix); mute.params.muteSlices = Array(repeating: mask, count: 8)
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) {
-                $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a, .b, .c, .d]); c.processors = withMute ? [arp, mute] : [arp]; return c }()
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) {
+                $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = withMute ? [arp, mute] : [arp]; return c }()
             }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
@@ -199,8 +199,8 @@ final class RouterTests: XCTestCase {
     // passthrough); chance 1 ⇒ every note bursts (more note-ons). Nothing left sounding either way.
     func testRatchetFoldPassesThroughUnlessTheCoinFires() {
         func arpCell(_ procs: [ProcessorSlot]) -> Int {
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -221,8 +221,8 @@ final class RouterTests: XCTestCase {
     // number of note-ons as the arp alone (one modified note per arp note); standalone they STILL generate.
     func testHumanizeShiftFoldOntoTheDriverNotRepool() {
         func cellCount(_ procs: [ProcessorSlot]) -> Int {
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -240,8 +240,8 @@ final class RouterTests: XCTestCase {
     // if a fold regressed to a pass-through identity. SHIFT pushes each arp note LATER → [ARP→SHIFT] onset-sum strictly > arp.
     func testShiftFoldActuallyDelaysArpOnsets() {
         func onsets(_ procs: [ProcessorSlot]) -> [Int64] {
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
@@ -255,8 +255,8 @@ final class RouterTests: XCTestCase {
     // HUMANIZE fold is replay-safe (seeded) AND actually perturbs (jitters onset/velocity vs the arp alone).
     func testHumanizeFoldIsReplaySafeAndPerturbs() {
         func stamps(_ procs: [ProcessorSlot]) -> [[Int64]] {
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { [$0.sample, Int64($0.note), Int64($0.vel)] }
@@ -271,8 +271,8 @@ final class RouterTests: XCTestCase {
     // (NOTE clock = one column per arp note), and a PASSTHROUGH step leaves the inherited velocity. Note-transparent → same count.
     func testVelocityFoldOverridesPerStepAndPassesThrough() {
         func vels(_ procs: [ProcessorSlot]) -> [Int] {
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { Int($0.vel) }
@@ -295,8 +295,8 @@ final class RouterTests: XCTestCase {
         func vels(_ clock: RatchetClock) -> [Int] {
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
             var vel = ProcessorSlot(type: .velocity); vel.params.velSteps = 2; vel.params.velLane = [30, 120]; vel.params.velRate = .r1_8; vel.params.velClock = clock
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, vel]; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, vel]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.vel) }
         }
@@ -311,8 +311,8 @@ final class RouterTests: XCTestCase {
         func vels(_ span: Int) -> [Int] {
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var vel = ProcessorSlot(type: .velocity); vel.params.velSteps = 4; vel.params.velLane = [40, 60, 80, 100]; vel.params.velRate = .r1_8; vel.params.velClock = .time; vel.params.velSpanN = span
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, vel]; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, vel]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { Int($0.vel) }
         }
@@ -323,9 +323,9 @@ final class RouterTests: XCTestCase {
     // A chain whose ONLY driver is a fold-ratchet (COIN pass-through) must still DRIVE: chainDriverIndex skips isRatchetFold
     // but falls back to the last driver when there's no non-fold driver, so a lone [RATCHET COIN rtcFold] generates.
     func testLoneFoldableRatchetStillDrives() {
-        let cs = colourIDs.map { Colour(colourID: $0, type: .ratchet) }
+        let cs = machineIDs.map { Machine(machineID: $0, type: .ratchet) }
         var r = ProcessorSlot(type: .ratchet); r.params.rtcMode = .coin; r.params.rtcFold = true
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [r]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [r]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
         assertNothingLeftSounding(e)
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "a lone fold-ratchet has nothing to fold onto → it drives + generates")
@@ -335,14 +335,14 @@ final class RouterTests: XCTestCase {
     // So an all-1 matrix == the bare arp; an all-3 matrix ratchets every note (more strikes).
     func testRatchetPatternRatchetsOnActiveColumns() {
         func cellCount(_ slices: [Int]) -> Int {
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var procs = [arp]
             if !slices.isEmpty {   // empty ⇒ the bare arp (baseline); else [ARP → RATCHET PATTERN]
                 var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern; rat.params.rtcSteps = slices.count; rat.params.rtcSlices = slices; rat.params.ramp = 0
                 procs.append(rat)
             }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -360,9 +360,9 @@ final class RouterTests: XCTestCase {
     // would scale with it). Also: ratchet columns add strikes, OFF mutes, no input → silence. All via emitColumnRatchetPattern.
     func testStandaloneRatchetPatternPassesThroughAndMutes() {
         func standalone(_ slices: [Int], rate: ArpRate, chordNotes: [UInt8]) -> Int {
-            let cs = colourIDs.map { c -> Colour in var col = Colour(colourID: c, type: .ratchet)
+            let cs = machineIDs.map { c -> Machine in var col = Machine(machineID: c, type: .ratchet)
                 col.paramsA.rtcMode = .pattern; col.paramsA.rtcRate = rate; col.paramsA.rtcSteps = slices.count; col.paramsA.rtcSlices = slices; col.paramsA.ramp = 0; return col }
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chordNotes.isEmpty ? NotePool() : chord(chordNotes), beats: 4, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -383,7 +383,7 @@ final class RouterTests: XCTestCase {
     // ratchet count on every other column re-fires those notes → more strikes than passthrough. Chain-only; replay-safe.
     func testRatchetPatternNoteClockAdvancesPerNote() {
         func cellCount(_ slices: [Int]?) -> Int {
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var procs = [arp]
             if let slices = slices {   // nil ⇒ the bare arp (baseline); else [ARP → RATCHET PATTERN] in NOTE clock
@@ -392,7 +392,7 @@ final class RouterTests: XCTestCase {
                 rat.params.rtcSlices = slices; rat.params.ramp = 0
                 procs.append(rat)
             }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -410,24 +410,24 @@ final class RouterTests: XCTestCase {
         var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
         var dest = ProcessorSlot(type: .dest); dest.params.destSlices = [0, 1, 0, 1, 0, 1, 0, 1]      // alternate A, B
         var mute = ProcessorSlot(type: .muteMatrix); mute.params.muteSlices = Array(repeating: 0b0001, count: 8)  // A muted every step
-        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        let b = box(colours: cs) {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a, .b, .c, .d]); c.processors = [arp, dest, mute]; return c }()
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) {
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = [arp, dest, mute]; return c }()
         }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
         assertNothingLeftSounding(e)
         XCTAssertFalse(e.ons.contains { $0.cable == 1 }, "the A-routed slices are muted → nothing on emitter A")
         XCTAssertTrue(e.ons.contains { $0.cable == 2 }, "the B-routed slices still play on emitter B")
     }
-    // MUTE MATRIX indexes by the GRID COLUMN (Paul 2026-08-25 — the "does nothing" fix): a MUTE colour across a ROW mutes
+    // MUTE MATRIX indexes by the GRID COLUMN (Paul 2026-08-25 — the "does nothing" fix): a MUTE machine across a ROW mutes
     // the drawn columns. Muting emitter A on columns 0–3 only → A still plays (from columns 4–7); muting it everywhere → none.
     func testMuteMatrixMutesByColumnAcrossARow() {
         func aCount(_ mask: [Int]) -> Int {
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
             var mute = ProcessorSlot(type: .muteMatrix); mute.params.muteSlices = mask
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) {
-                for col in 0..<8 { $0.cells[col][0] = { var c = Cell(colourID: "gold", buses: [.a, .b]); c.processors = [arp, mute]; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) {
+                for col in 0..<8 { $0.cells[col][0] = { var c = Cell(machineID: "gold", buses: [.a, .b]); c.processors = [arp, mute]; return c }() }
             }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
             assertNothingLeftSounding(e)
@@ -443,10 +443,10 @@ final class RouterTests: XCTestCase {
     // TIMING LANE (Paul 2026-08-22 §5): NUDGE's LANE mode — the cell's COLUMN picks a per-step time offset (the pocket).
     func testTimingLaneNudgesTheOnsetByColumn() {
         func firstOn(lane: [Int]?) -> Int64 {
-            var c = Colour(colourID: "gold", type: .nudge)
+            var c = Machine(machineID: "gold", type: .nudge)
             if let l = lane { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = l }
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // a NUDGE cell in column 0
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // a NUDGE cell in column 0
             let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.first?.sample ?? -1
@@ -461,10 +461,10 @@ final class RouterTests: XCTestCase {
     // CHANCE PATTERN (Paul 2026-08-22 §5): per-step odds — 0% drops every note in that step, 100% passes; deterministic.
     func testChancePatternGatesByStepOdds() {
         func ons(_ slices: [Int]) -> Int {
-            var c = Colour(colourID: "gold", type: .chance)
+            var c = Machine(machineID: "gold", type: .chance)
             c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = slices
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -482,12 +482,12 @@ final class RouterTests: XCTestCase {
     // in columns (re-anchor every N). Different periods produce different (polymeter) patterns; the run is replay-safe.
     func testTuttiSpanLadderReAnchorsThePatternByPeriod() {
         func notes(spanN: Int?) -> [Int] {
-            var c = Colour(colourID: "gold", type: .tutti)
+            var c = Machine(machineID: "gold", type: .tutti)
             c.paramsA.tuttiMode = .pattern
             c.paramsA.tuttiSlices = [.all, .rest, .low, .rest, .high, .rest, .bot2, .rest]
             c.paramsA.tuttiSpanN = spanN
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)   // one 8-column bar
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
@@ -502,13 +502,13 @@ final class RouterTests: XCTestCase {
     // reaches slices 4–7 (the .high half) while SPAN=1 never leaves slices 0–3 (the .low half) — so they diverge.
     func testTuttiFreeSpanFreeRunsDistinctFromSpanOne() {
         func notes(spanN: Int) -> [Int] {
-            var c = Colour(colourID: "gold", type: .tutti)
+            var c = Machine(machineID: "gold", type: .tutti)
             c.paramsA.tuttiMode = .pattern
             c.paramsA.tuttiRate = .r1_8                // 0.5 beat → 4 slices per 2-beat column
             c.paramsA.tuttiSlices = [.low, .low, .low, .low, .high, .high, .high, .high]
             c.paramsA.tuttiSpanN = spanN
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
@@ -523,11 +523,11 @@ final class RouterTests: XCTestCase {
     // run (today's continuous drone). Off the same span ladder: SPAN=1 → every column, SPAN=4 → cols 0 and 4. No stuck notes.
     func testDroneStrikePerSpanReArticulatesAtSpanOrigins() {
         func onCount(sps: Bool, spanN: Int) -> Int {
-            var c = Colour(colourID: "gold", type: .drone)
+            var c = Machine(machineID: "gold", type: .drone)
             c.paramsA.strikePerSpan = sps
             c.paramsA.strikeSpanN = spanN
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 15.9, into: e)   // columns 0…7 of one bar (S=2), no col-8 wrap
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 && $0.note == 60 }.count
@@ -541,9 +541,9 @@ final class RouterTests: XCTestCase {
     // output ±3 octaves. Single-slot cells shift via the transpose sum (hold + tick paths); 0 = byte-identical.
     func testStageOctShiftsSingleSlotStageOutput() {
         func droneNotes(_ oct: Int) -> Set<Int> {                                     // hold path (emitColumnHolds transpose)
-            var c = Colour(colourID: "gold", type: .drone); c.paramsA.stageOct = oct
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var c = Machine(machineID: "gold", type: .drone); c.paramsA.stageOct = oct
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
             return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         }
@@ -551,9 +551,9 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(droneNotes(1), [72, 76, 79], "stageOct +1 = up an octave (hold path)")
         XCTAssertEqual(droneNotes(-1), [48, 52, 55], "stageOct -1 = down an octave (hold path)")
         func arpNotes(_ oct: Int) -> Set<Int> {                                       // tick/driver path (emitTickRow transpose)
-            var c = Colour(colourID: "gold", type: .arp); c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.stageOct = oct
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var c = Machine(machineID: "gold", type: .arp); c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.stageOct = oct
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         }
@@ -567,8 +567,8 @@ final class RouterTests: XCTestCase {
         func notes(_ oct: Int) -> Set<Int> {
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16; arp.params.octaves = 1
             var harm = ProcessorSlot(type: .harmonize); harm.params.stageOct = oct
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, harm]; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, harm]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
@@ -585,8 +585,8 @@ final class RouterTests: XCTestCase {
             var oct = ProcessorSlot(type: .octave); oct.params.utilOctave = 1
             var mid = ProcessorSlot(type: .transpose); mid.params.utilTranspose = 0; mid.params.stageSource = src
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16; arp.params.octaves = 1
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [oct, mid, arp]; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [oct, mid, arp]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
@@ -602,13 +602,13 @@ final class RouterTests: XCTestCase {
     // landed at ≥ STEPS and was indistinguishable from FREE.
     func testRatchetSpanReAnchorsByMatrixColumns() {
         func onCount(spanN: Int?) -> Int {
-            var c = Colour(colourID: "gold", type: .ratchet)
+            var c = Machine(machineID: "gold", type: .ratchet)
             c.paramsA.rtcMode = .pattern
             c.paramsA.rtcSteps = 8
             c.paramsA.rtcSlices = [3, 1, 2, 1, 4, 1, 2, 1]   // no rest (v6): every column sounds ≥ 1
             c.paramsA.rtcSpanN = spanN
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -623,10 +623,10 @@ final class RouterTests: XCTestCase {
     // SPAN LADDER stage 2b — CASCADE (RATE×ladder): RATE = reveal spacing, SPAN N = the reveal window in columns.
     func testCascadeSpanLadderChangesTheRevealWindow() {
         func seq(spanN: Int?) -> [Int] {
-            var c = Colour(colourID: "gold", type: .cascade)
+            var c = Machine(machineID: "gold", type: .cascade)
             c.paramsA.cascadeSpanN = spanN
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 16, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
@@ -638,8 +638,8 @@ final class RouterTests: XCTestCase {
     }
     // EUCLID PICK (Paul 2026-08-22): LOW strikes only the pool's lowest note on every hit.
     func testEuclidPickLowStrikesOnlyTheLowestNote() {
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .low; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .low; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 2, into: e)
         let ons = e.ons.filter { $0.cable == 1 }
@@ -650,8 +650,8 @@ final class RouterTests: XCTestCase {
     // EUCLID INVERT (Paul 2026-08-22): strike the N−K rests. 3-of-8 = 3 hits (9 ons) vs INVERT = 5 rests (15 ons).
     func testEuclidInvertPlaysTheRests() {
         func count(_ inv: Bool) -> Int {
-            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-                c.paramsA.euclidPulses = 3; c.paramsA.euclidSteps = 8; c.paramsA.euclidInvert = inv; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+                c.paramsA.euclidPulses = 3; c.paramsA.euclidSteps = 8; c.paramsA.euclidInvert = inv; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -662,8 +662,8 @@ final class RouterTests: XCTestCase {
     // EUCLID PICK CYCLE (Paul 2026-08-22): the euclid-arp — one note per pulse, walking the chord.
     func testEuclidPickCycleWalksTheChordOneNotePerPulse() {
         func mk(_ pick: EuclidPick) -> (Int, Set<UInt8>) {
-            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-                c.paramsA.euclidPulses = 5; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = pick; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+                c.paramsA.euclidPulses = 5; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = pick; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
             assertNothingLeftSounding(e)
             let ons = e.ons.filter { $0.cable == 1 }
@@ -676,8 +676,8 @@ final class RouterTests: XCTestCase {
     }
     // EUCLID PICK HIGH (Paul 2026-08-22): every hit strikes only the pool's HIGHEST note (the counterpart to LOW).
     func testEuclidPickHighStrikesOnlyTheHighestNote() {
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .high; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .high; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
         let ons = e.ons.filter { $0.cable == 1 }
         XCTAssertEqual(ons.count, 4, "4 pulses × 1 picked note")
@@ -687,8 +687,8 @@ final class RouterTests: XCTestCase {
     // EUCLID PICK RANDOM (Paul 2026-08-22): a seeded scatter — replay-EXACT (same stream twice) and always in the held pool.
     func testEuclidPickRandomIsReplayExactAndInPool() {
         func notes() -> [UInt8] {
-            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-                c.paramsA.euclidPulses = 5; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .random; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+                c.paramsA.euclidPulses = 5; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .random; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { $0.note }
@@ -705,12 +705,12 @@ final class RouterTests: XCTestCase {
     // 2026-08-27 RATE×ladder — so it no longer speeds up on a faster row; the per-part clock shapes the column sweep +
     // SPAN re-anchor, not the grain. A per-column striker is the honest demo of a per-row tempo.)
     func testPerRowStepRatePlaysDifferentTemposInOneGrid() {
-        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .chance)
+        let cs = machineIDs.map { var c = Machine(machineID: $0, type: .chance)
             c.paramsA.probability = 1; return c }
-        let b = box(colours: cs) { s in
+        let b = box(machines: cs) { s in
             for col in 0..<8 {                                    // fully populate both rows so a column is always sounding
-                s.cells[col][0] = Cell(colourID: "gold", buses: [.a])
-                s.cells[col][1] = Cell(colourID: "orange", buses: [.b])
+                s.cells[col][0] = Cell(machineID: "gold", buses: [.a])
+                s.cells[col][1] = Cell(machineID: "orange", buses: [.b])
             }
             s.rowStepRate = [.r2_1, .r1_8, nil, nil, nil, nil, nil, nil]   // row 0 slow · row 1 fast · rest = scene default
         }
@@ -731,14 +731,14 @@ final class RouterTests: XCTestCase {
         // this test passed an 8-entry array → the builder DISCARDED it → perRowLap was FALSE → the whole thing ran on the
         // UNIFORM fast path and never actually lapped (a false positive). Use a full 16-entry lane, and assert a cell OFF the
         // lapped column stays SILENT — which the uniform sweep would have SOUNDED, so the test now genuinely exercises the lap.
-        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }   // arp → a VISITED column keeps sounding
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }   // arp → a VISITED column keeps sounding
         var lane = [UInt16](repeating: 0, count: Snap.rows)
         lane[0] = 0b1        // row 0 laps COLUMN 0 only
         lane[1] = 0b1_0000   // row 1 laps COLUMN 4 only (independently)
-        let b = box(colours: cs) { s in
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])        // row 0 · col 0 (cable 1) — ON row 0's lap
-            s.cells[3][0] = Cell(colourID: "vermilion", buses: [.c])   // row 0 · col 3 (cable 3) — a col-0 lap NEVER visits it
-            s.cells[4][1] = Cell(colourID: "azure", buses: [.b])       // row 1 · col 4 (cable 2) — ON row 1's lap
+        let b = box(machines: cs) { s in
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])        // row 0 · col 0 (cable 1) — ON row 0's lap
+            s.cells[3][0] = Cell(machineID: "vermilion", buses: [.c])   // row 0 · col 3 (cable 3) — a col-0 lap NEVER visits it
+            s.cells[4][1] = Cell(machineID: "azure", buses: [.b])       // row 1 · col 4 (cable 2) — ON row 1's lap
             s.rowLane = lane
         }
         let e = RecordingEmitter()
@@ -752,9 +752,9 @@ final class RouterTests: XCTestCase {
     // column at Snap.cols (8), not the row's Lr, so after the first pass the tick column (mod 8) never matched the row's
     // effective column (mod 4) again. A short loop must keep firing on every pass.
     func testPerRowLengthKeepsFiringOnLaterPasses() {
-        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        let b = box(colours: cs) { s in
-            for c in 0..<4 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }   // arp across the 4-column loop
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { s in
+            for c in 0..<4 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }   // arp across the 4-column loop
             s.rowStepRate = [.r1_4, nil, nil, nil, nil, nil, nil, nil]               // 1 beat/step → cycR = 4 beats
             s.rowLen = [4, nil, nil, nil, nil, nil, nil, nil]                        // loop over 4 columns
         }
@@ -771,11 +771,11 @@ final class RouterTests: XCTestCase {
     // placed beyond the length is never visited and stays silent, while a cell inside sounds. (Stage D: parts shorter
     // than the bar.) Row 0 loops columns 0–3; its column-1 cell sounds, its column-5 cell never does.
     func testPerRowLengthLoopsShorterThanTheBar() {
-        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+        let cs = machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
             c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }
-        let b = box(colours: cs) { s in
-            s.cells[1][0] = Cell(colourID: "gold", buses: [.a])       // column 1 — INSIDE the length-4 loop
-            s.cells[5][0] = Cell(colourID: "orange", buses: [.b])     // column 5 — BEYOND it
+        let b = box(machines: cs) { s in
+            s.cells[1][0] = Cell(machineID: "gold", buses: [.a])       // column 1 — INSIDE the length-4 loop
+            s.cells[5][0] = Cell(machineID: "orange", buses: [.b])     // column 5 — BEYOND it
             s.rowLen = [4, nil, nil, nil, nil, nil, nil, nil]         // row 0 loops columns 0–3 only
         }
         let e = RecordingEmitter()
@@ -784,13 +784,13 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 2 }.count, 0, "column 5 is beyond the loop length — never visited, silent")
         assertNothingLeftSounding(e)
     }
-    // REEL COLOUR TAG (Paul 2026-08-19): the export-page piano roll paints each note the COLOUR of the cell that played
-    // it. The render tags every note-ON with its colour's DISPLAY hue (baked into SnapColour, threaded via markColour
+    // REEL MACHINE TAG (Paul 2026-08-19): the export-page piano roll paints each note the MACHINE of the cell that played
+    // it. The render tags every note-ON with its machine's DISPLAY hue (baked into SnapMachine, threaded via markHue
     // to the ReelTap), so the recorded pass carries it. Here: an arp on a gold cell whose hue is 0xFF8800 → every note
     // in the recorded roll is tagged 0xFF8800.
-    func testReelRollTagsNotesWithTheCellColour() {
-        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold")
-        let st = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [s])
+    func testReelRollTagsNotesWithTheCellMachine() {
+        var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold")
+        let st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [s])
         let hue: UInt32 = 0xFF8800
         let box = SnapshotBuilder.build(from: st, hues: ["gold": hue])
         let router = Router(); var diag = KernelDiag()
@@ -812,16 +812,16 @@ final class RouterTests: XCTestCase {
         reel.cycleBeats = cyc; reel.promote()
         let roll = reel.selectedRoll()
         XCTAssertFalse(roll.isEmpty, "the pass recorded notes")
-        XCTAssertTrue(roll.allSatisfy { $0.colour == hue }, "every recorded note is tagged its cell's colour hue")
+        XCTAssertTrue(roll.allSatisfy { $0.machine == hue }, "every recorded note is tagged its cell's machine hue")
     }
     // PER-ROW ECHO/MOD/GLIDE (Paul 2026-08-19): in the multi-clock path echo/mod/glide fire on each ROW's own clock,
     // not the scene default. Two echo cells in column 0: row 0 FAST (1/8), row 1 SLOW (2/1). The echo DRY strikes on
     // each entry to its column, so the fast row re-enters column 0 far more often → far more dry strikes on its bus.
     func testPerRowEchoFiresOnTheRowsOwnClock() {
-        let cs = colourIDs.map { Colour(colourID: $0, type: .echo) }
-        let b = box(colours: cs) { s in
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])       // echo in column 0, row 0
-            s.cells[0][1] = Cell(colourID: "orange", buses: [.b])     // echo in column 0, row 1
+        let cs = machineIDs.map { Machine(machineID: $0, type: .echo) }
+        let b = box(machines: cs) { s in
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])       // echo in column 0, row 0
+            s.cells[0][1] = Cell(machineID: "orange", buses: [.b])     // echo in column 0, row 1
             s.rowStepRate = [.r1_8, .r2_1, nil, nil, nil, nil, nil, nil]   // row 0 FAST · row 1 SLOW
         }
         let e = RecordingEmitter()
@@ -841,9 +841,9 @@ final class RouterTests: XCTestCase {
     // uniform↔multi switch — the fuzz never flips rowStepRate live.)
     func testClockModeSwitchDoesNotOrphanAGlideVoice() {
         func glideBox(multi: Bool) -> SnapshotBox {
-            box(colours: colourIDs.map { Colour(colourID: $0, type: .glide) }) { s in
+            box(machines: machineIDs.map { Machine(machineID: $0, type: .glide) }) { s in
                 for c in 0..<8 {                                             // glide across every column so the anchor is live whatever the effective column
-                    s.cells[c][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                    s.cells[c][0] = { var x = Cell(machineID: "gold", buses: [.a])
                         var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12
                         g.params.glidePriority = .last; g.params.glideTime = 0.1; x.processors = [g]; return x }()
                 }
@@ -875,11 +875,11 @@ final class RouterTests: XCTestCase {
     // there. A slow part cell (row 0, bus A) + a fast play-layer cell (row 8, bus B, its own fast rate) → the play row fires
     // far more, no A↔B cross-leak, nothing stuck (guards any latent rows-0–7 `%8`/`<8` assumption in the 16-row loops).
     func testPlayLayerRowsRunOnTheirOwnClockWithoutLeak() {
-        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        let b = box(colours: cs) { s in
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])                     // part cell — row 0, bus A
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { s in
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])                     // part cell — row 0, bus A
             while s.cells[0].count < Snap.rows { s.cells[0].append(nil) }           // extend the column so a play-layer row can hold a cell
-            s.cells[0][Snap.playLayerRowBase] = Cell(colourID: "azure", buses: [.b]) // play-layer cell — row 8, bus B
+            s.cells[0][Snap.playLayerRowBase] = Cell(machineID: "azure", buses: [.b]) // play-layer cell — row 8, bus B
             var rate = [StepRate?](repeating: nil, count: Snap.rows)
             rate[0] = .r2_1                                                          // row 0 SLOW
             rate[Snap.playLayerRowBase] = .r1_8                                      // row 8 FAST — its OWN clock
@@ -897,12 +897,12 @@ final class RouterTests: XCTestCase {
     // transitions — a regressed `% Snap.rows == onlyRow` guard would machine-gun the drone or strand it. Drone (row 0, bus A) +
     // a fast CHANCE cell (row 1, bus B) → each drone note strikes exactly ONCE across the held span; nothing stuck.
     func testOnlyRowLegatoDroneSurvivesAFastNeighbourRow() {
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!].type = .drone
-        cs[colourIDs.firstIndex(of: "azure")!].type = .chance   // a re-speaking fast neighbour (never immortal)
-        let b = box(colours: cs) { s in
-            for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }   // legato drone across the whole row 0
-            for c in 0..<8 { s.cells[c][1] = Cell(colourID: "azure", buses: [.b]) }  // fast CHANCE across row 1
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!].type = .drone
+        cs[machineIDs.firstIndex(of: "azure")!].type = .chance   // a re-speaking fast neighbour (never immortal)
+        let b = box(machines: cs) { s in
+            for c in 0..<8 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }   // legato drone across the whole row 0
+            for c in 0..<8 { s.cells[c][1] = Cell(machineID: "azure", buses: [.b]) }  // fast CHANCE across row 1
             var rate = [StepRate?](repeating: nil, count: Snap.rows)
             rate[0] = .r2_1     // row 0 (drone) SLOW
             rate[1] = .r1_8     // row 1 (chance) FAST — transitions often, must NOT disturb row 0's drone
@@ -921,10 +921,10 @@ final class RouterTests: XCTestCase {
     // derived chord. Proves the derivation + "plays in any key" + different degrees.
     func testChordsPatternDerivesTheDegreeInKey() {
         func emitted(root: Int, scale: ScaleType, degree: Int) -> Set<UInt8> {
-            var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+            var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
             cs[ci].type = .chords
-            let b = box(colours: cs) { s in
-                s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+            let b = box(machines: cs) { s in
+                s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                     var ch = ProcessorSlot(type: .chords)
                     ch.params.chordsMode = .pattern; ch.params.chordsRoot = root; ch.params.chordsScale = scale
                     ch.params.chordsDegrees = [Int](repeating: degree, count: 8)   // every column the same degree
@@ -945,10 +945,10 @@ final class RouterTests: XCTestCase {
     }
     func testChordsFollowNamesTheDegreeFromTheHeldNote() {   // CHORDS FOLLOW — the played note picks the degree
         func emitted(root: Int, heldNote: UInt8) -> Set<UInt8> {
-            var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+            var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
             cs[ci].type = .chords
-            let b = box(colours: cs) { s in
-                s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+            let b = box(machines: cs) { s in
+                s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                     var ch = ProcessorSlot(type: .chords)
                     ch.params.chordsMode = .follow; ch.params.chordsRoot = root; ch.params.chordsScale = .major
                     let dr = ProcessorSlot(type: .drone)
@@ -966,10 +966,10 @@ final class RouterTests: XCTestCase {
     }
     func testChordsWalkPlaysAValidChordDeterministicallyWithNoStuckNotes() {   // CHORDS WALK — the seeded gravity walk, replay-safe
         func run1(seed: Int) -> [RecordingEmitter.Ev] {
-            var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+            var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
             cs[ci].type = .chords
-            let b = box(colours: cs) { s in
-                s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+            let b = box(machines: cs) { s in
+                s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                     var ch = ProcessorSlot(type: .chords)
                     ch.params.chordsMode = .walk; ch.params.chordsRoot = 0; ch.params.chordsScale = .major; ch.params.chordsWalkSeed = seed
                     let dr = ProcessorSlot(type: .drone)
@@ -987,10 +987,10 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(a.map { $0.note }, b.map { $0.note }, "same seed → identical walk (replay-exact)")
     }
     func testLoneChordsSoundsTheChordWithNoDownstream() {   // C5 — a bare [CHORDS] card (no →STRUM/ARP/DRONE) must emit
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
-        let b = box(colours: cs) { s in
-            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: cs) { s in
+            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                 var ch = ProcessorSlot(type: .chords)
                 ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                 ch.params.chordsDegrees = [Int](repeating: 4, count: 8)   // V everywhere
@@ -1005,12 +1005,12 @@ final class RouterTests: XCTestCase {
     // column 0 (rowLane bit 0) — the continuous 1-step pass. A legato drone sustains here; the question is whether a
     // non-legato set-shaper (CHORDS) sustains or dies after one column. Compares CHORDS against HARMONIZE on the SAME path.
     private func pinnedAuditionOns(_ type: ProcessorType, configure: (inout ProcessorSlot) -> Void) -> (ons: Int, sustainedLate: Bool) {
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = type
-        let b = box(colours: cs) { s in
+        let b = box(machines: cs) { s in
             var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001   // PIN row 0 to column 0 (the audition pin)
             s.rowLane = lane
-            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                 var sl = ProcessorSlot(type: type); configure(&sl); x.processors = [sl]; return x }()
         }
         // Drive many windows with a chord HELD throughout (a latch-armed audition), NOT releasing until the very end.
@@ -1040,11 +1040,11 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(chords.sustainedLate, "CHORDS is STILL SOUNDING late in the pinned audition (got \(chords.ons) ons) — was 'nothing sounds', a dead audition")
     }
     func testPinnedAuditionSustainsChordsThroughABypassedDriverTail() {   // Paul device 2026-09-01: [CHORDS→ARP] plays; BYPASS the arp → must still play the chords
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
-        let b = box(colours: cs) { s in
+        let b = box(machines: cs) { s in
             var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
-            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                 var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                 ch.params.chordsDegrees = [Int](repeating: 0, count: 8)
                 var arp = ProcessorSlot(type: .arp); arp.bypassed = true                        // the BYPASSED driver → tail = identity passthrough
@@ -1072,11 +1072,11 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(chance.sustainedLate, "CHANCE sustains on the pinned audition (got \(chance.ons) ons)")
     }
     func testPinnedAuditionChordsFollowsTheHeldNote() {   // "feed in midi → it responds", on the REAL (pinned) audition path
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
-        let b = box(colours: cs) { s in
+        let b = box(machines: cs) { s in
             var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // PIN row 0 (the audition)
-            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                 var sl = ProcessorSlot(type: .chords); sl.params.chordsMode = .follow; sl.params.chordsRoot = 0; sl.params.chordsScale = .major
                 x.processors = [sl]; return x }()
         }
@@ -1103,11 +1103,11 @@ final class RouterTests: XCTestCase {
     func testChordsSustainsFromALatchedReceiverOnThePinnedAudition() {   // Paul: "I set the receiver to a key / to some chords" — the latch feed
         var s = SceneState.empty()
         var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition row
-        s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a]); x.inputReceiver = 0
+        s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a]); x.inputReceiver = 0
             var sl = ProcessorSlot(type: .chords); sl.params.chordsMode = .pattern; sl.params.chordsRoot = 0; sl.params.chordsScale = .major
             sl.params.chordsDegrees = [Int](repeating: 0, count: 8); x.processors = [sl]; return x }()
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .chords
-        var st = PluginState(colours: cs, scenes: [s])
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .chords
+        var st = PluginState(machines: cs, scenes: [s])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
         let frozen = NotePool(); frozen.noteOn(60, velocity: 100, channel: 0, cable: 1); frozen.rebuildSorted()   // the latched "key/chord" on R1
@@ -1127,16 +1127,16 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
     func testChordsReadsTheKeyFromAReferencedScaleDoor() {   // C2b (Paul 2026-09-01): "SCALE FROM ▸" — the key comes from a REFERENCED door, not the card
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
         var s = SceneState.empty()
-        s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a]); x.inputReceiver = 0   // OWN input = receiver 0 (the trigger — a normal door)
+        s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a]); x.inputReceiver = 0   // OWN input = receiver 0 (the trigger — a normal door)
             var ch = ProcessorSlot(type: .chords)
             ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major   // the CARD fallback says C major…
             ch.params.chordsDegrees = [Int](repeating: 0, count: 8)   // degree I everywhere
             ch.params.chordsScaleRef = 1   // …but SCALE FROM ▸ B (receiver 1), a SCALE door
             x.processors = [ch]; return x }()
-        var st = PluginState(colours: cs, scenes: [s])
+        var st = PluginState(machines: cs, scenes: [s])
         var scaleDoor = Receiver(name: "B"); scaleDoor.doorMode = .scale; scaleDoor.scaleRoot = 4; scaleDoor.scaleType = .major   // receiver 1 DECLARES E major
         st.receivers = [Receiver(name: "1"), scaleDoor, Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -1147,11 +1147,11 @@ final class RouterTests: XCTestCase {
     // STEPS + RATE (Paul device 2026-09-01): the progression advances on its OWN clock (chordsRate), not per grid column, so
     // it plays THROUGH even on the frozen/pinned audition. Drives a pinned CHORDS and returns every emitted note pitch-class.
     private func chordsPinnedPCs(steps: Int?, rate: StepRate, degrees: [Int]) -> Set<Int> {
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
-        let b = box(colours: cs) { s in
+        let b = box(machines: cs) { s in
             var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
-            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                 var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                 ch.params.chordsDegrees = degrees; ch.params.chordsRate = rate; ch.params.chordsSteps = steps
                 x.processors = [ch]; return x }()
@@ -1182,10 +1182,10 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(pcs.contains(5), "IV (F, pc 5) plays")
     }
     func testChordsNoScaleRefFallsBackToCMajor() {   // SCALE FROM = none → C major, so a fresh CHORDS is never keyless/silent
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
-        let b = box(colours: cs) { s in
-            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: cs) { s in
+            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                 var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern
                 ch.params.chordsDegrees = [Int](repeating: 0, count: 8)   // chordsScaleRef nil (no reference)
                 x.processors = [ch]; return x }()
@@ -1194,10 +1194,10 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 }), [0, 4, 7], "no SCALE FROM → C major fallback (I = C E G)")
     }
     func testChordsFollowRespondsToAChangingHeldNoteUnderAudition() {   // REPRO (Paul device 2026-09-01): "feed in midi, it doesn't respond"
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
-        let b = box(colours: cs) { s in
-            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: cs) { s in
+            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                 var ch = ProcessorSlot(type: .chords)
                 ch.params.chordsMode = .follow; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                 x.processors = [ch]; return x }()
@@ -1221,12 +1221,12 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(notes.isSuperset(of: [55, 59, 62]), "played G → V sounds (G B D)")
         XCTAssertTrue(notes.isSuperset(of: [48, 52, 55]), "changing to C → RESPONDS with I (C E G) — not stuck on one chord")
     }
-    func testChordsPatternPlaysTheProgressionAcrossAFilledRow() {   // PATTERN "playing": a CHORDS colour across a ROW walks the degrees per column
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+    func testChordsPatternPlaysTheProgressionAcrossAFilledRow() {   // PATTERN "playing": a CHORDS machine across a ROW walks the degrees per column
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
-        let b = box(colours: cs) { s in
+        let b = box(machines: cs) { s in
             for c in 0..<8 {   // the same CHORDS cell in ALL 8 columns of row 0 (a stamped row) → the progression sweeps
-                s.cells[c][0] = { var x = Cell(colourID: "gold", buses: [.a])
+                s.cells[c][0] = { var x = Cell(machineID: "gold", buses: [.a])
                     var ch = ProcessorSlot(type: .chords)
                     ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                     ch.params.chordsDegrees = [0, 1, 2, 3, 4, 5, 6, 0]   // I ii iii IV V vi vii I — one per column
@@ -1246,10 +1246,10 @@ final class RouterTests: XCTestCase {
     }
     func testChordsVoicingSeventhReachesTheEngineAndComposesDownstream() {   // C5 — VOICING 7TH is 4 notes; [CHORDS→ARP] arpeggiates the chord
         func lone7th() -> [UInt8] {
-            var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+            var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
             cs[ci].type = .chords
-            let b = box(colours: cs) { s in
-                s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+            let b = box(machines: cs) { s in
+                s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                     var ch = ProcessorSlot(type: .chords)
                     ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                     ch.params.chordsDegrees = [Int](repeating: 0, count: 8); ch.params.chordsVoicing = .seventh
@@ -1260,10 +1260,10 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertEqual(lone7th(), [48, 52, 55, 59], "I7 in C = C E G B (VOICING 7TH reaches the engine)")
         // [CHORDS→ARP]: composeChainSet folds the chord upstream → the arp walks ITS notes (never the raw held 60).
-        var cs = arpColours(); let ci = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
         cs[ci].type = .chords
-        let b = box(colours: cs) { s in
-            s.cells[0][0] = { var x = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: cs) { s in
+            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
                 var ch = ProcessorSlot(type: .chords)
                 ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
                 ch.params.chordsDegrees = [Int](repeating: 0, count: 8)   // I = C E G
@@ -1280,14 +1280,14 @@ final class RouterTests: XCTestCase {
     // scene default); two MOD cells likewise emit their CC updates on each row's clock. Guards the onlyRow scoping of glide/mod.
     func testPerRowGlideAndModFireOnTheRowsOwnClock() {
         // GLIDE — fast row 0 vs slow row 1, each a single-slot glide on its own emitter.
-        var gcs = arpColours()
-        for id in ["gold", "azure"] { gcs[colourIDs.firstIndex(of: id)!].type = .glide }
+        var gcs = arpMachines()
+        for id in ["gold", "azure"] { gcs[machineIDs.firstIndex(of: id)!].type = .glide }
         func glideCell(_ id: String, _ bus: Bus) -> Cell {
-            var x = Cell(colourID: id, buses: [bus])
+            var x = Cell(machineID: id, buses: [bus])
             var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideTime = 0.05
             x.processors = [g]; return x
         }
-        let gb = box(colours: gcs) { s in
+        let gb = box(machines: gcs) { s in
             for c in 0..<8 { s.cells[c][0] = glideCell("gold", .a) }   // row 0 FAST glide (bus A)
             for c in 0..<8 { s.cells[c][1] = glideCell("azure", .b) }  // row 1 SLOW glide (bus B)
             var rate = [StepRate?](repeating: nil, count: Snap.rows); rate[0] = .r1_8; rate[1] = .r2_1; s.rowStepRate = rate
@@ -1300,11 +1300,11 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(ge)
 
         // MOD — a fast row vs a slow row, each a single-slot MOD emitting a CC; the fast row updates its CC far more often.
-        var mcs = arpColours()
-        for id in ["gold", "azure"] { let i = colourIDs.firstIndex(of: id)!; mcs[i].type = .mod; mcs[i].paramsA.modCC = 74 }
-        let mb = box(colours: mcs) { s in
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-            s.cells[0][1] = Cell(colourID: "azure", buses: [.b])
+        var mcs = arpMachines()
+        for id in ["gold", "azure"] { let i = machineIDs.firstIndex(of: id)!; mcs[i].type = .mod; mcs[i].paramsA.modCC = 74 }
+        let mb = box(machines: mcs) { s in
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+            s.cells[0][1] = Cell(machineID: "azure", buses: [.b])
             var rate = [StepRate?](repeating: nil, count: Snap.rows); rate[0] = .r1_8; rate[1] = .r2_1; s.rowStepRate = rate
         }
         let me = RecordingEmitter()
@@ -1320,7 +1320,7 @@ final class RouterTests: XCTestCase {
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
     func testArpInheritsSourceVelocity() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, velChord([(60, 30), (67, 120)]), beats: 8, into: e)
         let vels = Set(e.ons.filter { $0.cable == 1 }.map { $0.vel })
         XCTAssertFalse(vels.isEmpty, "the arp sounded")
@@ -1330,8 +1330,8 @@ final class RouterTests: XCTestCase {
     }
     // A chain carries velocity end-to-end: [ARP → HARMONIZE] — the dry AND the +12 voice inherit the source velocity.
     func testChainInheritsSourceVelocityThroughHarmonize() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = {
+            var c = Cell(machineID: "gold", buses: [.a])
             let arp = ProcessorSlot(type: .arp)
             var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
             c.processors = [arp, h]; return c }() }
@@ -1344,8 +1344,8 @@ final class RouterTests: XCTestCase {
     }
     // A single-slot GENERATOR inherits too — euclid strikes each note at its own source velocity (envelope × source).
     func testEuclidGeneratorInheritsSourceVelocity() {
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, velChord([(60, 50), (64, 110)]), beats: 2, into: e)
         let a = e.ons.filter { $0.cable == 1 }
         XCTAssertTrue(a.filter { $0.note == 60 }.allSatisfy { $0.vel == 50 }, "euclid note 60 → source velocity 50")
@@ -1355,7 +1355,7 @@ final class RouterTests: XCTestCase {
     // The soundcheck path inherits velocity too (user 2026-08-09): a stopped-transport AUDITION of an arp cell sounds
     // at the source velocity, not a flat 96 — audition matches playback.
     func testAuditionInheritsSourceVelocity() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let pool = velChord([(60, 40), (67, 118)])
         var ts = 0.0
@@ -1368,19 +1368,19 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(vels.isEmpty, "the audition sounded")
         XCTAssertTrue(vels.isSubset(of: [40, 118]), "audition inherits the source velocity (40/118), not a flat 96 — got \(vels)")
     }
-    // THE PER-COLOUR MACHINE (user 2026-08-09, GLOBAL): a colour's `templateChain` drives EVERY cell of that colour
-    // that has no per-cell override — the machine lives on the (document-global) COLOUR, not the cell.
-    func testColourTemplateChainDrivesAllItsCells() {
-        var cs = arpColours()                                   // gold head = arp…
-        let gi = colourIDs.firstIndex(of: "gold")!
+    // THE PER-MACHINE MACHINE (user 2026-08-09, GLOBAL): a machine's `templateChain` drives EVERY cell of that machine
+    // that has no per-cell override — the machine lives on the (document-global) MACHINE, not the cell.
+    func testMachineTemplateChainDrivesAllItsCells() {
+        var cs = arpMachines()                                   // gold head = arp…
+        let gi = machineIDs.firstIndex(of: "gold")!
         var tmpl = ProcessorSlot(type: .euclid); tmpl.params.euclidPulses = 4; tmpl.params.euclidSteps = 8
-        cs[gi].templateChain = [tmpl]                           // …but the COLOUR owns a euclid machine
-        let b = box(colours: cs) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // processors == nil → inherit the colour template
-            $0.cells[0][1] = Cell(colourID: "gold", buses: [.a])
+        cs[gi].templateChain = [tmpl]                           // …but the MACHINE owns a euclid machine
+        let b = box(machines: cs) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // processors == nil → inherit the machine template
+            $0.cells[0][1] = Cell(machineID: "gold", buses: [.a])
         }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 24, "both gold cells render the COLOUR's euclid template (2 cells × 4-of-8 × 3 notes)")
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 24, "both gold cells render the MACHINE's euclid template (2 cells × 4-of-8 × 3 notes)")
         assertNothingLeftSounding(e)
     }
     // MARK: - PHASE 2 render-time part automation (Paul 2026-09-04)
@@ -1389,14 +1389,14 @@ final class RouterTests: XCTestCase {
 
     /// A part with `gold` (a euclid machine) on every column of row 0, plus an active render-time AUTO lane.
     private func renderAutoBox(pulsesBase: Int, lane: AutoLane) -> SnapshotBox {
-        var cs = arpColours()
-        let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines()
+        let gi = machineIDs.firstIndex(of: "gold")!
         var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = pulsesBase; eu.params.euclidSteps = 8
         cs[gi].templateChain = [eu]
         var s = SceneState.empty()
-        for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }   // gold on every column → the ramp shows column-by-column
-        var st = PluginState(colours: cs, scenes: [s])
-        st.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [lane])]
+        for c in 0..<8 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }   // gold on every column → the ramp shows column-by-column
+        var st = PluginState(machines: cs, scenes: [s])
+        st.partAuto = ["gold": PartAutoMachine(activeLane: 0, lanes: [lane])]
         return SnapshotBuilder.build(from: st)
     }
     /// Emit-A (cable 1) note-ons that fall in BAR `bar` (8 cols × S=2 beats × 24000 samples/beat = 384000 samples/bar).
@@ -1444,16 +1444,16 @@ final class RouterTests: XCTestCase {
     }
     func testRenderAutoNoActiveLaneIsInert() {
         var lane = passSpanLane()
-        var st = PluginState(colours: { var cs = arpColours(); var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; cs[colourIDs.firstIndex(of: "gold")!].templateChain = [eu]; return cs }(),
-                             scenes: [{ var s = SceneState.empty(); for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }; return s }()])
-        st.partAuto = ["gold": PartAutoColour(activeLane: -1, lanes: [lane])]   // NONE selected → no render-time descriptor
+        var st = PluginState(machines: { var cs = arpMachines(); var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; cs[machineIDs.firstIndex(of: "gold")!].templateChain = [eu]; return cs }(),
+                             scenes: [{ var s = SceneState.empty(); for c in 0..<8 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }; return s }()])
+        st.partAuto = ["gold": PartAutoMachine(activeLane: -1, lanes: [lane])]   // NONE selected → no render-time descriptor
         XCTAssertTrue(SnapshotBuilder.build(from: st).renderAuto.isEmpty, "activeLane = NONE ⇒ box.renderAuto stays empty (byte-identical)")
     }
     // PLAY: THIS CELL (user 2026-08-09): forcing the effective column HOLDS the cell in that column playing every
     // window, regardless of the natural timeline — so an isolated cell sounds continuously, ungated by the sequence.
     // Uses an ARP (tick-emitter) — the case that needs iterateTicks UNGATED; a generator decouples via colStart.
     func testForceColumnHoldsTheCellPlayingEveryColumn() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // arp cell in column 0
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // arp cell in column 0
         func play(forceColumn: Int) -> Int {
             let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
             let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
@@ -1473,16 +1473,16 @@ final class RouterTests: XCTestCase {
     // PLAY: THIS CELL for a HOLD cell (user 2026-08-10 bug): a passthrough/identity hold must SUSTAIN under a frozen
     // column, not gate off after one column. Forcing the column held the cell but emitColumnHolds only fired on the
     // (never-repeating) transition, so a NON-legato hold sounded one column then went silent — while the palette
-    // still showed its colour "running". The fix re-runs the holds every window (immortal + adopted) under forceColumn.
+    // still showed its machine "running". The fix re-runs the holds every window (immortal + adopted) under forceColumn.
     // pending-tasks E / 2026-08-23 adversarial hunt: PLAY: THIS CELL (forceColumnHold) on a SELF-COLLIDING harmonize —
     // {60,67}+7 fans 60's +7 onto 67's root — leaked a fresh immortal voice EVERY reconcile window: adoptLegatoBus
     // un-marked BOTH colliding pairs on the first source's call, so the second source found none and re-struck. It
     // machine-gunned and grew toward the voice cap under audition. The fix adopts one own+All pair per call, so the
     // colliding wire is struck once then HELD (adopted), not re-struck each window.
     func testForceColumnSelfCollidingHarmonizeDoesNotLeakVoices() {
-        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [7, 0, 0]   // +7: 60→67 collides with 67's root
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let pool = chord([60, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -1499,8 +1499,8 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
     func testForceColumnSustainsAHoldCell() {
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold (all-open, .retrig = non-legato)
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold (all-open, .retrig = non-legato)
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -1517,10 +1517,10 @@ final class RouterTests: XCTestCase {
     }
     // STRUM under a HELD column (PLAY THIS MIDI CHAIN) must RE-ARM each step — not fire its stagger ONCE then fall
     // silent. strumProgress reset only on a column transition, which never comes under forceColumnHold, so the default
-    // STRUM colour was silent on the machine audition; the fix re-arms it each musical step. (Paul 2026-08-15)
+    // STRUM machine was silent on the machine audition; the fix re-arms it each musical step. (Paul 2026-08-15)
     func testForceColumnReArmsStrumEachStep() {
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .strum; cs[colourIDs.firstIndex(of: "gold")!].paramsA.spread = 0.1
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .strum; cs[machineIDs.firstIndex(of: "gold")!].paramsA.spread = 0.1
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -1557,8 +1557,8 @@ final class RouterTests: XCTestCase {
     }
     // ARP → FIT (user 2026-08-11): cycle = one beat, so a bigger chord ticks FASTER (more note-ons in the same time).
     func testArpFitScalesRateWithChordSize() {
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].paramsA.arpFit = true
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].paramsA.arpFit = true
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         func ons(_ notes: [UInt8]) -> Int { let e = RecordingEmitter(); run(b, chord(notes), beats: 8, into: e); return e.ons.filter { $0.cable == 1 }.count }
         XCTAssertGreaterThan(ons([60, 64, 67, 71, 74, 77]), ons([60, 64]), "a 6-note chord fits faster → more ticks than a 2-note")
     }
@@ -1566,9 +1566,9 @@ final class RouterTests: XCTestCase {
     // sounds) and the BOTTOM's p→0 (dropped); −tilt reverses. Proves the router READS chanceTilt at the hold path.
     func testChanceWeightBiasesEmittedNotes() {
         func topBot(_ tilt: Double) -> (top: Int, bot: Int) {
-            var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+            var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
             cs[gi].type = .chance; cs[gi].paramsA.probability = 0.5; cs[gi].paramsA.chanceTilt = tilt
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 62, 64, 65, 67, 69]), beats: 4, into: e)
             return (e.ons.filter { $0.cable == 1 && $0.note == 69 }.count,
                     e.ons.filter { $0.cable == 1 && $0.note == 60 }.count)
@@ -1584,9 +1584,9 @@ final class RouterTests: XCTestCase {
     // lands LATER. Proves the router threads `strumSpreadNorm` into strumOffset (a dropped arg would fail here).
     func testStrumSpreadNormWidensTheRakeWhenPerNote() {
         func lastOnset(_ norm: Bool) -> Int64 {
-            var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+            var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
             cs[gi].type = .strum; cs[gi].paramsA.spread = 0.5; cs[gi].paramsA.strumSpreadNorm = norm
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 62, 64, 65, 67, 69]), beats: 1.9, into: e)
             return e.ons.filter { $0.cable == 1 }.map { $0.sample }.max() ?? 0
         }
@@ -1595,8 +1595,8 @@ final class RouterTests: XCTestCase {
     // DRONE = a LEGATO chord-hold (user 2026-08-10): placed across columns it HOLDS continuously (NO re-strike per
     // step) and is SILENT where no drone cell is (playhead-dependent). gold=drone in cols 0..3; hold a chord one pass.
     func testDroneIsALegatoHoldAcrossItsColumns() {
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .drone
-        let b = box(colours: cs) { for c in 0..<4 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }   // drone cols 0-3, row 0
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .drone
+        let b = box(machines: cs) { for c in 0..<4 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }   // drone cols 0-3, row 0
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -1615,9 +1615,9 @@ final class RouterTests: XCTestCase {
     // drone is an immortal hold — before the fix its note-on was never paired with an off when muted (it rang on, an
     // invariant-4 violation). Now MUTE folds into the enabled mask like master-KILL → the enabled→disabled edge closes it.
     func testMasterMuteClosesASustainedDrone() {
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .drone
-        let bLive = box(colours: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }   // drone the whole row → it holds every column
-        let bMute = box(colours: cs, masterMute: true) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .drone
+        let bLive = box(machines: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }   // drone the whole row → it holds every column
+        let bMute = box(machines: cs, masterMute: true) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -1635,12 +1635,12 @@ final class RouterTests: XCTestCase {
     // 4 Hz poll → libmalloc corruption; flattened to 4×W). This locks the flat re-indexing: a note on emitter A and
     // one on emitter C land in buckets 0 and 2, B/D empty — no smear across the flat buffer.
     func testEmitterSoundingFeedBucketsByBus() {
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // identity holds → sustained voices to snapshot
-        cs[colourIDs.firstIndex(of: "cyan")!].type = .passgate
-        let b = box(colours: cs) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.c])
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!].type = .passgate   // identity holds → sustained voices to snapshot
+        cs[machineIDs.firstIndex(of: "cyan")!].type = .passgate
+        let b = box(machines: cs) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+            $0.cells[0][1] = Cell(machineID: "cyan", buses: [.c])
         }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         router.process(box: b, pool: chord([60, 64]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
@@ -1656,10 +1656,10 @@ final class RouterTests: XCTestCase {
     // feature isolates and previews the cell's machine regardless of grid mute/dormant. (The muted orange cell that
     // "PLAY: THIS CELL did nothing on".) A non-target muted cell stays silent (mute enforced when not soloed).
     func testForceColumnPlaysAMutedSoloedCell() {
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold
-        let b = box(colours: cs) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])                                   // unmuted cell above
-            $0.cells[0][1] = { var c = Cell(colourID: "gold", buses: [.a]); c.muted = true; return c }()   // MUTED cell (the solo target)
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold
+        let b = box(machines: cs) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])                                   // unmuted cell above
+            $0.cells[0][1] = { var c = Cell(machineID: "gold", buses: [.a]); c.muted = true; return c }()   // MUTED cell (the solo target)
         }
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
@@ -1683,10 +1683,10 @@ final class RouterTests: XCTestCase {
     // mid-column the sounding wire set is exactly the current harmony (refcount-balanced), and nothing is stuck after
     // stop. (The device-reported transient hung-note was NOT reproducible via this scenario — see the 2026-08-23 hunt.)
     func testHarmonizeCollisionNoStuckNoteAcrossIntervalChange() {
-        let gi = colourIDs.firstIndex(of: "gold")!
+        let gi = machineIDs.firstIndex(of: "gold")!
         func mk(_ iv: [Int]) -> SnapshotBox {
-            var cs = arpColours(); cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = iv
-            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var cs = arpMachines(); cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = iv
+            return box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
@@ -1712,9 +1712,9 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
     func testForceColumnSustainsAHarmonizeCell() {
-        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [4, 7, 0]   // 60 → 60/64/67
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let pool = chord([60]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -1731,10 +1731,10 @@ final class RouterTests: XCTestCase {
     }
     // UTILITY — OCTAVE (Paul 2026-08-22): a single-slot OCTAVE holds the chord shifted by ±12·n (pitch-class preserved).
     func testOctaveShiftsTheHeldChordByOctaves() {
-        let gi = colourIDs.firstIndex(of: "gold")!
+        let gi = machineIDs.firstIndex(of: "gold")!
         func mk(_ n: Int) -> SnapshotBox {
-            var cs = arpColours(); cs[gi].type = .octave; cs[gi].paramsA.utilOctave = n
-            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var cs = arpMachines(); cs[gi].type = .octave; cs[gi].paramsA.utilOctave = n
+            return box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         }
         let up = RecordingEmitter(); run(mk(1), chord([60, 64, 67]), beats: 2, into: up)
         XCTAssertEqual(Set(up.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [72, 76, 79], "+1 octave lifts each held note")
@@ -1744,10 +1744,10 @@ final class RouterTests: XCTestCase {
     }
     // UTILITY — TRANSPOSE: shifts the held chord by semitones; notes shifted out of the MIDI range simply drop.
     func testTransposeShiftsBySemitonesAndDropsOutOfRange() {
-        let gi = colourIDs.firstIndex(of: "gold")!
+        let gi = machineIDs.firstIndex(of: "gold")!
         func mk(_ st: Int) -> SnapshotBox {
-            var cs = arpColours(); cs[gi].type = .transpose; cs[gi].paramsA.utilTranspose = st
-            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var cs = arpMachines(); cs[gi].type = .transpose; cs[gi].paramsA.utilTranspose = st
+            return box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         }
         let e = RecordingEmitter(); run(mk(7), chord([60, 64]), beats: 2, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [67, 71], "up a fifth (+7 st)")
@@ -1759,7 +1759,7 @@ final class RouterTests: XCTestCase {
     // the pool then arps it. Both raise a bare arp's note SET by an octave (S-independent — the set shifts, not the rhythm).
     func testOctaveFoldsThroughAChainEitherSide() {
         func mk(_ procs: [ProcessorSlot]) -> SnapshotBox {
-            box(colours: arpColours()) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            box(machines: arpMachines()) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
         }
         var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8; arp.params.pattern = .up; arp.params.octaves = 1
         var oct = ProcessorSlot(type: .octave); oct.params.utilOctave = 1
@@ -1778,8 +1778,8 @@ final class RouterTests: XCTestCase {
     // review 2026-08-23: [CHANNEL→ECHO] — the dry AND its repeats sound on the cell's OWN channel (not a stale
     // neighbour's, not the wire). The dry uses cellChanOverride (registerEcho); the tails carry EchoTail.chan.
     func testChannelEchoSoundsEntirelyOnTheCellsChannel() {
-        let b = box(colours: arpColours()) {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: arpMachines()) {
+            var c = Cell(machineID: "gold", buses: [.a])
             var ch = ProcessorSlot(type: .channel); ch.params.utilChannel = 5   // channel 5 → wire 4
             var e = ProcessorSlot(type: .echo); e.params.echoSync = true; e.params.echoDelayDiv = 2; e.params.echoRepeats = 3; e.params.echoThru = true
             c.processors = [ch, e]
@@ -1792,10 +1792,10 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
     func testChannelOverridesTheOutputChannel() {
-        let gi = colourIDs.firstIndex(of: "gold")!
+        let gi = machineIDs.firstIndex(of: "gold")!
         func mk(_ ch: Int) -> SnapshotBox {
-            var cs = arpColours(); cs[gi].type = .channel; cs[gi].paramsA.utilChannel = ch
-            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var cs = arpMachines(); cs[gi].type = .channel; cs[gi].paramsA.utilChannel = ch
+            return box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         }
         let wire = RecordingEmitter(); run(mk(0), chord([60, 64]), beats: 2, into: wire)   // WIRE = bus A's stamp (channel 1 → wire 0)
         XCTAssertFalse(wire.ons.filter { $0.cable == 1 }.isEmpty, "the cell sounds")
@@ -1806,10 +1806,10 @@ final class RouterTests: XCTestCase {
     }
     // UTILITY — NUDGE: a pure time offset (sixteenths) slides the stream later/earlier; no stuck notes (clamped like POCKET).
     func testNudgeShiftsTheOnsetInTime() {
-        let gi = colourIDs.firstIndex(of: "gold")!
+        let gi = machineIDs.firstIndex(of: "gold")!
         func mk(_ n: Int) -> SnapshotBox {
-            var cs = arpColours(); cs[gi].type = .nudge; cs[gi].paramsA.utilNudge = n
-            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var cs = arpMachines(); cs[gi].type = .nudge; cs[gi].paramsA.utilNudge = n
+            return box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         }
         let straight = RecordingEmitter(); run(mk(0), chord([60]), beats: 2, into: straight)
         let late = RecordingEmitter(); run(mk(4), chord([60]), beats: 2, into: late)        // +4 sixteenths = +0.25 beat later
@@ -1821,8 +1821,8 @@ final class RouterTests: XCTestCase {
     }
     func testEuclidPulsesFromPoolTracksHeldCount() {
         // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidSteps = 8; c.paramsA.euclidPulsesFromPool = true; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+            c.paramsA.euclidSteps = 8; c.paramsA.euclidPulsesFromPool = true; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e3 = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e3)          // 3 held → 3 pulses × 3 notes
         XCTAssertEqual(e3.ons.filter { $0.cable == 1 }.count, 9, "POOL: 3 held → E(3,8)")
         let e4 = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 2, into: e4)      // 4 held → 4 pulses × 4 notes
@@ -1831,8 +1831,8 @@ final class RouterTests: XCTestCase {
     }
     // GENERATORS AS CHAIN DRIVERS (user 2026-08-09): the driver drives, downstream slots fold; upstream composes.
     func testEuclidThenOpenPassgateStillGenerates() {
-        let b = box(colours: arpColours()) {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: arpMachines()) {
+            var c = Cell(machineID: "gold", buses: [.a])
             var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
             var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
             c.processors = [eu, gate]; $0.cells[0][0] = c
@@ -1842,8 +1842,8 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
     func testEuclidThenClosedPassgateIsSilent() {
-        let b = box(colours: arpColours()) {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: arpMachines()) {
+            var c = Cell(machineID: "gold", buses: [.a])
             var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
             var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
             c.processors = [eu, gate]; $0.cells[0][0] = c
@@ -1854,8 +1854,8 @@ final class RouterTests: XCTestCase {
     }
     func testHarmonizeThenEuclidGeneratesOverTheComposedSet() {
         func mk(harm: Bool) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
                 if harm {
                     var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
@@ -1871,8 +1871,8 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(bare); assertNothingLeftSounding(harm)
     }
     func testBurstEmitsCountStrikes() {
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
-            c.paramsA.count = 4; c.paramsA.curve = 0; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .burst)
+            c.paramsA.count = 4; c.paramsA.curve = 0; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 2, into: e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "a 4-strike burst on one note")
@@ -1882,8 +1882,8 @@ final class RouterTests: XCTestCase {
         // REGRESSION (Paul 2026-08-18): like EUCLID, a window-scan generator dropped its DOWNBEAT strike (f=0, at the
         // column boundary) when the boundary fell mid render-block. Placed in COLUMN 1 (start = S = 2, mid-block), the
         // 4-strike even burst must still sound all 4 (was 3 = the f=0 strike lost). The scanFrom fix catches it.
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
-            c.paramsA.count = 4; c.paramsA.curve = 0; return c }) { $0.cells[1][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .burst)
+            c.paramsA.count = 4; c.paramsA.curve = 0; return c }) { $0.cells[1][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 4, into: e)   // column 1 active over [2,4); the f=0 downbeat at 2.0 is mid-block
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "the column-1 burst downbeat must not be dropped")
@@ -1896,10 +1896,10 @@ final class RouterTests: XCTestCase {
         // alternation strikes only the even columns → 4 columns × 3 notes = 12 ons/bar. SPAN CELL fits all 8 slices in
         // EACH column → 4 SHORTs × 3 notes × 8 columns = 96. Same slices, different timeline (mirrors the euclid test).
         func rowBox(_ span: PatternSpan) -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .length)
+            box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .length)
                 c.paramsA.lenSlices = [.short, .mute, .short, .mute, .short, .mute, .short, .mute]
                 c.paramsA.lenSpan = span; return c }) {
-                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }   // the LENGTH fills the whole row
+                for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }   // the LENGTH fills the whole row
             }
         }
         // The window-scan emits the trailing bar/column downbeat at beat 16 too, so each count carries one extra chord
@@ -1917,9 +1917,9 @@ final class RouterTests: XCTestCase {
     func testBurstSpanRowUnfoldsAcrossTheBar() {
         // SPAN ROW (Paul 2026-08-19): the accel/decel roll unfolds ONCE across the bar; SPAN CELL re-rolls each column.
         func rowBox(_ span: PatternSpan) -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+            box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .burst)
                 c.paramsA.count = 4; c.paramsA.curve = 0; c.paramsA.burstSpan = span; return c }) {
-                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
+                for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
             }
         }
         let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
@@ -1933,9 +1933,9 @@ final class RouterTests: XCTestCase {
     // CARRY slices STRETCHES the roll across the wider span → its onsets fan out wider than a lone BURST (1 slice).
     func testBurstPatternCarryStretchesTheRoll() {
         func onsetSpan(_ slices: [BurstSlice]) -> Int64 {
-            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .burst)
                 c.paramsA.count = 4; c.paramsA.curve = 0; c.paramsA.burstMode = .pattern; c.paramsA.burstSlices = slices; c.paramsA.burstSpan = .cell; return c }) {
-                $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+                $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e)
             let ons = e.ons.filter { $0.cable == 1 }.map { $0.sample }
             return (ons.max() ?? 0) - (ons.min() ?? 0)
@@ -1948,11 +1948,11 @@ final class RouterTests: XCTestCase {
         // BURST RATE AXIS (Paul 2026-08-26): PATTERN divides the span by burstRate (walking the 8-figure) instead of a fixed
         // 8 — a fine rate packs more roll-slices than a coarse one. burstRateOn=false is the legacy fixed-8 (covered above).
         func onsetCount(rateOn: Bool, rate: ArpRate) -> Int {
-            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .burst)
                 c.paramsA.count = 2; c.paramsA.curve = 0; c.paramsA.burstMode = .pattern
                 c.paramsA.burstSlices = [.burst, .rest, .burst, .rest, .burst, .rest, .burst, .rest]   // 4 launches / 8 slices
                 c.paramsA.burstSpan = .row; c.paramsA.burstRateOn = rateOn; c.paramsA.burstRate = rate; return c }) {
-                $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+                $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e); assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
@@ -1964,9 +1964,9 @@ final class RouterTests: XCTestCase {
     // BURST COIN (Paul 2026-08-19): a seeded chance-of-burst per step — chance 0 silent, chance 1 every step, monotone.
     func testBurstCoinChanceIsMonotone() {
         func onCount(_ chance: Double) -> Int {
-            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .burst)
                 c.paramsA.count = 4; c.paramsA.curve = 0; c.paramsA.burstMode = .coin; c.paramsA.burstChance = chance; return c }) {
-                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+                for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e, releaseAtEnd: false)
             let n = e.ons.filter { $0.cable == 1 }.count; assertNothingLeftSounding(e); return n
         }
@@ -1977,9 +1977,9 @@ final class RouterTests: XCTestCase {
     func testCascadeSpanRowRevealsAcrossTheBar() {
         // SPAN ROW (Paul 2026-08-19): the chord reveals across the whole bar; SPAN CELL re-reveals in each column.
         func rowBox(_ span: PatternSpan) -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)
+            box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .cascade)
                 c.paramsA.rate = .r1_8; c.paramsA.cascadeSpan = span; return c }) {
-                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
+                for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
             }
         }
         let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
@@ -1992,11 +1992,11 @@ final class RouterTests: XCTestCase {
     func testTuttiPatternSpanRowSpreadsTheShapeAcrossTheBar() {
         // SPAN ROW (Paul 2026-08-19): the 8-slice set-shape spans the whole bar (slice i = column i); CELL strides it at the RATE.
         func rowBox(_ span: PatternSpan) -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .tutti)
+            box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .tutti)
                 c.paramsA.tuttiMode = .pattern
                 c.paramsA.tuttiSlices = [.all, .rest, .all, .rest, .all, .rest, .all, .rest]
                 c.paramsA.tuttiRate = .r1_16; c.paramsA.tuttiSpan = span; return c }) {
-                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
+                for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
             }
         }
         let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
@@ -2011,9 +2011,9 @@ final class RouterTests: XCTestCase {
         // RatchetPattern) — count 1 = sustain the held chord, N = ratchet N over the column's RATE slot, 0 = OFF/mute. So an
         // all-1 matrix SUSTAINS (few note-ons) and a high-count matrix RATCHETS (many more). onsRat > onsPass either way.
         func rbox(_ counts: [Int]) -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .ratchet)
+            box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .ratchet)
                 c.paramsA.rtcMode = .pattern; c.paramsA.rtcRate = .r1_16; c.paramsA.rtcSteps = counts.count; c.paramsA.rtcSlices = counts; return c }) {
-                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
+                for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
             }
         }
         let ePass = RecordingEmitter(); run(rbox(Array(repeating: 1, count: 8)), chord([60, 64, 67]), beats: 8, into: ePass, releaseAtEnd: false)
@@ -2024,8 +2024,8 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(ePass); assertNothingLeftSounding(eRat)
     }
     func testCascadeRevealsEachChordNoteOnce() {
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)
-            c.paramsA.rate = .r1_8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .cascade)
+            c.paramsA.rate = .r1_8; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 2, into: e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "the 3-note chord revealed one note at a time")
@@ -2036,8 +2036,8 @@ final class RouterTests: XCTestCase {
         // column (the render row-loop keys on the active column's cells; cascade notes gate to their column boundary,
         // never adopted), so a sparse scene plays proportionally — the whole equals the sum of its columns. No inversion.
         func cascadeCols(_ cols: [Int]) -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade); c.paramsA.rate = .r1_8; return c }) {
-                for c in cols { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }
+            box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .cascade); c.paramsA.rate = .r1_8; return c }) {
+                for c in cols { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }
             }
         }
         func ons(_ cols: [Int]) -> Int {
@@ -2050,16 +2050,16 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(allButC2, onlyC2, "7 populated columns emit more than 1 — the engine never inverts")
     }
     func testDroneHoldsTheChordAsAPad() {
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .drone)
-            c.paramsA.gate = 0.6; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .drone)
+            c.paramsA.gate = 0.6; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 2, into: e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "the chord held once as a pad")
         assertNothingLeftSounding(e)
     }
     func testShiftNudgesTheChordLate() {
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .shift)
-            c.paramsA.spread = 0.5; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .shift)
+            c.paramsA.spread = 0.5; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 2, into: e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "the chord, nudged late, once")
@@ -2067,8 +2067,8 @@ final class RouterTests: XCTestCase {
     }
     func testHumanizeIsSeededAndReplaySafe() {
         func mk() -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .humanize)
-                c.paramsA.spread = 0.8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .humanize)
+                c.paramsA.spread = 0.8; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         }
         let e1 = RecordingEmitter(); run(mk(), chord([60, 64, 67]), beats: 2, into: e1)
         let e2 = RecordingEmitter(); run(mk(), chord([60, 64, 67]), beats: 2, into: e2)
@@ -2080,9 +2080,9 @@ final class RouterTests: XCTestCase {
     func testEchoPitchClimbNeverEncodesAboveMidi127() {
         // ECHO +12/repeat from a high note climbs out of MIDI range; those repeats must be DROPPED at the ring
         // drain, NEVER encoded as a byte ≥128 (which a synth reads as a status → parser desync → every synth mutes).
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .echo)
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .echo)
             c.paramsA.echoDelayDiv = 1; c.paramsA.echoRepeats = 12; c.paramsA.echoFeedDelay = 1
-            c.paramsA.echoDecay = 1; c.paramsA.echoPitch = 12; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            c.paramsA.echoDecay = 1; c.paramsA.echoPitch = 12; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([100]), beats: 3, into: e)             // 100 → 112 → 124 → 136 (out of range → dropped) …
         XCTAssertTrue(e.events.allSatisfy { $0.note <= 127 }, "no wire byte encodes a note above 127")
@@ -2091,9 +2091,9 @@ final class RouterTests: XCTestCase {
     func testFloodGovernorCapsAndCountsDrops() {
         // Pathological flood: 8 dense euclid cells in column 0, all on emitter A, over a big chord — far past the
         // per-beat cap. The governor drops the overflow (counted, surfaced to HEALTH) and leaves nothing stuck.
-        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+        let cs = machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
             c.paramsA.euclidPulses = 16; c.paramsA.euclidSteps = 16; return c }
-        let b = box(colours: cs) { for r in 0..<8 { $0.cells[0][r] = Cell(colourID: colourIDs[r], buses: [.a]) } }
+        let b = box(machines: cs) { for r in 0..<8 { $0.cells[0][r] = Cell(machineID: machineIDs[r], buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0, wb = Double(2048) * 120.0 / 60.0 / 48_000.0
         var beat = 0.0, ts = 0.0
@@ -2112,9 +2112,9 @@ final class RouterTests: XCTestCase {
     // unfreezing RELEASES the held notes and resumes. No stuck notes across the whole cycle.
     func testRow8FreezeSustainsPausesThenReleases() {
         func freezeBox(_ on: Bool) -> SnapshotBox {
-            var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
             s.row8On = on ? [true, false, false, false, false, false, false, false] : nil
-            var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            var st = PluginState(machines: arpMachines(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
             st.row8 = [Row8Cell.make(.freeze)]
             return SnapshotBuilder.build(from: st)
         }
@@ -2141,15 +2141,15 @@ final class RouterTests: XCTestCase {
     }
 
     // ROW 8 HALFTIME (÷2): the play-grid COLUMN clock runs at half speed → over a fixed beat span, half the column
-    // boundaries are crossed → half the (distinct-colour) drone re-strikes. ×1/none is byte-identical.
+    // boundaries are crossed → half the (distinct-machine) drone re-strikes. ×1/none is byte-identical.
     func testRow8HalftimeSlowsTheColumnClock() {
         func onsOver8Beats(halftime: Bool) -> Int {
-            var cs: [Colour] = []
-            for (c, id) in colourIDs.enumerated() { var col = Colour(colourID: id, type: .drone); col.transpose = c; cs.append(col) }
+            var cs: [Machine] = []
+            for (c, id) in machineIDs.enumerated() { var col = Machine(machineID: id, type: .drone); col.transpose = c; cs.append(col) }
             var s = SceneState.empty()
-            for c in 0..<8 { s.cells[c][0] = Cell(colourID: colourIDs[c], buses: [.a]) }   // a distinct-note drone per column
+            for c in 0..<8 { s.cells[c][0] = Cell(machineID: machineIDs[c], buses: [.a]) }   // a distinct-note drone per column
             if halftime { s.row8On = [true, false, false, false, false, false, false, false] }
-            var st = PluginState(colours: cs, scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            var st = PluginState(machines: cs, scenes: [s]); st.busChannels = [1, 2, 3, 4]
             if halftime { st.row8 = [Row8Cell.make(.halftime)] }     // ÷2 ⇒ clockScale 2.0
             let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord([60]), beats: 8, into: e)
             return e.ons.count
@@ -2163,9 +2163,9 @@ final class RouterTests: XCTestCase {
     // (cable + channel). The note stores its actual stamp, so nothing is stranded.
     func testRow8RedirectAndSwapRestampTheWire() {
         func rowBox(_ cell: Row8Cell, cellBus: Bus) -> SnapshotBox {
-            var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [cellBus])
+            var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold", buses: [cellBus])
             s.row8On = [true, false, false, false, false, false, false, false]
-            var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            var st = PluginState(machines: arpMachines(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
             st.row8 = [cell]
             return SnapshotBuilder.build(from: st)
         }
@@ -2184,9 +2184,9 @@ final class RouterTests: XCTestCase {
 
     // ROW 8 BROADCAST: the WALL — a lit BROADCAST cell mirrors every emitted note to all 4 emitter wires. No stuck notes.
     func testRow8BroadcastMirrorsToAllWires() {
-        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // the cell emits on A only
+        var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // the cell emits on A only
         s.row8On = [true, false, false, false, false, false, false, false]
-        var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
+        var st = PluginState(machines: arpMachines(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
         st.row8 = [Row8Cell.make(.broadcast)]
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e)
         for cable: UInt8 in 1...4 {
@@ -2197,7 +2197,7 @@ final class RouterTests: XCTestCase {
     }
 
     func testPanicBlastsAllNotesOffAndAllSoundOffOnEveryChannel() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
                        timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
@@ -2211,7 +2211,7 @@ final class RouterTests: XCTestCase {
     func testEveryArticulationEmitsOnItsBusCableAndTheAllCable() {
         // delta §7b: each articulation emits on its own bus cable (A = cable 1) AND the ALL cable (0),
         // and on NO other cable (only bus A is lit).
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 16, into: e)
         let onCable0 = e.ons.filter { $0.cable == 0 }.count
@@ -2223,8 +2223,8 @@ final class RouterTests: XCTestCase {
 
     func testBusChannelIsStampedAtExit() {
         // delta §7: channel is a property of the wire. Stamp bus A with channel 5 → wire channel 4.
-        let b = box(colours: arpColours(), busChannels: [5, 2, 3, 4]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: arpMachines(), busChannels: [5, 2, 3, 4]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2234,8 +2234,8 @@ final class RouterTests: XCTestCase {
     }
 
     func testMutedCellEmitsNothing() {
-        var cell = Cell(colourID: "gold"); cell.muted = true
-        let b = box(colours: arpColours()) { $0.cells[0][0] = cell }
+        var cell = Cell(machineID: "gold"); cell.muted = true
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = cell }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(e.events.isEmpty, "a muted cell (§6.2) produces no MIDI on any cable")
@@ -2244,8 +2244,8 @@ final class RouterTests: XCTestCase {
     func testMutingMidPlaybackSilencesCellWithoutStuckNotes() {
         // DEFAULT GRID TAP = MUTE (2026-08-01): muting a SOUNDING cell mid-playback must (a) stop its emitter
         // output and (b) leave no hung note. Simulate the tap by swapping to a snapshot with the cell muted.
-        let live = box(colours: arpColours()) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
-        let mb   = box(colours: arpColours()) { for c in 0..<8 { $0.cells[c][0] = { var cell = Cell(colourID: "gold", buses: [.a]); cell.muted = true; return cell }() } }
+        let live = box(machines: arpMachines()) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
+        let mb   = box(machines: arpMachines()) { for c in 0..<8 { $0.cells[c][0] = { var cell = Cell(machineID: "gold", buses: [.a]); cell.muted = true; return cell }() } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -2266,7 +2266,7 @@ final class RouterTests: XCTestCase {
 
     func testFanOutEmitsOnBothLitBusesPlusAll() {
         // Buses A and B both lit → each artic emits on cable 1 (A), cable 2 (B) and cable 0 (ALL).
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b]) }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 16, into: e)
         let c1 = e.ons.filter { $0.cable == 1 }.count
@@ -2301,7 +2301,7 @@ final class RouterTests: XCTestCase {
 
     func testAuditionArpSoundsWhileStoppedAndLeavesNothingStuck() {
         // Hold an ARP cell (col 0, row 0) with a chord held, transport STOPPED → it arpeggiates.
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         auditionRun(b, chord([60, 64, 67]), target: 0, windows: 24, into: e)   // 0 = col0*8+row0
         XCTAssertGreaterThan(e.ons.count, 0, "a held ARP should sound while stopped (audition)")
@@ -2309,22 +2309,22 @@ final class RouterTests: XCTestCase {
     }
 
     func testAuditionWithNoHeldNotesIsSilent() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         auditionRun(b, NotePool(), target: 0, windows: 12, into: e)            // no keys held
         XCTAssertTrue(e.events.isEmpty, "audition soundcheck is silent with no source notes")
     }
 
     func testAuditionOfEmptyCellIsSilent() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         auditionRun(b, chord([60, 64, 67]), target: 5 * 8 + 5, windows: 12, into: e)   // (col5,row5) empty
         XCTAssertTrue(e.events.isEmpty, "auditioning an empty cell produces nothing")
     }
 
     func testAuditionRatchetSounds() {
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .ratchet
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .ratchet
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         auditionRun(b, chord([60, 63, 67]), target: 0, windows: 24, into: e)
         XCTAssertGreaterThan(e.ons.count, 0, "a held RATCHET re-strikes the chord while stopped")
@@ -2332,7 +2332,7 @@ final class RouterTests: XCTestCase {
     }
 
     func testAuditionEmitsOnTheCellsBusAndAllCable() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.b]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.b]) }
         let e = RecordingEmitter()
         auditionRun(b, chord([60, 64, 67]), target: 0, windows: 24, into: e)
         XCTAssertTrue(e.ons.contains { $0.cable == 2 }, "audition emits on the lit bus (B = cable 2)")
@@ -2343,7 +2343,7 @@ final class RouterTests: XCTestCase {
     func testTransportStartAutoReleasesAudition() {
         // Hold an ARP audition, then start the transport: the transport-start edge must flush the
         // audition voices (auto-release, §6.4) — nothing left sounding after a stop.
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
         let pool = chord([60, 64, 67]); let sr = 48_000.0; let frames: UInt32 = 2048
@@ -2368,9 +2368,9 @@ final class RouterTests: XCTestCase {
     func testAuditionHarmonizeExpandsAndSustains() {
         // Chord-hold audition (v2): HARMONIZE previews the added voices, and sustains — each note is
         // struck ONCE and held (not re-articulated every window).
-        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [4, 7, 0]   // +4, +7, third off
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         auditionRun(b, chord([60]), target: 0, windows: 20, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "root + intervals")
@@ -2379,17 +2379,17 @@ final class RouterTests: XCTestCase {
     }
 
     func testAuditionChancePassesAllAtOneAndNoneAtZero() {
-        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].type = .chance
         cs[gi].paramsA.probability = 1.0
-        let bAll = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let bAll = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let eAll = RecordingEmitter()
         auditionRun(bAll, chord([60, 64, 67]), target: 0, windows: 12, into: eAll)
         XCTAssertEqual(Set(eAll.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "p=1 sustains the whole chord")
         assertNothingLeftSounding(eAll)
 
         cs[gi].paramsA.probability = 0.0
-        let bNone = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let bNone = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let eNone = RecordingEmitter()
         auditionRun(bNone, chord([60, 64, 67]), target: 0, windows: 12, into: eNone)
         XCTAssertTrue(eNone.events.isEmpty, "p=0 auditions to silence (processor drops everything)")
@@ -2398,8 +2398,8 @@ final class RouterTests: XCTestCase {
     func testAuditionChordHoldTracksHeldKeysLive() {
         // The sustained preview must FOLLOW the keys: add one mid-hold → it sounds; release one → it
         // stops, while the rest keep sounding. (passgate is forced all-open, so it's an identity hold.)
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .passgate
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
         let pool = NotePool(); let sr = 48_000.0; let frames: UInt32 = 2048
@@ -2422,9 +2422,9 @@ final class RouterTests: XCTestCase {
 
     func testAuditionStrumRollsTheChordInThenSustains() {
         // STRUM audition ROLLS the chord in over `spread` (not all at once), then sustains.
-        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].type = .strum; cs[gi].paramsA.spread = 0.4   // wide roll → spans several windows
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
         let pool = chord([60, 64, 67]); let sr = 48_000.0; let frames: UInt32 = 2048
@@ -2447,16 +2447,16 @@ final class RouterTests: XCTestCase {
     // MARK: - EMITTER TOGGLES (§6a) — busEnabled gate at the emission boundary
 
     /// Build a box with a per-emitter enable array (nil ⇒ all enabled).
-    private func box(colours cs: [Colour], busEnabled: [Bool]?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
+    private func box(machines cs: [Machine], busEnabled: [Bool]?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: cs, scenes: [s]); st.busEnabled = busEnabled
+        var st = PluginState(machines: cs, scenes: [s]); st.busEnabled = busEnabled
         return SnapshotBuilder.build(from: st)
     }
 
     func testDisabledEmitterIsSilentOnItsCableAndAll() {
         // Cell → bus B only, with B disabled: nothing on cable 2 (B) or cable 0 (All).
-        let b = box(colours: arpColours(), busEnabled: [true, false, true, true]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.b])
+        let b = box(machines: arpMachines(), busEnabled: [true, false, true, true]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.b])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2465,8 +2465,8 @@ final class RouterTests: XCTestCase {
 
     func testAllIsTheSumOfEnabledEmitters() {
         // Fan-out to A and B; disable A → A silent, B sounds, All carries only B's stream.
-        let b = box(colours: arpColours(), busEnabled: [false, true, true, true]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = box(machines: arpMachines(), busEnabled: [false, true, true, true]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2479,13 +2479,13 @@ final class RouterTests: XCTestCase {
 
     func testDisablingMidStreamClosesThatEmittersNotes() {
         // Play A a while, then disable it live; its cable-1 notes close and nothing is stuck.
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }   // bus A
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }   // bus A
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
         let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
         let wb = Double(frames) * 120 / 60 / sr
         var beat = 0.0, ts = 0.0
-        let boxOff = box(colours: arpColours(), busEnabled: [false, true, true, true]) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let boxOff = box(machines: arpMachines(), busEnabled: [false, true, true, true]) { $0.cells[0][0] = Cell(machineID: "gold") }
         for i in 0..<24 {   // first 8 windows A enabled, then disabled
             router.process(box: i < 8 ? b : boxOff, pool: pool, playing: true, beatPos: beat, tempo: 120,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
@@ -2499,8 +2499,8 @@ final class RouterTests: XCTestCase {
 
     func testSharedChannelSurvivesOnAllWhenOneOwnerDisabled() {
         // A and B on the SAME stamp channel, fanned from one cell; disable A → All keeps the note (B owns it).
-        var st = PluginState(colours: arpColours(), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b]); return s }()])
+        var st = PluginState(machines: arpMachines(), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
         st.busChannels = [3, 3, 3, 4]              // A and B both stamp channel 3
         st.busEnabled = [false, true, true, true]  // A disabled
         let e = RecordingEmitter()
@@ -2511,8 +2511,8 @@ final class RouterTests: XCTestCase {
     }
 
     func testMeteringFeedReportsPerEmitterPeakAndEventsThenClears() {
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .ratchet
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }   // bus A only
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .ratchet
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }   // bus A only
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
         var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
@@ -2529,7 +2529,7 @@ final class RouterTests: XCTestCase {
     }
 
     func testDisabledEmitterNeverMeters() {
-        let b = box(colours: arpColours(), busEnabled: [false, true, true, true]) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: arpMachines(), busEnabled: [false, true, true, true]) { $0.cells[0][0] = Cell(machineID: "gold") }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
         var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
@@ -2545,10 +2545,10 @@ final class RouterTests: XCTestCase {
 
     func testEmitterSoundingReportsHeldNoteOnItsBusThenClearsOnRelease() {
         // A ratchet on the GOLD cell → bus A. While a chord is held, at least one window snapshot must catch a
-        // sounding voice on emitter A (carrying its velocity + source colourIndex) and NONE on B/C/D; after the
+        // sounding voice on emitter A (carrying its velocity + source machineIndex) and NONE on B/C/D; after the
         // chord releases and the notes close, every emitter's sounding set empties.
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .ratchet
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .ratchet
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let held = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
         var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
@@ -2562,7 +2562,7 @@ final class RouterTests: XCTestCase {
                 sawSounding = true
                 XCTAssertEqual([s[1].count, s[2].count, s[3].count], [0, 0, 0], "only emitter A sounds")
                 XCTAssertGreaterThan(s[0].first!.vel, 0, "the sounding note carries its velocity")
-                XCTAssertGreaterThanOrEqual(s[0].first!.col, 0, "…and its source colour (cargo tint)")
+                XCTAssertGreaterThanOrEqual(s[0].first!.col, 0, "…and its source machine (cargo tint)")
             }
             beat += wb; ts += Double(frames)
         }
@@ -2577,12 +2577,12 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(router.drainEmitterSounding().allSatisfy { $0.isEmpty }, "released → nothing left sounding")
     }
 
-    // MARK: - item 4 VELOCITY MARKS — the per-note (velocity, source-colour) ring drained by drainMarks()
+    // MARK: - item 4 VELOCITY MARKS — the per-note (velocity, source-machine) ring drained by drainMarks()
 
-    func testDrainMarksStampsSourceColourAndReadClears() {
-        // An arp on the GOLD cell (colourIndex 0) → bus A. Each note-on leaves a mark carrying its velocity
-        // and the emitting cell's colourIndex — the source tint the strip meter draws.
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+    func testDrainMarksStampsSourceMachineAndReadClears() {
+        // An arp on the GOLD cell (machineIndex 0) → bus A. Each note-on leaves a mark carrying its velocity
+        // and the emitting cell's machineIndex — the source tint the strip meter draws.
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
         var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
@@ -2593,16 +2593,16 @@ final class RouterTests: XCTestCase {
         }
         let m = router.drainMarks()
         XCTAssertFalse(m[0].isEmpty, "bus A collected velocity marks")
-        XCTAssertTrue(m[0].allSatisfy { $0.col == 0 }, "each mark is tinted by the source Colour (gold = index 0)")
+        XCTAssertTrue(m[0].allSatisfy { $0.col == 0 }, "each mark is tinted by the source Machine (gold = index 0)")
         XCTAssertTrue(m[0].allSatisfy { $0.vel > 0 }, "each mark carries the note-on velocity")
         XCTAssertEqual([m[1].count, m[2].count, m[3].count], [0, 0, 0], "silent emitters collect no marks")
         XCTAssertTrue(router.drainMarks()[0].isEmpty, "drain read-and-clears")
     }
 
     func testDrainMarksFansSameTintToEveryBus() {
-        // A cell fanning to A+B stamps the SAME source colourIndex on both buses' marks.
-        let wine = Int8(colourIDs.firstIndex(of: "wine")!)
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "wine", buses: [.a, .b]) }
+        // A cell fanning to A+B stamps the SAME source machineIndex on both buses' marks.
+        let wine = Int8(machineIDs.firstIndex(of: "wine")!)
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "wine", buses: [.a, .b]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
         var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
@@ -2619,7 +2619,7 @@ final class RouterTests: XCTestCase {
     func testDrainMarksRingCapsAtEight() {
         // An arp of a chord floods bus A with note-ons over many beats; the per-emitter ring saturates at 8
         // marks per drain (drainMarks is called ONCE at the end, so all note-ons since start accumulate).
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let sr = 48_000.0; let frames: UInt32 = 2048
         var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
@@ -2635,8 +2635,8 @@ final class RouterTests: XCTestCase {
     func testAuditionRespectsDisabledEmitter() {
         // Cross-feature: audition a cell routed to a DISABLED emitter (B) → silent (the §6a gate is at
         // the emission boundary, so audition respects it too).
-        let b = box(colours: arpColours(), busEnabled: [true, false, true, true]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.b])
+        let b = box(machines: arpMachines(), busEnabled: [true, false, true, true]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.b])
         }
         let e = RecordingEmitter()
         auditionRun(b, chord([60]), target: 0, windows: 12, into: e)
@@ -2665,7 +2665,7 @@ final class RouterTests: XCTestCase {
 
     func testVelocityOverrideFlattensEveryNoteOnOnThatEmitter() {
         // Override emitter A to 40: every new note-on on its own cable (1) AND its All copy (0) is exactly 40.
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }   // bus A
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }   // bus A
         let e = RecordingEmitter()
         runVel(b, chord([60, 64, 67]), beats: 16, velOverride: packVel(0, 40), into: e)
         let aOns = e.ons.filter { $0.cable == 1 }
@@ -2678,7 +2678,7 @@ final class RouterTests: XCTestCase {
 
     func testVelocityOverrideOnOneEmitterLeavesOthersNatural() {
         // Fan-out A + B, override A only: A flattens to 40; B keeps its natural (un-flattened) velocity.
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b]) }
         let e = RecordingEmitter()
         runVel(b, chord([60, 64, 67]), beats: 16, velOverride: packVel(0, 40), into: e)
         let aOns = e.ons.filter { $0.cable == 1 }
@@ -2691,7 +2691,7 @@ final class RouterTests: XCTestCase {
 
     func testZeroOverrideUsesNaturalVelocity() {
         // A 0 byte = untouched: the emitter sounds at its natural velocity (whatever the arp derives), NOT 0.
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         runVel(b, chord([60]), beats: 16, velOverride: 0, into: e)
         XCTAssertGreaterThan(e.ons.count, 0, "sounded")
@@ -2700,8 +2700,8 @@ final class RouterTests: XCTestCase {
 
     func testVelocityOverrideOnDisabledEmitterStaysSilent() {
         // The enable gate wins: overriding a DISABLED emitter still emits nothing (override is applied after it).
-        let b = box(colours: arpColours(), busEnabled: [true, false, true, true]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.b])
+        let b = box(machines: arpMachines(), busEnabled: [true, false, true, true]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.b])
         }
         let e = RecordingEmitter()
         runVel(b, chord([60]), beats: 16, velOverride: packVel(1, 40), into: e)
@@ -2710,52 +2710,52 @@ final class RouterTests: XCTestCase {
 
     // MARK: - CLAIM (§6a) — one-claimant exclusivity, suppression against the live voice table
 
-    /// A PASSGATE all-open colour (sustains the chord to the column boundary = the claimant "holds" a
+    /// A PASSGATE all-open machine (sustains the chord to the column boundary = the claimant "holds" a
     /// pitch), optionally transposed so a second emitter can hold a DIFFERENT pitch (the residue case).
-    private func passgateColour(_ id: String, transpose: Int = 0) -> Colour {
-        var c = Colour(colourID: id, type: .passgate)
+    private func passgateMachine(_ id: String, transpose: Int = 0) -> Machine {
+        var c = Machine(machineID: id, type: .passgate)
         c.paramsA.passes = [true, true, true, true]
         c.paramsA.gate = 1.0
         c.transpose = transpose
         return c
     }
-    /// Colours with gold → held on A (transpose 0) and cyan → held on B (transposeB); the rest are arps.
-    private func claimColours(transposeB: Int) -> [Colour] {
-        colourIDs.map { id in
-            if id == "gold" { return passgateColour(id, transpose: 0) }
-            if id == "cyan" { return passgateColour(id, transpose: transposeB) }
-            return Colour(colourID: id, type: .arp)
+    /// Machines with gold → held on A (transpose 0) and cyan → held on B (transposeB); the rest are arps.
+    private func claimMachines(transposeB: Int) -> [Machine] {
+        machineIDs.map { id in
+            if id == "gold" { return passgateMachine(id, transpose: 0) }
+            if id == "cyan" { return passgateMachine(id, transpose: transposeB) }
+            return Machine(machineID: id, type: .arp)
         }
     }
-    private func claimBox(_ cs: [Colour], claim: Int?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
+    private func claimBox(_ cs: [Machine], claim: Int?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: cs, scenes: [s]); st.claimEmitter = claim
+        var st = PluginState(machines: cs, scenes: [s]); st.claimEmitter = claim
         return SnapshotBuilder.build(from: st)
     }
 
-    func testColourIndexBeyondOverrideTableDoesNotTrapRender() {
+    func testMachineIndexBeyondOverrideTableDoesNotTrapRender() {
         // Paul 2026-08-15 crash (SIGTRAP adding a 2nd flattened part): the render-side override table is sized for the
-        // 16 host-automatable colours (transpose at slot 2+i), but the unlimited-ephemeral-colours model can place a
-        // cell whose colour index ≥33, so over(2+ci) read PAST the table end → out-of-bounds trap on the render thread.
-        // A colour beyond the 16 automatable slots has no param override → it must fall back to its own transpose.
-        var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }        // the canonical 16
-        for i in 0..<24 { colours.append(passgateColour("x\(i)", transpose: 0)) }   // 40 total → last index 39 ≫ 33
-        colours[colours.count - 1].transpose = 7                                 // the high-index colour transposes +7
-        let hi = colours[colours.count - 1].colourID
+        // 16 host-automatable machines (transpose at slot 2+i), but the unlimited-ephemeral-machines model can place a
+        // cell whose machine index ≥33, so over(2+ci) read PAST the table end → out-of-bounds trap on the render thread.
+        // A machine beyond the 16 automatable slots has no param override → it must fall back to its own transpose.
+        var machines = machineIDs.map { Machine(machineID: $0, type: .arp) }        // the canonical 16
+        for i in 0..<24 { machines.append(passgateMachine("x\(i)", transpose: 0)) }   // 40 total → last index 39 ≫ 33
+        machines[machines.count - 1].transpose = 7                                 // the high-index machine transposes +7
+        let hi = machines[machines.count - 1].machineID
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: hi, buses: [.a])
-        let box = SnapshotBuilder.build(from: PluginState(colours: colours, scenes: [s]))
+        s.cells[0][0] = Cell(machineID: hi, buses: [.a])
+        let box = SnapshotBuilder.build(from: PluginState(machines: machines, scenes: [s]))
         let e = RecordingEmitter()
         run(box, chord([60]), beats: 4, into: e)                                // must not trap
-        XCTAssertTrue(e.events.contains { $0.status == 0x90 && $0.note == 67 }, "the high-index colour holds 60 transposed to 67, using its own transpose")
+        XCTAssertTrue(e.events.contains { $0.status == 0x90 && $0.note == 67 }, "the high-index machine holds 60 transposed to 67, using its own transpose")
         assertNothingLeftSounding(e)
     }
 
     func testClaimSuppressesSamePitchOnNonClaimant() {
         // One cell fans A+B; A claims. Within the articulation A opens 60 first, so B yields it: nothing
         // on cable 2, and All (cable 0) carries A's copy only.
-        let b = claimBox(claimColours(transposeB: 0), claim: 0) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = claimBox(claimMachines(transposeB: 0), claim: 0) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2769,9 +2769,9 @@ final class RouterTests: XCTestCase {
     func testClaimResidueSoundsOnNonClaimantForUnclaimedPitch() {
         // Same column, two rows: A holds 60, B holds 65 (transpose +5). A claims — 65 is NOT sounding on
         // A, so B keeps it (the residue passes through). Both cells emit when column 0 is active.
-        let b = claimBox(claimColours(transposeB: 5), claim: 0) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // col 0, row 0 → held 60 on A
-            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // col 0, row 1 → held 65 on B (the residue)
+        let b = claimBox(claimMachines(transposeB: 5), claim: 0) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // col 0, row 0 → held 60 on A
+            $0.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // col 0, row 1 → held 65 on B (the residue)
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2784,9 +2784,9 @@ final class RouterTests: XCTestCase {
         // delta §6a pitch-class match: A holds 60 (C3); B holds 72 (C4, transpose +12) — the SAME pitch class,
         // a different MIDI note. A claims → B's octave-double is suppressed (the claimant owns its harmony;
         // octave doubling across synths is the mud exclusivity exists to prevent).
-        let b = claimBox(claimColours(transposeB: 12), claim: 0) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // held 60 (C3) on A — the claimant
-            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // held 72 (C4) on B — same class, one octave up
+        let b = claimBox(claimMachines(transposeB: 12), claim: 0) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // held 60 (C3) on A — the claimant
+            $0.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // held 72 (C4) on B — same class, one octave up
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2798,9 +2798,9 @@ final class RouterTests: XCTestCase {
     func testClaimSuppressesResidueWhenClaimantHoldsSamePitch() {
         // Both hold 60 (B transpose 0), claimant A is at row 0 (≤ the spillover row → emits first in the
         // column): B's 60 is suppressed. This is the row-order-dependent case the plan accepts.
-        let b = claimBox(claimColours(transposeB: 0), claim: 0) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // col 0, row 0 — claimant, emits first
-            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // col 0, row 1 — spillover
+        let b = claimBox(claimMachines(transposeB: 0), claim: 0) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // col 0, row 0 — claimant, emits first
+            $0.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // col 0, row 1 — spillover
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2811,8 +2811,8 @@ final class RouterTests: XCTestCase {
 
     func testNoClaimLetsBothEmittersSoundTheSamePitch() {
         // Control: with no claim, the same fan-out sounds the pitch on BOTH cables (§7 refcount, not exclusivity).
-        let b = claimBox(claimColours(transposeB: 0), claim: nil) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = claimBox(claimMachines(transposeB: 0), claim: nil) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2826,10 +2826,10 @@ final class RouterTests: XCTestCase {
         // claims. Because the claimant is part of the SAME articulation, B yields on EVERY tick — even at
         // 1/32 where the note opens and closes inside one render window (the old bug: the claimant's voice
         // was immediately closed before B checked the table). B must be silent on its own cable throughout.
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!].paramsA.rate = .r1_32   // fast — note fits inside a window
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!].paramsA.rate = .r1_32   // fast — note fits inside a window
         let b = claimBox(cs, claim: 0) {
-            for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a, .b]) }
+            for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a, .b]) }
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2841,9 +2841,9 @@ final class RouterTests: XCTestCase {
     func testMutedClaimantStillReservesItsPitches() {
         // A claimant whose EMITTER TOGGLE is off makes no sound itself, yet still claims: the pitch it
         // would hold is suppressed on B (a silent reservation — sidechain-style). No wire from A, no stuck.
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // col 0, row 0 → A reserves 60 (muted)
-            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // col 0, row 1 → B would hold 60
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // col 0, row 0 → A reserves 60 (muted)
+            s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // col 0, row 1 → B would hold 60
             return s }()])
         st.claimEmitter = 0
         st.busEnabled = [false, true, true, true]                 // A muted
@@ -2856,8 +2856,8 @@ final class RouterTests: XCTestCase {
 
     func testMutedNonClaimantIsUnaffected() {
         // Control: muting a NON-claimant is just a mute — B silent, A (claimant) sounds normally.
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
             return s }()])
         st.claimEmitter = 0
         st.busEnabled = [true, false, true, true]                 // B muted (non-claimant)
@@ -2874,13 +2874,13 @@ final class RouterTests: XCTestCase {
         // opens+closes inside one render window. The persistent claim ghost keeps A's ownership visible
         // across cells, so B yields 60 on every tick. (Before the ghost fix this failed at fast rates
         // because A's audible voice was immediate-closed before B's row was evaluated.)
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!].paramsA.rate = .r1_32
-        cs[colourIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_32
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!].paramsA.rate = .r1_32
+        cs[machineIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_32
         let b = claimBox(cs, claim: 0) {
             for c in 0..<8 {
-                $0.cells[c][0] = Cell(colourID: "gold", buses: [.a])   // row 0 — claimant, Emit A
-                $0.cells[c][1] = Cell(colourID: "cyan", buses: [.b])   // row 1 — Emit B, same pitch
+                $0.cells[c][0] = Cell(machineID: "gold", buses: [.a])   // row 0 — claimant, Emit A
+                $0.cells[c][1] = Cell(machineID: "cyan", buses: [.b])   // row 1 — Emit B, same pitch
             }
         }
         let e = RecordingEmitter()
@@ -2894,13 +2894,13 @@ final class RouterTests: XCTestCase {
     func testMutedClaimantReservesShortNotesAcrossCells() {
         // M2 regression: a MUTED claimant running a FAST arp still reserves its pitches — the persistent
         // silent ghost is no longer immediate-closed, so a same-pitch non-claimant cell yields even at speed.
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!].paramsA.rate = .r1_32
-        cs[colourIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_32
-        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!].paramsA.rate = .r1_32
+        cs[machineIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_32
+        var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
             for c in 0..<8 {
-                s.cells[c][0] = Cell(colourID: "gold", buses: [.a])   // muted claimant
-                s.cells[c][1] = Cell(colourID: "cyan", buses: [.b])
+                s.cells[c][0] = Cell(machineID: "gold", buses: [.a])   // muted claimant
+                s.cells[c][1] = Cell(machineID: "cyan", buses: [.b])
             }
             return s }()])
         st.claimEmitter = 0
@@ -2918,10 +2918,10 @@ final class RouterTests: XCTestCase {
         // to B live. Claimant-first emission means each phase suppresses the OTHER emitter's copy, so both
         // cables sound over the run; the switch (the single claimEmitter field implicitly releases the
         // prior) leaves nothing stuck.
-        let cs = arpColours()
+        let cs = arpMachines()
         // Fill row 0 across every column so the arp fires whichever column is active in each phase.
-        let claimA = claimBox(cs, claim: 0) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a, .b]) } }
-        let claimB = claimBox(cs, claim: 1) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a, .b]) } }
+        let claimA = claimBox(cs, claim: 0) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a, .b]) } }
+        let claimB = claimBox(cs, claim: 1) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a, .b]) } }
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
         let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
@@ -2941,18 +2941,18 @@ final class RouterTests: XCTestCase {
     // MARK: - CLAIM v2 (§6a) — MULTI-claim (SHARED tier) + LEAK %
 
     /// Build a box with an explicit claim MASK + optional per-claimant LEAK (bypassing the legacy single field).
-    private func claimMaskBox(_ cs: [Colour], mask: UInt8, leak: [Int] = [0, 0, 0, 0],
+    private func claimMaskBox(_ cs: [Machine], mask: UInt8, leak: [Int] = [0, 0, 0, 0],
                               _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: cs, scenes: [s]); st.claimMask = mask; st.claimLeak = leak
+        var st = PluginState(machines: cs, scenes: [s]); st.claimMask = mask; st.claimLeak = leak
         return SnapshotBuilder.build(from: st)
     }
 
     func testMultiClaimSuppressesNonClaimantsAcrossTheUnion() {
         // A and B both claim (SHARED tier). One cell fans A+B+C. C yields the pitch class (owned by the
         // union), but A and B BOTH sound it — claimants never suppress each other (deliberate doubling).
-        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0011) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b, .c])
+        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0b0011) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b, .c])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2965,8 +2965,8 @@ final class RouterTests: XCTestCase {
     func testClaimLeakBleedsNonClaimantAtScaledVelocity() {
         // A claims with LEAK 50 %. B (non-claimant) fanned the same pitch now SOUNDS at half velocity — the
         // shadow — instead of falling silent. Source velocity is 100 (the `chord` helper) → 50.
-        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0001, leak: [50, 0, 0, 0]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0b0001, leak: [50, 0, 0, 0]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2980,8 +2980,8 @@ final class RouterTests: XCTestCase {
     func testMultiClaimLeakTakesTheStrictestShadow() {
         // A leaks 60 %, B leaks 20 %; both claim the same class. A non-claimant C bleeds at the MIN (20 %) —
         // the strictest claimant's shadow wins.
-        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0011, leak: [60, 20, 0, 0]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b, .c])
+        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0b0011, leak: [60, 20, 0, 0]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b, .c])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -2994,8 +2994,8 @@ final class RouterTests: XCTestCase {
 
     func testMultiClaimLeakZeroStillFullySuppresses() {
         // Regression: a claim with LEAK 0 is exactly v1 — the non-claimant is silent, no shadow.
-        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0001, leak: [0, 0, 0, 0]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0b0001, leak: [0, 0, 0, 0]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -3005,17 +3005,17 @@ final class RouterTests: XCTestCase {
 
     // MARK: - THE RACK (design-the-rack §3) — the two-tier gate: RACK off ⇒ raw wire regardless of the matrix
 
-    private func rackClaimBox(_ cs: [Colour], claim: UInt8, rack: UInt8?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
+    private func rackClaimBox(_ cs: [Machine], claim: UInt8, rack: UInt8?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: cs, scenes: [s]); st.claimMask = claim; st.rackEnabledMask = rack
+        var st = PluginState(machines: cs, scenes: [s]); st.claimMask = claim; st.rackEnabledMask = rack
         return SnapshotBuilder.build(from: st)
     }
 
     func testRackOffMakesClaimantARawWire() {
         // A claims (matrix armed) but A's RACK is OFF (bit 0 clear) → the board is out of the signal path, so A's
         // claim does NOT apply: a cell fanning A+B lets B keep the pitch (the raw wire, as if nothing were armed).
-        let b = rackClaimBox(claimColours(transposeB: 0), claim: 0b0001, rack: 0b1110) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = rackClaimBox(claimMachines(transposeB: 0), claim: 0b0001, rack: 0b1110) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -3026,8 +3026,8 @@ final class RouterTests: XCTestCase {
 
     func testRackOnKeepsClaimSuppression() {
         // Same doc but A's RACK ON (all bits set) → claim applies exactly as before: B yields the claimed pitch.
-        let b = rackClaimBox(claimColours(transposeB: 0), claim: 0b0001, rack: 0b1111) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = rackClaimBox(claimMachines(transposeB: 0), claim: 0b0001, rack: 0b1111) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -3038,7 +3038,7 @@ final class RouterTests: XCTestCase {
 
     func testRackGatePreAndsTreatmentMasksIntoTheBox() {
         // The builder pre-ANDs the rack gate into every treatment mask; a missing gate ⇒ all-on (old-doc safe).
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [SceneState.empty()])
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [SceneState.empty()])
         st.claimMask = 0b0011; st.flattenMask = 0b0011; st.altMask = 0b0011
         st.rackEnabledMask = 0b0001                                  // only emitter A's rack is in path
         let gated = SnapshotBuilder.build(from: st)
@@ -3067,28 +3067,28 @@ final class RouterTests: XCTestCase {
     }
 
     func testWithheldTellRecordsClaimSuppressedNotes() {
-        // CLAIM (leak 0) fully suppresses B → drainWithheld reports B's note, tinted by the source Colour
+        // CLAIM (leak 0) fully suppresses B → drainWithheld reports B's note, tinted by the source Machine
         // (gold = 0); the claimant A withholds nothing (it sounds).
-        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0001) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0b0001) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         let wh = drainWithheldAfter(b)
         XCTAssertFalse(wh[1].isEmpty, "B's CLAIM-suppressed note is recorded as withheld")
-        XCTAssertTrue(wh[1].allSatisfy { $0.col == 0 }, "the withheld mark carries the source Colour (gold = 0)")
+        XCTAssertTrue(wh[1].allSatisfy { $0.col == 0 }, "the withheld mark carries the source Machine (gold = 0)")
         XCTAssertTrue(wh[0].isEmpty, "the claimant (A) withholds nothing — it sounds")
     }
 
     func testLeakedNoteIsNotWithheld() {
         // A LEAK bleed (leak > 0) sounds as a shadow, so it is NOT a withholding — no hollow mark.
-        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0001, leak: [50, 0, 0, 0]) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0b0001, leak: [50, 0, 0, 0]) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         XCTAssertTrue(drainWithheldAfter(b)[1].isEmpty, "a LEAK bleed sounds → not withheld")
     }
 
     func testNoClaimWithholdsNothing() {
-        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
         }
         XCTAssertTrue(drainWithheldAfter(b).allSatisfy { $0.isEmpty }, "no claim ⇒ nothing withheld")
     }
@@ -3100,12 +3100,12 @@ final class RouterTests: XCTestCase {
         // on the SAME bus + channel. The arp re-strikes 60 every tick; each strike is now a clean OFF→ON re-attack
         // (retriggering), so ons and offs pace together. The refcount still keeps the hold alive across the strikes
         // (it never hits 0 mid-column) and pairs the final release exactly — nothing stuck.
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = passgateColour("gold")   // hold
-        cs[colourIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_16      // arp, same pitch pool
-        let b = box(colours: cs) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // col 0, row 0 → holds 60 on A (ch 1)
-            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.a])   // col 0, row 1 → arps 60 on A (ch 1)
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!] = passgateMachine("gold")   // hold
+        cs[machineIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_16      // arp, same pitch pool
+        let b = box(machines: cs) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // col 0, row 0 → holds 60 on A (ch 1)
+            $0.cells[0][1] = Cell(machineID: "cyan", buses: [.a])   // col 0, row 1 → arps 60 on A (ch 1)
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
@@ -3119,8 +3119,8 @@ final class RouterTests: XCTestCase {
         // Two holders of note 60 on emitter A in one window: the SECOND strike re-articulates — a note-OFF then
         // note-ON at the same sample (off first), so a mono synth retriggers. Both ons still emit (clause 1).
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a]); s.cells[0][1] = Cell(colourID: "gold", buses: [.a])
-        let box = SnapshotBuilder.build(from: PluginState(colours: claimColours(transposeB: 0), scenes: [s]))
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a]); s.cells[0][1] = Cell(machineID: "gold", buses: [.a])
+        let box = SnapshotBuilder.build(from: PluginState(machines: claimMachines(transposeB: 0), scenes: [s]))
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         router.process(box: box, pool: chord([60]), playing: true, beatPos: 0, tempo: 120,
                        sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
@@ -3140,8 +3140,8 @@ final class RouterTests: XCTestCase {
 
     func testMutedReceiverSilencesItsSubscribers() {
         // delta §9 item 11: a MIDI-IN cell subscribed to a MUTED receiver reads an empty pool → silence.
-        var st = PluginState(colours: arpColours(), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(machines: arpMachines(), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
             return s }()])
         st.receivers = [Receiver(name: "1", channel: 0, muted: true), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let e = RecordingEmitter()
@@ -3152,12 +3152,12 @@ final class RouterTests: XCTestCase {
     func testReceiverChannelFilterRoutesSubscribersEndToEnd() {
         // Two cells subscribe to two receivers filtering different channels — the T6 routing, but the
         // filter now lives on the shared receiver rather than the cell.
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = passgateColour("gold")
-        cs[colourIDs.firstIndex(of: "cyan")!] = passgateColour("cyan")
-        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()  // R1 = ch 1
-            s.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()  // R2 = ch 2
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!] = passgateMachine("gold")
+        cs[machineIDs.firstIndex(of: "cyan")!] = passgateMachine("cyan")
+        var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()  // R1 = ch 1
+            s.cells[0][1] = { var c = Cell(machineID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()  // R2 = ch 2
             return s }()])
         st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3"), Receiver(name: "4")]
         let pool = NotePool()
@@ -3178,26 +3178,26 @@ final class RouterTests: XCTestCase {
     //  is covered elsewhere.)
 
     // CELL MACHINE (feat/EditPageSpike): a cell's explicit 1-slot chain drives the render identically to the
-    // Colour it references (the head == the Colour's A face). Proves the per-cell head-treatment override.
-    func testSingleSlotChainSoundsLikeTheColour() {
-        let cs = arpColours()   // gold = ARP
-        let gi = colourIDs.firstIndex(of: "gold")!
-        let ctrl = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // Colour drives (no chain)
+    // Machine it references (the head == the Machine's A face). Proves the per-cell head-treatment override.
+    func testSingleSlotChainSoundsLikeTheMachine() {
+        let cs = arpMachines()   // gold = ARP
+        let gi = machineIDs.firstIndex(of: "gold")!
+        let ctrl = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // Machine drives (no chain)
         let e0 = RecordingEmitter(); run(ctrl, chord([60, 64, 67]), beats: 16, into: e0)
         let head = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA)                    // an explicit head == A face
-        let chained = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [head]; return c }() }
+        let chained = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [head]; return c }() }
         let e1 = RecordingEmitter(); run(chained, chord([60, 64, 67]), beats: 16, into: e1)
         XCTAssertGreaterThan(e1.ons.count, 0, "the chained arp sounds")
-        XCTAssertEqual(Set(e0.ons.map { $0.note }), Set(e1.ons.map { $0.note }), "a 1-slot chain renders like its Colour's A face")
+        XCTAssertEqual(Set(e0.ons.map { $0.note }), Set(e1.ons.map { $0.note }), "a 1-slot chain renders like its Machine's A face")
         assertNothingLeftSounding(e1)
     }
 
     // CELL MACHINE: a bypassed HEAD slot = identity passthrough — the raw held chord passes; the arp is bypassed.
     func testBypassedHeadSlotIsPassthrough() {
-        let cs = arpColours()   // gold = ARP
-        let gi = colourIDs.firstIndex(of: "gold")!
+        let cs = arpMachines()   // gold = ARP
+        let gi = machineIDs.firstIndex(of: "gold")!
         var head = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA); head.bypassed = true
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [head]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [head]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
                        "a bypassed head passes the raw held chord (identity), not an arp")
@@ -3207,11 +3207,11 @@ final class RouterTests: XCTestCase {
     // MODE ROW: a NEWBORN cell has an EXPLICIT empty chain (`processors == []`) — born AUDIBLE as a passthrough.
     // The held chord flows to its emitter untreated (no PASS slot, no template), and nothing is left sounding.
     func testEmptyChainIsBornAudiblePassthrough() {
-        let cs = arpColours()   // gold = ARP — proves the EMPTY chain does NOT fall back to the Colour's arp
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = []; return c }() }
+        let cs = arpMachines()   // gold = ARP — proves the EMPTY chain does NOT fall back to the Machine's arp
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = []; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
-                       "an empty chain passes the raw held chord (identity passthrough), not the Colour's arp")
+                       "an empty chain passes the raw held chord (identity passthrough), not the Machine's arp")
         assertNothingLeftSounding(e)
     }
 
@@ -3219,8 +3219,8 @@ final class RouterTests: XCTestCase {
     // (via reconcileBypass), not on the grid's step clock — so a note pressed MID-column strikes immediately, where a
     // gridded hold would wait for the next column boundary. Also: no stuck notes on release.
     func testNoMachineChainIsARealtimeWire() {
-        var st = PluginState(colours: arpColours(), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = []; return c }()   // EMPTY chain, reads door R1 (OMNI)
+        var st = PluginState(machines: arpMachines(), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = []; return c }()   // EMPTY chain, reads door R1 (OMNI)
             return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -3239,13 +3239,13 @@ final class RouterTests: XCTestCase {
         step(NotePool()); step(NotePool(), false)         // release + stop
         assertNothingLeftSounding(e)
     }
-    // The BUILD-workshop shape: a colour whose chain resolves to ALL-BYPASSED (an ephemeral empty colour carries a
+    // The BUILD-workshop shape: a machine whose chain resolves to ALL-BYPASSED (an ephemeral empty machine carries a
     // bypassed-passgate placeholder), a nil-processors cell reading a door — must ALSO take the realtime wire.
     func testAllBypassedTemplateIsAlsoARealtimeWire() {
-        var gold = Colour(colourID: "gold", type: .passgate)
+        var gold = Machine(machineID: "gold", type: .passgate)
         gold.templateChain = [{ var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]   // all-bypassed ≡ empty
-        var st = PluginState(colours: [gold] + arpColours().dropFirst(), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()   // nil processors → follows the all-bypassed template
+        var st = PluginState(machines: [gold] + arpMachines().dropFirst(), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()   // nil processors → follows the all-bypassed template
             return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -3266,13 +3266,13 @@ final class RouterTests: XCTestCase {
     // BUG FIX (Paul, device 2026-08-05): a chain whose slots are ALL bypassed ≡ an EMPTY chain → the born-audible
     // passthrough (raw held chord), for ANY depth. Mirrors testEmptyChainIsBornAudiblePassthrough.
     func testAllBypassedChainIsPassthroughAtAnyDepth() {
-        let cs = arpColours()   // gold = ARP → proves all-bypassed does NOT arp
-        let gi = colourIDs.firstIndex(of: "gold")!
+        let cs = arpMachines()   // gold = ARP → proves all-bypassed does NOT arp
+        let gi = machineIDs.firstIndex(of: "gold")!
         func bypassedChain(_ n: Int) -> [ProcessorSlot] {
             (0..<n).map { _ in var s = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA); s.bypassed = true; return s }
         }
         for depth in [1, 8] {
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = bypassedChain(depth); return c }() }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = bypassedChain(depth); return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
             XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
                            "a \(depth)-slot all-bypassed chain passes the raw held chord (identity passthrough)")
@@ -3281,7 +3281,7 @@ final class RouterTests: XCTestCase {
         // Partial bypass is UNAFFECTED — one active arp among bypassed slots still drives (an arp, not the raw chord).
         let arp = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA)   // active ARP tail
         var byp = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA); byp.bypassed = true
-        let bp = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [byp, arp]; return c }() }
+        let bp = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [byp, arp]; return c }() }
         let ep = RecordingEmitter(); run(bp, chord([60, 64, 67]), beats: 16, into: ep)
         XCTAssertGreaterThan(ep.ons.filter { $0.cable == 1 }.count, 3, "partial bypass unaffected — the active arp still drives")
         assertNothingLeftSounding(ep)
@@ -3290,10 +3290,10 @@ final class RouterTests: XCTestCase {
     // CELL MACHINE stage-2 (serial execution, tick-tail slice): a 2-slot chain [open passgate → ARP] arps the
     // held chord — the intra-cell echo of the grid PASS→ARP routing (cf. testOpenPassgateParentFeedsArpChild).
     func testChainGateToArpArpsTheHeldChord() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
         let arp = ProcessorSlot(type: .arp)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [gate, arp]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
         XCTAssertTrue(notes.isSuperset(of: [60, 64, 67]), "the ARP tail arpeggiates every note the gate passed")
@@ -3304,12 +3304,12 @@ final class RouterTests: XCTestCase {
     // the arp drives the rhythm and the passgate folds onto each arp note — instead of the arp collapsing to one
     // held note (the pre-fix bug). An OPEN passgate after the arp is transparent.
     func testArpThenOpenPassgateStillArpeggiates() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let arp = ProcessorSlot(type: .arp)
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
-        let plain = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp]; return c }() }
+        let plain = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp]; return c }() }
         let e0 = RecordingEmitter(); run(plain, chord([60, 64, 67]), beats: 16, into: e0)
-        let chained = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
+        let chained = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
         let e1 = RecordingEmitter(); run(chained, chord([60, 64, 67]), beats: 16, into: e1)
         XCTAssertGreaterThan(e1.ons.count, 3, "arp → open passgate arpeggiates (many onsets), not one held note")
         XCTAssertEqual(Set(e0.ons.map { $0.note }), Set(e1.ons.map { $0.note }), "an open passgate after the arp is transparent")
@@ -3317,10 +3317,10 @@ final class RouterTests: XCTestCase {
     }
     // A CLOSED passgate after the arp gates every arp note → silence (the fold empties the set each tick).
     func testArpThenClosedPassgateIsSilent() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let arp = ProcessorSlot(type: .arp)
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the arp gates every arp note → silence")
         assertNothingLeftSounding(e)
@@ -3335,26 +3335,26 @@ final class RouterTests: XCTestCase {
         return s
     }
     func testAvoidLockToKeyBeforeAndAfterAnArp() {
-        let cs = arpColours(); let arp = ProcessorSlot(type: .arp)
+        let cs = arpMachines(); let arp = ProcessorSlot(type: .arp)
         let lockRemove = avoidSlot(kind: .key, lock: true, move: false)   // LOCK to C major, REMOVE out-of-key
         let chord4 = chord([60, 61, 64, 67])                              // C · C#(out of C major) · E · G
         func classes(_ e: RecordingEmitter) -> Set<Int> { Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 }) }
         // BEFORE the arp → re-pool: the arp walks {C,E,G}; C# never enters the pool.
-        let before = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [lockRemove, arp]; return c }() }
+        let before = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [lockRemove, arp]; return c }() }
         let eB = RecordingEmitter(); run(before, chord4, beats: 16, into: eB)
         XCTAssertFalse(classes(eB).contains(1), "[LOCK→ARP]: C# (class 1) is re-pooled out — the arp never plays it")
         XCTAssertFalse(eB.ons.isEmpty, "the in-key notes still arp")
         // AFTER the arp → punch holes: the arp walks all 4, but the downstream LOCK drops C#.
-        let after = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, lockRemove]; return c }() }
+        let after = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, lockRemove]; return c }() }
         let eA = RecordingEmitter(); run(after, chord4, beats: 16, into: eA)
         XCTAssertFalse(classes(eA).contains(1), "[ARP→LOCK]: C# is dropped downstream — a hole in the line")
         XCTAssertTrue(classes(eA).contains(0) || classes(eA).contains(4), "in-key notes still emit")
         assertNothingLeftSounding(eB); assertNothingLeftSounding(eA)
     }
     func testAvoidMoveSnapsTheOutOfKeyNoteInsteadOfDropping() {
-        let cs = arpColours(); let arp = ProcessorSlot(type: .arp)
+        let cs = arpMachines(); let arp = ProcessorSlot(type: .arp)
         let lockMove = avoidSlot(kind: .key, lock: true, move: true)      // LOCK to C major, MOVE (snap) — nothing drops
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [lockMove, arp]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [lockMove, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([61]), beats: 16, into: e)   // ONLY C# held → with REMOVE it'd be silent; MOVE snaps it in-key
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         XCTAssertFalse(notes.contains(61), "C# never sounds (it's out of key)")
@@ -3365,12 +3365,12 @@ final class RouterTests: XCTestCase {
     // Paul's scenario (2026-08-31): a chain references ANOTHER receiver and avoids not just its exact notes but the ones
     // that CLASH with them. Door 0 (ch 1) feeds the AVOID chain; door 1 (ch 2) is the referenced receiver, played LIVE.
     func testAvoidDoorReferenceReadsAnotherLiveReceiverAndItsClashes() {
-        let cs = arpColours()
+        let cs = arpMachines()
         func mk(_ what: AvoidWhat) -> SnapshotBox {
             var av = ProcessorSlot(type: .avoid); av.params.avoidRefKind = .door; av.params.avoidRefIndex = 1
             av.params.avoidMode = .avoid; av.params.avoidAction = .remove; av.params.avoidWhat = what
-            var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
-                s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = [av]; return c }()   // AVOID chain reads door 0 (ch 1)
+            var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
+                s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = [av]; return c }()   // AVOID chain reads door 0 (ch 1)
                 return s }()])
             st.busChannels = [1, 2, 3, 4]
             st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3"), Receiver(name: "4")]
@@ -3389,11 +3389,11 @@ final class RouterTests: XCTestCase {
     // AVOID MOVE stays IN THE INPUT SCALE (Paul 2026-08-31: a scale processor must not snap to a chromatic note outside it).
     // Input = a C-major triad; the reference blocks E. MOVE relocates E to the nearest SURVIVING triad note (G), never D#.
     func testAvoidMoveSnapsWithinTheInputScaleNotChromatically() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var av = ProcessorSlot(type: .avoid); av.params.avoidRefKind = .door; av.params.avoidRefIndex = 1
         av.params.avoidMode = .avoid; av.params.avoidAction = .move; av.params.avoidWhat = .same
-        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = [av]; return c }()   // AVOID chain reads door 0 (ch 1)
+        var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = [av]; return c }()   // AVOID chain reads door 0 (ch 1)
             return s }()])
         st.busChannels = [1, 2, 3, 4]
         st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3"), Receiver(name: "4")]
@@ -3429,9 +3429,9 @@ final class RouterTests: XCTestCase {
     /// Run `chain` over `input` (door 0, channel 0) with `refs` = live reference classes per door (door d = channel d,
     /// notes at 84+pc so they never collide with the input). Returns the recording emitter (for stuck-note checks).
     private func avoidRunE(_ chain: [ProcessorSlot], input: [Int], refs: [(door: Int, classes: [Int])] = []) -> RecordingEmitter {
-        let cs = arpColours()
-        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = chain; return c }()
+        let cs = arpMachines()
+        var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = chain; return c }()
             return s }()])
         st.busChannels = [1, 2, 3, 4]
         st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3", channel: 3), Receiver(name: "4", channel: 4)]
@@ -3452,9 +3452,9 @@ final class RouterTests: XCTestCase {
     func testAvoidEverythingOutSelfExcludesButReadsOtherEmitters() {
         func pcs(withAonBusA: Bool) -> (a: Set<Int>, b: Set<Int>, e: RecordingEmitter) {
             var s = SceneState.empty()
-            if withAonBusA { s.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }              // emits the held chord on emitter A (row 0)
-            s.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.processors = [mkAvoid(kind: .soundingOut)]; return c }()   // AVOID EVERYTHING-OUT on B (row 1)
-            let st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+            if withAonBusA { s.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }              // emits the held chord on emitter A (row 0)
+            s.cells[0][1] = { var c = Cell(machineID: "cyan", buses: [.b]); c.processors = [mkAvoid(kind: .soundingOut)]; return c }()   // AVOID EVERYTHING-OUT on B (row 1)
+            let st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
             let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord([60, 62]), beats: 16, into: e)   // C, D
             let map = { (cable: Int) in Set(e.ons.filter { $0.cable == cable }.map { ((Int($0.note) % 12) + 12) % 12 }) }
             return (map(1), map(2), e)
@@ -3560,20 +3560,20 @@ final class RouterTests: XCTestCase {
     // The downstream passgate gates on the PASS the user sees (diag.pass): pass 0 closed (passes[0]=false) → the
     // whole first lap is silent even though later passes are open.
     func testArpThenPassgateGatesPassZero() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let arp = ProcessorSlot(type: .arp)
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, true, true, true]   // pass 0 closed
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 14, into: e)   // stay within the first lap (pass 0; cycle = 16 beats)
         XCTAssertTrue(e.ons.isEmpty, "pass 0 closed gates the arp for the whole first lap")
         assertNothingLeftSounding(e)
     }
     // HARMONIZE after the arp adds its interval voice to EACH arp note (the +7 of 64 = 71 is not a chord note).
     func testArpThenHarmonizeAddsVoiceToEachArpNote() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let arp = ProcessorSlot(type: .arp)
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, harm]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, harm]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         let notes = Set(e.ons.map { $0.note })
         XCTAssertTrue(notes.contains(71) || notes.contains(74), "harmonize after the arp adds the +7 voice to arp notes")
@@ -3583,10 +3583,10 @@ final class RouterTests: XCTestCase {
     // CELL MACHINE stage-2 (FULL note-set flow): [harmonize +7 → ARP] arps BOTH the source note AND the added
     // voice — the whole set flows to the tail, not one note.
     func testChainHarmonizeToArpArpsAllVoices() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         let arp = ProcessorSlot(type: .arp)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, arp]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
         XCTAssertTrue(notes.contains(60), "arps the source note")
@@ -3596,10 +3596,10 @@ final class RouterTests: XCTestCase {
 
     // CELL MACHINE stage-2: a BYPASSED head is a true-bypass — the tail sees only the raw source (no +7 voice).
     func testChainBypassedHeadArpsSourceOnly() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]; harm.bypassed = true
         let arp = ProcessorSlot(type: .arp)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, arp]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
         XCTAssertTrue(notes.contains(60), "the source note still arps")
@@ -3613,11 +3613,11 @@ final class RouterTests: XCTestCase {
     // (wire ch 1) runs [harmonize +7 → arp], fed two notes on different wire channels. Only the admitted note (64)
     // may enter the chain, and only via the HEAD — so the tail arps {64, 71 (=64+7)} and NOTHING derived from 60.
     func testChainHeadReadsReceiverFilterAndTailReadsParentOutput() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         let arp = ProcessorSlot(type: .arp)
-        let b = box(colours: cs) {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputChannel = 2; c.processors = [harm, arp]; return c }()  // IN CH 2 = wire 1
+        let b = box(machines: cs) {
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputChannel = 2; c.processors = [harm, arp]; return c }()  // IN CH 2 = wire 1
         }
         let pool = NotePool()
         pool.noteOn(60, velocity: 100, channel: 0)   // wire ch 0 — NOT admitted by this cell's receiver
@@ -3638,10 +3638,10 @@ final class RouterTests: XCTestCase {
     }
     /// A standalone [MOD] cell emits a shaped CC (varying values, in range) on its emitter — and sounds NO notes.
     func testModCellEmitsShapedCCAndNoNotes() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var mod = ProcessorSlot(type: .mod)
         mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modRate = .r1
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         let ccs = modCC74Events(e)
         XCTAssertGreaterThan(ccs.count, 0, "the MOD cell emits CC 74 on Emit A")
@@ -3654,11 +3654,11 @@ final class RouterTests: XCTestCase {
     // playhead. Placed in COLUMN 3 and run only within column 0's window, a schedule-gated (CELL) MOD is silent (never
     // active), but a FREE MOD emits — the grid as a mod-matrix.
     func testModFreeCellSpeaksOffThePlayhead() {
-        let cs = arpColours()
+        let cs = arpMachines()
         func modBox(free: Bool) -> SnapshotBox {
             var mod = ProcessorSlot(type: .mod)
             mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modRate = .r1; mod.params.modFree = free
-            return box(colours: cs) { $0.cells[3][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }   // COLUMN 3
+            return box(machines: cs) { $0.cells[3][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }   // COLUMN 3
         }
         let eCell = RecordingEmitter(); run(modBox(free: false), chord([60]), beats: 1.5, into: eCell)   // playhead stays in column 0 (S=2)
         let eFree = RecordingEmitter(); run(modBox(free: true),  chord([60]), beats: 1.5, into: eFree)
@@ -3668,11 +3668,11 @@ final class RouterTests: XCTestCase {
     // SPAN ROW (Paul 2026-08-19): one LFO cycle spans the whole bar (vs the per-rate CELL). A RAMP resets once per
     // cycle, so counting the big value-drops = counting cycles: ROW has far fewer than the fast per-rate CELL.
     func testModSpanRowStretchesOneCycleAcrossTheBar() {
-        let cs = arpColours()
+        let cs = arpMachines()
         func modBox(_ span: PatternSpan) -> SnapshotBox {
             var mod = ProcessorSlot(type: .mod)
             mod.params.modCC = 74; mod.params.modShape = .ramp; mod.params.modRate = .r1; mod.params.modSpan = span
-            return box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            return box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
         }
         func resets(_ span: PatternSpan) -> Int {
             let e = RecordingEmitter(); run(modBox(span), chord([60]), beats: 16, into: e)
@@ -3688,13 +3688,13 @@ final class RouterTests: XCTestCase {
     // STEPS SPAN ROW×2 (Paul 2026-08-20): 16 breakpoints across TWO bars. With bar1's steps ≈30 and bar2's ≈100,
     // ROW (8 steps, repeats each bar) only ever emits ≈30; ROW×2 reaches the second-bar breakpoints (≈100) too.
     func testModStepsSpanRow2ReachesSecondBarBreakpoints() {
-        let cs = arpColours()
+        let cs = arpMachines()
         func modBox(_ span: ModStepSpan) -> SnapshotBox {
             var mod = ProcessorSlot(type: .mod)
             mod.params.modCC = 74; mod.params.modSource = .steps; mod.params.modSmooth = false; mod.params.modStepSpan = span
             mod.params.modSteps = Array(repeating: 30, count: 8) + Array(repeating: 100, count: 8)   // bar1 ≈30 · bar2 ≈100
             mod.params.modMin = 0; mod.params.modMax = 127
-            return box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            return box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
         }
         func values(_ span: ModStepSpan) -> Set<Int> {
             let e = RecordingEmitter(); run(modBox(span), chord([60]), beats: 16, into: e)
@@ -3705,10 +3705,10 @@ final class RouterTests: XCTestCase {
     }
     // §2 INTERNAL TARGET (Paul 2026-08-20): a MOD set to THIS CHAIN emits NO CC — it modulates a chain param instead.
     func testModInternalTargetEmitsNoCC() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var mod = ProcessorSlot(type: .mod)
         mod.params.modTarget = .chain; mod.params.modChainParam = .spread; mod.params.modShape = .sine
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .strum), mod]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .strum), mod]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
         XCTAssertTrue(e.events.filter { $0.status == 0xB0 }.isEmpty, "an internal-target MOD emits NO CC")
         XCTAssertFalse(e.ons.isEmpty, "the strum still plays")
@@ -3717,7 +3717,7 @@ final class RouterTests: XCTestCase {
     // §2: the internal MOD actually MOVES the target param. A strum with base spread=0 rakes near-simultaneously; a MOD
     // → SPREAD pinned at max (MIN=MAX=127 → constant offset 1.0) forces spread=1, so the onsets fan out much wider.
     func testModInternalTargetModulatesSpread() {
-        let cs = arpColours()
+        let cs = arpMachines()
         func onsetSpan(withMod: Bool) -> Int {
             var strum = ProcessorSlot(type: .strum); strum.params.spread = 0
             var chain = [strum]
@@ -3727,7 +3727,7 @@ final class RouterTests: XCTestCase {
                 mod.params.modMin = 127; mod.params.modMax = 127   // constant → offset = 1.0 → spread pinned to 1
                 chain.append(mod)
             }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = chain; return c }() }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = chain; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 8, into: e)
             let ons = e.ons.map { Int($0.sample) }
             return (ons.max() ?? 0) - (ons.min() ?? 0)
@@ -3736,10 +3736,10 @@ final class RouterTests: XCTestCase {
     }
     /// [ARP → MOD]: MOD is note-transparent — the arp still plays AND MOD emits its CC.
     func testArpThenModKeepsArpNotesAndEmitsCC() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let arp = ProcessorSlot(type: .arp)
         var mod = ProcessorSlot(type: .mod); mod.params.modCC = 71; mod.params.modRate = .r1
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, mod]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mod]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertGreaterThan(e.ons.count, 0, "the ARP still plays (MOD is note-transparent as a post-driver stage)")
         XCTAssertGreaterThan(e.events.filter { $0.status == 0xB0 && $0.note == 71 }.count, 0, "AND MOD emits its CC")
@@ -3747,10 +3747,10 @@ final class RouterTests: XCTestCase {
     }
     /// [MOD → ARP]: MOD passes the chord through (composeChainSet identity) so the arp arps it — AND MOD emits CC.
     func testModThenArpArpsAndEmitsCC() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var mod = ProcessorSlot(type: .mod); mod.params.modCC = 74; mod.params.modRate = .r1
         let arp = ProcessorSlot(type: .arp)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod, arp]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertGreaterThanOrEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).count, 2, "the ARP arps the chord through the transparent MOD")
         XCTAssertGreaterThan(modCC74Events(e).count, 0, "MOD emits its CC")
@@ -3760,10 +3760,10 @@ final class RouterTests: XCTestCase {
     /// Same shape/timing in both runs, so the difference in CC-0 count is exactly the resets.
     func testModResetDispositionEmitsExtraZeroOnLeave() {
         func zeros(reset: Bool) -> Int {
-            let cs = arpColours()
+            let cs = arpMachines()
             var mod = ProcessorSlot(type: .mod)
             mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modReset = reset; mod.params.modRate = .r1
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
             return modCC74Events(e).filter { $0.vel == 0 }.count
         }
@@ -3772,9 +3772,9 @@ final class RouterTests: XCTestCase {
     /// FOLLOW COUNT: the CC tracks the held-note count — more notes → a higher value.
     func testModFollowCountTracksHeldNotes() {
         func maxCC(_ notes: [UInt8]) -> Int {
-            let cs = arpColours()
+            let cs = arpMachines()
             var mod = ProcessorSlot(type: .mod); mod.params.modSource = .follow; mod.params.modFollow = .count; mod.params.modCC = 74
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
             let e = RecordingEmitter(); run(b, chord(notes), beats: 8, into: e)
             return modCC74Events(e).map { Int($0.vel) }.max() ?? 0
         }
@@ -3782,19 +3782,19 @@ final class RouterTests: XCTestCase {
     }
     /// STEPS: a stepped pattern emits its authored values (the high step 127 comes only from the pattern, not the reset).
     func testModStepsEmitsThePattern() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var mod = ProcessorSlot(type: .mod); mod.params.modSource = .steps; mod.params.modSmooth = false
         mod.params.modSteps = [0, 127, 0, 127, 0, 127, 0, 127]; mod.params.modRate = .r1; mod.params.modCC = 74
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         XCTAssertTrue(Set(modCC74Events(e).map { Int($0.vel) }).contains(127), "the STEP pattern emits its high step")
     }
     /// STRIKE: on column entry an AR envelope rises toward MAX then falls back — the CC spans a range.
     func testModStrikeEnvelopeRisesAndFalls() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var mod = ProcessorSlot(type: .mod); mod.params.modSource = .strike; mod.params.modAttack = 0.1; mod.params.modRelease = 0.3
         mod.params.modCC = 74; mod.params.modMin = 0; mod.params.modMax = 127
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         let vals = modCC74Events(e).map { Int($0.vel) }
         XCTAssertGreaterThan(vals.max() ?? 0, 60, "the STRIKE envelope rises well above MIN")
@@ -3803,9 +3803,9 @@ final class RouterTests: XCTestCase {
     /// EXTERN: reads an incoming CC (the mod wheel, CC1) and re-emits it on the TARGET (CC74). Driven directly so the
     /// controller store can be fed (the `run` helper owns its router).
     func testModExternRetransmitsIncomingCC() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var mod = ProcessorSlot(type: .mod); mod.params.modSource = .extern; mod.params.modExternCC = 1; mod.params.modCC = 74; mod.params.modMin = 0; mod.params.modMax = 127
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         router.setControllerIn(cc: 1, value: 100)   // the "mod wheel" at 100
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
@@ -3826,8 +3826,8 @@ final class RouterTests: XCTestCase {
     /// emits STRICTLY FEWER note-ons AND pitch-bends (0xE0) the bare arp never sends. S-independent (relative counts).
     func testArpThenGlideCollapsesTheWalkIntoOneBendingVoice() {
         func mk(glide: Bool) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
                 var g = ProcessorSlot(type: .glide); g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideReanchor = true; g.params.glideTime = 0.05
                 c.processors = glide ? [arp, g] : [arp]
@@ -3848,8 +3848,8 @@ final class RouterTests: XCTestCase {
     /// every leap (more note-ons); a wide range keeps one gliding voice. RE-ANCHOR mode. No stuck notes either way.
     func testArpThenGlideReanchorsOnLeapsBeyondRange() {
         func mk(range: Int) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
                 var g = ProcessorSlot(type: .glide); g.params.glideRange = range; g.params.glidePriority = .last; g.params.glideReanchor = true; g.params.glideTime = 0.05
                 c.processors = [arp, g]
@@ -3872,12 +3872,12 @@ final class RouterTests: XCTestCase {
     // boundary, alongside a LEGATO DRONE (so the hold-continuity path is genuinely doing work each boundary) — the
     // glide stays alive (bends after the first boundary, proving the anchor was never orphaned) and nothing sticks.
     func testGlideSpanningColumnsIsNotClosedByHoldContinuity() {
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!].type = .glide       // gold = a single-slot GLIDE
-        let b = box(colours: cs) {
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!].type = .glide       // gold = a single-slot GLIDE
+        let b = box(machines: cs) {
             for c in 0..<8 {                                       // glide row 0 spans every column (crosses every boundary)
-                $0.cells[c][0] = { var x = Cell(colourID: "gold", buses: [.a]); var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideTime = 0.1; x.processors = [g]; return x }()
-                $0.cells[c][1] = { var x = Cell(colourID: "orange", buses: [.b]); x.processors = []; return x }()   // a LEGATO drone (empty chain = born-audible passthrough) — keeps the hold-continuity path busy each boundary
+                $0.cells[c][0] = { var x = Cell(machineID: "gold", buses: [.a]); var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideTime = 0.1; x.processors = [g]; return x }()
+                $0.cells[c][1] = { var x = Cell(machineID: "orange", buses: [.b]); x.processors = []; return x }()   // a LEGATO drone (empty chain = born-audible passthrough) — keeps the hold-continuity path busy each boundary
             }
         }
         let e = RecordingEmitter()
@@ -3889,9 +3889,9 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)                              // no stuck notes on either wire across every boundary + the stop flush
     }
     func testGlideAnchorsBendsAndReAnchors() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var g = ProcessorSlot(type: .glide); g.params.glideRange = 2; g.params.glidePriority = .last; g.params.glideReanchor = true; g.params.glideTime = 0
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [g]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let wb = Double(frames) * tempo / 60.0 / sr
@@ -3910,9 +3910,9 @@ final class RouterTests: XCTestCase {
     // KEY shifts its pitch (was raw source pitch → the glide played OUT OF KEY against the rest of the patch). The
     // note-off pairs on the SHIFTED note (proven by assertNothingLeftSounding — a shift on open but not close = stuck).
     func testGlideHonoursMasterKey() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glidePriority = .last; g.params.glideTime = 0
-        let b = box(colours: cs) { $0.masterKey = 5; $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let b = box(machines: cs) { $0.masterKey = 5; $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [g]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -3926,9 +3926,9 @@ final class RouterTests: XCTestCase {
     // glide sustaining on an emitter that is disabled MID-PHRASE is closed (no stuck note; was: raw openVoice ignored
     // busEnabled → the glide kept sounding on a disabled emitter).
     func testGlideHonoursEmitterEnableAndClosesOnDisable() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let g: ProcessorSlot = { var s = ProcessorSlot(type: .glide); s.params.glideMode = .bend; s.params.glidePriority = .last; s.params.glideTime = 0; return s }()
-        func mk(_ en: [Bool]) -> SnapshotBox { box(colours: cs, busEnabled: en) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() } }
+        func mk(_ en: [Bool]) -> SnapshotBox { box(machines: cs, busEnabled: en) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [g]; return c }() } }
         let bOn = mk([true, true, true, true]), bOff = mk([false, true, true, true])
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
@@ -3947,9 +3947,9 @@ final class RouterTests: XCTestCase {
     // scene flush / panic / latch) — flushGlide cleared SYNTH's CC65 but never re-centred BEND, so the NEXT note on
     // that channel played detuned. flushGlide must re-centre the wheel (bend 8192) on the edge.
     func testGlideBendReCentresOnTransportStop() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideTime = 0
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [g]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let wb = Double(frames) * tempo / 60.0 / sr
@@ -3968,9 +3968,9 @@ final class RouterTests: XCTestCase {
     // METER-TRUTH (Paul 2026-08-25): GLIDE emits its note-on via a direct openVoice (it bypasses emitArtic/emitOneBus),
     // so before the `meter` opt-in it sounded WITHOUT lighting the emitter strip. Prove the note-on now meters on its bus.
     func testGlideLightsTheEmitterMeter() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var g = ProcessorSlot(type: .glide); g.params.glideRange = 2; g.params.glideTime = 0
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [g]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let wb = Double(frames) * tempo / 60.0 / sr
@@ -3987,9 +3987,9 @@ final class RouterTests: XCTestCase {
     // GLIDE SYNTH mode (Paul 2026-08-22): drive the synth's own portamento — CC65 on + CC5 time, then legato note
     // transitions (new note opens before old closes), NO pitch-bend.
     func testGlideSynthModeSendsPortamentoCCsAndTransitionsLegato() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var g = ProcessorSlot(type: .glide); g.params.glideMode = .synth; g.params.glidePriority = .last; g.params.glideTime = 0.5
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [g]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let wb = Double(frames) * tempo / 60.0 / sr
@@ -4010,9 +4010,9 @@ final class RouterTests: XCTestCase {
     }
     // GLIDE STEP mode (Paul 2026-08-22): a fast chromatic run source→target — one short note per semitone, target held.
     func testGlideStepModeRunsChromaticallyToTheTarget() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var g = ProcessorSlot(type: .glide); g.params.glideMode = .step; g.params.glidePriority = .last; g.params.glideTime = 0.4
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [g]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let wb = Double(frames) * tempo / 60.0 / sr
@@ -4029,10 +4029,10 @@ final class RouterTests: XCTestCase {
     func testArpThenGlideSynthDrivenSendsPortamentoCCsNoBend() {
         // [ARP→GLIDE SYNTH] (Paul 2026-08-26 driven-path mode-awareness): the driver feeds GLIDE's mono voice; SYNTH sends
         // CC65/CC5 + legato transitions, NO pitch-bend — was BEND-only on the driven path.
-        let cs = arpColours()
+        let cs = arpMachines()
         var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
         var g = ProcessorSlot(type: .glide); g.params.glideMode = .synth; g.params.glideTime = 0.3
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, g]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, g]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
         XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 }, "SYNTH driven → CC65 portamento ON")
         XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 5 }, "SYNTH driven → CC5 time")
@@ -4042,10 +4042,10 @@ final class RouterTests: XCTestCase {
     }
     func testArpThenGlideStepDrivenZippersNoBend() {
         // [ARP→GLIDE STEP] driven: each driver transition zippers chromatically (intermediate short notes), no bend.
-        let cs = arpColours()
+        let cs = arpMachines()
         var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_4
         var g = ProcessorSlot(type: .glide); g.params.glideMode = .step; g.params.glideTime = 0.2
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, g]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, g]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 67]), beats: 4, into: e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         XCTAssertTrue(notes.contains(63) || notes.contains(64), "STEP driven zippers through intermediate semitones (got \(notes.sorted()))")
@@ -4056,10 +4056,10 @@ final class RouterTests: XCTestCase {
     /// down — the abandoned-target guard (user 2026-08-10).
     func testModTargetChangeRevertsAbandonedCC() {
         func modBox(_ cc: Int) -> SnapshotBox {
-            let cs = arpColours()
+            let cs = arpMachines()
             var mod = ProcessorSlot(type: .mod); mod.params.modSource = .shape; mod.params.modShape = .ramp
             mod.params.modMin = 0; mod.params.modMax = 100; mod.params.modCC = cc
-            return box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            return box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
         }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
@@ -4074,9 +4074,9 @@ final class RouterTests: XCTestCase {
     /// Beat-derived + replay-safe: the same beats produce a byte-identical CC stream (incl. seeded S&H).
     func testModCCStreamIsReplaySafe() {
         func ccStream() -> [RecordingEmitter.Ev] {
-            let cs = arpColours()
+            let cs = arpMachines()
             var mod = ProcessorSlot(type: .mod); mod.params.modShape = .sampleHold; mod.params.modCC = 74; mod.params.modRate = .r1
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
             return e.events.filter { $0.status == 0xB0 }
         }
@@ -4089,13 +4089,13 @@ final class RouterTests: XCTestCase {
     // than size-2); QUOTA caps the fires per row; replay-exact. Proves the engine reads the new fields end-to-end.
     func testRatchetCoinSizeWeightsAndQuota() {
         func onCount(weights: [Int]? = nil, quota: Int? = nil) -> Int {
-            var c = Colour(colourID: "gold", type: .ratchet)
+            var c = Machine(machineID: "gold", type: .ratchet)
             c.paramsA.rtcMode = .coin; c.paramsA.rtcChance = 1.0     // every step bursts
             if let weights { c.paramsA.rtcSizeWeights = weights }
             if let quota { c.paramsA.rtcQuota = quota }
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
             // across the ROW so consecutive columns (= consecutive coin STEPS) fire — exercises quota-per-row
-            let b = box(colours: cs) { s in for col in 0..<8 { s.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let b = box(machines: cs) { s in for col in 0..<8 { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 8, into: e)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
@@ -4110,10 +4110,10 @@ final class RouterTests: XCTestCase {
     // and F's notes over F (zero pitches stored). Ranks 1·2·3 cover the 3-note chord; nothing left sounding.
     func testRiffFollowsTheHeldChord() {
         func played(_ notes: [UInt8]) -> Set<UInt8> {
-            var c = Colour(colourID: "gold", type: .riff)
+            var c = Machine(machineID: "gold", type: .riff)
             c.paramsA.riffRanks = [1, 2, 3, 1, 2, 3, 1, 2]; c.paramsA.riffSteps = 8; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord(notes), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
@@ -4133,10 +4133,10 @@ final class RouterTests: XCTestCase {
         let (ranks, oct) = riffCaptureStencil(events: events, frame: frame, steps: 8, rateBeats: 0.5, startBeat: 0.0)
         XCTAssertEqual(Array(ranks.prefix(3)), [1, 2, 3], "the played line records as ascending ranks")
         func played(_ notes: [UInt8]) -> Set<UInt8> {
-            var c = Colour(colourID: "gold", type: .riff)
+            var c = Machine(machineID: "gold", type: .riff)
             c.paramsA.riffRanks = ranks; c.paramsA.riffOct = oct; c.paramsA.riffSteps = 8; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord(notes), beats: 2, into: e)
             assertNothingLeftSounding(e)
             return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
@@ -4149,13 +4149,13 @@ final class RouterTests: XCTestCase {
     // only step 0 (rank 1 = the lowest note) ever plays. One step per column (riffRate == stepRate == 1/8 = 0.5 beat).
     func testRiffSpanReAnchorsTheStencil() {
         func played(spanN: Int?) -> [Int] {
-            var c = Colour(colourID: "gold", type: .riff)
+            var c = Machine(machineID: "gold", type: .riff)
             c.paramsA.riffRanks = [1, 2, 3]; c.paramsA.riffSteps = 3; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
             c.paramsA.riffSpanN = spanN
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { s in
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { s in
                 s.stepRate = .r1_8                                       // 0.5-beat columns == the riff rate → one step per column
-                for col in 0..<8 { s.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }   // the whole row → the stencil plays continuously
+                for col in 0..<8 { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }   // the whole row → the stencil plays continuously
             }
             let e = RecordingEmitter(); run(b, chord([60, 62, 64]), beats: 4, into: e)   // 8 columns
             assertNothingLeftSounding(e)
@@ -4170,10 +4170,10 @@ final class RouterTests: XCTestCase {
     // Paul 2026-08-25 bug repro: a stencil of ALL rank-1, holding C+E, must be a STREAM of C (the lowest held note) —
     // not an alternation between C and E. Every step resolves rank 1 → asc(0) → the lowest note.
     func testRiffAllRankOnePlaysOnlyTheLowestNote() {
-        var c = Colour(colourID: "gold", type: .riff)
+        var c = Machine(machineID: "gold", type: .riff)
         c.paramsA.riffRanks = [1, 1, 1, 1, 1, 1, 1, 1]; c.paramsA.riffSteps = 8; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
-        let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord([60, 64]), beats: 2, into: e)
         assertNothingLeftSounding(e)
         let notes = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
@@ -4182,11 +4182,11 @@ final class RouterTests: XCTestCase {
     }
     // RIFF STAGE 2 (Paul 2026-08-26): POLY strikes a SET of ranks per step (a chord that follows the held chord).
     func testRiffPolyStrikesTheRankSet() {
-        var c = Colour(colourID: "gold", type: .riff)
+        var c = Machine(machineID: "gold", type: .riff)
         c.paramsA.riffPoly = true; c.paramsA.riffSteps = 4; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
         c.paramsA.riffMask = [5, 5, 5, 5]   // bits 0 and 2 set ⇒ ranks 1 and 3 together
-        let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         XCTAssertTrue(notes.contains(60) && notes.contains(67), "a POLY step strikes rank 1 (60) AND rank 3 (67) together")
@@ -4195,11 +4195,11 @@ final class RouterTests: XCTestCase {
     // §5 TIE: a tie step suppresses its own attack; the previous note sustains → fewer note-ons than the untied stencil.
     func testRiffTieSuppressesAttack() {
         func onCount(tie: Bool) -> Int {
-            var c = Colour(colourID: "gold", type: .riff)
+            var c = Machine(machineID: "gold", type: .riff)
             c.paramsA.riffSteps = 2; c.paramsA.riffRate = .r1_4; c.paramsA.riffWrap = .fold; c.paramsA.riffRanks = [1, 2]
             if tie { c.paramsA.riffTie = [false, true] }
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
@@ -4207,11 +4207,11 @@ final class RouterTests: XCTestCase {
     }
     // §5 SLIDE: a slide step arms the synth portamento (CC65=127); the next non-slide step clears it (CC65=0).
     func testRiffSlideArmsAndClearsPortamento() {
-        var c = Colour(colourID: "gold", type: .riff)
+        var c = Machine(machineID: "gold", type: .riff)
         c.paramsA.riffSteps = 2; c.paramsA.riffRate = .r1_4; c.paramsA.riffWrap = .fold; c.paramsA.riffRanks = [1, 2]
         c.paramsA.riffSlide = [true, false]
-        let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord([60, 64]), beats: 2, into: e); assertNothingLeftSounding(e)
         XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 127 }, "SLIDE arms portamento CC65=127")
         XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 0 }, "the non-slide step after clears CC65=0")
@@ -4219,12 +4219,12 @@ final class RouterTests: XCTestCase {
     // Variable length (Paul 2026-08-26): a stencil longer than 16 steps is not truncated — step 20 of a 24-step stencil
     // still fires (the old min(16,...) cap would fold it to step 4). RIFF across the whole row so it ticks continuously.
     func testRiffVariableLengthBeyond16() {
-        var c = Colour(colourID: "gold", type: .riff)
+        var c = Machine(machineID: "gold", type: .riff)
         c.paramsA.riffSteps = 24; c.paramsA.riffRate = .r1_16; c.paramsA.riffWrap = .fold
         var ranks = [Int](repeating: 0, count: 24); ranks[20] = 1   // ONLY step 20 fires
         c.paramsA.riffRanks = ranks
-        let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-        let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(machineID: "gold", buses: [.a]) } }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e); assertNothingLeftSounding(e)
         XCTAssertFalse(e.ons.filter { $0.cable == 1 }.isEmpty, "step 20 of a 24-step stencil fires — not capped at 16")
     }
@@ -4232,9 +4232,9 @@ final class RouterTests: XCTestCase {
     // adds its own pulses (polyrhythm); a NOTE-target line strikes only that pool rank. Nothing left sounding.
     func testEuclidLinesPolyrhythmAndNoteTargets() {
         func run4(_ lines: [EuclidLine]?, _ measure: (RecordingEmitter) -> Void) {
-            var c = Colour(colourID: "gold", type: .euclid); c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8
+            var c = Machine(machineID: "gold", type: .euclid); c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8
             if let lines { c.paramsA.euclidLines = lines }
-            let b = box(colours: colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e); measure(e)
         }
         func aCount(_ e: RecordingEmitter) -> Int { e.ons.filter { $0.cable == 1 }.count }
@@ -4253,8 +4253,8 @@ final class RouterTests: XCTestCase {
     func testEuclidLinesPerLinePickAndDie() {
         // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick; a per-line die salts CYCLE/RANDOM apart.
         func notesOf(_ line: EuclidLine) -> [Int] {
-            var c = Colour(colourID: "gold", type: .euclid); c.paramsA.euclidLines = [line]
-            let b = box(colours: colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var c = Machine(machineID: "gold", type: .euclid); c.paramsA.euclidLines = [line]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
         }
@@ -4268,12 +4268,12 @@ final class RouterTests: XCTestCase {
     // Bjorklund hits; TIE keeps the same ONSET count as REST (non-hits sustain, they don't add notes) but lengthens
     // them; WAIT re-spaces the walk vs MARCH. Pure per-step Bjorklund — deterministic, off-device provable.
     func testArpEuclidMaskGatesRestsTiesAndWalk() {
-        func run4(_ setup: (inout ColourParams) -> Void) -> (count: Int, notes: [Int], span: Int) {
-            var c = Colour(colourID: "gold", type: .arp)
+        func run4(_ setup: (inout MachineParams) -> Void) -> (count: Int, notes: [Int], span: Int) {
+            var c = Machine(machineID: "gold", type: .arp)
             c.paramsA.pattern = .up; c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.gate = 0.5
             setup(&c.paramsA)
-            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
             let ons = e.ons.filter { $0.cable == 1 }
             var firstDur = 0
@@ -4315,8 +4315,8 @@ final class RouterTests: XCTestCase {
         func run2(_ withTap: Bool, to: Int = 2, mute: Bool = false) -> RecordingEmitter {
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var tap = ProcessorSlot(type: .tap); tap.params.tapTo = to; tap.params.tapMute = mute
-            let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = withTap ? [arp, tap] : [arp]; return c }() }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = withTap ? [arp, tap] : [arp]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
             return e
         }
@@ -4331,30 +4331,30 @@ final class RouterTests: XCTestCase {
         // TAP must still mirror the harmonized set to its wire (was driver-path only).
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         var tap = ProcessorSlot(type: .tap); tap.params.tapTo = 2
-        let cs = colourIDs.map { Colour(colourID: $0, type: .harmonize) }
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, tap]; return c }() }
+        let cs = machineIDs.map { Machine(machineID: $0, type: .harmonize) }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm, tap]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
         XCTAssertFalse(e.ons.filter { $0.cable == 2 }.isEmpty, "a HOLD-chain TAP mirrors to wire B")
         XCTAssertTrue(e.ons.contains { $0.cable == 2 && $0.note == 67 }, "the harmonized set (incl. 60+7=67) reaches the tap wire")
         let noTap = { () -> RecordingEmitter in
-            let b2 = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm]; return c }() }
+            let b2 = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm]; return c }() }
             let e2 = RecordingEmitter(); run(b2, chord([60, 64, 67]), beats: 2, into: e2); return e2 }()
         XCTAssertTrue(noTap.ons.filter { $0.cable == 2 }.isEmpty, "without TAP, nothing on wire B")
     }
     func testRatchetThenClosedPassgateIsSilent() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let rat = ProcessorSlot(type: .ratchet)
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the ratchet gates every re-strike")
         assertNothingLeftSounding(e)
     }
     func testRatchetThenOpenPassgateStillRatchets() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let rat = ProcessorSlot(type: .ratchet)
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 64, 67]), "an open passgate after the ratchet is transparent")
         XCTAssertGreaterThan(e.ons.count, 3, "the ratchet re-strikes (more than one hit)")
@@ -4362,19 +4362,19 @@ final class RouterTests: XCTestCase {
     }
     // …and STRUM as a non-tail driver: a closed passgate after the strum silences every strummed note.
     func testStrumThenClosedPassgateIsSilent() {
-        let cs = arpColours()
+        let cs = arpMachines()
         let strum = ProcessorSlot(type: .strum)
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [strum, gate]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [strum, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the strum gates every strummed note")
         assertNothingLeftSounding(e)
     }
     // §cell-edit F CHOP render path: a cell whose every slice is MUTED emits nothing (the render reads muteMask).
     func testChopMuteMaskSilencesEveryNote() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = {
-            var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = {
+            var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]
             c.chop = Chop(mainMask: 0xFF, altMask: 0, muteMask: 0xFF, altDest: [])   // every slice muted (overrides main)
             return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -4384,9 +4384,9 @@ final class RouterTests: XCTestCase {
     // §cell-edit F CHOP alt row: every slice OFF main, ON alt, routed to altDest [.c] → notes emit on Emit C
     // (cable 3), NOT on the cell's own Emit A (cable 1). (The bottom-row ALT-destination routing.)
     func testChopAltRoutesToAltDestination() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = {
-            var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = {
+            var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]
             c.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.c])   // main OFF, alt ON → alt dest C only
             return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -4396,9 +4396,9 @@ final class RouterTests: XCTestCase {
     }
     // §cell-edit F CHOP on a HOLD (passthrough/identity) cell — main/mute/alt must apply, same as a tick cell.
     func testChopAppliesToHoldCell() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = {
-            var c = Cell(colourID: "gold", buses: [.a]); c.processors = []   // EMPTY chain = identity HOLD
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = {
+            var c = Cell(machineID: "gold", buses: [.a]); c.processors = []   // EMPTY chain = identity HOLD
             c.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.c])   // main OFF, alt ON → Emit C only
             return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -4410,9 +4410,9 @@ final class RouterTests: XCTestCase {
     // Now the tail inherits its source note's slice destination — [ARP→ECHO] with alt→C puts BOTH the arp dry AND its
     // echoes on Emit C (cable 3), nothing on the cell's own Emit A (cable 1).
     func testChopRoutesEchoRepeatsToTheAltDestination() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = {
+            var c = Cell(machineID: "gold", buses: [.a])
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 3; e.params.echoThru = true
             c.processors = [arp, e]
@@ -4425,8 +4425,8 @@ final class RouterTests: XCTestCase {
     }
     // The classic single-slot [ECHO] hold-tail path also routes its dry + tail through the chop (was raw `bm`).
     func testChopRoutesClassicEchoToTheAltDestination() {
-        let b = box(colours: echoColours(div: 2, repeats: 3, feedDelay: 0.7, decay: 0.6)) { $0.cells[0][0] = {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: echoMachines(div: 2, repeats: 3, feedDelay: 0.7, decay: 0.6)) { $0.cells[0][0] = {
+            var c = Cell(machineID: "gold", buses: [.a])
             c.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.c])
             return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 8, into: e)
@@ -4436,9 +4436,9 @@ final class RouterTests: XCTestCase {
     }
     // A MUTED slice silences the note AND its echoes — the tail resolves to mask 0, so no repeats are scheduled.
     func testChopMuteSilencesTheEchoesToo() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = {
+            var c = Cell(machineID: "gold", buses: [.a])
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 4; e.params.echoThru = true
             c.processors = [arp, e]
@@ -4465,8 +4465,8 @@ final class RouterTests: XCTestCase {
             return s
         }
         for mid in [ProcessorType.passgate, .chance, .harmonize, .echo] {
-            let b = box(colours: arpColours()) { $0.cells[0][0] = {
-                var c = Cell(colourID: "gold", buses: [.a])
+            let b = box(machines: arpMachines()) { $0.cells[0][0] = {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
                 var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
                 c.processors = [arp, passThrough(mid), h]
@@ -4483,10 +4483,10 @@ final class RouterTests: XCTestCase {
     func testLadderModeMakesColumnExclusive() {
         func makeBox(ladder: Bool, active: [Int?]?) -> SnapshotBox {
             var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // rung row 0 → Emit A (cable 1)
-            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // rung row 1 → Emit B (cable 2)
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // rung row 0 → Emit A (cable 1)
+            s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // rung row 1 → Emit B (cable 2)
             s.activeRow = active
-            var st = PluginState(colours: arpColours(), scenes: [s]); st.ladderMode = ladder
+            var st = PluginState(machines: arpMachines(), scenes: [s]); st.ladderMode = ladder
             return SnapshotBuilder.build(from: st)
         }
         let off = RecordingEmitter(); run(makeBox(ladder: false, active: nil), chord([60]), beats: 8, into: off)
@@ -4504,11 +4504,11 @@ final class RouterTests: XCTestCase {
     // SEAL comet: the per-CELL strike feed records the firing cell (index col*8+row) with its velocity; a
     // silent cell records nothing. Drains read-and-clear.
     func testCellStrikeFeedRecordsFiringCell() {
-        let cs = arpColours()
-        let b = box(colours: cs) {
+        let cs = arpMachines()
+        let b = box(machines: cs) {
             $0.stepRate = .r1_8   // fast columns (0.5 beat each) so the playhead sweeps to column 5 within the run
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }()
-            $0.cells[5][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }()   // col 5 → index 5*16 = 80 (≥64: guards the strike-feed cap regression, Paul 2026-08-30)
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }()
+            $0.cells[5][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }()   // col 5 → index 5*16 = 80 (≥64: guards the strike-feed cap regression, Paul 2026-08-30)
         }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
@@ -4529,8 +4529,8 @@ final class RouterTests: XCTestCase {
 
     // NOTE-SWEEP feed (Paul 2026-08-19): drainCellNotes records the REAL emitted pitches (+ velocities) per cell.
     func testCellNoteFeedRecordsEmittedPitches() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -4555,8 +4555,8 @@ final class RouterTests: XCTestCase {
     // FOCUS note-event feed (Paul 2026-08-31): drainFocusNotes records the focus cell's REAL emitted notes WITH musical beat —
     // the data the chain-flow comets animate. Only the focus cell records; read-and-clear.
     func testFocusNoteFeedRecordsEmittedNotesWithBeats() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -4586,8 +4586,8 @@ final class RouterTests: XCTestCase {
     // The per-cell note ring CAPS at 6 and the wrap-index read returns valid pitches (Paul 2026-08-19). A cell emitting
     // many notes before a drain must return exactly 6 (the ring size), all real chord pitches (proving the modular read).
     func testCellNoteRingCapsAtSixWithValidWrap() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -4608,9 +4608,9 @@ final class RouterTests: XCTestCase {
     // SEAL comet gate: a cell HOLDING a note reports its bit in the sounding mask (index col*8+row) for exactly as
     // long as it sounds; on release the bit clears. This is the note-on/off feed that binds the spark to the hold.
     func testCellSoundingGateReflectsHeldNoteThenClears() {
-        let cs = arpColours()
+        let cs = arpMachines()
         // an EMPTY chain = born-audible PASSTHROUGH hold → the chord sustains (deterministic sounding voices)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = []; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = []; return c }() }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -4650,9 +4650,9 @@ final class RouterTests: XCTestCase {
     // soundless cell from lighting a phantom comet. A same-pitch-shifted non-claimant DOES sound (proving the
     // scene is live + the mask machinery works), so the muted claimant's cleared bit is a real exclusion.
     func testSilentClaimGhostDoesNotLightTheSoundingComet() {
-        var st = PluginState(colours: claimColours(transposeB: 5), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // index 0 — MUTED claimant → only a silent ghost (holds 60)
-            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // index 1 — audible (holds 65, not the claimed pitch)
+        var st = PluginState(machines: claimMachines(transposeB: 5), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // index 0 — MUTED claimant → only a silent ghost (holds 60)
+            s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // index 1 — audible (holds 65, not the claimed pitch)
             return s }()])
         st.claimEmitter = 0
         st.busEnabled = [false, true, true, true]                 // A muted → the claimant makes no sound
@@ -4664,11 +4664,11 @@ final class RouterTests: XCTestCase {
     }
 
     // SEAL comet — a MUTED (occupied) cell records NEITHER a strike NOR a sounding bit (tap-to-mute = dark comet).
-    // Distinct from an EMPTY cell: this one has a colour + buses, but `cell.muted` short-circuits the emit loop
+    // Distinct from an EMPTY cell: this one has a machine + buses, but `cell.muted` short-circuits the emit loop
     // BEFORE currentCellIndex is set. (The same cell unmuted DOES fire — testCellStrikeFeedRecordsFiringCell.)
     func testMutedCellRecordsNoStrikeOrSoundingBit() {
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = []; c.muted = true; return c }()
+        let b = box(machines: arpMachines()) {
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = []; c.muted = true; return c }()
         }
         let router = runDirect(b, chord([60, 64, 67]))
         XCTAssertEqual(router.drainCellStrikes()[0], 0, "a muted cell records no strike")
@@ -4679,8 +4679,8 @@ final class RouterTests: XCTestCase {
     // SEAL comet — a FAN-OUT cell (emitting to ≥2 buses → ≥2 voices sharing one cellIndex) reports EXACTLY ONE
     // sounding bit and ONE strike slot, not one per bus. Guards the per-CELL (not per-voice/per-bus) keying.
     func testFanOutCellReportsSingleSoundingBitAndOneStrike() {
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a, .b]); c.processors = []; return c }()
+        let b = box(machines: arpMachines()) {
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b]); c.processors = []; return c }()
         }
         let router = runDirect(b, chord([60, 64, 67]))
         let strikes = router.drainCellStrikes()
@@ -4694,10 +4694,10 @@ final class RouterTests: XCTestCase {
 
     // CELL MACHINE stage-2: a RATCHET tail re-strikes the HEAD stage's WHOLE output set each repeat.
     func testChainHarmonizeToRatchetRestrikesAllVoices() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         let rat = ProcessorSlot(type: .ratchet)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, rat]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm, rat]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 67]),
                       "ratchet re-strikes BOTH the source and the +7 harmonized voice")
@@ -4705,10 +4705,10 @@ final class RouterTests: XCTestCase {
     }
 
     func testChainGateToRatchetRestrikesChord() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
         let rat = ProcessorSlot(type: .ratchet)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [gate, rat]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, rat]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 64, 67]),
                       "ratchet re-strikes the whole gated chord")
@@ -4718,11 +4718,11 @@ final class RouterTests: XCTestCase {
     // CELL MACHINE stage-2 (N>2 slots): [gate → harmonize +7 → ARP] composes — the arp tail arps the harmonized
     // set that flowed through the open gate.
     func testChainThreeSlotGateHarmonizeArp() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         let arp = ProcessorSlot(type: .arp)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [gate, harm, arp]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, harm, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 67]),
                       "3-slot chain: the arp tail arps both the source and the +7 voice, passed through the gate")
@@ -4731,10 +4731,10 @@ final class RouterTests: XCTestCase {
 
     // CELL MACHINE stage-2: a CLOSED gate mid-chain empties the set — the tail falls silent.
     func testChainClosedGateSilencesTail() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
         let arp = ProcessorSlot(type: .arp)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [gate, arp]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a closed gate head → the arp tail is silent")
         assertNothingLeftSounding(e)
@@ -4743,10 +4743,10 @@ final class RouterTests: XCTestCase {
     // CELL MACHINE stage-2 (HOLD tail): a chain ending in a hold stage emits at column boundaries. [gate →
     // harmonize +7] HOLDS the harmonized chord (source + the +7 voice) rather than arping it.
     func testChainHoldTailGateToHarmonize() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [gate, harm]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, harm]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 67]),
                       "hold-tail chain holds the harmonized chord (source + the +7 voice)")
@@ -4755,10 +4755,10 @@ final class RouterTests: XCTestCase {
 
     // CELL MACHINE stage-2: a CLOSED gate as the hold TAIL yields nothing.
     func testChainHoldTailClosedGateSilent() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, gate]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a closed gate TAIL → the chain is silent")
         assertNothingLeftSounding(e)
@@ -4766,37 +4766,37 @@ final class RouterTests: XCTestCase {
 
     // CELL MACHINE stage-2 (STRUM tail): [harmonize +7 → STRUM] staggers the WHOLE harmonized set each column.
     func testChainHarmonizeToStrumStrumsAllVoices() {
-        let cs = arpColours()
+        let cs = arpMachines()
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         let strum = ProcessorSlot(type: .strum)
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, strum]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm, strum]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 67]),
                       "strum tail staggers both the source and the +7 harmonized voice")
         assertNothingLeftSounding(e)
     }
 
-    // CELL MACHINE stage-3: a colour's shared TEMPLATE chain sounds for a FOLLOWING cell (no per-cell override).
+    // CELL MACHINE stage-3: a machine's shared TEMPLATE chain sounds for a FOLLOWING cell (no per-cell override).
     func testTemplateChainSoundsForFollowingCell() {
-        var cs = arpColours()
-        let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines()
+        let gi = machineIDs.firstIndex(of: "gold")!
         var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
         cs[gi].templateChain = [gate, ProcessorSlot(type: .arp)]                       // template = gate → arp
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // FOLLOWING (no override)
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // FOLLOWING (no override)
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 64, 67]),
-                      "a following cell sounds the colour TEMPLATE chain (arps the chord)")
+                      "a following cell sounds the machine TEMPLATE chain (arps the chord)")
         assertNothingLeftSounding(e)
     }
 
     // A per-cell OVERRIDE diverges from the template: template = arp, but this cell overrides with a bypassed
     // passgate (identity) → holds the raw chord instead of arping.
     func testCellOverrideDivergesFromTemplate() {
-        var cs = arpColours()
-        let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines()
+        let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].templateChain = [ProcessorSlot(type: .arp)]
         var idle = ProcessorSlot(type: .passgate); idle.params.passes = [true, true, true, true]
-        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [idle]; return c }() }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [idle]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
                        "the OVERRIDE (open passgate = identity hold) ignores the arp TEMPLATE")
@@ -4807,12 +4807,12 @@ final class RouterTests: XCTestCase {
         // Device T6 (filter-in), previously unit-untested at the Router level: two MIDI-IN cells, one
         // filtering IN CH 1 → Emit A, the other IN CH 2 → Emit B. A note on wire ch 0 sounds only through
         // A; a note on wire ch 1 only through B. No origin channel survives — each is re-stamped on its bus.
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = passgateColour("gold")
-        cs[colourIDs.firstIndex(of: "cyan")!] = passgateColour("cyan")
-        let b = box(colours: cs) {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputChannel = 1; return c }()  // IN CH 1 = wire 0
-            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputChannel = 2; return c }()  // IN CH 2 = wire 1
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!] = passgateMachine("gold")
+        cs[machineIDs.firstIndex(of: "cyan")!] = passgateMachine("cyan")
+        let b = box(machines: cs) {
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputChannel = 1; return c }()  // IN CH 1 = wire 0
+            $0.cells[0][1] = { var c = Cell(machineID: "cyan", buses: [.b]); c.inputChannel = 2; return c }()  // IN CH 2 = wire 1
         }
         let pool = NotePool()
         pool.noteOn(60, velocity: 100, channel: 0)   // wire ch 0 → cell 1 only
@@ -4829,9 +4829,9 @@ final class RouterTests: XCTestCase {
     func testPassgateGatesByPassInThePlayingPath() {
         // A PASSGATE at MIDI IN, open every 2nd pass. Over two full cycles column 0 is entered on pass 0
         // (open → the chord sounds) and pass 1 (closed → silent): the held chord sounds exactly ONCE.
-        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].type = .passgate; cs[gi].paramsA.passes = [true, false, true, false]; cs[gi].paramsA.gate = 1.0
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 20, into: e)   // through pass 0 (open) + pass 1 (closed), before pass 2
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67])
@@ -4844,9 +4844,9 @@ final class RouterTests: XCTestCase {
     func testLapStutterLocksPlaybackToTheHeldColumn() {
         // Hold column 2 only (k=1): column 2 plays CONTINUOUSLY (every step), column 5 never becomes
         // effective — vs. the normal 1-step-in-8 for each.
-        let b = box(colours: arpColours()) {
-            $0.cells[2][0] = Cell(colourID: "gold")                  // column 2 → A
-            $0.cells[5][0] = Cell(colourID: "azure", buses: [.b])    // column 5 → B
+        let b = box(machines: arpMachines()) {
+            $0.cells[2][0] = Cell(machineID: "gold")                  // column 2 → A
+            $0.cells[5][0] = Cell(machineID: "azure", buses: [.b])    // column 5 → B
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e, laneMask: 1 << 2)
@@ -4857,9 +4857,9 @@ final class RouterTests: XCTestCase {
 
     func testLapAlternatesBetweenTwoHeldColumns() {
         // Hold columns 1 and 3 (k=2): both play, on alternating steps.
-        let b = box(colours: arpColours()) {
-            $0.cells[1][0] = Cell(colourID: "gold")                  // column 1 → A
-            $0.cells[3][0] = Cell(colourID: "azure", buses: [.b])    // column 3 → B
+        let b = box(machines: arpMachines()) {
+            $0.cells[1][0] = Cell(machineID: "gold")                  // column 1 → A
+            $0.cells[3][0] = Cell(machineID: "azure", buses: [.b])    // column 3 → B
         }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e, laneMask: (1 << 1) | (1 << 3))
@@ -4870,7 +4870,7 @@ final class RouterTests: XCTestCase {
 
     func testLapPolymeterRotationLeavesNothingStuckThroughRelease() {
         // Hold three columns (k=3 polymeter) over a held chord, then release + stop (run() does this).
-        let b = box(colours: arpColours()) { for c in [1, 3, 5] { $0.cells[c][0] = Cell(colourID: "gold") } }
+        let b = box(machines: arpMachines()) { for c in [1, 3, 5] { $0.cells[c][0] = Cell(machineID: "gold") } }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 20, into: e, laneMask: (1 << 1) | (1 << 3) | (1 << 5))
         XCTAssertGreaterThan(e.ons.count, 0)
@@ -4889,9 +4889,9 @@ final class RouterTests: XCTestCase {
     func testPlayingHarmonizeAtMidiInSoundsTheExpandedChord() {
         // The PLAYING chord-hold path (emitColumnHolds), distinct from audition: a HARMONIZE cell at
         // MIDI IN sounds root + its interval voices.
-        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [4, 7, 0]
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 16, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67],
@@ -4901,9 +4901,9 @@ final class RouterTests: XCTestCase {
 
     func testStopEdgeFlushesEverySoundingVoice() {
         // Even with a slow ARP and a stop mid-window, the transport edge must leave nothing sounding.
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = Cell(colourID: "gold")
-            $0.cells[2][0] = Cell(colourID: "cyan", buses: [.b])
+        let b = box(machines: arpMachines()) {
+            $0.cells[0][0] = Cell(machineID: "gold")
+            $0.cells[2][0] = Cell(machineID: "cyan", buses: [.b])
         }
         let e = RecordingEmitter()
         run(b, chord([60, 63, 67, 70]), beats: 20, into: e)   // 2+ columns worth, then stop
@@ -4915,7 +4915,7 @@ final class RouterTests: XCTestCase {
 
     @discardableResult
     private func runPreview(_ box: SnapshotBox, _ pool: NotePool,
-                            _ preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int),
+                            _ preview: (active: Bool, machineIndex: Int, filter: Int, busMask: UInt8, inputRow: Int),
                             beats: Double, into e: RecordingEmitter, playing: Bool = true,
                             tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) -> (Router, KernelDiag, Double) {
         let router = Router(); var diag = KernelDiag()
@@ -4928,17 +4928,17 @@ final class RouterTests: XCTestCase {
         }
         return (router, diag, ts)
     }
-    private func boxWithBusEnabled(_ cs: [Colour], _ enabled: [Bool], _ build: (inout SceneState) -> Void) -> SnapshotBox {
+    private func boxWithBusEnabled(_ cs: [Machine], _ enabled: [Bool], _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: cs, scenes: [s]); st.busEnabled = enabled
+        var st = PluginState(machines: cs, scenes: [s]); st.busEnabled = enabled
         return SnapshotBuilder.build(from: st)
     }
 
     // SOLO: a real bus-A ARP cell would sound on cable 1; with PREVIEW on bus B, ONLY the virtual cell
     // emits (cable 2 + All), and the real cell is silenced.
     func testPreviewSolosOnlyTheVirtualCell() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let gold = machineIDs.firstIndex(of: "gold")!
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)   // preview → bus B
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "preview emits on bus B (cable 2)")
@@ -4947,8 +4947,8 @@ final class RouterTests: XCTestCase {
 
     // The virtual cell emits through its STAGED buses, respecting busEnabled — a disabled staged emitter is silent.
     func testPreviewRespectsBusEnabled() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        let b = boxWithBusEnabled(arpColours(), [false, true, true, true]) { _ in }   // bus A disabled
+        let gold = machineIDs.firstIndex(of: "gold")!
+        let b = boxWithBusEnabled(arpMachines(), [false, true, true, true]) { _ in }   // bus A disabled
         let e = RecordingEmitter()
         runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)   // preview → bus A (disabled)
         XCTAssertEqual(e.ons.count, 0, "a disabled staged emitter stays silent under preview")
@@ -4957,9 +4957,9 @@ final class RouterTests: XCTestCase {
     // Preview emits its arp over the source pool (receiver / OMNI input), and it works with a claim set
     // (CLAIM bypassed — solo has no other-emitter context).
     func testPreviewEmitsOverSourcePoolAndIgnoresClaim() {
-        let gold = colourIDs.firstIndex(of: "gold")!
+        let gold = machineIDs.firstIndex(of: "gold")!
         var s = SceneState.empty()
-        var st = PluginState(colours: arpColours(), scenes: [s]); st.claimEmitter = 0   // CLAIM on bus A
+        var st = PluginState(machines: arpMachines(), scenes: [s]); st.claimEmitter = 0   // CLAIM on bus A
         _ = s
         let b = SnapshotBuilder.build(from: st)
         let e = RecordingEmitter()
@@ -4972,9 +4972,9 @@ final class RouterTests: XCTestCase {
     // ALL cables (the filter is ignored). Was `testCabledReceiverCellHearsOnlyItsCable` (the retired behaviour).
     func testCabledReceiverStillHearsAllCablesAfterRetirement() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0
+        var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 0
         s.cells[0][0] = cell
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         st.receivers = [Receiver(name: "1", cable: 0b0010), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
         let pool = NotePool()
@@ -4991,9 +4991,9 @@ final class RouterTests: XCTestCase {
     // frozen chord even when the LIVE pool is empty (keys released). Tests the Router half (effectivePool + emit).
     func testLatchedReceiverSustainsFrozenChordWhenLiveEmpty() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0   // R1 arp (inherits colour machine)
+        var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 0   // R1 arp (inherits machine machine)
         s.cells[0][0] = cell
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
         let frozen = NotePool()                                     // the latched chord for R1
@@ -5019,9 +5019,9 @@ final class RouterTests: XCTestCase {
     // behaviour) re-filters and drops it. Mirrors the BYPASS path's latched-whole read.
     func testFrozenPoolOmniReadPlaysRegardlessOfCellChannelFilter() {
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // an identity HOLD → reads via srcCount(for:) = inputChanMask
-        var st = PluginState(colours: cs, scenes: [s])
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .passgate   // an identity HOLD → reads via srcCount(for:) = inputChanMask
+        var st = PluginState(machines: cs, scenes: [s])
         var r1 = Receiver(name: "1"); r1.channelMask = 0x0001        // the door now hears ONLY channel 1 (the user disabled ch4)
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -5047,8 +5047,8 @@ final class RouterTests: XCTestCase {
     // which is OMNI for a multi-channel door, so the mask was ignored on live input).
     func testArpHonoursMultiChannelMaskOnLiveInput() {
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()   // gold = arp (arpColours)
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()   // gold = arp (arpMachines)
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         var r1 = Receiver(name: "1"); r1.channelMask = 0x0005        // bits 0 + 2 = channels 1 and 3 (channel 2 disabled)
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -5073,8 +5073,8 @@ final class RouterTests: XCTestCase {
     // feeding its FROZEN chord to the grid while IGNORING the live pool ("close the door, keep the room").
     func testDisabledReceiverKeepsFeedingArmedLatchIgnoringLive() {
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         var r1 = Receiver(name: "1"); r1.inputEnabled = false   // door CLOSED (not listening)
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -5100,8 +5100,8 @@ final class RouterTests: XCTestCase {
     // A DISABLED door that isn't armed is a closed, empty room: no live pass-through, silent.
     func testDisabledReceiverNotArmedIsSilent() {
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         var r1 = Receiver(name: "1"); r1.inputEnabled = false
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -5115,8 +5115,8 @@ final class RouterTests: XCTestCase {
     // while its CELL keeps the real channel so an armed latch's frozen chord can still read.
     func testDisabledReceiverSealsMeteringButCellKeepsChannel() {
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         var r1 = Receiver(name: "1"); r1.channel = 3; r1.inputEnabled = false
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -5131,8 +5131,8 @@ final class RouterTests: XCTestCase {
     // out-of-window notes to the pool must change NOTHING, because they never enter the cell's source list.
     func testReceiverRangeFiltersSourceNotes() {
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         var r1 = Receiver(name: "1"); r1.rangeLo = 60; r1.rangeHi = 72   // window C4…C5
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -5148,8 +5148,8 @@ final class RouterTests: XCTestCase {
     // RANGE resolves onto the cell (grid feed) AND the box (latch capture, upstream of latch).
     func testReceiverRangeResolvesOntoCellAndBox() {
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         var r1 = Receiver(name: "1"); r1.rangeLo = 36; r1.rangeHi = 96
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -5177,8 +5177,8 @@ final class RouterTests: XCTestCase {
     private func wireBox(dest: Int, rangeLo: Int? = nil, rangeHi: Int? = nil, masterMute: Bool = false) -> SnapshotBox {
         var s = SceneState.empty()
         let buses = Set(Bus.allCases.enumerated().filter { dest & (1 << $0.offset) != 0 }.map { $0.element })
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: buses); c.inputReceiver = 0; c.processors = []; return c }()   // EMPTY chain → the live wire
-        var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]; st.masterMute = masterMute
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: buses); c.inputReceiver = 0; c.processors = []; return c }()   // EMPTY chain → the live wire
+        var st = PluginState(machines: arpMachines(), scenes: [s]); st.busChannels = [1, 2, 3, 4]; st.masterMute = masterMute
         var r1 = Receiver(name: "1"); r1.rangeLo = rangeLo; r1.rangeHi = rangeHi
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         return SnapshotBuilder.build(from: st)
@@ -5237,7 +5237,7 @@ final class RouterTests: XCTestCase {
     // Latch on a NON-R1 door (R2): a cell reading R2 arps the frozen chord — proves the per-receiver index is honoured
     // (the PIANO-latch bug report was on receiver 2). Mirrors testLatchedPoolSubstitutesForLive at bit 1.
     func testLatchedPoolFeedsCellReadingReceiverTwo() {
-        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 1; return c }() }
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 1; return c }() }
         let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.noteOn(72, velocity: 100, channel: 0); frozen.rebuildSorted()
         let pools = [NotePool(), frozen, NotePool(), NotePool()]   // R2 (index 1) holds the frozen chord
         let latched = latchNotes(b, live: NotePool(), latchMask: 0b0010, pools: pools, cable: 1)
@@ -5283,7 +5283,7 @@ final class RouterTests: XCTestCase {
     // the held column). This is what lets an armed rung commit while looping one column — the old effColumn-change
     // trigger never fired there, so the arm just blinked forever.
     func testAbsoluteStepAdvancesDuringAColumnLap() {
-        let b = box(colours: arpColours()) { _ in }
+        let b = box(machines: arpMachines()) { _ in }
         let sr = 48_000.0, tempo = 120.0; let frames: UInt32 = 4096
         let windowBeats = Double(frames) * tempo / 60.0 / sr
         func sweep(laneMask: UInt16) -> (cols: Set<Int>, steps: Set<Int>) {
@@ -5308,9 +5308,9 @@ final class RouterTests: XCTestCase {
     // ANY (the migration default) hears every cable — byte-for-byte today's behaviour.
     func testAnyReceiverHearsAllCables() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputRow = nil; cell.inputReceiver = 0
+        var cell = Cell(machineID: "gold", buses: [.a]); cell.inputRow = nil; cell.inputReceiver = 0
         s.cells[0][0] = cell
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]   // cable nil ⇒ ANY
         let b = SnapshotBuilder.build(from: st)
         let pool = NotePool()
@@ -5328,11 +5328,11 @@ final class RouterTests: XCTestCase {
     //  `inputRow` is never read (grid-chaining retired → always source-fed), so the first duplicates
     //  testPreviewSolosOnlyTheVirtualCell and the second's "empty-parent fallback" is the only path — both vacuous.)
 
-    // 1c: a STRUM colour previews (source chord strummed) and releases clean.
+    // 1c: a STRUM machine previews (source chord strummed) and releases clean.
     func testPreviewStrumSoundsAndReleasesClean() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .strum)
-        let b = box(colours: cs) { _ in }
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .strum)
+        let b = box(machines: cs) { _ in }
         let e = RecordingEmitter()
         let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
         XCTAssertGreaterThan(e.ons.count, 0, "strum preview strums the source chord")
@@ -5342,11 +5342,11 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    // 1c: a chord-hold colour (HARMONIZE) previews (treated held chord, re-emitted per column) and releases clean.
+    // 1c: a chord-hold machine (HARMONIZE) previews (treated held chord, re-emitted per column) and releases clean.
     func testPreviewChordHoldSoundsAndReleasesClean() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .harmonize)
-        let b = box(colours: cs) { _ in }
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .harmonize)
+        let b = box(machines: cs) { _ in }
         let e = RecordingEmitter()
         let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
         XCTAssertGreaterThan(e.ons.count, 0, "harmonize preview holds the treated chord")
@@ -5359,8 +5359,8 @@ final class RouterTests: XCTestCase {
     // STOPPED preview (transport stopped) — the desk-preview path. Every other preview test runs playing;
     // this exercises previewStopped's free-clock arp over the source pool, and a clean release.
     func testStoppedPreviewArpsSourcePoolAndReleasesClean() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        let b = box(colours: arpColours()) { _ in }
+        let gold = machineIDs.firstIndex(of: "gold")!
+        let b = box(machines: arpMachines()) { _ in }
         let e = RecordingEmitter()
         let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1),
                                          beats: 8, into: e, playing: false)
@@ -5371,22 +5371,22 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    // Stopped preview handles only the time-varying ARP path (a chord-hold colour's stopped preview is a later
-    // cut); a non-arp colour is silent when the transport is stopped.
-    func testStoppedPreviewNonArpColourIsSilent() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .harmonize)
-        let b = box(colours: cs) { _ in }
+    // Stopped preview handles only the time-varying ARP path (a chord-hold machine's stopped preview is a later
+    // cut); a non-arp machine is silent when the transport is stopped.
+    func testStoppedPreviewNonArpMachineIsSilent() {
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .harmonize)
+        let b = box(machines: cs) { _ in }
         let e = RecordingEmitter()
         runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e, playing: false)
-        XCTAssertEqual(e.ons.count, 0, "a chord-hold colour is silent under stopped preview")
+        XCTAssertEqual(e.ons.count, 0, "a chord-hold machine is silent under stopped preview")
     }
 
     // PLAYING preview, RATCHET: the virtual cell repeats the source chord on its staged bus, releasing clean.
     func testPreviewRatchetSoundsAndReleasesClean() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .ratchet)
-        let b = box(colours: cs) { _ in }
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .ratchet)
+        let b = box(machines: cs) { _ in }
         let e = RecordingEmitter()
         let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "ratchet preview repeats the source chord on bus B")
@@ -5403,9 +5403,9 @@ final class RouterTests: XCTestCase {
 
     // 1c: CHANCE chord-hold preview gates by probability — p=1 sounds the held chord, p=0 is silent.
     func testPreviewChanceChordHoldGatesAndReleasesClean() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .chance); cs[gold].paramsA.probability = 1
-        let b = box(colours: cs) { _ in }
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .chance); cs[gold].paramsA.probability = 1
+        let b = box(machines: cs) { _ in }
         let e = RecordingEmitter()
         let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67], "chance p=1 holds the source chord on bus B")
@@ -5414,8 +5414,8 @@ final class RouterTests: XCTestCase {
                        timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
         assertNothingLeftSounding(e)
 
-        var cs0 = arpColours(); cs0[gold] = Colour(colourID: "gold", type: .chance); cs0[gold].paramsA.probability = 0
-        let b0 = box(colours: cs0) { _ in }
+        var cs0 = arpMachines(); cs0[gold] = Machine(machineID: "gold", type: .chance); cs0[gold].paramsA.probability = 0
+        let b0 = box(machines: cs0) { _ in }
         let eNone = RecordingEmitter()
         runPreview(b0, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: eNone)
         XCTAssertEqual(eNone.ons.count, 0, "chance p=0 previews to silence")
@@ -5423,10 +5423,10 @@ final class RouterTests: XCTestCase {
 
     // 1c: an all-open PASSGATE (= identity chord-hold) sustains the held chord on the staged bus, releasing clean.
     func testPreviewIdentityChordHoldSustains() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .passgate)
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .passgate)
         cs[gold].paramsA.passes = [true, true, true, true]   // all-open → identity chord-hold
-        let b = box(colours: cs) { _ in }
+        let b = box(machines: cs) { _ in }
         let e = RecordingEmitter()
         let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67], "an all-open passgate sustains the held chord on bus B")
@@ -5440,9 +5440,9 @@ final class RouterTests: XCTestCase {
     // saved receiver still carries a restricted `cable` field (kept for decode-compat but ignored by the builder).
     func testInputCablesAlwaysAcceptAllAfterRetirement() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 1
+        var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 1
         s.cells[0][0] = cell
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2", cable: 0b0101), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
         XCTAssertEqual(b.cells[0 * Snap.rows + 0].inputCableMask, 0b1111, "a subscriber cell hears ALL cables (cables retired)")
@@ -5452,7 +5452,7 @@ final class RouterTests: XCTestCase {
     // §item 11 mute ruling: a MUTED receiver resolves to the match-nothing filter on the box — this is what
     // makes its input meter go dark and (for R1) blocks passthrough. An unmuted OMNI receiver stays OMNI.
     func testMutedReceiverResolvesToMatchNothingFilter() {
-        var st = PluginState(colours: arpColours(), scenes: [SceneState.empty()])
+        var st = PluginState(machines: arpMachines(), scenes: [SceneState.empty()])
         var r0 = Receiver(name: "1"); r0.muted = true
         st.receivers = [r0, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
@@ -5470,10 +5470,10 @@ final class RouterTests: XCTestCase {
     // §9 item 1 ON ARRIVE (integration): EMITTER-ROTATE walks the firing cable each pass — a cell on
     // emitter A (cable 1) rotates to B (cable 2) on the next pass.
     func testArriveEmitterRotateWalksCablesAcrossPasses() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours()
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines()
         var on = OnConfig(); on.arrive = .emitterRotate; on.arriveEvery = 1; cs[gold].on = on
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // fires on A
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // fires on A
         let router = Router(); var diag = KernelDiag()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr
@@ -5497,11 +5497,11 @@ final class RouterTests: XCTestCase {
 
     // §3/§7: the ARP GATE shortens the emitted note (first note-on → its first note-off gets shorter).
     func testArpGateControlsNoteLength() {
-        let gold = colourIDs.firstIndex(of: "gold")!
+        let gold = machineIDs.firstIndex(of: "gold")!
         func firstNoteLength(gate: Double) -> Int64 {
-            var cs = arpColours()
+            var cs = arpMachines()
             cs[gold].paramsA.gate = gate
-            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter()
             run(b, chord([60]), beats: 2, into: e)
             guard let on = e.ons.first(where: { $0.cable == 0 && $0.note == 60 }),
@@ -5516,10 +5516,10 @@ final class RouterTests: XCTestCase {
 
     // §9 item 1 ON SCENE (integration): ENTER 3 keeps a cell silent for the first two passes, then it sounds.
     func testOnSceneEntranceDelaysSounding() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours()
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines()
         var on = OnConfig(); on.sceneEntrance = true; on.entrancePass = 3; cs[gold].on = on
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr
@@ -5548,8 +5548,8 @@ final class RouterTests: XCTestCase {
 
     // §9 item 1 ON TAP = MUTE (4b): a cell whose tapMuteMask bit is set falls silent (momentary).
     func testTapMuteSilencesCell() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // grid (0,0) = bit 0
+        let gold = machineIDs.firstIndex(of: "gold")!
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // grid (0,0) = bit 0
         func ons(_ mute: UInt64) -> Int {
             let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
             let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -5568,8 +5568,8 @@ final class RouterTests: XCTestCase {
     // §9 item 1 ON TAP = SOLO EMITTERS (4b): a solo set silences sibling emitters (cell on A + cell on B;
     // solo = {A} → B falls silent). Solo bypasses previewMode elsewhere; here two real cells on two buses.
     func testSoloEmitterMaskSilencesSiblings() {
-        let cs = arpColours()
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]); $0.cells[0][1] = Cell(colourID: "orange", buses: [.b]) }
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]); $0.cells[0][1] = Cell(machineID: "orange", buses: [.b]) }
         func cables(_ solo: UInt8) -> Set<UInt8> {
             let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
             let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -5590,10 +5590,10 @@ final class RouterTests: XCTestCase {
     // §9 item 1 ON HOLD (3a, integration): while a cell is press-held with ON HOLD = OCT up, its notes shift
     // an octave; not held, they play normally.
     func testOnHoldOctaveShiftsHeldCell() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        var cs = arpColours()
+        let gold = machineIDs.firstIndex(of: "gold")!
+        var cs = arpMachines()
         var on = OnConfig(); on.hold = .oct; on.octUp = true; cs[gold].on = on
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // grid (0,0) = index 0
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // grid (0,0) = index 0
         func notes(held: Bool) -> Set<UInt8> {
             let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
             let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -5614,8 +5614,8 @@ final class RouterTests: XCTestCase {
 
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
-        let gold = colourIDs.firstIndex(of: "gold")!
-        let b = box(colours: arpColours()) { _ in }
+        let gold = machineIDs.firstIndex(of: "gold")!
+        let b = box(machines: arpMachines()) { _ in }
         let e = RecordingEmitter()
         let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
         var diag = KernelDiag()      // release PREVIEW → the deactivation edge flushes
@@ -5630,7 +5630,7 @@ final class RouterTests: XCTestCase {
     private func receiverBox(mute: [Bool] = [false, false, false, false],
                              _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         st.receivers = (0..<4).map { var r = Receiver(name: "\($0 + 1)"); r.muted = mute[$0]; return r }
         return SnapshotBuilder.build(from: st)
     }
@@ -5652,8 +5652,8 @@ final class RouterTests: XCTestCase {
     func testReceiverSoloExcludesNonMembers() {
         // gold ⇐R1 → A, cyan ⇐R2 → B. Solo R1 → only A sounds; solo R2 → only B; empty → both; union → both.
         let b = receiverBox {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+            $0.cells[0][1] = { var c = Cell(machineID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()
         }
         XCTAssertGreaterThan(soloOns(b, solo: 0, cable: 1), 0, "no solo ⇒ A sounds")
         XCTAssertGreaterThan(soloOns(b, solo: 0, cable: 2), 0, "no solo ⇒ B sounds")
@@ -5668,14 +5668,14 @@ final class RouterTests: XCTestCase {
     func testReceiverSoloMutedMemberStaysSilent() {
         // R1 muted; solo R1. A member that is muted still hears nothing (console convention).
         let b = receiverBox(mute: [true, false, false, false]) {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
         }
         XCTAssertEqual(soloOns(b, solo: 0b0001, cable: 1), 0, "a soloed BUT muted receiver stays silent")
     }
 
     // (grid-chaining retired: the solo-silences-chained-feed test was removed — no cross-cell feeds.)
 
-    // MARK: - receiver OCT nudge (receiver strip) — ephemeral ±octave, composes with colour transpose
+    // MARK: - receiver OCT nudge (receiver strip) — ephemeral ±octave, composes with machine transpose
 
     private func packOct(_ recv: Int, _ oct: Int) -> UInt32 { UInt32(UInt8(bitPattern: Int8(oct))) << (UInt32(recv) * 8) }
     private func octNotes(_ box: SnapshotBox, inputOctave: UInt32, cable: UInt8) -> Set<UInt8> {
@@ -5694,7 +5694,7 @@ final class RouterTests: XCTestCase {
     }
 
     func testReceiverOctaveShiftsSubscribers() {
-        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
         XCTAssertTrue(octNotes(b, inputOctave: 0, cable: 1).contains(60), "base ⇒ 60 sounds")
         let up = octNotes(b, inputOctave: packOct(0, 1), cable: 1)
         XCTAssertTrue(up.contains(72), "+1 oct on R1 ⇒ 60 becomes 72")
@@ -5704,12 +5704,12 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(octNotes(b, inputOctave: packOct(1, 2), cable: 1).contains(60), "R2's nudge doesn't move an R1 cell")
     }
 
-    func testReceiverOctaveComposesWithColourTranspose() {
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!].transpose = 2      // +2 semitones on the colour
+    func testReceiverOctaveComposesWithMachineTranspose() {
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!].transpose = 2      // +2 semitones on the machine
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(colours: cs, scenes: [s]); st.receivers = (0..<4).map { Receiver(name: "\($0 + 1)") }
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(machines: cs, scenes: [s]); st.receivers = (0..<4).map { Receiver(name: "\($0 + 1)") }
         let b = SnapshotBuilder.build(from: st)
         XCTAssertTrue(octNotes(b, inputOctave: packOct(0, 1), cable: 1).contains(74), "+2 semis + 1 oct ⇒ 60→74")
     }
@@ -5737,8 +5737,8 @@ final class RouterTests: XCTestCase {
     func testReceiverInputVelocityFlattensSubscribers() {
         // gold ⇐R1 → A, cyan ⇐R2 → B. An input override on R1 flattens A's notes; B is untouched.
         let b = receiverBox {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+            $0.cells[0][1] = { var c = Cell(machineID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()
         }
         XCTAssertEqual(velsOn(b, inputVel: 0, cable: 1), [100], "natural base velocity = the source note's velocity (was flat 96)")
         XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 1), [40], "R1 override flattens A to 40")
@@ -5747,7 +5747,7 @@ final class RouterTests: XCTestCase {
 
     func testEmitterOverrideWinsOverInputOverride() {
         // Both ride at once: input R1 = 40, emitter A = 110 → the OUTPUT override (closest to the wire) wins.
-        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
         XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 1, emitterVel: packVel(0, 110)), [110],
                        "emitter (output) override wins over the input override")
     }
@@ -5783,7 +5783,7 @@ final class RouterTests: XCTestCase {
 
     func testLatchedPoolSubstitutesForLive() {
         // gold ⇐R1 arp. Live = [60]; the frozen R1 pool = [67, 72]. Armed ⇒ the cell arps the FROZEN chord.
-        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
         let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.noteOn(72, velocity: 100, channel: 0); frozen.rebuildSorted()
         let pools = [frozen, NotePool(), NotePool(), NotePool()]
         let latched = latchNotes(b, live: chord([60]), latchMask: 0b0001, pools: pools, cable: 1)
@@ -5795,7 +5795,7 @@ final class RouterTests: XCTestCase {
 
     func testLatchArmDisarmEdgeLeavesNothingStuck() {
         // Arming then disarming mid-run swaps the pool; the edge flush must leave nothing stuck.
-        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
         let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.rebuildSorted()
         let pools = [frozen, NotePool(), NotePool(), NotePool()]
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
@@ -5834,9 +5834,9 @@ final class RouterTests: XCTestCase {
 
     func testEmitterOctaveShiftsOutputKeyedOnBus() {
         // gold → E1 (cable 1), cyan → E2 (cable 2). +1 oct on E1 lifts E1's output; E2 is untouched.
-        let b = box(colours: arpColours()) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.b])
+        let b = box(machines: arpMachines()) {
+            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+            $0.cells[0][1] = Cell(machineID: "cyan", buses: [.b])
         }
         XCTAssertTrue(emitOctNotes(b, emitterOctave: 0, cable: 1).contains(60), "base ⇒ 60 on E1")
         let up = emitOctNotes(b, emitterOctave: packEmitOct(0, 1), cable: 1)
@@ -5846,7 +5846,7 @@ final class RouterTests: XCTestCase {
 
     func testEmitterOctaveDropsOutOfRangeNotes() {
         // a high note pushed past 127 by the shift is dropped (no voice, no stuck note).
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         XCTAssertTrue(emitOctNotes(b, emitterOctave: 0, cable: 1, chordNotes: [120]).contains(120), "120 sounds at base")
         XCTAssertTrue(emitOctNotes(b, emitterOctave: packEmitOct(0, 1), cable: 1, chordNotes: [120]).isEmpty,
                       "120 + 12 = 132 > 127 ⇒ dropped")
@@ -5855,13 +5855,13 @@ final class RouterTests: XCTestCase {
     // MARK: - emitter FLATTEN (role family) — activity ducking, admission-time velocity scale
 
     private func flattenBox(_ flattenMask: UInt8, _ amount: [Int]) -> SnapshotBox {
-        var cs = arpColours()
-        let gi = colourIDs.firstIndex(of: "gold")!
+        var cs = arpMachines()
+        let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].type = .passgate; cs[gi].paramsA.passes = [true, true, true, true]   // A holds the chord (sounds)
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // → Emit A (cable 1): the sounding held chord
-        s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // → Emit B (cable 2): an arp of NEW note-ons
-        var st = PluginState(colours: cs, scenes: [s])
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // → Emit A (cable 1): the sounding held chord
+        s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // → Emit B (cable 2): an arp of NEW note-ons
+        var st = PluginState(machines: cs, scenes: [s])
         st.flattenMask = flattenMask; st.flattenAmount = amount
         return SnapshotBuilder.build(from: st)
     }
@@ -5900,8 +5900,8 @@ final class RouterTests: XCTestCase {
 
     private func altBox(_ altMask: UInt8, _ count: [Int]) -> SnapshotBox {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])   // one arp fanning to BOTH A and B
-        var st = PluginState(colours: arpColours(), scenes: [s])
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])   // one arp fanning to BOTH A and B
+        var st = PluginState(machines: arpMachines(), scenes: [s])
         st.altMask = altMask; st.altCount = count
         return SnapshotBuilder.build(from: st)
     }
@@ -5938,8 +5938,8 @@ final class RouterTests: XCTestCase {
 
     private func masterBox(key: Int = 0, mute: Bool = false) -> SnapshotBox {
         var s = SceneState.empty(); s.masterKey = key
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // an arp on Emit A
-        var st = PluginState(colours: arpColours(), scenes: [s]); st.masterMute = mute
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // an arp on Emit A
+        var st = PluginState(machines: arpMachines(), scenes: [s]); st.masterMute = mute
         return SnapshotBuilder.build(from: st)
     }
     private func runMaster(_ box: SnapshotBox, masterVel: UInt8 = 0, emitVel: UInt32 = 0, cable: UInt8) -> (Set<UInt8>, Set<UInt8>) {
@@ -5998,7 +5998,7 @@ final class RouterTests: XCTestCase {
     // MARK: - MULTI-SCENE S2b — RESTART-the-pass re-anchors the clock to column 0
 
     func testRestartPassReanchorsToColumnZero() {
-        let b = box(colours: arpColours()) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let b = box(machines: arpMachines()) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -6021,7 +6021,7 @@ final class RouterTests: XCTestCase {
     // MARK: - §4b THE FADER-KILL: a velocity fader at the bottom = full silence (suppress + close), momentary
 
     func testEmitterFaderKillSuppressesNewNotesThenResumes() {
-        let b = box(colours: arpColours()) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let b = box(machines: arpMachines()) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -6045,9 +6045,9 @@ final class RouterTests: XCTestCase {
 
     func testFaderKillClosesASustainedNote() {
         // A passgate HOLD (all-open) sustains the chord on A → the kill edge must send its note-offs (the DJ drop).
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; return c }()
-        let b = box(colours: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; return c }()
+        let b = box(machines: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -6070,9 +6070,9 @@ final class RouterTests: XCTestCase {
 
     /// A drone of identical adjacent PASS-class cells. Two boundaries crossed → count note-offs on the wire.
     private func droneOffs(phase: ArpPhase, windows: Int = 48) -> (offs: Int, ons: Int, e: RecordingEmitter) {
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = phase; return c }()
-        let b = box(colours: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = phase; return c }()
+        let b = box(machines: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -6087,7 +6087,7 @@ final class RouterTests: XCTestCase {
     func testLegatoDroneShouldContinueAcrossColumnBoundary() {
         // §2 THE DRONE LAW: identical adjacent LEGATO cells + held input ⇒ the voice CONTINUES — ZERO note-off/on
         // should cross the boundary (PASS · LEGATO · GATE 100 = a drone that flows). Boundary ADOPTION keeps a
-        // matching voice (same note+emitter+colour/face); the chord is struck ONCE and never re-speaks.
+        // matching voice (same note+emitter+machine/face); the chord is struck ONCE and never re-speaks.
         let r = droneOffs(phase: .legato)
         XCTAssertEqual(r.offs, 0, "LEGATO drone: ZERO note-offs should cross a boundary")
         XCTAssertEqual(r.ons, 6, "struck exactly ONCE (3 notes × 2 cables) — no re-strike at any boundary")
@@ -6098,11 +6098,11 @@ final class RouterTests: XCTestCase {
     /// The adoption pitch prediction has to apply FENCE too, or it predicts the un-fenced pitch, fails to match the
     /// (fenced) sounding voice, and re-strikes every boundary (machine-guns). Regression lock for that.
     private func fencedDroneOffs(policy: Int, lo: Int, hi: Int) -> (offs: Int, ons: Int) {
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate)
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate)
             c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
-        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
-            for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }; return s }()])
+        var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
+            for c in 0..<8 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }; return s }()])
         st.busChannels = [1, 2, 3, 4]
         st.fenceMask = 0b0001; st.fencePolicy = [policy, 0, 0, 0]; st.fenceLo = [lo, 0, 0, 0]; st.fenceHi = [hi, 127, 127, 127]
         let b = SnapshotBuilder.build(from: st)
@@ -6134,9 +6134,9 @@ final class RouterTests: XCTestCase {
     // A LEGATO drone occupying only SOME columns — the cell sits in column 0 only.
     private func partialDrone() -> (router: Router, box: SnapshotBox, pool: NotePool, e: RecordingEmitter,
                                     tempo: Double, sr: Double, frames: UInt32, wb: Double) {
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // ONLY column 0
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // ONLY column 0
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         return (Router(), b, chord([60, 64, 67]), RecordingEmitter(), tempo, sr, frames, Double(frames) * tempo / 60.0 / sr)
     }
@@ -6159,9 +6159,9 @@ final class RouterTests: XCTestCase {
     func testLegatoDroneClosesOnTransportStop() {
         // §2 invariant 4: an IMMORTAL (offSample .max) legato drone is not a stuck note — a transport-stop
         // edge closes it like any other voice, leaving silence.
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
-        let b = box(colours: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        var cs = arpMachines()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
+        let b = box(machines: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -6177,8 +6177,8 @@ final class RouterTests: XCTestCase {
     }
 
     func testMasterFaderKillSilencesEveryEmitter() {
-        let b = box(colours: arpColours()) {
-            for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]); $0.cells[c][1] = Cell(colourID: "cyan", buses: [.b]) }
+        let b = box(machines: arpMachines()) {
+            for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]); $0.cells[c][1] = Cell(machineID: "cyan", buses: [.b]) }
         }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -6210,8 +6210,8 @@ final class RouterTests: XCTestCase {
         // single cell targets ONLY emitter A, but A and B are a TURNS group → its notes are DEALT across both A
         // and B (the old per-fan-out ALT left everything on A, because B was never in the note's own fan-out).
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])       // ONE cell → A only
-        var st = PluginState(colours: arpColours(), scenes: [s]); st.altMask = 0b0011; st.altCount = [1, 1, 1, 1]
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])       // ONE cell → A only
+        var st = PluginState(machines: arpMachines(), scenes: [s]); st.altMask = 0b0011; st.altCount = [1, 1, 1, 1]
         let box = SnapshotBuilder.build(from: st)
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -6235,9 +6235,9 @@ final class RouterTests: XCTestCase {
         // across the group. Both emitters sound and the total is conserved (each note routes to ONE member).
         func run3(_ altMask: UInt8) -> (Int, Int) {
             var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // cell 1 → A
-            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // cell 2 → B
-            var st = PluginState(colours: arpColours(), scenes: [s]); st.altMask = altMask; st.altCount = [1, 1, 1, 1]
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // cell 1 → A
+            s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // cell 2 → B
+            var st = PluginState(machines: arpMachines(), scenes: [s]); st.altMask = altMask; st.altCount = [1, 1, 1, 1]
             let box = SnapshotBuilder.build(from: st)
             let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
             let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -6264,9 +6264,9 @@ final class RouterTests: XCTestCase {
         // A/B simultaneously (count 1 previously played both at once). The turn advances per onset MOMENT, so a
         // single moment picks a single emitter.
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // passgate hold → A
-        s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // passgate hold → B
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // passgate hold → A
+        s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // passgate hold → B
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.altMask = 0b0011; st.altCount = [1, 1, 1, 1]
         let box = SnapshotBuilder.build(from: st)
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
@@ -6282,9 +6282,9 @@ final class RouterTests: XCTestCase {
         // (→A, →B) and TURNS {A,B} COUNT 1, the multiset of note-on SAMPLE TIMES is identical to no-TURNS.
         func onsetTimes(_ altMask: UInt8) -> [Int64] {
             var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])
-            var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+            s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])
+            var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
             st.altMask = altMask; st.altCount = [1, 1, 1, 1]
             let e = RecordingEmitter()
             run(SnapshotBuilder.build(from: st), chord([60]), beats: 32, into: e)
@@ -6300,9 +6300,9 @@ final class RouterTests: XCTestCase {
         // delayed. A single render window proves no delay (a delayed note would land in a later window, absent here).
         func onsPerCable(perNote: Bool) -> (a: Int, b: Int) {
             var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // hold → A
-            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // hold → B (both strike at colStart)
-            var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // hold → A
+            s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // hold → B (both strike at colStart)
+            var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
             st.altMask = 0b0011; st.altCount = [1, 1, 1, 1]; st.turnsPerNote = perNote
             let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
             router.process(box: SnapshotBuilder.build(from: st), pool: chord([60]), playing: true, beatPos: 0,
@@ -6321,8 +6321,8 @@ final class RouterTests: XCTestCase {
 
     private func curveBox(amount: Int, on: Bool = true, rack: UInt8? = nil) -> SnapshotBox {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // passgate hold → A (one note-on at the source velocity)
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // passgate hold → A (one note-on at the source velocity)
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.curveMask = on ? 0b0001 : 0
         st.curveAmount = [amount, 0, 0, 0]
         st.rackEnabledMask = rack
@@ -6347,8 +6347,8 @@ final class RouterTests: XCTestCase {
     /// The set of output notes on A when a passgate holds note 60 → A under a FENCE window/policy.
     private func fenceOut(policy: Int, lo: Int, hi: Int, on: Bool = true, rack: UInt8? = nil) -> Set<UInt8> {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // passgate hold → A, note 60
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // passgate hold → A, note 60
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.fenceMask = on ? 0b0001 : 0
         st.fencePolicy = [policy, 0, 0, 0]; st.fenceLo = [lo, 0, 0, 0]; st.fenceHi = [hi, 127, 127, 127]
         st.rackEnabledMask = rack
@@ -6386,8 +6386,8 @@ final class RouterTests: XCTestCase {
 
     /// POCKET push (−ms) can't schedule a note-on before the render window's first sample (an invalid negative time).
     func testPocketPushDoesNotScheduleBeforeWindowStart() {
-        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.pocketMask = 0b0001; st.pocketMs = [-30, 0, 0, 0]          // a strong push, at the column start
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         router.process(box: SnapshotBuilder.build(from: st), pool: chord([60]), playing: true, beatPos: 0,
@@ -6401,8 +6401,8 @@ final class RouterTests: XCTestCase {
     /// The notes left SOUNDING on A (last event = note-on) after ONE window holding a chord under MONO/priority.
     private func monoSounding(priority: Int, _ notes: [UInt8] = [60, 64]) -> [UInt8] {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // passgate hold → A holds the whole chord
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // passgate hold → A holds the whole chord
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.monoMask = 0b0001; st.monoPriority = [priority, 0, 0, 0]
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         router.process(box: SnapshotBuilder.build(from: st), pool: chord(notes), playing: true, beatPos: 0,
@@ -6420,8 +6420,8 @@ final class RouterTests: XCTestCase {
 
     func testMonoLeavesNoStuckNotes() {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s]); st.monoMask = 0b0001
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s]); st.monoMask = 0b0001
         let e = RecordingEmitter()
         run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 16, into: e)
         assertNothingLeftSounding(e)
@@ -6434,13 +6434,13 @@ final class RouterTests: XCTestCase {
     // stuck AND stay deterministic (a stale-slot wrong-close is order-sensitive). First coverage of the glide+MONO+steal path.
     func testMonoStealingAGlideAnchorLeavesNoStuckNotes() {
         func makeBox() -> SnapshotBox {
-            var cs = arpColours(); cs[colourIDs.firstIndex(of: "orange")!].type = .glide
+            var cs = arpMachines(); cs[machineIDs.firstIndex(of: "orange")!].type = .glide
             var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])                     // ARP on A — changing notes steal under MONO
-            s.cells[0][1] = { var x = Cell(colourID: "orange", buses: [.a])         // GLIDE on A — its anchor is the immortal voice MONO steals
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])                     // ARP on A — changing notes steal under MONO
+            s.cells[0][1] = { var x = Cell(machineID: "orange", buses: [.a])         // GLIDE on A — its anchor is the immortal voice MONO steals
                 var g = ProcessorSlot(type: .glide); g.params.glideMode = .bend; g.params.glideRange = 12
                 g.params.glidePriority = .last; g.params.glideTime = 0.1; x.processors = [g]; return x }()
-            var st = PluginState(colours: cs, scenes: [s]); st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0]   // MONO LAST on A
+            var st = PluginState(machines: cs, scenes: [s]); st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0]   // MONO LAST on A
             return SnapshotBuilder.build(from: st)
         }
         let e = RecordingEmitter(); run(makeBox(), chord([60, 64, 67]), beats: 16, into: e)
@@ -6455,8 +6455,8 @@ final class RouterTests: XCTestCase {
     func testPocketLagDelaysOnsetAndIsRackGated() {
         func onset(ms: Int, rack: UInt8? = nil) -> Int64 {
             var s = SceneState.empty()
-            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-            var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+            var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
             st.pocketMask = 0b0001; st.pocketMs = [ms, 0, 0, 0]; st.rackEnabledMask = rack
             let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
             router.process(box: SnapshotBuilder.build(from: st), pool: chord([60]), playing: true, beatPos: 0,
@@ -6477,9 +6477,9 @@ final class RouterTests: XCTestCase {
     /// awaits Paul's RESTRIKE | MERGE word. And across a full run the shared note still pairs off with no stuck note.
     func testSameNoteOverlapOnOneEmitterEmitsBothNoteOns() {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-        s.cells[0][1] = Cell(colourID: "gold", buses: [.a])
-        let box = SnapshotBuilder.build(from: PluginState(colours: claimColours(transposeB: 0), scenes: [s]))
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+        s.cells[0][1] = Cell(machineID: "gold", buses: [.a])
+        let box = SnapshotBuilder.build(from: PluginState(machines: claimMachines(transposeB: 0), scenes: [s]))
         // ONE window: both holders strike note 60 → two note-ons on A (no consolidation).
         let e1 = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         router.process(box: box, pool: chord([60]), playing: true, beatPos: 0, tempo: 120,
@@ -6498,10 +6498,10 @@ final class RouterTests: XCTestCase {
     /// stop-flush) so the test isolates the release, not the stop.
     func testSingleColumnLapReleaseClosesDrone() {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])       // a LEGATO drone → A (immortal hold, offSample .max)
-        var gold = passgateColour("gold"); gold.paramsA.phase = .legato
-        let cs = colourIDs.map { $0 == "gold" ? gold : Colour(colourID: $0, type: .arp) }
-        let box = SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [s]))
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])       // a LEGATO drone → A (immortal hold, offSample .max)
+        var gold = passgateMachine("gold"); gold.paramsA.phase = .legato
+        let cs = machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }
+        let box = SnapshotBuilder.build(from: PluginState(machines: cs, scenes: [s]))
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -6527,9 +6527,9 @@ final class RouterTests: XCTestCase {
     /// (A-count, B-count) when A is the lead (present unless `leadPresent` false) and B follows with the given stance.
     private func convOut(stance: [Int], leadPresent: Bool = true) -> (Int, Int) {
         var s = SceneState.empty()
-        if leadPresent { s.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // lead sustains on A
-        s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])                       // follower on B
-        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        if leadPresent { s.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // lead sustains on A
+        s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])                       // follower on B
+        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.convLead = 0; st.convStance = stance
         let e = RecordingEmitter()
         run(SnapshotBuilder.build(from: st), chord([60]), beats: 16, into: e)
@@ -6555,10 +6555,10 @@ final class RouterTests: XCTestCase {
     /// keep working; this drives a transpose event (address 100 = gold's transpose) end-to-end and asserts the
     /// wire pitch shifts, then reverts on a new generation. Previously untested at the Router level.
     func testRenderParamEventTransposesUntilNextGenerationClearsIt() {
-        let cs = arpColours()
+        let cs = arpMachines()
         func gen(_ g: UInt64) -> SnapshotBox {
-            var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // identity HOLD → emits the held note
-            var st = PluginState(colours: cs, scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // identity HOLD → emits the held note
+            var st = PluginState(machines: cs, scenes: [s]); st.busChannels = [1, 2, 3, 4]
             return SnapshotBuilder.build(from: st, generation: g)
         }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
@@ -6571,7 +6571,7 @@ final class RouterTests: XCTestCase {
         }
         win(gen(1))                                                  // baseline — no override
         XCTAssertTrue(e.ons.contains { $0.note == 60 }, "baseline sounds the held note")
-        router.applyParamEvent(100, 12, diag: &diag)                // +12 on gold (address 100 = colour 0 transpose)
+        router.applyParamEvent(100, 12, diag: &diag)                // +12 on gold (address 100 = machine 0 transpose)
         let mark = e.events.count
         win(gen(1))                                                 // same generation → the override persists
         XCTAssertTrue(e.events[mark...].contains { $0.status == 0x90 && $0.note == 72 }, "the param event shifts gold +12")
@@ -6599,9 +6599,9 @@ final class RouterTests: XCTestCase {
     /// Previously only the audition + preview chance paths were covered, not the playing one.
     func testPlayingChanceGatesOnProbability() {
         func chanceBox(_ p: Double) -> SnapshotBox {
-            var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
-            cs[gi] = Colour(colourID: "gold", type: .chance); cs[gi].paramsA.probability = p
-            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
+            cs[gi] = Machine(machineID: "gold", type: .chance); cs[gi].paramsA.probability = p
+            return box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         }
         let on = RecordingEmitter(); run(chanceBox(1), chord([60, 64]), beats: 8, into: on)
         XCTAssertGreaterThan(on.ons.count, 0, "probability 1 → the chance chord sounds while playing")
@@ -6616,8 +6616,8 @@ final class RouterTests: XCTestCase {
     /// change. Switch INTO an empty scene so the flush is observable in isolation. `sceneFlush` was only incidentally
     /// exercised by the fuzzer's quiescence check; this asserts the flush behaviour directly.
     func testSceneFlushClosesSoundingVoices() {
-        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // identity hold
-        let empty = box(colours: arpColours()) { _ in }                                               // the incoming (empty) scene
+        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // identity hold
+        let empty = box(machines: arpMachines()) { _ in }                                               // the incoming (empty) scene
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         router.process(box: b, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
                        timestampSample: 0, frameCount: 512, out: e, diag: &diag)
@@ -6646,9 +6646,9 @@ final class RouterTests: XCTestCase {
 
     // MARK: - ECHO (the tail era) — AcceptanceCriteria-tail-era-delay-echo, Phase 0+1
 
-    private func echoColours(div: Int = 1, repeats: Int = 4, feedDelay: Double = 0.5, decay: Double = 0.5,
-                             thru: Bool = true, pitch: Int = 0, offset: Double = 0) -> [Colour] {
-        colourIDs.map { var c = Colour(colourID: $0, type: .echo)
+    private func echoMachines(div: Int = 1, repeats: Int = 4, feedDelay: Double = 0.5, decay: Double = 0.5,
+                             thru: Bool = true, pitch: Int = 0, offset: Double = 0) -> [Machine] {
+        machineIDs.map { var c = Machine(machineID: $0, type: .echo)
             c.paramsA.echoSync = true; c.paramsA.echoDelayDiv = div; c.paramsA.echoRepeats = repeats
             c.paramsA.echoFeedDelay = feedDelay; c.paramsA.echoDecay = decay
             c.paramsA.echoThru = thru; c.paramsA.echoPitch = pitch; c.paramsA.echoOffset = offset; return c }
@@ -6656,7 +6656,7 @@ final class RouterTests: XCTestCase {
 
     /// A single-slot [ECHO] cell re-strikes its held note the DRY + REPEATS times, velocities DECAYING, no stuck notes.
     func testEchoRepeatsHeldNoteWithDecay() {
-        let b = box(colours: echoColours(div: 1, repeats: 4, feedDelay: 0.5, decay: 0.5)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: echoMachines(div: 1, repeats: 4, feedDelay: 0.5, decay: 0.5)) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 1.5, into: e)                 // one column entry (S = 2 beats); TIME 1/16 = 0.25
         let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
@@ -6671,7 +6671,7 @@ final class RouterTests: XCTestCase {
     /// emitted as a velocity-0 note-on (which a synth reads as a note-off). Harsh decay ⇒ late repeats vanish.
     func testEchoDecayFloorDropsRepeatsBelowVelocityOneNeverEmitsZero() {
         // dry vel 100 (inherited), decay 0.2, 8 repeats: k=1→20, k=2→4, k=3→1, k≥4 rounds to 0 ⇒ dropped by the floor.
-        let b = box(colours: echoColours(div: 1, repeats: 8, feedDelay: 0.2, decay: 0.2)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: echoMachines(div: 1, repeats: 8, feedDelay: 0.2, decay: 0.2)) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 2.5, into: e)                 // long enough that all 8 repeat windows elapse
         let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
@@ -6687,10 +6687,10 @@ final class RouterTests: XCTestCase {
     /// FEWER note-ons than the same echo on RING (which spills past the bar). The sounding note finishes — no stuck notes.
     func testEchoSpillCutStopsRepeatsAtColumnExit() {
         func spillBox(_ spill: EchoSpill) -> SnapshotBox {
-            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .echo)
+            box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .echo)
                 c.paramsA.echoDelayDiv = 2; c.paramsA.echoRepeats = 12; c.paramsA.echoFeedDelay = 0.9
                 c.paramsA.echoDecay = 0.95; c.paramsA.echoSpill = spill; return c
-            }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         }
         let ring = RecordingEmitter(); run(spillBox(.ring), chord([60]), beats: 6, into: ring)
         let cut = RecordingEmitter(); run(spillBox(.cut), chord([60]), beats: 6, into: cut)
@@ -6698,11 +6698,11 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(cut.ons.count, 0, "CUT still emits within the column")
         assertNothingLeftSounding(cut); assertNothingLeftSounding(ring)
     }
-    /// ECHO via the REAL creation path: a cell whose COLOUR A-face is passgate, carrying an explicit single-slot
+    /// ECHO via the REAL creation path: a cell whose MACHINE A-face is passgate, carrying an explicit single-slot
     /// [ECHO] processor chain (what addSlotCells builds) — must still dry + repeat (guards the chain→proc resolution).
     func testEchoViaExplicitSingleSlotChainStillRepeats() {
-        let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+            var c = Cell(machineID: "gold", buses: [.a])
             var s = ProcessorSlot(type: .echo); s.params.echoDelayDiv = 1; s.params.echoRepeats = 4; s.params.echoFeedDelay = 0.5; s.params.echoDecay = 0.5
             c.processors = [s]
             $0.cells[0][0] = c
@@ -6720,8 +6720,8 @@ final class RouterTests: XCTestCase {
         // (composeChainSet folded it as pass-through); it now registers tails for the fully-processed (harmonized) set.
         var s0 = ProcessorSlot(type: .echo); s0.params.echoDelayDiv = 1; s0.params.echoRepeats = 4; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
         var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
-        let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
-            var c = Cell(colourID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c
+        let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+            var c = Cell(machineID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c
         }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e)
         let root = e.ons.filter { $0.note == 60 && $0.cable == 1 }
@@ -6734,8 +6734,8 @@ final class RouterTests: XCTestCase {
         // ECHO mid-chain limit fix (Paul 2026-08-26): FREE (ms) delay in a HOLD chain now registers tails (was synced-only → silent).
         var s0 = ProcessorSlot(type: .echo); s0.params.echoSync = false; s0.params.echoDelayMs = 120; s0.params.echoRepeats = 4; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
         var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
-        let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
-            var c = Cell(colourID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c
+        let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+            var c = Cell(machineID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c
         }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e)
         XCTAssertGreaterThanOrEqual(e.ons.filter { $0.note == 60 && $0.cable == 1 }.count, 3, "FREE (ms) echo repeats the held root over time")
@@ -6746,8 +6746,8 @@ final class RouterTests: XCTestCase {
         func run2(thru: Bool) -> RecordingEmitter {
             var s0 = ProcessorSlot(type: .echo); s0.params.echoThru = thru; s0.params.echoDelayDiv = 1; s0.params.echoRepeats = 3; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
             var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
-            let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
-                var c = Cell(colourID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c }
+            let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+                var c = Cell(machineID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e); assertNothingLeftSounding(e); return e
         }
         let thru = run2(thru: true), mute = run2(thru: false)
@@ -6755,8 +6755,8 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(mute.ons.count, thru.ons.count, "MUTE drops the dry hold → fewer note-ons than THRU")
     }
     func testEchoAsChainTailEchoesUpstreamSet() {
-        let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+            var c = Cell(machineID: "gold", buses: [.a])
             var s0 = ProcessorSlot(type: .passgate); s0.bypassed = true         // passthrough upstream
             var s1 = ProcessorSlot(type: .echo); s1.params.echoDelayDiv = 1; s1.params.echoRepeats = 4; s1.params.echoFeedDelay = 0.5; s1.params.echoDecay = 0.5
             c.processors = [s0, s1]
@@ -6779,8 +6779,8 @@ final class RouterTests: XCTestCase {
     // re-folds each repeat through LENGTH. Proven: (1) [ECHO→LENGTH] now adds echoes vs [LENGTH]; (2) CHAIN chokes vs DIRECT.
     func testNonDriverEchoLengthRegistersAndChainFolds() {
         func mk(route: EchoRoute, mute: Bool, echo: Bool) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var e = ProcessorSlot(type: .echo)
                 e.params.echoSync = true; e.params.echoDelayDiv = 1; e.params.echoRepeats = 8
                 e.params.echoFeedDelay = 1.0; e.params.echoDecay = 1.0; e.params.echoThru = true; e.params.echoRoute = route
@@ -6805,8 +6805,8 @@ final class RouterTests: XCTestCase {
     // so a velocity-window SPLIT thins the quiet late repeats — DIRECT applies SPLIT once to the source (all repeats pass).
     func testNonDriverEchoSplitChainThinsRepeats() {
         func mk(_ route: EchoRoute) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var e = ProcessorSlot(type: .echo)
                 e.params.echoSync = true; e.params.echoDelayDiv = 2; e.params.echoRepeats = 6
                 e.params.echoFeedDelay = 1.0; e.params.echoDecay = 0.5; e.params.echoThru = true; e.params.echoRoute = route
@@ -6825,8 +6825,8 @@ final class RouterTests: XCTestCase {
     // MUTE guard suppresses the length-gated dry, so the (free-delay) echoes must register — registerLengthChainEcho now
     // computes free timeBeats like registerEcho (was synced-only via pushEchoForNote → dry-suppressed + no tails = silence).
     func testNonDriverEchoLengthFreeMuteStillSounds() {
-        let b = box(colours: arpColours()) {
-            var c = Cell(colourID: "gold", buses: [.a])
+        let b = box(machines: arpMachines()) {
+            var c = Cell(machineID: "gold", buses: [.a])
             var e = ProcessorSlot(type: .echo)
             e.params.echoSync = false; e.params.echoDelayMs = 200; e.params.echoRepeats = 4    // FREE / ms delay
             e.params.echoFeedDelay = 1.0; e.params.echoDecay = 0.8; e.params.echoThru = false   // MUTE (echoes only)
@@ -6841,8 +6841,8 @@ final class RouterTests: XCTestCase {
     }
     func testEchoChainRouteFoldsRepeatsThroughDownstreamLength() {
         func mk(_ route: EchoRoute, mute: Bool) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
                 var e = ProcessorSlot(type: .echo)
                 e.params.echoSync = true; e.params.echoDelayDiv = 1; e.params.echoRepeats = 8   // 1/16 spacing → repeats span all 8 slices
@@ -6866,8 +6866,8 @@ final class RouterTests: XCTestCase {
     }
     func testArpThenEchoSpawnsEchoesPerTick() {
         func chainBox(echo: Bool, thru: Bool = true) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
                 var e = ProcessorSlot(type: .echo)
                 e.params.echoDelayDiv = 2; e.params.echoRepeats = 3; e.params.echoFeedDelay = 0.6; e.params.echoDecay = 0.5; e.params.echoThru = thru
@@ -6887,8 +6887,8 @@ final class RouterTests: XCTestCase {
     /// flowing, so harmonize adds a voice to it — the +12 harmony is heard and the chain emits more than [ARP→ECHO].
     func testArpEchoHarmonizeHarmonizesTheDryThroughNote() {
         func mk(harm: Bool) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
                 var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 2; e.params.echoThru = true
                 var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
@@ -6909,8 +6909,8 @@ final class RouterTests: XCTestCase {
     /// echo raises the +12 (72) count, and every emitted root (60) is paired with its harmony (72).
     func testEchoRepeatsTheHarmonizedSetSoTheEchoesAreHarmonised() {
         func mk(echo: Bool) -> SnapshotBox {
-            box(colours: arpColours()) {
-                var c = Cell(colourID: "gold", buses: [.a])
+            box(machines: arpMachines()) {
+                var c = Cell(machineID: "gold", buses: [.a])
                 var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
                 var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 2; e.params.echoThru = true
                 var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
@@ -6926,7 +6926,7 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(noEcho); assertNothingLeftSounding(withEcho)
     }
     func testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt() {
-        let b = box(colours: echoColours(div: 1, repeats: 6, feedDelay: 0.7, decay: 0.7)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: echoMachines(div: 1, repeats: 6, feedDelay: 0.7, decay: 0.7)) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
         let pool = chord([60])
@@ -6949,7 +6949,7 @@ final class RouterTests: XCTestCase {
     /// The echo schedule is a pure function of musical time → the SAME strike count at any render block size (a
     /// repeat due mid-window lands in exactly the window that contains it, never bunched at the block head).
     func testEchoIsBlockSizeInvariant() {
-        let b = box(colours: echoColours(div: 1, repeats: 4, feedDelay: 0.6, decay: 0.6)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(machines: echoMachines(div: 1, repeats: 4, feedDelay: 0.6, decay: 0.6)) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         func strikeCount(_ frames: UInt32) -> Int {
             let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e, frames: frames)
             return e.ons.filter { $0.note == 60 && $0.cable == 1 }.count
@@ -6961,15 +6961,15 @@ final class RouterTests: XCTestCase {
     // and a HOCKET on emitter B (row 1) reading its pool but timed by LISTENING to wire A in GAPS. When A is held it is
     // (near-)continuously sounding → HOCKET is suppressed; remove A and HOCKET fills the silence with its pool line.
     private func hocketScene(wireOnA: Bool) -> SnapshotBox {
-        let cs = colourIDs.map { id -> Colour in
-            if id == "gold" { return Colour(colourID: id, type: .drone) }
-            if id == "orange" { var c = Colour(colourID: id, type: .hocket)
+        let cs = machineIDs.map { id -> Machine in
+            if id == "gold" { return Machine(machineID: id, type: .drone) }
+            if id == "orange" { var c = Machine(machineID: id, type: .hocket)
                 c.paramsA.hocketSource = 0; c.paramsA.hocketMode = .gaps; c.paramsA.hocketRate = .r1_8; return c }
-            return Colour(colourID: id, type: .arp)
+            return Machine(machineID: id, type: .arp)
         }
-        return box(colours: cs) {
-            if wireOnA { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // the DRONE wire on emitter A
-            $0.cells[0][1] = Cell(colourID: "orange", buses: [.b])                // HOCKET on emitter B, listening to A
+        return box(machines: cs) {
+            if wireOnA { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // the DRONE wire on emitter A
+            $0.cells[0][1] = Cell(machineID: "orange", buses: [.b])                // HOCKET on emitter B, listening to A
         }
     }
     func testHocketGapsPlaysInTheWiresSilences() {
@@ -6985,12 +6985,12 @@ final class RouterTests: XCTestCase {
     }
     func testHocketSelfCycleFallsSilent() {
         // THE CYCLE LAW: a HOCKET that OUTPUTS on the wire it LISTENS to is a loop → silent.
-        let cs = colourIDs.map { id -> Colour in
-            if id == "gold" { var c = Colour(colourID: id, type: .hocket)
+        let cs = machineIDs.map { id -> Machine in
+            if id == "gold" { var c = Machine(machineID: id, type: .hocket)
                 c.paramsA.hocketSource = 0; c.paramsA.hocketMode = .gaps; c.paramsA.hocketRate = .r1_8; return c }
-            return Colour(colourID: id, type: .arp)
+            return Machine(machineID: id, type: .arp)
         }
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // listens to A, emits on A
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // listens to A, emits on A
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 8, into: e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "a self-listening loop falls silent")

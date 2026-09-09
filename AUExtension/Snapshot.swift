@@ -22,7 +22,7 @@ enum Snap {
     // math + uniform fast path key on it, so it STAYS 8 and the default part is byte-identical). `maxCols` is the
     // ALLOCATION ceiling — the widest a part's loop can be (16). Cell storage + column loops + per-row loop-length CLAMPS
     // use maxCols; a part whose rowLength > cols is non-uniform → the proven multi-clock per-row path plays its 16 columns.
-    static let cols = 8, rows = 16, colours = 16, maxCols = 16
+    static let cols = 8, rows = 16, machines = 16, maxCols = 16
     static var cells: Int { maxCols * rows }   // 256 — the per-cell array/feed size (index = col*rows + row, col 0…15)
     static let playLayerRowBase = 8         // the hidden play layer occupies engine rows 8…15 (row 8+c = play column c)
     // delta §9 item 11: a source filter ≥17 matches no held note (NotePool.matches never sees chan ≥16),
@@ -35,10 +35,10 @@ enum Snap {
     static let stepRateBeats: [Double] = StepRate.allCases.map(\.beats)
 }
 
-// MARK: - Flat cell (one per grid position; colourIndex < 0 = empty)
+// MARK: - Flat cell (one per grid position; machineIndex < 0 = empty)
 
 struct SnapCell {
-    var colourIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — with the 16-colour cap gone, a document colour index can exceed 127; Int8(index) trapped at ≥128
+    var machineIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — with the 16-machine cap gone, a document machine index can exceed 127; Int8(index) trapped at ≥128
     var alt = false
     var bypassed = false
     var passthrough = false     // NO-MACHINE chain (Paul 2026-08-23): a LIVE WIRE — its input passes straight through in
@@ -68,8 +68,8 @@ struct SnapCell {
     var chopAltMask: UInt8 = 0       // §cell-edit F: the shared ALT destination as a bus bitmask
     var chopActive = false           // fast-path: any slice deviates from all-MAIN
     // CELL MACHINE (feat/EditPageSpike): the resolved processor CHAIN — one SnapParams per slot, head first,
-    // resolved from the cell's `processors` (or a 1-slot head from the Colour's A face when the cell has none).
-    // `slotBypass[k]` = slot k's true-bypass. (Morph removed — SnapColour carries only the single A face.) The
+    // resolved from the cell's `processors` (or a 1-slot head from the Machine's A face when the cell has none).
+    // `slotBypass[k]` = slot k's true-bypass. (Morph removed — SnapMachine carries only the single A face.) The
     // head-only stage-1 reads `proc` (== procs[0]) and `bypassed` (== slotBypass[0]); stage-2 runs the whole
     // chain in series (Router pipeline) with only the TAIL emitting.
     var procs: [SnapParams] = [SnapParams()]
@@ -254,7 +254,7 @@ struct SnapParams {
     var hocketSource: Int = 0                             // 0…3 = the listened emitter (wire A–D)
     var hocketMode: HocketMode = .gaps
     var hocketRateBeats: Double = 0.5                     // resolved from hocketRate (1/8 = 0.5 beat) — the decision tick grid
-    // AVOID / LOCK (unified 2026-08-31): the resolved per-note pitch filter (see ColourParams).
+    // AVOID / LOCK (unified 2026-08-31): the resolved per-note pitch filter (see MachineParams).
     var avoidRefKind: AvoidRefKind = .sounding
     var avoidRefIndex: Int = 0                            // 0…3 = which DOOR / WIRE
     var avoidRoot: Int = 0                                // 0…11 declared KEY root
@@ -340,11 +340,11 @@ extension SnapParams {
     }
 }
 
-struct SnapColour {
+struct SnapMachine {
     var transpose: Int8 = 0
     var a = SnapParams()             // the one resolved param bag (A/B morph removed)
     var on = OnConfig()              // delta §9 item 1: the resolved ON assignments (arrive/scene = derivations,
-    var hue: UInt32 = 0              // the DISPLAY hue (packed RGB) — carried so the render can tag emitted notes with their colour (the reel piano roll paints each note its cell's colour). 0 = unknown ⇒ UI falls back.
+    var hue: UInt32 = 0              // the DISPLAY hue (packed RGB) — carried so the render can tag emitted notes with their machine (the reel piano roll paints each note its cell's machine). 0 = unknown ⇒ UI falls back.
 }                                    // tap/hold = ephemeral gestures); render reads it precomputed here.
 
 // FILE (config-sheets stage 4): a loaded .mid clip carried in the box (immutable → race-safe hand-off to the render
@@ -357,11 +357,11 @@ struct SnapFileClip: Equatable {
     var loopBeats: Double = 0
 }
 
-// PART AUTOMATION render-time descriptor (Paul 2026-09-04, Phase 2): one per colour with an active render-time AUTO
+// PART AUTOMATION render-time descriptor (Paul 2026-09-04, Phase 2): one per machine with an active render-time AUTO
 // lane (×N passes and/or SMOOTH). The Router computes the ramp per (pass, col) — or per note beat when SMOOTH — and
 // value-copies the target field on the cell's proc before emit. STEP/default spans stay compile-time baked (no entry).
-struct ColourAuto: Equatable {
-    var slot: Int                    // the automated processor slot in the colour's chain
+struct MachineAuto: Equatable {
+    var slot: Int                    // the automated processor slot in the machine's chain
     var field: AutoParamField        // the resolved scalar target
     var lo: Double                   // FROM
     var hi: Double                   // TO
@@ -378,8 +378,8 @@ final class SnapshotBox {
     let stepBeats: Double
     let swing: Double                // 50…75 (§4 v2.3)
     let morphMaster: Double          // §13.5, parameter #35
-    let colours: [SnapColour]        // ≥16 — sized to the document (BUILD ephemeral colours append beyond the 16)
-    var renderAuto: [ColourAuto?] = []   // PHASE 2: per colour index; nil = none. Set by the builder BEFORE publish (immutable after). Empty ⇒ byte-identical.
+    let machines: [SnapMachine]        // ≥16 — sized to the document (BUILD ephemeral machines append beyond the 16)
+    var renderAuto: [MachineAuto?] = []   // PHASE 2: per machine index; nil = none. Set by the builder BEFORE publish (immutable after). Empty ⇒ byte-identical.
     let cells: [SnapCell]            // Snap.cells (256 = maxCols·rows), index = column * Snap.rows + row
     let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
     let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output
@@ -443,7 +443,7 @@ final class SnapshotBox {
     let broadcastAll16: Bool         // ROW 8 BROADCAST all-16 (Paul 2026-08-26): the ALL-cable copy also fans across every MIDI channel (a multitimbral wall).
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
-         colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
+         machines: [SnapMachine], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
          claimMask: UInt8 = 0, claimLeak: [UInt8] = [0, 0, 0, 0],
          flattenMask: UInt8 = 0, flattenAmount: [UInt8] = [0, 0, 0, 0],
          altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1], turnsPerNote: Bool = false,
@@ -481,7 +481,7 @@ final class SnapshotBox {
         self.stepBeats = stepBeats
         self.swing = swing
         self.morphMaster = morphMaster
-        self.colours = colours
+        self.machines = machines
         self.cells = cells
         self.busChannels = busChannels
         self.busEnabledMask = busEnabledMask
@@ -627,29 +627,29 @@ func applyModChainOffset(_ p: SnapParams, param: MacroParam, offset: Double) -> 
 
 // CELL MACHINE (morph removed): the A/B blend is gone — every effective* reads the single (A) param bag.
 // They keep a `t` arg (always 0, ignored) so the render call sites are unchanged; the render feeds them the
-// per-cell chain slot via the `treat.a = head` injection SnapColour. (The retired a→b interpolation, tiers,
+// per-cell chain slot via the `treat.a = head` injection SnapMachine. (The retired a→b interpolation, tiers,
 // and morphMaster #300 are history — Codable fields + the param address stay reserved per CLAUDE.md.)
 @inline(__always)
-func effectiveType(_ c: SnapColour) -> ProcessorType { c.a.type }
+func effectiveType(_ c: SnapMachine) -> ProcessorType { c.a.type }
 
 @inline(__always)
-func effectivePassMask(_ c: SnapColour) -> UInt8 { c.a.passMask }
+func effectivePassMask(_ c: SnapMachine) -> UInt8 { c.a.passMask }
 
 @inline(__always)
-func effectiveRateBeats(_ c: SnapColour) -> Double {
+func effectiveRateBeats(_ c: SnapMachine) -> Double {
     Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(c.a.rateIndex)))]
 }
 
 @inline(__always)
-func effectiveGate(_ c: SnapColour) -> Double { c.a.gate }
+func effectiveGate(_ c: SnapMachine) -> Double { c.a.gate }
 
 @inline(__always)
-func effectiveOctaves(_ c: SnapColour) -> Int { max(1, min(4, Int(c.a.octaves))) }
+func effectiveOctaves(_ c: SnapMachine) -> Int { max(1, min(4, Int(c.a.octaves))) }
 
 // RATCHET (§3): repeats per step — quantized to a LEGAL count (2/3/4/6/8).
 private let ratchetLegalRepeats = [2, 3, 4, 6, 8]   // file-scope so effectiveRepeats doesn't rebuild it every call (refactor 2026-09-03)
 @inline(__always)
-func effectiveRepeats(_ c: SnapColour) -> Int {
+func effectiveRepeats(_ c: SnapMachine) -> Int {
     let v = Double(c.a.count), legal = ratchetLegalRepeats
     var best = legal[0], bestD = Double.greatestFiniteMagnitude
     for L in legal { let d = abs(Double(L) - v); if d < bestD { bestD = d; best = L } }
@@ -657,10 +657,10 @@ func effectiveRepeats(_ c: SnapColour) -> Int {
 }
 
 @inline(__always)
-func effectiveRamp(_ c: SnapColour) -> Double { clamp(c.a.ramp, 0, 1) }
+func effectiveRamp(_ c: SnapMachine) -> Double { clamp(c.a.ramp, 0, 1) }
 
 @inline(__always)
-func effectiveSpread(_ c: SnapColour) -> Double { clamp(c.a.spread, 0, 1) }
+func effectiveSpread(_ c: SnapMachine) -> Double { clamp(c.a.spread, 0, 1) }
 
 @inline(__always)
 // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE returns the one probability; PATTERN returns the odds for the given STEP
@@ -676,7 +676,7 @@ func effectiveProbability(_ a: SnapParams, step: Int = 0) -> Double {
 }
 
 @inline(__always)
-func effectiveHarmInterval(_ c: SnapColour, voice: Int) -> Int {
+func effectiveHarmInterval(_ c: SnapMachine, voice: Int) -> Int {
     let a: Int
     switch voice {
     case 0: a = Int(c.a.harmIntervals.0)
@@ -687,4 +687,4 @@ func effectiveHarmInterval(_ c: SnapColour, voice: Int) -> Int {
 }
 
 @inline(__always)
-func effectiveHarmVelScale(_ c: SnapColour) -> Double { clamp(c.a.harmVelScale, 0.1, 1) }
+func effectiveHarmVelScale(_ c: SnapMachine) -> Double { clamp(c.a.harmVelScale, 0.1, 1) }

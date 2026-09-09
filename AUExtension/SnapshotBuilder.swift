@@ -7,9 +7,9 @@ import Foundation
 
 enum SnapshotBuilder {
 
-    /// Copy a ColourParams' CHORDS config into a SnapParams (the resolved snapshot form). ONE source of truth, SHARED by the
+    /// Copy a MachineParams' CHORDS config into a SnapParams (the resolved snapshot form). ONE source of truth, SHARED by the
     /// processor's per-cell build AND the chord DOOR's per-door build — so a future `chords*` field reflects on both. (Paul 2026-09-04)
-    static func applyChords(_ p: ColourParams, into out: inout SnapParams) {
+    static func applyChords(_ p: MachineParams, into out: inout SnapParams) {
         if let v = p.chordsMode { out.chordsMode = v }
         out.chordsRoot = p.chordsRootResolved
         out.chordsScale = p.chordsScaleResolved
@@ -26,21 +26,21 @@ enum SnapshotBuilder {
     static func build(from doc: PluginState, generation: UInt64 = 0, hues: [String: UInt32] = [:]) -> SnapshotBox {
         let scene = doc.activeSceneState   // MULTI-SCENE: bounds-safe active scene (never an out-of-range crash)
 
-        // ---- colours: resolve each Colour's single (A) param bag + its ON assignments (the A/B morph layer was
-        //      removed — SnapColour no longer carries b/tier/morph; paramsB/typeB stay decode-only legacy keys). ----
-        // The colour array sizes to the DOCUMENT (≥16), so BUILD's ephemeral colours appended by renderDoc() render
-        // too — the 16-slot cap is lifted. Cells look up their colour BY ID here (not the fixed global colourIDs), so
-        // any appended colour resolves. Behaviour-identical for a plain 16-colour document. (Paul 2026-08-15)
-        var colours = [SnapColour](repeating: SnapColour(), count: max(Snap.colours, doc.colours.count))
-        var colourIndexByID: [String: Int] = [:]
-        for (i, colour) in doc.colours.enumerated() {
-            var sc = SnapColour()
-            sc.transpose = Int8(max(-24, min(24, colour.transpose)))   // the active type's transpose
-            sc.on = colour.onResolved   // delta §9 item 1: carry the ON assignments to the render (nil → unassigned)
-            sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)   // morph removed: the one param bag (A)
-            sc.hue = hues[colour.colourID] ?? 0   // DISPLAY hue (packed RGB) for the reel's colour-by-cell roll; 0 ⇒ UI falls back
-            colours[i] = sc
-            colourIndexByID[colour.colourID] = i
+        // ---- machines: resolve each Machine's single (A) param bag + its ON assignments (the A/B morph layer was
+        //      removed — SnapMachine no longer carries b/tier/morph; paramsB/typeB stay decode-only legacy keys). ----
+        // The machine array sizes to the DOCUMENT (≥16), so BUILD's ephemeral machines appended by renderDoc() render
+        // too — the 16-slot cap is lifted. Cells look up their machine BY ID here (not the fixed global machineIDs), so
+        // any appended machine resolves. Behaviour-identical for a plain 16-machine document. (Paul 2026-08-15)
+        var machines = [SnapMachine](repeating: SnapMachine(), count: max(Snap.machines, doc.machines.count))
+        var machineIndexByID: [String: Int] = [:]
+        for (i, machine) in doc.machines.enumerated() {
+            var sc = SnapMachine()
+            sc.transpose = Int8(max(-24, min(24, machine.transpose)))   // the active type's transpose
+            sc.on = machine.onResolved   // delta §9 item 1: carry the ON assignments to the render (nil → unassigned)
+            sc.a = resolve(machine.paramsA, type: machine.type, fallback: nil)   // morph removed: the one param bag (A)
+            sc.hue = hues[machine.machineID] ?? 0   // DISPLAY hue (packed RGB) for the reel's machine-by-cell roll; 0 ⇒ UI falls back
+            machines[i] = sc
+            machineIndexByID[machine.machineID] = i
         }
 
         // ---- cells ----
@@ -74,20 +74,20 @@ enum SnapshotBuilder {
             for r in 0..<Snap.rows {
                 guard c < scene.cells.count, r < scene.cells[c].count,
                       let cell = scene.cells[c][r],
-                      let colourIndex = colourIndexByID[cell.colourID] else { continue }   // resolve by the DOCUMENT-order index (correct-by-construction); the old canonical-first lookup read the wrong SnapColour if colours were ever reordered (Paul 2026-08-16)
+                      let machineIndex = machineIndexByID[cell.machineID] else { continue }   // resolve by the DOCUMENT-order index (correct-by-construction); the old canonical-first lookup read the wrong SnapMachine if machines were ever reordered (Paul 2026-08-16)
                 var sc = SnapCell()
-                sc.colourIndex = Int16(colourIndex)   // CR-13a: Int16 — a document colour index can exceed 127 (Int8 trapped)
+                sc.machineIndex = Int16(machineIndex)   // CR-13a: Int16 — a document machine index can exceed 127 (Int8 trapped)
                 sc.alt = cell.alt
                 // CELL MACHINE (feat/EditPageSpike): resolve the HEAD treatment — the FIRST chain slot's
-                // type+params, else the referenced Colour's A face (already resolved into colours[colourIndex].a,
-                // canonically ordered by colourIDs like the render's box.colours[ci]). `bypassed` carries the head
+                // type+params, else the referenced Machine's A face (already resolved into machines[machineIndex].a,
+                // canonically ordered by machineIDs like the render's box.machines[ci]). `bypassed` carries the head
                 // slot's bypass in the chain case (identity), or the legacy cell.bypassed in the fallback case.
-                // CELL MACHINE stage-3: 3-tier resolution — per-cell OVERRIDE → colour TEMPLATE → legacy A face.
+                // CELL MACHINE stage-3: 3-tier resolution — per-cell OVERRIDE → machine TEMPLATE → legacy A face.
                 // MODE ROW: an EXPLICIT empty chain (`processors == []`, a newborn) is a PASSTHROUGH — the held
                 // source flows through untreated. It renders as a single BYPASSED identity slot (true-bypass =
                 // source-only hold-tail), which the engine already handles; nil still means "follow the template".
                 let override = cell.processors.flatMap { $0.isEmpty ? nil : $0 }
-                let template = (colourIndex < doc.colours.count ? doc.colours[colourIndex].templateChain : nil).flatMap { $0.isEmpty ? nil : $0 }
+                let template = (machineIndex < doc.machines.count ? doc.machines[machineIndex].templateChain : nil).flatMap { $0.isEmpty ? nil : $0 }
                 if cell.processors?.isEmpty == true {
                     markPassthrough(&sc)                  // EXPLICIT empty chain → source-only hold-tail (bypassed identity slot)
                 } else if let chain = override ?? template, !chain.allSatisfy({ $0.bypassed }) {
@@ -101,7 +101,7 @@ enum SnapshotBuilder {
                     // count-dependent `cell.bypassed` / `isHoldTailChain` classifiers agreeing for every depth.
                     markPassthrough(&sc)                  // all-bypassed chain ≡ empty ⇒ the same one passthrough rule
                 } else {
-                    sc.procs = [colours[colourIndex].a]   // legacy: 1-slot head = the Colour's A face
+                    sc.procs = [machines[machineIndex].a]   // legacy: 1-slot head = the Machine's A face
                     sc.slotBypass = [cell.bypassed]
                     sc.bypassed = cell.bypassed
                 }
@@ -151,21 +151,21 @@ enum SnapshotBuilder {
             }
         }
 
-        // ---- LEGATO run starts (§3.5/§7 v2.4): same colour + same ROW + contiguous COLUMNS.
+        // ---- LEGATO run starts (§3.5/§7 v2.4): same machine + same ROW + contiguous COLUMNS.
         //      Wiring/perform state irrelevant to run identity (§1.1); computed for every cell. A LADDER-DORMANT
         //      rung breaks the run (like an empty cell) — otherwise a full-8×8 ladder reads as one long run from
         //      column 0, and each active rung's legato arp arrives badly phase-advanced (plays mid/end of its cycle).
         for r in 0..<Snap.rows {
             var runStart = -1
-            var runColour: Int16 = -1   // CR-13a: SnapCell.colourIndex is Int16 (a doc colour index can exceed 127)
+            var runMachine: Int16 = -1   // CR-13a: SnapCell.machineIndex is Int16 (a doc machine index can exceed 127)
             for c in 0..<Snap.maxCols {
                 let idx = c * Snap.rows + r
-                let ci = cells[idx].colourIndex
+                let ci = cells[idx].machineIndex
                 if ci >= 0 && !cells[idx].dormant {
-                    if ci != runColour { runStart = c; runColour = ci }
+                    if ci != runMachine { runStart = c; runMachine = ci }
                     cells[idx].runStartColumn = Int8(runStart)
                 } else {
-                    runStart = -1; runColour = -1
+                    runStart = -1; runMachine = -1
                 }
             }
         }
@@ -319,7 +319,7 @@ enum SnapshotBuilder {
                            stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
                            morphMaster: max(0, min(1, doc.morphMasterResolved)),
-                           colours: colours,
+                           machines: machines,
                            cells: cells,
                            busChannels: busCh,
                            busEnabledMask: busEnabledMask,
@@ -370,22 +370,22 @@ enum SnapshotBuilder {
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
                            freezeActive: freezeActive, clockScale: clockScale, busRemap: busRemap,
                            broadcastActive: broadcastActive, broadcastAll16: broadcastAll16)
-        // PHASE 2 (Paul 2026-09-04): render-time AUTO descriptors — one per colour with an ACTIVE ×N-passes or SMOOTH
+        // PHASE 2 (Paul 2026-09-04): render-time AUTO descriptors — one per machine with an ACTIVE ×N-passes or SMOOTH
         // lane whose param is render-supported (scalar). STEP/default spans are compile-time baked upstream (not here).
-        var ra = [ColourAuto?](repeating: nil, count: colours.count)
+        var ra = [MachineAuto?](repeating: nil, count: machines.count)
         for (cid, pa) in (doc.partAuto ?? [:]) {
             guard pa.activeLane >= 0, pa.activeLane < 5, pa.activeLane < pa.lanes.count,
-                  let ci = colourIndexByID[cid], ci < doc.colours.count else { continue }
+                  let ci = machineIndexByID[cid], ci < doc.machines.count else { continue }
             let lane = pa.lanes[pa.activeLane]
             guard (lane.spanPasses ?? 0) >= 2 || lane.smooth else { continue }   // STEP/default → baked, not render-time
-            let chain = doc.colours[ci].templateChain ?? []
+            let chain = doc.machines[ci].templateChain ?? []
             guard lane.slot >= 0, lane.slot < chain.count else { continue }
             let type = chain[lane.slot].type
             let key = BuildSceneLogic.autoResolvedParamKey(type, laneParam: lane.param)
             guard let field = AutoParamField(key: key),
                   let p = macroParamsForProcessor(type).first(where: { $0.key == key }) else { continue }   // unsupported param → not render-time
             let sub = BuildSceneLogic.autoSubRange(key, p.kind)
-            ra[ci] = ColourAuto(slot: lane.slot, field: field, lo: lane.lo ?? sub.lo, hi: lane.hi ?? sub.hi,
+            ra[ci] = MachineAuto(slot: lane.slot, field: field, lo: lane.lo ?? sub.lo, hi: lane.hi ?? sub.hi,
                                 startCol: max(0, lane.spanStart ?? 0), spanCols: max(0, lane.spanLen ?? 0),
                                 passes: max(0, lane.spanPasses ?? 0), smooth: lane.smooth)
         }
@@ -394,7 +394,7 @@ enum SnapshotBuilder {
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
-    private static func resolve(_ p: ColourParams, type: ProcessorType, fallback: SnapParams?) -> SnapParams {
+    private static func resolve(_ p: MachineParams, type: ProcessorType, fallback: SnapParams?) -> SnapParams {
         var out = fallback ?? SnapParams()
         out.type = type
         if let v = p.pattern { out.patternIndex = UInt8(ArpPattern.allCases.firstIndex(of: v) ?? 0) }

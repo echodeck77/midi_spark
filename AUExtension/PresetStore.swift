@@ -1,6 +1,6 @@
 import Foundation
 
-/// PRESETS v1 (§3) — a preset is the WHOLE document (all scenes · wiring · per-scene Colours · key), saved as a
+/// PRESETS v1 (§3) — a preset is the WHOLE document (all scenes · wiring · per-scene Machines · key), saved as a
 /// NAMED JSON file. It is distinct from the host's automatic fullState (that stays the AUM-session persistence);
 /// a preset uses the SAME codec as the fullState document blob, so the two are byte-interchangeable.
 ///
@@ -77,7 +77,7 @@ struct LibEntry: Identifiable, Equatable {
 
 /// CELL LIBRARY (§cell-machine 1.5/4.8) — a named, saved CELL reusable across sessions. Same app-level file
 /// pattern as PresetStore (Application Support/Cells · `.8x8cell`), one Codable `Cell` per file. A saved cell is
-/// "machine minus routing": the chain + colour + source-shaping travel; input/output are wired fresh on stamp.
+/// "machine minus routing": the chain + machine + source-shaping travel; input/output are wired fresh on stamp.
 enum CellLibraryStore {
     static let ext = "8x8cell"
     static var directory: URL {
@@ -111,15 +111,15 @@ enum CellLibraryStore {
     }
 
     /// A small read-only FACTORY set so the library isn't empty first-run. Each is "machine minus routing"
-    /// (a chain + colour, no routing) — the user STAMPs it and wires input/output. Built in code (no bundle).
+    /// (a chain + machine, no routing) — the user STAMPs it and wires input/output. Built in code (no bundle).
     static func factory() -> [(name: String, cell: Cell)] {
-        func slot(_ t: ProcessorType, _ f: (inout ColourParams) -> Void = { _ in }) -> ProcessorSlot {
-            var p = ColourParams(); f(&p); return ProcessorSlot(type: t, params: p)
+        func slot(_ t: ProcessorType, _ f: (inout MachineParams) -> Void = { _ in }) -> ProcessorSlot {
+            var p = MachineParams(); f(&p); return ProcessorSlot(type: t, params: p)
         }
-        func cell(_ colourID: String, _ slots: [ProcessorSlot], _ stars: Int = 0) -> Cell {   // stars = FAVOURITE flag now (0/1); the curated standouts pass 1
-            var c = Cell(colourID: colourID); c.processors = slots; c.buses = []; c.stars = stars; return c
+        func cell(_ machineID: String, _ slots: [ProcessorSlot], _ stars: Int = 0) -> Cell {   // stars = FAVOURITE flag now (0/1); the curated standouts pass 1
+            var c = Cell(machineID: machineID); c.processors = slots; c.buses = []; c.stars = stars; return c
         }
-        // A curated set of MUSICAL CHAINS (each is a colour's machine you STAMP onto the selected colour, then wire
+        // A curated set of MUSICAL CHAINS (each is a machine's machine you STAMP onto the selected machine, then wire
         // your own I/O). Rebuilt for the current 19-processor model (2026-08-17). Ordered light → dense.
         var list: [(name: String, cell: Cell)] = [
             // — melodic / arpeggiated —
@@ -208,7 +208,7 @@ enum CellLibraryStore {
         ]
         // — THE 200 FACTORY CHAINS (design commission REQUEST-200-chains, 2026-08-28) — generated DETERMINISTICALLY by
         //   Dice.factorySet (seeded · audible/density-gated · fingerprint-deduped · categorized by musical intent). The
-        //   register home is baked as a leading TRANSPOSE utility; colours cycle the canonical palette. Names are the
+        //   register home is baked as a leading TRANSPOSE utility; machines cycle the canonical palette. Names are the
         //   plain-recipe register; Paul auditions + renames + prunes keepers via the pick grid. —
         let palette = ["gold", "cyan", "vermilion", "teal", "magenta", "indigo", "violet", "chartreuse", "orange", "wine", "blush", "purple", "mint", "azure", "green", "slate"]
         for (i, fc) in Dice.factorySet.enumerated() {

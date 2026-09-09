@@ -15,14 +15,14 @@ import Foundation
 /// channel is already baked into `b0`'s low nibble by the time it reaches here.
 protocol MIDIEmitter: AnyObject {
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8)
-    /// COLOUR TAG (Paul 2026-08-19): the render calls this just before a note-ON emit with the sounding cell's DISPLAY
-    /// hue (packed RGB), so the reel can paint each recorded note its colour. Default no-op — only the ReelTap cares.
-    func markColour(_ hue: UInt32)
+    /// MACHINE TAG (Paul 2026-08-19): the render calls this just before a note-ON emit with the sounding cell's DISPLAY
+    /// hue (packed RGB), so the reel can paint each recorded note its machine. Default no-op — only the ReelTap cares.
+    func markHue(_ hue: UInt32)
     /// CELL TAG (Paul 2026-09-03): the render calls this just before a note-ON with the emitting cell's grid index
     /// (col·Snap.rows+row), so the PART roll can filter STRICTLY to the selected rung per column. Default no-op.
     func markCell(_ idx: Int)
 }
-extension MIDIEmitter { func markColour(_ hue: UInt32) {} ; func markCell(_ idx: Int) {} }   // defaults: ignore the tags
+extension MIDIEmitter { func markHue(_ hue: UInt32) {} ; func markCell(_ idx: Int) {} }   // defaults: ignore the tags
 
 /// "Render this as soon as possible in this cycle." Mirrors AudioToolbox's `AUEventSampleTimeImmediate`
 /// (`(AUEventSampleTime)0xffffffff00000000`, i.e. −(1<<32)); defined here so the pure engine never has
@@ -37,7 +37,7 @@ let renderSampleImmediate: Int64 = Int64(bitPattern: 0xffffffff00000000)
 final class ReelDeck {
     enum State: Equatable { case off, armed, replaying }
     var state: State = .off
-    struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var colour: UInt32 = 0 }
+    struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var machine: UInt32 = 0 }
     static let cap = 16384
     private(set) var cur = [Ev](repeating: Ev(), count: cap); private(set) var curN = 0
     private(set) var loop = [Ev](repeating: Ev(), count: cap); private(set) var loopN = 0
@@ -63,8 +63,8 @@ final class ReelDeck {
     private(set) var passCounter = 0                               // monotone COMPLETED-pass count (next pass = this value)
     private(set) var selectedPassNo = -1                          // the pinned selection (−1 = auto: `loop` tracks the latest)
 
-    func record(beat: Double, cable: UInt8, colour: UInt32 = 0, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
-        if curN < ReelDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, colour: colour); curN += 1 }
+    func record(beat: Double, cable: UInt8, machine: UInt32 = 0, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+        if curN < ReelDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, machine: machine); curN += 1 }
     }
     func startPass() { curN = 0 }
     /// A pass just finished: file it into the ring, and — unless a pass is PINNED (manually selected) — make it the loop.
@@ -118,7 +118,7 @@ final class ReelDeck {
     /// A content SIGNATURE per pass, aligned with `passNumbers()` (oldest→newest; empty slot → 0). Two passes whose
     /// emitted note-ONs match (rounded timing · cable · pitch · velocity) hash EQUAL — the pass browser's REMOVE
     /// DUPLICATES toggle collapses runs that share a signature (e.g. a held loop filing the same bar every pass).
-    /// Offs + the colour tag are excluded (musical content = the notes). Read while browsing (tape frozen) — no race.
+    /// Offs + the machine tag are excluded (musical content = the notes). Read while browsing (tape frozen) — no race.
     func passSignatures() -> [UInt64] {
         var out = [UInt64](repeating: 0, count: ReelDeck.histCount)
         for k in 0..<ReelDeck.histCount {
@@ -155,23 +155,23 @@ final class ReelDeck {
 
     /// One drawable note per (cable,note) on/off pair in the SELECTED pass — for the pop-up piano roll. Cables 1–4
     /// only (0 = the All duplicate). A note still open at the pass end closes at `cycleBeats`; an unmatched off is dropped.
-    struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var colour: UInt32 = 0 }
+    struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var machine: UInt32 = 0 }
     func selectedRoll() -> [Note] {
         var out: [Note] = []
-        var open: [Int: (start: Double, vel: UInt8, colour: UInt32)] = [:]   // key = cable<<8 | note
+        var open: [Int: (start: Double, vel: UInt8, machine: UInt32)] = [:]   // key = cable<<8 | note
         for i in 0..<loopN {
             let e = loop[i]
             guard e.cable >= 1, e.cable <= 4 else { continue }
             let key = Int(e.cable) << 8 | Int(e.b1)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
-            if isOn { open[key] = (e.beat, e.b2, e.colour) }       // the note-ON carries the sounding cell's colour
+            if isOn { open[key] = (e.beat, e.b2, e.machine) }       // the note-ON carries the sounding cell's machine
             else if isOff, let o = open.removeValue(forKey: key) {
-                out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, e.beat), colour: o.colour))
+                out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, e.beat), machine: o.machine))
             }
         }
         for (key, o) in open {                                    // still sounding at the pass end → close at the loop length
-            out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, cycleBeats), colour: o.colour))
+            out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, cycleBeats), machine: o.machine))
         }
         return out
     }
@@ -208,7 +208,7 @@ final class ReelDeck {
     /// 1–4 only. Returns the notes + the total length in beats (the roll's x-axis span).
     func rangeRoll(fromPass lo: Int, toPass hi: Int) -> (notes: [Note], totalBeats: Double) {
         var out: [Note] = []
-        var open: [Int: (start: Double, vel: UInt8, colour: UInt32)] = [:]
+        var open: [Int: (start: Double, vel: UInt8, machine: UInt32)] = [:]
         var offset = 0.0
         var p = min(lo, hi); let end = max(lo, hi)
         while p <= end {
@@ -222,9 +222,9 @@ final class ReelDeck {
                         let key = Int(e.cable) << 8 | Int(e.b1)
                         let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
                         let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
-                        if isOn { open[key] = (offset + e.beat, e.b2, e.colour) }
+                        if isOn { open[key] = (offset + e.beat, e.b2, e.machine) }
                         else if isOff, let o = open.removeValue(forKey: key) {
-                            out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, offset + e.beat), colour: o.colour))
+                            out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, offset + e.beat), machine: o.machine))
                         }
                     }
                     offset += histCycle[slot]
@@ -232,7 +232,7 @@ final class ReelDeck {
             }
             p += 1
         }
-        for (key, o) in open { out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, offset), colour: o.colour)) }
+        for (key, o) in open { out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, offset), machine: o.machine)) }
         return (out, offset)
     }
     /// Emit every loop event whose NEXT occurrence lands in this render window [beatPos, beatPos+windowBeats). Loops
@@ -260,13 +260,13 @@ final class ReelTap: MIDIEmitter {
     var recording = false
     var base = 0.0, beatsPerSample = 0.0, cycleBeats = 1.0
     var windowStart: Int64 = 0
-    private var pendingColour: UInt32 = 0            // set by the render right before each note-ON (markColour)
-    func markColour(_ hue: UInt32) { pendingColour = hue }
+    private var pendingMachine: UInt32 = 0            // set by the render right before each note-ON (markHue)
+    func markHue(_ hue: UInt32) { pendingMachine = hue }
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         if recording, cycleBeats > 0, let deck {
             var beat = base + Double(sampleTime - windowStart) * beatsPerSample
             beat -= (beat / cycleBeats).rounded(.down) * cycleBeats           // → pass-relative
-            deck.record(beat: beat, cable: cable, colour: pendingColour, b0, b1, b2)
+            deck.record(beat: beat, cable: cable, machine: pendingMachine, b0, b1, b2)
         }
         out?.emit(sampleTime: sampleTime, cable: cable, b0, b1, b2)
     }
@@ -279,7 +279,7 @@ final class ReelTap: MIDIEmitter {
 // cycle leaves the previous roll as a dim GHOST (so "no input" shows the last pattern dim, not blank). Foundation-only,
 // unit-testable. Read on the main thread (benign staleness, like the reel readers).
 final class PartRollDeck {
-    struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var colour: UInt32 = 0; var cell: Int = -1 }
+    struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var machine: UInt32 = 0; var cell: Int = -1 }
     static let cap = 4096
     // THREAD MODEL (the 2026-08-10 flat-value-array lesson — no shared reference array crosses threads): the RENDER thread
     // owns `cur`/`curN` for the in-progress cycle. On endCycle a completed cycle is PUBLISHED into the INACTIVE of two flat
@@ -291,8 +291,8 @@ final class PartRollDeck {
     private var pubA = [Ev](repeating: Ev(), count: cap); private var pubAN = 0
     private var pubB = [Ev](repeating: Ev(), count: cap); private var pubBN = 0
     private var pubSel = 0                                                    // 0 → A is the published cycle, 1 → B
-    func record(beat: Double, cable: UInt8, colour: UInt32, cell: Int = -1, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {   // RENDER
-        if curN < PartRollDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, colour: colour, cell: cell); curN += 1 }
+    func record(beat: Double, cable: UInt8, machine: UInt32, cell: Int = -1, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {   // RENDER
+        if curN < PartRollDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, machine: machine, cell: cell); curN += 1 }
     }
     /// A part cycle just completed: PUBLISH a non-empty cycle into the inactive buffer then flip; an empty cycle keeps the
     /// previous published cycle (the dim ghost). Reset `cur`. RENDER thread — never writes the buffer main is reading.
@@ -305,7 +305,7 @@ final class PartRollDeck {
     }
     func beginRecording() { curN = 0 }                                      // RENDER — reset the in-progress scratch on the recording rising edge (so MAIN never writes curN)
     func clear() { pubAN = 0; pubBN = 0 }                                    // MAIN — blank the PUBLISHED buffers only; `cur`/`curN` are RENDER-owned (reset by beginRecording), so no thread ever writes them concurrently. endCycle is gated off (partRollActive false) while this runs, so the pub zero can't race a publish.
-    struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var colour: UInt32 = 0; var cell: Int = -1 }   // `cell` = the emitting cell's grid index (for the per-rung filter)
+    struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var machine: UInt32 = 0; var cell: Int = -1 }   // `cell` = the emitting cell's grid index (for the per-rung filter)
     /// Pair on/off in the last PUBLISHED cycle → drawable notes over [0, cycleBeats]. A note still open at cycle end holds
     /// to `cycleBeats` (the loop wraps it). Cables 1–4 only (0 = the All duplicate). MAIN thread: snapshots the active buffer
     /// by VALUE first (render only ever writes the inactive one) → no torn read. (Mirrors ReelDeck.selectedRoll.)
@@ -315,40 +315,40 @@ final class PartRollDeck {
         var snap = [Ev](); snap.reserveCapacity(n)
         if s == 0 { for i in 0..<n { snap.append(pubA[i]) } } else { for i in 0..<n { snap.append(pubB[i]) } }
         var out: [Note] = []
-        var open: [Int: (start: Double, vel: UInt8, colour: UInt32, cell: Int)] = [:]   // key = cable<<8 | note
+        var open: [Int: (start: Double, vel: UInt8, machine: UInt32, cell: Int)] = [:]   // key = cable<<8 | note
         for e in snap {
             guard e.cable >= 1, e.cable <= 4 else { continue }
             let key = Int(e.cable) << 8 | Int(e.b1)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
-            if isOn { open[key] = (e.beat, e.b2, e.colour, e.cell) }
+            if isOn { open[key] = (e.beat, e.b2, e.machine, e.cell) }
             else if isOff, let o = open.removeValue(forKey: key) {
-                out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, e.beat), colour: o.colour, cell: o.cell))
+                out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, e.beat), machine: o.machine, cell: o.cell))
             }
         }
         for (key, o) in open {
-            out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, cycleBeats), colour: o.colour, cell: o.cell))
+            out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, cycleBeats), machine: o.machine, cell: o.cell))
         }
         return out
     }
 }
 // The part-roll's emit tap — wraps the live emitter (or the reel tap), records each emitted event to a PartRollDeck with
-// a PART-cycle-relative beat, forwards downstream. `markColour` carries the sounding cell's colour AND forwards it on.
+// a PART-cycle-relative beat, forwards downstream. `markHue` carries the sounding cell's machine AND forwards it on.
 final class PartTap: MIDIEmitter {
     weak var out: MIDIEmitter?
     weak var deck: PartRollDeck?
     var recording = false
     var base = 0.0, beatsPerSample = 0.0, cycleBeats = 1.0
     var windowStart: Int64 = 0
-    private var pendingColour: UInt32 = 0
+    private var pendingMachine: UInt32 = 0
     private var pendingCell: Int = -1
-    func markColour(_ hue: UInt32) { pendingColour = hue; out?.markColour(hue) }   // forward so the reel still gets the colour
+    func markHue(_ hue: UInt32) { pendingMachine = hue; out?.markHue(hue) }   // forward so the reel still gets the machine
     func markCell(_ idx: Int) { pendingCell = idx; out?.markCell(idx) }            // the emitting cell — for the PART roll's per-rung filter
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         if recording, cycleBeats > 0, let deck {
             var beat = base + Double(sampleTime - windowStart) * beatsPerSample
             beat -= (beat / cycleBeats).rounded(.down) * cycleBeats           // → PART-cycle-relative
-            deck.record(beat: beat, cable: cable, colour: pendingColour, cell: pendingCell, b0, b1, b2)
+            deck.record(beat: beat, cable: cable, machine: pendingMachine, cell: pendingCell, b0, b1, b2)
         }
         out?.emit(sampleTime: sampleTime, cable: cable, b0, b1, b2)
     }

@@ -70,12 +70,12 @@ final class FuzzTests: XCTestCase {
                                       .avoid,                // FILTER — the per-note pitch filter (drop/snap vs a reference); hammered as head/upstream/downstream/hold for no stuck notes
                                       .chords,               // HARMONY — a held trigger → a derived diatonic chord; hammered (random key/degrees/voicing) so the set-replace never strands a note
                                       .velocity]             // DYNAMICS — per-step velocity override; note-transparent, so it must never strand a note (random lane/pass/steps/rate/clock/span)
-        // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
-        // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
+        // 40 machines (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-machines space, and the
+        // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-machine cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
         let ids = (0..<40).map { "c\($0)" }
-        let colours = ids.map { id -> Colour in
-            var c = Colour(colourID: id, type: types[r.int(types.count)])
+        let machines = ids.map { id -> Machine in
+            var c = Machine(machineID: id, type: types[r.int(types.count)])
             if c.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&c.paramsA, &r) }   // exercise the per-slice cadence
             if c.type == .length && r.chance(0.5) { applyRandomLengthPattern(&c.paramsA, &r) }
             if c.type == .weave && r.chance(0.6) { applyRandomWeave(&c.paramsA, &r) }
@@ -147,7 +147,7 @@ final class FuzzTests: XCTestCase {
         let wide = r.chance(0.3)                    // §E 16-STEP: ~30% of docs are 16-WIDE parts → cells past col 7 + a >8 loop
         for _ in 0..<r.range(1, 40) {               // length force NON-uniform → the multi-clock 16-col render path gets hammered.
             let col = r.int(wide ? Snap.maxCols : 8), row = r.int(8)
-            var cell = Cell(colourID: ids[r.int(ids.count)], buses: randomBuses(&r))
+            var cell = Cell(machineID: ids[r.int(ids.count)], buses: randomBuses(&r))
             if r.chance(0.7) { cell.inputReceiver = r.int(4) }        // most cells subscribe to a receiver
             if r.chance(0.4) {                                        // some carry a short chain
                 let n = r.range(1, 3)
@@ -182,7 +182,7 @@ final class FuzzTests: XCTestCase {
         // path laps each row's OWN columns. Hammered for no-stuck-notes across every edge (rows lapping different subsets).
         if r.chance(0.3) { scene.rowLane = (0..<8).map { _ in r.chance(0.5) ? UInt16(r.int(256)) : 0 } }
         if r.chance(0.5) { scene.masterKey = r.range(-12, 12) }        // KEY± under held chords
-        var st = PluginState(colours: colours, scenes: [scene])
+        var st = PluginState(machines: machines, scenes: [scene])
         if r.chance(0.2) { st.ladderMode = true }                     // LADDER (exclusive columns) resolves in the builder
         st.busChannels = (0..<4).map { _ in r.range(1, 16) }
         st.receivers = (0..<4).map { i in
@@ -196,19 +196,19 @@ final class FuzzTests: XCTestCase {
         }
         return st
     }
-    private func applyRandomTuttiPattern(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+    private func applyRandomTuttiPattern(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.tuttiMode = .pattern
         p.tuttiSlices = (0..<8).map { _ in TuttiSlice.allCases[r.int(TuttiSlice.allCases.count)] }   // incl. REST + octave shifts
         p.tuttiRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]                                 // incl. the fastest rates
         p.tuttiRotate = r.int(8)
     }
-    private func applyRandomLengthPattern(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+    private func applyRandomLengthPattern(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.lenSlices = (0..<8).map { _ in LenState.allCases[r.int(LenState.allCases.count)] }   // incl. MUTE cuts + SHORT/LONG
         p.lenShort = Double(r.range(5, 95)) / 100
         p.lenLong = Double(r.range(0, 100)) / 100                                                // incl. LONG rings-to-step-end
         p.lenRotate = r.int(8)
     }
-    private func applyRandomWeave(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+    private func applyRandomWeave(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.weaveMode = WeaveMode.allCases[r.int(WeaveMode.allCases.count)]     // LADDER · HARMONIC · DRAWN · EUCLID
         p.weaveBaseStep = StepRate.allCases[r.int(StepRate.allCases.count)]   // slow bass clocks
         p.weavePhase = ArpPhase.allCases[r.int(ArpPhase.allCases.count)]      // RETRIG · FREE · LEGATO (FREE/LEGATO ring past the boundary)
@@ -216,11 +216,11 @@ final class FuzzTests: XCTestCase {
         p.weaveEuclidSteps = r.range(2, 16)
         p.weaveSpan = r.range(1, 8)
     }
-    private func applyRandomSplit(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+    private func applyRandomSplit(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.splitSet = ChordSplit(mode: SplitMode.allCases[r.int(SplitMode.allCases.count)], n: r.range(1, 6), note: r.int(128), high: r.chance(0.5))
         let f = r.range(1, 127); p.splitVel = VelWindow(floor: f, ceil: r.range(f, 127))   // incl. empty/full windows
     }
-    private func applyRandomEcho(_ p: inout ColourParams, _ r: inout FuzzRNG) {   // §7② hammer echo params incl. ROUTE=CHAIN (the re-fold path)
+    private func applyRandomEcho(_ p: inout MachineParams, _ r: inout FuzzRNG) {   // §7② hammer echo params incl. ROUTE=CHAIN (the re-fold path)
         p.echoRoute = r.chance(0.5) ? .chain : .direct
         p.echoRepeats = r.range(1, 8)
         p.echoThru = r.chance(0.6)
@@ -229,7 +229,7 @@ final class FuzzTests: XCTestCase {
         p.echoPitchUnits = r.chance(0.5) ? .pool : .semitones   // §2 POOL-STEP echo trails
         p.echoSpill = r.chance(0.5) ? .cut : .ring
     }
-    private func applyRandomUtil(_ p: inout ColourParams, type: ProcessorType, _ r: inout FuzzRNG) {   // UTILITY pitch shift (Paul 2026-08-22)
+    private func applyRandomUtil(_ p: inout MachineParams, type: ProcessorType, _ r: inout FuzzRNG) {   // UTILITY pitch shift (Paul 2026-08-22)
         if type == .octave { p.utilOctave = r.int(7) - 3 }             // −3…+3 (extremes drop notes off the top/bottom)
         else if type == .transpose { p.utilTranspose = r.int(49) - 24; p.utilTransposeUnits = r.chance(0.5) ? .pool : .semitones } // −24…+24, §2 pool-step hammered
         else if type == .channel { p.utilChannel = r.int(17) }          // 0 (WIRE) … 16
@@ -237,7 +237,7 @@ final class FuzzTests: XCTestCase {
     }
     // SPAN CELL|ROW (Paul 2026-08-19): ~half the time flip a span-capable processor to ROW, so the fuzz hammers the
     // whole-bar-timeline paths for the no-stuck-notes / quiescence invariants across every transport + snapshot edge.
-    private func applyRandomSpan(_ p: inout ColourParams, type: ProcessorType, _ r: inout FuzzRNG) {
+    private func applyRandomSpan(_ p: inout MachineParams, type: ProcessorType, _ r: inout FuzzRNG) {
         // SPAN LADDER (Paul 2026-08-22): hammer the odd/×-column spans on the width procs for no-stuck-notes (the
         // polymeter anchors + shorter cycles are the new edge). The rate procs still take the legacy CELL|ROW here.
         let ladder = [1, 2, 3, 4, 6, 8, 16, 32]
@@ -253,7 +253,7 @@ final class FuzzTests: XCTestCase {
         default:       break
         }
     }
-    private func applyRandomRtc(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+    private func applyRandomRtc(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.rtcMode = RatchetMode.allCases[r.int(RatchetMode.allCases.count)]   // ALL · COIN · PATTERN
         p.rtcChance = Double(r.range(0, 100)) / 100
         let lo = r.range(1, 8); p.rtcCountLo = lo; p.rtcCountHi = r.range(lo, 8)
@@ -265,7 +265,7 @@ final class FuzzTests: XCTestCase {
         p.rtcGap = r.int(5); p.rtcQuota = [0, 2, 3, 4][r.int(4)]; p.rtcOddsVel = r.chance(0.5)
         p.rtcFold = r.chance(0.5)   // COIN PASS-THROUGH fold (Paul 2026-09-06): downstream of a driver, burst-or-pass per note — hammer the new emission path for no stuck notes
     }
-    private func applyRandomBurst(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+    private func applyRandomBurst(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.burstMode = BurstMode.allCases[r.int(BurstMode.allCases.count)]     // ONCE · COIN · PATTERN
         p.burstChance = Double(r.range(0, 100)) / 100
         p.burstSlices = (0..<8).map { _ in BurstSlice.allCases[r.int(BurstSlice.allCases.count)] }   // B · C · R (incl. orphan carries)
@@ -382,7 +382,7 @@ final class FuzzTests: XCTestCase {
         var last: [Int: UInt8] = [:]
         for ev in out.events {
             // NOTE on/off · CC (0xB0 — panic CC120/123 + the MOD generator) · PITCH BEND (0xE0 — GLIDE). All valid MIDI;
-            // data bytes stay in range. (Before 2026-08-15 the fuzz used non-canonical colour IDs the builder skipped,
+            // data bytes stay in range. (Before 2026-08-15 the fuzz used non-canonical machine IDs the builder skipped,
             // so it emitted nothing — the id-based builder lookup made it real, surfacing glide's legitimate 0xE0.)
             if !(ev.status == 0x80 || ev.status == 0x90 || ev.status == 0xB0 || ev.status == 0xE0) { boundsBad = boundsBad ?? "status \(ev.status)" }
             if ev.note > 127 { boundsBad = boundsBad ?? "note \(ev.note)" }

@@ -13,25 +13,25 @@ enum BuildSceneLogic {
         var performPlaying = false           // the PLAY grid (THE PIECE) is running
         var chainActive = false              // PLAY THIS MIDI CHAIN is the voice (was `ddSolo`)
         // THE PIECE (play grid)
-        var performCells: [[String?]] = []             // [col][row] → colourID
+        var performCells: [[String?]] = []             // [col][row] → machineID
         var performMute: Set<Int> = []                 // key c*8+r
         var performActiveRung: (Int, Int) -> Bool = { _, _ in true }
         var performEmit: [Set<Bus>] = []               // per perform-ROW emitters
         var performRecv: [Int] = []                    // per perform-ROW input door
-        var performChain: [[[ProcessorSlot]]] = []     // [col][row] → per-cell variation chain ([] = the colour's own)
+        var performChain: [[[ProcessorSlot]]] = []     // [col][row] → per-cell variation chain ([] = the machine's own)
         // THE PART (staging grid)
-        var stagingCells: [[String?]] = []             // [col][row] → colourID
+        var stagingCells: [[String?]] = []             // [col][row] → machineID
         var stagingSel: [Int] = []                     // the ONE selected rung per column (-1 = silent)
         var partEmitters: Set<Bus> = []                // the part's DEFAULT output emitters (a row inherits it when unset)
         var selReceiver = 0                            // the part's DEFAULT input door (a row inherits it when unset)
         var rowEmitters: [Set<Bus>] = []               // per staging-ROW emitters, RESOLVED (Paul 2026-08-18); empty/short → partEmitters
         var rowReceiver: [Int] = []                    // per staging-ROW input door, RESOLVED; short → selReceiver
         var rowChain: [[ProcessorSlot]] = []           // per staging-ROW variation chain
-        // THE MIDI CHAIN (raw audition of the selected colour)
-        var chainColourID: String? = nil
-        var chainMachine: [ProcessorSlot] = []         // the colour's audible chain — [] = a born-audible passthrough
-        var chainReceiver = 0                          // the SELECTED colour's input door (its row's, resolved) — Paul 2026-08-18
-        var chainEmitters: Set<Bus> = []               // the SELECTED colour's output emitters (its row's, resolved)
+        // THE MIDI CHAIN (raw audition of the selected machine)
+        var chainMachineID: String? = nil
+        var chainMachine: [ProcessorSlot] = []         // the machine's audible chain — [] = a born-audible passthrough
+        var chainReceiver = 0                          // the SELECTED machine's input door (its row's, resolved) — Paul 2026-08-18
+        var chainEmitters: Set<Bus> = []               // the SELECTED machine's output emitters (its row's, resolved)
         // PER-PART CLOCK (Paul 2026-08-19): each part is a TRACK with its own rate/length. nil ⇒ the scene default.
         var performRate: [StepRate?] = []              // per play-grid ROW: its deployed part's rate
         var performLen: [Int?] = []                    // per play-grid ROW: its deployed part's loop length
@@ -46,7 +46,7 @@ enum BuildSceneLogic {
         // it was FERRIED WITH (playColRecv/playColEmit — the door + emitters the source was playing through). Cells arrive
         // via the SELECT top-button ferry, which copies both the machine AND the source's I/O.
         var playPlaying = false                        // ANY play column is on (the composeScene guard)
-        var playCells: [[String?]] = []                // [col][row] → colourID
+        var playCells: [[String?]] = []                // [col][row] → machineID
         var playSel: [Int] = []                        // the ONE selected rung per column (-1 = silent)
         var playColChain: [[ProcessorSlot]] = []       // per-column RESOLVED chain (the selected cell's machine; [] = passthrough wire)
         var playColOn: [Bool] = []                     // per-column play state — ONLY started columns sound
@@ -54,17 +54,17 @@ enum BuildSceneLogic {
         var playColEmit: [Set<Bus>] = []               // per-column output emitters (derived from the ferry source; empty → [.a])
         var playLane: UInt16 = 0                        // the play grid's column-loop mask
         // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part") — a play column can carry an N-STEP pass instead of a single
-        // looped cell. playColLen[c] > 1 ⇒ playColSteps[c][step] (the flattened part's per-column colours) is laid across
+        // looped cell. playColLen[c] > 1 ⇒ playColSteps[c][step] (the flattened part's per-column machines) is laid across
         // cols 0..len-1 of the play-layer row and SWEPT+looped (rowLen); len ≤ 1 ⇒ the single-cell path (today, byte-identical).
         var playColLen: [Int] = []                     // per-column pass length (1 = single continuous cell, today's default)
-        var playColSteps: [[String?]] = []             // per-column [step] → colourID (nil = a rest); used only when len > 1
-        var playColStepChain: [[[ProcessorSlot]]] = [] // per-column [step] → the step colour's RESOLVED chain ([] = passthrough)
+        var playColSteps: [[String?]] = []             // per-column [step] → machineID (nil = a rest); used only when len > 1
+        var playColStepChain: [[[ProcessorSlot]]] = [] // per-column [step] → the step machine's RESOLVED chain ([] = passthrough)
         var playColRate: [StepRate?] = []              // per-column pass step rate (captured from the flattened part; nil ⇒ scene default)
         var playColStepRecv: [[Int]] = []              // per-column [step] → the step's OWN input door (the part row it came from); short ⇒ playColRecv
         var playColStepEmit: [[Set<Bus>]] = []         // per-column [step] → the step's OWN output emitters; empty/short ⇒ playColEmit
-        // PART AUTOMATION (Paul 2026-09-02): per-colour AUTO lanes. A colour's active lane ramps a param across its
+        // PART AUTOMATION (Paul 2026-09-02): per-machine AUTO lanes. A machine's active lane ramps a param across its
         // EXTENT of part cells, baked per-cell here (applyAuto). Empty ⇒ byte-identical.
-        var partAuto: [String: PartAutoColour] = [:]
+        var partAuto: [String: PartAutoMachine] = [:]
         var partWidth: Int = Snap.cols                 // the part's active loop width (8 or 16) — the default span length + tile reference
     }
 
@@ -130,12 +130,12 @@ enum BuildSceneLogic {
         guard count > 1 else { return hi }
         return lo + (Double(rank) / Double(count - 1)) * (hi - lo)
     }
-    /// Fold a colour's active AUTO lane onto a cell's chain at (col,row): if the lane's extent includes this cell, set
+    /// Fold a machine's active AUTO lane onto a cell's chain at (col,row): if the lane's extent includes this cell, set
     /// its resolved param to the ramped value. Returns the chain unchanged when there's no active lane / this cell isn't
     /// in the extent / the slot is out of range → BYTE-IDENTICAL when no automation is armed. (Baked at build, invariant 1.)
-    static func applyAuto(_ chain: [ProcessorSlot], colourID: String?, col: Int, row: Int,
-                          partAuto: [String: PartAutoColour], partWidth: Int) -> [ProcessorSlot] {
-        guard let cid = colourID, let pa = partAuto[cid], pa.activeLane >= 0, pa.activeLane < 5,
+    static func applyAuto(_ chain: [ProcessorSlot], machineID: String?, col: Int, row: Int,
+                          partAuto: [String: PartAutoMachine], partWidth: Int) -> [ProcessorSlot] {
+        guard let cid = machineID, let pa = partAuto[cid], pa.activeLane >= 0, pa.activeLane < 5,
               pa.activeLane < pa.lanes.count else { return chain }
         let lane = pa.lanes[pa.activeLane]
         guard lane.slot >= 0, lane.slot < chain.count else { return chain }
@@ -182,11 +182,11 @@ enum BuildSceneLogic {
                 if len <= 1 {                                                   // SINGLE CELL (today, byte-identical): pinned continuous at (col 0, row 8+c)
                     let r = c < i.playSel.count ? i.playSel[c] : -1
                     guard r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, let cid = i.playCells[c][r] else { continue }
-                    var cell = Cell(colourID: cid, buses: buses)
+                    var cell = Cell(machineID: cid, buses: buses)
                     cell.inputReceiver = recv
                     cell.processors = c < i.playColChain.count ? i.playColChain[c] : []   // EXPLICIT resolved machine ([] = passthrough wire)
                     s.setCell(0, Snap.playLayerRowBase + c, cell)               // engine (col 0, HIDDEN play-layer row 8+c) → a continuous voice, DISJOINT from the part's rows 0–7
-                } else {                                                        // MULTI-STEP PASS: the flattened part's step colours across cols 0..len-1, SWEPT + looped (rowLen below)
+                } else {                                                        // MULTI-STEP PASS: the flattened part's step machines across cols 0..len-1, SWEPT + looped (rowLen below)
                     for step in 0..<len {
                         guard c < i.playColSteps.count, step < i.playColSteps[c].count, let cid = i.playColSteps[c][step] else { continue }   // nil ⇒ a rest step
                         // PER-STEP I/O (Paul 2026-08-30): each step keeps the door + emitters of the part ROW it flattened from
@@ -194,7 +194,7 @@ enum BuildSceneLogic {
                         // whose columns route to different doors/emitters keeps that routing.
                         let sEmit = (c < i.playColStepEmit.count && step < i.playColStepEmit[c].count && !i.playColStepEmit[c][step].isEmpty) ? i.playColStepEmit[c][step] : buses
                         let sRecv = (c < i.playColStepRecv.count && step < i.playColStepRecv[c].count) ? max(0, min(3, i.playColStepRecv[c][step])) : recv
-                        var cell = Cell(colourID: cid, buses: sEmit)
+                        var cell = Cell(machineID: cid, buses: sEmit)
                         cell.inputReceiver = sRecv
                         cell.processors = (c < i.playColStepChain.count && step < i.playColStepChain[c].count) ? i.playColStepChain[c][step] : []
                         s.setCell(step, Snap.playLayerRowBase + c, cell)        // engine (col step, row 8+c) — the playhead sweeps 0..len-1 and loops
@@ -208,10 +208,10 @@ enum BuildSceneLogic {
                 guard c < i.performCells.count, r < i.performCells[c].count, let cid = i.performCells[c][r],
                       !i.performMute.contains(c * 8 + r), i.performActiveRung(c, r) else { continue }
                 let emit: Set<Bus> = (r < i.performEmit.count && !i.performEmit[r].isEmpty) ? i.performEmit[r] : [.a]
-                var cell = Cell(colourID: cid, buses: emit)
+                var cell = Cell(machineID: cid, buses: emit)
                 cell.inputReceiver = max(0, min(3, r < i.performRecv.count ? i.performRecv[r] : 0))
                 let chain = (c < i.performChain.count && r < i.performChain[c].count) ? i.performChain[c][r] : []
-                cell.processors = applyAuto(chain, colourID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
+                cell.processors = applyAuto(chain, machineID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
                 s.setCell(c, r, cell)
             } }
         }
@@ -228,18 +228,18 @@ enum BuildSceneLogic {
                 guard !chain.isEmpty else { continue }
                 let buses: Set<Bus> = (r < i.rowEmitters.count && !i.rowEmitters[r].isEmpty) ? i.rowEmitters[r] : dfltBuses
                 let recv = max(0, min(3, r < i.rowReceiver.count ? i.rowReceiver[r] : i.selReceiver))
-                var cell = Cell(colourID: cid, buses: buses)
+                var cell = Cell(machineID: cid, buses: buses)
                 cell.inputReceiver = recv
-                cell.processors = applyAuto(chain, colourID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
+                cell.processors = applyAuto(chain, machineID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
                 s.setCell(c, r, cell)                               // the audition sits in front on a slot collision
             }
         }
 
-        if i.chainActive, let cid = i.chainColourID {               // THE MIDI CHAIN / SELECT audition — a 1-step CONTINUOUS pass
-            let buses: Set<Bus> = i.chainEmitters.isEmpty ? [.a] : i.chainEmitters   // the SELECTED colour's own I/O (Paul 2026-08-18)
+        if i.chainActive, let cid = i.chainMachineID {               // THE MIDI CHAIN / SELECT audition — a 1-step CONTINUOUS pass
+            let buses: Set<Bus> = i.chainEmitters.isEmpty ? [.a] : i.chainEmitters   // the SELECTED machine's own I/O (Paul 2026-08-18)
             let recv = max(0, min(3, i.chainReceiver))
             let occ = (0..<8).map { r in (0..<Snap.maxCols).filter { s.cellAt($0, r) != nil }.count }   // scan the full 16-wide part (Paul 2026-09-08) so a row busy only in cols 8–15 isn't treated as empty for the audition overlay
-            func mk() -> Cell { var c = Cell(colourID: cid, buses: buses); c.inputReceiver = recv; c.processors = i.chainMachine; return c }
+            func mk() -> Cell { var c = Cell(machineID: cid, buses: buses); c.inputReceiver = recv; c.processors = i.chainMachine; return c }
             if let emptyRow = (0..<8).first(where: { occ[$0] == 0 }) {
                 // NO RE-STRIKING (Paul 2026-08-29): park at COLUMN 0 of a FULLY-EMPTY row + loop that row to column 0 (below),
                 // so the audition plays CONTINUOUSLY — a 1-step pass, exactly like a play cell. (Was laid across all 8 columns
@@ -402,30 +402,30 @@ enum BuildSceneLogic {
     enum SelectSource: Equatable {
         case none
         case browseCell(Int)   // a catalog/library cell auditioning on gsAud (colourless → grey)
-        case ferryRow(Int)     // a part-row ferry the machine names (rides gsAud but wears the ROW's real colour)
+        case ferryRow(Int)     // a part-row ferry the machine names (rides gsAud but wears the ROW's real machine)
         var isFerry: Bool { if case .ferryRow = self { return true }; return false }
         var browseCell: Int? { if case .browseCell(let i) = self { return i }; return nil }
         var ferryRow: Int? { if case .ferryRow(let n) = self { return n }; return nil }
     }
 
     /// Resolve what the machine represents + whether it is playing.
-    ///  - selID: the machine identity (ddSelectedColourID) · audID: the transient SELECT-audition colour ("gsAud").
+    ///  - selID: the machine identity (ddSelectedMachineID) · audID: the transient SELECT-audition machine ("gsAud").
     ///  - onSelectPage: room == .select — only there can the machine bind to a play ferry (the SELECT grid owns them).
     ///  - chainActive / partActive: the DISPLAYED audition voice (buildDisplayVoice == .chain / .part).
     ///  - selectedPlayCol: the play column selID names (buildSelectedPlayCol), or nil · playColOn: per-column play state.
     /// Reproduces roomsVerticalPlay's `ferryCol.map{playColOn} ?? (displayVoice==voice)` + buildMachineHue's grey rule.
     ///  - source: the SELECT-page source (the single model value). A `.ferryRow` rides gsAud like a plain cell audition, but it
-    ///    IS a real coloured machine → it must wear its colour, never the colourless grey. Grey is the `.browseCell` case only.
+    ///    IS a real coloured machine → it must wear its machine, never the colourless grey. Grey is the `.browseCell` case only.
     static func machineBinding(selID: String?, audID: String, onSelectPage: Bool,
                                chainActive: Bool, partActive: Bool,
                                selectedPlayCol: Int?, playColOn: [Bool], source: SelectSource = .none) -> MachineBinding {
         // A play ferry the machine names (SELECT page only) BINDS to that column — its play state is the column's OWN, and
-        // it wears the cell's real colour (never grey).
+        // it wears the cell's real machine (never grey).
         if onSelectPage, let c = selectedPlayCol, c >= 0, c < playColOn.count {
             return MachineBinding(kind: .playFerry(c), isGrey: false, playing: playColOn[c])
         }
-        // grey ONLY on the colourless PLAIN SELECT audition — NOT when a ferry is the source (it carries a real colour via
-        // colourHueOverride[gsAud], so it keeps it; a ferry rides gsAud too and used to fall to grey here). Derived from the
+        // grey ONLY on the colourless PLAIN SELECT audition — NOT when a ferry is the source (it carries a real machine via
+        // machineHueOverride[gsAud], so it keeps it; a ferry rides gsAud too and used to fall to grey here). Derived from the
         // one model value, not a paired bool: grey ⇔ the audition is loaded AND the source isn't a ferry.
         let grey = onSelectPage && (selID == audID) && !source.isFerry
         let playing = onSelectPage ? chainActive : partActive
@@ -436,32 +436,32 @@ enum BuildSceneLogic {
     // THE PART-GRID TAP DECISION (Paul 2026-09-04). ONE pure resolver for what a tap on the part interior does, so the
     // "an UNPOPULATED cell is selectable" rule is LOCKED by tests and cannot silently revert again. It did revert once:
     // the AUTO-lane PUNCH mode was added AFTER that fix and swallowed EVERY non-punch tap (including empty cells) with a
-    // bare `return`. Here PUNCH intercepts ONLY its own cells (the selected colour, populated); everything else falls
+    // bare `return`. Here PUNCH intercepts ONLY its own cells (the selected machine, populated); everything else falls
     // through to normal rung selection — so empty cells stay selectable whether or not a lane is armed.
     enum PartGridTap: Equatable {
-        case focus(colourID: String)   // SELECT MODE: focus this machine (populated cell)
+        case focus(machineID: String)   // SELECT MODE: focus this machine (populated cell)
         case exitSelectMode            // SELECT MODE tap on an empty cell: just leave select mode
         case deselect                  // tapped the currently-selected rung → the column goes silent
         case selectRung(row: Int)      // select (or drag-paint) this rung — POPULATED OR NOT
     }
     // The rung/select decision when NO AUTO lane is armed. (When a lane IS armed the drag DRAWS the automation span
     // instead — that's UI-side in buildPartGridDrag, since it needs the drag anchor. Paul 2026-09-04, span-only.)
-    static func partGridTap(col: Int, row: Int, currentRung: Int, cid: String?, selectedColourID: String?,
+    static func partGridTap(col: Int, row: Int, currentRung: Int, cid: String?, selectedMachineID: String?,
                             selectMode: Bool, firstTapOfGesture: Bool) -> PartGridTap {
-        if selectMode { return cid.map { .focus(colourID: $0) } ?? .exitSelectMode }
+        if selectMode { return cid.map { .focus(machineID: $0) } ?? .exitSelectMode }
         if firstTapOfGesture && currentRung == row { return .deselect }
         return .selectRung(row: row)   // EMPTY cells ARE selectable — the contract, locked by test
     }
 
     // PLAY-GRID FERRY EDITING (Paul 2026-09-05, Docs/PLAN-play-grid-ferry-editing.md): unpack a play cell onto the BENCH.
     // A PART-BACKED cell (its stored BuildPart) loads WHOLE — a lossless round-trip of what was flattened. A SELECT-BACKED
-    // cell (no stored part, just a colourID) yields a FRESH one-cell part: the bench cleared to exactly that one chain
+    // cell (no stored part, just a machineID) yields a FRESH one-cell part: the bench cleared to exactly that one chain
     // (top-left, selected), so editing starts from that single cell. Pure → unit-tested; the park/live-link/re-deposit
     // lifecycle is UI-side (Stages 3–4).
-    static func unpackPlayCell(storedPart: BuildPart?, selectColourID: String?) -> BuildPart {
+    static func unpackPlayCell(storedPart: BuildPart?, selectMachineID: String?) -> BuildPart {
         if let p = storedPart { return p }                 // part-backed: the whole part, verbatim (lossless)
         var part = BuildPart()                             // select-backed: a clean bench holding one cell
-        if let cid = selectColourID {
+        if let cid = selectMachineID {
             part.stagingCells[0][0] = cid                  // the single chain, top-left (col 0, row 0)
             part.stagingSel[0] = 0                         // that column's selected rung
             part.selID = cid                               // the cast selection follows it

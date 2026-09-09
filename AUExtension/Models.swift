@@ -1,6 +1,6 @@
 //  Models.swift
 //  MidiSpark — document model per spec v2.8 §9.
-//  Colour = the treatment · Cell = the patch point · Preset = host fullState (reserved word).
+//  Machine = the treatment · Cell = the patch point · Preset = host fullState (reserved word).
 
 import Foundation
 
@@ -160,12 +160,12 @@ enum RatchetClock: String, Codable, CaseIterable { case time = "TIME", note = "N
 enum BurstMode: String, Codable, CaseIterable { case once = "ONCE", coin = "COIN", pattern = "PATTERN" }
 enum BurstSlice: String, Codable, CaseIterable { case burst = "B", carry = "C", rest = "R" }
 
-let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
+let machineIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
                            "indigo","azure","cyan","teal","mint","green","chartreuse","slate"]
 
-// MARK: - Colour (the treatment) — §1/§9
+// MARK: - Machine (the treatment) — §1/§9
 
-struct ColourParams: Codable, Equatable {
+struct MachineParams: Codable, Equatable {
     // Superset of per-type params; only the active type's fields are meaningful. §12.0: append-only.
     var pattern: ArpPattern? = .up
     var rate: ArpRate? = .r1_16
@@ -424,60 +424,60 @@ enum EchoSpill: String, Codable, CaseIterable { case ring = "RING", cut = "CUT",
 // own beat — so [ECHO→LENGTH] chokes/ties repeats by the slice they land in, [ECHO→SPLIT] thins trails to a register.
 enum EchoRoute: String, Codable, CaseIterable { case direct = "DIRECT", chain = "CHAIN" }
 
-struct Colour: Codable, Equatable {
-    var colourID: String
+struct Machine: Codable, Equatable {
+    var machineID: String
     var type: ProcessorType
-    // v3.0 (delta §7): per-Colour OUT CH is REMOVED — channel is a property of the WIRE (busChannels),
+    // v3.0 (delta §7): per-Machine OUT CH is REMOVED — channel is a property of the WIRE (busChannels),
     // not the treatment. Old docs carrying an `outChannel` key decode fine (Codable ignores unknown keys).
     var transpose: Int = 0         // −24…+24, accumulates in chains, clamped — the ACTIVE type's transpose
-    var morph: Double = 0          // §3.2 — the per-colour macro AUParameter — the ACTIVE type's morph
-    var paramsA: ColourParams = ColourParams()   // procA — the A face
-    // delta item 8 (TWO-PROCESSOR Colours): procB — this Colour's OWN second face. paramsB is REAL storage
+    var morph: Double = 0          // §3.2 — the per-machine macro AUParameter — the ACTIVE type's morph
+    var paramsA: MachineParams = MachineParams()   // procA — the A face
+    // delta item 8 (TWO-PROCESSOR Machines): procB — this Machine's OWN second face. paramsB is REAL storage
     // again (resolved with fallback A, so a sparse procB inherits A's fields). A cell's `alt` flag flips to
     // procB; `morph` (below) is the position toward it. B-less ⇒ typeB == nil ⇒ b = a, no morph.
-    var paramsB: ColourParams = ColourParams()
+    var paramsB: MachineParams = MachineParams()
     // delta item 8: procB's processor TYPE, or nil = B-less (the natural encoding — old docs decode nil).
     // Same type as A ⇒ FULL morph glide; different ⇒ SWAP (binary flip at t≥0.5). B is sourced ONLY when
     // this is non-nil, so a pre-pair doc's stale paramsB stays inert.
     var typeB: ProcessorType? = nil
-    // delta item 8: procB's transpose — STORED (COPY A→B + round-trip) but render-INERT in v1 (SnapColour
+    // delta item 8: procB's transpose — STORED (COPY A→B + round-trip) but render-INERT in v1 (SnapMachine
     // carries a single transpose; both faces sound with A's, matching the old pair behavior). Making it
-    // render-live is a future increment (SnapColour.transposeB + effectiveTranspose + 400+i addresses).
+    // render-live is a future increment (SnapMachine.transposeB + effectiveTranspose + 400+i addresses).
     // Optional (append-only §12.0) → old docs decode nil; read via `transposeBResolved`.
     var transposeB: Int? = nil
     // LEGACY (delta §9 item 5, retired by item 8): the old morph PARTNER — an index 0…15 or nil. DECODE-ONLY
-    // now: `migrateColourPairsIfNeeded` copies the partner into procB, then the render ignores this. Kept
+    // now: `migrateMachinePairsIfNeeded` copies the partner into procB, then the render ignores this. Kept
     // (never deleted) so an older build re-loading a migrated doc still reads the pair (lossless downgrade).
-    var altColour: Int? = nil
+    var altMachine: Int? = nil
     // Per-TYPE stash of TRANSPOSE (spec revision): each processor type keeps its own transpose, so
     // switching type never leaks a pitch. Optional → v2 docs decode as nil (all-zero).
     var transposeByType: [Int]? = nil
-    // §9 item 1 the ON TRIGGER SYSTEM (GUI iteration 1, 2026-07-26): per-Colour trigger assignments,
+    // §9 item 1 the ON TRIGGER SYSTEM (GUI iteration 1, 2026-07-26): per-Machine trigger assignments,
     // STORED INERT — no engine execution yet. Optional so pre-ON docs decode as nil → OnConfig() defaults.
     var on: OnConfig? = nil
     /// The ON config, nil-safe (missing ⇒ all-"—"/unchecked). Non-persisting read helper.
     var onResolved: OnConfig { on ?? OnConfig() }
-    // Cells/desk overhaul C1: an OPTIONAL Colour NAME (the user's word). Optional → old docs decode nil.
+    // Cells/desk overhaul C1: an OPTIONAL Machine NAME (the user's word). Optional → old docs decode nil.
     var name: String? = nil
     /// The custom name if set, else the TYPE name (today's label). Never empty.
     var nameResolved: String { (name.flatMap { $0.isEmpty ? nil : $0 }) ?? type.rawValue }
-    // Cells/desk overhaul D1: whether this Colour is DEFINED (a palette chip) vs an undefined "+" slot. Optional
+    // Cells/desk overhaul D1: whether this Machine is DEFINED (a palette chip) vs an undefined "+" slot. Optional
     // → old docs decode nil ⇒ DEFINED (all 16 as today). Non-persisting read helper below.
     var defined: Bool? = nil
     var isDefined: Bool { defined ?? true }
-    // CELL MACHINE stage-3 (feat/EditPageSpike): the shared TEMPLATE chain — this colour's default processor
-    // chain, followed by every cell of this colour with NO per-cell override (Cell.processors == nil), in every
+    // CELL MACHINE stage-3 (feat/EditPageSpike): the shared TEMPLATE chain — this machine's default processor
+    // chain, followed by every cell of this machine with NO per-cell override (Cell.processors == nil), in every
     // scene. Optional (append-only §12.0) → old docs decode nil; the builder then falls back to the legacy
-    // single-processor type+paramsA. Editing it in the "ALL <colour>" scope changes every following cell at once.
+    // single-processor type+paramsA. Editing it in the "ALL <machine>" scope changes every following cell at once.
     var templateChain: [ProcessorSlot]? = nil
 
-    /// delta item 8: does this Colour have a second processor (procB)? Drives morph/ALT availability + greying.
+    /// delta item 8: does this Machine have a second processor (procB)? Drives morph/ALT availability + greying.
     var hasProcB: Bool { typeB != nil }
     /// procB's transpose, nil-safe (missing ⇒ 0). Render-inert in v1; kept for COPY A→B + round-trip.
     var transposeBResolved: Int { transposeB ?? 0 }
 
     /// Switch the processor type, giving each type its own TRANSPOSE. Stash the active transpose under the
-    /// old type, restore the new type's. Idempotent for a no-op switch. `morph` is a single per-Colour
+    /// old type, restore the new type's. Idempotent for a no-op switch. `morph` is a single per-Machine
     /// scalar (the position toward the partner, delta §9 item 5) — NOT per-type — so a type switch leaves
     /// it untouched. `transpose` remains the live (AUParameter- and snapshot-facing) value for this type.
     mutating func switchType(to newType: ProcessorType) {
@@ -494,7 +494,7 @@ struct Colour: Codable, Equatable {
     }
 }
 
-// MARK: - ON trigger config (§9 item 1) — per-Colour; GUI iteration 1 stores it INERT (no engine yet).
+// MARK: - ON trigger config (§9 item 1) — per-Machine; GUI iteration 1 stores it INERT (no engine yet).
 // Enums are String-raw so their rawValue IS the chip label. Append-only (never reorder/reuse the strings).
 
 enum OnTap: String, Codable, CaseIterable { case none = "—", alt = "ALT", mute = "MUTE", solo = "SOLO EMITTERS", fill = "FILL", replay = "REPLAY" }
@@ -507,8 +507,8 @@ enum OnArrive: String, Codable, CaseIterable { case none = "—", altAlternate =
 enum DriftMode: String, Codable, CaseIterable { case loop = "↻", pingpong = "⇄" }
 enum OnLeave: String, Codable, CaseIterable { case none = "—", exitStab = "EXIT STAB", ringChop = "RING·CHOP" }
 
-/// The five ON rows for one Colour. All fields defaulted (none/unchecked), so `OnConfig()` is "unassigned".
-/// Every field non-Optional with a default — the whole struct is written together; `Colour.on` is the
+/// The five ON rows for one Machine. All fields defaulted (none/unchecked), so `OnConfig()` is "unassigned".
+/// Every field non-Optional with a default — the whole struct is written together; `Machine.on` is the
 /// Optional that gives old-doc compatibility. (A FUTURE schema change here must add fields as Optional or
 /// custom-decode, or bump formatVersion — this version reads only what it wrote.)
 struct OnConfig: Codable, Equatable {
@@ -600,7 +600,7 @@ struct Chop: Codable, Equatable {
 }
 
 struct Cell: Codable, Equatable {
-    var colourID: String
+    var machineID: String
     var stack: Bool = false        // v2 LEGACY (▾) — decode-only after commit 3; removed at commit 4
     var buses: Set<Bus> = [.a]     // sound leaves ONLY through a lit letter (§2.3)
     var srcMix: Bool = false       // v2 LEGACY (+SRC) — no v3 equivalent; dropped on migration
@@ -635,9 +635,9 @@ struct Cell: Codable, Equatable {
     var chop: Chop? = nil
     var chopResolved: Chop { chop ?? Chop() }
     // CELL MACHINE (feat/EditPageSpike, §proposal 2026-07-31): the cell OWNS a serial CHAIN of up to 8
-    // processor slots (pedalboard model), replacing the shared-Colour treatment. Optional (append-only §12.0)
+    // processor slots (pedalboard model), replacing the shared-Machine treatment. Optional (append-only §12.0)
     // → old docs decode nil; the SnapshotBuilder falls back to a 1-slot head seeded from the referenced
-    // Colour's A face (the cell can't see its Colour here, so resolution lives builder-side). Stage 1 renders
+    // Machine's A face (the cell can't see its Machine here, so resolution lives builder-side). Stage 1 renders
     // the HEAD slot + per-slot bypass; slots 2…8 are stored but not yet executed (serial chain = a later stage).
     var processors: [ProcessorSlot]? = nil
     // CELL LIBRARY star rating (0–5). Optional → old library files decode nil ⇒ unrated (0). Library metadata only;
@@ -645,12 +645,12 @@ struct Cell: Codable, Equatable {
     var stars: Int? = nil
     var starsResolved: Int { max(0, min(5, stars ?? 0)) }
 
-    /// "Machine minus routing" for the CELL LIBRARY (§cell-machine 4.8): a copy carrying this cell's colour +
+    /// "Machine minus routing" for the CELL LIBRARY (§cell-machine 4.8): a copy carrying this cell's machine +
     /// source-shaping (chord-split · velocity window · chop) + the given MATERIALISED chain, with ALL routing
     /// (input receiver/row + output emitters) and perform state stripped — ready to stamp into a fresh position
     /// and wire up. The grid-position-specific input row can't transfer; the emitters start blank (null-cell rule).
     func libraryStripped(materialisedChain: [ProcessorSlot]) -> Cell {
-        var c = Cell(colourID: colourID)
+        var c = Cell(machineID: machineID)
         c.processors = materialisedChain
         c.chordSplit = chordSplit; c.velWindow = velWindow; c.chop = chop
         c.buses = []                 // no output until the user wires one (routing is per-placement)
@@ -665,11 +665,11 @@ struct Cell: Codable, Equatable {
 // decodeIfPresent-every-field init (the proven Macro/BuildPart pattern, in an EXTENSION so the memberwise init +
 // synthesized Encodable stay) tolerates any missing key. Fields stay non-Optional and encode IDENTICALLY (a present
 // key round-trips byte-for-byte, seal/twin/Equatable unchanged) — only a MISSING key now falls back to its default
-// instead of throwing. colourID is genuinely required (a cell must name its colour) → a hard decode.
+// instead of throwing. machineID is genuinely required (a cell must name its machine) → a hard decode.
 extension Cell {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        colourID      = try c.decode(String.self, forKey: .colourID)                          // required — a cell must have a colour
+        machineID      = try c.decode(String.self, forKey: .machineID)                          // required — a cell must have a machine
         stack         = try c.decodeIfPresent(Bool.self, forKey: .stack) ?? false
         buses         = try c.decodeIfPresent(Set<Bus>.self, forKey: .buses) ?? [.a]
         srcMix        = try c.decodeIfPresent(Bool.self, forKey: .srcMix) ?? false
@@ -691,18 +691,18 @@ extension Cell {
 // with a `= default`), and these are decoded INSIDE PluginState's arrays — so one throw = the WHOLE document decode
 // throws = a factory reset. A decodeIfPresent-every-field init means adding a non-Optional field later can never lose an
 // older save. The memberwise init + synthesized encode/CodingKeys survive (custom init is in an extension). Round-trip-tested.
-extension Colour {
+extension Machine {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        colourID = try c.decodeIfPresent(String.self, forKey: .colourID) ?? "c0"
+        machineID = try c.decodeIfPresent(String.self, forKey: .machineID) ?? "c0"
         type = try c.decodeIfPresent(ProcessorType.self, forKey: .type) ?? .arp
         transpose = try c.decodeIfPresent(Int.self, forKey: .transpose) ?? 0
         morph = try c.decodeIfPresent(Double.self, forKey: .morph) ?? 0
-        paramsA = try c.decodeIfPresent(ColourParams.self, forKey: .paramsA) ?? ColourParams()
-        paramsB = try c.decodeIfPresent(ColourParams.self, forKey: .paramsB) ?? ColourParams()
+        paramsA = try c.decodeIfPresent(MachineParams.self, forKey: .paramsA) ?? MachineParams()
+        paramsB = try c.decodeIfPresent(MachineParams.self, forKey: .paramsB) ?? MachineParams()
         typeB = try c.decodeIfPresent(ProcessorType.self, forKey: .typeB)
         transposeB = try c.decodeIfPresent(Int.self, forKey: .transposeB)
-        altColour = try c.decodeIfPresent(Int.self, forKey: .altColour)
+        altMachine = try c.decodeIfPresent(Int.self, forKey: .altMachine)
         transposeByType = try c.decodeIfPresent([Int].self, forKey: .transposeByType)
         on = try c.decodeIfPresent(OnConfig.self, forKey: .on)
         name = try c.decodeIfPresent(String.self, forKey: .name)
@@ -714,9 +714,9 @@ extension ProcessorSlot {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         type = try c.decodeIfPresent(ProcessorType.self, forKey: .type) ?? .arp
-        params = try c.decodeIfPresent(ColourParams.self, forKey: .params) ?? ColourParams()
+        params = try c.decodeIfPresent(MachineParams.self, forKey: .params) ?? MachineParams()
         bypassed = try c.decodeIfPresent(Bool.self, forKey: .bypassed) ?? false
-        paramsAlt = try c.decodeIfPresent(ColourParams.self, forKey: .paramsAlt)
+        paramsAlt = try c.decodeIfPresent(MachineParams.self, forKey: .paramsAlt)
         bypassedAlt = try c.decodeIfPresent(Bool.self, forKey: .bypassedAlt)
     }
 }
@@ -756,7 +756,7 @@ extension Receiver {
         scaleOctaves = try c.decodeIfPresent(Int.self, forKey: .scaleOctaves)
         scalePools = try c.decodeIfPresent([ScalePool].self, forKey: .scalePools)
         activeScale = try c.decodeIfPresent(Int.self, forKey: .activeScale)
-        chordSeqs = try c.decodeIfPresent([ColourParams].self, forKey: .chordSeqs)
+        chordSeqs = try c.decodeIfPresent([MachineParams].self, forKey: .chordSeqs)
         activeChord = try c.decodeIfPresent(Int.self, forKey: .activeChord)
         doorMode = try c.decodeIfPresent(DoorMode.self, forKey: .doorMode)
         replayPasses = try c.decodeIfPresent(Int.self, forKey: .replayPasses)
@@ -770,15 +770,15 @@ extension Receiver {
 }
 
 // CELL MACHINE — one stage of a cell's processor chain: a processor type + its params + a true-bypass toggle.
-// Reuses ColourParams verbatim as the per-slot param bag (append-only §12.0). Codable/Equatable so the chain
+// Reuses MachineParams verbatim as the per-slot param bag (append-only §12.0). Codable/Equatable so the chain
 // round-trips like every other cell field.
 struct ProcessorSlot: Codable, Equatable {
     var type: ProcessorType
-    var params: ColourParams = ColourParams()
+    var params: MachineParams = MachineParams()
     var bypassed: Bool = false     // per-slot TRUE-BYPASS (the chain's debugger — proposal §2 C3)
     // MACRO AUTHORING (§7): the persisted ALTERNATIVE control set — reopening MACRO shows the last-authored B.
     // Additive Optional → old docs decode nil (no ALT authored yet). The binding stores the delta (ALT − MAIN).
-    var paramsAlt: ColourParams? = nil
+    var paramsAlt: MachineParams? = nil
     var bypassedAlt: Bool? = nil
 }
 
@@ -787,7 +787,7 @@ struct ProcessorSlot: Codable, Equatable {
 /// One of four document-level MIDI receivers. A MIDI-IN cell subscribes to a receiver (FROM RECEIVER n)
 /// and inherits its channel filter; the receiver also carries a persisted input-mute (the input twin of
 /// the §6a emitter mute) and a per-receiver MPE-merge flag (the "MPE front door" — field only for now;
-/// merge semantics are their own later mini-spec). Receiver COLOUR is assigned by index (the fixed
+/// merge semantics are their own later mini-spec). Receiver MACHINE is assigned by index (the fixed
 /// infrastructure family), not stored. note-RANGE (register splits) is a later addition — no field yet.
 /// THE CONFIG SHEETS (Paul 2026-08-20): a door's MODE — LATCH (notes toggle in/out of the pool, the old KEYS latch) ·
 /// HOLD (chord-detect-and-replace, the old CHORD latch) · KEYS (the on-screen keyboard, the old PIANO latch) · REPLAY
@@ -944,24 +944,24 @@ struct Receiver: Codable, Equatable {
     }
     var scaleOctavesResolved: Int { max(1, min(4, activePool.octaves)) }
     // THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-04): the door reuses the CHORDS PROCESSOR's config wholesale — each of
-    // FOUR instances IS a `ColourParams` (only its `chords*` fields are used), so the door's editor + per-beat derivation are
+    // FOUR instances IS a `MachineParams` (only its `chords*` fields are used), so the door's editor + per-beat derivation are
     // literally the processor's, and future CHORDS work reflects on the door for free. Radio-switched (activeChord). Additive-
     // Optional; nil ⇒ four INTERESTING default progressions (`defaultChordSeqs`). The pool is TIME-VARYING: the Kernel walks
     // the progression on the beat (PATTERN/WALK) at the chord RATE, keyed by the SCALE door named in `chordsScaleRef`.
     // (The old single-chord `chordPools`/`ChordPool` shape, shipped 2026-09-04 fe708c7, is gone — its stale JSON key decodes
     // away harmlessly since Codable ignores unknown keys; a doc from that few-hour window re-seeds the default progressions.)
-    var chordSeqs: [ColourParams]? = nil
+    var chordSeqs: [MachineParams]? = nil
     var activeChord: Int? = nil
     var activeChordResolved: Int { max(0, min(3, activeChord ?? 0)) }
-    var chordSeqsResolved: [ColourParams] {
+    var chordSeqsResolved: [MachineParams] {
         guard let s = chordSeqs else { return Receiver.defaultChordSeqs }
-        var out = Array(s.prefix(4)); while out.count < 4 { out.append(ColourParams()) }; return out
+        var out = Array(s.prefix(4)); while out.count < 4 { out.append(MachineParams()) }; return out
     }
-    var activeChordSeq: ColourParams { chordSeqsResolved[activeChordResolved] }
+    var activeChordSeq: MachineParams { chordSeqsResolved[activeChordResolved] }
     /// FOUR interesting default progressions (all reference the KEY-FROM door D per the default rig; PATTERN, one chord/bar).
-    static let defaultChordSeqs: [ColourParams] = {
-        func seq(_ degrees: [Int], steps: Int, voicing: ChordVoicing = .triad) -> ColourParams {
-            var p = ColourParams()
+    static let defaultChordSeqs: [MachineParams] = {
+        func seq(_ degrees: [Int], steps: Int, voicing: ChordVoicing = .triad) -> MachineParams {
+            var p = MachineParams()
             p.chordsMode = .pattern; p.chordsDegrees = degrees; p.chordsSteps = steps
             p.chordsRate = .r1_1; p.chordsVoicing = voicing; p.chordsSpread = .close; p.chordsScaleRef = 3   // KEY FROM = door D
             return p
@@ -1274,14 +1274,14 @@ struct Row8Cell: Codable, Equatable {
 
 struct PluginState: Codable, Equatable {
     var formatVersion: Int = 2     // 2 = v2.x chain routing · 3 = v3.0 graph routing · 4 = + receivers (§migration)
-    var colours: [Colour]
+    var machines: [Machine]
     var scenes: [SceneState]       // length 1 in v2.x; scenes are the flagship next feature
     // CR-8: these three were the ONLY non-Optional post-v2 fields, so a PRE-v2 document (missing the keys) threw at
     // decode and the WHOLE document failed to load (data-loss). Now additive-Optional (a missing key decodes nil), with
     // resolvers giving the same defaults. New/factory/preset docs still write them, so this is decode-tolerance only.
     var activeScene: Int? = nil
     var morphMaster: Double? = nil // RETIRED (delta §9 item 5): param #300 stays registered (invariant 5)
-                                   // but the render no longer applies it — morph is per-Colour only.
+                                   // but the render no longer applies it — morph is per-Machine only.
     var morphMasterResolved: Double { morphMaster ?? 0 }
     var busChannels: [Int]? = nil  // v3.0 (delta §7): each bus A–D stamps this channel on exit
     /// The 4 stamp channels, nil/short-array safe (missing ⇒ 1,2,3,4). Non-persisting read helper.
@@ -1459,9 +1459,9 @@ struct PluginState: Codable, Equatable {
     // BUILD-authoring arrangements that compose into them.)
     var buildScenes: [BuildSceneSnapshot]? = nil
     var buildScenesActive: Int? = nil
-    // PART AUTOMATION (Paul 2026-09-02): the AUTO lanes, keyed by colourID. Additive-Optional → old saves decode nil
+    // PART AUTOMATION (Paul 2026-09-02): the AUTO lanes, keyed by machineID. Additive-Optional → old saves decode nil
     // (byte-identical: with no active lane, nothing bakes). Captured from BUILD @State each poll; restored on load.
-    var partAuto: [String: PartAutoColour]? = nil
+    var partAuto: [String: PartAutoMachine]? = nil
     // receiver strip: the THRU pip — a PERSISTED one-of-4 radio (structure persists). Passthrough (CC/PB/AT +
     // stopped-note soundcheck) follows THIS receiver, superseding the hardwired follows-R1 rule. Optional so
     // old docs decode nil ⇒ default R1 (index 0). Mirrors claimEmitter's persist-and-radio shape.
@@ -1575,28 +1575,28 @@ struct PluginState: Codable, Equatable {
             formatVersion = 3
         }
         synthesizeReceiversIfNeeded()   // delta §9 item 11 — runs for v3 docs too (they have no receivers yet)
-        migrateColourPairsIfNeeded()    // delta item 8 — fold each Colour's partner into its own procB
+        migrateMachinePairsIfNeeded()    // delta item 8 — fold each Machine's partner into its own procB
         padScenes()                     // MULTI-SCENE: a fixed 16-slot strip — old length-1 docs pad with empties
     }
 
-    /// delta item 8 (TWO-PROCESSOR Colours): fold the retired pair reference into each Colour's own procB.
-    /// Idempotent, gated on formatVersion < 5. For a Colour with a valid `altColour` partner: copy the
+    /// delta item 8 (TWO-PROCESSOR Machines): fold the retired pair reference into each Machine's own procB.
+    /// Idempotent, gated on formatVersion < 5. For a Machine with a valid `altMachine` partner: copy the
     /// partner's type/params/transpose into procB (typeB/paramsB/transposeB), overwriting any stale paramsB.
-    /// `altColour` is LEFT in place (decode-only legacy) so an older build re-loading a migrated doc still
-    /// reads the pair — lossless downgrade. The new render sources B ONLY from typeB, so keeping altColour is
+    /// `altMachine` is LEFT in place (decode-only legacy) so an older build re-loading a migrated doc still
+    /// reads the pair — lossless downgrade. The new render sources B ONLY from typeB, so keeping altMachine is
     /// inert. Reads partner.type/paramsA/transpose (never written here) so in-place mutation is safe.
-    mutating func migrateColourPairsIfNeeded() {
+    mutating func migrateMachinePairsIfNeeded() {
         guard formatVersion < 5 else { return }
         var migrated = 0
-        for i in colours.indices {
-            guard let pi = colours[i].altColour, pi >= 0, pi < colours.count, pi != i else { continue }
-            colours[i].typeB = colours[pi].type
-            colours[i].paramsB = colours[pi].paramsA
-            colours[i].transposeB = colours[pi].transpose
+        for i in machines.indices {
+            guard let pi = machines[i].altMachine, pi >= 0, pi < machines.count, pi != i else { continue }
+            machines[i].typeB = machines[pi].type
+            machines[i].paramsB = machines[pi].paramsA
+            machines[i].transposeB = machines[pi].transpose
             migrated += 1
         }
         if migrated > 0 {
-            print("MidiSpark: migrated \(migrated) Colour pair(s) into internal procB (delta item 8).")
+            print("MidiSpark: migrated \(migrated) Machine pair(s) into internal procB (delta item 8).")
         }
         formatVersion = 5
     }
@@ -1647,31 +1647,31 @@ struct PluginState: Codable, Equatable {
         }
     }
 
-    /// D1: mark a Colour DEFINED iff it is painted in some scene — so a fresh factory/arc ships a SPARSE palette
-    /// (only the used Colours as chips; the rest are "+" slots). Old saved docs (`defined == nil`) are untouched.
+    /// D1: mark a Machine DEFINED iff it is painted in some scene — so a fresh factory/arc ships a SPARSE palette
+    /// (only the used Machines as chips; the rest are "+" slots). Old saved docs (`defined == nil`) are untouched.
     mutating func markDefinedFromUsage() {
-        let used = Set(scenes.flatMap { $0.cells.flatMap { $0.compactMap { $0?.colourID } } })
-        for i in colours.indices { colours[i].defined = used.contains(colours[i].colourID) }
+        let used = Set(scenes.flatMap { $0.cells.flatMap { $0.compactMap { $0?.machineID } } })
+        for i in machines.indices { machines[i].defined = used.contains(machines[i].machineID) }
     }
 
     static func factory() -> PluginState {
-        var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        var machines = machineIDs.map { Machine(machineID: $0, type: .arp) }
         // A few designed defaults so the factory session sounds immediately (§6.6). (Old paramsB ALT
-        // demos dropped — the pair model sets ALT via a partner Colour; re-author as a follow-up.)
-        func idx(_ id: String) -> Int { colourIDs.firstIndex(of: id)! }
-        colours[idx("gold")].paramsA.octaves = 2
-        colours[idx("cyan")].type = .ratchet
-        colours[idx("cyan")].paramsA.count = 4
-        colours[idx("vermilion")].type = .passgate
-        colours[idx("magenta")].transpose = 12
+        // demos dropped — the pair model sets ALT via a partner Machine; re-author as a follow-up.)
+        func idx(_ id: String) -> Int { machineIDs.firstIndex(of: id)! }
+        machines[idx("gold")].paramsA.octaves = 2
+        machines[idx("cyan")].type = .ratchet
+        machines[idx("cyan")].paramsA.count = 4
+        machines[idx("vermilion")].type = .passgate
+        machines[idx("magenta")].transpose = 12
 
         var scene = SceneState.empty()
-        scene.cells[0][0] = Cell(colourID: "gold")
-        scene.cells[2][0] = Cell(colourID: "vermilion")
-        scene.cells[2][1] = Cell(colourID: "magenta", buses: [.b], inputRow: 0)   // references row 0 (§1)
-        scene.cells[4][0] = Cell(colourID: "gold")
-        scene.cells[6][0] = Cell(colourID: "cyan")
-        var state = PluginState(colours: colours, scenes: [scene])
+        scene.cells[0][0] = Cell(machineID: "gold")
+        scene.cells[2][0] = Cell(machineID: "vermilion")
+        scene.cells[2][1] = Cell(machineID: "magenta", buses: [.b], inputRow: 0)   // references row 0 (§1)
+        scene.cells[4][0] = Cell(machineID: "gold")
+        scene.cells[6][0] = Cell(machineID: "cyan")
+        var state = PluginState(machines: machines, scenes: [scene])
         state.formatVersion = 4   // built directly in the v3.0 graph model + receivers
         // Synthesize the four receivers AND POINT every MIDI-IN cell at one — the initial document + store are
         // built straight from factory() (no migrate pass), so without this the cells would keep inputReceiver=nil
@@ -1683,15 +1683,15 @@ struct PluginState: Codable, Equatable {
         // synthesizing OMNI pads (never invents absent filters).
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }
         state.padScenes()   // MULTI-SCENE: slot 0 = the designed scene, slots 1–15 empty (+) — the strip is 16
-        state.markDefinedFromUsage()   // D1: sparse palette — only the painted Colours are defined chips
+        state.markDefinedFromUsage()   // D1: sparse palette — only the painted Machines are defined chips
         return state
     }
 
-    /// INIT — a blank starting point (user 2026-08-09): the 16-colour palette + 4 receivers (R1 OMNI · B/C/D ch 2/3/4)
+    /// INIT — a blank starting point (user 2026-08-09): the 16-machine palette + 4 receivers (R1 OMNI · B/C/D ch 2/3/4)
     /// + ONE EMPTY scene, NO cells placed. Set as the FACTORY DEFAULT (what a fresh instance loads); the DEFAULT ARC
     /// + curriculum stay available as named presets.
     static func makeInit() -> PluginState {
-        var state = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var state = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         state.formatVersion = 4
         state.synthesizeReceiversIfNeeded()
         // Every door starts UNSET (doorMode nil → the strip shows "SET" pulsing) and DEFAULTS to HOLD when resolved (Paul
@@ -1708,7 +1708,7 @@ struct PluginState: Codable, Equatable {
         // a legato straight-through passthrough; with the rooms interface the arrangement is built on the play/part grids,
         // so a document default cell just leaked input to the output on launch. "No cell selected ⇒ silence.")
         state.padScenes()
-        state.markDefinedFromUsage()   // no cells → no colour is "in use" (the rooms SELECT grid is library-backed, not this palette)
+        state.markDefinedFromUsage()   // no cells → no machine is "in use" (the rooms SELECT grid is library-backed, not this palette)
         return state
     }
 
@@ -1717,8 +1717,8 @@ struct PluginState: Codable, Equatable {
     /// law). Each cell is an independent treatment of the held chord (MIDI-IN via R1/OMNI) summing to A — the
     /// one-chord orchestra. Content is a sensible first cut; ear-tuning happens on device.
     static func defaultArc() -> PluginState {
-        var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        func set(_ id: String, _ f: (inout Colour) -> Void) { f(&colours[colourIDs.firstIndex(of: id)!]) }
+        var machines = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        func set(_ id: String, _ f: (inout Machine) -> Void) { f(&machines[machineIDs.firstIndex(of: id)!]) }
         // The arc's palette: arps at different patterns/rates/octaves + a harmonize bloom + a chance shimmer + a bass.
         set("gold")      { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_16; $0.paramsA.octaves = 1 }
         set("cyan")      { $0.type = .arp; $0.paramsA.pattern = .upDown; $0.paramsA.rate = .r1_8 }
@@ -1729,30 +1729,30 @@ struct PluginState: Codable, Equatable {
 
         // Scene 1 — a series of arps, an interesting pattern
         var s1 = SceneState.empty()
-        s1.cells[0][0] = Cell(colourID: "gold")
-        s1.cells[2][0] = Cell(colourID: "cyan")
-        s1.cells[4][0] = Cell(colourID: "gold")
-        s1.cells[6][0] = Cell(colourID: "azure")
+        s1.cells[0][0] = Cell(machineID: "gold")
+        s1.cells[2][0] = Cell(machineID: "cyan")
+        s1.cells[4][0] = Cell(machineID: "gold")
+        s1.cells[6][0] = Cell(machineID: "azure")
 
         // Scene 2 — adds elements (a bass octave + a harmonize bloom under the arps)
         var s2 = s1
-        s2.cells[0][1] = Cell(colourID: "slate")
-        s2.cells[4][1] = Cell(colourID: "magenta")
+        s2.cells[0][1] = Cell(machineID: "slate")
+        s2.cells[4][1] = Cell(machineID: "magenta")
 
         // Scene 3 — EPIC: dense · OCT register spread · harmonize + chance shimmer · rhythmic interlock (all → A)
         var s3 = SceneState.empty()
-        for c in [0, 2, 4, 6] { s3.cells[c][0] = Cell(colourID: "gold") }
-        for c in [1, 3, 5, 7] { s3.cells[c][0] = Cell(colourID: "azure") }
-        s3.cells[0][1] = Cell(colourID: "slate"); s3.cells[4][1] = Cell(colourID: "slate")
-        s3.cells[2][1] = Cell(colourID: "magenta"); s3.cells[6][1] = Cell(colourID: "magenta")
-        s3.cells[3][2] = Cell(colourID: "teal");   s3.cells[7][2] = Cell(colourID: "teal")
+        for c in [0, 2, 4, 6] { s3.cells[c][0] = Cell(machineID: "gold") }
+        for c in [1, 3, 5, 7] { s3.cells[c][0] = Cell(machineID: "azure") }
+        s3.cells[0][1] = Cell(machineID: "slate"); s3.cells[4][1] = Cell(machineID: "slate")
+        s3.cells[2][1] = Cell(machineID: "magenta"); s3.cells[6][1] = Cell(machineID: "magenta")
+        s3.cells[3][2] = Cell(machineID: "teal");   s3.cells[7][2] = Cell(machineID: "teal")
 
-        var state = PluginState(colours: colours, scenes: [s1, s2, s3])
+        var state = PluginState(machines: machines, scenes: [s1, s2, s3])
         state.formatVersion = 4
         state.synthesizeReceiversIfNeeded()                         // point every MIDI-IN cell at a receiver (R1)
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }   // A=OMNI, B/C/D=2/3/4
         state.padScenes()                                           // slots 3…7 = +
-        state.markDefinedFromUsage()                                // D1: sparse palette — only the arc's Colours are defined
+        state.markDefinedFromUsage()                                // D1: sparse palette — only the arc's Machines are defined
         return state
     }
 
@@ -1761,21 +1761,21 @@ struct PluginState: Codable, Equatable {
     // mode ON; 3 SCENES = intensity curves (the active rung per column) over the SAME grid; single emitter A · ch1
     // (minimum rig); HARM (where present) is +12 octave only. Slot helpers:
     private static func lArp(_ pat: ArpPattern, _ rate: ArpRate, oct: Int, gate: Double, legato: Bool = false) -> ProcessorSlot {
-        var p = ColourParams(); p.pattern = pat; p.rate = rate; p.octaves = oct; p.gate = gate
+        var p = MachineParams(); p.pattern = pat; p.rate = rate; p.octaves = oct; p.gate = gate
         if legato { p.phase = .legato }
         return ProcessorSlot(type: .arp, params: p)
     }
     private static func lPass(_ gate: Double, legato: Bool = true) -> ProcessorSlot {
-        var p = ColourParams(); p.gate = gate; if legato { p.phase = .legato }
+        var p = MachineParams(); p.gate = gate; if legato { p.phase = .legato }
         return ProcessorSlot(type: .passgate, params: p)
     }
-    private static func lHarm12() -> ProcessorSlot { var p = ColourParams(); p.harmIntervals = [12, 0, 0]; return ProcessorSlot(type: .harmonize, params: p) }
-    private static func lRtc(_ count: Int) -> ProcessorSlot { var p = ColourParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }
-    private static func lChnc(_ prob: Double) -> ProcessorSlot { var p = ColourParams(); p.probability = prob; return ProcessorSlot(type: .chance, params: p) }
+    private static func lHarm12() -> ProcessorSlot { var p = MachineParams(); p.harmIntervals = [12, 0, 0]; return ProcessorSlot(type: .harmonize, params: p) }
+    private static func lRtc(_ count: Int) -> ProcessorSlot { var p = MachineParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }
+    private static func lChnc(_ prob: Double) -> ProcessorSlot { var p = MachineParams(); p.probability = prob; return ProcessorSlot(type: .chance, params: p) }
     /// A configured ECHO (delay) slot — synced 16th-note divisions by default (user 2026-08-08 delay controls).
     static func lEcho(div: Int = 4, repeats: Int = 4, feedDelay: Double = 0.7, decay: Double = 0.5,
                       offset: Double = 0, pitch: Int = 0, thru: Bool = true, sync: Bool = true, ms: Double = 250) -> ProcessorSlot {
-        var p = ColourParams()
+        var p = MachineParams()
         p.echoSync = sync; p.echoDelayDiv = div; p.echoDelayMs = ms; p.echoRepeats = repeats
         p.echoFeedDelay = feedDelay; p.echoDecay = decay; p.echoOffset = offset; p.echoPitch = pitch; p.echoThru = thru
         return ProcessorSlot(type: .echo, params: p)
@@ -1786,11 +1786,11 @@ struct PluginState: Codable, Equatable {
     private static func ladderPreset(_ hues: [String], _ machines: [[ProcessorSlot]], _ curves: [[Int]]) -> PluginState {
         var grid = SceneState.empty()
         for col in 0..<8 { for row in 0..<8 {
-            var c = Cell(colourID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]
+            var c = Cell(machineID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]
             grid.cells[col][row] = c
         } }
         let scenes = curves.map { curve -> SceneState in var s = grid; s.activeRow = curve.map { Optional($0) }; return s }
-        var state = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: scenes)
+        var state = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: scenes)
         state.ladderMode = true; state.formatVersion = 4
         state.synthesizeReceiversIfNeeded()
         for i in state.receivers!.indices { state.receivers![i].channel = 0 }   // OMNI in; output = Emit A · ch1
@@ -1889,13 +1889,13 @@ struct PluginState: Codable, Equatable {
             [lEcho(div: 8, repeats: 3, feedDelay: 0.75, decay: 0.7, offset: 0.2)]]  // R8 CANYON — half-note, wide
         var grid = SceneState.empty()
         for row in 0..<8 {
-            var c = Cell(colourID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]
+            var c = Cell(machineID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]
             grid.cells[0][row] = c   // COLUMN 0 only — the delay tail rings out across the empty columns
         }
         let scenes = [0, 4, 7].map { pick -> SceneState in    // SLAP · DUB · CANYON
             var s = grid; var ar = [Int?](repeating: nil, count: 8); ar[0] = pick; s.activeRow = ar; return s
         }
-        var state = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: scenes)
+        var state = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: scenes)
         state.ladderMode = true; state.formatVersion = 4
         state.synthesizeReceiversIfNeeded()
         for i in state.receivers!.indices { state.receivers![i].channel = 0 }   // OMNI in; output = Emit A · ch1
@@ -1904,13 +1904,13 @@ struct PluginState: Codable, Equatable {
     }
 }
 
-// MARK: - MODELESS EDIT scope (2026-07-27) — scope-after-target: THIS · ALL IDENTICAL · ALL <COLOUR>
+// MARK: - MODELESS EDIT scope (2026-07-27) — scope-after-target: THIS · ALL IDENTICAL · ALL <MACHINE>
 
 extension SceneState {
-    enum EditScope { case thisOne, allIdentical, allColour, twins }
+    enum EditScope { case thisOne, allIdentical, allMachine, twins }
 
     /// The cells an EDIT at `(col,row)` should touch under `scope`, as encoded positions (col*8 + row), sorted.
-    /// ALL IDENTICAL = same Colour AND same routing (input source + emitter buses); ALL COLOUR = same Colour.
+    /// ALL IDENTICAL = same Machine AND same routing (input source + emitter buses); ALL MACHINE = same Machine.
     /// An empty exemplar ⇒ []. Pure — the counted-chip + flash-set truth behind "EDITING n · ALL GOLD".
     func editScopeTargets(col: Int, row: Int, scope: EditScope) -> [Int] {
         guard col >= 0, col < 8, row >= 0, row < 8, col < cells.count, row < cells[col].count,
@@ -1922,12 +1922,12 @@ extension SceneState {
                 let hit: Bool
                 switch scope {
                 case .thisOne:      hit = c == col && r == row
-                case .allColour:    hit = cell.colourID == ex.colourID
-                case .allIdentical: hit = cell.colourID == ex.colourID && cell.inputRow == ex.inputRow
+                case .allMachine:    hit = cell.machineID == ex.machineID
+                case .allIdentical: hit = cell.machineID == ex.machineID && cell.inputRow == ex.inputRow
                                         && cell.inputReceiver == ex.inputReceiver && cell.buses == ex.buses
-                case .twins:        // TWINS: full editable config equal (colour + chain + input + output +
+                case .twins:        // TWINS: full editable config equal (machine + chain + input + output +
                                     // source-shaping); transient perform state (alt/muted/bypassed) ignored.
-                                    hit = cell.colourID == ex.colourID && cell.processors == ex.processors
+                                    hit = cell.machineID == ex.machineID && cell.processors == ex.processors
                                         && cell.inputReceiver == ex.inputReceiver && cell.inputRow == ex.inputRow
                                         && cell.buses == ex.buses && cell.chordSplit == ex.chordSplit
                                         && cell.velWindow == ex.velWindow && cell.chop == ex.chop
@@ -1974,22 +1974,22 @@ extension SceneState {
 
 /// The session-scoped TEMPLATE = CLIPBOARD (one stamp object, delta §5): a cell's full config minus its
 /// perform state. Written by committing a cell in the editor AND by COPY; read by the empty-cell pre-fill
-/// and the split-paste actions. Ephemeral (never persisted). Bootstrap = the desk Colour + ⇐MIDI(R1) →A.
+/// and the split-paste actions. Ephemeral (never persisted). Bootstrap = the desk Machine + ⇐MIDI(R1) →A.
 struct StampConfig: Equatable {
-    var colourID: String
+    var machineID: String
     var inputRow: Int? = nil        // a row reference; nil = MIDI-IN via the receiver below
     var inputReceiver: Int = 0      // 0–3, used when inputRow == nil
     var buses: Set<Bus> = [.a]
 
-    static func bootstrap(colourID: String) -> StampConfig { StampConfig(colourID: colourID) }
+    static func bootstrap(machineID: String) -> StampConfig { StampConfig(machineID: machineID) }
     static func from(_ c: Cell) -> StampConfig {
-        StampConfig(colourID: c.colourID, inputRow: c.inputRow, inputReceiver: c.inputReceiver ?? 0, buses: c.buses)
+        StampConfig(machineID: c.machineID, inputRow: c.inputRow, inputReceiver: c.inputReceiver ?? 0, buses: c.buses)
     }
     /// A fresh cell carrying this config (perform state defaulted).
     func makeCell() -> Cell {
-        var c = Cell(colourID: colourID); applyRouting(to: &c); return c
+        var c = Cell(machineID: machineID); applyRouting(to: &c); return c
     }
-    /// Overwrite a cell's ROUTING (input source + output buses) from this config; colour + perform
+    /// Overwrite a cell's ROUTING (input source + output buses) from this config; machine + perform
     /// state untouched. Shared by `makeCell` and the staging live-propagation to the placed cells.
     func applyRouting(to c: inout Cell) {
         c.inputRow = inputRow; c.inputReceiver = inputReceiver; c.buses = buses

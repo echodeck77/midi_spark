@@ -32,7 +32,7 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 }
 
 /// delta item 8: a lifted processor on the clipboard — {type, params, transpose} — COPY'd from one panel,
-/// PASTE'able onto any other (A or B, any Colour); a different type retypes the target.
+/// PASTE'able onto any other (A or B, any Machine); a different type retypes the target.
 
 /// Live diagnostics: what the kernel is actually seeing, at 4 Hz.
 /// Interpreting it:
@@ -99,7 +99,7 @@ struct DiagView: View {
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
     @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); the AnyView boundaries fixed the metadata-stack crash
-    // BUILD page (user 2026-08-11): the selected PART's cast colour (index into the part palette; −1 = none). Placement-skeleton state.
+    // BUILD page (user 2026-08-11): the selected PART's cast machine (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
     @State var buildRowMode: BuildRowMode = .select  // STAGING grid: what its left row buttons do (SELECT · MUTATE; PLACE retired from the centre column — Paul 2026-08-17)
@@ -107,13 +107,13 @@ struct DiagView: View {
     @State var buildPlaceMsg: String? = nil          // the processor pop-up's PLACE feedback line ("added to row 6 — 2 remaining")
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
-    // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-colour.
-    // PART AUTOMATION (Paul 2026-09-02): per colourID → its automation (which lane is active + its 5 lanes). The ACTIVE
-    // lane is per-colour (each colour's automation is independent); the focused colour's active lane drives the band.
-    @State var buildAutoLanes: [String: PartAutoColour] = [:]
+    // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-machine.
+    // PART AUTOMATION (Paul 2026-09-02): per machineID → its automation (which lane is active + its 5 lanes). The ACTIVE
+    // lane is per-machine (each machine's automation is independent); the focused machine's active lane drives the band.
+    @State var buildAutoLanes: [String: PartAutoMachine] = [:]
     // PART ENTRY DEFAULT (Paul 2026-09-02): false until the user EDITS the part grid (selects a rung/row, stamps, punches,
     // edits the machine). While false, entering the PART room defaults the selected row to the currently-playing (audition)
-    // colour's row. Reset to false when a fresh part is created, so a new part re-defaults.
+    // machine's row. Reset to false when a fresh part is created, so a new part re-defaults.
     @State var buildPartTouched: Bool = false
     @State var buildBypassHeld: Int? = nil      // HOLD-BYPASS A/B (idea 23): the slot momentarily bypassed while the BYPASS button is held
     @State var buildRiffCaptureArmed = false    // RIFF CAPTURE (§2): recording a played line into the armed door (device-owned; cleared on commit/cancel)
@@ -123,30 +123,30 @@ struct DiagView: View {
     @State var buildChainDragLoc: CGPoint = .zero   // finger location in the "chainBlock" coordinate space
     @State var buildChainDropTo: Int? = nil     // the slot index under the finger (highlighted; committed on release)
     @State var buildChainClipboard: [ProcessorSlot]? = nil   // COPY/PASTE buffer: a copied chain, pasted into a new row position
-    // PROCESSOR EDITOR transaction (Paul 2026-08-19): the colour's chain as it was when the editor OPENED, so CANCEL can
+    // PROCESSOR EDITOR transaction (Paul 2026-08-19): the machine's chain as it was when the editor OPENED, so CANCEL can
     // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.
     @State var buildEditorSnapshot: [ProcessorSlot] = []
     @State var buildEditorSnapCid: String? = nil
     // I/O toggle LONG-PRESS → apply to EVERY row (Paul 2026-08-19): a "Hold to apply to all" hint shows a moment into the hold.
     @State var buildIOHoldMsg: String? = nil
     @State var buildIOHoldPressing = false
-    @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
+    @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-machine-per-row: each row's revert-to machine when its machine relocates
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
     @State var buildStagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)   // §E: 16-wide; the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
     @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
-    @State var buildRowShade: [Double] = Array(repeating: 0, count: 8)   // STAGE THE GRID: per-row shade of the selected colour (+lighter … −darker), by output complexity
-    @State var buildPulseColourID: String? = nil   // a touched grid cell's colour, offered as a PULSING candidate in the last free palette slot (nil = none)
-    @State var buildPulseChain: [ProcessorSlot] = []   // the candidate's machine (for a staged variation cell); empty → use the colour's own chain
+    @State var buildRowShade: [Double] = Array(repeating: 0, count: 8)   // STAGE THE GRID: per-row shade of the selected machine (+lighter … −darker), by output complexity
+    @State var buildPulseMachineID: String? = nil   // a touched grid cell's machine, offered as a PULSING candidate in the last free palette slot (nil = none)
+    @State var buildPulseChain: [ProcessorSlot] = []   // the candidate's machine (for a staged variation cell); empty → use the machine's own chain
     @State var buildParts: [BuildPart] = [BuildPart()]   // the PARTS (workshop lifecycle); the CURRENT part's fields live in the working @State below, synced on switch
     @State var buildCurrentPart: Int = 0                 // index of the part currently on the build column
     @State var buildReturnPart: Int? = nil               // QoL: the UNDEFINED bench to auto-return to after promoting a restored part (Paul 2026-08-15)
-    @State var buildPartEmitters: Set<Bus> = [.a]        // the CURRENT part's output emitters (part-owned I/O; every colour follows)
+    @State var buildPartEmitters: Set<Bus> = [.a]        // the CURRENT part's output emitters (part-owned I/O; every machine follows)
     @State var buildPartRate: StepRate? = nil            // PER-PART CLOCK (Paul 2026-08-19): the CURRENT part's step rate (nil ⇒ scene default) — deployed parts play at independent tempos
     @State var buildPartLen: Int? = nil                  // PER-PART CLOCK: the CURRENT part's loop length 1…8 (nil ⇒ 8) — a shorter part loops sooner (Stage D UI later)
     @State var buildPartCast: [String] = []              // the CURRENT part's cast MEMBERSHIP (visible palette over the global store); §2 cast view
-    @State var buildCastSlots: [Int: String] = [:]       // §2 explicit slot→colourID for non-default colours (long-press places a colour on its pressed cell)
+    @State var buildCastSlots: [Int: String] = [:]       // §2 explicit slot→machineID for non-default machines (long-press places a machine on its pressed cell)
     @State var buildAuditionID: String? = nil            // the standing uncommitted "create a duplicate" candidate (ephemeral), auditioned after a PLACE
-    @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined colours ONCE on first BUILD appear
+    @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined machines ONCE on first BUILD appear
     @State var buildPendingTab: Int? = nil               // the ONE pending (copied-unedited, PULSING) tab; nil = none
     @State var reelState: Int = 0                        // THE REEL-TO-REEL: 0 off · 1 armed · 2 replaying (polled)
     @State var reelShareURLs: [URL] = []                 // EXPORT: the written SMF files to share
@@ -176,7 +176,7 @@ struct DiagView: View {
     @State var buildRowEmitters: [Set<Bus>?] = Array(repeating: nil, count: 8)
     @State var buildPendingSource: [ProcessorSlot] = []  // the chain the pending tab was copied from — diverge = PLACED
     // THE PIECE — the perform (play) grid: deployed parts, ONE ROW per part (deployment order). Each cell keeps its
-    // colourID + optional variation chain + the deploying part's I/O, so START/STOP THE PLAY GRID plays the assembly.
+    // machineID + optional variation chain + the deploying part's I/O, so START/STOP THE PLAY GRID plays the assembly.
     @State var buildPerformCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
     @State var buildPerformChain: [[[ProcessorSlot]]] = Array(repeating: Array(repeating: [], count: 8), count: Snap.maxCols)
     @State var buildPerformRecv: [Int] = Array(repeating: 0, count: 8)          // per perform-ROW input door
@@ -191,7 +191,7 @@ struct DiagView: View {
     @State var buildRow8EditSlot: Int = -1       // ROW 8 EDIT: which cell the page is authoring (−1 = the cell grid)
     // SCENES V2 (Paul 2026-08-12): in-memory play-grid arrangements. buildScenes holds the SAVED arrangements; index 0 is
     // the live one until the user captures more. Switching saves the current then restores the target (arrangement only —
-    // parts/colours/master are shared). v1: not persisted, instant switch.
+    // parts/machines/master are shared). v1: not persisted, instant switch.
     @State var buildScenes: [BuildSceneSnapshot] = []
     @State var buildActiveScene: Int = 0
     @State var buildMidiConfigOpen: Bool = false   // BUILD [MIDI CONFIG] → the MIDI INPUTS sheet (config-sheets stage 5, Paul 2026-08-20)
@@ -203,8 +203,8 @@ struct DiagView: View {
     @State var buildFileImportDoor: Int? = nil     // FILE import: which door is picking a .mid (nil = closed)
     @State var buildRangeKbdDoor: Int? = nil       // RANGE picker: which door's keyboard is open (nil = closed)
     @State var buildRangeSetHi: Bool = false       // RANGE picker: setting the MAX bound (else MIN)
-    // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the
-    // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a colour here.
+    // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → machineID; nil = blank). Not the real scene; the
+    // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a machine here.
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
     @State var buildPlayCellPart: [[BuildPart?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)   // PLAY-GRID FERRY EDITING (Paul 2026-09-05, option C): per CELL [col][row], the full BuildPart archived on flatten/promote (part-backed) so unpack round-trips losslessly. Reconciled from the earlier per-column BuildPartSnapshot onto the BuildPart model. In-memory this session; persists with the play grid at Stage 5.
     // THE PLAY GRID (Paul 2026-08-29) — its OWN arrangement, INDEPENDENT of the part's buildStagingCells so the SELECT
@@ -222,7 +222,7 @@ struct DiagView: View {
     @State var buildPlayColRecv: [Int] = Array(repeating: 0, count: 8)
     @State var buildPlayColEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
     // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column can hold an N-step pass. len[c] = 1 ⇒ the single
-    // ferried cell (today); len[c] > 1 ⇒ steps[c] (the flattened part's per-column colours) swept + looped at rate[c].
+    // ferried cell (today); len[c] > 1 ⇒ steps[c] (the flattened part's per-column machines) swept + looped at rate[c].
     @State var buildPlayColLen: [Int] = Array(repeating: 1, count: 8)
     @State var buildPlayColSteps: [[String?]] = Array(repeating: [], count: 8)
     @State var buildPlayColRate: [StepRate?] = Array(repeating: nil, count: 8)
@@ -240,12 +240,12 @@ struct DiagView: View {
     // Each header toggles its own section (play ⇄ stop), so BOTH can be stopped (Paul 2026-08-15). The two never sound
     // together (picking one stops the other) — the PIECE (play grid) is independent of this.
     @State var buildPendingWorkshopVoice: BuildWorkshopVoice? = nil   // an armed voice switch, applied on the next cell boundary (nil = none)
-    @State var buildPendingReengage: Bool = false      // a palette colour change made while the chain audition plays — re-engage on the next cell boundary (seamless)
-    @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
-    @State var buildSelID: String? = nil      // BUILD: the selected colour BY ID (supports ephemeral colours beyond the 16); nil = none
-    @State var buildColourReg: [String: [ProcessorSlot]] = [:]   // BUILD: ephemeral colours' machines (id → chain), beyond the 16 document slots
-    @State var buildColourTranspose: [String: Int] = [:]        // BUILD: ephemeral colours' REGISTER HOME (id → transpose), for the ensemble roll
-    @State var buildIDCounter: Int = 0        // BUILD: monotonic source for ephemeral colour IDs ("b0", "b1", …)
+    @State var buildPendingReengage: Bool = false      // a palette machine change made while the chain audition plays — re-engage on the next cell boundary (seamless)
+    @State var ddMachineSel: Int = -1          // DRAG&DROP page: the selected palette machine index (−1 = none)
+    @State var buildSelID: String? = nil      // BUILD: the selected machine BY ID (supports ephemeral machines beyond the 16); nil = none
+    @State var buildMachineReg: [String: [ProcessorSlot]] = [:]   // BUILD: ephemeral machines' machines (id → chain), beyond the 16 document slots
+    @State var buildMachineTranspose: [String: Int] = [:]        // BUILD: ephemeral machines' REGISTER HOME (id → transpose), for the ensemble roll
+    @State var buildIDCounter: Int = 0        // BUILD: monotonic source for ephemeral machine IDs ("b0", "b1", …)
     // BUILD UNDO (Paul 2026-08-27): the BUILD page authors in @State, invisible to the AU document undo stack — so it gets
     // its OWN undo. Each snapshot captures the WHOLE authoring @State + the document, so a restore is always complete (never
     // partial/corrupting); an action that forgets to record is simply not undoable, never corrupt. `buildUndoKey` coalesces
@@ -281,9 +281,9 @@ struct DiagView: View {
     @State var buildGridSelRowRoll: [Int: [GridSelBar]] = [:]    // per-ROW-chip piano-roll fingerprints (bg-computed on open) — the row selectors get the same drifting face
     @State var buildPlayColRoll: [Int: [GridSelBar]] = [:]       // Paul 2026-09-05: per PLAY COLUMN, the offline expected-output bars — the play/ferry cells' always-visible constellation face
     @State var buildGridSelRollGen = 0                   // generation token so a stale bg roll batch (deal/tab changed under it) is discarded
-    @State var buildGridSelStampRow: Int? = nil          // HOLD-TO-STAMP (Paul 2026-08-26): the row being held — a white sweep fills it while held; at completion the auditioning chain stamps onto it (keeping its colour)
+    @State var buildGridSelStampRow: Int? = nil          // HOLD-TO-STAMP (Paul 2026-08-26): the row being held — a white sweep fills it while held; at completion the auditioning chain stamps onto it (keeping its machine)
     @State var buildGridSelStampAt: Date? = nil          // when the hold began (drives the rising white-fill fraction)
-    @State var buildGridSelStampFlashRow: Int? = nil     // a just-stamped row — flashes fully white then fades to its colour
+    @State var buildGridSelStampFlashRow: Int? = nil     // a just-stamped row — flashes fully white then fades to its machine
     @State var buildGridSelStampFlashAt: Date? = nil
     @State var buildPartJustPromoted = false             // Paul 2026-09-05: a part was flattened to a play ferry → the NEXT new select-grid cell starts with null I/O + pulsing toggles.
     @State var buildIONullPending = false                // Paul 2026-09-05: the 8 I/O toggles show null + pulse invitingly (the cell is silent until wired); cleared on the first I/O edit.
@@ -315,15 +315,15 @@ struct DiagView: View {
     @State var currentPreset = ""              // §3 the loaded preset's name
     // CELL MACHINE stage-4: the CELL LIBRARY browser + the stamp mode (a saved cell awaiting placement).
     @State var showCellLibrary = false
-    @State var cellLibraryFromBuild = false   // the browser was opened from the BUILD page → save/stamp target the SELECTED COLOUR's chain, not an EDIT cell
-    @State var buildLibraryOriginalChain: [ProcessorSlot]? = nil   // the selected colour's chain at library-open — restored if the user leaves without APPLY
-    @State var buildLibraryPreviewed = false                       // a preview temporarily overwrote the colour's chain (not yet committed)
+    @State var cellLibraryFromBuild = false   // the browser was opened from the BUILD page → save/stamp target the SELECTED MACHINE's chain, not an EDIT cell
+    @State var buildLibraryOriginalChain: [ProcessorSlot]? = nil   // the selected machine's chain at library-open — restored if the user leaves without APPLY
+    @State var buildLibraryPreviewed = false                       // a preview temporarily overwrote the machine's chain (not yet committed)
     @State var cellLibraryList: [LibEntry] = []
     // MACRO AUTHORING FLOW (canonical, spec macro-authoring): the per-group MAIN/ALT authoring page.
     // FLOW-DIAGRAM processor pop-up (user 2026-08-07): tap a populated processor box → edit its full controls; tap an
     // empty box → the type picker. APPLY keeps · CANCEL restores the document snapshot taken on open.
     @State var scene = SceneState.empty()
-    @State var brush = "gold"        // the paint Colour (view-local; never in the document)
+    @State var brush = "gold"        // the paint Machine (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
     // (release = done). No latch/toggle. Nil = taps are triggers.
     // /btw ①: the SESSION CLIPBOARD — COPY captures a cell here; it PERSISTS after the hold releases; PASTE
@@ -386,7 +386,7 @@ struct DiagView: View {
     // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
     @State var cellHitAt = [Date](repeating: .distantPast, count: Snap.cells)   // Snap.cells = 128 (rows 0–15; index = col*Snap.rows+row)
     @State var cellHitVel = [Double](repeating: 0, count: Snap.cells)
-    @State var cellSoundVel = [Double](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity 0…1 (stays up while HELD) — the emitter fader's per-colour floor (Paul 2026-09-07)
+    @State var cellSoundVel = [Double](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity 0…1 (stays up while HELD) — the emitter fader's per-machine floor (Paul 2026-09-07)
     // SEAL comet note-on/off GATE: which cells are currently SOUNDING (derived from the 256-wide cellSoundVel feed > 0,
     // covering cols 8–15), and when each last went SILENT. The spark travels for the held duration, then fades ~0.45s.
     @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL: the part's exact output (the OFFLINE feed, recomputed on input/selection/edit change — no lag)
@@ -433,7 +433,7 @@ struct DiagView: View {
     @State var recvReplayLen: [Double] = [0, 0, 0, 0]                 // each engaged loop's length in beats (x-scale for the roll)
     @State var recvReplayAnchor: [Double] = [0, 0, 0, 0]             // each engaged loop's anchor beat — the config-roll playhead syncs to it (Paul 2026-08-26)
     @State var replayEngagedMask: UInt8 = 0                     // which REPLAY doors are actively looping (the "LAST N" toggle state)
-    @State var docColours: [Colour] = []
+    @State var docMachines: [Machine] = []
     @State var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State var stepIndex = 2
     @State var swing = 50
@@ -534,14 +534,14 @@ struct DiagView: View {
     // SELECTION undo takes precedence while it has history (the recent select/deselect actions); once exhausted,
     // undo falls through to the transactional document undo.
     // BUILD is the sole surface (Paul 2026-08-27): its authoring lives in @State, so route UNDO/REDO to the BUILD stack
-    // (whose snapshot also carries the document, so document-colour/receiver/rack edits ride along). Fall back to the AU
+    // (whose snapshot also carries the document, so document-machine/receiver/rack edits ride along). Fall back to the AU
     // document undo only if the BUILD stack is empty (defensive — nothing else drives the header now).
     func undo() { if buildCanUndo { buildDoUndo() } else if au?.uiUndo() == true { refreshFromDocument() } }
     func redo() { if buildCanRedo { buildDoRedo() } else if au?.uiRedo() == true { refreshFromDocument() } }
     func refreshFromDocument() {
         guard let au else { return }
         scene = au.uiScene()
-        docColours = au.uiColours()
+        docMachines = au.uiMachines()
         buildRow8Cells = au.uiRow8()          // ROW 8: authored cells + the scene's lit toggles
         buildRow8On = au.uiRow8On()
         busChannels = au.uiBusChannels()
@@ -583,7 +583,7 @@ struct DiagView: View {
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
     // Kernel-only (no @State / re-render). (Stopped-audition retired with the editing UI — it returns via PLACE.)
 
-    // (brushIndex + setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Colour desk.)
+    // (brushIndex + setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Machine desk.)
     func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
     var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
 
@@ -612,7 +612,7 @@ struct DiagView: View {
         soloReceiverMask ^= UInt8(1 << i)
         au?.setSoloReceiverMask(soloReceiverMask)
     }
-    // receiver strip: ±octave nudge (±1 per tap, clamp ±3). Ephemeral, composes with the colour transpose.
+    // receiver strip: ±octave nudge (±1 per tap, clamp ±3). Ephemeral, composes with the machine transpose.
     func nudgeReceiverOctave(_ i: Int, _ delta: Int) {
         guard (0..<4).contains(i) else { return }
         receiverOctave[i] = max(-3, min(3, receiverOctave[i] + delta))
@@ -754,7 +754,7 @@ struct DiagView: View {
                 // UIKit ColumnHoldOverlay's multi-touch, so the lap gesture only works un-wrapped.
                 mainContent(geo)
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
-                //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
+                //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Machines arrive.)
                 if showManual {                         // the in-app MANUAL, scrolled to the last-touched control
                     ManualView(blocks: Self.manualBlocks, initialAnchor: helpTracker.lastAnchor,
                                onClose: { showManual = false })
@@ -769,10 +769,10 @@ struct DiagView: View {
                                   onSave: savePreset, onLoad: loadPreset, onLoadFactory: loadFactoryPreset,
                                   onDelete: deletePreset, onClose: { showPresets = false })
                 }
-                if showCellLibrary {                    // the cell library browser — BUILD-only now (routes to the selected colour's chain)
+                if showCellLibrary {                    // the cell library browser — BUILD-only now (routes to the selected machine's chain)
                     CellBrowser(cells: cellLibraryList, factory: au?.factoryLibrarySummaries() ?? [],
                                 canSave: buildSelID != nil,
-                                onSave: { name in buildSaveColourToLibrary(name) },
+                                onSave: { name in buildSaveMachineToLibrary(name) },
                                 onStamp: { name in buildStampLibrary(au?.loadLibraryCell(name: name)) },
                                 onStampFactory: { name in buildStampLibrary(au?.factoryLibraryCell(name: name)) },
                                 onPreview: { name in buildPreviewLibrary(au?.loadLibraryCell(name: name)) },
@@ -949,7 +949,7 @@ struct DiagView: View {
                 recvInputRoll = [[], [], [], []]   // sheet closed → drop the scrolling marks (recvHeldNotes stays live)
                 recvReplayRoll = [[], [], [], []]; recvReplayLen = [0, 0, 0, 0]; recvReplayAnchor = [0, 0, 0, 0]
             }
-            let nc = au.uiColours();       if nc != docColours { docColours = nc }
+            let nc = au.uiMachines();       if nc != docMachines { docMachines = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
             if !tapActions.isEmpty { refreshTapMasks() }   // §9 ON TAP 4c: fire quantized onsets + expire durations
@@ -1027,7 +1027,7 @@ struct DiagView: View {
                 for i in 0..<roll.count { let n0 = roll[i].count; roll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }; if roll[i].count != n0 { pruned = true } }
                 if pruned { buildCellRoll = roll }
             }
-            let svRaw = au.pollCellSoundingVel()           // per-cell SOUNDING velocity (256-wide) → the emitter fader's per-colour floor
+            let svRaw = au.pollCellSoundingVel()           // per-cell SOUNDING velocity (256-wide) → the emitter fader's per-machine floor
             let sv = svRaw.map { Double($0) / 127.0 }; if sv != cellSoundVel { cellSoundVel = sv }   // deduped write (no re-render on a steady value)
             var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
             let nowG = Date()
@@ -1156,14 +1156,14 @@ struct DiagView: View {
     // §6d: the two PROCESSOR panels (A/B). PORTRAIT stacks them VERTICALLY (A above B, shorter) so each gets
     // full width (2026-07-27 layout); LANDSCAPE keeps them side by side (the width exists).
 
-    // (processorPanels — the retired shared-Colour A/B desk — removed with the morph layer; all processor
+    // (processorPanels — the retired shared-Machine A/B desk — removed with the morph layer; all processor
     //  editing is the per-cell CHAIN editor in EDIT now. ProcessorBox survives, used only in `slotMode`.)
 
     // Palette tap selects the desk brush (delta item 8 retired the ALT-targeting pairing gesture — a second
-    // processor is now made on the B panel, not by pairing to another Colour).
+    // processor is now made on the B panel, not by pairing to another Machine).
 
         // §2 THE ARRANGEMENT BAR (extracted → ArrangementBar.swift). The VC keeps the poll + the grid's scene/
-    // colours: it feeds the bar the polled sceneEmpty/activeSceneIdx and refreshes on `onSceneOpDone`.
+    // machines: it feeds the bar the polled sceneEmpty/activeSceneIdx and refreshes on `onSceneOpDone`.
     var arrangementBar: some View {
         ArrangementBar(au: au, d: d, stepBeats: stepBeats,
                        sceneEmpty: sceneEmpty, activeSceneIdx: activeSceneIdx,
@@ -1222,7 +1222,7 @@ struct DiagView: View {
         guard let au else { return }
         let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }
         let a = au.uiActiveScene(); if a != activeSceneIdx { activeSceneIdx = a }
-        scene = au.uiScene(); docColours = au.uiColours()   // the grid follows the switched scene
+        scene = au.uiScene(); docMachines = au.uiMachines()   // the grid follows the switched scene
     }
 
     // Dev-only: the canned TestSessions loader (portrait scroll; not part of the release strip).

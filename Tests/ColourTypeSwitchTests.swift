@@ -1,13 +1,13 @@
-//  ColourTypeSwitchTests.swift
-//  Proves the required behaviour (user spec revision): switching a Colour's processor type must NOT
+//  MachineTypeSwitchTests.swift
+//  Proves the required behaviour (user spec revision): switching a Machine's processor type must NOT
 //  leak parameters between types. Each type keeps its OWN transpose/morph; type-specific params (which
-//  live in distinct ColourParams fields) already persist and isolate. A→B→A restores A's values.
+//  live in distinct MachineParams fields) already persist and isolate. A→B→A restores A's values.
 
 import XCTest
 
-final class ColourTypeSwitchTests: XCTestCase {
+final class MachineTypeSwitchTests: XCTestCase {
 
-    private func gold() -> Colour { Colour(colourID: "gold", type: .arp) }
+    private func gold() -> Machine { Machine(machineID: "gold", type: .arp) }
 
     func testTransposeIsPerType_noLeakAcrossSwitch() {
         var c = gold()
@@ -23,12 +23,12 @@ final class ColourTypeSwitchTests: XCTestCase {
     }
 
     func testMorphPersistsAcrossTypeSwitch() {
-        // delta §9 item 5: morph is a single per-Colour scalar (the position TOWARD the partner), NOT
+        // delta §9 item 5: morph is a single per-Machine scalar (the position TOWARD the partner), NOT
         // per-type — so a type switch leaves it untouched (unlike transpose, which stays per-type).
         var c = gold()
         c.morph = 0.7
         c.switchType(to: .strum)
-        XCTAssertEqual(c.morph, 0.7, accuracy: 1e-9, "morph is per-Colour now — it survives a type switch")
+        XCTAssertEqual(c.morph, 0.7, accuracy: 1e-9, "morph is per-Machine now — it survives a type switch")
         c.switchType(to: .arp)
         XCTAssertEqual(c.morph, 0.7, accuracy: 1e-9)
     }
@@ -51,8 +51,8 @@ final class ColourTypeSwitchTests: XCTestCase {
         XCTAssertEqual(c.transpose, 9); XCTAssertEqual(c.morph, 0.5, accuracy: 1e-9)
     }
 
-    func testLegacyColourWithNilStashSwitchesCleanly() {
-        // A v2-decoded Colour has nil stashes; the first switch must still isolate (treat nil as zeros).
+    func testLegacyMachineWithNilStashSwitchesCleanly() {
+        // A v2-decoded Machine has nil stashes; the first switch must still isolate (treat nil as zeros).
         var c = gold(); c.transpose = 3
         XCTAssertNil(c.transposeByType)
         c.switchType(to: .ratchet)

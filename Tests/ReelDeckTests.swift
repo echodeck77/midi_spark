@@ -316,21 +316,21 @@ final class ReelDeckTests: XCTestCase {
 final class PartRollDeckTests: XCTestCase {
     func testPairsOnOffIntoNotesWithRealDurations() {
         let d = PartRollDeck()
-        d.record(beat: 0.0, cable: 1, colour: 0xAABBCC, 0x90, 60, 100)   // C on at beat 0
-        d.record(beat: 1.0, cable: 1, colour: 0,         0x80, 60, 0)     // C off at beat 1
-        d.record(beat: 2.0, cable: 2, colour: 0x112233, 0x90, 67, 80)    // G on at beat 2 (emitter B), left open
+        d.record(beat: 0.0, cable: 1, machine: 0xAABBCC, 0x90, 60, 100)   // C on at beat 0
+        d.record(beat: 1.0, cable: 1, machine: 0,         0x80, 60, 0)     // C off at beat 1
+        d.record(beat: 2.0, cable: 2, machine: 0x112233, 0x90, 67, 80)    // G on at beat 2 (emitter B), left open
         d.endCycle()                                                     // the cycle completes → becomes the drawn roll
         let notes = d.roll(cycleBeats: 4.0).sorted { $0.start < $1.start }
         XCTAssertEqual(notes.count, 2)
         XCTAssertEqual(notes[0].note, 60); XCTAssertEqual(notes[0].cable, 1)
         XCTAssertEqual(notes[0].start, 0.0, accuracy: 1e-9); XCTAssertEqual(notes[0].end, 1.0, accuracy: 1e-9, "real duration")
-        XCTAssertEqual(notes[0].colour, 0xAABBCC, "the note carries the sounding cell's colour")
+        XCTAssertEqual(notes[0].machine, 0xAABBCC, "the note carries the sounding cell's machine")
         XCTAssertEqual(notes[1].note, 67); XCTAssertEqual(notes[1].cable, 2)
         XCTAssertEqual(notes[1].end, 4.0, accuracy: 1e-9, "a note open at cycle end holds to cycleBeats")
     }
     func testEmptyCycleKeepsThePreviousRollAsAGhost() {
         let d = PartRollDeck()
-        d.record(beat: 0.0, cable: 1, colour: 0, 0x90, 60, 100); d.record(beat: 1.0, cable: 1, colour: 0, 0x80, 60, 0)
+        d.record(beat: 0.0, cable: 1, machine: 0, 0x90, 60, 100); d.record(beat: 1.0, cable: 1, machine: 0, 0x80, 60, 0)
         d.endCycle()                                                     // pattern captured
         XCTAssertEqual(d.roll(cycleBeats: 4.0).count, 1)
         d.endCycle()                                                     // an EMPTY cycle (no input) → keep the ghost
@@ -342,13 +342,13 @@ final class PartRollDeckTests: XCTestCase {
     func testDoubleBufferPublishReadsTheLatestCycleAcrossFlips() {
         let d = PartRollDeck()
         // cycle 1 → note 60
-        d.record(beat: 0, cable: 1, colour: 0, 0x90, 60, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 60, 0); d.endCycle()
+        d.record(beat: 0, cable: 1, machine: 0, 0x90, 60, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 60, 0); d.endCycle()
         XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [60])
         // cycle 2 → note 62 (flips to the other buffer)
-        d.record(beat: 0, cable: 1, colour: 0, 0x90, 62, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 62, 0); d.endCycle()
+        d.record(beat: 0, cable: 1, machine: 0, 0x90, 62, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 62, 0); d.endCycle()
         XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [62], "reads the latest cycle after the first flip")
         // cycle 3 → note 64 (flips BACK to the first buffer — proves both directions)
-        d.record(beat: 0, cable: 1, colour: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 64, 0); d.endCycle()
+        d.record(beat: 0, cable: 1, machine: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 64, 0); d.endCycle()
         XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [64], "reads the latest cycle after flipping back")
         d.clear(); XCTAssertTrue(d.roll(cycleBeats: 4).isEmpty, "clear blanks both buffers")
     }
@@ -357,19 +357,19 @@ final class PartRollDeckTests: XCTestCase {
     // partial pre-edge cycle is DISCARDED by beginRecording and doesn't bleed into the next published cycle.
     func testBeginRecordingDiscardsPartialCycleAfterClear() {
         let d = PartRollDeck()
-        d.record(beat: 0, cable: 1, colour: 0, 0x90, 60, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 60, 0); d.endCycle()
+        d.record(beat: 0, cable: 1, machine: 0, 0x90, 60, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 60, 0); d.endCycle()
         d.clear()
         XCTAssertTrue(d.roll(cycleBeats: 4).isEmpty, "clear blanks the published roll")
-        d.record(beat: 0, cable: 1, colour: 0, 0x90, 62, 100)   // a PARTIAL in-progress cycle (an orphaned in-flight record)
+        d.record(beat: 0, cable: 1, machine: 0, 0x90, 62, 100)   // a PARTIAL in-progress cycle (an orphaned in-flight record)
         d.beginRecording()                                       // the rising edge → discard the scratch
-        d.record(beat: 0, cable: 1, colour: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, colour: 0, 0x80, 64, 0); d.endCycle()
+        d.record(beat: 0, cable: 1, machine: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 64, 0); d.endCycle()
         XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [64], "beginRecording discarded the pre-edge 62; only the fresh cycle publishes")
     }
     // (Paul 2026-09-03): each note carries its emitting CELL index through record→roll, so the part roll can filter to the
     // selected rung per column (the display filter lives in the UI; here we lock the plumbing that feeds it).
     func testRollCarriesTheEmittingCellIndex() {
         let d = PartRollDeck()
-        d.record(beat: 0, cable: 1, colour: 0, cell: 37, 0x90, 60, 100); d.record(beat: 1, cable: 1, colour: 0, cell: 37, 0x80, 60, 0)
+        d.record(beat: 0, cable: 1, machine: 0, cell: 37, 0x90, 60, 100); d.record(beat: 1, cable: 1, machine: 0, cell: 37, 0x80, 60, 0)
         d.endCycle()
         XCTAssertEqual(d.roll(cycleBeats: 4).first?.cell, 37, "the note keeps the cell it was emitted from")
     }
@@ -385,9 +385,9 @@ final class OfflinePartRollTests: XCTestCase {
         XCTAssertEqual(c.velocity(60), 90, "the clone is an independent value copy")
     }
     func testOfflinePartRollRendersTheHeldChordDeterministically() {
-        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
-        st.colours[0].templateChain = [ProcessorSlot(type: .arp)]
-        var s = SceneState.empty(); var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0; s.cells[0][0] = cell
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        st.machines[0].templateChain = [ProcessorSlot(type: .arp)]
+        var s = SceneState.empty(); var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 0; s.cells[0][0] = cell
         st.scenes = [s]; st.busChannels = [1, 2, 3, 4]; st.synthesizeReceiversIfNeeded()
         let box = SnapshotBuilder.build(from: st)
         let pool = NotePool(); for n: UInt8 in [60, 64, 67] { pool.noteOn(n, velocity: 100, channel: 0) }; pool.rebuildSorted()
@@ -398,16 +398,16 @@ final class OfflinePartRollTests: XCTestCase {
         XCTAssertTrue(renderOfflinePartRoll(box: box, pool: NotePool(), latched: [], latchMask: 0, cyc: 4.0).isEmpty, "no input → nothing playing → empty (accurate, not a fake pattern)")
     }
 
-    func testOfflineRollTagsEmitterCableAndCellColour() {
-        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
-        st.colours[0].templateChain = [ProcessorSlot(type: .arp)]
-        var s = SceneState.empty(); var cell = Cell(colourID: "gold", buses: [.c]); cell.inputReceiver = 0; s.cells[0][0] = cell
+    func testOfflineRollTagsEmitterCableAndCellMachine() {
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        st.machines[0].templateChain = [ProcessorSlot(type: .arp)]
+        var s = SceneState.empty(); var cell = Cell(machineID: "gold", buses: [.c]); cell.inputReceiver = 0; s.cells[0][0] = cell
         st.scenes = [s]; st.busChannels = [1, 2, 3, 4]; st.synthesizeReceiversIfNeeded()
         let box = SnapshotBuilder.build(from: st, hues: ["gold": 0xAABBCC])   // as the live app builds it (snapHues supplies the packed RGB)
         let pool = NotePool(); for n: UInt8 in [60, 64, 67] { pool.noteOn(n, velocity: 100, channel: 0) }; pool.rebuildSorted()
         let notes = renderOfflinePartRoll(box: box, pool: pool.clone(), latched: [], latchMask: 0, cyc: 4.0)
         XCTAssertFalse(notes.isEmpty)
         XCTAssertTrue(notes.allSatisfy { $0.cable == 3 }, "bus .c ⇒ cable 3 (Emit C) — the emitter tag is accurate")
-        XCTAssertTrue(notes.allSatisfy { $0.colour == 0xAABBCC }, "every note carries the producing cell's hue")
+        XCTAssertTrue(notes.allSatisfy { $0.machine == 0xAABBCC }, "every note carries the producing cell's hue")
     }
 }

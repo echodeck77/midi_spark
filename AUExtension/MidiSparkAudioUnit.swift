@@ -82,11 +82,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) — per-cell processor CHAIN edits (cell-scoped, undoable via editScene)
 
-    /// The chain as it stands, materialising a 1-slot head from the referenced Colour the first time a cell with
-    /// no explicit chain is edited (so an untouched cell keeps rendering as its Colour's A face until then).
+    /// The chain as it stands, materialising a 1-slot head from the referenced Machine the first time a cell with
+    /// no explicit chain is edited (so an untouched cell keeps rendering as its Machine's A face until then).
     private func materializedChain(_ cell: Cell) -> [ProcessorSlot] {
         if let p = cell.processors { return p }                                // per-cell override — incl. an explicit EMPTY chain (passthrough)
-        return colourTemplateChain(cell.colourID)                              // else the colour TEMPLATE → legacy A face (3-tier, matches the builder)
+        return machineTemplateChain(cell.machineID)                              // else the machine TEMPLATE → legacy A face (3-tier, matches the builder)
     }
     // MODE ROW — edit a MANUAL SELECTION SET (INSTRUCTIONS-edit-page-mode-row): apply the SAME operation to EACH
     // selected cell's OWN config — so a mixed selection keeps its per-cell differences except where the edit touches.
@@ -115,74 +115,74 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Deleting the final slot leaves an EMPTY chain `[]` = the born-audible passthrough (the source flows untreated).
     func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count { $0.remove(at: slot) } } }
 
-    // MARK: - COLOUR-OWNED chain (the per-colour machine — GLOBAL by construction: colours are document-level, and a
-    // cell with no per-cell override inherits its colour's `templateChain`, so every cell of the colour, in EVERY
-    // scene, renders the one machine. "You only ever edit colours." (user 2026-08-09: per-colour model, GLOBAL.)
-    private func colourTemplateChain(_ colourID: String) -> [ProcessorSlot] {
-        let c = document.colours.first { $0.colourID == colourID }
+    // MARK: - MACHINE-OWNED chain (the per-machine machine — GLOBAL by construction: machines are document-level, and a
+    // cell with no per-cell override inherits its machine's `templateChain`, so every cell of the machine, in EVERY
+    // scene, renders the one machine. "You only ever edit machines." (user 2026-08-09: per-machine model, GLOBAL.)
+    private func machineTemplateChain(_ machineID: String) -> [ProcessorSlot] {
+        let c = document.machines.first { $0.machineID == machineID }
         if let t = c?.templateChain, !t.isEmpty { return t }
-        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // materialise the legacy A face on first edit
+        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? MachineParams())]   // materialise the legacy A face on first edit
     }
     private func passthroughTemplateSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }   // all-bypassed ≡ empty ≡ passthrough
-    /// Does this colour carry its OWN stored chain? A nil templateChain falls back to the legacy A-face (an arp, for
-    /// the default colours) — BUILD reads this straight off `document` (NOT the polled `docColours` mirror, which is
-    /// empty on first appear) to convert a bare colour to an explicit passthrough at load. (user 2026-08-12)
-    func colourHasStoredChain(_ colourID: String) -> Bool { document.colours.first { $0.colourID == colourID }?.templateChain != nil }
-    /// Mutate the colour's chain and clear the per-cell overrides of every cell of that colour (all scenes) so they
+    /// Does this machine carry its OWN stored chain? A nil templateChain falls back to the legacy A-face (an arp, for
+    /// the default machines) — BUILD reads this straight off `document` (NOT the polled `docMachines` mirror, which is
+    /// empty on first appear) to convert a bare machine to an explicit passthrough at load. (user 2026-08-12)
+    func machineHasStoredChain(_ machineID: String) -> Bool { document.machines.first { $0.machineID == machineID }?.templateChain != nil }
+    /// Mutate the machine's chain and clear the per-cell overrides of every cell of that machine (all scenes) so they
     /// inherit it. An empty result stores a single bypassed slot = the born-audible passthrough (an empty template
     /// would fall through to the legacy face). ONE undoable document edit.
-    /// The chain as DISPLAYED for a colour — a representative placed cell's RESOLVED chain (per-cell override →
-    /// template → legacy), so a colour-scoped edit is based on what the user sees, never the bare template. Without
+    /// The chain as DISPLAYED for a machine — a representative placed cell's RESOLVED chain (per-cell override →
+    /// template → legacy), so a machine-scoped edit is based on what the user sees, never the bare template. Without
     /// this, adding/editing a slot re-read the template + cleared overrides → a per-cell arp config reverted (user
-    /// 2026-08-10). Falls back to the template/legacy face when the colour has no placed cell.
-    private func resolvedColourChain(_ colourID: String) -> [ProcessorSlot] {
+    /// 2026-08-10). Falls back to the template/legacy face when the machine has no placed cell.
+    private func resolvedMachineChain(_ machineID: String) -> [ProcessorSlot] {
         for s in document.scenes {
             for col in s.cells {
-                for cell in col where cell?.colourID == colourID { if let cell { return materializedChain(cell) } }
+                for cell in col where cell?.machineID == machineID { if let cell { return materializedChain(cell) } }
             }
         }
-        return colourTemplateChain(colourID)
+        return machineTemplateChain(machineID)
     }
-    /// Store a colour's chain on its template (empty → a bypassed-passgate passthrough) + drop every matching cell's
+    /// Store a machine's chain on its template (empty → a bypassed-passgate passthrough) + drop every matching cell's
     /// per-cell override so all inherit the template — ONE editDocument = one undo record. (shared, 2026-08-15)
-    private func storeColourChainClearingOverrides(_ colourID: String, _ chain: [ProcessorSlot]) {
+    private func storeMachineChainClearingOverrides(_ machineID: String, _ chain: [ProcessorSlot]) {
         let stored: [ProcessorSlot] = chain.isEmpty ? [passthroughTemplateSlot()] : chain
         editDocument { doc in
-            if let ci = doc.colours.firstIndex(where: { $0.colourID == colourID }) { doc.colours[ci].templateChain = stored }
+            if let ci = doc.machines.firstIndex(where: { $0.machineID == machineID }) { doc.machines[ci].templateChain = stored }
             for si in doc.scenes.indices {
                 for c in doc.scenes[si].cells.indices {
-                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.colourID == colourID {
+                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.machineID == machineID {
                         doc.scenes[si].cells[c][r]?.processors = nil     // inherit the template (drop any stale override)
                     }
                 }
             }
         }
     }
-    func withChainColour(_ colourID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
-        var chain = resolvedColourChain(colourID)
+    func withChainMachine(_ machineID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
+        var chain = resolvedMachineChain(machineID)
         mutate(&chain)
-        storeColourChainClearingOverrides(colourID, chain)
+        storeMachineChainClearingOverrides(machineID, chain)
     }
-    /// Set a colour's chain to EXACTLY `chain` (empty → a bypassed-passgate passthrough) + clear every cell's override.
+    /// Set a machine's chain to EXACTLY `chain` (empty → a bypassed-passgate passthrough) + clear every cell's override.
     /// The UI computes `chain` from what's DISPLAYED (cellChain(editingCell)), so an edit never operates on a stale
     /// representative cell → deleting the first of two slots leaves the other, not a passgate. (user 2026-08-10 bug.)
-    func setColourChain(_ colourID: String, _ chain: [ProcessorSlot]) {
-        storeColourChainClearingOverrides(colourID, chain)
+    func setMachineChain(_ machineID: String, _ chain: [ProcessorSlot]) {
+        storeMachineChainClearingOverrides(machineID, chain)
     }
-    func addSlotColour(_ id: String, type: ProcessorType = .passgate) { withChainColour(id) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
-    func removeSlotColour(_ id: String, slot: Int) { withChainColour(id) { if slot < $0.count { $0.remove(at: slot) } } }
-    func editSlotColour(_ id: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withChainColour(id) { if slot < $0.count { mutate(&$0[slot]) } } }
-    func setSlotTypeColour(_ id: String, slot: Int, _ type: ProcessorType) { editSlotColour(id, slot: slot) { $0.type = type } }
-    func toggleSlotBypassColour(_ id: String, slot: Int) { editSlotColour(id, slot: slot) { $0.bypassed.toggle() } }
-    /// Apply `mutate` to EVERY cell of a colour, across all scenes — the colour-scoped path for the per-cell ROUTING
-    /// fields (receiver / emitters / chop are stored on the Cell, not the Colour, so "edit the colour" fans out to
+    func addSlotMachine(_ id: String, type: ProcessorType = .passgate) { withChainMachine(id) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
+    func removeSlotMachine(_ id: String, slot: Int) { withChainMachine(id) { if slot < $0.count { $0.remove(at: slot) } } }
+    func editSlotMachine(_ id: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withChainMachine(id) { if slot < $0.count { mutate(&$0[slot]) } } }
+    func setSlotTypeMachine(_ id: String, slot: Int, _ type: ProcessorType) { editSlotMachine(id, slot: slot) { $0.type = type } }
+    func toggleSlotBypassMachine(_ id: String, slot: Int) { editSlotMachine(id, slot: slot) { $0.bypassed.toggle() } }
+    /// Apply `mutate` to EVERY cell of a machine, across all scenes — the machine-scoped path for the per-cell ROUTING
+    /// fields (receiver / emitters / chop are stored on the Cell, not the Machine, so "edit the machine" fans out to
     /// all its cells). Used by the DRAG&DROP page so a receiver/emitter pick pushes to every instance. ONE undoable
     /// document edit. (user 2026-08-09)
-    func editCellsOfColour(_ colourID: String, _ mutate: (inout Cell) -> Void) {
+    func editCellsOfMachine(_ machineID: String, _ mutate: (inout Cell) -> Void) {
         editDocument { doc in
             for si in doc.scenes.indices {
                 for c in doc.scenes[si].cells.indices {
-                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.colourID == colourID {
+                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.machineID == machineID {
                         if var cell = doc.scenes[si].cells[c][r] { mutate(&cell); doc.scenes[si].cells[c][r] = cell }
                     }
                 }
@@ -200,10 +200,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return false }
         return CellLibraryStore.save(cell.libraryStripped(materialisedChain: materializedChain(cell)), as: name)
     }
-    // BUILD-side save: a COLOUR's machine (chain) becomes a library cell (no grid cell needed). Routing stripped.
+    // BUILD-side save: a MACHINE's machine (chain) becomes a library cell (no grid cell needed). Routing stripped.
     @discardableResult
-    func saveChainToLibrary(colourID: String, chain: [ProcessorSlot], name: String) -> Bool {
-        var c = Cell(colourID: colourID); c.processors = chain; c.buses = []
+    func saveChainToLibrary(machineID: String, chain: [ProcessorSlot], name: String) -> Bool {
+        var c = Cell(machineID: machineID); c.processors = chain; c.buses = []
         return CellLibraryStore.save(c, as: name)
     }
     // Browser rows for SAVED cells: name + chain processor types + star rating (loads each cell).
@@ -241,7 +241,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         document = restored; scheduleRebuild(); return true
     }
     // BUILD UNDO (Paul 2026-08-27): the BUILD page authors in VC @State, so its undo captures that @State PLUS a copy of
-    // the document (document-colour chain / receiver / rack edits also happen there). These let a BUILD snapshot round-trip
+    // the document (document-machine chain / receiver / rack edits also happen there). These let a BUILD snapshot round-trip
     // the document without touching the transactional undoStack above. `restoreDocumentFromUndo` sets it WITHOUT recording.
     func documentSnapshot() -> PluginState { document }
     func restoreDocumentFromUndo(_ d: PluginState) { document = d; seedLatchArm(); scheduleRebuild() }
@@ -254,18 +254,18 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func clearAudition() { kernel.setAudition(-1) }
 
     // RIFF CAPTURE (SPEC-riff-processor §2, Paul 2026-09-09): arm records the door's played line into the Kernel ring;
-    // commit converts it to a MONO rank stencil against the FRAME + writes it onto the colour's RIFF slot.
+    // commit converts it to a MONO rank stencil against the FRAME + writes it onto the machine's RIFF slot.
     func armRiffCapture(door: Int) { kernel.armRiffCapture(door: door) }
     func cancelRiffCapture() { kernel.disarmRiffCapture() }
     var riffCaptureIsArmed: Bool { kernel.riffCaptureIsArmed }
-    /// Disarm + drain the captured line → `riffCaptureStencil` (steps/rate from the colour's RIFF slot) → write
+    /// Disarm + drain the captured line → `riffCaptureStencil` (steps/rate from the machine's RIFF slot) → write
     /// `riffRanks`/`riffOct` onto that slot (MONO). Returns true iff a line was captured against a non-empty frame.
-    func commitRiffCapture(colourID: String) -> Bool {
+    func commitRiffCapture(machineID: String) -> Bool {
         kernel.disarmRiffCapture()
         let (events, frame, startBeat) = kernel.riffCaptureDrain()
         guard !events.isEmpty, !frame.isEmpty else { return false }
         var didWrite = false
-        withChainColour(colourID) { chain in
+        withChainMachine(machineID) { chain in
             guard let i = chain.firstIndex(where: { $0.type == .riff }) else { return }
             let steps = chain[i].params.riffSteps ?? 16
             let rate = (chain[i].params.riffRate ?? .r1_16).beats
@@ -278,8 +278,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return didWrite
     }
     // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell renders solo while PREVIEW is held.
-    func setPreview(colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
-        kernel.setPreview(colourIndex: colourIndex, filter: filter, busMask: busMask, inputRow: inputRow)
+    func setPreview(machineIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
+        kernel.setPreview(machineIndex: machineIndex, filter: filter, busMask: busMask, inputRow: inputRow)
     }
     func clearPreview() { kernel.clearPreview() }
 
@@ -304,35 +304,35 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     /// EDIT PAGE "play this cell only" (user 2026-08-08): solo the given cells while the transport plays — every
     /// PLAY: THIS CELL (user 2026-08-09) — isolate ONE cell and freeze the timeline on its column, so ONLY that
-    /// cell's colour machine sounds, ungated by the grid sequence (the grid's active column is ignored). The full
-    /// chain renders (normal render path, just held on this column). `clearColourSolo` restores normal play.
-    func setColourSolo(col: Int, row: Int) {
-        guard col >= 0, col < 8, row >= 0, row < 8 else { clearColourSolo(); return }
+    /// cell's machine machine sounds, ungated by the grid sequence (the grid's active column is ignored). The full
+    /// chain renders (normal render path, just held on this column). `clearMachineSolo` restores normal play.
+    func setMachineSolo(col: Int, row: Int) {
+        guard col >= 0, col < 8, row >= 0, row < 8 else { clearMachineSolo(); return }
         if previewSolo != nil { previewSolo = nil; scheduleRebuild() }   // switching from an unplaced preview to a real placed cell
         kernel.setSoloCellMask(UInt64(1) << UInt64(col * 8 + row))
         kernel.setSoloColumn(col)
     }
-    func clearColourSolo() {
+    func clearMachineSolo() {
         kernel.setSoloCellMask(0); kernel.setSoloColumn(-1)
         if previewSolo != nil { previewSolo = nil; scheduleRebuild() }   // drop the synthetic preview cell (republish the real document)
     }
 
-    /// PLAY: THIS CELL for an UNPLACED colour (user 2026-08-10) — there's no grid cell to freeze on, so drop a
-    /// SYNTHETIC cell of the colour at an empty slot of the active scene into an EPHEMERAL snapshot (never the
-    /// document — encode/persist read `document`) and solo it. The REAL render path then plays the colour's full
+    /// PLAY: THIS CELL for an UNPLACED machine (user 2026-08-10) — there's no grid cell to freeze on, so drop a
+    /// SYNTHETIC cell of the machine at an empty slot of the active scene into an EPHEMERAL snapshot (never the
+    /// document — encode/persist read `document`) and solo it. The REAL render path then plays the machine's full
     /// machine (templateChain via `processors = nil`, its latch/live input, sustained under the frozen column).
-    /// Returns false if the grid is full. `clearColourSolo` drops the synthetic cell. `inputReceiver`/`buses` are the
+    /// Returns false if the grid is full. `clearMachineSolo` drops the synthetic cell. `inputReceiver`/`buses` are the
     /// page STICKY (what a placed cell would inherit).
     private var previewSolo: (col: Int, row: Int, cell: Cell)? = nil
     @discardableResult
-    func setColourSoloPreview(colourID: String, inputReceiver: Int, buses: [Bus]) -> Bool {
+    func setMachineSoloPreview(machineID: String, inputReceiver: Int, buses: [Bus]) -> Bool {
         let scene = document.activeSceneState
         var slot: (col: Int, row: Int)? = nil
         search: for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r) == nil { slot = (c, r); break search } }
         guard let (col, row) = slot else { return false }   // grid full → no room for the preview
-        var cell = Cell(colourID: colourID, buses: buses.isEmpty ? [.a] : Set(buses))
+        var cell = Cell(machineID: machineID, buses: buses.isEmpty ? [.a] : Set(buses))
         cell.inputReceiver = max(0, min(3, inputReceiver))
-        cell.processors = nil                                // inherit the colour's templateChain (its machine)
+        cell.processors = nil                                // inherit the machine's templateChain (its machine)
         previewSolo = (col, row, cell)
         scheduleRebuild()                                    // publishes the snapshot WITH the synthetic cell (renderDoc)
         kernel.setSoloCellMask(UInt64(1) << UInt64(col * 8 + row))
@@ -343,32 +343,32 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// document's active scene — ephemeral, the document is NEVER touched (encode/persist read `document`). nil = off.
     private var stagingRenderScene: SceneState? = nil
     func setBuildStagingScene(_ scene: SceneState?) { stagingRenderScene = scene; scheduleRebuild() }
-    // PHASE 2 render-time AUTO (Paul 2026-09-04): the LIVE per-colour AUTO lanes, folded into the rendered doc so
+    // PHASE 2 render-time AUTO (Paul 2026-09-04): the LIVE per-machine AUTO lanes, folded into the rendered doc so
     // SnapshotBuilder can build the render-time descriptors (×N passes / SMOOTH). nil ⇒ use the document's own.
-    private var stagingAuto: [String: PartAutoColour]? = nil
-    func setBuildAuto(_ a: [String: PartAutoColour]?) { stagingAuto = a; scheduleRebuild() }
+    private var stagingAuto: [String: PartAutoMachine]? = nil
+    func setBuildAuto(_ a: [String: PartAutoMachine]?) { stagingAuto = a; scheduleRebuild() }
 
     /// The document the snapshot renders from — the real `document`, plus the ephemeral PLAY: THIS CELL preview cell
-    /// (unplaced-colour audition) injected at its empty slot, or the BUILD staging grid override. Never used by
+    /// (unplaced-machine audition) injected at its empty slot, or the BUILD staging grid override. Never used by
     /// encode/persist (those read `document`).
-    /// BUILD's EPHEMERAL colours (beyond the 16 document slots) — id → its machine. renderDoc appends them so cells /
+    /// BUILD's EPHEMERAL machines (beyond the 16 document slots) — id → its machine. renderDoc appends them so cells /
     /// auditions referencing them resolve. Never persisted (encode/persist read `document`). (Paul 2026-08-15)
-    private var buildEphemeralColours: [(id: String, machine: [ProcessorSlot], transpose: Int)] = []
-    func setBuildEphemeralColours(_ cs: [(id: String, machine: [ProcessorSlot], transpose: Int)]) { buildEphemeralColours = cs; scheduleRebuild() }
+    private var buildEphemeralMachines: [(id: String, machine: [ProcessorSlot], transpose: Int)] = []
+    func setBuildEphemeralMachines(_ cs: [(id: String, machine: [ProcessorSlot], transpose: Int)]) { buildEphemeralMachines = cs; scheduleRebuild() }
 
     private func renderDoc() -> PluginState {
-        if stagingRenderScene == nil, previewSolo == nil, buildEphemeralColours.isEmpty, stagingAuto == nil { return document }
+        if stagingRenderScene == nil, previewSolo == nil, buildEphemeralMachines.isEmpty, stagingAuto == nil { return document }
         var temp = document
         if let sa = stagingAuto { temp.partAuto = sa }   // PHASE 2: the LIVE AUTO lanes reach the box for render-time (×N / SMOOTH)
-        for e in buildEphemeralColours where !temp.colours.contains(where: { $0.colourID == e.id }) {   // append BUILD ephemeral colours
-            var col = Colour(colourID: e.id, type: .arp)
+        for e in buildEphemeralMachines where !temp.machines.contains(where: { $0.machineID == e.id }) {   // append BUILD ephemeral machines
+            var col = Machine(machineID: e.id, type: .arp)
             col.defined = true
             col.transpose = max(-24, min(24, e.transpose))              // REGISTER HOME (ensemble roll 2026-08-19): the row's octave offset
             // An EMPTY machine is a born-audible PASSTHROUGH, not "no chain": store the bypassed-passgate placeholder,
-            // else the builder collapses [] → nil and falls to the legacy A-face (an ARP) — a seeded empty tab-1 colour
+            // else the builder collapses [] → nil and falls to the legacy A-face (an ARP) — a seeded empty tab-1 machine
             // played as an arp despite showing an empty chain. (Paul 2026-08-17)
             col.templateChain = e.machine.isEmpty ? [passthroughTemplateSlot()] : e.machine
-            temp.colours.append(col)
+            temp.machines.append(col)
         }
         let si = temp.activeSceneResolved
         if temp.scenes.indices.contains(si) {
@@ -419,7 +419,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { kernel.drainCellNotes() }   // NOTE-SWEEP: per-cell recent emitted note-ons
     func setFocusCell(_ cell: Int) { kernel.setFocusCell(cell) }   // FOCUS note-event feed: the machine's cell
     func pollFocusNotes() -> (pitch: [UInt8], vel: [UInt8], beat: [Double], count: Int) { kernel.drainFocusNotes() }
-    func pollCellSoundingVel() -> [UInt8] { kernel.pollCellSoundingVel() }   // per-cell SOUNDING velocity — the emitter fader's per-colour held floor (Paul 2026-09-07)
+    func pollCellSoundingVel() -> [UInt8] { kernel.pollCellSoundingVel() }   // per-cell SOUNDING velocity — the emitter fader's per-machine held floor (Paul 2026-09-07)
     // PART ROLL (Paul 2026-09-02): the live per-part-cycle emitted-note capture for the part-page piano roll.
     func setPartRoll(active: Bool, cycleBeats: Double) { kernel.setPartRoll(active: active, cycleBeats: cycleBeats) }
     func pollPartRoll() -> [PartRollDeck.Note] { kernel.pollPartRoll() }
@@ -495,15 +495,15 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         let rs = document.receiversResolved
         return (0..<rs.count).contains(i) ? rs[i].activeScaleResolved : 0
     }
-    // THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-04): each of four instances IS a ColourParams (the CHORDS-processor
-    // config); the editor is the processor's own ProcessorBox, which hands back an edited Colour → we store its paramsA.
+    // THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-04): each of four instances IS a MachineParams (the CHORDS-processor
+    // config); the editor is the processor's own ProcessorBox, which hands back an edited Machine → we store its paramsA.
     func setReceiverActiveChord(_ i: Int, _ slot: Int) {
         editReceiver(i) { r in
             if r.chordSeqs == nil { r.chordSeqs = r.chordSeqsResolved }   // materialize so the radio + seqs travel together
             r.activeChord = max(0, min(3, slot))
         }
     }
-    func setReceiverChordSeq(_ i: Int, _ slot: Int, _ params: ColourParams) {
+    func setReceiverChordSeq(_ i: Int, _ slot: Int, _ params: MachineParams) {
         guard (0..<4).contains(slot) else { return }
         editReceiver(i) { r in
             var seqs = r.chordSeqsResolved
@@ -862,32 +862,32 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
     func uiThruReceiver() -> Int { document.thruReceiverResolved }
 
-    /// Read-only Colours (type + params) so the grid can render each cell's type glyph + params text.
-    func uiColours() -> [Colour] { document.colours }
+    /// Read-only Machines (type + params) so the grid can render each cell's type glyph + params text.
+    func uiMachines() -> [Machine] { document.machines }
 
-    /// Switch a Colour's processor type, isolating transpose/morph per type (spec revision). The type
+    /// Switch a Machine's processor type, isolating transpose/morph per type (spec revision). The type
     /// change is a document edit; the restored transpose/morph are pushed to the AUParameter tree (with
     /// the observer's rebuild suppressed, like the load paths) so host/UI reflect the new type's values.
-    func setColourType(_ index: Int, _ newType: ProcessorType) {
+    func setMachineType(_ index: Int, _ newType: ProcessorType) {
         dispatchPrecondition(condition: .onQueue(.main))
-        guard index >= 0, index < document.colours.count, document.colours[index].type != newType else { return }
+        guard index >= 0, index < document.machines.count, document.machines[index].type != newType else { return }
         undoStack.record(document)                              // a6: discrete type switch
-        document.colours[index].switchType(to: newType)
+        document.machines[index].switchType(to: newType)
         suppressRebuild = true
-        _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(document.colours[index].transpose)
-        _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(document.colours[index].morph)
+        _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(document.machines[index].transpose)
+        _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(document.machines[index].morph)
         suppressRebuild = false
         scheduleRebuild()
     }
 
     /// Transpose (AUParameter 100+i) — set via the tree so the observer writes the document and host
     /// automation reflects it.
-    func setColourTranspose(_ index: Int, _ value: Int) {
+    func setMachineTranspose(_ index: Int, _ value: Int) {
         _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(max(-24, min(24, value)))
     }
 
-    /// Morph (AUParameter 200+i) — the per-Colour macro fader.
-    func setColourMorph(_ index: Int, _ value: Double) {
+    /// Morph (AUParameter 200+i) — the per-Machine macro fader.
+    func setMachineMorph(_ index: Int, _ value: Double) {
         _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(max(0, min(1, value)))
     }
 
@@ -994,13 +994,13 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             self.store.publish(SnapshotBuilder.build(from: doc, generation: self.snapshotGeneration, hues: self.snapHues(doc)))
         }
     }
-    // The display hue (packed RGB) per colourID — so the render can tag emitted notes with their cell's colour (the
-    // reel piano roll paints each note its colour). Same resolution the UI uses: an ephemeral override, else the
+    // The display hue (packed RGB) per machineID — so the render can tag emitted notes with their cell's machine (the
+    // reel piano roll paints each note its machine). Same resolution the UI uses: an ephemeral override, else the
     // canonical palette hex, else a neutral grey. (Paul 2026-08-19)
     private func snapHues(_ doc: PluginState) -> [String: UInt32] {
         var m: [String: UInt32] = [:]
-        for c in doc.colours {
-            m[c.colourID] = colourHueOverride[c.colourID] ?? colourIDs.firstIndex(of: c.colourID).map { colourHexes[$0] } ?? 0x808080
+        for c in doc.machines {
+            m[c.machineID] = machineHueOverride[c.machineID] ?? machineIDs.firstIndex(of: c.machineID).map { machineHexes[$0] } ?? 0x808080
         }
         return m
     }
@@ -1040,8 +1040,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // MARK: - Parameters — addresses are the STABLE IDs (§8: never renumber).
     //   0            stepRate (index into StepRate.allCases)
     //   1            swing (50…75)
-    //   100 + i      transpose per colour i (−24…+24)
-    //   200 + i      morph per colour i (0…1)          ← the macro (§3.2)
+    //   100 + i      transpose per machine i (−24…+24)
+    //   200 + i      morph per machine i (0…1)          ← the macro (§3.2)
     //   300          MORPH MASTER (0…1)                ← reserved-only (NON-functional; A/B morph removed from render)
     //   400 + i      MACRO i (0…1)                     ← the macro block, 400…423 reserved (24); only the 8
     //                                                     SLIDERS (400…407) are host-automatable now (macro-panel
@@ -1069,14 +1069,14 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             withIdentifier: "swing", name: "Swing", address: ParamAddress.swing,
             min: 50, max: 75, unit: .percent, unitName: nil,
             flags: smooth, valueStrings: nil, dependentParameters: nil))
-        for (i, id) in colourIDs.enumerated() {
+        for (i, id) in machineIDs.enumerated() {
             params.append(AUParameterTree.createParameter(
                 withIdentifier: "transpose_\(id)", name: "Transpose \(id.capitalized)",
                 address: ParamAddress.transpose(i),
                 min: -24, max: 24, unit: .indexed, unitName: "st",
                 flags: stepped, valueStrings: nil, dependentParameters: nil))
         }
-        for (i, id) in colourIDs.enumerated() {
+        for (i, id) in machineIDs.enumerated() {
             params.append(AUParameterTree.createParameter(
                 withIdentifier: "morph_\(id)", name: "Morph \(id.capitalized)",
                 address: ParamAddress.morph(i),
@@ -1114,10 +1114,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 self.document.scenes[self.document.activeSceneResolved].swing = Int(value)
             case ParamAddress.morphMaster:
                 self.document.morphMaster = Double(value)
-            case let a where a >= 200 && a < 200 + AUParameterAddress(colourIDs.count):
-                let idx = Int(a - 200); if idx < self.document.colours.count { self.document.colours[idx].morph = Double(value) }   // CR-13b: a decoded doc may have <16 colours
-            case let a where a >= 100 && a < 100 + AUParameterAddress(colourIDs.count):
-                let idx = Int(a - 100); if idx < self.document.colours.count { self.document.colours[idx].transpose = Int(value) }
+            case let a where a >= 200 && a < 200 + AUParameterAddress(machineIDs.count):
+                let idx = Int(a - 200); if idx < self.document.machines.count { self.document.machines[idx].morph = Double(value) }   // CR-13b: a decoded doc may have <16 machines
+            case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
+                let idx = Int(a - 100); if idx < self.document.machines.count { self.document.machines[idx].transpose = Int(value) }
             case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
                 // MACRO SLIDER (host automation / CC rail / in-app fader): OFFSET only — bases untouched.
                 if self.document.macros == nil { self.document.macros = self.document.macrosResolved }
@@ -1132,10 +1132,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 return AUValue(StepRate.allCases.firstIndex(of: self.document.activeSceneState.stepRate) ?? 2)
             case ParamAddress.swing: return AUValue(self.document.activeSceneState.swing)
             case ParamAddress.morphMaster: return AUValue(self.document.morphMasterResolved)
-            case let a where a >= 200 && a < 200 + AUParameterAddress(colourIDs.count):
-                let idx = Int(a - 200); return idx < self.document.colours.count ? AUValue(self.document.colours[idx].morph) : 0   // CR-13b: <16-colour doc guard
-            case let a where a >= 100 && a < 100 + AUParameterAddress(colourIDs.count):
-                let idx = Int(a - 100); return idx < self.document.colours.count ? AUValue(self.document.colours[idx].transpose) : 0
+            case let a where a >= 200 && a < 200 + AUParameterAddress(machineIDs.count):
+                let idx = Int(a - 200); return idx < self.document.machines.count ? AUValue(self.document.machines[idx].morph) : 0   // CR-13b: <16-machine doc guard
+            case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
+                let idx = Int(a - 100); return idx < self.document.machines.count ? AUValue(self.document.machines[idx].transpose) : 0
             case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
                 return AUValue(self.document.macrosResolved[Int(a - 400)].value)
             default: return 0
@@ -1344,11 +1344,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2)
         _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(scene.swing)
         _parameterTree.parameter(withAddress: ParamAddress.morphMaster)?.value = AUValue(document.morphMasterResolved)
-        for i in colourIDs.indices where i < document.colours.count {   // CR-13b: a decoded doc may carry <16 colours
+        for i in machineIDs.indices where i < document.machines.count {   // CR-13b: a decoded doc may carry <16 machines
             _parameterTree.parameter(withAddress: ParamAddress.morph(i))?.value =
-                AUValue(document.colours[i].morph)
+                AUValue(document.machines[i].morph)
             _parameterTree.parameter(withAddress: ParamAddress.transpose(i))?.value =
-                AUValue(document.colours[i].transpose)
+                AUValue(document.machines[i].transpose)
         }
         let macros = document.macrosResolved
         for i in 0..<ParamAddress.macroSliderCount {
@@ -1397,11 +1397,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         if d != nil { document.buildPlayGrid = nil }   // not render-relevant → no rebuild; a one-shot transport
         return d
     }
-    // PART AUTOMATION (Paul 2026-09-02): the per-colour AUTO lanes travel with the save. Baked at BUILD time (composeScene),
+    // PART AUTOMATION (Paul 2026-09-02): the per-machine AUTO lanes travel with the save. Baked at BUILD time (composeScene),
     // so it's not render-relevant — a plain pending/consume transport like the play grid (no rebuild).
-    private var pendingPartAuto: [String: PartAutoColour]? = nil
-    func setPartAuto(_ d: [String: PartAutoColour]?) { pendingPartAuto = d }
-    func consumePartAuto() -> [String: PartAutoColour]? {
+    private var pendingPartAuto: [String: PartAutoMachine]? = nil
+    func setPartAuto(_ d: [String: PartAutoMachine]?) { pendingPartAuto = d }
+    func consumePartAuto() -> [String: PartAutoMachine]? {
         let d = document.partAuto
         if d != nil { document.partAuto = nil }
         return d

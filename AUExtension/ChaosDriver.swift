@@ -17,7 +17,7 @@ final class ChaosDriver {
     /// MIDI comes from the host (AUM + a real latched chord) and chaos only fuzzes controls.
     enum Source { case simulated, live }
     // What chaos fuzzes: PERFORM = the play desk (roles · emitters · master · density); EDIT = the edit-screen ops
-    // (cell colour/type/transpose/morph · receiver · buses · chain slots · place/remove · begin/apply/cancel session).
+    // (cell machine/type/transpose/morph · receiver · buses · chain slots · place/remove · begin/apply/cancel session).
     enum Mode { case perform, edit }
     private weak var au: MidiSparkAudioUnit?
     private var rng = ChaosRNG(0)
@@ -128,16 +128,16 @@ final class ChaosDriver {
             for c in 0..<8 where targetActive[c] > 1 { targetActive[c] -= 1 }              // gradually strip back to one
         }
     }
-    // EDIT-SCREEN fuzz — the cell identity/chain/routing operations the edit page invokes, on random cells/colours.
+    // EDIT-SCREEN fuzz — the cell identity/chain/routing operations the edit page invokes, on random cells/machines.
     // This is the config-changes-mid-pass surface (invariant I8): the engine must never stop or corrupt under it.
     private func fireEdit(_ au: MidiSparkAudioUnit) {
         let types: [ProcessorType] = [.arp, .ratchet, .passgate, .strum, .chance, .harmonize]
-        let ci = rng.int(max(1, au.uiColours().count)), slot = rng.int(4), t = types[rng.int(types.count)]
+        let ci = rng.int(max(1, au.uiMachines().count)), slot = rng.int(4), t = types[rng.int(types.count)]
         let cell = randomOccupiedCell(au)
         switch rng.int(12) {
-        case 0: au.setColourType(ci, t)                                    // machine swap
-        case 1: au.setColourTranspose(ci, rng.range(-24, 24))
-        case 2: au.setColourMorph(ci, rng.double())
+        case 0: au.setMachineType(ci, t)                                    // machine swap
+        case 1: au.setMachineTranspose(ci, rng.range(-24, 24))
+        case 2: au.setMachineMorph(ci, rng.double())
         case 3: if let c = cell { let bs = randomBusSet(); au.editCells([c]) { $0.buses = bs } }          // reroute
         case 4: if let c = cell { let r = rng.chance(0.85) ? rng.int(4) : -1; au.editCells([c]) { $0.inputReceiver = r < 0 ? nil : r } }
         case 5: if let c = cell { au.addSlotCells([c], type: t) }          // grow the chain
@@ -161,10 +161,10 @@ final class ChaosDriver {
         if s.isEmpty { s.insert(.a) }; return s
     }
     private func editPlaceOrRemove(_ au: MidiSparkAudioUnit) {
-        let col = rng.int(8), row = rng.int(8), remove = rng.chance(0.3), cid = au.uiColours().first?.colourID ?? ""
+        let col = rng.int(8), row = rng.int(8), remove = rng.chance(0.3), cid = au.uiMachines().first?.machineID ?? ""
         au.editScene(record: false) { s in
             if s.cellAt(col, row) != nil { if remove { s.setCell(col, row, nil) } }
-            else { var nc = Cell(colourID: cid, buses: [.a]); nc.inputReceiver = 0; s.setCell(col, row, nc) }
+            else { var nc = Cell(machineID: cid, buses: [.a]); nc.inputReceiver = 0; s.setCell(col, row, nc) }
         }
     }
     // Nudge one random column toward its target active-cell count (active = occupied and un-muted): mute an active
