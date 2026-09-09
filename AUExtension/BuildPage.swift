@@ -2919,7 +2919,7 @@ extension DiagView {
         // background) but keeps its border — so the sweep's target rung stands out. (Paul 2026-09-04)
         let hollow = buildAutoActive() >= 0 && !selected
         let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
-                          flatFill: partPosFill(r), flatFrame: partPosFrame(r),   // Paul 2026-09-06: DARK, FLAT, FIXED-BY-ROW-POSITION hue (design-cell-language decision 4 — was the machine hue)
+                          flatFill: partFerryFill(r), flatFrame: partFerryFrame(r),   // P2b (Paul 2026-09-09): the 4 rows are the ACTIVE ferry's colour in darkening SHADES (was fixed-by-position)
                           sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: emitterHue(buildRowEmittersResolved(r)), playing: buildStagingPlaying && selected, strikeIdx: [idx]) })   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
         // punch look), so it is always clear + legible and NEVER becomes another machine. It fades only VERY slightly while
@@ -4770,6 +4770,13 @@ extension DiagView {
     private func partPosHue(_ row: Int) -> Color { Color(hex: partPosHex(row)) }
     private func partPosFill(_ row: Int) -> Color { Color(hex: mixHex(0x0E1116, partPosHex(row), 0.16)) }   // DARK + FLAT, the same recipe as partCellFill but keyed on POSITION
     private func partPosFrame(_ row: Int) -> Color { Color(hex: mixHex(0x0E1116, partPosHex(row), 0.34)) }  // subtly-lighter dark edge — never the bright hue
+    // GRID REBUILD P2b (Paul 2026-09-09): the part grid's 4 rows are the ACTIVE ferry's colour in four darkening SHADES
+    // (the P1 palette) — its identity carries from the ferry into the bench. Each ground is that shade darkened toward the
+    // field so the bright ribbon still pops; the frame keeps more of the shade (a visible edge). The 0.5/0.28 mixes are
+    // the key device tunables (how differentiable the 4 shades read vs. how dark the ground sits behind the ribbon).
+    private func partFerryHue(_ row: Int) -> UInt32 { ferryShadeHex(buildFerryHex(buildActiveFerry ?? 0), row) }
+    private func partFerryFill(_ row: Int) -> Color { Color(hex: mixHex(partFerryHue(row), 0x0E1116, 0.5)) }
+    private func partFerryFrame(_ row: Int) -> Color { Color(hex: mixHex(partFerryHue(row), 0x0E1116, 0.28)) }
     // THE CONSTELLATION face (Paul 2026-09-05, design-cell-language.md): a dot per note (radius ∝ velocity) at (x=time,
     // y=pitch, both 0…1 with y already inverted so 0=top), joined by a faint path in x-order — the cell's output as a sigil.
     // SHARED by the live drift (buildNoteSweep + buildOutputFace playing) and the offline blueprint (buildOutputFace idle).
