@@ -1918,14 +1918,16 @@ extension DiagView {
                             .foregroundColor(.white.opacity(0.9)).padding(.horizontal, 3).padding(.bottom, 2) } }
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onTapGesture { if set { if !spring { buildToggleFerryPlay(t) } } else { buildActivateFerry(t) } }   // LATCH toggles on tap; SPRING is handled by the press/release drag below; empty PLAY tap → open the browser
-                    .simultaneousGesture(   // PLAY-FERRY LAUNCH (Phase 2b): SPRING = momentary — press starts, release stops. Guarded to populated SPRING ferries so LATCH/empty ferries keep the tap + seed gestures.
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { _ in guard set, spring else { return }; if !ferrySpringPressing.contains(t) { ferrySpringPressing.insert(t); buildSetFerryPlay(t, on: true) } }
-                            .onEnded { _ in guard set, spring else { return }; ferrySpringPressing.remove(t); buildSetFerryPlay(t, on: false) })
-                    .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
-                                        pressing: { p in if !set { buildGridSelStampPressing(t + 8, p) } },
-                                        perform: { if !set && roomsRoom == .select { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT → seed a part from the selected chain
+                    .onTapGesture { if set { if !spring { buildToggleFerryPlay(t) } } else { buildActivateFerry(t) } }   // LATCH toggles on tap; SPRING is momentary (handled by the press below); empty PLAY tap → open the browser
+                    // ONE press gesture handles both: EMPTY → the seed HOLD (animation + seed on complete); populated SPRING →
+                    // MOMENTARY (press starts, release stops; minDuration ∞ so perform never fires). (Paul 2026-09-09 — folded the
+                    // separate spring DragGesture into pressing so it can't interfere with the empty-ferry seed long-press.)
+                    .onLongPressGesture(minimumDuration: (set && spring) ? .infinity : buildGridSelStampDur, maximumDistance: 44,
+                                        pressing: { p in
+                                            if !set { buildGridSelStampPressing(t + 8, p) }              // EMPTY → the seed-hold rising fill
+                                            else if spring { buildSetFerryPlay(t, on: p) }               // SPRING populated → momentary: press on, release off
+                                        },
+                                        perform: { if !set && (roomsRoom == .select || roomsRoom == .part) { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT or PART → seed a part from the selected chain (was SELECT-only → the part-grid animation played but never populated, Paul 2026-09-09)
             }
             // SELECTED PLAY CELL (Paul 2026-09-08): an unmissable cyan ring + glow around the WHOLE ferry — this is the one
             // whose part is loaded on the bench. Cyan = the app's selection accent (matches the edited-row keyline).
