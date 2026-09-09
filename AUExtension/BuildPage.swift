@@ -1887,6 +1887,7 @@ extension DiagView {
             // PLAY-FERRY LAUNCH (Paul 2026-09-09): a per-ferry COLOUR override wins over the representative-machine hue; nil ⇒ the old position/machine default.
             let mHue = part?.ferryHue.map { Color(hex: $0) } ?? repId.flatMap { machineHue($0) } ?? Color(hex: machineHexes[t % machineHexes.count])
             let ferryName = part?.ferryName
+            let spring = part?.launchTriggerResolved == .spring   // PLAY-FERRY LAUNCH (Phase 2b): SPRING = momentary (hold-to-play); LATCH = tap-toggle (today)
             let eHue = emitterHue(part?.emitters ?? [.a])
             let on = t < buildPlayColOn.count && buildPlayColOn[t]        // this part is sounding
             let focused = buildActiveFerry == t                          // this part is the one loaded on the bench
@@ -1917,7 +1918,11 @@ extension DiagView {
                             .foregroundColor(.white.opacity(0.9)).padding(.horizontal, 3).padding(.bottom, 2) } }
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onTapGesture { if set { buildToggleFerryPlay(t) } else { buildActivateFerry(t) } }   // empty PLAY tap → open the browser too
+                    .onTapGesture { if set { if !spring { buildToggleFerryPlay(t) } } else { buildActivateFerry(t) } }   // LATCH toggles on tap; SPRING is handled by the press/release drag below; empty PLAY tap → open the browser
+                    .simultaneousGesture(   // PLAY-FERRY LAUNCH (Phase 2b): SPRING = momentary — press starts, release stops. Guarded to populated SPRING ferries so LATCH/empty ferries keep the tap + seed gestures.
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in guard set, spring else { return }; if !ferrySpringPressing.contains(t) { ferrySpringPressing.insert(t); buildSetFerryPlay(t, on: true) } }
+                            .onEnded { _ in guard set, spring else { return }; ferrySpringPressing.remove(t); buildSetFerryPlay(t, on: false) })
                     .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                         pressing: { p in if !set { buildGridSelStampPressing(t + 8, p) } },
                                         perform: { if !set && roomsRoom == .select { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT → seed a part from the selected chain
@@ -1976,7 +1981,13 @@ extension DiagView {
     // flatten (its mono line). Several may be on at once: one staging (the active) + up to seven play-layer.
     func buildToggleFerryPlay(_ t: Int) {
         guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
-        let willOn = !(t < buildPlayColOn.count && buildPlayColOn[t])
+        buildSetFerryPlay(t, on: !(t < buildPlayColOn.count && buildPlayColOn[t]))
+    }
+    // FORCE a ferry on/off (the toggle, spring press/release, one-shot expiry, and bulk play-all all route through this so the
+    // launch anchor is stamped/cleared consistently). PLAY-FERRY LAUNCH (Paul 2026-09-09).
+    func buildSetFerryPlay(_ t: Int, on willOn: Bool) {
+        guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
+        if t < buildPlayColOn.count, buildPlayColOn[t] == willOn { return }   // no-op if already in that state (spring onChanged fires repeatedly)
         if t < buildPlayColOn.count { buildPlayColOn[t] = willOn }
         buildStampFerryLaunch(t, on: willOn)                                  // PLAY-FERRY LAUNCH: anchor (from-top/quantized) on start, clear on stop
         if t == buildActiveFerry {
@@ -1987,6 +1998,18 @@ extension DiagView {
         }
         if willOn { au?.clearMachineSolo(); buildHostHalted = false }
         buildPublishScene()
+    }
+    // ONE-SHOT expiry (Paul 2026-09-09, Phase 2b): a ferry whose PLAYBACK is ONE-SHOT stops itself one part-length after its
+    // launch. Driven by the 4 Hz poll (so the stop lands within a poll of the pass end — the ≤poll-granularity tail is a v1
+    // limit; a sample-accurate engine stop is a follow-up). `beat` = the effective (host/free-run) beat. Reuses the proven
+    // stop path (buildSetFerryPlay off), so a legato part's notes close cleanly like any ferry stop.
+    func buildTickFerryOneShot(_ beat: Double) {
+        for t in 0..<8 where t < buildPlayColOn.count && buildPlayColOn[t] {
+            guard let p = buildFerryParts[t], p.launchPlaybackResolved == .oneShot, t < launchBeat.count else { continue }
+            let step = p.rate?.beats ?? stepBeats
+            let expiry = launchBeat[t] + Double(max(1, p.length ?? Snap.cols)) * step
+            if beat >= expiry { buildSetFerryPlay(t, on: false) }
+        }
     }
     // PLAY-FERRY LAUNCH (Paul 2026-09-09): stamp/clear a ferry's launch anchor. SYNC ⇒ 0 (transport-locked, today). INSTANT/
     // STEP/BEAT/PASS ⇒ the from-top phase anchor at that boundary (pure ferryLaunchAnchor). The beat is the tight extrapolated
@@ -3037,7 +3060,11 @@ extension DiagView {
     // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
     func buildTogglePlayGrid() {
         let anyOn = buildPlayColOn.contains(true)
-        for c in 0..<8 { buildPlayColOn[c] = anyOn ? false : buildPlayColHasContent(c) }
+        for c in 0..<8 {
+            let willOn = anyOn ? false : buildPlayColHasContent(c)
+            buildPlayColOn[c] = willOn
+            if c < buildFerryParts.count, buildFerryParts[c] != nil { buildStampFerryLaunch(c, on: willOn) }   // PLAY-FERRY LAUNCH: stamp/clear each ferry's anchor on bulk play-all so an INSTANT/quantized ferry launches from its top too
+        }
         if !anyOn { buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false }   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02) + re-enables free-run after a host halt
         buildPublishScene()
     }

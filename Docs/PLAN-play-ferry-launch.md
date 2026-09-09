@@ -139,10 +139,14 @@ render a new `roomsFerryLaunchPanel(ferry:)` in place of / above `roomsCardPlace
   multi-clock force + the armed-until-start guard; pure ferryLaunchAnchor + full threading
   + stamp in buildToggleFerryPlay + ferry→engine-row mapping in buildPublishScene. macOS
   +1 RouterTest (armed-until-start + eventual play), fuzz green, byte-identical when no anchor.
-- **Phase 2b — TODO:** one-shot STOP (record launchBeat — already stored — clear buildPlayColOn
-  at pass expiry in the 4 Hz poll) + the SPRING momentary gesture (press/release on the ferry
-  play button). Both device-feel owed. Also: bulk play-all should stamp per-ferry anchors
-  (currently plays SYNC).
+- **Phase 2b — DONE:** one-shot STOP (buildTickFerryOneShot in the 4 Hz poll clears the ferry
+  one part-length after launchBeat — ≤poll-granularity tail, device-feel owed) + the SPRING
+  momentary gesture (press/release DragGesture on the ferry play button, guarded to populated
+  SPRING ferries so LATCH/empty keep tap+seed) + bulk play-all now stamps per-ferry anchors.
+  Refactored buildToggleFerryPlay → buildSetFerryPlay(on:) (toggle/spring/one-shot/play-all all
+  route through it). iOS builds; macOS unchanged (no test-target files touched). DEVICE-feel owed
+  on the spring gesture + the one-shot tail. FOLLOW-UP: sample-accurate engine-side one-shot stop;
+  a legato-drone one-shot rings to the poll (the stop path closes it, but not sample-accurate).
 - **Original Phase 1 — identity + panel + persistence (UI/model only, no engine).** Add the 6
   `BuildPart` fields + decode-tolerant init + enums; build `roomsFerryLaunchPanel`
   (name + colour + the four launch selectors, storing only); ferry row/selector render
