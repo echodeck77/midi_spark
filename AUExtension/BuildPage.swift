@@ -2505,8 +2505,9 @@ extension DiagView {
                 }
             }
             .padding(pad)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
+            // NO full-region background (Paul 2026-09-10): the cells, rails, footer + docked card each carry their own —
+            // a region-wide panel here (a leftover from the taller 8-row grid) DOUBLED with the card's own background in the
+            // large lower area, reading as two overlapping shades in the bottom-left.
         }
     }
     // SECTION 1 — THE PIANO ROLL (Paul 2026-09-03, rev 6 — 8-STEP SCROLLING + a CAMERA vertical axis): the accurate continuous
