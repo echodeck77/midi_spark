@@ -1876,6 +1876,12 @@ extension DiagView {
     // a cell to row 1 of a column, then move the cursor and ferry another to row 3 (each cell stays independent). Sits in
     // the ferry row's left corner. Compact: ▲ · Rn · ▼ in one cell.
     // The ▲▼ FERRY-ROW CURSOR is RETIRED (Paul 2026-09-08, Phase 3): a ferry is one PART now, not a column of per-row cells.
+    // A ferry's ONE identity colour as a hex: its explicit `ferryHue` override, else the P1 ferry-base palette (8 jewel
+    // tones by position). The header redesign (Paul 2026-09-09) reads this for the focus highlight + the fading gradient.
+    func buildFerryHex(_ t: Int) -> UInt32 {
+        let hue = (t >= 0 && t < buildFerryParts.count) ? buildFerryParts[t]?.ferryHue : nil
+        return hue ?? ferryBaseHex(t)
+    }
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
             // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): each ferry IS a BuildPart slot. The SELECTOR (top ⅓) opens
@@ -1883,9 +1889,12 @@ extension DiagView {
             // play at once). A long-press on an EMPTY ferry (on SELECT) seeds a new part from the selected chain.
             let part = t < buildFerryParts.count ? buildFerryParts[t] : nil
             let set = part != nil
-            let repId: String? = part.flatMap { p in p.selID ?? p.stagingCells.flatMap({ $0 }).compactMap({ $0 }).first }   // the part's representative machine (for the ferry's identity hue)
-            // PLAY-FERRY LAUNCH (Paul 2026-09-09): a per-ferry COLOUR override wins over the representative-machine hue; nil ⇒ the old position/machine default.
-            let mHue = part?.ferryHue.map { Color(hex: $0) } ?? repId.flatMap { machineHue($0) } ?? Color(hex: machineHexes[t % machineHexes.count])
+            // PLAY-FERRY LAUNCH (Paul 2026-09-09): the ferry's ONE identity colour = its ferryHue override, else the P1
+            // ferry-base palette (supersedes the old representative-machine hue). The header gradient is the SELECTED
+            // ferry's colour in lighter shades; each ferry shows its OWN colour only on its selector icon.
+            let mHex = buildFerryHex(t)
+            let mHue = Color(hex: mHex)
+            let focusHex = buildActiveFerry.map { buildFerryHex($0) } ?? mHex   // the SELECTED colour the header bar fades from
             let ferryName = part?.ferryName
             let spring = part?.launchTriggerResolved == .spring   // PLAY-FERRY LAUNCH (Phase 2b): SPRING = momentary (hold-to-play); LATCH = tap-toggle (today)
             let eHue = emitterHue(part?.emitters ?? [.a])
@@ -1894,11 +1903,17 @@ extension DiagView {
             let selH = max(10, g.size.height / 3)
             let playH = max(12, g.size.height - selH - 3)
             VStack(spacing: 3) {
-                // ── THE SELECTOR (top ⅓): open this ferry's part on the bench (empty → the SELECT grid) ──
-                RoundedRectangle(cornerRadius: 4).fill(set ? mHue.opacity(focused ? 0.55 : 0.28) : Color.white.opacity(0.06))
+                // ── THE SELECTOR (top ⅓) = the FOCUS indicator (Paul 2026-09-09 header redesign, no cyan) ──
+                // FOCUSED = the highlight: its OWN colour, full/saturated (stands out against the light shades around it).
+                // OTHER populated = a LIGHTER SHADE of the SELECTED ferry's colour, ramped L→R so the row reads as one
+                // fading gradient; the ferry's own colour appears only on the ICON. Empty = neutral.
+                let selFill: Color = !set ? Color.white.opacity(0.06)
+                                   : (focused ? mHue : Color(hex: mixHex(focusHex, 0xFFFFFF, 0.34 + Double(t) / 7.0 * 0.30)))
+                let selIcon: Color = !set ? buildDim : (focused ? .black : mHue)   // populated non-focused: its OWN colour on the icon
+                RoundedRectangle(cornerRadius: 4).fill(selFill)
                     .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(10, selH * 0.5), weight: .bold))
-                        .foregroundColor(set ? (focused ? .black : .white.opacity(0.85)) : buildDim))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(focused ? 0.9 : 0.4) : buildEdge, lineWidth: focused ? 2 : 1))
+                        .foregroundColor(selIcon))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? mHue : (set ? Color.white.opacity(0.22) : buildEdge), lineWidth: focused ? 2.5 : 1))
                     .frame(height: selH)
                     .contentShape(Rectangle())
                     .onTapGesture { buildActivateFerry(t) }
@@ -1909,7 +1924,7 @@ extension DiagView {
                     .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                     .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed machine-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
                     .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
                     .overlay { Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) }   // PLAY/STOP (empty shows "+")
                     .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
@@ -1929,9 +1944,8 @@ extension DiagView {
                                         },
                                         perform: { if !set && (roomsRoom == .select || roomsRoom == .part) { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT or PART → seed a part from the selected chain (was SELECT-only → the part-grid animation played but never populated, Paul 2026-09-09)
             }
-            // SELECTED PLAY CELL (Paul 2026-09-08): an unmissable cyan ring + glow around the WHOLE ferry — this is the one
-            // whose part is loaded on the bench. Cyan = the app's selection accent (matches the edited-row keyline).
-            .overlay { if focused { RoundedRectangle(cornerRadius: 6).stroke(buildCyan, lineWidth: 3).shadow(color: buildCyan.opacity(0.8), radius: 4).allowsHitTesting(false) } }
+            // FOCUS is now shown by the SELECTOR (its own full colour) against the header's lighter-shade gradient —
+            // the whole-ferry cyan ring is retired (Paul 2026-09-09: no cyan; highlight the small selector, not the ferry).
         }
     }
     // buildPlayFerryStep (the ▲▼ cursor mover) + buildPlayFerryDuplicate (the faint-copy) are RETIRED (Paul 2026-09-08,
