@@ -2575,6 +2575,10 @@ final class Router {
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
             }
         }
+        // FREE / LFO CELL (design-cc-stage §16, Paul 2026-09-09): MOD cells marked FREE emit every window regardless of
+        // the playhead — the grid as a mod-matrix. Scans all cells (active-column FREE slots skipped in emitColumnMod).
+        emitFreeMod(box: box, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
+                    beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
         // STANDALONE RATCHET PATTERN (Paul 2026-09-08): a per-window pass-through subsystem (scans all cells, owns its
         // immortal sustains) — BEFORE the pool guard so it closes on release. One call handles uniform + per-row clocks.
         emitColumnRatchetPattern(box: box, uniformFast: uniformFast, effColumn: effColumn, pool: pool,
@@ -2631,7 +2635,7 @@ final class Router {
     private func modSourceUnipolar(_ p: SnapParams, cell: SnapCell, pool: NotePool, b: Double, period: Double, column: Int, entryBeat: Double) -> Double {
         switch p.modSource {
         case .shape:
-            return modUnipolar(p.modShape, phase: b / period, column: column, cc: p.modCC, cycleIndex: Int((b / period).rounded(.down)))
+            return modUnipolar(p.modShape, phase: b / period + p.modPhase, column: column, cc: p.modCC, cycleIndex: Int((b / period).rounded(.down)))   // §14② PHASE offset
         case .steps:
             return modStepsUnipolar(p.modSteps, phase: b / period, smooth: p.modSmooth)
         case .strike:
@@ -2644,7 +2648,12 @@ final class Router {
             return modFollowUnipolar(p.modFollow, count: n, meanNote: n > 0 ? sumN / Double(n) : 0, meanVel: n > 0 ? sumV / Double(n) : 0)
         case .extern:
             let raw = controllerIn[p.modExternCC & 127]                       // channel-agnostic v1
-            return raw < 0 ? 0 : Double(raw) / 127.0                          // never seen → rest at 0
+            let ext = raw < 0 ? 0 : Double(raw) / 127.0                        // never seen → rest at 0
+            if p.modExternMode == .scale {                                    // §6 SCALE: the wheel scales the SHAPE's depth (rhythm from us, amount from the hand)
+                let sh = modUnipolar(p.modShape, phase: b / period + p.modPhase, column: column, cc: p.modCC, cycleIndex: Int((b / period).rounded(.down)))
+                return sh * ext
+            }
+            return ext                                                        // RE-EMIT (re-ranged by MIN/MAX below)
         }
     }
 
@@ -2700,6 +2709,7 @@ final class Router {
             if !cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r)) { continue }   // PLAY: THIS CELL overrides mute/dormant/tap
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
                 let p = cell.procs[si]
+                if p.modFree { continue }   // FREE / LFO cell (§16): emitted every window by emitFreeMod, regardless of the active column — skip here to avoid double-emit
                 // TARGET CHANGED (the CC# knob swept): revert the ABANDONED cc to its STANDARD value so sweeping past
                 // e.g. VOLUME (CC7) doesn't leave it knocked down. (user 2026-08-10.)
                 let tkey = (column * Snap.rows + r) * 8 + si
@@ -2715,7 +2725,42 @@ final class Router {
                     let b = Double(k) * modCtrlBeats
                     if b >= beatPos {
                         let s = modSourceUnipolar(p, cell: cell, pool: pool, b: b, period: period, column: column, entryBeat: entryBeat)
-                        let value = modMap(s, min: p.modMin, max: p.modMax)
+                        var value = modMap(s, min: p.modMin, max: p.modMax)
+                        if p.modQuantize > 1 { value = modQuantizeValue(value, levels: p.modQuantize) }   // §14① QUANTIZE
+                        let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
+                        emitModCC(cc: p.modCC, value: value, busMask: cell.busMask, atSample: sample, out: out)
+                    }
+                    k += 1
+                }
+            }
+        }
+    }
+    /// FREE / THE LFO CELL (design-cc-stage §16, Paul 2026-09-09): MOD slots with `modFree` speak EVERY window
+    /// regardless of the playhead — place a cell whose whole job is modulation and the grid becomes a mod-matrix.
+    /// Scans ALL cells (the active column's FREE slots are skipped by emitColumnMod → no double-emit). Beat-derived
+    /// (f(absolute beat) → replay-safe, block-invariant); NO leave-disposition (a FREE cell never exits), and a
+    /// transport/scene flush (flushMod) stops it. Runs once per window, before the pool guard. CC targets only
+    /// (a FREE chain-target has no active column to fold into — out of scope v1).
+    private func emitFreeMod(box: SnapshotBox, pool: NotePool, beatPos: Double, windowBeats: Double,
+                             beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
+        if masterMute && !previewMode { return }
+        let bEnd = beatPos + windowBeats
+        for idx in 0..<Snap.cells {
+            let cell = box.cells[idx]
+            if cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) { continue }
+            let col = idx / Snap.rows, row = idx % Snap.rows
+            if cellSoloedOut(col, row) { continue }
+            if !cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row)) { continue }
+            for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modFree && cell.procs[si].modTarget == .cc {
+                let p = cell.procs[si]
+                let period = modPeriodBeats(p, box: box)
+                var k = Int((beatPos / modCtrlBeats).rounded(.up))
+                while Double(k) * modCtrlBeats < bEnd {
+                    let b = Double(k) * modCtrlBeats
+                    if b >= beatPos {
+                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: b, period: period, column: col, entryBeat: 0)   // FREE ignores column entry → phase from the origin
+                        var value = modMap(s, min: p.modMin, max: p.modMax)
+                        if p.modQuantize > 1 { value = modQuantizeValue(value, levels: p.modQuantize) }
                         let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
                         emitModCC(cc: p.modCC, value: value, busMask: cell.busMask, atSample: sample, out: out)
                     }

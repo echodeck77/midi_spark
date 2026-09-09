@@ -101,6 +101,15 @@ func modCCValue(_ shape: ModShape, phase: Double, min lo: Int, max hi: Int, colu
 func modMap(_ s: Double, min lo: Int, max hi: Int) -> Int {
     max(0, min(127, Int((Double(lo) + max(0, min(1, s)) * Double(hi - lo)).rounded())))
 }
+/// QUANTIZE (design-cc-stage §14①): snap a 0…127 CC value to `levels` evenly-spaced steps — bit-crush for control
+/// (stepped filter sweeps from any source). levels ≤ 1 = off (identity). Pure. (Paul 2026-09-09.)
+@inline(__always)
+func modQuantizeValue(_ value: Int, levels: Int) -> Int {
+    guard levels >= 2 else { return value }
+    let n = Double(min(32, levels) - 1)                       // e.g. 4 levels → points at 0, 42, 85, 127
+    let idx = (Double(value) / 127.0 * n).rounded()           // nearest level index
+    return max(0, min(127, Int((idx / n * 127.0).rounded())))
+}
 
 /// FOLLOW (CC-stage §1) — the unipolar [0,1] the CC tracks from the sounding material. COUNT = held-note count /8 ·
 /// REGISTER = mean pitch mapped C1…C7 · VEL = mean velocity /127 · DENSITY = a busyness proxy (pool fullness, v1). Pure.

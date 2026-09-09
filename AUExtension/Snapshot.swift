@@ -166,6 +166,10 @@ struct SnapParams {
     var modAttack: Double = 0.15         // STRIKE attack (beats)
     var modRelease: Double = 0.6         // STRIKE release (beats)
     var modExternCC: Int = 1             // EXTERN source CC#
+    var modFree: Bool = false            // FREE / LFO cell (§16): speak every window regardless of the playhead
+    var modPhase: Double = 0             // SHAPE phase offset 0…1 (§14②)
+    var modQuantize: Int = 0             // QUANTIZE output levels (0/1 = off · 2…32; §14①)
+    var modExternMode: ModExternMode = .reEmit   // EXTERN RE-EMIT (today) | SCALE the shape by the incoming CC (§6)
     // GLIDE (notes→pitch-bend translator).
     var glideTime: Double = 0.25         // slide duration, beats (0 = instant)
     var glideRange: Int = 2              // ± bend range, semitones

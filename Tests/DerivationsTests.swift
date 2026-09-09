@@ -1852,6 +1852,19 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(ccName(11), "EXPRESSION")
         XCTAssertNil(ccName(3), "an unnamed CC → nil")
     }
+    // QUANTIZE (design-cc-stage §14①, Paul 2026-09-09): snap the 0…127 output to N evenly-spaced levels.
+    func testModQuantizeSnapsToLevels() {
+        XCTAssertEqual(modQuantizeValue(60, levels: 0), 60, "off (0) = identity")
+        XCTAssertEqual(modQuantizeValue(60, levels: 1), 60, "1 level = identity")
+        XCTAssertEqual(modQuantizeValue(60, levels: 2), 0, "2 levels: 60 (< midpoint) snaps to 0")
+        XCTAssertEqual(modQuantizeValue(70, levels: 2), 127, "2 levels: 70 (> midpoint) snaps to 127")
+        XCTAssertEqual(modQuantizeValue(0, levels: 4), 0)
+        XCTAssertEqual(modQuantizeValue(127, levels: 4), 127, "the top level is always 127")
+        XCTAssertEqual(modQuantizeValue(42, levels: 4), 42, "4 levels: points at 0 · 42 · 85 · 127")
+        // every quantized output is one of the level values
+        let levels = 5, allowed = Set((0..<levels).map { Int((Double($0) / Double(levels - 1) * 127).rounded()) })
+        for v in 0...127 { XCTAssertTrue(allowed.contains(modQuantizeValue(v, levels: levels)), "\(v) snapped outside the level set") }
+    }
     func testModSampleHoldIsHeldAndReplaySafe() {
         let a1 = modUnipolar(.sampleHold, phase: 0.1, column: 2, cc: 74, cycleIndex: 5)
         let a2 = modUnipolar(.sampleHold, phase: 0.9, column: 2, cc: 74, cycleIndex: 5)

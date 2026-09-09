@@ -705,10 +705,14 @@ struct ProcessorBox: View {
             case .extern:
                 let ec = p.modExternCC ?? 1
                 field("FROM CC", \.modExternCC) { numPair(ec, 0...127, format: { ccLabelText($0) }) { v in setParam { $0.modExternCC = v } } }
+                let em = p.modExternMode ?? .reEmit    // §6: RE-EMIT (re-range) | SCALE (the wheel scales the SHAPE's depth)
+                field("MODE", \.modExternMode) { seg(["RE-EMIT", "SCALE"], sel: em == .scale ? "SCALE" : "RE-EMIT") { i in setParam { $0.modExternMode = (i == 1) ? .scale : .reEmit } } }
             }
             if src == .shape {                                     // SHAPE keeps CELL|ROW; STEPS has its own 4-way SPAN above
                 let mspan = p.modSpan ?? .cell
                 field("SPAN", \.modSpan) { seg(["CELL", "ROW"], sel: mspan == .row ? "ROW" : "CELL") { i in setParam { $0.modSpan = (i == 1) ? .row : .cell } } }   // CELL = the CYCLE period · ROW = one cycle spans the bar
+                let ph = Int(((p.modPhase ?? 0) * 360).rounded())   // §14② PHASE offset 0–360°
+                field("PHASE  \(ph)°", \.modPhase) { slider(bind(p.modPhase ?? 0) { v in setParam { $0.modPhase = v } }, in: 0...1) }
             }
             let target = p.modTarget ?? .cc
             sectionLabel("TARGET")
@@ -735,6 +739,10 @@ struct ProcessorBox: View {
                  { field("MAX  \(hi)\(lo > hi ? "  (inv)" : "")", \.modMax) {
                 slider(bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127) } })
             field("ON EXIT", \.modReset) { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
+            let q = p.modQuantize ?? 0                             // §14① QUANTIZE — snap the output to N levels
+            field("QUANTIZE", \.modQuantize) { numPair(q, 0...32, format: { $0 <= 1 ? "OFF" : "\($0) LVL" }) { v in setParam { $0.modQuantize = v } } }
+            let free = p.modFree ?? false                          // §16 FREE / LFO CELL — speak regardless of the playhead
+            field("SPEAK", \.modFree) { seg(["ON PLAYHEAD", "FREE (LFO)"], sel: free ? "FREE (LFO)" : "ON PLAYHEAD") { i in setParam { $0.modFree = (i == 1) } } }
         })
         case .glide: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // one mono sliding voice — small steps bend, big leaps jump (Paul 2026-08-22)
             let gmode = p.glideMode ?? .bend
