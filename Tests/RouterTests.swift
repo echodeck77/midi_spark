@@ -353,6 +353,31 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(allPass, arpOnly, "all-passthrough = the arp untouched (one note per arp note, NEVER silent — no rest)")
         XCTAssertGreaterThan(allRat, allPass, "all-ratchet-3 re-fires each arp note (more strikes than passthrough)")
     }
+    // STANDALONE RATCHET PATTERN = a PASS-THROUGH PROCESSOR, not a generator (Paul 2026-09-08). A lone (single-slot)
+    // ratchet-pattern cell RECEIVES the input and passes it through; its own clock only decides per-column treatment
+    // (1 = pass/sustain · 2…8 = ratchet · 0 = OFF/mute). It must NOT manufacture a note per step — the fix for "a short
+    // stab plays for each step". Definitive check: the PASS-THROUGH count is INDEPENDENT of the ratchet RATE (a generator
+    // would scale with it). Also: ratchet columns add strikes, OFF mutes, no input → silence. All via emitColumnRatchetPattern.
+    func testStandaloneRatchetPatternPassesThroughAndMutes() {
+        func standalone(_ slices: [Int], rate: ArpRate, chordNotes: [UInt8]) -> Int {
+            let cs = colourIDs.map { c -> Colour in var col = Colour(colourID: c, type: .ratchet)
+                col.paramsA.rtcMode = .pattern; col.paramsA.rtcRate = rate; col.paramsA.rtcSteps = slices.count; col.paramsA.rtcSlices = slices; col.paramsA.ramp = 0; return col }
+            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chordNotes.isEmpty ? NotePool() : chord(chordNotes), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let passFast = standalone(Array(repeating: 1, count: 8), rate: .r1_16, chordNotes: [60, 64, 67])
+        let passSlow = standalone(Array(repeating: 1, count: 8), rate: .r1_8,  chordNotes: [60, 64, 67])
+        let ratFast  = standalone(Array(repeating: 3, count: 8), rate: .r1_16, chordNotes: [60, 64, 67])
+        let allOff   = standalone(Array(repeating: 0, count: 8), rate: .r1_16, chordNotes: [60, 64, 67])
+        let noInput  = standalone(Array(repeating: 1, count: 8), rate: .r1_16, chordNotes: [])
+        XCTAssertGreaterThan(passFast, 0, "pass-through sounds the held chord")
+        XCTAssertEqual(passFast, passSlow, "PASS-THROUGH count is INDEPENDENT of the ratchet RATE — it passes the input, never generates per step (the bug fix)")
+        XCTAssertGreaterThan(ratFast, passFast, "ratchet columns (×3) re-strike → more strikes than pass-through")
+        XCTAssertEqual(allOff, 0, "all-OFF mutes every column → silence (unselect-to-mute)")
+        XCTAssertEqual(noInput, 0, "no input → the pass-through generates nothing")
+    }
     // RATCHET PATTERN — the NOTE clock (Paul 2026-09-07): instead of the ratchet's own RATE, the playhead advances one MATRIX
     // column PER NOTE passing through. So the Nth arp note reads column N: an all-1 matrix == the bare arp; a matrix with a
     // ratchet count on every other column re-fires those notes → more strikes than passthrough. Chain-only; replay-safe.
@@ -1982,8 +2007,9 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
     }
     func testRatchetPatternColumnCountsRatchet() {
-        // PATTERN (Paul 2026-09-07): each matrix column holds a COUNT = strikes when the playhead reaches it (1 = passthrough,
-        // N = ratchet N, subdividing the column's RATE slot). So a high-count matrix emits more note-ons than an all-1 one.
+        // PATTERN standalone (Paul 2026-09-08): a single-slot ratchet-pattern cell is a PASS-THROUGH processor (emitColumn-
+        // RatchetPattern) — count 1 = sustain the held chord, N = ratchet N over the column's RATE slot, 0 = OFF/mute. So an
+        // all-1 matrix SUSTAINS (few note-ons) and a high-count matrix RATCHETS (many more). onsRat > onsPass either way.
         func rbox(_ counts: [Int]) -> SnapshotBox {
             box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .ratchet)
                 c.paramsA.rtcMode = .pattern; c.paramsA.rtcRate = .r1_16; c.paramsA.rtcSteps = counts.count; c.paramsA.rtcSlices = counts; return c }) {
