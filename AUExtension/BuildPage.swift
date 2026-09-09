@@ -2485,7 +2485,7 @@ extension DiagView {
                             VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }   // LEFT = chevron (row-select for playback)
                             ZStack(alignment: .topLeading) {
                                 VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } } } }
-                                roomsPartPlayhead(colW: cw, gap: gap, height: interiorH).allowsHitTesting(false)
+                                roomsPartPlayhead(colW: cw, gap: gap, rowH: rowH).allowsHitTesting(false)
                             }
                             .contentShape(Rectangle())
                             .coordinateSpace(name: "partInt")
@@ -3051,19 +3051,29 @@ extension DiagView {
     }
     // THE PART PLAYHEAD — a 2pt line sweeping the 8 interior columns, phase-locked to the beat (reuses the buildPlayhead
     // math: extrapolated beat → musical/swung column progress → x). Flexible-cell variant for the rooms grid.
-    @ViewBuilder private func roomsPartPlayhead(colW: CGFloat, gap: CGFloat, height: CGFloat) -> some View {
+    // THE PART PLAYHEAD (Paul 2026-09-10): NO LONGER a full-height line sweeping the whole grid. Instead the playhead sweeps
+    // ALONG THE LENGTH of the ACTIVE CELL (the current column's selected rung) — a short line crossing that one cell's width
+    // over the column's step, jumping to the next column's active cell as the sequencer advances. One TimelineView (perf).
+    @ViewBuilder private func roomsPartPlayhead(colW: CGFloat, gap: CGFloat, rowH: CGFloat) -> some View {
         if d.playing && (buildStagingPlaying || buildActiveFerryPlaying) {   // follow the active ferry's play-layer line (Paul 2026-09-08), not only the old staging voice
             let sb = buildPartRate?.beats ?? stepBeats
             let cols = buildPartCols                                        // §E: the active width
-            let width = colW * CGFloat(cols) + gap * CGFloat(cols - 1)
+            let rows = DiagView.roomsGridRows
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
                 let colF = sb > 0 ? musical / sb : 0
                 let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
-                let p = wrapped < 0 ? wrapped + Double(cols) : wrapped
-                let x = min(width, CGFloat(p) * (colW + gap))
-                Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: height).offset(x: x).allowsHitTesting(false)
+                let pcol = wrapped < 0 ? wrapped + Double(cols) : wrapped
+                let c = min(cols - 1, max(0, Int(pcol)))                    // the CURRENT column
+                let fract = min(1.0, max(0.0, pcol - Double(c)))           // progress ALONG that column's active cell, [0,1)
+                let r = c < buildStagingSel.count ? buildStagingSel[c] : -1 // the ACTIVE cell = this column's selected rung
+                if r >= 0 && r < rows {
+                    let sweepX = CGFloat(c) * (colW + gap) + colW * CGFloat(fract)
+                    let cellY = CGFloat(r) * (rowH + gap)
+                    Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: rowH)
+                        .offset(x: sweepX, y: cellY).allowsHitTesting(false)
+                }
             }
         }
     }
