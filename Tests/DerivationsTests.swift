@@ -2263,6 +2263,36 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNil(riffResolve(rank: 1, oct: 0, n: 0, wrap: .fold) { _ in 0 }, "empty pool = nil")
     }
 
+    // RIFF CAPTURE (SPEC-riff-processor §2, Paul 2026-09-09): play a line in → recorded AS RANKS against a FRAME. The
+    // pure conversion is the inverse of riffResolve — a played frame note round-trips to the rank that reproduces it.
+    func testRiffCaptureConvertsPitchesToRanksAgainstTheFrame() {
+        let frame = [60, 64, 67]   // Cmaj held as the capture FRAME
+        // exact frame notes → ranks 1/2/3, no octave
+        XCTAssertEqual(riffCaptureRank(pitch: 60, frame: frame).rank, 1)
+        XCTAssertEqual(riffCaptureRank(pitch: 64, frame: frame).rank, 2)
+        XCTAssertEqual(riffCaptureRank(pitch: 67, frame: frame).rank, 3)
+        // an octave above the 2nd note → rank 2, oct +1 (round-trips through riffResolve)
+        let hi = riffCaptureRank(pitch: 76, frame: frame)   // 64 + 12
+        XCTAssertEqual(hi.rank, 2); XCTAssertEqual(hi.oct, 1)
+        XCTAssertEqual(riffResolve(rank: hi.rank, oct: hi.oct, n: frame.count, wrap: .fold) { frame[$0] }, 76, "capture→resolve round-trips the octave-up note")
+        // a passing tone (62, between 60 and 64) snaps to the nearest position
+        XCTAssertTrue([1, 2].contains(riffCaptureRank(pitch: 62, frame: frame).rank), "a passing tone snaps to the nearest chord position")
+        // empty frame → REST
+        XCTAssertEqual(riffCaptureRank(pitch: 60, frame: []).rank, 0)
+    }
+    func testRiffCaptureStencilQuantizesToStepsAndRests() {
+        let frame = [60, 64, 67]
+        let rate = 0.25   // 1/16 at 1 beat = quarter
+        // a line: 60 at step 0, 67 at step 2, 64 at step 5 — gaps are REST
+        let events: [(beat: Double, pitch: Int)] = [(0.0, 60), (0.5, 67), (1.25, 64)]
+        let (ranks, oct) = riffCaptureStencil(events: events, frame: frame, steps: 8, rateBeats: rate, startBeat: 0.0)
+        XCTAssertEqual(ranks, [1, 0, 3, 0, 0, 2, 0, 0], "notes land on their quantized steps; unplayed steps REST")
+        XCTAssertEqual(oct, [0, 0, 0, 0, 0, 0, 0, 0])
+        // a take longer than one loop is truncated
+        let long = riffCaptureStencil(events: [(2.5, 60)], frame: frame, steps: 8, rateBeats: rate, startBeat: 0.0)
+        XCTAssertEqual(long.ranks, Array(repeating: 0, count: 8), "an event past one loop (step 10) is dropped")
+    }
+
     // MARK: - defensive resolver clamps (reachable only via a hostile/legacy DECODE — the UI constrains these)
 
     // These guard the classic silent-regression: someone "simplifies" the negative-safe modulo / drops a clamp and a

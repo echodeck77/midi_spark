@@ -1159,6 +1159,45 @@ func riffNote(rank: Int, oct: Int, pool: NotePool, for cell: SnapCell, wrap: Rif
     return note + 12 * oct
 }
 
+// MARK: - RIFF CAPTURE (SPEC-riff-processor §2): play a line in → record it AS RANKS against a FRAME (the held chord).
+
+/// The INVERSE of `riffResolve`: a played PITCH → the (rank, oct) whose `riffResolve` reproduces it against `frame`
+/// (the sorted-ascending held chord snapshot). Nearest-pool-position match (§2): pick the frame note + octave offset
+/// closest to the pitch, so a played frame note round-trips exactly and a passing tone snaps to the nearest chord
+/// position. Empty frame → rank 0 (REST). Pure/testable. (Paul 2026-09-09.)
+func riffCaptureRank(pitch: Int, frame: [Int]) -> (rank: Int, oct: Int) {
+    guard !frame.isEmpty else { return (0, 0) }
+    var bestRank = 1, bestOct = 0, bestDist = Int.max
+    for k in 0..<frame.count {
+        for o in -4...4 {                       // search a few octaves either way — the played line may sit above/below the frame
+            let produced = frame[k] + 12 * o
+            let d = abs(produced - pitch)
+            if d < bestDist || (d == bestDist && abs(o) < abs(bestOct)) { bestDist = d; bestRank = k + 1; bestOct = o }
+        }
+    }
+    return (bestRank, bestOct)
+}
+
+/// Quantize a captured line — (beat, pitch) events, timed from `startBeat` — onto the RIFF step grid (`steps` columns
+/// at `rateBeats`), converting each note to a (rank, oct) against `frame`. Returns MONO stencil lanes (riffRanks +
+/// riffOct); an unplayed step is REST (rank 0). Last event in a step wins (a fast trill lands one rank/step). Pure. Only
+/// events in [startBeat, startBeat + steps·rateBeats) are placed (a longer take is truncated to one loop). (Paul 2026-09-09.)
+func riffCaptureStencil(events: [(beat: Double, pitch: Int)], frame: [Int], steps: Int, rateBeats: Double,
+                        startBeat: Double) -> (ranks: [Int], oct: [Int]) {
+    let n = max(1, min(32, steps))
+    var ranks = [Int](repeating: 0, count: n), oct = [Int](repeating: 0, count: n)
+    guard rateBeats > 0, !frame.isEmpty else { return (ranks, oct) }
+    for e in events {
+        let rel = e.beat - startBeat
+        guard rel >= -rateBeats * 0.5 else { continue }                 // before the take (small pre-roll tolerance)
+        let step = Int((rel / rateBeats).rounded())
+        guard step >= 0 && step < n else { continue }                    // past one loop → truncated
+        let (rank, o) = riffCaptureRank(pitch: e.pitch, frame: frame)
+        ranks[step] = rank; oct[step] = o                                // last event in the step wins
+    }
+    return (ranks, oct)
+}
+
 // MARK: - WEAVE (Paul 2026-08-07): a rank-clocked polyrhythm driver — each rank ticks on its own clock
 
 /// The tick spacing (beats per tick) for `rank` (0 = bass) at a MODE and BASE clock. LADDER halves per rank
