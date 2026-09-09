@@ -2485,6 +2485,7 @@ extension DiagView {
                             VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }   // LEFT = chevron (row-select for playback)
                             ZStack(alignment: .topLeading) {
                                 VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } } } }
+                                roomsPartSelectionOverlay(colW: cw, gap: gap, rowH: rowH)   // ONE outline around each contiguous selected run (Paul 2026-09-10)
                                 roomsPartPlayhead(colW: cw, gap: gap, rowH: rowH).allowsHitTesting(false)
                             }
                             .contentShape(Rectangle())
@@ -2977,7 +2978,6 @@ extension DiagView {
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
         // punch look), so it is always clear + legible and NEVER becomes another machine. It fades only VERY slightly while
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
-        let selRing = buildAutoActive() >= 0 ? Color.white.opacity(0.8) : Color.white
         let laneActive = buildAutoActive()
         let inExtent = laneActive >= 0 && buildAutoInExtent(idx)   // this cell HAS the automation applied
         ZStack {
@@ -2996,7 +2996,8 @@ extension DiagView {
                     .foregroundColor(.white).shadow(color: .black.opacity(0.8), radius: 1).padding(.horizontal, 2)
                     .allowsHitTesting(false)
             }
-            if selected { RoundedRectangle(cornerRadius: 5).stroke(selRing, lineWidth: 2) }   // the SELECTED rung's WHITE ring — ALWAYS on top, always clear
+            // (The selected-rung WHITE ring is now drawn by roomsPartSelectionOverlay — ONE outline around a contiguous
+            //  run of selected cells in a row, not a per-cell ring — Paul 2026-09-10.)
         }
         .frame(width: w, height: h)
     }
@@ -3076,6 +3077,35 @@ extension DiagView {
                 }
             }
         }
+    }
+    // THE SELECTION OUTLINE (Paul 2026-09-10): a run of successive selected cells in a ROW (consecutive columns whose
+    // selected rung == r) is outlined as ONE block, spanning the whole run (internal gaps bridged), instead of a white ring
+    // per cell. An isolated selected cell is just a 1-cell run → a single-cell box. Drawn as an overlay so it can span gaps.
+    private func roomsSelectionRuns(row r: Int, cols: Int) -> [Range<Int>] {
+        var runs: [Range<Int>] = []; var start: Int? = nil
+        for c in 0..<cols {
+            let sel = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r
+            if sel { if start == nil { start = c } }
+            else if let s = start { runs.append(s..<c); start = nil }
+        }
+        if let s = start { runs.append(s..<cols) }
+        return runs
+    }
+    @ViewBuilder private func roomsPartSelectionOverlay(colW: CGFloat, gap: CGFloat, rowH: CGFloat) -> some View {
+        let cols = buildPartCols
+        let rows = DiagView.roomsGridRows
+        let ring: Color = buildAutoActive() >= 0 ? Color.white.opacity(0.8) : Color.white   // fades slightly while an AUTO tab is armed
+        ZStack(alignment: .topLeading) {
+            ForEach(0..<rows, id: \.self) { r in
+                ForEach(roomsSelectionRuns(row: r, cols: cols), id: \.self) { run in
+                    RoundedRectangle(cornerRadius: 5).stroke(ring, lineWidth: 2)
+                        .frame(width: CGFloat(run.count) * colW + CGFloat(run.count - 1) * gap, height: rowH)
+                        .offset(x: CGFloat(run.lowerBound) * (colW + gap), y: CGFloat(r) * (rowH + gap))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
     // TAP the PART NUMBERED rail (now on the RIGHT, Paul 2026-09-08) — it becomes the SELECTED slot (the always-one
     // selection, shared with SELECT) + the copy source, and reflects its chain in the panel. It does NOT select a grid
