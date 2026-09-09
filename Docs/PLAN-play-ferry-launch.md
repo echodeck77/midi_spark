@@ -130,7 +130,20 @@ render a new `roomsFerryLaunchPanel(ferry:)` in place of / above `roomsCardPlace
 
 ## Phasing (each shippable + verifiable on its own)
 
-- **Phase 1 — identity + panel + persistence (UI/model only, no engine).** Add the 6
+- **Phase 1 — DONE (commit 84c89a5):** the 6 BuildPart fields + decode-tolerant init +
+  enums; roomsFerryLaunchPanel (name · colour · launch selectors, store-only); ferry row
+  honours ferryName/ferryHue. iOS builds, macOS +1 round-trip test.
+- **Phase 2a — DONE (commit e7bc36f):** the launch ANCHOR (start decoupling). SnapshotBox
+  rowLaunchAnchor + the Router injection (anchored beat passed consistently to every
+  per-row emitter so phase shifts while sample offsets stay in the raw window) + the
+  multi-clock force + the armed-until-start guard; pure ferryLaunchAnchor + full threading
+  + stamp in buildToggleFerryPlay + ferry→engine-row mapping in buildPublishScene. macOS
+  +1 RouterTest (armed-until-start + eventual play), fuzz green, byte-identical when no anchor.
+- **Phase 2b — TODO:** one-shot STOP (record launchBeat — already stored — clear buildPlayColOn
+  at pass expiry in the 4 Hz poll) + the SPRING momentary gesture (press/release on the ferry
+  play button). Both device-feel owed. Also: bulk play-all should stamp per-ferry anchors
+  (currently plays SYNC).
+- **Original Phase 1 — identity + panel + persistence (UI/model only, no engine).** Add the 6
   `BuildPart` fields + decode-tolerant init + enums; build `roomsFerryLaunchPanel`
   (name + colour + the four launch selectors, storing only); ferry row/selector render
   `ferryName`/`ferryHue`. Nothing changes playback yet. macOS round-trip test for the new
