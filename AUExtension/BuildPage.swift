@@ -1756,7 +1756,9 @@ extension DiagView {
         let p = (t >= 0 && t < buildFerryParts.count ? buildFerryParts[t] : nil) ?? BuildPart()
         let cur = t < buildFerryParts.count ? buildFerryParts[t]?.ferryHue : nil
         let starts: [FerryStart] = [.sync, .instant, .step, .beat, .pass]
-        let startLabels = ["SYNC", "NOW", "STEP", "BEAT", "PASS"]
+        let startLabels = ["SYNC", "INSTANT", "STEP", "BEAT", "PASS"]
+        let chokeOpts = ["OFF", "GROUP 1", "GROUP 2", "GROUP 3", "GROUP 4", "GROUP 5", "GROUP 6", "GROUP 7", "GROUP 8"]
+        let leftW: CGFloat = 26 * 4 + 6 * 3   // the 4×4 colour grid width — the whole left column
         RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
             .overlay(
@@ -1767,45 +1769,39 @@ extension DiagView {
                             Text("FERRY SETTINGS").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.7))
                             Spacer()
                         }
-                        // NAME (short, ≤8 chars) + the 4×4 COLOUR grid to its right (Paul 2026-09-09)
-                        HStack(alignment: .top, spacing: 14) {
-                            VStack(alignment: .leading, spacing: 4) {
+                        // THREE COLUMNS (Paul 2026-09-09): LEFT = NAME (big) over the 4×4 COLOUR grid · CENTER = two controls
+                        // stacked · RIGHT = the final two controls stacked. Bigger, easy-to-click dropdowns.
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 8) {
                                 launchLabel("NAME")
                                 TextField("name", text: Binding(
                                     get: { (t < buildFerryParts.count ? buildFerryParts[t]?.ferryName : nil) ?? "" },
-                                    set: { v in let s = String(v.prefix(8)); buildEditFerry(t, publish: false) { $0.ferryName = s.isEmpty ? nil : s } }))
-                                    .font(.system(size: 12, weight: .semibold, design: .monospaced)).textFieldStyle(.plain)
-                                    .foregroundColor(.white).padding(.horizontal, 6).frame(width: 78, height: 28)
-                                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-                                Button { buildEditFerry(t) { $0.ferryHue = nil } } label: {
-                                    Text(cur == nil ? "AUTO HUE ✓" : "AUTO HUE").font(.system(size: 8, weight: .heavy, design: .monospaced))
-                                        .foregroundColor(cur == nil ? buildCyan : .white.opacity(0.5))
-                                }
-                            }
-                            VStack(alignment: .leading, spacing: 4) {
+                                    set: { v in buildEditFerry(t, publish: false) { $0.ferryName = v.isEmpty ? nil : v } }))
+                                    .font(.system(size: 15, weight: .semibold, design: .monospaced)).textFieldStyle(.plain)
+                                    .foregroundColor(.white).padding(.horizontal, 8).frame(maxWidth: .infinity).frame(height: 38)
+                                    .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.07)))
                                 launchLabel("COLOUR")
-                                LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 5), count: 4), alignment: .leading, spacing: 5) {
+                                LazyVGrid(columns: Array(repeating: GridItem(.fixed(26), spacing: 6), count: 4), alignment: .leading, spacing: 6) {
                                     ForEach(Array(machineHexes.enumerated()), id: \.offset) { _, hex in
-                                        RoundedRectangle(cornerRadius: 4).fill(Color(hex: hex))
-                                            .frame(width: 24, height: 24)
-                                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(cur == hex ? Color.white : Color.clear, lineWidth: 2))
+                                        RoundedRectangle(cornerRadius: 5).fill(Color(hex: hex))
+                                            .frame(width: 26, height: 26)
+                                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(cur == hex ? Color.white : Color.clear, lineWidth: 2))
                                             .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = hex } }
                                     }
-                                }.frame(width: 24 * 4 + 5 * 3)
+                                }
+                            }.frame(width: leftW)
+                            VStack(spacing: 10) {   // CENTER column
+                                launchMenu("PLAYBACK", p.launchPlaybackResolved == .oneShot ? "ONE-SHOT" : "LOOP", ["LOOP", "ONE-SHOT"]) { i in
+                                    buildEditFerry(t) { $0.launchPlayback = i == 1 ? .oneShot : .loop } }
+                                launchMenu("TRIGGER", p.launchTriggerResolved == .spring ? "SPRING" : "LATCH", ["LATCH", "SPRING"]) { i in
+                                    buildEditFerry(t) { $0.launchTrigger = i == 1 ? .spring : .latch } }
                             }
-                            Spacer()
-                        }
-                        // The launch controls — all on ONE line (compact menus) (Paul 2026-09-09)
-                        HStack(spacing: 6) {
-                            launchMenu("PLAY", p.launchPlaybackResolved == .oneShot ? "1-SHOT" : "LOOP", ["LOOP", "ONE-SHOT"]) { i in
-                                buildEditFerry(t) { $0.launchPlayback = i == 1 ? .oneShot : .loop } }
-                            launchMenu("TRIG", p.launchTriggerResolved == .spring ? "SPRING" : "LATCH", ["LATCH", "SPRING"]) { i in
-                                buildEditFerry(t) { $0.launchTrigger = i == 1 ? .spring : .latch } }
-                            launchMenu("START", startLabels[starts.firstIndex(of: p.launchStartResolved) ?? 0], startLabels) { i in
-                                buildEditFerry(t) { $0.launchStart = starts[i] } }
-                            launchMenu("CHOKE", p.chokeGroupResolved == 0 ? "OFF" : "\(p.chokeGroupResolved)", ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"]) { i in
-                                buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
-                            Spacer()
+                            VStack(spacing: 10) {   // RIGHT column
+                                launchMenu("START", startLabels[starts.firstIndex(of: p.launchStartResolved) ?? 0], startLabels) { i in
+                                    buildEditFerry(t) { $0.launchStart = starts[i] } }
+                                launchMenu("CHOKE GROUP", p.chokeGroupResolved == 0 ? "OFF" : "GROUP \(p.chokeGroupResolved)", chokeOpts) { i in
+                                    buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
+                            }
                         }
                     }.padding(12)
                 }
@@ -1821,18 +1817,22 @@ extension DiagView {
     @ViewBuilder private func launchLabel(_ s: String) -> some View {
         Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.4))
     }
-    // A compact labelled dropdown (LABEL value ▾) for the one-line launch controls.
+    // A big, easy-to-click labelled dropdown — the label above, the value + chevron below. Fills its column so the stacked
+    // controls are large tap targets (Paul 2026-09-09).
     @ViewBuilder private func launchMenu(_ label: String, _ current: String, _ options: [String], _ onPick: @escaping (Int) -> Void) -> some View {
         Menu {
             ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in Button(opt) { onPick(idx) } }
         } label: {
-            HStack(spacing: 3) {
-                Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                Text(current).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).foregroundColor(.white.opacity(0.35))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.5))
+                HStack(spacing: 4) {
+                    Text(current).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.7)
+                    Spacer()
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.4))
+                }
             }
-            .padding(.horizontal, 7).frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06)))
+            .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.07)))
             .contentShape(Rectangle())
         }
     }
