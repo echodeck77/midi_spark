@@ -1455,7 +1455,7 @@ extension DiagView {
     // roll) funnels through here, so touching a cell always shows its true machine. Play cell → its dusk (positional by
     // column, still via machineHue); a plain SELECT browse audition → the callers grey it.
     fileprivate var buildSelHue: Color {
-        if let n = buildGridSelStampSourceRow { return partPosHue(n) }   // BENCH: the focused ferry/part row = its position machine
+        if let n = buildGridSelStampSourceRow { return Color(hex: partFerryHue(n)) }   // BENCH: the focused part row = its ACTIVE-FERRY shade (P2b palette) — so the machine box/chain/card MATCH the row's cell (was partPosHue → mismatch after the palette move, Paul 2026-09-09)
         return machineHue(ddSelectedMachineID ?? "") ?? buildCyan       // play dusk / browse (greyed by callers) / fallback
     }
     // THE MACHINE DISPLAY HUE (Paul 2026-08-30): the ONE hue for the machine BOX + MIDI CHAIN + PLAY button, so the three
