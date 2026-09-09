@@ -179,6 +179,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MOD finishing — FREE/LFO cell + QUANTIZE + PHASE + EXTERN SCALE (2026-09-09, on `main`, merge of `feature/mod-finishing`;
+  iOS builds, macOS 1085 green incl. fuzz; DEVICE ear owed). Launch-critical MOD polish (MOD already FUNCTIONED — all 5 sources
+  SHAPE/FOLLOW/STEPS/STRIKE/EXTERN + MIN/MAX + SPAN + CC/CHAIN targets, tested; Paul's pick = FREE/LFO + refinements, NOT the
+  tactile fader or ownership pin). **FREE / THE LFO CELL (§16):** `modFree` — a MOD slot speaks EVERY window regardless of the
+  playhead → the grid becomes a mod-matrix (a modulation-only cell beside music cells). `emitFreeMod` scans all cells once/window
+  (beat-derived, replay-safe, block-invariant; active-column FREE slots skipped in emitColumnMod → no double-emit; NO
+  leave-disposition — a flush stops it; CC targets only, a FREE chain-target has no active column to fold into — v1). **QUANTIZE
+  (§14①):** `modQuantize` snaps the output to N levels (pure `modQuantizeValue`, both emit paths). **PHASE (§14②):** `modPhase`
+  0–360° on the SHAPE wave (quadrature sines). **EXTERN SCALE (§6):** `modExternMode` RE-EMIT|SCALE — the incoming CC scales the
+  SHAPE's depth ("rhythm from us, amount from the wheel"). Model (additive-Optional) + builder + engine + UI chips (SPEAK ON
+  PLAYHEAD|FREE · QUANTIZE · PHASE · EXTERN MODE). **DEFERRED with reason: FOLLOW averaging WINDOW** — a true time-average needs
+  pool/event HISTORY accumulated across renders (violates invariant 2, derived-never-accumulated); wants a sanctioned state
+  exception (a design call), so v1 FOLLOW stays instantaneous — flagged for Paul. +2 tests (FREE cell speaks off the playhead ·
+  QUANTIZE snaps to the level set). Spec `AcceptanceCriteria-mod-finishing.md`. DEVICE-owed: the CC feel (LFO cell · EXTERN SCALE
+  with a real wheel · QUANTIZE steppiness). **Launch trio DONE: RATCHET (P1 fix) · RIFF (CAPTURE) · MOD (finishing).**
 - **▶ RIFF CAPTURE §2 — "play a line in", the RIFF headline (2026-09-09, on `main`, merge of `feature/riff-capture`; iOS
   builds, macOS 1083 green incl. fuzz; DEVICE ear/eye owed). Paul's launch-critical RIFF finishing (the stencil engine §1/§5
   was already solid + tested). CAPTURE: LATCH a chord (the FRAME) → arm → play the line on the SAME door → keep. The line is
