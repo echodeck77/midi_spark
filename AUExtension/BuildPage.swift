@@ -1904,20 +1904,30 @@ extension DiagView {
             let playH = max(12, g.size.height - selH - 3)
             VStack(spacing: 3) {
                 // ── THE SELECTOR (top ⅓) = the header bar (Paul 2026-09-09, no cyan) ──
-                // ONE continuous STRONG TINT of the SELECTED ferry's colour spans the whole bar: this ferry paints its
-                // SLICE [t/8 … (t+1)/8] of a bright→deep gradient, so adjacent selectors meet seamlessly (non-stepped).
-                // Non-selected ferries are PLAIN — just the shared tint + their icon (the selected colour, deepened for
-                // legibility). Only the FOCUSED ferry highlights, in its own full colour on top of the bar.
-                let barA = mixHex(focusHex, 0xFFFFFF, 0.14)                 // the bar's bright end
-                let barB = mixHex(focusHex, 0x000000, 0.34)                // …to its deep end (a stylish sheen)
-                let sliceLo = Color(hex: mixHex(barA, barB, Double(t) / 8.0)).opacity(0.88)
-                let sliceHi = Color(hex: mixHex(barA, barB, Double(t + 1) / 8.0)).opacity(0.88)
-                let selIcon: Color = !set ? buildDim : (focused ? .white : Color(hex: mixHex(focusHex, 0x000000, 0.45)))
-                RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))                                       // base
-                    .overlay { RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [sliceLo, sliceHi], startPoint: .leading, endPoint: .trailing)) }   // the CONTINUOUS bar tint — the WHOLE select row, populated AND empty (Paul 2026-09-09)
-                    .overlay { if focused { RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(0.95)) } }              // FOCUSED = the highlight, its OWN full colour on the bar
-                    .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(10, selH * 0.5), weight: .bold)).foregroundColor(selIcon))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? Color.white.opacity(0.9) : Color.white.opacity(0.12), lineWidth: focused ? 2 : 1))   // focused = a bright ring to lift it off the tinted bar
+                // LIGHT EMANATES from the SELECTED ferry along the whole row: a strong tint of the selected colour,
+                // brightest at the focus and DIMMING outward (each ferry paints its slice of the continuous falloff →
+                // non-stepped, spanning populated AND empty selectors). Unselected ferries dim with distance; only the
+                // focused one highlights (its own full colour). The icon is FOUR DOTS in the ferry's own pre-allocated
+                // colour (identity); empty ferries show a "+".
+                let focusPos = Double(buildActiveFerry ?? t) + 0.5          // the selected ferry's centre, in ferry units
+                let iLo = max(0.0, 1.0 - abs(Double(t) - focusPos) / 5.5)   // glow reach ≈ 5–6 ferries
+                let iHi = max(0.0, 1.0 - abs(Double(t + 1) - focusPos) / 5.5)
+                let glow = mixHex(focusHex, 0xFFFFFF, 0.12)
+                let sliceLo = Color(hex: glow).opacity(0.05 + iLo * iLo * 0.80)   // near focus = bright · far = dim (dark base shows through)
+                let sliceHi = Color(hex: glow).opacity(0.05 + iHi * iHi * 0.80)
+                let dotHue: Color = focused ? Color(hex: mixHex(mHex, 0x000000, 0.55)) : mHue   // the ferry's OWN pre-allocated colour (deepened on the focused own-colour highlight for contrast)
+                let dotD = max(2.5, selH * 0.16)
+                RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.04))
+                    .overlay { RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [sliceLo, sliceHi], startPoint: .leading, endPoint: .trailing)) }   // the CONTINUOUS emanation (this ferry's slice)
+                    .overlay { if focused { RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(0.95)) } }              // FOCUSED = the light source: its OWN full colour
+                    .overlay {
+                        if set {
+                            HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
+                        } else {
+                            Image(systemName: "plus").font(.system(size: min(10, selH * 0.5), weight: .bold)).foregroundColor(buildDim)
+                        }
+                    }
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? Color.white.opacity(0.9) : Color.white.opacity(0.10), lineWidth: focused ? 2 : 1))
                     .frame(height: selH)
                     .contentShape(Rectangle())
                     .onTapGesture { buildActivateFerry(t) }
