@@ -1,5 +1,15 @@
 # PLAN — GRID VISUAL REBUILD (clean-slate)
 
+**STATUS (2026-09-09, branch `feature/grid-rebuild-v2`, off the renamed main):** P1 palette DONE + eye-tested (Paul). P2
+DONE — `GridSkin.roomsRibbonFace` (static piano-roll ribbon) is the cell face; `buildOutputFace` delegates to it, so all
+faces (part · SELECT · row-selector · ferry) are calm, the constellation drift stripped; iOS builds. **PAUSED for Paul's
+device eye on P2** before P3+. Remaining, all device-gated (unverifiable by build — geometry/colour I can't see):
+**P2b** wire the ferry-shade palette into the part-cell grounds + ferry identity (how dark the shaded ground reads behind
+the bright ribbon = tuning) · **P3** ferry beat-sweep + lift-&-bloom + machine-header echo (sweep geometry on a narrow
+ferry) · **P4** delete the now-thin old faces (`drawConstellation` still used by the `.play` `buildNoteSweep`; convert or
+leave) · **P5** device tune (ribbon density, shade darkness, sweep contrast).
+
+
 Ratified direction (Paul 2026-09-08): **piano-roll ribbon cells · beat-sweep playing ferries · lift-and-bloom selected
 ferry · the ferry-shade palette**, meeting `AcceptanceCriteria-grid-presentation.md`. Reference mock:
 `claude.ai/code/artifact/c8369ad5…` (combined). This plan rebuilds the grid's VISUAL layer from scratch and deletes the
