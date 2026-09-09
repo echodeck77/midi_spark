@@ -225,7 +225,6 @@ struct DiagView: View {
     // `launchBeat` mirrors the un-anchored launch beat (for the Phase-2b one-shot expiry).
     @State var launchAnchor: [Double] = Array(repeating: 0, count: 8)
     @State var launchBeat: [Double] = Array(repeating: 0, count: 8)
-    @State var ferrySpringPressing: Set<Int> = []   // PLAY-FERRY LAUNCH (Phase 2b): ferries currently held under a SPRING (momentary) press
     @State var buildPlayColRecv: [Int] = Array(repeating: 0, count: 8)
     @State var buildPlayColEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
     // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column can hold an N-step pass. len[c] = 1 ⇒ the single
