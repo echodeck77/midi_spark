@@ -1757,7 +1757,7 @@ extension DiagView {
         let cur = t < buildFerryParts.count ? buildFerryParts[t]?.ferryHue : nil
         let starts: [FerryStart] = [.sync, .instant, .step, .beat, .pass]
         let startLabels = ["SYNC", "INSTANT", "STEP", "BEAT", "PASS"]
-        let chokeOpts = ["OFF", "GROUP 1", "GROUP 2", "GROUP 3", "GROUP 4", "GROUP 5", "GROUP 6", "GROUP 7", "GROUP 8"]
+        let chokeOpts = ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"]
         let leftW: CGFloat = 26 * 4 + 6 * 3   // the 4×4 colour grid width — the whole left column
         RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
@@ -1790,18 +1790,18 @@ extension DiagView {
                                     }
                                 }
                             }.frame(width: leftW)
-                            VStack(spacing: 10) {   // CENTER column
-                                launchMenu("PLAYBACK", p.launchPlaybackResolved == .oneShot ? "ONE-SHOT" : "LOOP", ["LOOP", "ONE-SHOT"]) { i in
+                            VStack(alignment: .leading, spacing: 12) {   // CENTER column
+                                launchInline("PLAYBACK", ["LOOP", "ONE-SHOT"], sel: p.launchPlaybackResolved == .oneShot ? 1 : 0, minChip: 62) { i in
                                     buildEditFerry(t) { $0.launchPlayback = i == 1 ? .oneShot : .loop } }
-                                launchMenu("TRIGGER", p.launchTriggerResolved == .spring ? "SPRING" : "LATCH", ["LATCH", "SPRING"]) { i in
+                                launchInline("TRIGGER", ["LATCH", "SPRING"], sel: p.launchTriggerResolved == .spring ? 1 : 0, minChip: 62) { i in
                                     buildEditFerry(t) { $0.launchTrigger = i == 1 ? .spring : .latch } }
-                            }
-                            VStack(spacing: 10) {   // RIGHT column
-                                launchMenu("START", startLabels[starts.firstIndex(of: p.launchStartResolved) ?? 0], startLabels) { i in
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 12) {   // RIGHT column
+                                launchInline("START", startLabels, sel: starts.firstIndex(of: p.launchStartResolved) ?? 0, minChip: 54) { i in
                                     buildEditFerry(t) { $0.launchStart = starts[i] } }
-                                launchMenu("CHOKE GROUP", p.chokeGroupResolved == 0 ? "OFF" : "GROUP \(p.chokeGroupResolved)", chokeOpts) { i in
+                                launchInline("CHOKE", chokeOpts, sel: p.chokeGroupResolved, minChip: 34) { i in
                                     buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
-                            }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }.padding(12)
                 }
@@ -1817,23 +1817,22 @@ extension DiagView {
     @ViewBuilder private func launchLabel(_ s: String) -> some View {
         Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.4))
     }
-    // A big, easy-to-click labelled dropdown — the label above, the value + chevron below. Fills its column so the stacked
-    // controls are large tap targets (Paul 2026-09-09).
-    @ViewBuilder private func launchMenu(_ label: String, _ current: String, _ options: [String], _ onPick: @escaping (Int) -> Void) -> some View {
-        Menu {
-            ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in Button(opt) { onPick(idx) } }
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.5))
-                HStack(spacing: 4) {
-                    Text(current).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.7)
-                    Spacer()
-                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.4))
+    // An INLINE segmented control — every option is a VISIBLE tappable chip (no pop-up). The chips WRAP to fill the column
+    // (LazyVGrid adaptive); `minChip` sets roughly how wide each chip is (so 2/5/9 options pack sensibly). Big + easy to
+    // click; selected = cyan (Paul 2026-09-09).
+    @ViewBuilder private func launchInline(_ label: String, _ options: [String], sel: Int, minChip: CGFloat, _ onPick: @escaping (Int) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            launchLabel(label)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: minChip), spacing: 5, alignment: .leading)], alignment: .leading, spacing: 5) {
+                ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in
+                    let on = idx == sel
+                    Text(opt).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+                        .foregroundColor(on ? .black : .white.opacity(0.65))
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan : Color.white.opacity(0.07)))
+                        .contentShape(Rectangle()).onTapGesture { onPick(idx) }
                 }
             }
-            .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.07)))
-            .contentShape(Rectangle())
         }
     }
     // ── THE NAV SLIVERS — thin navigation bars that are a COMPONENT OF THE GRID BOX (Paul 2026-08-28). The ▲PLAY sliver
