@@ -4605,28 +4605,11 @@ extension DiagView {
     //            output — that was the disconnect: the sigil flashed on the beat grid but showed a different chord's notes.)
     // `live` = animate the drifting piano-roll (Paul 2026-09-08: ONLY the play ferries animate now; every other cell —
     // SELECT · PART · row/side selectors — draws the STATIC blueprint constellation, no drift, no blink).
+    // GRID REBUILD P2 (Paul 2026-09-08): the cell face is now the STATIC piano-roll RIBBON (GridSkin.roomsRibbonFace) —
+    // no constellation, no drift, no blink, no per-cell TimelineView. The `playing`/`strikeIdx`/`live` params are kept
+    // for call-site compatibility but ignored: cells are calm, and the ferry row carries the motion (its playhead/glow).
     @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool = false, strikeIdx: [Int] = [], live: Bool = false) -> some View {
-        let feed = live ? strikeIdx.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] } : []   // MIDI flowing? empty ⇒ stopped / no input ⇒ STATIC blueprint
-        if !feed.isEmpty && !animationsPaused {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-                let now = tl.date
-                Canvas { ctx, size in
-                    var pts: [(x: Double, y: Double, v: Double, a: Double)] = []
-                    for n in feed {
-                        let age = now.timeIntervalSince(n.born)
-                        if age < 0 || age > buildRollLife { continue }
-                        let prog = age / buildRollLife                              // 0 (right, just sounded) → 1 (left, gone)
-                        let fade = min(1.0, prog / 0.10) * min(1.0, (1 - prog) / 0.45)   // brightest just after onset = ON the note
-                        let a = max(0.0, min(1.0, fade)) * (0.55 + 0.45 * n.vel)
-                        pts.append((x: 1 - prog, y: 1 - n.lane, v: n.vel, a: a))   // enter RIGHT, drift LEFT; lane 1 → top
-                    }
-                    drawConstellation(&ctx, size, pts, tint: tint)                  // the dots ARE the live notes — lit by freshness, no `phase`
-                }.padding(2)
-            }.allowsHitTesting(false)
-        } else {
-            let pts = bars.map { (x: Double(($0.x0 + $0.x1) / 2), y: Double($0.y), v: $0.vel, a: 0.4 + 0.55 * $0.vel) }
-            Canvas { ctx, size in drawConstellation(&ctx, size, pts, tint: tint) }.padding(2).allowsHitTesting(false)   // STATIC blueprint (idle)
-        }
+        roomsRibbonFace(bars, tint: tint)
     }
     @ViewBuilder private func buildNoteSweep(indices: [Int], active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
       if active, id != nil {
