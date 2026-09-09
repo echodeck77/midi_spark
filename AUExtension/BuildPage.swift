@@ -1754,34 +1754,59 @@ extension DiagView {
     // buildCaptureBenchPart preserves these across a bench write-back, and buildCapturePlayGrid persists them.
     @ViewBuilder func roomsFerryLaunchPanel(_ t: Int) -> some View {
         let p = (t >= 0 && t < buildFerryParts.count ? buildFerryParts[t] : nil) ?? BuildPart()
+        let cur = t < buildFerryParts.count ? buildFerryParts[t]?.ferryHue : nil
         let starts: [FerryStart] = [.sync, .instant, .step, .beat, .pass]
+        let startLabels = ["SYNC", "NOW", "STEP", "BEAT", "PASS"]
         RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
             .overlay(
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 6) {
                             Image(systemName: "slider.horizontal.3").font(.system(size: 12, weight: .bold)).foregroundColor(buildCyan)
                             Text("FERRY SETTINGS").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.7))
                             Spacer()
                         }
-                        launchLabel("NAME")
-                        TextField("unnamed", text: Binding(
-                            get: { (t < buildFerryParts.count ? buildFerryParts[t]?.ferryName : nil) ?? "" },
-                            set: { v in buildEditFerry(t, publish: false) { $0.ferryName = v.isEmpty ? nil : v } }))
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced)).textFieldStyle(.plain)
-                            .foregroundColor(.white).padding(.horizontal, 8).frame(height: 30)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-                        launchLabel("COLOUR")
-                        roomsFerryHueRow(t)
-                        launchSeg("PLAYBACK", ["LOOP", "ONE-SHOT"], sel: p.launchPlaybackResolved == .oneShot ? 1 : 0) { i in
-                            buildEditFerry(t) { $0.launchPlayback = i == 1 ? .oneShot : .loop } }
-                        launchSeg("TRIGGER", ["LATCH", "SPRING"], sel: p.launchTriggerResolved == .spring ? 1 : 0) { i in
-                            buildEditFerry(t) { $0.launchTrigger = i == 1 ? .spring : .latch } }
-                        launchSeg("START", ["SYNC", "NOW", "STEP", "BEAT", "PASS"], sel: starts.firstIndex(of: p.launchStartResolved) ?? 0) { i in
-                            buildEditFerry(t) { $0.launchStart = starts[i] } }
-                        launchSeg("CHOKE", ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"], sel: p.chokeGroupResolved) { i in
-                            buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
+                        // NAME (short, ≤8 chars) + the 4×4 COLOUR grid to its right (Paul 2026-09-09)
+                        HStack(alignment: .top, spacing: 14) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                launchLabel("NAME")
+                                TextField("name", text: Binding(
+                                    get: { (t < buildFerryParts.count ? buildFerryParts[t]?.ferryName : nil) ?? "" },
+                                    set: { v in let s = String(v.prefix(8)); buildEditFerry(t, publish: false) { $0.ferryName = s.isEmpty ? nil : s } }))
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced)).textFieldStyle(.plain)
+                                    .foregroundColor(.white).padding(.horizontal, 6).frame(width: 78, height: 28)
+                                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+                                Button { buildEditFerry(t) { $0.ferryHue = nil } } label: {
+                                    Text(cur == nil ? "AUTO HUE ✓" : "AUTO HUE").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                                        .foregroundColor(cur == nil ? buildCyan : .white.opacity(0.5))
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                launchLabel("COLOUR")
+                                LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 5), count: 4), alignment: .leading, spacing: 5) {
+                                    ForEach(Array(machineHexes.enumerated()), id: \.offset) { _, hex in
+                                        RoundedRectangle(cornerRadius: 4).fill(Color(hex: hex))
+                                            .frame(width: 24, height: 24)
+                                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(cur == hex ? Color.white : Color.clear, lineWidth: 2))
+                                            .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = hex } }
+                                    }
+                                }.frame(width: 24 * 4 + 5 * 3)
+                            }
+                            Spacer()
+                        }
+                        // The launch controls — all on ONE line (compact menus) (Paul 2026-09-09)
+                        HStack(spacing: 6) {
+                            launchMenu("PLAY", p.launchPlaybackResolved == .oneShot ? "1-SHOT" : "LOOP", ["LOOP", "ONE-SHOT"]) { i in
+                                buildEditFerry(t) { $0.launchPlayback = i == 1 ? .oneShot : .loop } }
+                            launchMenu("TRIG", p.launchTriggerResolved == .spring ? "SPRING" : "LATCH", ["LATCH", "SPRING"]) { i in
+                                buildEditFerry(t) { $0.launchTrigger = i == 1 ? .spring : .latch } }
+                            launchMenu("START", startLabels[starts.firstIndex(of: p.launchStartResolved) ?? 0], startLabels) { i in
+                                buildEditFerry(t) { $0.launchStart = starts[i] } }
+                            launchMenu("CHOKE", p.chokeGroupResolved == 0 ? "OFF" : "\(p.chokeGroupResolved)", ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"]) { i in
+                                buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
+                            Spacer()
+                        }
                     }.padding(12)
                 }
             )
@@ -1796,42 +1821,19 @@ extension DiagView {
     @ViewBuilder private func launchLabel(_ s: String) -> some View {
         Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.4))
     }
-    @ViewBuilder private func launchSeg(_ label: String, _ options: [String], sel: Int, _ onPick: @escaping (Int) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            launchLabel(label)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in
-                        let on = idx == sel
-                        Text(opt).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                            .foregroundColor(on ? .black : .white.opacity(0.6))
-                            .padding(.horizontal, 9).frame(height: 26)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : Color.white.opacity(0.06)))
-                            .contentShape(Rectangle()).onTapGesture { onPick(idx) }
-                    }
-                }
+    // A compact labelled dropdown (LABEL value ▾) for the one-line launch controls.
+    @ViewBuilder private func launchMenu(_ label: String, _ current: String, _ options: [String], _ onPick: @escaping (Int) -> Void) -> some View {
+        Menu {
+            ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in Button(opt) { onPick(idx) } }
+        } label: {
+            HStack(spacing: 3) {
+                Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text(current).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).foregroundColor(.white.opacity(0.35))
             }
-        }
-    }
-    // The colour picker: AUTO (nil ⇒ the ferry's position default) + the 16 palette hues. Horizontal scroll so it never overflows.
-    @ViewBuilder private func roomsFerryHueRow(_ t: Int) -> some View {
-        let cur = t < buildFerryParts.count ? buildFerryParts[t]?.ferryHue : nil
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06))
-                    Text("AUTO").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-                }
-                .frame(width: 36, height: 26)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(cur == nil ? buildCyan : Color.clear, lineWidth: 2))
-                .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = nil } }
-                ForEach(Array(machineHexes.enumerated()), id: \.offset) { _, hex in
-                    RoundedRectangle(cornerRadius: 5).fill(Color(hex: hex))
-                        .frame(width: 26, height: 26)
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(cur == hex ? Color.white : Color.clear, lineWidth: 2))
-                        .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = hex } }
-                }
-            }
+            .padding(.horizontal, 7).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06)))
+            .contentShape(Rectangle())
         }
     }
     // ── THE NAV SLIVERS — thin navigation bars that are a COMPONENT OF THE GRID BOX (Paul 2026-08-28). The ▲PLAY sliver
