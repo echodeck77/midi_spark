@@ -2484,7 +2484,13 @@ extension DiagView {
                         HStack(alignment: .top, spacing: gap) {             // body: LEFT chevron rail | interior+playhead | RIGHT numbered rail (Paul 2026-09-08 — rails swapped)
                             VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }   // LEFT = chevron (row-select for playback)
                             ZStack(alignment: .topLeading) {
-                                VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } } } }
+                                VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in
+                                    if r == buildGridSelStampSourceRow && buildRowMachine(r) == nil {   // selected EMPTY row → 4 in-row creator buttons (Paul 2026-09-10)
+                                        roomsRowCreatorInline(r, cw: cw, gap: gap, cols: cols, rowH: rowH)
+                                    } else {
+                                        HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } }
+                                    }
+                                } }
                                 roomsPartSelectionOverlay(colW: cw, gap: gap, rowH: rowH)   // ONE outline around each contiguous selected run (Paul 2026-09-10)
                                 roomsPartPlayhead(colW: cw, gap: gap, rowH: rowH).allowsHitTesting(false)
                             }
@@ -4393,6 +4399,29 @@ extension DiagView {
         buildSelectRow(row)                                      // AUTO-SELECT the new row across every column (Paul 2026-09-10)
         buildRoomsSetActiveSide(row); buildSelectID(y); buildTapMachineTab(row)   // focus the new row → the machine box now edits it
         buildStagingSyncIfPlaying()
+    }
+    // IN-ROW ROW CREATOR (Paul 2026-09-10): a SELECTED EMPTY part row becomes 4 equal buttons — MUTATE · RANDOM · CREATE
+    // · CLONE — RIGHT IN THAT ROW, styled identically to the cells. Equal quarters → the total row width is unchanged, so
+    // nothing around it shifts. CLONE/MUTATE work off the first populated row (empty ⇒ they behave like CREATE).
+    @ViewBuilder private func roomsRowCreatorInline(_ row: Int, cw: CGFloat, gap: CGFloat, cols: Int, rowH: CGFloat) -> some View {
+        let rowW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)                    // EXACT normal-row width → identical scale
+        let ref = (0..<8).first { buildRowMachine($0) != nil }
+        let refChain = ref.flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
+        HStack(spacing: gap) {
+            roomsRowCreatorSeg("MUTATE") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain) }
+            roomsRowCreatorSeg("RANDOM") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng)) }
+            roomsRowCreatorSeg("CREATE") { buildCreateRowMachine(row, chain: []) }
+            roomsRowCreatorSeg("CLONE")  { buildCreateRowMachine(row, chain: refChain) }
+        }.frame(width: rowW, height: rowH)
+    }
+    @ViewBuilder private func roomsRowCreatorSeg(_ label: String, _ action: @escaping () -> Void) -> some View {
+        RoundedRectangle(cornerRadius: 5).fill(buildCell)                          // identical cell styling: dark stage + edge
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
+            .overlay(Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.5)
+                        .foregroundColor(.white.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 2))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
     }
     @ViewBuilder private func buildRowCreatorMenu(_ row: Int, height: CGFloat) -> some View {
         let populated = (0..<8).filter { buildRowMachine($0) != nil }
