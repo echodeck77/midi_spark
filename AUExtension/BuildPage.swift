@@ -2245,9 +2245,9 @@ extension DiagView {
             let interiorW = cw * 8 + gap * 7
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)   // the 4-row browser (half-height cells)
             let leftInset = cw + gap                                        // the left page rail → the interior's left edge
-            let footerH = ch * 2.0 / 3.0                                     // the footer row (Paul 2026-09-08): 2/3 the ferry height, spanning the interior body — DIRECTLY under the grid rows
+            let footerH = ch / 3.0                                           // HALVED (Paul 2026-09-09): the footer rail is now 1/3 the ferry height
             let footerY = interiorH + gap                                    // the footer sits flush beneath the last grid row (NOT at the bottom of the unit)
-            let cardY = footerY + footerH + gap                             // the card docks BELOW the footer (so it no longer covers it)
+            let cardY = footerY + ch * 2.0 / 3.0 + gap                       // the card stays put → the freed half is a HIDDEN-CELL GAP between the footer and the card (Paul 2026-09-09)
             let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the footer + the docked card
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: gap) {                                       // the PLAY-ferry row (transport moved to the header play strip — Paul 2026-09-09)
@@ -2386,14 +2386,9 @@ extension DiagView {
             // FLAT dark, FIXED-BY-ROW-POSITION ground for BOTH rails (Paul 2026-09-06, design-cell-language decision 4):
             // the ferry reads IDENTICAL to the part slot it stamps, and the two halves of the one component finally agree —
             // dark position hue, no wash. (Was: part rail = a faint machine wash; ferry = a machine-hued partCellFill.)
-            .overlay(RoundedRectangle(cornerRadius: 5).fill(populated ? (part ? partFerryFill(n) : partPosFill(n)) : Color.clear))
-            // ONE emitter constellation (Paul 2026-09-06): the SAME buildOutputFace the part cell uses — the static blueprint at
-            // rest, the ACTUAL emitted notes when auditioning (strikeIdx = the audition's live-strike row). Was a static sigil +
-            // a separate live layer drifting over it (the rejected two-layer model) at 0.45–0.55 opacity.
-            .overlay { if populated && !part {
-                buildOutputFace(buildGridSelRowRoll[n] ?? [], tint: eHue, playing: playing,
-                                strikeIdx: playing ? (buildChainAuditionRow.map { [$0] } ?? []) : [])
-            } }
+            // BACKGROUND COLOUR only when SELECTED (Paul 2026-09-09): every other rail cell stays the plain dark stage.
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(selectedVis ? (part ? partFerryFill(n) : partPosFill(n)) : Color.clear))
+            // (No piano-roll note face on the rail — Paul 2026-09-09: lose the old drifting-notes look here too.)
             .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT machine-bloom (reveal) in this row's hue
             .clipShape(RoundedRectangle(cornerRadius: 5))
             // INVERTED when this row is the FOCUSED machine (shown in the machine view): the WHOLE chip becomes the
@@ -2474,9 +2469,9 @@ extension DiagView {
             let ferryW = (interiorW - CGFloat(7) * gap) / 8
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)  // the 4-row grid
             let leftInset = railW + gap                                     // full rail → the interior's left edge
-            let footerH = ch * 2.0 / 3.0                                     // the footer row (Paul 2026-09-08): 2/3 the ferry height, DIRECTLY under the grid rows
+            let footerH = ch / 3.0                                           // HALVED (Paul 2026-09-09): the footer rail is now 1/3 the ferry height
             let footerY = interiorH + gap                                    // flush beneath the last grid row
-            let cardY = footerY + footerH + gap                             // the card docks BELOW the footer (no longer covering it)
+            let cardY = footerY + ch * 2.0 / 3.0 + gap                       // the card stays put → the freed half is a HIDDEN-CELL GAP between the footer and the card (Paul 2026-09-09)
             // The lower region = everything under the ferry row: the 4-row grid on top, then the footer, then the docked
             // CARD filling the rest (the freed space from 8→4 rows).
             let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)
@@ -2985,7 +2980,6 @@ extension DiagView {
         // punch look), so it is always clear + legible and NEVER becomes another machine. It fades only VERY slightly while
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
         let selRing = buildAutoActive() >= 0 ? Color.white.opacity(0.8) : Color.white
-        let isEditedRow = buildGridSelStampSourceRow == r   // the row whose machine is currently in the editor/view
         let laneActive = buildAutoActive()
         let inExtent = laneActive >= 0 && buildAutoInExtent(idx)   // this cell HAS the automation applied
         ZStack {
@@ -2996,11 +2990,8 @@ extension DiagView {
             } else {
                 cellBody
             }
-            // THE EDITED ROW — a STATIC WHITE DASHED keyline (Paul 2026-09-09: no cyan; dashed so it reads distinct from
-            // the SELECTED rung's solid-white ring below).
-            if isEditedRow {
-                RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.7), style: StrokeStyle(lineWidth: 2, dash: [4, 3])).allowsHitTesting(false)
-            }
+            // (The edited-row dashed keyline is removed — Paul 2026-09-09: the machine box already matches the focused
+            // row's colour, so the extra marker was redundant + confusing.)
             // AUTOMATION APPLIED → the lane label "AUTO N" on every extent cell (replaces the old dot).
             if inExtent {
                 Text("AUTO \(laneActive + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.55)
