@@ -2399,7 +2399,7 @@ extension DiagView {
             // notes animate), with a WHITE RING when the button is the active/aimed source (design-cell-language decision 5:
             // selected = white ring, not a hue brighten). Was: part rail = a bright machine frame; ferry = a machine partCellFrame.
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(
-                populated ? (selectedVis ? Color.white.opacity(0.85) : (part ? partFerryFrame(n) : partPosFrame(n)))
+                populated ? (selectedVis ? Color.white.opacity(0.85) : (part ? buildEdge : partPosFrame(n)))   // part rail: NEUTRAL edge unless selected (no stray shade — Paul 2026-09-09)
                           : (selectedVis ? Color.white.opacity(0.7) : buildEdge),
                 lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))
             .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
@@ -2407,7 +2407,7 @@ extension DiagView {
             .overlay {
                 if part {                                                // PART rail → the slot NUMBER: machine hue normally; an ALPHA knockout when the chip is inverted (focused)
                     Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced))
-                        .foregroundColor(selectedVis ? Color.black.opacity(0.6) : mHue.opacity(populated ? 1.0 : 0.5))
+                        .foregroundColor(selectedVis ? Color.black.opacity(0.6) : Color.white.opacity(populated ? 0.6 : 0.3))   // NEUTRAL number unless selected — no stray shade (Paul 2026-09-09)
                 } else {                                                 // SELECT→part ferry → a small PLAY/STOP status glyph in the machine hue (over the flat dark ground)
                     Image(systemName: playing ? "stop.fill" : "play.fill").font(.system(size: min(11, height * 0.4), weight: .black)).foregroundColor(populated ? mHue : buildDim).opacity(playing ? 0.85 : 1.0)
                 }
@@ -3041,7 +3041,9 @@ extension DiagView {
     // whole row is the current per-column selection. (Paul 2026-08-28)
     @ViewBuilder private func roomsPartRightRail(_ n: Int) -> some View {
         let rowSel = buildStagingSel.allSatisfy { $0 == n }
-        RoundedRectangle(cornerRadius: 5).fill(rowSel ? Color.white.opacity(0.28) : Color.white.opacity(0.11))   // no cyan (Paul 2026-09-09): whole-row select = a brighter neutral
+        // THE LEFT RAIL = the DARK VERSION of the right rail (Paul 2026-09-09): plain dark unless the whole row is
+        // selected for playback, then a DARK shade of the row's ferry colour (same hue family as the right rail, darker).
+        RoundedRectangle(cornerRadius: 5).fill(rowSel ? Color(hex: mixHex(partFerryHue(n), 0x0E1116, 0.68)) : Color.white.opacity(0.05))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(rowSel ? Color.white.opacity(0.6) : buildEdge, lineWidth: 1))
             .overlay(Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.7)))   // same as the old gui's right rail
             .contentShape(Rectangle())
