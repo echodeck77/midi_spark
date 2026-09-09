@@ -8,15 +8,15 @@ final class MigrationTests: XCTestCase {
 
     private func doc(_ build: (inout SceneState) -> Void, version: Int = 2) -> PluginState {
         var s = SceneState.empty(); build(&s)
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [s])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [s])
         d.formatVersion = version
         return d
     }
 
     func testFedCellReferencesTheStackedRowAbove() {
         var d = doc { s in
-            s.cells[0][0] = Cell(colourID: "gold", stack: true)   // v2 feeder
-            s.cells[0][1] = Cell(colourID: "cyan")                // fed by row 0
+            s.cells[0][0] = Cell(machineID: "gold", stack: true)   // v2 feeder
+            s.cells[0][1] = Cell(machineID: "cyan")                // fed by row 0
         }
         d.migrateLegacyRoutingIfNeeded()
         XCTAssertEqual(d.scenes[0].cells[0][1]?.inputRow, 0)      // references row 0
@@ -26,8 +26,8 @@ final class MigrationTests: XCTestCase {
 
     func testUnstackedAboveMeansMidiIn() {
         var d = doc { s in
-            s.cells[0][0] = Cell(colourID: "gold")               // NOT stacked
-            s.cells[0][1] = Cell(colourID: "cyan")
+            s.cells[0][0] = Cell(machineID: "gold")               // NOT stacked
+            s.cells[0][1] = Cell(machineID: "cyan")
         }
         d.migrateLegacyRoutingIfNeeded()
         XCTAssertNil(d.scenes[0].cells[0][1]?.inputRow)          // above not feeding → MIDI IN
@@ -35,8 +35,8 @@ final class MigrationTests: XCTestCase {
 
     func testSrcMixIsDroppedButReferenceKept() {
         var d = doc { s in
-            s.cells[0][0] = Cell(colourID: "gold", stack: true)
-            s.cells[0][1] = Cell(colourID: "cyan", srcMix: true) // +SRC has no v3 equivalent
+            s.cells[0][0] = Cell(machineID: "gold", stack: true)
+            s.cells[0][1] = Cell(machineID: "cyan", srcMix: true) // +SRC has no v3 equivalent
         }
         d.migrateLegacyRoutingIfNeeded()
         XCTAssertEqual(d.scenes[0].cells[0][1]?.inputRow, 0)     // still references its parent
@@ -44,7 +44,7 @@ final class MigrationTests: XCTestCase {
 
     func testAlreadyV3IsUntouched() {
         var d = doc({ s in
-            s.cells[0][1] = Cell(colourID: "cyan", inputRow: 5)  // explicit new-model reference
+            s.cells[0][1] = Cell(machineID: "cyan", inputRow: 5)  // explicit new-model reference
         }, version: 3)
         d.migrateLegacyRoutingIfNeeded()
         XCTAssertEqual(d.scenes[0].cells[0][1]?.inputRow, 5)     // gated by version → not re-derived
@@ -157,10 +157,10 @@ final class MigrationTests: XCTestCase {
 
     func testSynthesizeReceiversFromDistinctInputChannels() {
         let d0 = doc({ s in
-            s.cells[0][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 0; return c }()   // OMNI
-            s.cells[1][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 3; return c }()   // ch 3
-            s.cells[2][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 0; return c }()   // OMNI again
-            s.cells[3][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 5; return c }()   // ch 5
+            s.cells[0][0] = { var c = Cell(machineID: "gold"); c.inputChannel = 0; return c }()   // OMNI
+            s.cells[1][0] = { var c = Cell(machineID: "gold"); c.inputChannel = 3; return c }()   // ch 3
+            s.cells[2][0] = { var c = Cell(machineID: "gold"); c.inputChannel = 0; return c }()   // OMNI again
+            s.cells[3][0] = { var c = Cell(machineID: "gold"); c.inputChannel = 5; return c }()   // ch 5
         }, version: 3)
         var d = d0; d.synthesizeReceiversIfNeeded()
         XCTAssertEqual(d.receivers?.map { $0.channel }, [0, 3, 5, 0])   // order of appearance, padded OMNI
@@ -177,7 +177,7 @@ final class MigrationTests: XCTestCase {
     // repaired by synthesis — the cell gets pointed so it honours receiver mute (item 11 ruling 2026-07-26).
     func testSynthesisRepairsPreSetReceiversWithUnpointedCells() {
         var d = doc({ s in
-            s.cells[0][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 0; return c }()   // MIDI-IN, unpointed
+            s.cells[0][0] = { var c = Cell(machineID: "gold"); c.inputChannel = 0; return c }()   // MIDI-IN, unpointed
         }, version: 4)
         d.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         XCTAssertNil(d.scenes[0].cells[0][0]?.inputReceiver)           // pre-condition: unpointed
@@ -188,7 +188,7 @@ final class MigrationTests: XCTestCase {
     func testSynthesizeReceiversOverflowCollapsesToReceiverOne() {
         let d0 = doc({ s in
             for (i, ch) in [1, 2, 3, 4, 5, 6].enumerated() {          // 6 distinct > 4
-                s.cells[i][0] = { var c = Cell(colourID: "gold"); c.inputChannel = ch; return c }()
+                s.cells[i][0] = { var c = Cell(machineID: "gold"); c.inputChannel = ch; return c }()
             }
         }, version: 3)
         var d = d0; d.synthesizeReceiversIfNeeded()
@@ -199,7 +199,7 @@ final class MigrationTests: XCTestCase {
     }
 
     func testSynthesizeReceiversDefaultsToOmniWhenNoMidiInCells() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 3
         d.synthesizeReceiversIfNeeded()
         XCTAssertEqual(d.receivers?.count, 4)
@@ -207,7 +207,7 @@ final class MigrationTests: XCTestCase {
     }
 
     func testReceiversRoundTripThroughJSON() throws {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.receivers = [Receiver(name: "Keys", channel: 1, mpeMerge: true, muted: false),
                        Receiver(name: "Pads", channel: 2, mpeMerge: false, muted: true),
                        Receiver(name: "3"), Receiver(name: "4")]
@@ -231,40 +231,40 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(back.cableResolved, 0b0101)
     }
 
-    // Cells/desk overhaul: a pre-overhaul Colour (no name/defined keys) → type name + defined (migration no-op).
-    func testColourNameAndDefinedDecodeToDefaults() throws {
-        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Colour(colourID: "gold", type: .arp))) as! [String: Any]
+    // Cells/desk overhaul: a pre-overhaul Machine (no name/defined keys) → type name + defined (migration no-op).
+    func testMachineNameAndDefinedDecodeToDefaults() throws {
+        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Machine(machineID: "gold", type: .arp))) as! [String: Any]
         for k in ["name", "defined"] { dict.removeValue(forKey: k) }
-        let c = try JSONDecoder().decode(Colour.self, from: JSONSerialization.data(withJSONObject: dict))
+        let c = try JSONDecoder().decode(Machine.self, from: JSONSerialization.data(withJSONObject: dict))
         XCTAssertEqual(c.nameResolved, "ARP", "missing name ⇒ the type name")
         XCTAssertTrue(c.isDefined, "missing defined ⇒ defined (today's behaviour)")
     }
-    func testColourNameAndDefinedRoundTrip() throws {
-        var c = Colour(colourID: "gold", type: .arp); c.name = "Bells"; c.defined = false
-        let back = try JSONDecoder().decode(Colour.self, from: try JSONEncoder().encode(c))
+    func testMachineNameAndDefinedRoundTrip() throws {
+        var c = Machine(machineID: "gold", type: .arp); c.name = "Bells"; c.defined = false
+        let back = try JSONDecoder().decode(Machine.self, from: try JSONEncoder().encode(c))
         XCTAssertEqual(back.nameResolved, "Bells")
         XCTAssertFalse(back.isDefined)
     }
     func testFactoryAndArcShipSparsePalette() {
         for f in [PluginState.factory(), PluginState.defaultArc()] {
-            let defined = Set(f.colours.filter { $0.isDefined }.map { $0.colourID })
+            let defined = Set(f.machines.filter { $0.isDefined }.map { $0.machineID })
             XCTAssertTrue(defined.count >= 3 && defined.count < 16, "sparse palette: some defined, some + slots")
-            let used = Set(f.scenes.flatMap { $0.cells.flatMap { $0.compactMap { $0?.colourID } } })
+            let used = Set(f.scenes.flatMap { $0.cells.flatMap { $0.compactMap { $0?.machineID } } })
             XCTAssertEqual(used, defined, "defined == painted")
         }
     }
 
     func testNewOptionalFieldsRoundTripThroughJSON() throws {
         // busEnabled (§6a) + per-type transpose/morph stashes survive save/reload.
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 3
         d.busEnabled = [true, false, true, false]
-        d.colours[0].transposeByType = [1, 2, 3, 4, 5, 6]
+        d.machines[0].transposeByType = [1, 2, 3, 4, 5, 6]
         d.claimEmitter = 2                          // §6a CLAIM (a7) — persisted
         d.latchArmMask = 0b0101                      // doors A + C armed (Paul 2026-08-27) — the latch section is durable config
         let reloaded = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
         XCTAssertEqual(reloaded.busEnabled, [true, false, true, false])
-        XCTAssertEqual(reloaded.colours[0].transposeByType, [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(reloaded.machines[0].transposeByType, [1, 2, 3, 4, 5, 6])
         XCTAssertEqual(reloaded.claimEmitter, 2, "CLAIM survives save/reload")
         XCTAssertEqual(reloaded.latchArmMask, 0b0101, "the door-arm mask survives save/reload")
         // A pre-field document (no latchArmMask key) decodes to nil (nothing armed) — no migration break.
@@ -274,19 +274,19 @@ final class MigrationTests: XCTestCase {
         XCTAssertNil(old.latchArmMask, "missing latchArmMask ⇒ nil (nothing armed)")
     }
 
-    // BUILD's single UNASSIGNED part is saved with the document (Paul 2026-08-16) — the part + its ephemeral colours
+    // BUILD's single UNASSIGNED part is saved with the document (Paul 2026-08-16) — the part + its ephemeral machines
     // (machine + hue) + the id counter round-trip; a document without the field decodes as nil (no migration break).
     func testBuildUnassignedPartRoundTripsAndDefaultsNil() throws {
-        var plain = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var plain = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         let plainBack = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(plain))
         XCTAssertNil(plainBack.buildUnassigned, "an old/plain document has no unassigned part")
 
         var part = BuildPart()
         part.stagingCells[0][3] = "b17"; part.stagingSel[0] = 3; part.cast = ["b17"]; part.selID = "b17"
         part.receiver = 2; part.emitters = [.a, .c]; part.rowChain[3] = [ProcessorSlot(type: .harmonize)]
-        var ephemeral = Colour(colourID: "b17", type: .arp); ephemeral.defined = true; ephemeral.templateChain = [ProcessorSlot(type: .cascade)]
-        ephemeral.transpose = -12   // REGISTER-HOME (BUG fix 2026-08-29): the ephemeral colour's octave must travel too, else a saved ensemble reloads shifted
-        plain.buildUnassigned = BuildUnassignedData(part: part, colours: [ephemeral], hues: ["b17": 0x2288EE], idCounter: 17)
+        var ephemeral = Machine(machineID: "b17", type: .arp); ephemeral.defined = true; ephemeral.templateChain = [ProcessorSlot(type: .cascade)]
+        ephemeral.transpose = -12   // REGISTER-HOME (BUG fix 2026-08-29): the ephemeral machine's octave must travel too, else a saved ensemble reloads shifted
+        plain.buildUnassigned = BuildUnassignedData(part: part, machines: [ephemeral], hues: ["b17": 0x2288EE], idCounter: 17)
 
         let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(plain))
         let u = try XCTUnwrap(back.buildUnassigned, "the unassigned part survives save/reload")
@@ -294,8 +294,8 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(u.part.stagingSel[0], 3)
         XCTAssertEqual(u.part.emitters, [.a, .c])
         XCTAssertEqual(u.part.rowChain[3].first?.type, .harmonize)
-        XCTAssertEqual(u.colours.first?.templateChain?.first?.type, .cascade, "its ephemeral colour's machine travels")
-        XCTAssertEqual(u.colours.first?.transpose, -12, "its register-home (octave) travels — buildCapture/RestoreUnassigned carry Colour.transpose (BUG fix 2026-08-29)")
+        XCTAssertEqual(u.machines.first?.templateChain?.first?.type, .cascade, "its ephemeral machine's machine travels")
+        XCTAssertEqual(u.machines.first?.transpose, -12, "its register-home (octave) travels — buildCapture/RestoreUnassigned carry Machine.transpose (BUG fix 2026-08-29)")
         XCTAssertEqual(u.hues["b17"], 0x2288EE, "its custom hue travels")
         XCTAssertEqual(u.idCounter, 17)
     }
@@ -304,7 +304,7 @@ final class MigrationTests: XCTestCase {
     /// rackEnabled, turnsPerNote, ladderMode, masterMute) all survive a JSON round-trip. Invariant 5 (schema
     /// stability): these shipped over the last few days and had no round-trip lock.
     func testRackAndModulationOptionalFieldsRoundTrip() throws {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 3
         d.curveMask = 0b0001;  d.curveAmount = [50, 0, 0, 0]
         d.fenceMask = 0b0010;  d.fencePolicy = [0, 2, 0, 0]; d.fenceLo = [0, 48, 0, 0]; d.fenceHi = [127, 72, 127, 127]
@@ -326,7 +326,7 @@ final class MigrationTests: XCTestCase {
     /// An OLD doc lacking every rack/modulation key decodes each to nil and every `…Resolved` helper returns the
     /// documented default (off / all-in-path / 1 / no-lead / full window) — the "old docs decode nil" contract.
     func testRackFieldsOldDocDecodeNilAndResolveToDefaults() throws {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 3
         var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
         for k in ["curveMask", "curveAmount", "fenceMask", "fencePolicy", "fenceLo", "fenceHi", "monoMask",
@@ -352,7 +352,7 @@ final class MigrationTests: XCTestCase {
     // CR-8: a PRE-v2 document missing busChannels / activeScene / morphMaster used to THROW at decode (the whole document
     // failed to load — data-loss). Now those three are additive-Optional: a missing key decodes nil + resolves to defaults.
     func testPreV2DocMissingBusChannelsActiveSceneMorphDecodes() throws {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty(), SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty(), SceneState.empty()])
         d.busChannels = [7, 8, 9, 10]; d.activeScene = 1; d.morphMaster = 0.5   // set them, then strip → simulate an even-older doc
         var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
         for k in ["busChannels", "activeScene", "morphMaster"] { root.removeValue(forKey: k) }
@@ -378,7 +378,7 @@ final class MigrationTests: XCTestCase {
     /// `macrosResolved` truncates an over-long persisted array to exactly 16 — the LIVE bank (§K3: 8 slider + 8 toggle;
     /// timelines retired). The short/nil path is covered in EffectiveParamsTests; this locks the tail-drop.
     func testMacrosResolvedTruncatesOverLong() {
-        var d = PluginState(colours: [], scenes: [SceneState.empty()])
+        var d = PluginState(machines: [], scenes: [SceneState.empty()])
         d.macros = (0..<30).map { Macro(name: "M\($0)") }
         XCTAssertEqual(d.macrosResolved.count, 16)
         XCTAssertEqual(d.macrosResolved[15].name, "M15", "keeps the first 16, drops 16…29 (the retired timelines + overflow)")
@@ -388,7 +388,7 @@ final class MigrationTests: XCTestCase {
         // Forward-compat guard for the refactor: an OLD save lacks busEnabled and still carries the
         // now-removed rowBypass/stackMute/stackSolo scene keys — it must decode without error, default
         // busEnabled to nil (⇒ all enabled), and simply ignore the dead keys.
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 3; d.busEnabled = [false, true, true, true]
         var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
         root.removeValue(forKey: "busEnabled")                       // old docs never had it
@@ -411,46 +411,46 @@ final class MigrationTests: XCTestCase {
     func testCellProcessorChainRoundTripsAndOldDocsDecodeNil() throws {
         // CELL MACHINE (feat/EditPageSpike): the per-cell processor CHAIN is an additive Optional — it round-trips
         // through JSON, and an old doc that never had it decodes `processors == nil` (the builder falls back to
-        // the Colour head). No migration function needed (purely additive), matching chordSplit/velWindow/chop.
-        var cell = Cell(colourID: "gold", buses: [.a])
+        // the Machine head). No migration function needed (purely additive), matching chordSplit/velWindow/chop.
+        var cell = Cell(machineID: "gold", buses: [.a])
         cell.processors = [ProcessorSlot(type: .arp),
                            { var s = ProcessorSlot(type: .ratchet); s.bypassed = true; return s }()]
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.scenes[0].cells[0][0] = cell
         let rt = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(d))
         XCTAssertEqual(rt.scenes[0].cells[0][0]?.processors?.count, 2, "the chain survives a JSON round-trip")
         XCTAssertEqual(rt.scenes[0].cells[0][0]?.processors?[0].type, .arp)
         XCTAssertEqual(rt.scenes[0].cells[0][0]?.processors?[1].bypassed, true, "per-slot bypass survives")
 
-        var plain = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
-        plain.scenes[0].cells[0][0] = Cell(colourID: "gold", buses: [.a])   // an "old" cell, no chain
+        var plain = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        plain.scenes[0].cells[0][0] = Cell(machineID: "gold", buses: [.a])   // an "old" cell, no chain
         let reloaded = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(plain))
         XCTAssertNil(reloaded.scenes[0].cells[0][0]?.processors, "a chain-less cell decodes processors == nil")
     }
 
-    func testColourTemplateChainRoundTripsAndOldDocsDecodeNil() throws {
-        // CELL MACHINE stage-3: the shared TEMPLATE chain on the Colour is an additive Optional — round-trips,
-        // and an old colour without the key decodes nil (the builder then falls back to type+paramsA).
-        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+    func testMachineTemplateChainRoundTripsAndOldDocsDecodeNil() throws {
+        // CELL MACHINE stage-3: the shared TEMPLATE chain on the Machine is an additive Optional — round-trips,
+        // and an old machine without the key decodes nil (the builder then falls back to type+paramsA).
+        var cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
         cs[0].templateChain = [ProcessorSlot(type: .passgate), ProcessorSlot(type: .arp)]
-        let rt = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(PluginState(colours: cs, scenes: [SceneState.empty()])))
-        XCTAssertEqual(rt.colours[0].templateChain?.count, 2, "the colour template chain round-trips")
-        XCTAssertEqual(rt.colours[0].templateChain?[1].type, .arp)
-        let plain = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])))
-        XCTAssertNil(plain.colours[0].templateChain, "a colour with no template decodes templateChain == nil")
+        let rt = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(PluginState(machines: cs, scenes: [SceneState.empty()])))
+        XCTAssertEqual(rt.machines[0].templateChain?.count, 2, "the machine template chain round-trips")
+        XCTAssertEqual(rt.machines[0].templateChain?[1].type, .arp)
+        let plain = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])))
+        XCTAssertNil(plain.machines[0].templateChain, "a machine with no template decodes templateChain == nil")
     }
 
     // EDIT-page wave W1 — TWIN editing: `.twins` groups config-equal cells (perform state ignored) and edits
-    // apply to the whole set in one step; a divergent cell / other colour is excluded.
+    // apply to the whole set in one step; a divergent cell / other machine is excluded.
     func testTwinScopeGroupsIdenticalCellsAndEditsTogether() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold", buses: [.a]); cell.processors = [ProcessorSlot(type: .arp)]
+        var cell = Cell(machineID: "gold", buses: [.a]); cell.processors = [ProcessorSlot(type: .arp)]
         s.cells[0][0] = cell; s.cells[1][1] = cell                       // two identical twins
         var mutedTwin = cell; mutedTwin.muted = true; s.cells[4][4] = mutedTwin   // perform-state differs → STILL a twin
         var diverged = cell; diverged.processors = [ProcessorSlot(type: .ratchet)]; s.cells[2][2] = diverged   // diff chain → not a twin
-        var other = Cell(colourID: "cyan", buses: [.a]); other.processors = [ProcessorSlot(type: .arp)]; s.cells[3][3] = other   // diff colour → not
+        var other = Cell(machineID: "cyan", buses: [.a]); other.processors = [ProcessorSlot(type: .arp)]; s.cells[3][3] = other   // diff machine → not
         XCTAssertEqual(Set(s.editScopeTargets(col: 0, row: 0, scope: .twins)), [0, 1 * 8 + 1, 4 * 8 + 4],
-                       "twins = config-identical cells (perform state ignored); divergent chain + other colour excluded")
+                       "twins = config-identical cells (perform state ignored); divergent chain + other machine excluded")
         s.applyToScope(col: 0, row: 0, scope: .twins) { $0.buses = [.b] }
         XCTAssertEqual(s.cells[0][0]?.buses, [.b]); XCTAssertEqual(s.cells[1][1]?.buses, [.b]); XCTAssertEqual(s.cells[4][4]?.buses, [.b])
         XCTAssertEqual(s.cells[2][2]?.buses, [.a], "the non-twin is untouched")
@@ -458,9 +458,9 @@ final class MigrationTests: XCTestCase {
 
     func testRoundTripThroughJSONIsStable() throws {
         var d = doc { s in
-            s.cells[0][0] = Cell(colourID: "gold", stack: true)
-            s.cells[0][1] = Cell(colourID: "cyan")               // fed → inputRow 0
-            s.cells[3][0] = Cell(colourID: "teal")               // unfed → nil
+            s.cells[0][0] = Cell(machineID: "gold", stack: true)
+            s.cells[0][1] = Cell(machineID: "cyan")               // fed → inputRow 0
+            s.cells[3][0] = Cell(machineID: "teal")               // unfed → nil
         }
         d.migrateLegacyRoutingIfNeeded()
         let data = try JSONEncoder().encode(d)
@@ -473,49 +473,49 @@ final class MigrationTests: XCTestCase {
 
     // MARK: - TWO-PROCESSOR migration (delta item 8) — pair reference → internal procB
 
-    func testColourPairMigratesPartnerIntoProcB() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+    func testMachinePairMigratesPartnerIntoProcB() {
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 4
-        let gi = colourIDs.firstIndex(of: "gold")!, ci = colourIDs.firstIndex(of: "cyan")!
-        d.colours[ci].type = .ratchet; d.colours[ci].paramsA.count = 5; d.colours[ci].transpose = 7
-        d.colours[gi].altColour = ci                             // legacy pair: gold → cyan
-        d.migrateColourPairsIfNeeded()
-        XCTAssertEqual(d.colours[gi].typeB, .ratchet, "partner's type folds into procB")
-        XCTAssertEqual(d.colours[gi].paramsB.count, 5, "partner's params fold into procB")
-        XCTAssertEqual(d.colours[gi].transposeBResolved, 7, "partner's transpose folds into transposeB")
-        XCTAssertEqual(d.colours[gi].altColour, ci, "altColour kept (decode-only legacy, lossless downgrade)")
+        let gi = machineIDs.firstIndex(of: "gold")!, ci = machineIDs.firstIndex(of: "cyan")!
+        d.machines[ci].type = .ratchet; d.machines[ci].paramsA.count = 5; d.machines[ci].transpose = 7
+        d.machines[gi].altMachine = ci                             // legacy pair: gold → cyan
+        d.migrateMachinePairsIfNeeded()
+        XCTAssertEqual(d.machines[gi].typeB, .ratchet, "partner's type folds into procB")
+        XCTAssertEqual(d.machines[gi].paramsB.count, 5, "partner's params fold into procB")
+        XCTAssertEqual(d.machines[gi].transposeBResolved, 7, "partner's transpose folds into transposeB")
+        XCTAssertEqual(d.machines[gi].altMachine, ci, "altMachine kept (decode-only legacy, lossless downgrade)")
         XCTAssertEqual(d.formatVersion, 5)
     }
 
     func testStaleParamsBWithoutAPairIsInert() {
-        // A pre-pair doc with a stale paramsB but no altColour must NOT gain a procB (typeB stays nil).
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        // A pre-pair doc with a stale paramsB but no altMachine must NOT gain a procB (typeB stays nil).
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 4
-        d.colours[0].paramsB.octaves = 4                        // stale, no altColour
-        d.migrateColourPairsIfNeeded()
-        XCTAssertNil(d.colours[0].typeB, "no pair ⇒ no procB; stale paramsB stays inert")
-        XCTAssertFalse(d.colours[0].hasProcB)
+        d.machines[0].paramsB.octaves = 4                        // stale, no altMachine
+        d.migrateMachinePairsIfNeeded()
+        XCTAssertNil(d.machines[0].typeB, "no pair ⇒ no procB; stale paramsB stays inert")
+        XCTAssertFalse(d.machines[0].hasProcB)
     }
 
-    func testColourPairMigrationIsIdempotent() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+    func testMachinePairMigrationIsIdempotent() {
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 4
-        d.colours[0].altColour = 1
-        d.migrateColourPairsIfNeeded()                          // → v5
-        d.colours[0].typeB = nil                                // pretend a later edit cleared procB
-        d.migrateColourPairsIfNeeded()                          // gated on v<5 → must NOT re-fold
-        XCTAssertNil(d.colours[0].typeB, "version gate stops a second fold")
+        d.machines[0].altMachine = 1
+        d.migrateMachinePairsIfNeeded()                          // → v5
+        d.machines[0].typeB = nil                                // pretend a later edit cleared procB
+        d.migrateMachinePairsIfNeeded()                          // gated on v<5 → must NOT re-fold
+        XCTAssertNil(d.machines[0].typeB, "version gate stops a second fold")
     }
 
-    func testColourPairMigrationSkipsSelfAndOutOfRangePartner() {
-        // The partner guard (pi != i, 0 ≤ pi < count): a Colour pointing at itself or a bogus index yields no procB.
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+    func testMachinePairMigrationSkipsSelfAndOutOfRangePartner() {
+        // The partner guard (pi != i, 0 ≤ pi < count): a Machine pointing at itself or a bogus index yields no procB.
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 4
-        d.colours[0].altColour = 0                               // points at itself
-        d.colours[1].altColour = 99                              // out of range
-        d.migrateColourPairsIfNeeded()
-        XCTAssertNil(d.colours[0].typeB, "a self-referencing pair produces no procB")
-        XCTAssertNil(d.colours[1].typeB, "an out-of-range partner produces no procB")
+        d.machines[0].altMachine = 0                               // points at itself
+        d.machines[1].altMachine = 99                              // out of range
+        d.migrateMachinePairsIfNeeded()
+        XCTAssertNil(d.machines[0].typeB, "a self-referencing pair produces no procB")
+        XCTAssertNil(d.machines[1].typeB, "an out-of-range partner produces no procB")
         XCTAssertEqual(d.formatVersion, 5, "the version still advances")
     }
 
@@ -523,7 +523,7 @@ final class MigrationTests: XCTestCase {
     // (SnapshotBuilder maps these into UInt8, so an unclamped >255 amount would trap).
 
     func testFlattenAmountResolvedClampsAndFillsShort() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.flattenAmount = nil
         XCTAssertEqual(d.flattenAmountResolved, [0, 0, 0, 0], "nil ⇒ all off")
         d.flattenAmount = [150, -5, 50]                          // over / under / short
@@ -531,7 +531,7 @@ final class MigrationTests: XCTestCase {
     }
 
     func testAltCountResolvedClampsAndFillsShort() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.altCount = nil
         XCTAssertEqual(d.altCountResolved, [1, 1, 1, 1], "nil ⇒ one note per turn")
         d.altCount = [0, 20, 2]                                  // under / over / short
@@ -542,23 +542,23 @@ final class MigrationTests: XCTestCase {
 
     func testEditScopeTargets() {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-        s.cells[0][1] = Cell(colourID: "gold", buses: [.a])          // identical to (0,0)
-        s.cells[1][0] = Cell(colourID: "gold", buses: [.b])          // same Colour, DIFFERENT routing
-        s.cells[2][0] = Cell(colourID: "cyan", buses: [.a])          // different Colour
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+        s.cells[0][1] = Cell(machineID: "gold", buses: [.a])          // identical to (0,0)
+        s.cells[1][0] = Cell(machineID: "gold", buses: [.b])          // same Machine, DIFFERENT routing
+        s.cells[2][0] = Cell(machineID: "cyan", buses: [.a])          // different Machine
         XCTAssertEqual(s.editScopeTargets(col: 0, row: 0, scope: .thisOne), [0], "just the exemplar")
-        XCTAssertEqual(s.editScopeTargets(col: 0, row: 0, scope: .allIdentical), [0, 1], "same Colour AND routing")
-        XCTAssertEqual(s.editScopeTargets(col: 0, row: 0, scope: .allColour), [0, 1, 8], "every gold cell (0,0)(0,1)(1,0)")
-        XCTAssertEqual(s.editScopeTargets(col: 5, row: 5, scope: .allColour), [], "an empty exemplar targets nothing")
+        XCTAssertEqual(s.editScopeTargets(col: 0, row: 0, scope: .allIdentical), [0, 1], "same Machine AND routing")
+        XCTAssertEqual(s.editScopeTargets(col: 0, row: 0, scope: .allMachine), [0, 1, 8], "every gold cell (0,0)(0,1)(1,0)")
+        XCTAssertEqual(s.editScopeTargets(col: 5, row: 5, scope: .allMachine), [], "an empty exemplar targets nothing")
     }
 
     func testApplyToScopeRecolorsTheSet() {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold"); s.cells[0][1] = Cell(colourID: "gold"); s.cells[1][0] = Cell(colourID: "cyan")
-        s.applyToScope(col: 0, row: 0, scope: .allColour) { $0.colourID = "wine" }
-        XCTAssertEqual(s.cells[0][0]?.colourID, "wine")
-        XCTAssertEqual(s.cells[0][1]?.colourID, "wine", "the whole gold set is repainted")
-        XCTAssertEqual(s.cells[1][0]?.colourID, "cyan", "a different Colour is untouched")
+        s.cells[0][0] = Cell(machineID: "gold"); s.cells[0][1] = Cell(machineID: "gold"); s.cells[1][0] = Cell(machineID: "cyan")
+        s.applyToScope(col: 0, row: 0, scope: .allMachine) { $0.machineID = "wine" }
+        XCTAssertEqual(s.cells[0][0]?.machineID, "wine")
+        XCTAssertEqual(s.cells[0][1]?.machineID, "wine", "the whole gold set is repainted")
+        XCTAssertEqual(s.cells[1][0]?.machineID, "cyan", "a different Machine is untouched")
     }
 
     // MARK: - §11 VERB LOGIC — REMOVE (heal-on-delete §10b) + MOVE
@@ -566,8 +566,8 @@ final class MigrationTests: XCTestCase {
     // DELETE removes the cell (grid-chaining retired → no children to re-point; it's a plain removal).
     func testDeleteSeverRemovesTheCell() {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold")
-        s.cells[0][2] = Cell(colourID: "cyan", buses: [.a])
+        s.cells[0][0] = Cell(machineID: "gold")
+        s.cells[0][2] = Cell(machineID: "cyan", buses: [.a])
         s.deleteCellSever(col: 0, row: 2)
         XCTAssertNil(s.cells[0][2], "the cell is removed")
         XCTAssertNotNil(s.cells[0][0], "other cells are untouched")
@@ -579,7 +579,7 @@ final class MigrationTests: XCTestCase {
 
     // MARK: - §10/11f SPATIAL ROUTING (patch-bay model core)
 
-    private func headed(_ colourID: String, receiver: Int) -> Cell { var c = Cell(colourID: colourID, buses: [.a]); c.inputRow = nil; c.inputReceiver = receiver; return c }
+    private func headed(_ machineID: String, receiver: Int) -> Cell { var c = Cell(machineID: machineID, buses: [.a]); c.inputRow = nil; c.inputReceiver = receiver; return c }
     func testRouteInReceiverAndToggleEmitter() {
         var s = SceneState.empty()
         s.cells[0][3] = headed("gold", receiver: 0)
@@ -594,13 +594,13 @@ final class MigrationTests: XCTestCase {
     // MARK: - MULTI-SCENE — sparse scenes, switch, save-here, bounds-safety
 
     private func multi() -> PluginState {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.padScenes(); return d
     }
 
     func testSceneStateIsEmpty() {
         XCTAssertTrue(SceneState.empty().isEmpty)
-        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold")
+        var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold")
         XCTAssertFalse(s.isEmpty, "a placed cell ⇒ not empty")
     }
 
@@ -608,25 +608,25 @@ final class MigrationTests: XCTestCase {
     // crash class behind multi-cell edits). cellAt/setCell/inBounds/swapCells all no-op out of range.
     func testBoundsSafeCellAccessNeverTraps() {
         var s = SceneState.empty()
-        s.cells[3][4] = Cell(colourID: "gold")
-        XCTAssertEqual(s.cellAt(3, 4)?.colourID, "gold", "in-range read round-trips")
+        s.cells[3][4] = Cell(machineID: "gold")
+        XCTAssertEqual(s.cellAt(3, 4)?.machineID, "gold", "in-range read round-trips")
         XCTAssertNil(s.cellAt(99, 99), "far out-of-range read → nil, no trap")
         XCTAssertNil(s.cellAt(-1, 0), "negative index → nil")
-        s.setCell(50, 50, Cell(colourID: "cyan"))          // out-of-range write is a no-op
+        s.setCell(50, 50, Cell(machineID: "cyan"))          // out-of-range write is a no-op
         XCTAssertTrue(s.cellAt(50, 50) == nil, "out-of-range write did nothing")
         s.setCell(3, 4, nil); XCTAssertNil(s.cellAt(3, 4), "in-range write clears the cell")
         s.swapCells((0, 0), (99, 99))                      // ragged/out-of-range swap is a no-op (no trap)
         // A genuinely RAGGED scene (short of 8×8, as a bad decode could produce) is safe too.
-        let ragged = SceneState(cells: [[Cell(colourID: "gold"), nil]])   // 1 column, 2 rows
-        XCTAssertEqual(ragged.cellAt(0, 0)?.colourID, "gold")
+        let ragged = SceneState(cells: [[Cell(machineID: "gold"), nil]])   // 1 column, 2 rows
+        XCTAssertEqual(ragged.cellAt(0, 0)?.machineID, "gold")
         XCTAssertNil(ragged.cellAt(0, 5), "row past the ragged column → nil")
         XCTAssertNil(ragged.cellAt(7, 7), "column past the ragged grid → nil")
         XCTAssertFalse(ragged.inBounds(7, 7)); XCTAssertTrue(ragged.inBounds(0, 1))
     }
 
     func testPadScenesFillsToEightIdempotently() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
-        d.scenes[0].cells[0][0] = Cell(colourID: "gold")
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.scenes[0].cells[0][0] = Cell(machineID: "gold")
         d.padScenes()
         XCTAssertEqual(d.scenes.count, PluginState.maxScenes)
         XCTAssertFalse(d.scenes[0].isEmpty, "slot 0 preserved")
@@ -636,16 +636,16 @@ final class MigrationTests: XCTestCase {
 
     func testSwitchSceneOnlyToNonEmpty() {
         var d = multi()
-        d.scenes[3].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[3].cells[0][0] = Cell(machineID: "gold")
         d.switchScene(to: 3); XCTAssertEqual(d.activeSceneResolved, 3)
         d.switchScene(to: 5); XCTAssertEqual(d.activeSceneResolved, 3, "empty slots aren't playable — the switch is ignored")
     }
 
     func testSaveCurrentSceneCopiesActiveIntoSlotWithoutSwitching() {
         var d = multi()
-        d.scenes[0].cells[2][2] = Cell(colourID: "cyan")
+        d.scenes[0].cells[2][2] = Cell(machineID: "cyan")
         d.saveCurrentScene(toSlot: 7)
-        XCTAssertEqual(d.scenes[7].cells[2][2]?.colourID, "cyan", "slot 7 = a copy of the active scene")
+        XCTAssertEqual(d.scenes[7].cells[2][2]?.machineID, "cyan", "slot 7 = a copy of the active scene")
         XCTAssertEqual(d.activeSceneResolved, 0, "save-here does NOT switch")
     }
 
@@ -653,42 +653,42 @@ final class MigrationTests: XCTestCase {
 
     func testDragOntoEmptyMovesAndEmptiesSource() {
         var d = multi()
-        d.scenes[2].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[2].cells[0][0] = Cell(machineID: "gold")
         d.dragScene(from: 2, to: 6)                        // 6 is empty ⇒ MOVE
-        XCTAssertEqual(d.scenes[6].cells[0][0]?.colourID, "gold", "the scene relocated to 6")
+        XCTAssertEqual(d.scenes[6].cells[0][0]?.machineID, "gold", "the scene relocated to 6")
         XCTAssertTrue(d.scenes[2].isEmpty, "the source slot is now empty")
     }
 
     func testDragOntoOccupiedSwapsNeverOverwrites() {
         var d = multi()
-        d.scenes[2].cells[0][0] = Cell(colourID: "gold")
-        d.scenes[5].cells[0][0] = Cell(colourID: "cyan")
+        d.scenes[2].cells[0][0] = Cell(machineID: "gold")
+        d.scenes[5].cells[0][0] = Cell(machineID: "cyan")
         d.dragScene(from: 2, to: 5)                        // 5 occupied ⇒ SWAP, not overwrite
-        XCTAssertEqual(d.scenes[5].cells[0][0]?.colourID, "gold", "dragged content lands in 5")
-        XCTAssertEqual(d.scenes[2].cells[0][0]?.colourID, "cyan", "the displaced scene survives in 2 (no data lost)")
+        XCTAssertEqual(d.scenes[5].cells[0][0]?.machineID, "gold", "dragged content lands in 5")
+        XCTAssertEqual(d.scenes[2].cells[0][0]?.machineID, "cyan", "the displaced scene survives in 2 (no data lost)")
     }
 
     func testMoveCarriesTheActiveIndexWithItsContent() {
         var d = multi()
-        d.scenes[3].cells[0][0] = Cell(colourID: "gold"); d.activeScene = 3
+        d.scenes[3].cells[0][0] = Cell(machineID: "gold"); d.activeScene = 3
         d.moveScene(from: 3, to: 7)
         XCTAssertEqual(d.activeSceneResolved, 7, "the playing scene follows its content to the new slot")
     }
 
     func testSwapCarriesTheActiveIndex() {
         var d = multi()
-        d.scenes[3].cells[0][0] = Cell(colourID: "gold")
-        d.scenes[6].cells[0][0] = Cell(colourID: "cyan")
+        d.scenes[3].cells[0][0] = Cell(machineID: "gold")
+        d.scenes[6].cells[0][0] = Cell(machineID: "cyan")
         d.activeScene = 6
         d.swapScenes(3, 6)
         XCTAssertEqual(d.activeSceneResolved, 3, "active followed its content across the swap")
-        XCTAssertEqual(d.scenes[3].cells[0][0]?.colourID, "cyan", "…which is now in slot 3")
+        XCTAssertEqual(d.scenes[3].cells[0][0]?.machineID, "cyan", "…which is now in slot 3")
     }
 
     func testDeleteEmptiesTheSlotButRefusesTheActiveScene() {
         var d = multi()
-        d.scenes[4].cells[0][0] = Cell(colourID: "gold")
-        d.scenes[7].cells[0][0] = Cell(colourID: "cyan"); d.activeScene = 7
+        d.scenes[4].cells[0][0] = Cell(machineID: "gold")
+        d.scenes[7].cells[0][0] = Cell(machineID: "cyan"); d.activeScene = 7
         XCTAssertTrue(d.deleteScene(4), "a non-active scene deletes")
         XCTAssertTrue(d.scenes[4].isEmpty, "the slot is now empty")
         XCTAssertFalse(d.deleteScene(7), "the ACTIVE scene refuses the trash")
@@ -698,30 +698,30 @@ final class MigrationTests: XCTestCase {
     // Guard paths: can't drag a "+", no-op on self/out-of-range, delete of empty/oob — all bounds-safe no-ops.
     func testDragFromEmptySlotIsIgnored() {
         var d = multi()
-        d.scenes[3].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[3].cells[0][0] = Cell(machineID: "gold")
         d.dragScene(from: 5, to: 3)                       // 5 is a "+" — nothing to lift
-        XCTAssertEqual(d.scenes[3].cells[0][0]?.colourID, "gold", "the occupied target is untouched")
+        XCTAssertEqual(d.scenes[3].cells[0][0]?.machineID, "gold", "the occupied target is untouched")
         XCTAssertTrue(d.scenes[5].isEmpty, "the empty source stays empty")
     }
     func testDragToSelfIsNoOp() {
         var d = multi()
-        d.scenes[2].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[2].cells[0][0] = Cell(machineID: "gold")
         d.dragScene(from: 2, to: 2)
-        XCTAssertEqual(d.scenes[2].cells[0][0]?.colourID, "gold", "dragging onto itself changes nothing")
+        XCTAssertEqual(d.scenes[2].cells[0][0]?.machineID, "gold", "dragging onto itself changes nothing")
     }
     func testDragOutOfRangeDoesNotCrashOrChange() {
         var d = multi()
-        d.scenes[1].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[1].cells[0][0] = Cell(machineID: "gold")
         d.dragScene(from: 1, to: 99); d.dragScene(from: -1, to: 1); d.moveScene(from: 1, to: 50); d.swapScenes(1, 99)
-        XCTAssertEqual(d.scenes[1].cells[0][0]?.colourID, "gold", "out-of-range indices are ignored, no crash")
+        XCTAssertEqual(d.scenes[1].cells[0][0]?.machineID, "gold", "out-of-range indices are ignored, no crash")
     }
     func testMoveOntoOccupiedIsIgnored() {
         var d = multi()
-        d.scenes[1].cells[0][0] = Cell(colourID: "gold")
-        d.scenes[2].cells[0][0] = Cell(colourID: "cyan")
+        d.scenes[1].cells[0][0] = Cell(machineID: "gold")
+        d.scenes[2].cells[0][0] = Cell(machineID: "cyan")
         d.moveScene(from: 1, to: 2)                        // MOVE only relocates onto EMPTY — occupied is a SWAP job
-        XCTAssertEqual(d.scenes[1].cells[0][0]?.colourID, "gold", "source untouched")
-        XCTAssertEqual(d.scenes[2].cells[0][0]?.colourID, "cyan", "occupied target NOT overwritten by move")
+        XCTAssertEqual(d.scenes[1].cells[0][0]?.machineID, "gold", "source untouched")
+        XCTAssertEqual(d.scenes[2].cells[0][0]?.machineID, "cyan", "occupied target NOT overwritten by move")
     }
     func testDeleteEmptyOrOutOfRangeReturnsFalse() {
         var d = multi()
@@ -730,7 +730,7 @@ final class MigrationTests: XCTestCase {
     }
     func testSaveBeyondSlotCountIsIgnored() {
         var d = multi()
-        d.scenes[0].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[0].cells[0][0] = Cell(machineID: "gold")
         d.saveCurrentScene(toSlot: PluginState.maxScenes)   // one past the last slot
         XCTAssertEqual(d.scenes.count, PluginState.maxScenes, "no slot is created past the fixed strip")
     }
@@ -745,16 +745,16 @@ final class MigrationTests: XCTestCase {
 
     func testSnapshotReflectsTheActiveScene() {
         var d = multi()
-        d.scenes[0].cells[0][0] = Cell(colourID: "gold")   // scene 0 → cell (0,0)
-        d.scenes[1].cells[3][0] = Cell(colourID: "cyan")   // scene 1 → cell (3,0)
+        d.scenes[0].cells[0][0] = Cell(machineID: "gold")   // scene 0 → cell (0,0)
+        d.scenes[1].cells[3][0] = Cell(machineID: "cyan")   // scene 1 → cell (3,0)
         d.activeScene = 1
         let box = SnapshotBuilder.build(from: d)
-        XCTAssertGreaterThanOrEqual(box.cells[3 * Snap.rows + 0].colourIndex, 0, "the ACTIVE scene's cell is in the snapshot")
-        XCTAssertLessThan(box.cells[0].colourIndex, 0, "the inactive scene's cell is NOT")
+        XCTAssertGreaterThanOrEqual(box.cells[3 * Snap.rows + 0].machineIndex, 0, "the ACTIVE scene's cell is in the snapshot")
+        XCTAssertLessThan(box.cells[0].machineIndex, 0, "the inactive scene's cell is NOT")
     }
 
     func testMigrationPadsScenesToEight() {
-        var d = doc { $0.cells[0][0] = Cell(colourID: "gold") }   // v2, length-1
+        var d = doc { $0.cells[0][0] = Cell(machineID: "gold") }   // v2, length-1
         d.migrateLegacyRoutingIfNeeded()
         XCTAssertEqual(d.scenes.count, PluginState.maxScenes, "old length-1 docs pad to the scene-strip size")
         XCTAssertFalse(d.scenes[0].isEmpty, "the original scene stays in slot 0")
@@ -770,7 +770,7 @@ final class MigrationTests: XCTestCase {
     // MARK: - CLAIM v2 (delta §6a) — mask derives from the legacy field; leak clamps; append-only round-trip
 
     func testClaimMaskResolvedDerivesFromLegacyField() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.claimMask = nil; d.claimEmitter = nil
         XCTAssertEqual(d.claimMaskResolved, 0, "nil mask + nil legacy ⇒ no claim")
         d.claimEmitter = 2
@@ -782,7 +782,7 @@ final class MigrationTests: XCTestCase {
     }
 
     func testClaimLeakResolvedClampsAndFillsShort() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.claimLeak = nil
         XCTAssertEqual(d.claimLeakResolved, [0, 0, 0, 0], "nil ⇒ all 0 (full suppression)")
         d.claimLeak = [150, -5, 50]                              // over / under / short
@@ -790,13 +790,13 @@ final class MigrationTests: XCTestCase {
     }
 
     func testClaimV2FieldsRoundTripAndOldDocsDecode() throws {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.claimMask = 0b0101; d.claimLeak = [30, 0, 70, 0]
         let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
         XCTAssertEqual(back.claimMask, 0b0101, "the mask persists")
         XCTAssertEqual(back.claimLeakResolved, [30, 0, 70, 0], "the leak persists")
         // An OLD doc (encoded before the v2 keys existed) has neither key → decodes to no claim, no leak.
-        var old = PluginState(colours: [], scenes: [])
+        var old = PluginState(machines: [], scenes: [])
         old.claimMask = nil; old.claimLeak = nil; old.claimEmitter = nil
         let oldBack = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(old))
         XCTAssertEqual(oldBack.claimMaskResolved, 0)
@@ -806,7 +806,7 @@ final class MigrationTests: XCTestCase {
     // Regression: the persisted receiver config (channel/cable/mute) + THRU pip must survive the fullState
     // save→restore path (encode → decode → migrateLegacyRoutingIfNeeded), exactly as MidiSparkAudioUnit does.
     func testReceiverConfigSurvivesFullStateRoundTrip() {
-        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.receivers = [
             { var r = Receiver(name: "1"); r.channel = 3; r.cable = 0b0010; return r }(),   // ch 3, cable 2
             { var r = Receiver(name: "2"); r.muted = true; return r }(),                     // muted
@@ -823,11 +823,11 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(back.thruReceiver, 2, "THRU pip survives")
     }
 
-    func testAltColourKeyStillDecodesOnOldBuild() {
-        // altColour survives a round-trip so an older build can still read the pair (lossless downgrade).
-        var c = Colour(colourID: "gold", type: .arp); c.altColour = 3
-        let back = try! JSONDecoder().decode(Colour.self, from: try! JSONEncoder().encode(c))
-        XCTAssertEqual(back.altColour, 3)
+    func testAltMachineKeyStillDecodesOnOldBuild() {
+        // altMachine survives a round-trip so an older build can still read the pair (lossless downgrade).
+        var c = Machine(machineID: "gold", type: .arp); c.altMachine = 3
+        let back = try! JSONDecoder().decode(Machine.self, from: try! JSONEncoder().encode(c))
+        XCTAssertEqual(back.altMachine, 3)
     }
 }
 
@@ -896,27 +896,27 @@ final class UndoStackTests: XCTestCase {
 final class CellRelocationTests: XCTestCase {
     func testSwapCellsMovesToEmptyPreservingFields() {
         var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.b]); c.inputRow = 3; return c }()
+        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.b]); c.inputRow = 3; return c }()
         s.swapCells((0, 0), (2, 5))                    // move onto an empty slot
         XCTAssertNil(s.cells[0][0])
-        XCTAssertEqual(s.cells[2][5]?.colourID, "gold")
+        XCTAssertEqual(s.cells[2][5]?.machineID, "gold")
         XCTAssertEqual(s.cells[2][5]?.inputRow, 3, "the reference moves as-is (fields sacred)")
         XCTAssertEqual(s.cells[2][5]?.buses, [.b])
     }
     func testSwapCellsSwapsTwoOccupied() {
         var s = SceneState.empty()
-        s.cells[1][1] = Cell(colourID: "gold")
-        s.cells[4][2] = Cell(colourID: "cyan")
+        s.cells[1][1] = Cell(machineID: "gold")
+        s.cells[4][2] = Cell(machineID: "cyan")
         s.swapCells((1, 1), (4, 2))
-        XCTAssertEqual(s.cells[1][1]?.colourID, "cyan")
-        XCTAssertEqual(s.cells[4][2]?.colourID, "gold")
+        XCTAssertEqual(s.cells[1][1]?.machineID, "cyan")
+        XCTAssertEqual(s.cells[4][2]?.machineID, "gold")
     }
     func testSwapCellsSelfAndOutOfRangeAreNoOps() {
-        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold")
+        var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold")
         s.swapCells((0, 0), (0, 0))                    // self → no-op
-        XCTAssertEqual(s.cells[0][0]?.colourID, "gold")
+        XCTAssertEqual(s.cells[0][0]?.machineID, "gold")
         s.swapCells((0, 0), (99, 99))                  // out of range (past the 16×16 grid) → no-op
-        XCTAssertEqual(s.cells[0][0]?.colourID, "gold")
+        XCTAssertEqual(s.cells[0][0]?.machineID, "gold")
     }
 }
 
@@ -924,30 +924,30 @@ final class CellRelocationTests: XCTestCase {
 
 final class StampConfigTests: XCTestCase {
     func testFromCellAndBackRoundTrips() {
-        var c = Cell(colourID: "cyan", buses: [.b, .d]); c.inputRow = 3; c.inputReceiver = 2
+        var c = Cell(machineID: "cyan", buses: [.b, .d]); c.inputRow = 3; c.inputReceiver = 2
         let t = StampConfig.from(c)
-        XCTAssertEqual(t.colourID, "cyan")
+        XCTAssertEqual(t.machineID, "cyan")
         XCTAssertEqual(t.inputRow, 3)
         XCTAssertEqual(t.inputReceiver, 2)
         XCTAssertEqual(t.buses, [.b, .d])
         let made = t.makeCell()
-        XCTAssertEqual(made.colourID, "cyan")
+        XCTAssertEqual(made.machineID, "cyan")
         XCTAssertEqual(made.inputRow, 3)
         XCTAssertEqual(made.inputReceiver, 2)
         XCTAssertEqual(made.buses, [.b, .d])
     }
     func testBootstrapIsMidiReceiver1EmitA() {
-        let t = StampConfig.bootstrap(colourID: "gold")
+        let t = StampConfig.bootstrap(machineID: "gold")
         XCTAssertNil(t.inputRow)                 // ⇐ MIDI
         XCTAssertEqual(t.inputReceiver, 0)       // Receiver 1
         XCTAssertEqual(t.buses, [.a])            // → A
     }
-    // applyRouting overwrites input + buses but LEAVES the colour (staging live-propagation to placed cells).
-    func testApplyRoutingKeepsColour() {
-        var c = Cell(colourID: "rose", buses: [.a]); c.inputRow = nil; c.inputReceiver = 0
-        var t = StampConfig(colourID: "ignored"); t.inputRow = 5; t.inputReceiver = 3; t.buses = [.c, .d]
+    // applyRouting overwrites input + buses but LEAVES the machine (staging live-propagation to placed cells).
+    func testApplyRoutingKeepsMachine() {
+        var c = Cell(machineID: "rose", buses: [.a]); c.inputRow = nil; c.inputReceiver = 0
+        var t = StampConfig(machineID: "ignored"); t.inputRow = 5; t.inputReceiver = 3; t.buses = [.c, .d]
         t.applyRouting(to: &c)
-        XCTAssertEqual(c.colourID, "rose", "colour is not part of routing")
+        XCTAssertEqual(c.machineID, "rose", "machine is not part of routing")
         XCTAssertEqual(c.inputRow, 5)
         XCTAssertEqual(c.inputReceiver, 3)
         XCTAssertEqual(c.buses, [.c, .d])
@@ -963,17 +963,17 @@ final class PreviewOverlayTests: XCTestCase {
         return d
     }
     func testRestoringCellReplacesActiveSceneCell() {
-        let preview = Cell(colourID: "gold")
+        let preview = Cell(machineID: "gold")
         let d = doc(with: preview, at: 3, 4)                    // preview cell sitting in the document
         let restored = d.restoringCell(col: 3, row: 4, to: nil) // encode with the covered (empty) cell
         XCTAssertNil(restored.scenes[restored.activeSceneResolved].cells[3][4], "preview stripped for encoding")
-        XCTAssertEqual(d.scenes[d.activeSceneResolved].cells[3][4]?.colourID, "gold", "the live document is untouched")
+        XCTAssertEqual(d.scenes[d.activeSceneResolved].cells[3][4]?.machineID, "gold", "the live document is untouched")
     }
     func testRestoringCellRestoresACoveredCell() {
-        let covered = Cell(colourID: "cyan")
-        var d = doc(with: Cell(colourID: "gold"), at: 1, 1)     // preview covering a cyan cell
+        let covered = Cell(machineID: "cyan")
+        var d = doc(with: Cell(machineID: "gold"), at: 1, 1)     // preview covering a cyan cell
         let restored = d.restoringCell(col: 1, row: 1, to: covered)
-        XCTAssertEqual(restored.scenes[restored.activeSceneResolved].cells[1][1]?.colourID, "cyan")
+        XCTAssertEqual(restored.scenes[restored.activeSceneResolved].cells[1][1]?.machineID, "cyan")
         _ = d
     }
     func testRestoringCellOutOfRangeIsNoOp() {
@@ -983,7 +983,7 @@ final class PreviewOverlayTests: XCTestCase {
     }
     // The end-to-end guarantee: encode with an active overlay yields the restored cell, not the preview.
     func testEncodeWithOverlayDropsPreview() throws {
-        let d = doc(with: Cell(colourID: "gold"), at: 2, 2)     // gold preview live in the doc
+        let d = doc(with: Cell(machineID: "gold"), at: 2, 2)     // gold preview live in the doc
         let encodeDoc = d.restoringCell(col: 2, row: 2, to: nil)
         let data = try JSONEncoder().encode(encodeDoc)
         let decoded = try JSONDecoder().decode(PluginState.self, from: data)
@@ -1014,19 +1014,19 @@ final class OnConfigTests: XCTestCase {
         XCTAssertEqual(c, back)
         XCTAssertFalse(back.isEmpty)
     }
-    // Old (pre-ON) doc: a Colour JSON with no `on` key must decode, resolving to the empty config.
-    func testColourWithoutOnKeyDecodes() throws {
-        let full = Colour(colourID: "gold", type: .arp)                        // on defaults to nil
+    // Old (pre-ON) doc: a Machine JSON with no `on` key must decode, resolving to the empty config.
+    func testMachineWithoutOnKeyDecodes() throws {
+        let full = Machine(machineID: "gold", type: .arp)                        // on defaults to nil
         var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(full)) as! [String: Any]
         dict.removeValue(forKey: "on")                                          // simulate a pre-ON document
-        let back = try JSONDecoder().decode(Colour.self, from: JSONSerialization.data(withJSONObject: dict))
+        let back = try JSONDecoder().decode(Machine.self, from: JSONSerialization.data(withJSONObject: dict))
         XCTAssertNil(back.on)
         XCTAssertTrue(back.onResolved.isEmpty)
     }
-    func testColourRoundTripCarriesOn() throws {
-        var col = Colour(colourID: "cyan", type: .chance)
+    func testMachineRoundTripCarriesOn() throws {
+        var col = Machine(machineID: "cyan", type: .chance)
         var on = OnConfig(); on.tap = .mute; on.sceneResetMorph = true; col.on = on
-        let back = try JSONDecoder().decode(Colour.self, from: JSONEncoder().encode(col))
+        let back = try JSONDecoder().decode(Machine.self, from: JSONEncoder().encode(col))
         XCTAssertEqual(back.on?.tap, .mute)
         XCTAssertEqual(back.on?.sceneResetMorph, true)
     }
@@ -1093,7 +1093,7 @@ final class OnConfigTests: XCTestCase {
     func testBuildTypesRoundTripLosslessly() throws {
         var p = BuildPart(); p.castSlots = [3: "b1"]; p.cast = ["gold"]; p.length = 6
         XCTAssertEqual(try JSONDecoder().decode(BuildPart.self, from: JSONEncoder().encode(p)), p)
-        let u = BuildUnassignedData(part: p, colours: [Colour(colourID: "b1", type: .arp)], hues: ["b1": 0x112233], idCounter: 9)
+        let u = BuildUnassignedData(part: p, machines: [Machine(machineID: "b1", type: .arp)], hues: ["b1": 0x112233], idCounter: 9)
         XCTAssertEqual(try JSONDecoder().decode(BuildUnassignedData.self, from: JSONEncoder().encode(u)), u)
     }
 
@@ -1102,7 +1102,7 @@ final class OnConfigTests: XCTestCase {
     // migrateLegacyRoutingIfNeeded() runs → the whole session silently factory-resets. The decode-tolerant Cell
     // init(from:) makes a missing key fall back to its default instead of throwing.
     func testCellDecodesWithMissingInputChannel() throws {
-        var cell = Cell(colourID: "gold"); cell.buses = [.a, .c]; cell.inputChannel = 3; cell.muted = true
+        var cell = Cell(machineID: "gold"); cell.buses = [.a, .c]; cell.inputChannel = 3; cell.muted = true
         var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(cell)) as! [String: Any]
         dict.removeValue(forKey: "inputChannel")                                // simulate a pre-v3.0 (formatVersion 2) cell
         let back = try JSONDecoder().decode(Cell.self, from: JSONSerialization.data(withJSONObject: dict))
@@ -1113,9 +1113,9 @@ final class OnConfigTests: XCTestCase {
     // The whole-document scenario: a formatVersion-2 PluginState whose cells have NO inputChannel key must load
     // (so migration can then run) rather than throwing and losing the session.
     func testFormatV2DocWithCellsMissingInputChannelDecodes() throws {
-        var s = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        var s = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         s.formatVersion = 2
-        s.scenes[0].cells[0][0] = Cell(colourID: "gold")
+        s.scenes[0].cells[0][0] = Cell(machineID: "gold")
         var top = try JSONSerialization.jsonObject(with: JSONEncoder().encode(s)) as! [String: Any]
         var scenes = top["scenes"] as! [[String: Any]]
         var rows = scenes[0]["cells"] as! [[Any]]                              // [col][row]; strip inputChannel from every present cell
@@ -1124,12 +1124,12 @@ final class OnConfigTests: XCTestCase {
         } }
         scenes[0]["cells"] = rows; top["scenes"] = scenes
         let back = try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: top))
-        XCTAssertEqual(back.scenes[0].cells[0][0]?.colourID, "gold", "the v2 document loads instead of throwing → migration can run")
+        XCTAssertEqual(back.scenes[0].cells[0][0]?.machineID, "gold", "the v2 document loads instead of throwing → migration can run")
     }
     // The happy path is untouched: a complete cell round-trips byte-identically (the decode-tolerant init didn't
     // change the encoded form — fields stay non-Optional, seal/twin/Equatable identity preserved).
     func testCellRoundTripsLosslessly() throws {
-        var cell = Cell(colourID: "azure"); cell.inputChannel = 5; cell.inputReceiver = 2; cell.buses = [.b]
+        var cell = Cell(machineID: "azure"); cell.inputChannel = 5; cell.inputReceiver = 2; cell.buses = [.b]
         cell.processors = [ProcessorSlot(type: .harmonize)]; cell.stars = 4; cell.alt = true
         XCTAssertEqual(try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(cell)), cell)
     }
@@ -1144,26 +1144,26 @@ final class OnConfigTests: XCTestCase {
         XCTAssertEqual(pg.sel.count, 8)
         XCTAssertEqual(pg.idCounter, 0)
     }
-    // CR-8 decode-tolerance (Paul 2026-09-08 housekeeping): Colour · ProcessorSlot · SceneState · Receiver now have
+    // CR-8 decode-tolerance (Paul 2026-09-08 housekeeping): Machine · ProcessorSlot · SceneState · Receiver now have
     // decode-tolerant inits. A MISSING key must DEFAULT (never throw → no whole-document factory reset), and a POPULATED
     // instance must round-trip byte-for-VALUE (Equatable) so the init drops/mis-keys no field.
     func testCentralTypesDecodeTolerantAndRoundTrip() throws {
         // MISSING KEYS → defaults, no throw.
-        XCTAssertNoThrow(try JSONDecoder().decode(Colour.self, from: Data("{}".utf8)))
+        XCTAssertNoThrow(try JSONDecoder().decode(Machine.self, from: Data("{}".utf8)))
         XCTAssertNoThrow(try JSONDecoder().decode(ProcessorSlot.self, from: Data("{}".utf8)))
         XCTAssertNoThrow(try JSONDecoder().decode(SceneState.self, from: Data("{}".utf8)))
         XCTAssertNoThrow(try JSONDecoder().decode(Receiver.self, from: Data("{}".utf8)))
-        let colDef = try JSONDecoder().decode(Colour.self, from: Data("{}".utf8))
-        XCTAssertEqual(colDef.colourID, "c0"); XCTAssertEqual(colDef.type, .arp)
+        let colDef = try JSONDecoder().decode(Machine.self, from: Data("{}".utf8))
+        XCTAssertEqual(colDef.machineID, "c0"); XCTAssertEqual(colDef.type, .arp)
         let rDef = try JSONDecoder().decode(Receiver.self, from: Data("{}".utf8))
         XCTAssertEqual(rDef.name, ""); XCTAssertEqual(rDef.channel, 0); XCTAssertFalse(rDef.muted)
         // ROUND-TRIP populated instances → Equatable equality catches any dropped or mis-keyed field.
-        var col = Colour(colourID: "z9", type: .ratchet); col.transpose = 7; col.morph = 0.3
-        col.typeB = .strum; col.transposeB = -5; col.altColour = 2; col.transposeByType = [1, 2, 3]
+        var col = Machine(machineID: "z9", type: .ratchet); col.transpose = 7; col.morph = 0.3
+        col.typeB = .strum; col.transposeB = -5; col.altMachine = 2; col.transposeByType = [1, 2, 3]
         col.name = "Zed"; col.defined = false; col.on = OnConfig(); col.templateChain = [ProcessorSlot(type: .euclid)]
-        XCTAssertEqual(try JSONDecoder().decode(Colour.self, from: try JSONEncoder().encode(col)), col, "Colour round-trips every field")
+        XCTAssertEqual(try JSONDecoder().decode(Machine.self, from: try JSONEncoder().encode(col)), col, "Machine round-trips every field")
 
-        var slot = ProcessorSlot(type: .harmonize); slot.bypassed = true; slot.paramsAlt = ColourParams(); slot.bypassedAlt = true
+        var slot = ProcessorSlot(type: .harmonize); slot.bypassed = true; slot.paramsAlt = MachineParams(); slot.bypassedAlt = true
         XCTAssertEqual(try JSONDecoder().decode(ProcessorSlot.self, from: try JSONEncoder().encode(slot)), slot, "ProcessorSlot round-trips")
 
         var sc = SceneState.empty(); sc.stepRate = .r1_8; sc.swing = 66; sc.rowLen = [4, nil, 8, nil, nil, nil, nil, nil]
@@ -1180,7 +1180,7 @@ final class OnConfigTests: XCTestCase {
     // thruReceiverResolved clamps a decoded door index to 0…3 (the four doors A–D); an out-of-range value must not
     // reach the render as-is. (Coverage gap 2026-08-30.)
     func testThruReceiverResolvedClampsToDoorRange() {
-        var st = PluginState(colours: [], scenes: [SceneState.empty()])
+        var st = PluginState(machines: [], scenes: [SceneState.empty()])
         st.thruReceiver = 9;  XCTAssertEqual(st.thruReceiverResolved, 3, "above D clamps to 3")
         st.thruReceiver = -4; XCTAssertEqual(st.thruReceiverResolved, 0, "below A clamps to 0")
         st.thruReceiver = nil; XCTAssertEqual(st.thruReceiverResolved, 0, "nil → door A (0)")

@@ -32,13 +32,13 @@ final class PresetStoreTests: XCTestCase {
 
     func testDocumentRoundTripsThroughTheCodec() {
         var doc = PluginState.factory()
-        doc.scenes[0].cells[2][3] = Cell(colourID: "gold", buses: [.a])
+        doc.scenes[0].cells[2][3] = Cell(machineID: "gold", buses: [.a])
         doc.padScenes()
         doc.activeScene = 0
         guard let data = PresetStore.encode(doc), let back = PresetStore.decode(data) else {
             return XCTFail("encode/decode produced nil")
         }
-        XCTAssertEqual(back.scenes[0].cells[2][3]?.colourID, "gold", "the saved cell survives the round-trip")
+        XCTAssertEqual(back.scenes[0].cells[2][3]?.machineID, "gold", "the saved cell survives the round-trip")
         XCTAssertEqual(back.scenes.count, doc.scenes.count, "all scene slots preserved")
     }
 
@@ -46,7 +46,7 @@ final class PresetStoreTests: XCTestCase {
         // A v2-shaped document (formatVersion < 3) must come back migrated, exactly as fullState does on load.
         var legacy = PluginState.factory()
         legacy.formatVersion = 1
-        legacy.scenes[0].cells[0][0] = Cell(colourID: "gold")
+        legacy.scenes[0].cells[0][0] = Cell(machineID: "gold")
         guard let data = PresetStore.encode(legacy), let back = PresetStore.decode(data) else {
             return XCTFail("nil")
         }
@@ -55,13 +55,13 @@ final class PresetStoreTests: XCTestCase {
 
     // CELL MACHINE stage-4 — the CELL LIBRARY store: a saved Cell round-trips through the codec.
     func testCellLibraryRoundTripsThroughTheCodec() {
-        var cell = Cell(colourID: "gold", buses: [.a])
+        var cell = Cell(machineID: "gold", buses: [.a])
         cell.processors = [ProcessorSlot(type: .passgate), { var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]
         cell.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.b])   // all slices → alt
         guard let data = CellLibraryStore.encode(cell), let back = CellLibraryStore.decode(data) else {
             return XCTFail("encode/decode produced nil")
         }
-        XCTAssertEqual(back.colourID, "gold")
+        XCTAssertEqual(back.machineID, "gold")
         XCTAssertEqual(back.processors?.count, 2, "the chain survives the round-trip")
         XCTAssertEqual(back.processors?[1].bypassed, true, "per-slot bypass survives")
         XCTAssertEqual(back.chopResolved.altDest, [.b], "source-shaping (chop) survives")
@@ -69,11 +69,11 @@ final class PresetStoreTests: XCTestCase {
 
     // "Machine minus routing": the chain + source-shaping travel; input/output + perform state are stripped.
     func testLibraryStrippedKeepsMachineDropsRouting() {
-        var cell = Cell(colourID: "gold", buses: [.a, .b])
+        var cell = Cell(machineID: "gold", buses: [.a, .b])
         cell.inputRow = 2; cell.inputReceiver = 1; cell.alt = true; cell.muted = true
         cell.chop = Chop(mainMask: 0, altMask: 0, muteMask: 0xFF, altDest: [])   // all slices muted
         let s = cell.libraryStripped(materialisedChain: [ProcessorSlot(type: .harmonize), ProcessorSlot(type: .arp)])
-        XCTAssertEqual(s.colourID, "gold")
+        XCTAssertEqual(s.machineID, "gold")
         XCTAssertEqual(s.processors?.count, 2, "the materialised chain travels")
         XCTAssertEqual(s.chop?.muteMask, 0xFF, "source-shaping (chop) travels")
         XCTAssertNil(s.inputRow, "input row stripped"); XCTAssertNil(s.inputReceiver, "receiver stripped")
@@ -90,7 +90,7 @@ final class PresetStoreTests: XCTestCase {
             XCTAssertFalse(cell.processors?.isEmpty ?? true, "\(name) carries a non-empty chain")
             XCTAssertTrue(cell.buses.isEmpty, "\(name) has no output (machine minus routing)")
             XCTAssertNil(cell.inputRow); XCTAssertNil(cell.inputReceiver, "\(name) has no input routing")
-            XCTAssertNotNil(colourIDs.firstIndex(of: cell.colourID), "\(name)'s colour is canonical")
+            XCTAssertNotNil(machineIDs.firstIndex(of: cell.machineID), "\(name)'s machine is canonical")
         }
         let shimmer = factory.first { $0.name == "Shimmer" }!.cell   // round-trips like any saved cell
         let rt = try! JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(shimmer))

@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// Extracted from AudioUnitViewController (churn-reduction pass) so its ~8 pieces of interactive state + the
 /// tap/drag/sweep logic live in one cohesive place. The VC still owns the 4 Hz poll and the grid's scene/
-/// colours: it passes the polled `sceneEmpty`/`activeSceneIdx` DOWN and gets `onSceneOpDone` back after any op.
+/// machines: it passes the polled `sceneEmpty`/`activeSceneIdx` DOWN and gets `onSceneOpDone` back after any op.
 ///
 /// LAYOUT v2: the bar hosts the six-tab bar (`tabBar`) + undo/redo, rendered ONCE at the top of the whole app —
 /// every surface (GRID · PROCESSORS · RECEIVERS · EMITTERS · MACROS · AUTOMATION) is a tab, so the bar replaces the

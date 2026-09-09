@@ -112,10 +112,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   CLAUDE.md status log). The AUTO/WIDE/TALL toggle is a browser preview affordance — never port it.
 
 ## Vocabulary (spec §1 — enforced, including in code comments and UI strings)
-- **Colour** = the treatment (type + params + its machine/chain). ID-based: the 16 canonical
-  palette defaults PLUS unlimited ephemeral colours (`buildColourReg` registry + `colourHueOverride`
+- **Machine** = the treatment (type + params + its chain). ID-based: the 16 canonical
+  palette defaults PLUS unlimited ephemeral machines (`buildMachineReg` registry + `machineHueOverride`
   + GC). The old fixed-16 cap is gone. (A/B states + morph are decode-only zombies — render-dead.) Never "preset".
-- **Cell** = one Colour placed at a grid position with its own wiring/state.
+  (RENAMED 2026-09-09 from "Colour" — the object is a machine, not a user-picked sound colour; its display
+  **hue** is *derived* from its `machineID` via `machineHue`/`machineHexes`. On-disk keys moved with the
+  rename; pre-rename saved sessions factory-reset by design. Older status-log entries below still say "Colour".)
+- **Cell** = one Machine placed at a grid position with its own wiring/state.
 - **Preset** = ONLY the host-level fullState document. Nothing inside the app uses this word.
 - **Emitter** = a bus A–D as the user-facing concept (its cable + its channel stamp).
 - Public/product name: **"8x8 State"** — DECIDED and APPLIED (display-only). It is the
@@ -179,6 +182,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ COLOUR → MACHINE — the concept renamed (2026-09-09, on branch `feature/machine-rename`; macOS 1085 green, iOS builds;
+  awaiting merge). Paul: the `Colour` object no longer means "a sound colour the user picks" — it is a MIDI treatment/machine
+  (a processor `type` + `MachineParams`/`templateChain` + identity), carrying zero routing (that's on `Cell`) and zero stored
+  colour (the display **hue** is *derived* from `machineID`). The code had drifted to "machine" in newer UI (`buildMachine*`,
+  RackMatrix), so there were two words for one thing. Full rename across `AUExtension/*.swift` + `Tests/*.swift`:
+  `Colour`→`Machine`, `SnapColour`→`SnapMachine`, `ColourParams`→`MachineParams`, `colourID`→`machineID`,
+  `PluginState.colours`→`machines`, `colourIDs`→`machineIDs`, `buildColourReg`→`buildMachineReg`, the enum case
+  `.allColour`→`.allMachine`, etc. The genuine HUE helpers took hue names not machine: `colourColor`→`machineHue`,
+  `colourHexes`→`machineHexes`, `colourHueOverride`→`machineHueOverride`, `emitterColour`→`emitterHue` (overloads the
+  existing `emitterHue(Set<Bus>)`), `markColour`→`markHue`, `buildEmitterPlayingColours`→`buildEmitterPlayingHues`;
+  `buildColourMachine`/`buildWriteColourMachine`→`buildMachineSlots`/`buildWriteMachineSlots` (avoid `MachineMachine`).
+  **KEPT unchanged (data, not names):** the palette id string VALUES `"gold".."slate"` + ephemeral `"b<n>"`/`"gsAud"` (they
+  anchor the default hue palette); AU param addresses (numeric, invariant 5); position/role palettes (`playHexes`,
+  `partRowHexes`, `emitterHexes`, `receiverHues`); the prose adjectives `coloured`/`colourless` (genuinely about hue). The
+  British spelling isolated the project token from SwiftUI's `Color` (no 'u'), so a substring sweep was safe. **NOTHING
+  SHIPPED → on-disk Codable keys moved with the field names (synthesized), so pre-rename saved sessions factory-reset — Paul
+  accepted this, no migration written.** Plan: `Docs/PLAN-machine-rename.md`. Pure rename, no behaviour change; device pass
+  only to confirm UI strings read "machine". NOTE: this status log's OLDER entries below still say "Colour" (history, not
+  revised). FLAGGED FOLLOW-UP: the wider `Docs/*.md` corpus (specs/manual/factory-scenes) still says "colour" — a separate
+  vocabulary pass if wanted; the test FILE names (`ColourTypeSwitchTests.swift` etc.) keep their filenames (symbols inside
+  renamed; a file rename would need xcodegen).**
 - **▶ MOD finishing — FREE/LFO cell + QUANTIZE + PHASE + EXTERN SCALE (2026-09-09, on `main`, merge of `feature/mod-finishing`;
   iOS builds, macOS 1085 green incl. fuzz; DEVICE ear owed). Launch-critical MOD polish (MOD already FUNCTIONED — all 5 sources
   SHAPE/FOLLOW/STEPS/STRIKE/EXTERN + MIN/MAX + SPAN + CC/CHAIN targets, tested; Paul's pick = FREE/LFO + refinements, NOT the

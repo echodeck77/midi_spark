@@ -127,7 +127,7 @@ final class MacroAuthoringTests: XCTestCase {
     // §7 the ALTERNATIVE set persists on the slot (additive Optional → old docs decode nil).
     func testProcessorAltPersistsAndOldDocDecodesNil() throws {
         var slot = ProcessorSlot(type: .arp)
-        slot.paramsAlt = { var p = ColourParams(); p.gate = 0.9; p.pattern = .random; return p }()
+        slot.paramsAlt = { var p = MachineParams(); p.gate = 0.9; p.pattern = .random; return p }()
         slot.bypassedAlt = true
         let rt = try JSONDecoder().decode(ProcessorSlot.self, from: JSONEncoder().encode(slot))
         XCTAssertEqual(rt.paramsAlt?.gate, 0.9); XCTAssertEqual(rt.paramsAlt?.pattern, .random); XCTAssertEqual(rt.bypassedAlt, true)

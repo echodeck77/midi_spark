@@ -44,7 +44,7 @@ final class Row8Tests: XCTestCase {
 
     // row8Resolved: nil ⇒ the factory deck; a short array pads with empty; an explicit deck survives.
     func testRow8ResolvedNilAndShortSafe() {
-        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [SceneState.empty()])
         XCTAssertEqual(st.row8Resolved.map(\.type), Row8Cell.factoryDeck.map(\.type), "nil ⇒ factory deck")
         st.row8 = [Row8Cell.make(.freeze), Row8Cell.make(.macro)]              // only 2 authored
         let r = st.row8Resolved
@@ -55,7 +55,7 @@ final class Row8Tests: XCTestCase {
 
     // Codable: a custom deck + a scene's lit toggles survive the document round-trip; an OLD doc (no row8 keys) decodes.
     func testRow8SurvivesCodableRoundTrip() throws {
-        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [SceneState.empty()])
         st.row8 = [Row8Cell.make(.part), Row8Cell.make(.setup), Row8Cell.make(.halftime)]
         st.row8![0].partRef = 2; st.row8![1].setupN = 3
         st.scenes[0].row8On = [false, true, false, false, false, false, false, false]
@@ -69,7 +69,7 @@ final class Row8Tests: XCTestCase {
 
     // SCENES V2 persistence: the deployed play-grid arrangements (BuildSceneSnapshot) travel with the document.
     func testBuildScenesSurviveCodableRoundTrip() throws {
-        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [SceneState.empty()])
         var cells = Array(repeating: Array(repeating: String?.none, count: 8), count: 8)
         cells[0][0] = "gold"
         let snap = BuildSceneSnapshot(
@@ -91,9 +91,9 @@ final class Row8Tests: XCTestCase {
     }
 
     // ROOMS PLAY GRID persistence (Paul 2026-08-30): the play columns + their MULTI-STEP PASSES + referenced ephemeral
-    // colours travel with the document, so a reload restores the play grid (was in-memory).
+    // machines travel with the document, so a reload restores the play grid (was in-memory).
     func testBuildPlayGridSurvivesCodableRoundTrip() throws {
-        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [SceneState.empty()])
         var pg = BuildPlayGridData()
         pg.colOn[0] = true
         pg.colLen[0] = 3
@@ -101,20 +101,20 @@ final class Row8Tests: XCTestCase {
         pg.colStepEmit[0] = [[.a], [], [.c]]          // per-step emitters
         pg.colStepRecv[0] = [0, 0, 2]                 // per-step doors
         pg.colRate[0] = .r1_8
-        var eph = Colour(colourID: "a", type: .arp); eph.templateChain = [ProcessorSlot(type: .arp)]
-        pg.colours = [eph]
+        var eph = Machine(machineID: "a", type: .arp); eph.templateChain = [ProcessorSlot(type: .arp)]
+        pg.machines = [eph]
         st.buildPlayGrid = pg
         let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(st))
         let r = try XCTUnwrap(back.buildPlayGrid, "the play grid survives the document round-trip")
         XCTAssertTrue(r.colOn[0])
         XCTAssertEqual(r.colLen[0], 3, "the pass length survives")
-        XCTAssertEqual(r.colSteps[0], ["a", nil, "c"], "the step colours survive (incl. the rest)")
+        XCTAssertEqual(r.colSteps[0], ["a", nil, "c"], "the step machines survive (incl. the rest)")
         XCTAssertEqual(r.colStepEmit[0], [[.a], [], [.c]], "per-step emitters survive")
         XCTAssertEqual(r.colStepRecv[0], [0, 0, 2], "per-step doors survive")
         XCTAssertEqual(r.colRate[0], .r1_8, "the pass rate survives")
-        XCTAssertEqual(r.colours.first?.templateChain?.first?.type, .arp, "referenced ephemeral colours travel")
+        XCTAssertEqual(r.machines.first?.templateChain?.first?.type, .arp, "referenced ephemeral machines travel")
         // Additive-Optional: an old save with no play grid decodes nil.
-        var st2 = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        var st2 = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [SceneState.empty()])
         st2.buildPlayGrid = nil
         let back2 = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(st2))
         XCTAssertNil(back2.buildPlayGrid, "no play grid → nil")

@@ -1,7 +1,7 @@
 //  GridUI.swift
 //  MidiSpark — the 8×8 grid view (four-row cell) + palette + RECEIVERS/OUTPUTS panels + the CELL EDITOR.
 //  Editing (delta §5 rev 2): in EDIT the whole pad is ONE tap target that opens the floating CELL EDITOR
-//  (input · colour · emitters · actions); body long-press auditions (stopped); PERFORM tap flips ALT. The
+//  (input · machine · emitters · actions); body long-press auditions (stopped); PERFORM tap flips ALT. The
 //  old FROM/OUT popovers + tap-paint + hold-menu are retired (folded into the editor). Every edit goes
 //  through MidiSparkAudioUnit.editScene/editDocument → scheduleRebuild. Tokens per docs/ui-port-guide.md.
 
@@ -11,7 +11,7 @@ import UIKit   // for UIColor (the old multi-touch ColumnHoldOverlay UIView that
 // A PROPER piano keyboard in a Canvas (Paul 2026-08-31 — the flat all-full-height stripes read as illegible bars, not a
 // piano). White keys (C D E F G A B) fill the full height side-by-side; black keys (the 5 sharps) are narrower + ~62%
 // height, drawn ON TOP straddling the gap after their lower white neighbour. `tint(midi)` fills a lit key (nil = the base
-// key colour); `mark(midi)` (optional) draws a bright "being played" band at the key's base. Draws MIDI range [lo, hi).
+// key machine); `mark(midi)` (optional) draws a bright "being played" band at the key's base. Draws MIDI range [lo, hi).
 // Shared by the AVOID pianos and the processor-header IN silhouette.
 func pianoKeysCanvas(lo: Int, hi: Int, tint: @escaping (Int) -> Color?, mark: ((Int) -> Bool)? = nil) -> some View {
     Canvas { ctx, size in
@@ -58,7 +58,7 @@ extension EnvironmentValues {
 }
 
 extension Color {
-    /// 0xRRGGBB → Color. Used for the 16 canonical Colour hexes (do not "harmonise" them, §ui-guide).
+    /// 0xRRGGBB → Color. Used for the 16 canonical Machine hexes (do not "harmonise" them, §ui-guide).
     init(hex: UInt32) {
         self.init(.sRGB,
                   red:   Double((hex >> 16) & 0xFF) / 255,
@@ -73,17 +73,17 @@ extension Color {
 // and the terminals (start dot + arrowhead). Same config ⇒ same seal (badge + edit page). Design INSTRUCTIONS §2–4.
 
 
-/// Canonical Colour hexes, in colourIDs / bank order (docs/ui-port-guide.md). Index = colour index.
-let colourHexes: [UInt32] = [
+/// Canonical Machine hexes, in machineIDs / bank order (docs/ui-port-guide.md). Index = machine index.
+let machineHexes: [UInt32] = [
     0xFFC53D, 0xFF7A1A, 0xFF4B33, 0xC2244B, 0xFF4D9E, 0xFFA8B8, 0xB44DFF, 0x7A3DF0,
     0x5566FF, 0x38A6FF, 0x25E0F0, 0x148F80, 0x7BF2CE, 0x2ECC5E, 0xC6F23D, 0x4C6E8F,   // [15] SLATE (was BRONZE 0xC9A227 — too close to GOLD, user 2026-08-09)
 ]
 // THE PLAY GRID's own palette (Paul 2026-08-30): a muted "DUSK" family, so the play grid is differentiable from the VIVID
-// part grid at a glance (each grid owns its own section of colour). Earthy, mid-brightness, low-saturation — a quieter world
+// part grid at a glance (each grid owns its own section of machine). Earthy, mid-brightness, low-saturation — a quieter world
 // beside the loud part rainbow, and calm enough that the vivid emitter drift-notes still pop on top.
 // EVEN DUSK (Paul 2026-09-01): the muted "dusk" family collapsed together (8 hues at one lightness). Replaced with 8 hues
 // spread EVENLY round the wheel — rust · amber · olive · jade · teal · steel · violet · orchid — so each column reads as its
-// own colour while staying muted enough that the vivid emitter drift still pops on top.
+// own machine while staying muted enough that the vivid emitter drift still pops on top.
 let playHexes: [UInt32] = [0xBE6E5A, 0xC0925A, 0x9BA25E, 0x5FA37E, 0x4F9AA6, 0x5E80B8, 0x8A6EBE, 0xBC6AA0]
 
 // THE PART GRID's FIXED ROW palette (Paul 2026-09-05, design-cell-language.md): 8 distinct, good-looking hues, ONE per row
@@ -99,8 +99,8 @@ func mixHex(_ a: UInt32, _ b: UInt32, _ t: Double) -> UInt32 {
 }
 
 // THE RECEIVER SIGNATURE GREYS (Paul 2026-08-30): the four MIDI-IN receivers A→D are now 4 shades of grey, LIGHT→DARK — their
-// identity colour going forward (the OMNI/ENABLE button on the receiver strip + the MIDI-IN toggle chips). Kept light enough
-// for black labels. (Distinct from the vivid emitter signature colours + the machine hues.)
+// identity machine going forward (the OMNI/ENABLE button on the receiver strip + the MIDI-IN toggle chips). Kept light enough
+// for black labels. (Distinct from the vivid emitter signature machines + the machine hues.)
 let receiverGreys: [Color] = [Color(hex: 0xC8D2DC), Color(hex: 0xA6B2BF), Color(hex: 0x808E9C), Color(hex: 0x5E6C7A)]   // Tide & Ember: cool-tinted greys (IN recedes cool)
 func receiverGrey(_ i: Int) -> Color { receiverGreys[max(0, min(3, i))] }
 
@@ -108,31 +108,31 @@ func receiverGrey(_ i: Int) -> Color { receiverGreys[max(0, min(3, i))] }
 // RECEIVERS panel and the cells' band-as-deviation marker.
 let receiverHues: [Color] = [Color(hex: 0x4E8FA8), Color(hex: 0x4E79A8), Color(hex: 0x55A79C), Color(hex: 0x6E8CA8)]   // Tide & Ember: IN = COOL (incoming water)
 
-// EMITTER SIGNATURE COLOURS (Paul 2026-08-30): four VIVID, high-contrast hues for A/B/C/D — the ROUTING channel. They
-// carry the DRIFTING piano-roll notes (and the MIDI-OUT toggles/dots). Kept the loudest colours in the app so the eye
-// reads "vivid + moving = emitter" vs "calm frame = machine" — two colour languages that never fight on one small cell.
+// EMITTER SIGNATURE MACHINES (Paul 2026-08-30): four VIVID, high-contrast hues for A/B/C/D — the ROUTING channel. They
+// carry the DRIFTING piano-roll notes (and the MIDI-OUT toggles/dots). Kept the loudest machines in the app so the eye
+// reads "vivid + moving = emitter" vs "calm frame = machine" — two machine languages that never fight on one small cell.
 let emitterHexes: [UInt32] = [0xF0463C, 0xFF8C1A, 0xF5C518, 0xF0479E]   // Tide & Ember: OUT = WARM (energy leaving) — A red · B orange · C gold · D magenta
-func emitterColour(_ bus: Bus) -> Color {
+func emitterHue(_ bus: Bus) -> Color {
     let i = Bus.allCases.firstIndex(of: bus) ?? 0
     return Color(hex: i < emitterHexes.count ? emitterHexes[i] : 0x808080)
 }
-// The representative emitter colour for a cell's output SET — the LOWEST enabled bus (A<B<C<D); the drift's colour.
+// The representative emitter machine for a cell's output SET — the LOWEST enabled bus (A<B<C<D); the drift's machine.
 func emitterHue(_ buses: Set<Bus>) -> Color {
-    for b in Bus.allCases where buses.contains(b) { return emitterColour(b) }
-    return emitterColour(.a)
+    for b in Bus.allCases where buses.contains(b) { return emitterHue(b) }
+    return emitterHue(.a)
 }
 
 
-// BUILD's STAGE-THE-GRID variations are REAL colour IDs given a custom hue near their source (a new, distinguishable
-// colour — not a shade drawn over the source). Session-scoped, like the rest of the BUILD workspace. (Paul 2026-08-15)
-var colourHueOverride: [String: UInt32] = [:]
-func colourColor(_ id: String) -> Color? {
-    if let hex = colourHueOverride[id] { return Color(hex: hex) }
-    return colourIDs.firstIndex(of: id).map { Color(hex: colourHexes[$0]) }
+// BUILD's STAGE-THE-GRID variations are REAL machine IDs given a custom hue near their source (a new, distinguishable
+// machine — not a shade drawn over the source). Session-scoped, like the rest of the BUILD workspace. (Paul 2026-08-15)
+var machineHueOverride: [String: UInt32] = [:]
+func machineHue(_ id: String) -> Color? {
+    if let hex = machineHueOverride[id] { return Color(hex: hex) }
+    return machineIDs.firstIndex(of: id).map { Color(hex: machineHexes[$0]) }
 }
 
 // A grid cell coordinate — extracted to top level (was GridView.GridPos) when the dead perform-grid GridView was
-// removed (2026-09-01); still used by EditSelection + the colour-scope helpers. (Paul 2026-09-01)
+// removed (2026-09-01); still used by EditSelection + the machine-scope helpers. (Paul 2026-09-01)
 struct GridPos: Hashable { let col: Int; let row: Int }
 
 
@@ -145,10 +145,10 @@ private struct FixedHeightIf: ViewModifier {
 
 struct ProcessorBox: View {
     enum Face { case a, b }
-    let colour: Colour
-    let colourIndex: Int
+    let machine: Machine
+    let machineIndex: Int
     var face: Face = .a
-    let onEdit: (@escaping (inout Colour) -> Void) -> Void
+    let onEdit: (@escaping (inout Machine) -> Void) -> Void
     let onTranspose: (Int) -> Void                      // A face: transpose is an AUParameter
     let onMorph: (Double) -> Void
     var onSetTypeA: ((ProcessorType) -> Void)? = nil    // A face: switchType via the AU (per-type stash)
@@ -156,10 +156,10 @@ struct ProcessorBox: View {
     var onCopy: () -> Void = {}
     var onPaste: () -> Void = {}
     var height: CGFloat = panelHeight                   // portrait A-above-B stacking passes a shorter height
-    var mixed: Bool = false                             // MIXED-SET law: SELECT spans >1 Colour → dim + disable
-    // CELL MACHINE (feat/EditPageSpike): when slotMode, this box edits ONE chain slot on a cell (not a Colour
+    var mixed: Bool = false                             // MIXED-SET law: SELECT spans >1 Machine → dim + disable
+    // CELL MACHINE (feat/EditPageSpike): when slotMode, this box edits ONE chain slot on a cell (not a Machine
     // face) — the title carries a BYPASS chip (and REMOVE) instead of COPY/PASTE, and transpose/morph are hidden
-    // (those stay Colour-level). Bound via a synthetic Colour whose A face == the slot's type+params.
+    // (those stay Machine-level). Bound via a synthetic Machine whose A face == the slot's type+params.
     var slotMode: Bool = false
     var slotBypassed: Bool = false
     var accentOverride: Color? = nil                     // MODE ROW: force the control accent (blue, to match the emitters)
@@ -191,12 +191,12 @@ struct ProcessorBox: View {
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
     private var isB: Bool { face == .b }
-    private var accent: Color { accentOverride ?? (colourColor(colour.colourID) ?? .gray) }
-    private var faceType: ProcessorType? { isB ? colour.typeB : colour.type }   // B may be nil = B-less
-    private var p: ColourParams { isB ? colour.paramsB : colour.paramsA }
-    private var faceTranspose: Int { isB ? colour.transposeBResolved : colour.transpose }
-    private var glides: Bool { colour.typeB == colour.type }   // FULL morph ⇔ B is the same type as A
-    private func setParam(_ f: @escaping (inout ColourParams) -> Void) {
+    private var accent: Color { accentOverride ?? (machineHue(machine.machineID) ?? .gray) }
+    private var faceType: ProcessorType? { isB ? machine.typeB : machine.type }   // B may be nil = B-less
+    private var p: MachineParams { isB ? machine.paramsB : machine.paramsA }
+    private var faceTranspose: Int { isB ? machine.transposeBResolved : machine.transpose }
+    private var glides: Bool { machine.typeB == machine.type }   // FULL morph ⇔ B is the same type as A
+    private func setParam(_ f: @escaping (inout MachineParams) -> Void) {
         onEdit { c in if isB { f(&c.paramsB) } else { f(&c.paramsA) } }
     }
     // CRASH FIX (2026-08-27): each typeParams case is wrapped in AnyView(VStack(spacing: rowSpacing){…}) so the
@@ -209,10 +209,10 @@ struct ProcessorBox: View {
         VStack(alignment: .leading, spacing: slotMode ? 14 : 6) {
             if !slotMode || showSlotChrome { titleRow }   // BUILD supplies its own header → hide the built-in title row
             if mixed {
-                mixedFace                                // MIXED-SET: no honest Colour-level edit for a multi-Colour set
+                mixedFace                                // MIXED-SET: no honest Machine-level edit for a multi-Machine set
             } else {
                 if let ft = faceType {
-                    if !slotMode {                       // CELL MACHINE: transpose/morph stay Colour-level, hidden per-slot
+                    if !slotMode {                       // CELL MACHINE: transpose/morph stay Machine-level, hidden per-slot
                         field("TRANSPOSE \(faceTranspose > 0 ? "+" : "")\(faceTranspose)") {
                             stepper(faceTranspose, -24, 24) { v in
                                 if isB { onEdit { $0.transposeB = v } } else { onTranspose(v) }
@@ -221,8 +221,8 @@ struct ProcessorBox: View {
                     }
                     typeParams(ft)
                     if !slotMode && isB && glides {      // morph glides A↔B; only meaningful for a FULL B
-                        field("MORPH \(Int(colour.morph * 100))%  → B") {
-                            slider(Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1)
+                        field("MORPH \(Int(machine.morph * 100))%  → B") {
+                            slider(Binding(get: { machine.morph }, set: { onMorph($0) }), in: 0...1)
                         }
                     }
                 } else {
@@ -233,7 +233,7 @@ struct ProcessorBox: View {
             if !slotMode { Spacer(minLength: 0) }
         }
         // slotMode sizes to content (no clipping — the always-visible radio rows must all show); the old
-        // Colour-desk face keeps its FIXED frame (static-frames rule).
+        // Machine-desk face keeps its FIXED frame (static-frames rule).
         .padding(slotMode ? 14 : 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(FixedHeightIf(height: slotMode ? nil : height))
@@ -242,13 +242,13 @@ struct ProcessorBox: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
     }
 
-    // MIXED-SET law: the selection spans more than one Colour, so there is no single Colour-level edit to
+    // MIXED-SET law: the selection spans more than one Machine, so there is no single Machine-level edit to
     // honour — say so plainly rather than editing the brush behind the user's back. Cell-level edits
     // (routing, emitters, delete) still act on the whole set; only this panel goes inert.
     private var mixedFace: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("MIXED").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-            Text("selection spans multiple Colours — select ONE Colour to edit its processor.")
+            Text("selection spans multiple Machines — select ONE Machine to edit its processor.")
                 .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.4)).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 4).frame(maxWidth: .infinity, alignment: .leading)
@@ -353,7 +353,7 @@ struct ProcessorBox: View {
             .background(RoundedRectangle(cornerRadius: 5).fill(accent.opacity(0.2)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
-    // EUCLID LINES (§10): mutate line `idx` in place (through setParam → the colour-scoped edit).
+    // EUCLID LINES (§10): mutate line `idx` in place (through setParam → the machine-scoped edit).
     private func euclidLineEdit(_ idx: Int, _ f: @escaping (inout EuclidLine) -> Void) {
         setParam { var a = $0.euclidLines ?? []; guard idx < a.count else { return }; f(&a[idx]); $0.euclidLines = a }
     }
@@ -1434,8 +1434,8 @@ struct ProcessorBox: View {
     // DEFAULTS RECEDE (§presentation idea 21): a field whose param is still at its DEFAULT dims; a deviation brightens —
     // so a card reads as "hero + what you changed". The default is one shared snapshot (`paramDefaults`, built once →
     // no per-render cost), compared to the field's own keypath. Non-annotated fields (heroes, multi-param) stay normal.
-    static let paramDefaults = ColourParams()
-    private func field<C: View, V: Equatable>(_ label: String, _ kp: KeyPath<ColourParams, V>, @ViewBuilder _ content: () -> C) -> some View {
+    static let paramDefaults = MachineParams()
+    private func field<C: View, V: Equatable>(_ label: String, _ kp: KeyPath<MachineParams, V>, @ViewBuilder _ content: () -> C) -> some View {
         let atDefault = p[keyPath: kp] == ProcessorBox.paramDefaults[keyPath: kp]
         return VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(atDefault ? 0.32 : 0.72))
@@ -1927,7 +1927,7 @@ struct ContentHeightKey: PreferenceKey {
 }
 
 
-// MARK: - Cell-edit STAGING (user 2026-07-25) — long-press a colour → configure a pending cell in the
+// MARK: - Cell-edit STAGING (user 2026-07-25) — long-press a machine → configure a pending cell in the
 // side panels (EDIT only). The RECEIVERS panel becomes the cell's INPUT picker (R1–R4 radio + a FROM ROW
 // option), the EMITTERS panel its OUTPUT buses. Ephemeral (a StampConfig), recalled across enter/exit.
 // The render-path live-preview drag-to-grid is DEFERRED to the design spec — this is the panel scaffold.

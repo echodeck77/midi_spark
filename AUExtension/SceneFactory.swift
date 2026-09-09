@@ -5,7 +5,7 @@
 //
 //  Foundation-only (seam rule: engine-adjacent, no AudioToolbox). Each scene is a complete
 //  PluginState (formatVersion 3, one scene). Doc notation is 1-based (columns C1–C8, rows R1–R8,
-//  inputRow ⇐Rn); the builder converts to 0-based. Unlisted params take the Colour-type defaults.
+//  inputRow ⇐Rn); the builder converts to 0-based. Unlisted params take the Machine-type defaults.
 
 import Foundation
 
@@ -17,16 +17,16 @@ enum SceneFactory {
     // MARK: - builder
 
     private final class B {
-        var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        var machines = machineIDs.map { Machine(machineID: $0, type: .arp) }
         var scene = SceneState.empty()
         var busCh = [1, 2, 3, 4]
 
         func global(step: StepRate = .r1_2, swing: Int = 50) { scene.stepRate = step; scene.swing = swing }
         func buses(_ a: Int, _ b: Int, _ c: Int, _ d: Int) { busCh = [a, b, c, d] }
 
-        // Colour configurators (A-state); alt* set the B-state (sparse over A).
-        private func edit(_ id: String, _ f: (inout Colour) -> Void) {
-            if let i = colourIDs.firstIndex(of: id) { f(&colours[i]) }
+        // Machine configurators (A-state); alt* set the B-state (sparse over A).
+        private func edit(_ id: String, _ f: (inout Machine) -> Void) {
+            if let i = machineIDs.firstIndex(of: id) { f(&machines[i]) }
         }
         func arp(_ id: String, _ pattern: ArpPattern = .up, _ rate: ArpRate = .r1_16,
                  oct: Int = 1, gate: Double = 0.6, phase: ArpPhase = .retrig, t: Int = 0) {
@@ -36,7 +36,7 @@ enum SceneFactory {
                 c.paramsA.gate = gate; c.paramsA.phase = phase
             }
         }
-        // delta item 8: alt* helpers author the Colour's own procB (paramsB + typeB). NOTE (2026-08): A/B morph
+        // delta item 8: alt* helpers author the Machine's own procB (paramsB + typeB). NOTE (2026-08): A/B morph
         // was REMOVED from the render — paramsB/typeB are now DECODE-ONLY, so these B faces no longer sound (an ALT
         // flip only re-strikes the voice, selecting no parameters). Kept for document round-trip; scenes 14/16's
         // B-state lessons are currently inert until/unless a morph layer returns.
@@ -66,7 +66,7 @@ enum SceneFactory {
         /// Place a cell. 1-based col/row; `from` is a 1-based referenced row (nil = MIDI IN).
         func put(_ col: Int, _ row: Int, _ id: String, from: Int? = nil, ch: Int = 0,
                  to bus: [Bus] = [.a], alt: Bool = false, muted: Bool = false) {
-            var cell = Cell(colourID: id)
+            var cell = Cell(machineID: id)
             cell.inputRow = from.map { $0 - 1 }
             cell.inputChannel = ch
             cell.buses = Set(bus)
@@ -76,7 +76,7 @@ enum SceneFactory {
         }
 
         func build() -> PluginState {
-            var s = PluginState(colours: colours, scenes: [scene])
+            var s = PluginState(machines: machines, scenes: [scene])
             s.busChannels = busCh
             s.formatVersion = 3
             return s

@@ -126,11 +126,11 @@ enum Dice {
     /// on the column, run the REAL Router for 3 beats, and return the recorder. It's the actual engine's output for the
     /// chain against a STANDARD input (so two chains compare on equal footing), not a capture of live playing.
     static func runRecorder(_ chain: [ProcessorSlot], chord: [UInt8] = [60, 64, 67]) -> DiceRecorder {
-        var st = PluginState(colours: [Colour(colourID: "gold", type: .passgate)], scenes: [SceneState.empty()])
-        st.colours[0].templateChain = chain.isEmpty
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .passgate)], scenes: [SceneState.empty()])
+        st.machines[0].templateChain = chain.isEmpty
             ? [{ var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }()] : chain
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0
+        var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 0
         s.cells[0][0] = cell
         st.scenes = [s]; st.busChannels = [1, 2, 3, 4]
         st.synthesizeReceiversIfNeeded()
@@ -404,7 +404,7 @@ enum Dice {
         return EnsembleRow(chain: chain, transpose: transposeFor(a, using: &rng))
     }
 
-    /// REGISTER HOME per archetype — bass drops, lead/sparkle lift, the rest sit mid; wild wanders. (Colour.transpose.)
+    /// REGISTER HOME per archetype — bass drops, lead/sparkle lift, the rest sit mid; wild wanders. (Machine.transpose.)
     private static func transposeFor(_ a: Archetype, using rng: inout some RandomNumberGenerator) -> Int {
         switch a {
         case .bass:            return -12
@@ -490,8 +490,8 @@ enum Dice {
 extension Dice {
     struct FactoryChain { let name: String; let chain: [ProcessorSlot]; let transpose: Int; let tag: String }
 
-    private static func fSlot(_ t: ProcessorType, _ f: (inout ColourParams) -> Void = { _ in }) -> ProcessorSlot {
-        var p = ColourParams(); f(&p); return ProcessorSlot(type: t, params: p)
+    private static func fSlot(_ t: ProcessorType, _ f: (inout MachineParams) -> Void = { _ in }) -> ProcessorSlot {
+        var p = MachineParams(); f(&p); return ProcessorSlot(type: t, params: p)
     }
     private static func fWord(_ t: ProcessorType) -> String {
         switch t {
@@ -608,7 +608,7 @@ extension Dice {
             }
         }
         // 7. TEACHING SINGLES (15) — ONE processor, near default (the learn-by-ear set) — hand-authored, deterministic
-        let singles: [(ProcessorType, (inout ColourParams) -> Void)] = [
+        let singles: [(ProcessorType, (inout MachineParams) -> Void)] = [
             (.arp, { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 1 }),
             (.riff, { $0.riffSteps = 16; $0.riffRate = .r1_16; $0.riffRanks = [1, 0, 2, 0, 3, 0, 2, 0, 1, 0, 4, 0, 3, 0, 5, 0] }),
             (.euclid, { $0.euclidSteps = 8; $0.euclidPulses = 5 }),

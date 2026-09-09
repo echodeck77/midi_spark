@@ -5,7 +5,7 @@ import Foundation
 
 // A PART — the workshop-level unit of the BUILD lifecycle (unassigned → built → staged → deployed). It owns its own
 // staging grid + variations, its cast selection, and its PART-OWNED I/O (one input door + a set of output emitters,
-// shared across every colour/cell of the part). `deployed` christens it (PART n) on first assignment to the play grid.
+// shared across every machine/cell of the part). `deployed` christens it (PART n) on first assignment to the play grid.
 struct BuildPart: Codable, Equatable {
     // §E 16-STEP (Paul 2026-09-02): the STAGING columns are now maxCols(16)-wide (was 8). `length` is the part's active
     // width/loop 1…16 (nil ⇒ the 8-wide default → byte-identical). Old 8-col saves decode short + are padded on restore.
@@ -13,10 +13,10 @@ struct BuildPart: Codable, Equatable {
     var stagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)
     var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)
     var rowShade: [Double] = Array(repeating: 0, count: 8)
-    var rowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: what a row REVERTS to when its colour is stamped elsewhere
-    var selID: String? = nil          // the cast selection BY ID (supports ephemeral colours)
-    var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global colour store
-    var castSlots: [Int: String] = [:] // §2 explicit slot→colourID placements for NON-default colours (long-press lands a colour on its pressed cell)
+    var rowUnder: [String?] = Array(repeating: nil, count: 8)   // one-machine-per-row: what a row REVERTS to when its machine is stamped elsewhere
+    var selID: String? = nil          // the cast selection BY ID (supports ephemeral machines)
+    var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global machine store
+    var castSlots: [Int: String] = [:] // §2 explicit slot→machineID placements for NON-default machines (long-press lands a machine on its pressed cell)
     var receiver: Int = 0             // the PART's DEFAULT input door (R1–R4) — a row inherits it unless overridden
     var emitters: Set<Bus> = [.a]     // the PART's DEFAULT output emitters — a row inherits it unless overridden
     // PER-ROW I/O overrides (Paul 2026-08-18, additive-Optional): a nil array OR a nil entry = inherit the part default.
@@ -29,13 +29,13 @@ struct BuildPart: Codable, Equatable {
     var length: Int? = nil            // the part's LOOP length in columns 1…8 (nil ⇒ 8; < 8 = a shorter loop, a future step)
 }
 
-// PART AUTOMATION (Paul 2026-09-02) — the AUTO lanes. Per colour, FIVE lanes; one is ACTIVE at a time (activeLane,
+// PART AUTOMATION (Paul 2026-09-02) — the AUTO lanes. Per machine, FIVE lanes; one is ACTIVE at a time (activeLane,
 // −1 = NONE/off). A lane picks a processor slot + a param and an EXTENT of grid cells (col*Snap.rows+row); the param
 // RAMPS across the extent (low→high, column→row order) over a per-param musical SUB-RANGE, baked per-cell at build
 // (rides the M2 substrate — the render is unchanged). `cells` is the extent SET (tap-toggle, Paul: no sliding).
 // Foundation-only + Codable so the automation travels with the document (additive-Optional on PluginState).
 struct AutoLane: Codable, Equatable {
-    var slot: Int = 0                       // the processor slot in the colour's chain
+    var slot: Int = 0                       // the processor slot in the machine's chain
     var param: String = ""                  // the param this lane automates ("" ⇒ the processor's pre-mapped useful default)
     var cells: Set<Int> = []                // the cells (col*Snap.rows+row) in the automation's EXTENT; the RANGE is a ramp swept across them
     // FROM → TO (Paul 2026-09-02): the sweep endpoints (the "before/after"). nil ⇒ the param's curated musical sub-range.
@@ -54,26 +54,26 @@ struct AutoLane: Codable, Equatable {
     var smooth: Bool = false    // SMOOTH: sample the ramp at each note's beat (continuous) vs STEP (one value per column)
 }
 
-// A colour's automation: which lane is ON (activeLane, −1 = NONE) + its five lanes. One active lane per colour (Paul).
-struct PartAutoColour: Codable, Equatable {
+// A machine's automation: which lane is ON (activeLane, −1 = NONE) + its five lanes. One active lane per machine (Paul).
+struct PartAutoMachine: Codable, Equatable {
     var activeLane: Int = -1                // −1 = NONE (off) · 0–4 = the enabled lane (plays immediately)
     var lanes: [AutoLane] = []              // up to 5 (padded on read)
 }
 
 // The single UNASSIGNED part saved WITH THE DOCUMENT (Paul 2026-08-16, "saving = committing"): the part plus the
-// EPHEMERAL colours it references (their machine + custom hue), so the half-built piece reconstructs on reload.
-// Canonical document colours are NOT bundled — they're always present. Persisted as an additive-Optional field on
+// EPHEMERAL machines it references (their machine + custom hue), so the half-built piece reconstructs on reload.
+// Canonical document machines are NOT bundled — they're always present. Persisted as an additive-Optional field on
 // PluginState, so old saves decode as nil (no migration break).
 struct BuildUnassignedData: Codable, Equatable {
     var part: BuildPart
-    var colours: [Colour] = []          // the referenced EPHEMERAL colours (colourID + templateChain machine + defined)
-    var hues: [String: UInt32] = [:]    // ephemeral colour hues, id → packed RGB (colourHueOverride is session-only)
+    var machines: [Machine] = []          // the referenced EPHEMERAL machines (machineID + templateChain machine + defined)
+    var hues: [String: UInt32] = [:]    // ephemeral machine hues, id → packed RGB (machineHueOverride is session-only)
     var idCounter: Int = 0              // the ephemeral "b<n>" counter high-water mark, so restored ids don't collide
 }
 
 // THE ROOMS PLAY GRID (Paul 2026-08-30) — the 8 INDEPENDENT play columns (buildPlayCells + their I/O + start state) plus
 // the MULTI-STEP PASSES a flattened part rides (colLen/colSteps/colRate + per-step I/O). Persisted like BuildUnassignedData:
-// it carries the EPHEMERAL colours it references (buildColourReg is session-only) so a reload restores the passes AND their
+// it carries the EPHEMERAL machines it references (buildMachineReg is session-only) so a reload restores the passes AND their
 // machines. Before this the whole rooms play grid was in-memory → a fresh load lost it. Additive-Optional on PluginState.
 struct BuildPlayGridData: Codable, Equatable {
     var cells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
@@ -86,11 +86,11 @@ struct BuildPlayGridData: Codable, Equatable {
     var colRate: [StepRate?] = Array(repeating: nil, count: 8)
     var colStepRecv: [[Int]] = Array(repeating: [], count: 8)
     var colStepEmit: [[Set<Bus>]] = Array(repeating: [], count: 8)
-    var colours: [Colour] = []          // referenced EPHEMERAL colours (colourID + templateChain machine + transpose)
-    var hues: [String: UInt32] = [:]    // ephemeral colour hues (colourHueOverride is session-only)
+    var machines: [Machine] = []          // referenced EPHEMERAL machines (machineID + templateChain machine + transpose)
+    var hues: [String: UInt32] = [:]    // ephemeral machine hues (machineHueOverride is session-only)
     var idCounter: Int = 0              // the "b<n>" high-water mark so restored ids don't collide
     // PLAY-GRID FERRY EDITING (Paul 2026-09-05): each of the 64 cells can store a FULL BuildPart (part-backed) so a
-    // flatten round-trips losslessly through the bench; nil ⇒ select-backed (the colourID in `cells`) or empty. The
+    // flatten round-trips losslessly through the bench; nil ⇒ select-backed (the machineID in `cells`) or empty. The
     // persistent WORKING part is the bench's home for un-ferried WIP. Both additive-Optional → old docs decode to nil.
     var playCellPart: [[BuildPart?]]? = nil   // 8×8 [col][row]; a part-backed cell's stored part
     var workingPart: BuildPart? = nil         // the "65th" part — the bench's home for un-ferried WIP
@@ -112,7 +112,7 @@ extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedDat
         colRate     = try c.decodeIfPresent([StepRate?].self, forKey: .colRate) ?? Array(repeating: nil, count: 8)
         colStepRecv = try c.decodeIfPresent([[Int]].self, forKey: .colStepRecv) ?? Array(repeating: [], count: 8)
         colStepEmit = try c.decodeIfPresent([[Set<Bus>]].self, forKey: .colStepEmit) ?? Array(repeating: [], count: 8)
-        colours     = try c.decodeIfPresent([Colour].self, forKey: .colours) ?? []
+        machines     = try c.decodeIfPresent([Machine].self, forKey: .machines) ?? []
         hues        = try c.decodeIfPresent([String: UInt32].self, forKey: .hues) ?? [:]
         idCounter   = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
         playCellPart = try c.decodeIfPresent([[BuildPart?]].self, forKey: .playCellPart)   // PLAY-GRID FERRY EDITING (2026-09-05); nil = absent
@@ -131,7 +131,7 @@ extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedDat
 }
 
 // SCENES V2 (Paul 2026-08-12, Docs/scenes-v2-multigrids.md) — a SCENE = one PLAY-GRID ARRANGEMENT: which part sits in
-// each band, the flatten/copy content, the rung/mute/lane state, and the ROW 8 lit toggles. The PARTS, colours, casts,
+// each band, the flatten/copy content, the rung/mute/lane state, and the ROW 8 lit toggles. The PARTS, machines, casts,
 // doors + the master are SHARED across scenes (a scene arranges the same band; it never owns the musicians). v1 is an
 // IN-MEMORY switcher (not yet persisted with the document); switching is INSTANT (pass-quantized arm/blink = a follow-up).
 struct BuildSceneSnapshot: Codable, Equatable {
@@ -178,7 +178,7 @@ extension BuildUnassignedData {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         part      = try c.decodeIfPresent(BuildPart.self, forKey: .part) ?? BuildPart()
-        colours   = try c.decodeIfPresent([Colour].self, forKey: .colours) ?? []
+        machines   = try c.decodeIfPresent([Machine].self, forKey: .machines) ?? []
         hues      = try c.decodeIfPresent([String: UInt32].self, forKey: .hues) ?? [:]
         idCounter = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
     }
@@ -199,7 +199,7 @@ extension BuildSceneSnapshot {
     }
 }
 // AUTO-LANE persistence (Paul 2026-09-03 housekeeping, job 2): the same decode-tolerant guard as the BUILD types above.
-// partAuto rides PluginState as a `[String: PartAutoColour]?` — a dictionary VALUE that throws propagates to the WHOLE
+// partAuto rides PluginState as a `[String: PartAutoMachine]?` — a dictionary VALUE that throws propagates to the WHOLE
 // PluginState decode (session factory-reset, the CR-8 class). These are the NEWEST persisted types (added 2026-09-02) and
 // were synthesized-only; add the tolerant init NOW so a field added to either later never fails an older partAuto save.
 extension AutoLane {
@@ -223,7 +223,7 @@ extension AutoLane {
         }
     }
 }
-extension PartAutoColour {
+extension PartAutoMachine {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         activeLane = try c.decodeIfPresent(Int.self, forKey: .activeLane) ?? -1

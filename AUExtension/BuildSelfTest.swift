@@ -4,7 +4,7 @@ import Foundation
 // Each test drives the REAL Router offline (the same engine the live render uses — the Dice precedent) with a
 // BUILD-style scene + a held chord, RECORDS the emitted MIDI, and checks it against what the processor / BUILD
 // scene SHOULD produce. So a regression where the MIDI output drifts from expected is caught on-device, in seconds,
-// without a Mac. Focus: the BUILD page's colour→cell→MIDI mapping and the processor roster. Foundation-only; reuses
+// without a Mac. Focus: the BUILD page's machine→cell→MIDI mapping and the processor roster. Foundation-only; reuses
 // SnapshotBuilder + Router. Dev-only (#if DEBUG) — never ships on the product face.
 #if DEBUG
 
@@ -40,17 +40,17 @@ enum BuildSelfTest {
 
     // MARK: fixtures
 
-    /// A single-slot machine colour (its type on the A face), like a BUILD cast colour.
-    static func colour(_ id: String, _ type: ProcessorType, _ cfg: (inout ColourParams) -> Void = { _ in }) -> Colour {
-        var c = Colour(colourID: id, type: type); cfg(&c.paramsA); return c
+    /// A single-slot machine machine (its type on the A face), like a BUILD cast machine.
+    static func machine(_ id: String, _ type: ProcessorType, _ cfg: (inout MachineParams) -> Void = { _ in }) -> Machine {
+        var c = Machine(machineID: id, type: type); cfg(&c.paramsA); return c
     }
-    /// A RAW passthrough colour — explicit empty chain = born-audible identity (holds the chord unprocessed), exactly
-    /// what a BUILD colour with no machine sounds like.
-    static func rawColour(_ id: String, transpose: Int = 0) -> Colour {
-        var c = Colour(colourID: id, type: .passgate); c.templateChain = []; c.transpose = transpose; return c
+    /// A RAW passthrough machine — explicit empty chain = born-audible identity (holds the chord unprocessed), exactly
+    /// what a BUILD machine with no machine sounds like.
+    static func rawMachine(_ id: String, transpose: Int = 0) -> Machine {
+        var c = Machine(machineID: id, type: .passgate); c.templateChain = []; c.transpose = transpose; return c
     }
     static func cell(_ id: String, buses: Set<Bus> = [.a]) -> Cell {
-        var c = Cell(colourID: id, buses: buses); c.inputReceiver = 0; return c
+        var c = Cell(machineID: id, buses: buses); c.inputReceiver = 0; return c
     }
 
     // MARK: the offline engine run
@@ -58,10 +58,10 @@ enum BuildSelfTest {
     /// Drive a BUILD-style scene through the REAL engine and record its MIDI. laneMask 0 = a normal 8-column sweep
     /// (BUILD never laps). Mirrors Dice.evalRun / RouterTests.run — held chord in, emitted MIDI captured, then a
     /// STOP window flushes so no-stuck-note can be checked.
-    static func render(_ colours: [Colour], chord: [UInt8] = [60, 64, 67], beats: Double = 8, laneMask: UInt16 = 0,
+    static func render(_ machines: [Machine], chord: [UInt8] = [60, 64, 67], beats: Double = 8, laneMask: UInt16 = 0,
                        _ build: (inout SceneState) -> Void) -> SelfTestRecorder {
         var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: colours, scenes: [s]); st.busChannels = [1, 2, 3, 4]
+        var st = PluginState(machines: machines, scenes: [s]); st.busChannels = [1, 2, 3, 4]
         st.synthesizeReceiversIfNeeded()
         let box = SnapshotBuilder.build(from: st)
         let router = Router(); var diag = KernelDiag(); let e = SelfTestRecorder()
@@ -92,29 +92,29 @@ enum BuildSelfTest {
     static func runAll() -> [SelfTestResult] {
         var out: [SelfTestResult] = []
 
-        // 1 — a raw (machine-less) colour plays the held chord UNPROCESSED on Emit A.
+        // 1 — a raw (machine-less) machine plays the held chord UNPROCESSED on Emit A.
         do {
-            let e = render([rawColour("gold")]) { $0.cells[0][0] = cell("gold") }
+            let e = render([rawMachine("gold")]) { $0.cells[0][0] = cell("gold") }
             let got = Set(e.onsA)
-            out.append(check("Raw colour plays the held chord", got == [60, 64, 67] && e.noStuck,
+            out.append(check("Raw machine plays the held chord", got == [60, 64, 67] && e.noStuck,
                              "expected {60,64,67} on Emit A, got \(Set(e.onsA).sorted()); noStuck=\(e.noStuck)"))
         }
-        // 2 — the colour's TRANSPOSE shifts the output pitch.
+        // 2 — the machine's TRANSPOSE shifts the output pitch.
         do {
-            let e = render([rawColour("gold", transpose: 5)], chord: [60]) { $0.cells[0][0] = cell("gold") }
+            let e = render([rawMachine("gold", transpose: 5)], chord: [60]) { $0.cells[0][0] = cell("gold") }
             out.append(check("Transpose shifts the pitch (+5)", Set(e.onsA) == [65] && e.noStuck,
                              "expected {65}, got \(Set(e.onsA).sorted())"))
         }
         // 3 — HARMONIZE adds the interval voice (60 with +12 → 60 and 72).
         do {
-            let e = render([colour("gold", .harmonize) { $0.harmIntervals = [12, 0, 0] }], chord: [60]) { $0.cells[0][0] = cell("gold") }
+            let e = render([machine("gold", .harmonize) { $0.harmIntervals = [12, 0, 0] }], chord: [60]) { $0.cells[0][0] = cell("gold") }
             let got = Set(e.onsA)
             out.append(check("Harmonize adds the +12 voice", got.isSuperset(of: [60, 72]) && e.noStuck,
                              "expected ⊇{60,72}, got \(got.sorted())"))
         }
         // 4 — ARP arpeggiates: one chord yields MORE than its note-count of ons over time.
         do {
-            let e = render([colour("gold", .arp)]) { $0.cells[0][0] = cell("gold") }
+            let e = render([machine("gold", .arp)]) { $0.cells[0][0] = cell("gold") }
             out.append(check("Arp arpeggiates the chord over time", e.onCountA > 3 && e.noStuck,
                              "expected >3 ons on Emit A, got \(e.onCountA)"))
         }
@@ -122,59 +122,59 @@ enum BuildSelfTest {
         //     a sparse scene's output = the sum of its columns. No inversion, no phantom gating.
         do {
             func casc(_ cols: [Int]) -> Int {
-                render([colour("gold", .cascade) { $0.rate = .r1_8 }]) { s in for c in cols { s.cells[c][0] = cell("gold") } }.onCountA
+                render([machine("gold", .cascade) { $0.rate = .r1_8 }]) { s in for c in cols { s.cells[c][0] = cell("gold") } }.onCountA
             }
             let all = casc([0, 1, 2, 3, 4, 5, 6, 7]), only2 = casc([2]), but2 = casc([0, 1, 3, 4, 5, 6, 7])
             out.append(check("Cascade sounds only its populated columns", all == only2 + but2 && but2 > only2,
                              "expected all(\(all)) == only-col2(\(only2)) + all-but-col2(\(but2))"))
         }
-        // 6 — an EPHEMERAL colour (index ≥33, the unlimited-colours model) renders WITHOUT trapping the render thread
+        // 6 — an EPHEMERAL machine (index ≥33, the unlimited-machines model) renders WITHOUT trapping the render thread
         //     and uses its OWN transpose (the override-table SIGTRAP fix).
         do {
-            var colours = (0..<40).map { rawColour("x\($0)") }   // 40 colours → last index 39 ≫ 33
-            colours[39].transpose = 7
-            let e = render(colours, chord: [60]) { $0.cells[0][0] = cell("x39") }
-            out.append(check("Ephemeral colour (index ≥33) doesn't trap the render", Set(e.onsA) == [67] && e.noStuck,
+            var machines = (0..<40).map { rawMachine("x\($0)") }   // 40 machines → last index 39 ≫ 33
+            machines[39].transpose = 7
+            let e = render(machines, chord: [60]) { $0.cells[0][0] = cell("x39") }
+            out.append(check("Ephemeral machine (index ≥33) doesn't trap the render", Set(e.onsA) == [67] && e.noStuck,
                              "expected {67} from x39 (+7), got \(Set(e.onsA).sorted())"))
         }
         // 7 — an ALL-BYPASSED chain collapses to the born-audible passthrough (holds the chord raw).
         do {
             var slot = ProcessorSlot(type: .arp); slot.bypassed = true
-            var c = Colour(colourID: "gold", type: .passgate); c.templateChain = [slot]
+            var c = Machine(machineID: "gold", type: .passgate); c.templateChain = [slot]
             let e = render([c], chord: [60]) { $0.cells[0][0] = cell("gold") }
             out.append(check("A fully-bypassed chain is a passthrough", Set(e.onsA) == [60] && e.noStuck,
                              "expected {60}, got \(Set(e.onsA).sorted())"))
         }
         // 8 — an EMPTY scene emits nothing.
         do {
-            let e = render([rawColour("gold")]) { _ in }
+            let e = render([rawMachine("gold")]) { _ in }
             out.append(check("An empty grid is silent", e.events.isEmpty,
                              "expected no MIDI, got \(e.events.count) events"))
         }
         // 9 — the cell's EMITTER routes the output: a cell on bus B sounds on Emit B (cable 2), never on Emit A.
         do {
-            let e = render([rawColour("gold")], chord: [60]) { $0.cells[0][0] = cell("gold", buses: [.b]) }
+            let e = render([rawMachine("gold")], chord: [60]) { $0.cells[0][0] = cell("gold", buses: [.b]) }
             out.append(check("A cell on Emitter B avoids Emitter A", e.onsA.isEmpty && !e.ons(cable: 2).isEmpty,
                              "expected nothing on Emit A + something on Emit B, got A=\(e.onsA) B=\(e.ons(cable: 2))"))
         }
         // 10 — DRONE holds the whole chord as a pad.
         do {
-            let e = render([colour("gold", .drone) { $0.gate = 0.8 }]) { $0.cells[0][0] = cell("gold") }
+            let e = render([machine("gold", .drone) { $0.gate = 0.8 }]) { $0.cells[0][0] = cell("gold") }
             out.append(check("Drone holds the chord as a pad", Set(e.onsA) == [60, 64, 67] && e.noStuck,
                              "expected {60,64,67}, got \(Set(e.onsA).sorted())"))
         }
         // 11 — NO STUCK NOTES across the whole processor roster (every type flushes clean on stop).
         do {
-            let roster: [(String, Colour)] = [
-                ("arp", colour("gold", .arp)),
-                ("ratchet", colour("gold", .ratchet)),
-                ("euclid", colour("gold", .euclid) { $0.euclidPulses = 4; $0.euclidSteps = 8 }),
-                ("cascade", colour("gold", .cascade) { $0.rate = .r1_8 }),
-                ("strum", colour("gold", .strum) { $0.spread = 0.5 }),
-                ("chance", colour("gold", .chance)),
-                ("harmonize", colour("gold", .harmonize) { $0.harmIntervals = [12, 0, 0] }),
-                ("drone", colour("gold", .drone) { $0.gate = 0.8 }),
-                ("passgate", colour("gold", .passgate) { $0.passes = [true, true, true, true]; $0.gate = 1.0 }),
+            let roster: [(String, Machine)] = [
+                ("arp", machine("gold", .arp)),
+                ("ratchet", machine("gold", .ratchet)),
+                ("euclid", machine("gold", .euclid) { $0.euclidPulses = 4; $0.euclidSteps = 8 }),
+                ("cascade", machine("gold", .cascade) { $0.rate = .r1_8 }),
+                ("strum", machine("gold", .strum) { $0.spread = 0.5 }),
+                ("chance", machine("gold", .chance)),
+                ("harmonize", machine("gold", .harmonize) { $0.harmIntervals = [12, 0, 0] }),
+                ("drone", machine("gold", .drone) { $0.gate = 0.8 }),
+                ("passgate", machine("gold", .passgate) { $0.passes = [true, true, true, true]; $0.gate = 1.0 }),
             ]
             var stuck: [String] = []
             for (name, col) in roster {
@@ -186,15 +186,15 @@ enum BuildSelfTest {
         }
         // 12 — every NOTE-emitting processor actually SOUNDS (chance excluded — it can legitimately drop the pool).
         do {
-            let roster: [(String, Colour)] = [
-                ("arp", colour("gold", .arp)),
-                ("ratchet", colour("gold", .ratchet)),
-                ("euclid", colour("gold", .euclid) { $0.euclidPulses = 4; $0.euclidSteps = 8 }),
-                ("cascade", colour("gold", .cascade) { $0.rate = .r1_8 }),
-                ("strum", colour("gold", .strum) { $0.spread = 0.5 }),
-                ("harmonize", colour("gold", .harmonize) { $0.harmIntervals = [12, 0, 0] }),
-                ("drone", colour("gold", .drone) { $0.gate = 0.8 }),
-                ("passgate", colour("gold", .passgate) { $0.passes = [true, true, true, true]; $0.gate = 1.0 }),
+            let roster: [(String, Machine)] = [
+                ("arp", machine("gold", .arp)),
+                ("ratchet", machine("gold", .ratchet)),
+                ("euclid", machine("gold", .euclid) { $0.euclidPulses = 4; $0.euclidSteps = 8 }),
+                ("cascade", machine("gold", .cascade) { $0.rate = .r1_8 }),
+                ("strum", machine("gold", .strum) { $0.spread = 0.5 }),
+                ("harmonize", machine("gold", .harmonize) { $0.harmIntervals = [12, 0, 0] }),
+                ("drone", machine("gold", .drone) { $0.gate = 0.8 }),
+                ("passgate", machine("gold", .passgate) { $0.passes = [true, true, true, true]; $0.gate = 1.0 }),
             ]
             var silent: [String] = []
             for (name, col) in roster {

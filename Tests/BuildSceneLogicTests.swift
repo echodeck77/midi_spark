@@ -113,7 +113,7 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(BuildSceneLogic.composeScene(BuildSceneLogic.Input()), "no active voice → no scene")
     }
 
-    // MARK: PART AUTOMATION — the AUTO lanes (Paul 2026-09-02). A colour's ACTIVE lane ramps a param across its EXTENT
+    // MARK: PART AUTOMATION — the AUTO lanes (Paul 2026-09-02). A machine's ACTIVE lane ramps a param across its EXTENT
     // of part cells (sub-range low→high, column→row order), baked per-cell at build via applyAuto.
 
     func testAutoLaneRampsParamAcrossTheSpan() {
@@ -124,7 +124,7 @@ final class BuildSceneLogicTests: XCTestCase {
         var base = ProcessorSlot(type: .arp); base.params.gate = 0.5   // a distinct base gate to override
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
         // SPAN-ONLY: AUTO 1 on slot 0's GATE, span start 0 length 3 → ramps LOW→HIGH across cols 0,1,2.
-        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", spanStart: 0, spanLen: 3)])]
+        i.partAuto = ["gold": PartAutoMachine(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", spanStart: 0, spanLen: 3)])]
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "rank 0 → the sub-range LOW")
         XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 0.65, accuracy: 1e-6, "rank 1 → the midpoint")
@@ -139,7 +139,7 @@ final class BuildSceneLogicTests: XCTestCase {
         var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
         // NONE (activeLane −1) even though a lane HAS a span → nothing bakes (byte-identical)
-        i.partAuto = ["gold": PartAutoColour(activeLane: -1, lanes: [AutoLane(slot: 0, param: "gate", spanStart: 0, spanLen: 1)])]
+        i.partAuto = ["gold": PartAutoMachine(activeLane: -1, lanes: [AutoLane(slot: 0, param: "gate", spanStart: 0, spanLen: 1)])]
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "NONE → the base value untouched")
     }
@@ -152,7 +152,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingSel = [2, 2, 2, 2, -1, -1, -1, -1]
         var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
-        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", spanStart: 0, spanLen: 2)])]
+        i.partAuto = ["gold": PartAutoMachine(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", spanStart: 0, spanLen: 2)])]
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6)
         XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
@@ -167,7 +167,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingSel = [2, 2, 2, -1, -1, -1, -1, -1]
         var base = ProcessorSlot(type: .arp); base.params.gate = 0.5
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
-        i.partAuto = ["gold": PartAutoColour(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", lo: 0.5, hi: 0.9, spanStart: 0, spanLen: 3)])]
+        i.partAuto = ["gold": PartAutoMachine(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", lo: 0.5, hi: 0.9, spanStart: 0, spanLen: 3)])]
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "FROM overrides the gate sub-range low (0.3)")
         XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 0.9, accuracy: 1e-6, "TO overrides the sub-range high (1.0)")
@@ -195,7 +195,7 @@ final class BuildSceneLogicTests: XCTestCase {
 
     func testPartAutoDocumentRoundTrips() throws {
         var d = PluginState.makeInit()
-        d.partAuto = ["gold": PartAutoColour(activeLane: 2, lanes: [AutoLane(slot: 1, param: "spread", cells: [3, 19, 35])])]
+        d.partAuto = ["gold": PartAutoMachine(activeLane: 2, lanes: [AutoLane(slot: 1, param: "spread", cells: [3, 19, 35])])]
         let data = try JSONEncoder().encode(d)
         let back = try JSONDecoder().decode(PluginState.self, from: data)
         XCTAssertEqual(back.partAuto?["gold"]?.activeLane, 2)
@@ -203,7 +203,7 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(back.partAuto?["gold"]?.lanes.first?.cells, [3, 19, 35])
     }
 
-    // JOB 2 (Paul 2026-09-03): AutoLane/PartAutoColour are decode-TOLERANT — a MISSING key (a field added after a save
+    // JOB 2 (Paul 2026-09-03): AutoLane/PartAutoMachine are decode-TOLERANT — a MISSING key (a field added after a save
     // shipped, or a hand-truncated doc) falls back to the default instead of throwing. Guards the CR-8 data-loss class:
     // partAuto is a PluginState dict, so a throw here would reset the WHOLE session.
     func testAutoLaneDecodesWithMissingKeys() throws {
@@ -214,8 +214,8 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(partial.slot, 3); XCTAssertEqual(partial.param, "LENGTH"); XCTAssertEqual(partial.span, 4)
         XCTAssertTrue(partial.cells.isEmpty); XCTAssertNil(partial.lo)     // absent optional/collection keys → defaults, no throw
     }
-    func testPartAutoColourDecodesWithMissingKeys() throws {
-        let empty = try JSONDecoder().decode(PartAutoColour.self, from: "{}".data(using: .utf8)!)
+    func testPartAutoMachineDecodesWithMissingKeys() throws {
+        let empty = try JSONDecoder().decode(PartAutoMachine.self, from: "{}".data(using: .utf8)!)
         XCTAssertEqual(empty.activeLane, -1); XCTAssertTrue(empty.lanes.isEmpty)
         // an OLD document with NO partAuto at all decodes to nil (additive-Optional) — no reset
         var d = PluginState.makeInit(); d.partAuto = nil
@@ -249,7 +249,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = (0..<8).map { $0 == 3 ? [ProcessorSlot(type: .arp)] : [] }
         i.stagingLen = 16
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(12, 3)?.colourID, "gold", "a cell at column 12 composes (16-wide part)")
+        XCTAssertEqual(s.cellAt(12, 3)?.machineID, "gold", "a cell at column 12 composes (16-wide part)")
         XCTAssertEqual(s.rowLen?[3], 16, "the row loops 16 columns")
     }
 
@@ -260,9 +260,9 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingSel = [2, -1, 2, -1, -1, -1, -1, -1]      // columns 0 and 2 play, column 1 silent
         i.rowChain = (0..<8).map { $0 == 2 ? [ProcessorSlot(type: .arp)] : [] }   // gold has a machine → it composes (Paul 2026-08-26: a machine-less part cell is silent)
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.colourID, "gold")
+        XCTAssertEqual(s.cellAt(0, 2)?.machineID, "gold")
         XCTAssertNil(s.cellAt(1, 2), "column 1 was deselected → no cell in the scene")
-        XCTAssertEqual(s.cellAt(2, 2)?.colourID, "gold")
+        XCTAssertEqual(s.cellAt(2, 2)?.machineID, "gold")
     }
 
     // THE PLAY GRID (Paul 2026-08-29): each STARTED column is an INDEPENDENT, CONTINUOUS voice. It composes at engine
@@ -280,12 +280,12 @@ final class BuildSceneLogicTests: XCTestCase {
         let s = BuildSceneLogic.composeScene(i)!
         let base = Snap.playLayerRowBase                                // the hidden play layer starts at engine row 8
         // play column 0 → engine (col 0, row 8) — the HIDDEN play layer, DISJOINT from the part's rows 0–7
-        XCTAssertEqual(s.cellAt(0, base + 0)?.colourID, "b1", "col 0's cell composes at engine row 8")
+        XCTAssertEqual(s.cellAt(0, base + 0)?.machineID, "b1", "col 0's cell composes at engine row 8")
         XCTAssertEqual(s.cellAt(0, base + 0)?.processors?.first?.type, .arp, "with its own machine")
         XCTAssertEqual(s.cellAt(0, base + 0)?.buses, [.b], "its ferried emitter")
         XCTAssertEqual(s.cellAt(0, base + 0)?.inputReceiver, 2, "its ferried door")
         // play column 1 → engine (col 0, row 9)
-        XCTAssertEqual(s.cellAt(0, base + 1)?.colourID, "b2", "col 1's cell composes at engine row 9 (empty chain = passthrough)")
+        XCTAssertEqual(s.cellAt(0, base + 1)?.machineID, "b2", "col 1's cell composes at engine row 9 (empty chain = passthrough)")
         XCTAssertEqual(s.cellAt(0, base + 1)?.buses, [.c, .d], "carries its own ferried emitters")
         XCTAssertNil(s.cellAt(0, base + 2), "col 2 is populated but NOT started → its engine row is empty")
         XCTAssertNil(s.cellAt(0, 0), "the visible rows 0–7 stay free for the part (no play cell there)")
@@ -296,7 +296,7 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(lane[base + 2], 0, "col 2 not started → its row doesn't loop")
     }
     func testPlayColumnMultiStepPassLaysStepsAndLoopsItsLength() throws {
-        // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column with len > 1 lays its step colours across
+        // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column with len > 1 lays its step machines across
         // cols 0..len-1 of the play-layer row, SWEPT (no col-0 pin) and looped by rowLen. len ≤ 1 stays the pinned single cell.
         var i = BuildSceneLogic.Input()
         i.playPlaying = true
@@ -312,9 +312,9 @@ final class BuildSceneLogicTests: XCTestCase {
         i.playCells = grid([(1, 0, "solo")]); i.playSel = [0, 0, -1, -1, -1, -1, -1, -1]   // col 1's single cell
         let s = BuildSceneLogic.composeScene(i)!
         let base = Snap.playLayerRowBase
-        XCTAssertEqual(s.cellAt(0, base)?.colourID, "a", "step 0 at (col 0, play row)")
+        XCTAssertEqual(s.cellAt(0, base)?.machineID, "a", "step 0 at (col 0, play row)")
         XCTAssertNil(s.cellAt(1, base), "step 1 is a REST → no cell")
-        XCTAssertEqual(s.cellAt(2, base)?.colourID, "c", "step 2 at (col 2, play row)")
+        XCTAssertEqual(s.cellAt(2, base)?.machineID, "c", "step 2 at (col 2, play row)")
         XCTAssertEqual(s.cellAt(2, base)?.processors?.first?.type, .harmonize, "each step carries its own resolved chain")
         XCTAssertEqual(s.cellAt(0, base)?.buses, [.a], "step 0 keeps its OWN emitter (A)")
         XCTAssertEqual(s.cellAt(2, base)?.buses, [.c], "step 2 keeps its OWN emitter (C) — per-step I/O")
@@ -324,7 +324,7 @@ final class BuildSceneLogicTests: XCTestCase {
         let lane = try XCTUnwrap(s.rowLane, "the play grid sets a per-row lane")
         XCTAssertEqual(lane[base], 0, "multi-step SWEEPS 0..len-1 → no col-0 pin")
         // column 1 stays the pinned single cell, byte-identical to today.
-        XCTAssertEqual(s.cellAt(0, base + 1)?.colourID, "solo", "the single-cell column is unchanged")
+        XCTAssertEqual(s.cellAt(0, base + 1)?.machineID, "solo", "the single-cell column is unchanged")
         XCTAssertEqual(lane[base + 1], 0b1, "single cell → pinned to col 0 (continuous)")
         XCTAssertNil(len[base + 1], "single cell sets no per-row length")
     }
@@ -335,23 +335,23 @@ final class BuildSceneLogicTests: XCTestCase {
         var i = BuildSceneLogic.Input()
         i.performPlaying = true
         i.performCells = grid((0..<8).map { ($0, $0, "p\($0)") })   // a DIAGONAL → every row occupied (occ 1), none full, col 0 held by "p0"
-        i.chainActive = true; i.chainColourID = "aud"; i.chainMachine = []
+        i.chainActive = true; i.chainMachineID = "aud"; i.chainMachine = []
         let (sceneOpt, auditionRow) = BuildSceneLogic.composeSceneMeta(i)
         let s = try XCTUnwrap(sceneOpt)
         XCTAssertEqual(auditionRow, 0, "the least-occupied row (all tie → row 0)")
-        XCTAssertEqual(s.cellAt(0, 0)?.colourID, "p0", "col 0 stays the PIECE's cell")
-        XCTAssertEqual(s.cellAt(1, 0)?.colourID, "aud", "the chain lays across the row's FREE columns")
+        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "p0", "col 0 stays the PIECE's cell")
+        XCTAssertEqual(s.cellAt(1, 0)?.machineID, "aud", "the chain lays across the row's FREE columns")
         XCTAssertEqual(try XCTUnwrap(s.rowLane)[0], 0, "P1: the fallback row is NOT pinned to col 0 → it sweeps (else the pin loops p0 and the audition is silent)")
 
         // CONTROL — a fully-empty row exists → the single-cell audition DOES pin col 0 (continuous, no re-strike).
         var j = BuildSceneLogic.Input()
         j.performPlaying = true
         j.performCells = grid((0..<7).map { ($0, $0, "p\($0)") })   // rows 0–6 occupied, ROW 7 empty
-        j.chainActive = true; j.chainColourID = "aud"; j.chainMachine = []
+        j.chainActive = true; j.chainMachineID = "aud"; j.chainMachine = []
         let (s2Opt, aud2) = BuildSceneLogic.composeSceneMeta(j)
         let s2 = try XCTUnwrap(s2Opt)
         XCTAssertEqual(aud2, 7, "the fully-empty row")
-        XCTAssertEqual(s2.cellAt(0, 7)?.colourID, "aud", "the single cell parks at col 0 of the empty row")
+        XCTAssertEqual(s2.cellAt(0, 7)?.machineID, "aud", "the single cell parks at col 0 of the empty row")
         XCTAssertEqual(try XCTUnwrap(s2.rowLane)[7], 0b1, "the single-cell audition pins col 0 → continuous")
     }
     // A multi-step pass plays at its OWN captured rate (rowStepRate[8+c], not the scene default), and a step whose
@@ -429,7 +429,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.performMute = [1 * 8 + 0]                        // column 1 muted
         i.performActiveRung = { c, _ in c != 2 }           // column 2's rung inactive
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 0)?.colourID, "gold", "unmuted, active → plays")
+        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "gold", "unmuted, active → plays")
         XCTAssertNil(s.cellAt(1, 0), "muted → dropped")
         XCTAssertNil(s.cellAt(2, 0), "inactive rung → dropped")
     }
@@ -439,10 +439,10 @@ final class BuildSceneLogicTests: XCTestCase {
         // fully-empty row and loops that row to column 0 — NOT laid across all 8 columns (which re-triggered every step).
         var i = BuildSceneLogic.Input()
         i.chainActive = true
-        i.chainColourID = "cyan"
+        i.chainMachineID = "cyan"
         i.chainMachine = []                                // raw passthrough
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 0)?.colourID, "cyan", "the audition parks at column 0 of the empty row 0")
+        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "cyan", "the audition parks at column 0 of the empty row 0")
         XCTAssertNil(s.cellAt(1, 0), "NOT laid across the other columns — it's continuous, not re-struck each step")
         XCTAssertEqual(s.cellAt(0, 0)?.processors, [], "explicit empty chain (born-audible passthrough), never nil")
         let lane = try XCTUnwrap(s.rowLane, "the audition sets a per-row lane")
@@ -453,13 +453,13 @@ final class BuildSceneLogicTests: XCTestCase {
         // #5 (Paul 2026-08-30): composeSceneMeta exposes the engine ROW the audition parked on so the aimed ferry can read
         // its LIVE strike feed at idx = col0*Snap.rows + auditionRow. It must equal where the audition cell actually lands.
         var i = BuildSceneLogic.Input()
-        i.chainActive = true; i.chainColourID = "cyan"
+        i.chainActive = true; i.chainMachineID = "cyan"
         i.performPlaying = true
         i.performCells = grid([(0, 0, "gold")])            // piece on row 0 → the audition takes the next free row (1)
         let m = BuildSceneLogic.composeSceneMeta(i)
         let ar = m.auditionRow
         XCTAssertEqual(ar, 1, "the audition parks on the first free row (row 0 taken by the piece)")
-        XCTAssertEqual(m.scene?.cellAt(0, ar ?? -1)?.colourID, "cyan", "auditionRow points at the audition cell (col 0)")
+        XCTAssertEqual(m.scene?.cellAt(0, ar ?? -1)?.machineID, "cyan", "auditionRow points at the audition cell (col 0)")
         // No chain voice ⇒ no audition row.
         var j = BuildSceneLogic.Input(); j.performPlaying = true; j.performCells = grid([(0, 0, "gold")])
         XCTAssertNil(BuildSceneLogic.composeSceneMeta(j).auditionRow, "no chain voice → no audition row")
@@ -470,7 +470,7 @@ final class BuildSceneLogicTests: XCTestCase {
         // FALLBACK branch — which must STILL expose a chainLaneRow, else the aimed ferry has no live-strike index and reads
         // as dead (the "subsequent copies didn't animate" bug locus).
         var i = BuildSceneLogic.Input()
-        i.chainActive = true; i.chainColourID = "cyan"
+        i.chainActive = true; i.chainMachineID = "cyan"
         i.performPlaying = true
         i.performCells = (0..<8).map { c in (0..<8).map { r in c == 0 ? "gold" : nil } }   // col 0 filled in EVERY row → no empty row
         XCTAssertNotNil(BuildSceneLogic.composeSceneMeta(i).auditionRow, "the fallback still exposes a row for the ferry's live feed")
@@ -479,15 +479,15 @@ final class BuildSceneLogicTests: XCTestCase {
     func testChainFallsBackToTheLeastOccupiedRowWhenPieceIsFull() {
         var i = BuildSceneLogic.Input()
         i.chainActive = true
-        i.chainColourID = "cyan"
+        i.chainMachineID = "cyan"
         i.performPlaying = true
         // Fill EVERY row and column with the piece EXCEPT one gap at (7, row 4) — row 4 is the least-occupied.
         var cells: [[String?]] = Array(repeating: Array(repeating: "gold", count: 8), count: 8)
         cells[7][4] = nil
         i.performCells = cells
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(7, 4)?.colourID, "cyan", "the chain fills the one free cell on the least-occupied row")
-        XCTAssertEqual(s.cellAt(0, 4)?.colourID, "gold", "the piece's own cells in that row are untouched")
+        XCTAssertEqual(s.cellAt(7, 4)?.machineID, "cyan", "the chain fills the one free cell on the least-occupied row")
+        XCTAssertEqual(s.cellAt(0, 4)?.machineID, "gold", "the piece's own cells in that row are untouched")
     }
 
     func testPartAndPieceAndChainCoexist() {
@@ -496,11 +496,11 @@ final class BuildSceneLogicTests: XCTestCase {
         i.performCells = grid([(0, 0, "gold")])            // piece on row 0
         i.stagingCells = grid([(0, 3, "teal")]); i.stagingSel = [3, -1, -1, -1, -1, -1, -1, -1]   // part on row 3
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the part cell sounds
-        i.chainColourID = "cyan"                           // chain finds a free row (not 0 or 3)
+        i.chainMachineID = "cyan"                           // chain finds a free row (not 0 or 3)
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 0)?.colourID, "gold", "piece plays")
-        XCTAssertEqual(s.cellAt(0, 3)?.colourID, "teal", "part plays alongside")
-        let chainRow = (0..<8).first { r in r != 0 && r != 3 && s.cellAt(0, r)?.colourID == "cyan" }
+        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "gold", "piece plays")
+        XCTAssertEqual(s.cellAt(0, 3)?.machineID, "teal", "part plays alongside")
+        let chainRow = (0..<8).first { r in r != 0 && r != 3 && s.cellAt(0, r)?.machineID == "cyan" }
         XCTAssertNotNil(chainRow, "the chain lands on some free row, coexisting with both")
     }
     // MARK: composeScene — the PER-PART CLOCK + PER-ROW LAP mapping (Input → SceneState.rowStepRate/rowLen/rowLane)
@@ -584,7 +584,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the part cell sounds
         i.selReceiver = 0; i.partEmitters = [.b]           // part default → emitter B
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.colourID, "teal", "the part/audition wins the shared slot (sits in front)")
+        XCTAssertEqual(s.cellAt(0, 2)?.machineID, "teal", "the part/audition wins the shared slot (sits in front)")
         XCTAssertEqual(s.cellAt(0, 2)?.buses, [.b], "and the surviving cell carries the PART's I/O, not the piece's")
     }
 
@@ -638,25 +638,25 @@ final class BuildSceneLogicTests: XCTestCase {
                                                    partActive: false, selectedPlayCol: nil, playColOn: on)
         XCTAssertTrue(audOff.isGrey); XCTAssertFalse(audOff.playing, "not auditioning → stopped")
 
-        // 3. A REAL colour on SELECT (a browsed/ferried cell) → NOT grey; PART page → NEVER grey, play state = partActive.
+        // 3. A REAL machine on SELECT (a browsed/ferried cell) → NOT grey; PART page → NEVER grey, play state = partActive.
         let realSel = BuildSceneLogic.machineBinding(selID: "c3", audID: aud, onSelectPage: true, chainActive: true,
                                                     partActive: false, selectedPlayCol: nil, playColOn: on)
-        XCTAssertFalse(realSel.isGrey, "a real colour is never grey")
+        XCTAssertFalse(realSel.isGrey, "a real machine is never grey")
         let part = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: false, chainActive: false,
                                                  partActive: true, selectedPlayCol: nil, playColOn: on)
-        XCTAssertEqual(part.kind, .partRow); XCTAssertFalse(part.isGrey, "PART wears its colour, never grey"); XCTAssertTrue(part.playing)
+        XCTAssertEqual(part.kind, .partRow); XCTAssertFalse(part.isGrey, "PART wears its machine, never grey"); XCTAssertTrue(part.playing)
 
         // 4. Nothing selected + nothing playing → .none.
         let none = BuildSceneLogic.machineBinding(selID: nil, audID: aud, onSelectPage: true, chainActive: false,
                                                  partActive: false, selectedPlayCol: nil, playColOn: on)
         XCTAssertEqual(none.kind, .none); XCTAssertFalse(none.playing)
 
-        // 5. THE SELECT SOURCE (Paul 2026-09-06): a .ferryRow rides gsAud like a plain audition, but it carries a real colour
-        //    (colourHueOverride[gsAud]) → must NOT be grey; a .browseCell on gsAud stays grey. Regression: tapping a ferry used
+        // 5. THE SELECT SOURCE (Paul 2026-09-06): a .ferryRow rides gsAud like a plain audition, but it carries a real machine
+        //    (machineHueOverride[gsAud]) → must NOT be grey; a .browseCell on gsAud stays grey. Regression: tapping a ferry used
         //    to fall to grey because ferry + cell shared gsAud and the resolver couldn't tell them apart.
         let ferrySource = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: true,
                                                         partActive: false, selectedPlayCol: nil, playColOn: on, source: .ferryRow(3))
-        XCTAssertFalse(ferrySource.isGrey, "a ferry source keeps its colour even while riding gsAud")
+        XCTAssertFalse(ferrySource.isGrey, "a ferry source keeps its machine even while riding gsAud")
         let browseAud = BuildSceneLogic.machineBinding(selID: aud, audID: aud, onSelectPage: true, chainActive: true,
                                                       partActive: false, selectedPlayCol: nil, playColOn: on, source: .browseCell(4))
         XCTAssertTrue(browseAud.isGrey, "a plain browse-cell audition is still grey")
@@ -672,26 +672,26 @@ final class BuildSceneLogicTests: XCTestCase {
     // armed — a lane armed puts the grid in span-DRAW mode, handled UI-side). Locked here. ─────────────────────────────
     func testPartGridEmptyCellIsSelectable() {
         // a normal tap on an EMPTY cell (cid == nil) selects that rung — no population check
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 3, row: 5, currentRung: -1, cid: nil, selectedColourID: "gold",
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 3, row: 5, currentRung: -1, cid: nil, selectedMachineID: "gold",
                                                    selectMode: false, firstTapOfGesture: true),
                        .selectRung(row: 5))
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 0, row: 2, currentRung: 6, cid: nil, selectedColourID: nil,
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 0, row: 2, currentRung: 6, cid: nil, selectedMachineID: nil,
                                                    selectMode: false, firstTapOfGesture: true),
                        .selectRung(row: 2))
     }
     func testPartGridTapSelectedRungDeselectsOnFirstTapButPaintsOnDrag() {
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 2, row: 5, currentRung: 5, cid: "gold", selectedColourID: "gold",
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 2, row: 5, currentRung: 5, cid: "gold", selectedMachineID: "gold",
                                                    selectMode: false, firstTapOfGesture: true),
                        .deselect)   // first tap on the current rung → column silent
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 2, row: 5, currentRung: 5, cid: "gold", selectedColourID: "gold",
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 2, row: 5, currentRung: 5, cid: "gold", selectedMachineID: "gold",
                                                    selectMode: false, firstTapOfGesture: false),
                        .selectRung(row: 5))   // dragging back over it keeps it (paint, not toggle-off)
     }
     func testPartGridSelectModeFocusesPopulatedExitsOnEmpty() {
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 1, row: 3, currentRung: -1, cid: "gold", selectedColourID: "gold",
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 1, row: 3, currentRung: -1, cid: "gold", selectedMachineID: "gold",
                                                    selectMode: true, firstTapOfGesture: true),
-                       .focus(colourID: "gold"))
-        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 1, row: 3, currentRung: -1, cid: nil, selectedColourID: "gold",
+                       .focus(machineID: "gold"))
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 1, row: 3, currentRung: -1, cid: nil, selectedMachineID: "gold",
                                                    selectMode: true, firstTapOfGesture: true),
                        .exitSelectMode)
     }
@@ -701,10 +701,10 @@ final class BuildSceneLogicTests: XCTestCase {
         // gold ARP on row 0; a lane on the ARP's GATE (LENGTH), FROM 0.1 → TO 0.9, span start 0, length 4.
         var lane = AutoLane(); lane.slot = 0; lane.param = "gate"; lane.lo = 0.1; lane.hi = 0.9
         lane.spanStart = 0; lane.spanLen = 4
-        let pa = PartAutoColour(activeLane: 0, lanes: [lane])
+        let pa = PartAutoMachine(activeLane: 0, lanes: [lane])
         let chain = [ProcessorSlot(type: .arp)]
         func gateAt(_ col: Int) -> Double {
-            let out = BuildSceneLogic.applyAuto(chain, colourID: "gold", col: col, row: 0, partAuto: ["gold": pa], partWidth: 8)
+            let out = BuildSceneLogic.applyAuto(chain, machineID: "gold", col: col, row: 0, partAuto: ["gold": pa], partWidth: 8)
             return out[0].params.gate ?? -1
         }
         // within the first tile the ramp goes 0.1 → 0.9 across cols 0…3, then REPEATS at col 4
@@ -716,32 +716,32 @@ final class BuildSceneLogicTests: XCTestCase {
     func testAutoSpanStartOffsetLeavesEarlierColumnsUntouched() {
         var lane = AutoLane(); lane.slot = 0; lane.param = "gate"; lane.lo = 0.2; lane.hi = 0.8
         lane.spanStart = 2; lane.spanLen = 4
-        let pa = PartAutoColour(activeLane: 0, lanes: [lane])
+        let pa = PartAutoMachine(activeLane: 0, lanes: [lane])
         let base = [ProcessorSlot(type: .arp)]
-        let before = BuildSceneLogic.applyAuto(base, colourID: "gold", col: 1, row: 0, partAuto: ["gold": pa], partWidth: 8)
+        let before = BuildSceneLogic.applyAuto(base, machineID: "gold", col: 1, row: 0, partAuto: ["gold": pa], partWidth: 8)
         XCTAssertEqual(before, base, "columns before the span start are untouched")
-        let at = BuildSceneLogic.applyAuto(base, colourID: "gold", col: 2, row: 0, partAuto: ["gold": pa], partWidth: 8)
+        let at = BuildSceneLogic.applyAuto(base, machineID: "gold", col: 2, row: 0, partAuto: ["gold": pa], partWidth: 8)
         XCTAssertEqual(at[0].params.gate ?? -1, 0.2, accuracy: 1e-9, "the span begins at start → FROM")
     }
     func testAutoDefaultSpanIsOneSweepAcrossThePart() {
         // span-only defaults (spanStart/spanLen nil) ⇒ one sweep across the whole part width. (Endpoints in-range: gate clamps ≥0.05.)
         var lane = AutoLane(); lane.slot = 0; lane.param = "gate"; lane.lo = 0.1; lane.hi = 0.9
-        let pa = PartAutoColour(activeLane: 0, lanes: [lane])
+        let pa = PartAutoMachine(activeLane: 0, lanes: [lane])
         let chain = [ProcessorSlot(type: .arp)]
         func gateAt(_ col: Int) -> Double {
-            BuildSceneLogic.applyAuto(chain, colourID: "gold", col: col, row: 0, partAuto: ["gold": pa], partWidth: 8)[0].params.gate ?? -1
+            BuildSceneLogic.applyAuto(chain, machineID: "gold", col: col, row: 0, partAuto: ["gold": pa], partWidth: 8)[0].params.gate ?? -1
         }
         XCTAssertEqual(gateAt(0), 0.1, accuracy: 1e-9)
         XCTAssertEqual(gateAt(7), 0.9, accuracy: 1e-9)   // len = partWidth 8 → one full sweep
     }
     func testAutoNoLaneIsByteIdentical() {
         let chain = [ProcessorSlot(type: .arp)]
-        XCTAssertEqual(BuildSceneLogic.applyAuto(chain, colourID: "gold", col: 3, row: 0, partAuto: [:], partWidth: 8), chain)
+        XCTAssertEqual(BuildSceneLogic.applyAuto(chain, machineID: "gold", col: 3, row: 0, partAuto: [:], partWidth: 8), chain)
     }
     func testAutoLaneSpanFieldsRoundTrip() throws {
         var lane = AutoLane(); lane.slot = 1; lane.param = "gate"; lane.lo = 0.1; lane.hi = 0.9; lane.spanStart = 3; lane.spanLen = 5
-        let data = try JSONEncoder().encode(PartAutoColour(activeLane: 0, lanes: [lane]))
-        let back = try JSONDecoder().decode(PartAutoColour.self, from: data)
+        let data = try JSONEncoder().encode(PartAutoMachine(activeLane: 0, lanes: [lane]))
+        let back = try JSONDecoder().decode(PartAutoMachine.self, from: data)
         XCTAssertEqual(back.lanes.first?.spanStart, 3)
         XCTAssertEqual(back.lanes.first?.spanLen, 5)
     }
@@ -759,21 +759,21 @@ final class BuildSceneLogicTests: XCTestCase {
     func testUnpackPartBackedCellIsLossless() {
         var p = BuildPart()
         p.stagingCells[2][3] = "gold"; p.stagingSel[2] = 3; p.selID = "gold"; p.length = 5; p.receiver = 2; p.emitters = [.b]
-        XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: p, selectColourID: nil), p,
+        XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: p, selectMachineID: nil), p,
                        "part-backed unpack returns the whole stored part unchanged")
     }
-    /// A select-backed cell (no part, just a colourID) unpacks to a fresh one-cell bench: that chain top-left, selected.
+    /// A select-backed cell (no part, just a machineID) unpacks to a fresh one-cell bench: that chain top-left, selected.
     func testUnpackSelectBackedCellClearsToOneCell() {
-        let part = BuildSceneLogic.unpackPlayCell(storedPart: nil, selectColourID: "teal")
+        let part = BuildSceneLogic.unpackPlayCell(storedPart: nil, selectMachineID: "teal")
         XCTAssertEqual(part.stagingCells[0][0], "teal")
         XCTAssertEqual(part.stagingSel[0], 0)
         XCTAssertEqual(part.selID, "teal")
         XCTAssertNil(part.stagingCells[1][0] ?? nil, "the rest of the bench is clear")
         XCTAssertEqual(part.stagingSel[1], -1, "other columns carry no selection")
     }
-    /// An empty cell (no part, no colourID) unpacks to a blank bench.
+    /// An empty cell (no part, no machineID) unpacks to a blank bench.
     func testUnpackEmptyCellIsBlankBench() {
-        XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: nil, selectColourID: nil), BuildPart())
+        XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: nil, selectMachineID: nil), BuildPart())
     }
     /// The 64-cell part store + the working part round-trip through Codable; an OLD doc (missing the keys) decodes to nil.
     func testPlayGridDataRoundTripsCellPartsAndWorkingPart() throws {

@@ -54,7 +54,7 @@ extension DiagView {
     /// a populated cell adopted into the group is restored from its pre-adopt stash.
     func syncSingleModeActivation() {
         // Drives the LADDER active rung from the selection (LADDER factory presets set ladderMode; the old in-grid tap
-        // machinery is gone). NOT on the DRAG&DROP page — there the selection is the whole colour (2026-08-09 bug).
+        // machinery is gone). NOT on the DRAG&DROP page — there the selection is the whole machine (2026-08-09 bug).
         guard ladderMode, let au else { return }
         var topByColumn: [Int: Int] = [:]
         for p in sel.cells { topByColumn[p.col] = min(topByColumn[p.col] ?? p.row, p.row) }
@@ -78,12 +78,12 @@ extension DiagView {
         let resolved: [ProcessorSlot]
         if let p = cell.processors { resolved = p }                   // per-cell OVERRIDE (incl. an EXPLICIT empty chain = passthrough)
         else {
-            let c = docColours.first { $0.colourID == cell.colourID }
-            if let t = c?.templateChain, !t.isEmpty { resolved = t }  // colour TEMPLATE (the per-colour machine — matches the builder)
-            else { return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())] }   // legacy A face (a real slot)
+            let c = docMachines.first { $0.machineID == cell.machineID }
+            if let t = c?.templateChain, !t.isEmpty { resolved = t }  // machine TEMPLATE (the per-machine machine — matches the builder)
+            else { return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? MachineParams())] }   // legacy A face (a real slot)
         }
         // A DELETED-EMPTY chain is stored as the passthrough representation — a single BYPASSED PASSGATE — because an
-        // empty `templateChain` would be read as "no template" and fall back to the colour's A-face (the arp would
+        // empty `templateChain` would be read as "no template" and fall back to the machine's A-face (the arp would
         // reappear). For DISPLAY/editing, unwrap that placeholder to EMPTY so the flow diagram invites "+ ADD
         // PROCESSOR" instead of showing a stray passgate. (user 2026-08-10: "delete an arp → replaced with a passgate")
         if resolved.count == 1, resolved[0].type == .passgate, resolved[0].bypassed { return [] }

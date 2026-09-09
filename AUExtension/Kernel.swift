@@ -48,18 +48,18 @@ final class Kernel {
     // (The reference-chord fallback was REMOVED 2026-08-23, Paul: a synthetic chord must never be part of the user experience.)
 
     // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell, set from the UI while PREVIEW is held.
-    // Ephemeral, never persisted. colourIndex −1 = inactive. Row −1 = receiver input (its channel filter);
+    // Ephemeral, never persisted. machineIndex −1 = inactive. Row −1 = receiver input (its channel filter);
     // the Router renders it SOLO. Suppresses raw passthrough (only the virtual cell sounds).
     private var previewActive = false
-    private var previewColourIndex: Int32 = -1
+    private var previewMachineIndex: Int32 = -1
     private var previewFilter: Int32 = 0
     private var previewBusMask: UInt8 = 0
     private var previewInputRow: Int32 = -1
-    func setPreview(colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
-        previewColourIndex = Int32(colourIndex); previewFilter = Int32(filter)
-        previewBusMask = busMask; previewInputRow = Int32(inputRow); previewActive = colourIndex >= 0 && busMask != 0
+    func setPreview(machineIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
+        previewMachineIndex = Int32(machineIndex); previewFilter = Int32(filter)
+        previewBusMask = busMask; previewInputRow = Int32(inputRow); previewActive = machineIndex >= 0 && busMask != 0
     }
-    func clearPreview() { previewActive = false; previewColourIndex = -1; previewBusMask = 0 }
+    func clearPreview() { previewActive = false; previewMachineIndex = -1; previewBusMask = 0 }
 
     // RIFF CAPTURE (SPEC-riff-processor §2, Paul 2026-09-09): play a line in → record it AS RANKS against a FRAME.
     // Ephemeral, never persisted (like auditionTarget). Arm SNAPSHOTS the armed door's held/latched chord as the frame;
@@ -508,7 +508,7 @@ final class Kernel {
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { router.drainEmitterSounding() }   // §strips-done: hold-while-sounding
     func drainCellStrikes() -> [UInt8] { router.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity
     func drainCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { router.drainCellNotes() }   // NOTE-SWEEP: per-cell recent note-ons
-    func pollCellSoundingVel() -> [UInt8] { router.cellSoundingVelSnapshot() }   // per-cell SOUNDING velocity — the emitter fader's per-colour held floor (Paul 2026-09-07)
+    func pollCellSoundingVel() -> [UInt8] { router.cellSoundingVelSnapshot() }   // per-cell SOUNDING velocity — the emitter fader's per-machine held floor (Paul 2026-09-07)
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
@@ -678,11 +678,11 @@ final class Kernel {
         l.append("held notes: " + (0..<n).map { String(pool.srcAscending($0, filter: 0)) }.joined(separator: ","))
         for r in 0..<4 { l.append("  R\(r + 1): filter=\(receiverChannels[r]) range=\(receiverRangeLo[r])–\(receiverRangeHi[r])\(rflags(r))") }
         l.append("  roles: claim=0b\(String(box.claimMask, radix: 2)) leak=\(box.claimLeak) duck=0b\(String(box.flattenMask, radix: 2)) alt=0b\(String(box.altMask, radix: 2)) altCount=\(box.altCount)")
-        for (i, c) in box.cells.enumerated() where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
+        for (i, c) in box.cells.enumerated() where c.machineIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
             let block = cellRouteBlock(c, box), m = c.proc
             let mdesc = "\(m.type)" + (m.type == .passgate ? " pass=0b\(String(m.passMask, radix: 2))" : m.type == .chance ? " prob=\(m.probability)" : "") + (c.procs.count > 1 ? " +chain\(c.procs.count)" : "")
             let here = (i / Snap.rows) == diag.effColumn ? " ◀playhead" : ""
-            l.append("  cell \(i / Snap.rows),\(i % Snap.rows) col=\(c.colourIndex) [\(mdesc)] recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)") + here)
+            l.append("  cell \(i / Snap.rows),\(i % Snap.rows) col=\(c.machineIndex) [\(mdesc)] recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)") + here)
         }
         l.append(diag.routedPath ? "VERDICT: a routed path exists → SILENCE IS SUSPICIOUS (a machine may be gating: closed passgate / chance / arp tick — or a real bug)"
                                  : "VERDICT: no routed path → silence is EXPECTED")
@@ -698,7 +698,7 @@ final class Kernel {
         var path = false
         for row in 0..<Snap.rows {
             let c = box.cells[col * Snap.rows + row]
-            if c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 && cellRouteBlock(c, box) == nil { path = true; break }
+            if c.machineIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 && cellRouteBlock(c, box) == nil { path = true; break }
         }
         diag.routedPath = path
     }
@@ -1098,7 +1098,7 @@ final class Kernel {
                         velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
-                        preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
+                        preview: (previewActive, Int(previewMachineIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         focusCell: Int(focusCell),
                         out: partTap, diag: &diag)   // → partTap (part roll) → reelTap (reel) → liveEmitter
         router.snapshotEmitterSounding()   // §strips-done: capture the currently-sounding set (voices now reconciled)
@@ -1190,7 +1190,7 @@ final class Kernel {
         let col = target / Snap.rows, row = target % Snap.rows
         guard col >= 0, col < Snap.maxCols, row >= 0, row < Snap.rows else { return false }
         let cell = box.cells[col * Snap.rows + row]
-        return cell.colourIndex >= 0 && !cell.muted && !cell.bypassed && cell.busMask != 0
+        return cell.machineIndex >= 0 && !cell.muted && !cell.bypassed && cell.busMask != 0
     }
 
     // MARK: - incoming MIDI (source pool + passthrough)

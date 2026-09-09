@@ -1239,7 +1239,7 @@ func chordSplitWindow(count: Int, split: ChordSplit, noteAt: (Int) -> Int) -> (s
 }
 
 /// The within-column sweep fraction (0 at column entry → 1 at exit) in REAL time — drives every
-/// mutation-line playhead (grid cells AND §6b Colour chips). SWING-AWARE: swing stretches/compresses
+/// mutation-line playhead (grid cells AND §6b Machine chips). SWING-AWARE: swing stretches/compresses
 /// the real column window (§4), so the sweep rides the SAME `musicalOf` warp the engine uses to map
 /// beats→columns, else it finishes early and wraps mid-column. At swing 50 (a = 1) `musicalOf` is the
 /// identity, so this is the raw (realBeat/step) fraction. One-clock: a pure function of the beat.
@@ -1275,7 +1275,7 @@ func lapColumn(laneMask: UInt16, absoluteStep: Int, trueColumn: Int) -> Int {
 /// accumulated (§7), so tempo/loop/relocate stay drift-free.
 ///  · RETRIG — restarts at each step (column) boundary.
 ///  · LEGATO — counts from the run's first column (snapshot-precomputed runStartColumn), so a
-///    multi-column run of one Colour continues the pattern; a gap restarts it.
+///    multi-column run of one Machine continues the pattern; a gap restarts it.
 ///  · FREE   — free-running from the origin; successive passes land on different slices.
 @inline(__always)
 func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
@@ -1784,7 +1784,7 @@ func placeHoldDecision(placedColumns: Set<Int>, retoggle: Bool, col: Int) -> Pla
     return placedColumns.contains(col) ? .blockedColumnUsed : .allowed
 }
 
-// MARK: - Visual overhaul: EMBLEMS (cells & colour desk, AcceptanceCriteria 2026-07-29)
+// MARK: - Visual overhaul: EMBLEMS (cells & machine desk, AcceptanceCriteria 2026-07-29)
 
 /// ONE static glyph per processor type — the "emblem" drawn on the cell face + the desk title. Placeholder
 /// SF Symbol names this wave (the drawn artwork is a separate asset job). Pure so the mapping is testable.
@@ -1955,9 +1955,9 @@ func burstFractions(count: Int, curve: Double) -> [Double] {
 // spec (the mockup HTML wasn't shipped, so the exact PRNG is a faithful mulberry32 — the grammar is the same).
 
 /// The BEHAVIOURAL config of a cell, normalised for stable hashing: the SAME fields that define TWINS
-/// (Models.editScopeTargets `.twins`) MINUS colourID — colour is the hue block, not the seal. Sets are
+/// (Models.editScopeTargets `.twins`) MINUS machineID — machine is the hue block, not the seal. Sets are
 /// sorted (unordered → canonical); chop keeps its raw nil vs value (matching the twin predicate exactly, so
-/// twins share a seal). Triggers live on Colour, not Cell → excluded until they re-host. Codable → bytes.
+/// twins share a seal). Triggers live on Machine, not Cell → excluded until they re-host. Codable → bytes.
 private struct SealChopKey: Encodable { let m: UInt8; let a: UInt8; let mu: UInt8; let alt: [UInt8] }
 private struct SealKey: Encodable {
     let p: [ProcessorSlot]?    // the chain (slots + params + per-slot bypass)
@@ -1968,22 +1968,22 @@ private struct SealKey: Encodable {
     let vw: VelWindow?         // source-shaping: velocity window
     let ch: SealChopKey?       // output chop (nil when the cell has no chop, per twin equality)
 }
-/// The RESOLVED chain a cell actually plays: its per-cell override, else the colour's TEMPLATE, else the colour's
+/// The RESOLVED chain a cell actually plays: its per-cell override, else the machine's TEMPLATE, else the machine's
 /// A face. The seal must hash THIS — a template/A-face cell has NIL `processors`, so its machine comes from the
-/// colour; hashing raw nil made every such cell (the DEFAULT arc + most factory presets) share ONE seal. (Same
+/// machine; hashing raw nil made every such cell (the DEFAULT arc + most factory presets) share ONE seal. (Same
 /// 3-tier resolution as SnapshotBuilder / AU.materializedChain.) Pure.
-func resolvedCellChain(_ cell: Cell, colours: [Colour]) -> [ProcessorSlot] {
+func resolvedCellChain(_ cell: Cell, machines: [Machine]) -> [ProcessorSlot] {
     if let p = cell.processors { return p }                              // per-cell OVERRIDE (incl. an explicit [] passthrough)
-    let c = colours.first { $0.colourID == cell.colourID }
-    if let t = c?.templateChain, !t.isEmpty { return t }                 // colour TEMPLATE
-    return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
+    let c = machines.first { $0.machineID == cell.machineID }
+    if let t = c?.templateChain, !t.isEmpty { return t }                 // machine TEMPLATE
+    return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? MachineParams())]   // legacy A face
 }
 /// A 32-bit FNV-1a over the JSON (sorted keys) of the behavioural config. Same config ⇒ same value on every
-/// device (document-visible truth); config-twins (regardless of colour) share it. Pure/testable. §1 contract.
-/// Hashes the RESOLVED chain (needs `colours`) so template/A-face cells reflect their colour's machine.
-func sealHash(_ cell: Cell, colours: [Colour]) -> UInt32 {
+/// device (document-visible truth); config-twins (regardless of machine) share it. Pure/testable. §1 contract.
+/// Hashes the RESOLVED chain (needs `machines`) so template/A-face cells reflect their machine's machine.
+func sealHash(_ cell: Cell, machines: [Machine]) -> UInt32 {
     let chopKey = cell.chop.map { SealChopKey(m: $0.mainMask, a: $0.altMask, mu: $0.muteMask, alt: $0.altDest.map { $0.cable }.sorted()) }
-    let key = SealKey(p: resolvedCellChain(cell, colours: colours), ir: cell.inputReceiver, irow: cell.inputRow,
+    let key = SealKey(p: resolvedCellChain(cell, machines: machines), ir: cell.inputReceiver, irow: cell.inputRow,
                       b: cell.buses.map { $0.cable }.sorted(), cs: cell.chordSplit, vw: cell.velWindow, ch: chopKey)
     let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
     guard let data = try? enc.encode(key) else { return 0 }

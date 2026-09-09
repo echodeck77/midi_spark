@@ -45,10 +45,10 @@ final class Router {
                                      // exclusivity but never emitted (no wire, no refcount).
         // §2 CONTINUITY (LEGATO adoption): a legato chord-hold voice is IMMORTAL (offSample .max) and
         // carries the identity the adoption law keys on — same NOTE (wire) + same EMITTER (bus) + same
-        // COLOUR-AND-FACE (colourIndex + alt). At a column boundary a re-held identical voice is ADOPTED
+        // MACHINE-AND-FACE (machineIndex + alt). At a column boundary a re-held identical voice is ADOPTED
         // (kept, no off/on); a changed one closes and the new one strikes. Stamped for every voice
         // (harmless on non-hold voices — only audible immortal voices are ever adoption-matched).
-        var colourIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — matches SnapCell; a colour index can exceed 127
+        var machineIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — matches SnapCell; a machine index can exceed 127
         var alt = false
         var vel: UInt8 = 0           // §strips-done: the emit velocity, for the per-emitter hold-while-sounding feed
         var cellIndex: Int16 = -1    // SEAL comet: the emitting cell's grid index (col*Snap.rows+row). Int16 (was Int8, whose 127 ceiling = the exact 7*16+15 cell max) so a 16-COLUMN grid (index up to 15*16+15 = 255) doesn't overflow — the grid-8|16 groundwork (2026-08-31)
@@ -255,8 +255,8 @@ final class Router {
     // accumulated on the render thread, read-and-cleared by the UI poll. UI owns the decay envelope.
     private var meterPeakVel = [UInt8](repeating: 0, count: 4)
     private var meterEvents = [UInt32](repeating: 0, count: 4)
-    // item 4 VELOCITY MARKS: per emitter, a bounded buffer of recent note-on (velocity, source colourIndex)
-    // since the last drain — the UI holds+fades each as a floating mark tinted by the source Colour. Fixed
+    // item 4 VELOCITY MARKS: per emitter, a bounded buffer of recent note-on (velocity, source machineIndex)
+    // since the last drain — the UI holds+fades each as a floating mark tinted by the source Machine. Fixed
     // scratch (no render alloc); fills to 8 per poll cycle then drops (drained ~4 Hz, so 8 is ample).
     // FLAT 4×8 (index bus*8+i). These render→main feeds MUST NOT be nested `[[…]]`: the render thread's nested-array
     // element write churns the INNER arrays' refcounts while the 4 Hz main-thread drain reads them → an ARC data race
@@ -266,21 +266,21 @@ final class Router {
     private var markCol = [Int8](repeating: -1, count: 32)
     private var markCount = [Int](repeating: 0, count: 4)
     // §6a THE WITHHELD TELL: a parallel bounded buffer of note-ons SUPPRESSED by CLAIM (leak 0) since the last
-    // drain — same (velocity, source colourIndex) shape. The UI renders these HOLLOW + a claim-hue tick so a
+    // drain — same (velocity, source machineIndex) shape. The UI renders these HOLLOW + a claim-hue tick so a
     // suppressed note reads as "withheld here", not a silent bug. Only full CLAIM suppression records (a LEAK
     // shadow already sounds as a dimmer mark; solo/mute/disabled are intentional silences, not withholdings).
     private var withheldVel = [UInt8](repeating: 0, count: 32)   // FLAT 4×8 (index bus*8+i) — see markVel note (render↔main ARC-safe)
     private var withheldCol = [Int8](repeating: -1, count: 32)
     private var withheldCount = [Int](repeating: 0, count: 4)
     // §strips-done (the emitter twin of the receiver's recvHeld): the notes CURRENTLY SOUNDING per emitter — a
-    // live snapshot of the voice table sliced by bus, each carrying (velocity, source colourIndex) so the UI
-    // draws a hold-while-sounding tick in the SOURCE Colour (cargo tint) and fades it on release. Snapshotted on
+    // live snapshot of the voice table sliced by bus, each carrying (velocity, source machineIndex) so the UI
+    // draws a hold-while-sounding tick in the SOURCE Machine (cargo tint) and fades it on release. Snapshotted on
     // the render thread each window; read-and-copied by the UI poll (benign staleness race, like the meters).
     private var soundVel = [UInt8](repeating: 0, count: 48)   // FLAT 4×12 (index bus*12+i) — see markVel note (render↔main ARC-safe)
     private var soundCol = [Int8](repeating: -1, count: 48)
     private var soundCount = [Int](repeating: 0, count: 4)
-    private var currentColourIndex: Int16 = -1        // the emitting cell's colourIndex (for the SEAL comet feed) — CR-13a Int16
-    private var curBox: SnapshotBox?                  // this render's box — so openVoice can read the sounding colour's DISPLAY hue to tag the reel (Paul 2026-08-19)
+    private var currentMachineIndex: Int16 = -1        // the emitting cell's machineIndex (for the SEAL comet feed) — CR-13a Int16
+    private var curBox: SnapshotBox?                  // this render's box — so openVoice can read the sounding machine's DISPLAY hue to tag the reel (Paul 2026-08-19)
     // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*Snap.rows+row) — the grid comet's
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
@@ -313,7 +313,7 @@ final class Router {
     // The per-cell SOUNDING gate is derived on the UI side from `cellSoundVel > 0` (256-wide, covers cols 8–15); the old
     // 128-bit lo/hi bitmask was retired (Paul 2026-09-08 housekeeping) — it couldn't represent indices ≥128 (a 16-wide
     // part's second half) and had no consumer left after the VC switched to the velocity feed.
-    private var cellSoundVel = [UInt8](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity (max over the cell's active voices) — stays up while a note is HELD, unlike the strike feed. Feeds the emitter fader's per-colour floor (Paul 2026-09-07).
+    private var cellSoundVel = [UInt8](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity (max over the cell's active voices) — stays up while a note is HELD, unlike the strike feed. Feeds the emitter fader's per-machine floor (Paul 2026-09-07).
     private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
     // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
     // reconcile either keeps it (matched by the new column) or closes it (dropped). Sized to the pool, reused.
@@ -462,7 +462,7 @@ final class Router {
     private var rtcDesWire = [UInt8](repeating: 0, count: 128)
     private var rtcDesBus  = [UInt8](repeating: 0, count: 128)
     private var rtcDesVel  = [UInt8](repeating: 0, count: 128)
-    private var rtcDesCI   = [Int16](repeating: -1, count: 128)   // adoption key: colour (a row of same-colour cells sustains seamlessly)
+    private var rtcDesCI   = [Int16](repeating: -1, count: 128)   // adoption key: machine (a row of same-machine cells sustains seamlessly)
     private var rtcDesCell = [Int16](repeating: -1, count: 128)   // the cell that first opens a wire (SEAL/roll stamp)
     private var lenEventBuf = [(on: Double, off: Double)](repeating: (0, 0), count: 8)   // LENGTH: reused no-alloc scratch (invariant 3)
     private var srcNoteCount = 0
@@ -521,7 +521,7 @@ final class Router {
         soloReceiverMask != 0 && cell.resolvedReceiver >= 0 && (soloReceiverMask & (1 << UInt8(cell.resolvedReceiver))) == 0
     }
     // receiver strip: an ephemeral ±octave nudge per receiver (−3…+3), packed one signed byte each. Composes
-    // with the cell's colour transpose at the per-cell transpose local (a PLAYING control; 0 in stopped
+    // with the cell's machine transpose at the per-cell transpose local (a PLAYING control; 0 in stopped
     // audition). A note pushed past 0…127 by the sum is dropped by the per-emit guard (intended).
     private var inputOctave: UInt32 = 0
     private var inputSemitone: UInt32 = 0                    // receiver strip: per-receiver ±semitone NOTE nudge (composes with octave)
@@ -585,9 +585,9 @@ final class Router {
     /// (The door-level BYPASS toggle that once shared this path was retired 2026-08-25 — Paul; only the wire remains.)
     private func reconcileBypass(pool: NotePool, atSample sample: Int64, out: MIDIEmitter?) {
         guard passEmitterMask.contains(where: { $0 != 0 }) || anyBypassVoiceActive() else { return }   // fast path: no wire cells / none to close
-        let savedCI = currentColourIndex, savedCell = currentCellIndex, savedAlt = currentAlt
-        currentColourIndex = -1; currentCellIndex = -1; currentAlt = false        // wire voices carry no grid identity / SEAL
-        defer { currentColourIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
+        let savedCI = currentMachineIndex, savedCell = currentCellIndex, savedAlt = currentAlt
+        currentMachineIndex = -1; currentCellIndex = -1; currentAlt = false        // wire voices carry no grid identity / SEAL
+        defer { currentMachineIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
         for r in 0..<4 {
             // SOLO includes the wire (ruling 2026-08-04): a receiver SOLO set silences every non-soloed door's wire
             // too — the door mutes with the grid. (LIVE-off already silences it via the match-nothing filter.)
@@ -763,9 +763,9 @@ final class Router {
 
     @inline(__always)
     private func over(_ slotIndex: Int, _ fallback: Double) -> Double {
-        // The override table is sized for the 16 host-automatable colours (transpose 2+i, morph 18+i, i<16).
-        // An EPHEMERAL colour (index ≥16, Paul's unlimited-colours model) has no param address → no override,
-        // so it uses its own value. Guard the read so a high colour index never traps the render thread.
+        // The override table is sized for the 16 host-automatable machines (transpose 2+i, morph 18+i, i<16).
+        // An EPHEMERAL machine (index ≥16, Paul's unlimited-machines model) has no param address → no override,
+        // so it uses its own value. Guard the read so a high machine index never traps the render thread.
         guard slotIndex >= 0, slotIndex < overrides.count else { return fallback }
         let v = overrides[slotIndex]
         return v.isNaN ? fallback : v
@@ -774,13 +774,13 @@ final class Router {
     /// The per-cell base transpose: the TRANSPOSE param (override slot 2+ci), rounded to a semitone.
     /// Callers ADD the receiver/hold octave addends themselves — those differ per site (the preview/
     /// audition sites deliberately omit the receiver octave), so they must NOT be folded in here.
-    private func colourTranspose(_ ci: Int, _ colour: SnapColour) -> Int {
-        // Only colours 0..15 have a TRANSPOSE param address (slot 2+ci ∈ 2..17). For an EPHEMERAL colour (ci ≥ 16)
+    private func machineTranspose(_ ci: Int, _ machine: SnapMachine) -> Int {
+        // Only machines 0..15 have a TRANSPOSE param address (slot 2+ci ∈ 2..17). For an EPHEMERAL machine (ci ≥ 16)
         // slot 2+ci ∈ 18..33 = the MORPH override slots — host automation of a (render-dead) morph param would then
-        // silently rewrite this colour's transpose EVERY render. An ephemeral colour has no param address, so it uses
+        // silently rewrite this machine's transpose EVERY render. An ephemeral machine has no param address, so it uses
         // its own value (as the `over` comment above already intends but did not enforce). (Paul 2026-08-27)
-        guard ci < 16 else { return Int(colour.transpose) }
-        return Int(over(2 + ci, Double(colour.transpose)).rounded())
+        guard ci < 16 else { return Int(machine.transpose) }
+        return Int(over(2 + ci, Double(machine.transpose)).rounded())
     }
 
     /// A real document edit publishes a fresh snapshot generation → it is the new truth, so drop
@@ -810,7 +810,7 @@ final class Router {
         let c = ((column % Snap.maxCols) + Snap.maxCols) % Snap.maxCols   // §E: wrap over the full 16-col storage so a 16-wide column reads its OWN cell (not col%8)
         for row in 0..<Snap.rows {
             let cell = box.cells[c * Snap.rows + row]
-            if cell.colourIndex >= 0 && !cell.muted { return (row, cell) }
+            if cell.machineIndex >= 0 && !cell.muted { return (row, cell) }
         }
         return nil
     }
@@ -844,10 +844,10 @@ final class Router {
             // the re-articulation off (it governs the true release only), so the note still ends solely at
             // refcount→0 and nothing is left stuck. (MERGE — the old on-only overlap — is the deferred option chip.)
             if refcount[idx] > 0 { out.emit(sampleTime: onSample, cable: cable, 0x80 | chan, note, 0) }
-            // COLOUR TAG: hand the reel the sounding cell's DISPLAY hue just before the note-ON, so its piano roll
-            // paints each note its colour (no-op on every emitter but the ReelTap). (Paul 2026-08-19)
-            if let b = curBox, currentColourIndex >= 0, Int(currentColourIndex) < b.colours.count {
-                out.markColour(b.colours[Int(currentColourIndex)].hue)
+            // MACHINE TAG: hand the reel the sounding cell's DISPLAY hue just before the note-ON, so its piano roll
+            // paints each note its machine (no-op on every emitter but the ReelTap). (Paul 2026-08-19)
+            if let b = curBox, currentMachineIndex >= 0, Int(currentMachineIndex) < b.machines.count {
+                out.markHue(b.machines[Int(currentMachineIndex)].hue)
             }
             out.markCell(currentCellIndex)   // CELL TAG: the PART roll filters to the selected rung per column (Paul 2026-09-03)
             out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
@@ -874,7 +874,7 @@ final class Router {
         voices[slot].bus = bus
         voices[slot].offSample = offSample
         voices[slot].silent = silent
-        voices[slot].colourIndex = currentColourIndex   // §2 adoption identity (COLOUR-AND-FACE)
+        voices[slot].machineIndex = currentMachineIndex   // §2 adoption identity (MACHINE-AND-FACE)
         voices[slot].alt = currentAlt
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
         voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < Snap.cells) ? Int16(currentCellIndex) : -1   // SEAL sounding gate (Int16 now — was the grid's hard ceiling at Int8's 127)
@@ -934,7 +934,7 @@ final class Router {
     }
 
     /// item 4 VELOCITY MARKS: read-and-clear the per-emitter note-on marks accumulated since the last poll —
-    /// each a (velocity, source colourIndex). The UI latches a timestamp per mark and fades it (~250ms).
+    /// each a (velocity, source machineIndex). The UI latches a timestamp per mark and fades it (~250ms).
     func drainMarks() -> [[(vel: UInt8, col: Int8)]] {
         var out = [[(vel: UInt8, col: Int8)]]()
         for bus in 0..<4 {
@@ -948,7 +948,7 @@ final class Router {
     }
 
     /// §strips-done: snapshot the notes CURRENTLY SOUNDING per emitter — the active (non-silent) voices bucketed
-    /// by originating bus, each a (velocity, source colourIndex). Called on the render thread once per window,
+    /// by originating bus, each a (velocity, source machineIndex). Called on the render thread once per window,
     /// AFTER process reconciles the voice table. Overwrites the buffers (a live set, not an accumulate-clear).
     func snapshotEmitterSounding() {
         for b in 0..<4 { soundCount[b] = 0 }
@@ -956,7 +956,7 @@ final class Router {
             let b = Int(v.bus)
             guard b >= 0, b < 4, soundCount[b] < 12 else { continue }
             soundVel[b * 12 + soundCount[b]] = v.vel
-            soundCol[b * 12 + soundCount[b]] = Int8(clamping: v.colourIndex)   // CR-13a: the UI-tint feed stays Int8 (a colour ≥128 tints as 127 — cosmetic, no trap)
+            soundCol[b * 12 + soundCount[b]] = Int8(clamping: v.machineIndex)   // CR-13a: the UI-tint feed stays Int8 (a machine ≥128 tints as 127 — cosmetic, no trap)
             soundCount[b] += 1
         }
     }
@@ -971,7 +971,7 @@ final class Router {
         }
     }
     /// UI-poll read of the per-cell SOUNDING velocity (0…127), element-copied into a FRESH array so the main thread never
-    /// shares the render buffer (a torn UInt8 read is benign — one stale bar). Feeds the emitter fader's per-colour floor.
+    /// shares the render buffer (a torn UInt8 read is benign — one stale bar). Feeds the emitter fader's per-machine floor.
     func cellSoundingVelSnapshot() -> [UInt8] {
         var out = [UInt8](repeating: 0, count: Snap.cells)
         for i in 0..<Snap.cells { out[i] = cellSoundVel[i] }
@@ -979,7 +979,7 @@ final class Router {
     }
 
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
-    /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source colour) set.
+    /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source machine) set.
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] {
         var out = [[(vel: UInt8, col: Int8)]]()
         for b in 0..<4 {
@@ -992,7 +992,7 @@ final class Router {
     }
 
     /// §6a THE WITHHELD TELL: read-and-clear the per-emitter note-ons CLAIM fully suppressed (leak 0) since
-    /// the last poll — each a (would-be velocity, source colourIndex). The UI draws these hollow + a claim tick.
+    /// the last poll — each a (would-be velocity, source machineIndex). The UI draws these hollow + a claim tick.
     func drainWithheld() -> [[(vel: UInt8, col: Int8)]] {
         var out = [[(vel: UInt8, col: Int8)]]()
         for bus in 0..<4 {
@@ -1079,7 +1079,7 @@ final class Router {
     /// column re-holds identically and closes the rest (the reconcile). Everything else re-strikes as before.
     private func closeExceptLegatoHolds(atSample time: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
         // Keep every IMMORTAL voice (offSample .max) — the audible legato drones AND, if a drone landed on a
-        // CLAIM emitter, its silent ownership ghost. Both share note+bus+colour+face, so the reconcile adopts
+        // CLAIM emitter, its silent ownership ghost. Both share note+bus+machine+face, so the reconcile adopts
         // or closes them in lockstep (no orphaned ghost leaking a slot). During play these are the ONLY
         // immortal voices (arp/retrig ghosts carry a finite offSample; audition is stopped-only).
         // PER-PART CLOCK: `onlyRow` scopes the truncation to ONE row (a fast part's boundary never cuts a slow part's note).
@@ -1090,7 +1090,7 @@ final class Router {
     }
 
     /// §2 CONTINUITY: ADOPT a legato hold. Scan the transition's candidate voices for the ones matching this
-    /// re-held identity — same wire NOTE + EMITTER (bus) + COLOUR-AND-FACE — and un-mark them (keep alive:
+    /// re-held identity — same wire NOTE + EMITTER (bus) + MACHINE-AND-FACE — and un-mark them (keep alive:
     /// own cable + its All copy, both cleared). Returns true iff ≥1 matched, in which case the caller does
     /// NOT re-emit on this bus: the existing voices flow through the boundary with no off/on (the drone).
     private func adoptLegatoBus(wire: UInt8, bus: UInt8, ci: Int16, alt: Bool) -> Bool {
@@ -1105,7 +1105,7 @@ final class Router {
         var ownIdx = -1, allIdx = -1
         for i in voices.indices where holdCandidate[i]
             && voices[i].note == wire && voices[i].bus == bus
-            && voices[i].colourIndex == ci && voices[i].alt == alt {
+            && voices[i].machineIndex == ci && voices[i].alt == alt {
             if voices[i].cable == 0 {
                 if allIdx < 0 || (voices[allIdx].silent && !voices[i].silent) { allIdx = i }
             } else {
@@ -1163,13 +1163,13 @@ final class Router {
     var quiescent: Bool {
         distinctSounding == 0 && voices.allSatisfy { !$0.active } && refcount.allSatisfy { $0 == 0 } && !echoTailsActive
     }
-    /// I3 helper: true if two ACTIVE, non-silent voices share a full identity (note·chan·cable·emitter·Colour·face).
+    /// I3 helper: true if two ACTIVE, non-silent voices share a full identity (note·chan·cable·emitter·Machine·face).
     /// The adoption law folds an identically re-held voice into ONE — a duplicate here is a phantom (adoption miss).
     var hasDuplicateVoices: Bool {
         var seen = Set<UInt64>()
         for v in voices where v.active && !v.silent {
             let key = (UInt64(v.note) << 40) | (UInt64(v.chan) << 32) | (UInt64(v.cable) << 24)
-                    | (UInt64(v.bus) << 16) | (UInt64(bitPattern: Int64(v.colourIndex)) & 0xFF) << 8 | (v.alt ? 1 : 0)
+                    | (UInt64(v.bus) << 16) | (UInt64(bitPattern: Int64(v.machineIndex)) & 0xFF) << 8 | (v.alt ? 1 : 0)
             if !seen.insert(key).inserted { return true }
         }
         return false
@@ -1305,7 +1305,7 @@ final class Router {
                 if leak == 0 {
                     // THE WITHHELD TELL: record the fully-suppressed note-on so the strip can render it hollow.
                     if withheldCount[bus] < 8 {
-                        withheldVel[bus * 8 + withheldCount[bus]] = velocity; withheldCol[bus * 8 + withheldCount[bus]] = Int8(clamping: currentColourIndex)
+                        withheldVel[bus * 8 + withheldCount[bus]] = velocity; withheldCol[bus * 8 + withheldCount[bus]] = Int8(clamping: currentMachineIndex)
                         withheldCount[bus] += 1
                     }
                     return -1
@@ -1404,7 +1404,7 @@ final class Router {
         }
 
         if markCount[bus] < 8 {                              // item 4: a floating velocity MARK for this note-on
-            markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = Int8(clamping: currentColourIndex)
+            markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = Int8(clamping: currentMachineIndex)
             markCount[bus] += 1
         }
         // ROW 8 REDIRECT / SWAP (Paul 2026-08-22): while active, this emitter's OUTPUT stream is re-stamped onto another
@@ -1460,15 +1460,15 @@ final class Router {
     /// HARMONIZE emit (§3): expand `base` (post-transpose) into root + up to 3 interval voices and
     /// emit each with its velocity (root full, added voices scaled). Optionally stores artics so a
     /// downstream mirror sees the full expanded set. Shared by the MIDI-IN hold and the mirror path.
-    private func emitHarmony(base: Int, colour: SnapColour, baseVel: UInt8, row: Int,
+    private func emitHarmony(base: Int, machine: SnapMachine, baseVel: UInt8, row: Int,
                              storeArtics: Bool, busMask: UInt8,
                              on: Int64, off: Int64, beat: Double,
                              windowEnd: Int64, sustain: Bool = false, poolMask: UInt16 = 0, out: MIDIEmitter?,
                              diag: inout KernelDiag) {
-        let iv = (Int8(effectiveHarmInterval(colour, voice: 0)),
-                  Int8(effectiveHarmInterval(colour, voice: 1)),
-                  Int8(effectiveHarmInterval(colour, voice: 2)))
-        let scale = effectiveHarmVelScale(colour)
+        let iv = (Int8(effectiveHarmInterval(machine, voice: 0)),
+                  Int8(effectiveHarmInterval(machine, voice: 1)),
+                  Int8(effectiveHarmInterval(machine, voice: 2)))
+        let scale = effectiveHarmVelScale(machine)
         let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
                                   vel: baseVel, velScale: scale, vels: &harmVels, poolMask: poolMask)
         for i in 0..<cnt {
@@ -1477,13 +1477,13 @@ final class Router {
             if sustain {
                 // PLAY: THIS CELL — under a frozen column each harmony voice is IMMORTAL + ADOPTED (per-bus, mirrors
                 // the identity legato branch), so the every-window re-run reconciles the same harmonized set instead
-                // of re-striking. Voices carry currentColourIndex/currentAlt so adoptLegatoBus matches on re-run.
+                // of re-striking. Voices carry currentMachineIndex/currentAlt so adoptLegatoBus matches on re-run.
                 var emitMask: UInt8 = 0
                 for b in UInt8(0)..<4 where busMask & (1 << b) != 0 {
                     let sw = Int(harmNotes[i]) + emitterOctaveShift(Int(b)) + masterKey
                     guard sw >= 0 && sw <= 127 else { continue }
                     guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }
-                    if !adoptLegatoBus(wire: w, bus: b, ci: currentColourIndex, alt: currentAlt) { emitMask |= (1 << b) }
+                    if !adoptLegatoBus(wire: w, bus: b, ci: currentMachineIndex, alt: currentAlt) { emitMask |= (1 << b) }
                 }
                 if emitMask != 0 {
                     emitArtic(note: UInt8(harmNotes[i]), busMask: emitMask, onSample: on, offSample: .max,
@@ -1506,10 +1506,10 @@ final class Router {
     // schedule; STEP flips only at column boundaries, which are per-block, so STEP is invariant). Derived from the beat →
     // replay-exact for a given schedule. No render-path alloc UNLESS a lane is active (the settingAuto SnapParams is a
     // value copy, but the `cell.procs[slot] =` write-back below is a COW of the procs array — feature-gated: the
-    // byte-identical default writes nothing). ra.slot is resolved against the colour TEMPLATE; a per-cell chain override
+    // byte-identical default writes nothing). ra.slot is resolved against the machine TEMPLATE; a per-cell chain override
     // of a different type at that slot would get a harmless ignored field (never a trap — slot bound-guarded).
     private func applyRenderAuto(_ cell: inout SnapCell, box: SnapshotBox, r: Int, musicalBeat mb: Double, S: Double) {
-        let ci = Int(cell.colourIndex)
+        let ci = Int(cell.machineIndex)
         guard ci >= 0, ci < box.renderAuto.count, let ra = box.renderAuto[ci],
               ra.slot >= 0, ra.slot < cell.procs.count, S > 0 else { return }
         let W = max(1, box.rowLength.indices.contains(r) ? box.rowLength[r] : Snap.cols)
@@ -1527,24 +1527,24 @@ final class Router {
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, heldCell: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
             var cell = box.cells[effColumn * Snap.rows + r]
-            if cell.colourIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { return }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
+            if cell.machineIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { return }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
             if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: musicalOf(beatPos, stepBeats: S, a: a), S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp
             if soloSilenced(cell) { return }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
-            currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
+            currentMachineIndex = cell.machineIndex      // item 4 marks: this cell's Machine, for the source tint
             currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
             chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: effColumn)   // UTILITY CHANNEL/NUDGE emit overrides for this cell
-            let ci = Int(cell.colourIndex)
-            let colour = box.colours[ci]
-            if !onSceneAudible(colour.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
+            let ci = Int(cell.machineIndex)
+            let machine = box.machines[ci]
+            if !onSceneAudible(machine.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
             // §9 item 1 ON HOLD (3a): while THIS cell is press-held, its ALT/OCT treatment overlays momentarily.
             let held = heldCell >= 0 && heldCell == effColumn * Snap.rows + r
-            var transpose = colourTranspose(ci, colour)
-                          + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
+            var transpose = machineTranspose(ci, machine)
+                          + holdOctaveShift(on: machine.on, held: held)   // ON HOLD = OCT
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             // CELL MACHINE: the per-cell HEAD treatment (cell.proc) drives the render (morph + grid-chaining retired).
-            var treat = colour; treat.a = cell.proc
+            var treat = machine; treat.a = cell.proc
             let mode = cellMode(type: effectiveType(treat), bypassed: cell.bypassed,
                                 passMask: effectivePassMask(treat), pass: diag.pass)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
@@ -1559,7 +1559,7 @@ final class Router {
             transpose += (driver >= 0 ? cell.procs[driver] : cell.proc).stageOct * 12   // §1 ANATOMY (Paul 2026-08-27): the tick DRIVER/HEAD slot's own OCT (header standard); folded slots shift in applyStage
             if driver >= 0 {
                 let driveP = cell.procs[driver]                // the tick DRIVER (last tick-gen); slots before it compose, after it fold
-                var treatDrive = colour; treatDrive.a = driveP
+                var treatDrive = machine; treatDrive.a = driveP
                 // SPLIT downstream ([driver→SPLIT] = PUNCH HOLES): resolve its keep-window as NOTE bounds from the
                 // driver's SOURCE POOL (the held chord), so each driven note outside the subset becomes a rest.
                 splitGateActive = false
@@ -1589,34 +1589,34 @@ final class Router {
                 }
                 switch driveP.type {
                 case .arp:
-                    emitArpRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
+                    emitArpRow(cell: cell, row: r, machine: treatDrive, transpose: transpose,
                                emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
                                chainDriver: driver, out: out, diag: &diag)
                 case .ratchet:
-                    emitRatchetRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
+                    emitRatchetRow(cell: cell, row: r, machine: treatDrive, transpose: transpose,
                                    emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                    windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                    beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
                                    chainDriver: driver, out: out, diag: &diag)
                 case .strum:
-                    emitStrumRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                    emitStrumRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                  pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                                  beatsPerSample: beatsPerSample, S: S, a: a, chainDriver: driver, out: out, diag: &diag)
                 case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:   // GENERATORS as chain drivers (user 2026-08-09; HOCKET 2026-08-27)
                     let dm = cellMode(type: driveP.type, bypassed: false, passMask: driveP.passMask, pass: diag.pass)
-                    emitGeneratorRow(mode: dm, cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                    emitGeneratorRow(mode: dm, cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                      pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                      S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
                 case .weave:
-                    emitWeaveRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                    emitWeaveRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                  S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
                 case .riff:
-                    emitRiffRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                    emitRiffRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                 box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                 windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
@@ -1625,7 +1625,7 @@ final class Router {
                 return
             }
             if let li = composableLengthTailIndex(cell) {   // [<composable upstream> → LENGTH]: LENGTH re-articulates the composed set (no driver to fold it per-note)
-                emitLengthComposedRow(cell: cell, row: r, colour: colour, transpose: transpose, emits: emits,
+                emitLengthComposedRow(cell: cell, row: r, machine: machine, transpose: transpose, emits: emits,
                                       lenIdx: li, pool: pool, beatPos: beatPos, windowBeats: windowBeats,
                                       windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                       S: S, a: a, out: out, diag: &diag)
@@ -1635,31 +1635,31 @@ final class Router {
 
             switch mode {
             case .arp:
-                emitArpRow(cell: cell, row: r, colour: treat, transpose: transpose,
+                emitArpRow(cell: cell, row: r, machine: treat, transpose: transpose,
                            emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                            windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                            beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .ratchet:
-                emitRatchetRow(cell: cell, row: r, colour: treat, transpose: transpose,
+                emitRatchetRow(cell: cell, row: r, machine: treat, transpose: transpose,
                                emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .strum:
-                emitStrumRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                emitStrumRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                              beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
             case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:
-                emitGeneratorRow(mode: mode, cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                emitGeneratorRow(mode: mode, cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                  S: S, a: a, out: out, diag: &diag)
             case .weave:
-                emitWeaveRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                emitWeaveRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                              pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                              windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                              S: S, a: a, out: out, diag: &diag)
             case .riff:                            // DRIVER — the stored rank stencil, derived against the held chord
-                emitRiffRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                emitRiffRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                             box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                             S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
@@ -1667,12 +1667,12 @@ final class Router {
                 break   // echo's dry fired at the transition (repeats drain per-window); the set-shapers (CHANCE/HARMONIZE/SPLIT/AVOID/CHORDS · OCTAVE/TRANSPOSE shift) emit via the compose/hold path, not per-tick
             case .tutti:
                 if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
-                    emitTuttiPatternRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                    emitTuttiPatternRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                                         pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                                         windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
                 }
             case .length:                          // standalone LENGTH re-articulates the held chord per the painted gate
-                emitLengthRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                emitLengthRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                               pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                               windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
             case .silent:
@@ -1698,7 +1698,7 @@ final class Router {
         // at the end were dropped (a different chord, a changed emitter/face, or an empty column) and close
         // at the boundary. An empty pool → no cell emits → all candidates close (close-at-first-empty-column,
         // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
-        // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+colour+face), so
+        // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+machine+face), so
         // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
         for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 && !voices[i].glideAnchor && !voices[i].rtcHold
             && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) }   // BYPASS + GLIDE voices are immortal but NOT grid holds — never adopt/close them here; per-part clock scopes to the row
@@ -1709,7 +1709,7 @@ final class Router {
         if pool.count > 0 || latchMask != 0 {
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {   // PER-PART CLOCK: one row, or all (no per-call allocation)
             var cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
+            if cell.machineIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             if cell.passthrough && cell.resolvedReceiver >= 0 { continue }   // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected passthrough passes its input straight through in REALTIME (reconcileBypass), NOT on the grid's step clock. (A door-less passthrough — no receiver to source from in the per-door bypass pass — stays a gridded hold.)
             if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: mNow, S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp (a hold samples the value at the column-entry beat)
             applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
@@ -1718,15 +1718,15 @@ final class Router {
             if isEchoTail(cell) { continue }       // ECHO: an echo-tail cell fires its dry + tail in emitEchoColumn, never a hold here
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
-            currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
+            currentMachineIndex = cell.machineIndex      // item 4 marks: this cell's Machine, for the source tint
             currentCellIndex = column * Snap.rows + r  // SEAL comet: this cell's grid index
             chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // UTILITY CHANNEL/NUDGE emit overrides for this hold cell
-            let ci = Int(cell.colourIndex)
-            let colour = box.colours[ci]
+            let ci = Int(cell.machineIndex)
+            let machine = box.machines[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
             // (drops each note by probability), and HARMONIZE (expands each note to voices).
             // Arp/ratchet/strum and a closed passgate do not chord-hold.
-            if !onSceneAudible(colour.on, pass: pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
+            if !onSceneAudible(machine.on, pass: pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
             let altFlag = cell.alt != tapFlipped(column, r)          // §9 ON TAP flip — this cell's voice-identity face
             currentAlt = altFlag                                     // §2 stamp fresh voices' face identity
             // CELL MACHINE: a HOLD-TAIL chain holds the TAIL slot's transform of every upstream stage's composed
@@ -1734,7 +1734,7 @@ final class Router {
             let holdChain = isHoldTailChain(cell)
             let holdEchoMute = holdChain && (chainEchoIndex(cell).map { !cell.procs[$0].echoThru } ?? false)   // ECHO MUTE in a hold chain (Paul 2026-08-26): echoes only — suppress the dry (the tails register below); THRU keeps the dry
             let tailIdx = cell.procs.count - 1
-            var treat = colour; let treatP = holdChain ? cell.procs[tailIdx] : cell.proc
+            var treat = machine; let treatP = holdChain ? cell.procs[tailIdx] : cell.proc
             treat.a = treatP
             let mode = cellMode(type: effectiveType(treat),
                                 bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
@@ -1746,13 +1746,13 @@ final class Router {
             // [CHORDS] and a [X→CHORDS] tail both SOUND the chord as a plain (legato-adoptable) hold, no per-rank map.
             let chordsHold = (mode == .chords)
             let readScratch = holdChain || chordsHold
-            let transpose = colourTranspose(ci, colour)
+            let transpose = machineTranspose(ci, machine)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
                           + holdShift(treatP, mode: mode)                // UTILITY: OCTAVE (±12·n) / TRANSPOSE (±semitones) shift the held (composed) set
                           + treatP.stageOct * 12                         // §1 ANATOMY (Paul 2026-08-27): this hold stage's own OCT (header standard), ±3 octaves
             let prob = (mode == .chance) ? effectiveProbability(treat.a, step: Int((colStart / S).rounded())) : 1   // CHANCE PATTERN: per-step odds (Paul 2026-08-22)
             let droneScale = mode == .drone ? max(0.05, min(1.0, treatP.gate)) : 1.0   // DRONE: GATE = the pad's velocity level (relative to the source)
-            let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
+            let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
             // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
             // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
             // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
@@ -1830,7 +1830,7 @@ final class Router {
                 if mode == .tutti && tuttiSolo >= 0 && k != tuttiSolo { continue }   // TUTTI SOLO step: only the PICK-chosen rank sounds
                 if mode == .split && (k < splitWin.start || k >= splitWin.start + splitWin.len || Int(vel0) < treat.a.splitVel.floor || Int(vel0) > treat.a.splitVel.ceil) { continue }   // SPLIT: keep the subset + vel band
                 if mode == .harmonize {
-                    emitHarmony(base: n, colour: treat, baseVel: vel, row: r, storeArtics: false,
+                    emitHarmony(base: n, machine: treat, baseVel: vel, row: r, storeArtics: false,
                                 busMask: hbm, on: onSample, off: offSample, beat: colStart,
                                 windowEnd: windowEnd, sustain: soloSustain, poolMask: poolHarm ? holdPoolMask : 0, out: out, diag: &diag)   // PLAY: THIS CELL — harmonize holds sustain + adopt too
                 } else if legato {
@@ -1910,29 +1910,29 @@ final class Router {
                                 windowStart: windowStart, S: S, a: a)
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }
+            if cell.machineIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }
             if soloSilenced(cell) { continue }
-            let ci = Int(cell.colourIndex)
-            let colour = box.colours[ci]
-            if !onSceneAudible(colour.on, pass: pass) { continue }
+            let ci = Int(cell.machineIndex)
+            let machine = box.machines[ci]
+            if !onSceneAudible(machine.on, pass: pass) { continue }
             if isEchoTail(cell) {   // single-slot [ECHO] OR a hold-upstream chain tail (…→ECHO)
                 let tailIdx = cell.procs.count - 1
                 let p = cell.procs[tailIdx]                 // the ECHO slot's own controls (user 2026-08-08)
-                registerEcho(p, cell: cell, colour: colour, ci: ci, column: column, r: r, pool: pool, tempo: tempo,
+                registerEcho(p, cell: cell, machine: machine, ci: ci, column: column, r: r, pool: pool, tempo: tempo,
                              colStart: colStart, onSample: onSample, S: S, a: a, beatPos: beatPos,
                              beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
             } else if composableLengthTailIndex(cell) != nil, let ei = chainEchoIndex(cell) {
                 // §7② [ECHO→…→LENGTH]: LENGTH re-articulates in the tick loop (emitLengthComposedRow), which SWALLOWS the
                 // echo (composeChainSet folds it as passthrough) — so this is the ONLY place its tails register. Column
                 // entry, once. DIRECT = echo the composed set flat; CHAIN = re-fold each repeat through LENGTH (choked/tied).
-                registerLengthChainEcho(cell: cell, echoIdx: ei, colour: colour, ci: ci, column: column, r: r, pool: pool, tempo: tempo, beatsPerSample: beatsPerSample, colStart: colStart, S: S)
+                registerLengthChainEcho(cell: cell, echoIdx: ei, machine: machine, ci: ci, column: column, r: r, pool: pool, tempo: tempo, beatsPerSample: beatsPerSample, colStart: colStart, S: S)
             }
         }
     }
     /// §7② Register the echo tails for a non-driver [ECHO→…→LENGTH] chain (LENGTH's re-articulator swallows the echo).
     /// Once per column entry (from emitEchoColumn). NO dry strike — the length-gated dry is emitted by emitLengthComposedRow
     /// (which suppresses it when the echo is MUTE). CHAIN re-folds each repeat through LENGTH at drain; DIRECT echoes flat.
-    private func registerLengthChainEcho(cell: SnapCell, echoIdx ei: Int, colour: SnapColour, ci: Int, column: Int, r: Int,
+    private func registerLengthChainEcho(cell: SnapCell, echoIdx ei: Int, machine: SnapMachine, ci: Int, column: Int, r: Int,
                                          pool: NotePool, tempo: Double, beatsPerSample: Double, colStart: Double, S: Double) {
         let ep = cell.procs[ei]
         var last = -1, i = cell.procs.count - 1
@@ -1945,9 +1945,9 @@ final class Router {
         guard timeBeats > 0 else { return }
         let repeats = max(1, min(16, ep.echoRepeats))
         let gateBeats = min(timeBeats * 0.9, S * 0.9)
-        let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: 0)
-        currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex; currentCellIndex = column * Snap.rows + r
+        let transpose = machineTranspose(ci, machine) + octaveShift(cell.resolvedReceiver)
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: 0)
+        currentInputRecv = cell.resolvedReceiver; currentMachineIndex = cell.machineIndex; currentCellIndex = column * Snap.rows + r
         chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // the tails inherit THIS cell's CHANNEL/NUDGE (captured by pushEchoTail)
         let cellPool = effectivePool(for: cell, live: pool)
         composeChainSet(cell: cell, pool: cellPool, upto: chainRoute ? ei - 1 : last, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)   // CHAIN = ECHO's INPUT · DIRECT = the composed set (LENGTH is passthrough in composeChainSet)
@@ -1963,7 +1963,7 @@ final class Router {
     }
     /// Strike the DRY note (only when THRU) + register the echo tail for each source note of an echo-tail cell —
     /// shared by the single/hold-tail path (emitEchoColumn) and the tick-driven path ([ARP→ECHO], per driver tick).
-    private func registerEcho(_ p: SnapParams, cell: SnapCell, colour: SnapColour, ci: Int, column: Int, r: Int,
+    private func registerEcho(_ p: SnapParams, cell: SnapCell, machine: SnapMachine, ci: Int, column: Int, r: Int,
                               pool: NotePool, tempo: Double, colStart: Double, onSample: Int64, S: Double, a: Double,
                               beatPos: Double, beatsPerSample: Double, windowStart: Int64, windowEnd: Int64,
                               out: MIDIEmitter?, diag: inout KernelDiag) {
@@ -1974,9 +1974,9 @@ final class Router {
         let gateBeats = min(timeBeats * 0.9, S * 0.9)
         let offSample = sampleOf(musical: colStart + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                  windowStart: windowStart, S: S, a: a)
-        let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: 0)
-        currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex
+        let transpose = machineTranspose(ci, machine) + octaveShift(cell.resolvedReceiver)
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: 0)
+        currentInputRecv = cell.resolvedReceiver; currentMachineIndex = cell.machineIndex
         currentCellIndex = column * Snap.rows + r
         chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // the echo DRY uses THIS cell's UTILITY CHANNEL/NUDGE (not a stale neighbour's); tails reset to wire before drain (review 2026-08-23)
         // SOURCE: a hold-upstream chain echoes its upstream stages' composed set ([PASSGATE→ECHO] the gated chord,
@@ -2229,7 +2229,7 @@ final class Router {
                  sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
                  latchedPools: [NotePool] = [],
-                 preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
+                 preview: (active: Bool, machineIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  focusCell: Int = -1,     // FOCUS: the cell whose per-note flow the machine shows (records the focus note-event feed) — ephemeral, not in the snapshot
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
@@ -2244,7 +2244,7 @@ final class Router {
         self.emitterOctave = emitterOctave         // emitter strip: per-emitter output ±octave nudge
         self.masterVelOverride = masterVelOverride // master panel: the momentary master fader
         currentInputRecv = -1                      // set per-cell in the playing loops; −1 for preview/audition
-        currentColourIndex = -1
+        currentMachineIndex = -1
         currentAlt = false
         self.latchMask = latchMask                 // receiver strip: which receivers read a frozen LATCH pool
         self.latchedPools = latchedPools
@@ -2259,7 +2259,7 @@ final class Router {
         busRemap = box.busRemap                      // ROW 8 REDIRECT/SWAP: per-bus output remap, this render
         broadcastActive = box.broadcastActive        // ROW 8 BROADCAST: mirror to all wires, this render
         broadcastAll16 = box.broadcastAll16          // ROW 8 BROADCAST: + all 16 channels on the ALL cable
-        curBox = box                                // for the reel's colour-by-cell note tag (openVoice reads the sounding colour's hue)
+        curBox = box                                // for the reel's machine-by-cell note tag (openVoice reads the sounding machine's hue)
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         // PER-ROW LAP (Paul 2026-08-19): the scene may set a per-row loop mask (BUILD's two grids loop independently);
         // else every row shares the global ephemeral lap (GRID tab = today). When set, the render goes down the per-row
@@ -2431,7 +2431,7 @@ final class Router {
         // ---- AUDITION / stopped-PREVIEW (transport stopped) ----
         if !playing {
             if preview.active {
-                previewStopped(colourIndex: preview.colourIndex, filter: preview.filter, busMask: preview.busMask,
+                previewStopped(machineIndex: preview.machineIndex, filter: preview.filter, busMask: preview.busMask,
                                box: box, pool: pool, tempo: tempo, sampleRate: sampleRate,
                                windowStart: windowStart, frameCount: frameCount, out: out, diag: &diag)
             } else {
@@ -2482,7 +2482,7 @@ final class Router {
         // PLAYING PREVIEW: the virtual cell renders SOLO at the live column — arp/ratchet/strum, with the
         // ROW-FEED (⇐ROW n reads that row's cell-at-effColumn by derivation) when the staged input is a row.
         if preview.active {
-            previewPlaying(colourIndex: preview.colourIndex, filter: preview.filter, busMask: preview.busMask,
+            previewPlaying(machineIndex: preview.machineIndex, filter: preview.filter, busMask: preview.busMask,
                            effColumn: effColumn, box: box, pool: pool,
                            beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample, windowStart: windowStart,
                            windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
@@ -2705,7 +2705,7 @@ final class Router {
         let bEnd = beatPos + windowBeats
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r) { continue }
+            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r) { continue }
             if !cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r)) { continue }   // PLAY: THIS CELL overrides mute/dormant/tap
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
                 let p = cell.procs[si]
@@ -2747,7 +2747,7 @@ final class Router {
         let bEnd = beatPos + windowBeats
         for idx in 0..<Snap.cells {
             let cell = box.cells[idx]
-            if cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) { continue }
+            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) { continue }
             let col = idx / Snap.rows, row = idx % Snap.rows
             if cellSoloedOut(col, row) { continue }
             if !cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row)) { continue }
@@ -2774,7 +2774,7 @@ final class Router {
         guard column >= 0 && column < Snap.maxCols, !(masterMute && !previewMode) else { return }
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.busMask == 0 { continue }
+            if cell.machineIndex < 0 || cell.busMask == 0 { continue }
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modReset && cell.procs[si].modTarget == .cc {
                 emitModCC(cc: cell.procs[si].modCC, value: cell.procs[si].modMin, busMask: cell.busMask, atSample: atSample, out: out)   // RESET → MIN (CC targets only; internal has no CC)
             }
@@ -2911,7 +2911,7 @@ final class Router {
             // unchanged — column-exit is already handled by the glideLastColumn block above), then leave it to the tick.
             let dr = chainDriverIndex(cell)
             if dr >= 0, downstreamGlideIndex(cell, after: dr) != nil {
-                let inactive = cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
+                let inactive = cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
                     || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r)))
                     || effectivePool(for: cell, live: pool).count == 0
                     || (cell.busMask != 0 && !glideBusAvailable(Int(cell.busMask.trailingZeroBitCount)))   // R2: a disabled/soloed-out emitter silences the driven glide
@@ -2920,13 +2920,13 @@ final class Router {
             }
             // SINGLE-SLOT GLIDE (the soloist): its mono voice is picked from the held pool below.
             guard cell.procs.count == 1, cell.procs[0].type == .glide, !cell.slotBypass[0] else { continue }
-            if cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
+            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
                || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) {   // PLAY: THIS CELL overrides mute/dormant/tap
                 glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue
             }
             let p = cell.procs[0]
-            let ci = Int(cell.colourIndex); let colour = box.colours[ci]
-            let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
+            let ci = Int(cell.machineIndex); let machine = box.machines[ci]
+            let transpose = machineTranspose(ci, machine) + octaveShift(cell.resolvedReceiver)
             let pick = glidePickPool(effectivePool(for: cell, live: pool), cell: cell, priority: p.glidePriority)
             guard pick.note >= 0 else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue }   // rest → phrase end
             let inNote = pick.note + transpose
@@ -3025,7 +3025,7 @@ final class Router {
         let cell = box.cells[cellIdx]
         let dr = chainDriverIndex(cell)
         guard dr >= 0, let gi = downstreamGlideIndex(cell, after: dr), !cell.slotBypass[gi] else { return }
-        if cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
+        if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
            || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { return }   // inactive → emitColumnGlide already phrase-ended it
         let p = cell.procs[gi]
         let bus = Int(cell.busMask.trailingZeroBitCount)
@@ -3120,14 +3120,14 @@ final class Router {
     /// Modelled on emitGeneratorRow: compose the source at colStart, then window-scan EACH rank's clock from colStart
     /// (RETRIG for free; no shared per-row tick state, so per-rank scans don't collide). SPAN ranks weave; extras join
     /// the top (fastest weaving) clock. As a chain driver each struck note folds downstream via emitDriverNote.
-    private func emitWeaveRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+    private func emitWeaveRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                               emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                               windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                               cycleBeats: Double = 0, chainDriver: Int = -1, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard S > 0 else { return }
         let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
-        let p = colour.a
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
+        let p = machine.a
         let cyc = cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -3210,13 +3210,13 @@ final class Router {
         }
     }
 
-    private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+    private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                                   emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                   cycleBeats: Double = 0, chainDriver: Int = -1, out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
-        let p = colour.a
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
+        let p = machine.a
         let cyc = cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -3612,11 +3612,11 @@ final class Router {
     /// per-slice re-articulator. TUTTI is not a driver; only a single-slot PATTERN cell reaches here (a chain routes
     /// its driver/hold instead). The 8-slice pattern walks GLOBALLY (ROTATE offsets it) so it strides the bar. No stuck
     /// notes: every strike carries an explicit off sample through emitArtic, the same lifecycle the generators use.
-    private func emitTuttiPatternRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int, emits: Bool,
+    private func emitTuttiPatternRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int, emits: Bool,
                                      pool: NotePool, beatPos: Double, windowBeats: Double, windowStart: Int64,
                                      windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                      out: MIDIEmitter?, diag: inout KernelDiag) {
-        let p = colour.a
+        let p = machine.a
         // SPAN LADDER (Paul 2026-08-22, RATE×ladder): when tuttiSpanN>0, the RATE is the slice width and SPAN N sets the
         // loop PERIOD in columns (the pattern re-anchors every N columns → polymeter). tuttiSpanN==0 keeps the LEGACY
         // CELL|ROW path (byte-identical): CELL strides the 8-slice pattern at the RATE; ROW spans the 8 slices over the bar.
@@ -3624,7 +3624,7 @@ final class Router {
         let tuttiSpanBeats = tuttiLadder ? spanLadderBeats(p.tuttiSpanN, S: S, row: Double(Snap.cols) * S) : 0
         let sub = tuttiLadder ? max(0.03125, p.tuttiSliceBeats)
                               : ((p.tuttiSpan == .row) ? max(0.03125, Double(Snap.cols) * S / 8.0) : max(0.03125, p.tuttiSliceBeats))
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         fillSrcFromPool(cell, pool)
@@ -3679,13 +3679,13 @@ final class Router {
     /// pure `lengthColumnEvents` (PASS ties, MUTE rests + cuts, SHORT staccato, LONG rings) — this just strikes ALL
     /// source notes at each event with its off. Not a driver; single-slot LENGTH reaches here via the tick loop.
     /// No stuck notes: finite offs capped at the step end, through the same emitArtic lifecycle the generators use.
-    private func emitLengthRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int, emits: Bool,
+    private func emitLengthRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int, emits: Bool,
                                pool: NotePool, beatPos: Double, windowBeats: Double, windowStart: Int64,
                                windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                out: MIDIEmitter?, diag: inout KernelDiag) {
         guard S > 0 else { return }
-        let p = colour.a
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let p = machine.a
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         fillSrcFromPool(cell, pool)
@@ -3720,14 +3720,14 @@ final class Router {
     /// (composeChainSet up to the slot before LENGTH) through LENGTH's 8-slice gate — recomposed at each column start
     /// so per-step-seeded upstreams (TUTTI COIN / CHANCE) stay loop-consistent. Same emitArtic lifecycle + step-capped
     /// offs as emitLengthRow → no stuck notes. (Paul 2026-08-17)
-    private func emitLengthComposedRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int, emits: Bool,
+    private func emitLengthComposedRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int, emits: Bool,
                                        lenIdx: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
                                        windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double,
                                        a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard S > 0, lenIdx >= 1, lenIdx < cell.procs.count else { return }
         let lp = cell.procs[lenIdx]
         let echoMuteDry = (chainEchoParams(cell)?.echoThru == false)   // §7② [ECHO→…→LENGTH] MUTE: echoes only — suppress the length-gated dry (the tails register in emitEchoColumn)
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
@@ -4163,7 +4163,7 @@ final class Router {
                                  mute: (cell.chopMute >> UInt8(sl)) & 1 == 1, altMask: cell.chopAltMask)
         } else { result = base }
         // MUTE MATRIX (Paul 2026-08-25 §5): remove the muted emitters for this step, indexed by the GRID COLUMN (0…7) —
-        // NOT the chop sub-slice — so it matches CHANCE PATTERN / TIMING LANE: a MUTE colour across a ROW mutes the drawn
+        // NOT the chop sub-slice — so it matches CHANCE PATTERN / TIMING LANE: a MUTE machine across a ROW mutes the drawn
         // columns (a hold or a normal-rate driver only ever touches sub-slice 0, so sub-slice muting looked inert). If it
         // empties the mask the note is dropped (emitChop / emitColumnHolds skip a 0 mask → no voice opens → no stuck note).
         if muteProc >= 0 {
@@ -4189,18 +4189,18 @@ final class Router {
     /// 303. Per tick (at riffRate), the step's RANK resolves to a pool note (`riffResolve` — chord-following), REST for
     /// rank 0; WRAP/OCT applied; ACCENT boosts the played-chord's peak velocity. Mirrors emitArpRow's tick lifecycle so it
     /// composes as a chain driver + folds through CHOP/downstream stages. v1: no TIE/SLIDE (the §5 lanes are stage 2).
-    private func emitRiffRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+    private func emitRiffRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                              emits: Bool, box: SnapshotBox, pool: NotePool,
                              effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                              windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                              chainDriver: Int = -1,
                              out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
-        let p = colour.a
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
+        let p = machine.a
         let steps = max(1, min(32, p.riffSteps))   // variable length (Paul 2026-08-26): 1…32, so odd lengths give polymeter (was locked to ≤16)
         var riffBeats = p.riffRateBeats; if riffBeats <= 0 { riffBeats = 0.25 }
-        let gate = effectiveGate(colour)
+        let gate = effectiveGate(machine)
         let baseVel = max(1, Int(coinVelFactor(pool) * 127))   // inherit the held chord's peak velocity (accent boosts it)
         if r == diag.activeCellRow { diag.effMorphGold = 0; diag.effRateBeats = riffBeats }
         iterateTicks(row: r, effColumn: effColumn, sub: riffBeats, gateFraction: gate,
@@ -4273,18 +4273,18 @@ final class Router {
             }
         }
     }
-    private func emitArpRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+    private func emitArpRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                             emits: Bool, box: SnapshotBox, pool: NotePool,
                             effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                             windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                             chainDriver: Int = -1,
                             out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        var arpBeats = effectiveRateBeats(colour)
-        let gate = effectiveGate(colour)
-        let octaves = effectiveOctaves(colour)
-        if colour.a.arpFit {   // FIT (user 2026-08-11): one full pool traversal = one beat, so the cycle stays constant as the chord grows
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
+        var arpBeats = effectiveRateBeats(machine)
+        let gate = effectiveGate(machine)
+        let octaves = effectiveOctaves(machine)
+        if machine.a.arpFit {   // FIT (user 2026-08-11): one full pool traversal = one beat, so the cycle stays constant as the chord grows
             let n = max(1, pool.srcCount(for: cell))
             arpBeats = max(0.03125, 1.0 / Double(n * octaves))
         }
@@ -4292,13 +4292,13 @@ final class Router {
         if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = arpBeats }
         // EUCLID MASK (SPEC-arp-euclid-mask): K == N ⇒ OFF (byte-identical). K < N gates the walk per the Bjorklund
         // mask — REST/TIE on non-hits, MARCH (walk through rests) / WAIT (advance on hits), ROTATE. Resolved once.
-        let mN = colour.a.arpMaskN, mK = colour.a.arpMaskK, mRot = colour.a.arpMaskRotate
-        let mActive = mK < mN, mTie = colour.a.arpMaskGap == .tie, mWait = colour.a.arpMaskWalk == .wait
+        let mN = machine.a.arpMaskN, mK = machine.a.arpMaskK, mRot = machine.a.arpMaskRotate
+        let mActive = mK < mN, mTie = machine.a.arpMaskGap == .tie, mWait = machine.a.arpMaskWalk == .wait
         // RANDOM is FREE-running (Paul 2026-08-25 fix): a random walk gains nothing from RETRIG's per-column reset — it just
         // re-anchors + repeats the same shuffle every column (so RANDOM ANCHOR pedalled the low note instead of "anchor then
         // shuffle until the next pool cycle"). Using the free `tick` makes the anchor fire once per pool traversal + the
         // shuffle never repeat. Other patterns keep their NEW-CHORD phase.
-        let arpIsRandom = arpPatternAt(Int(colour.a.patternIndex)) == .random   // cached cases — no per-tick allocation
+        let arpIsRandom = arpPatternAt(Int(machine.a.patternIndex)) == .random   // cached cases — no per-tick allocation
 
         iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
@@ -4314,7 +4314,7 @@ final class Router {
                 }
             }
             let pIdx = maskWalk ?? (arpIsRandom ? tick : phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
-                                  cycleBeats: cycleBeats, phase: colour.a.phase,
+                                  cycleBeats: cycleBeats, phase: machine.a.phase,
                                   runStartColumn: cell.runStartColumn))
             let base: Int
             let srcVel: UInt8   // velocity inherited from the picked source note (user 2026-08-09)
@@ -4322,15 +4322,15 @@ final class Router {
                 // CELL MACHINE: this ARP is the chain DRIVER — arp the composed SET of the stages BEFORE it at this
                 // tick (OMNI, past the input filter). Derived per tick → pool-correct (arps ALL upstream voices).
                 composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
-                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
+                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: machine.a.patternIndex,
                                    pool: chainScratch, filter: 0, cableMask: 0b1111,
-                                   octDown: colour.a.arpOctDown, randomAnchor: colour.a.arpRandomAnchor)
+                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor)
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             } else {
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves,
-                                   pattern: colour.a.patternIndex, pool: pool, for: cell,
-                                   octDown: colour.a.arpOctDown, randomAnchor: colour.a.arpRandomAnchor)   // §7 source filter
+                                   pattern: machine.a.patternIndex, pool: pool, for: cell,
+                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor)   // §7 source filter
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             }
@@ -4360,16 +4360,16 @@ final class Router {
     }
     /// RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato (0.6), velocity ramp.
     /// Not an arp (no index cycling) — every stab is the pool (or the parent's sounding note, when referenced).
-    private func emitRatchetRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+    private func emitRatchetRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                                 emits: Bool, box: SnapshotBox, pool livePool: NotePool,
                                 effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                                 windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                                 chainDriver: Int = -1,
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: livePool)   // receiver strip LATCH: read the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        let ramp = effectiveRamp(colour)
-        let p = colour.a
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
+        let ramp = effectiveRamp(machine)
+        let p = machine.a
         if p.rtcMode != .all {   // COIN / PATTERN — strikes-per-step vary, so window-scan (not the fixed-sub iterateTicks)
             emitRatchetModal(mode: p.rtcMode, cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm,
                              ramp: ramp, chainDriver: chainDriver, beatPos: beatPos, windowBeats: windowBeats,
@@ -4377,7 +4377,7 @@ final class Router {
                              cycleBeats: cycleBeats, p: p, out: out, diag: &diag)
             return
         }
-        let repeats = effectiveRepeats(colour)
+        let repeats = effectiveRepeats(machine)
         let sub = S / Double(repeats)                          // one repeat every `sub` beats
         if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = sub }
         iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
@@ -4503,7 +4503,7 @@ final class Router {
         return false
     }
     private func rtcHoldVoiceExists(note: UInt8, bus: UInt8, ci: Int16) -> Bool {
-        for i in voices.indices where voices[i].active && voices[i].rtcHold && voices[i].note == note && voices[i].bus == bus && voices[i].colourIndex == ci { return true }
+        for i in voices.indices where voices[i].active && voices[i].rtcHold && voices[i].note == note && voices[i].bus == bus && voices[i].machineIndex == ci { return true }
         return false
     }
 
@@ -4523,28 +4523,28 @@ final class Router {
         var hasCell = false
         for i in 0..<Snap.cells {
             let c = box.cells[i]
-            if c.colourIndex >= 0 && c.procs.count <= 1 && c.proc.type == .ratchet && c.proc.rtcMode == .pattern { hasCell = true; break }
+            if c.machineIndex >= 0 && c.procs.count <= 1 && c.proc.type == .ratchet && c.proc.rtcMode == .pattern { hasCell = true; break }
         }
         guard hasCell || anyRtcHoldVoiceActive() else { return }
-        let savedCI = currentColourIndex, savedCell = currentCellIndex, savedAlt = currentAlt
-        defer { currentColourIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
+        let savedCI = currentMachineIndex, savedCell = currentCellIndex, savedAlt = currentAlt
+        defer { currentMachineIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
 
         // PHASE 1 — across ALL active single-slot ratchet-pattern cells: gather the GLOBAL desired PASS sustain set
-        // (deduped by wire+bus+colour, so a row of same-colour cells sustains SEAMLESSLY — cell N+1 adopts cell N's
+        // (deduped by wire+bus+machine, so a row of same-machine cells sustains SEAMLESSLY — cell N+1 adopts cell N's
         // voice), and emit the RATCHET (count 2…8) staccato sub-strikes immediately (non-immortal).
         var nDes = 0
         for idx in 0..<Snap.cells {
             let cell = box.cells[idx]
-            guard cell.colourIndex >= 0 && cell.procs.count <= 1 && cell.proc.type == .ratchet && cell.proc.rtcMode == .pattern else { continue }
+            guard cell.machineIndex >= 0 && cell.procs.count <= 1 && cell.proc.type == .ratchet && cell.proc.rtcMode == .pattern else { continue }
             let row = idx % Snap.rows, col = idx / Snap.rows
             let effCol = uniformFast ? effColumn : rowEffColBuf[row]
             let sRow = uniformFast ? S : rowSBuf[row]
-            let ci = Int(cell.colourIndex)
-            let colour = box.colours[ci]
-            let p = cell.proc   // the RESOLVED ratchet-pattern params (templateChain/processors head), NOT colour.a (which is the colour's own face — a passgate/other for a chain cell)
-            let audible = !(cell.busMask == 0 || cellSoloedOut(col, row) || (!cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row))) || soloSilenced(cell) || !onSceneAudible(colour.on, pass: diag.pass))
+            let ci = Int(cell.machineIndex)
+            let machine = box.machines[ci]
+            let p = cell.proc   // the RESOLVED ratchet-pattern params (templateChain/processors head), NOT machine.a (which is the machine's own face — a passgate/other for a chain cell)
+            let audible = !(cell.busMask == 0 || cellSoloedOut(col, row) || (!cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row))) || soloSilenced(cell) || !onSceneAudible(machine.on, pass: diag.pass))
             guard (col == effCol) && audible else { continue }
-            currentColourIndex = Int16(ci); currentCellIndex = idx; currentAlt = false
+            currentMachineIndex = Int16(ci); currentCellIndex = idx; currentAlt = false
             let cellPool = effectivePool(for: cell, live: livePool)
             let srcN = cellPool.srcCount(for: cell)
             guard srcN > 0 else { continue }
@@ -4558,8 +4558,8 @@ final class Router {
                 let cc = (((localTick + p.rtcRotate) % steps) + steps) % steps
                 return max(0, min(8, cc < p.rtcSlices.count ? p.rtcSlices[cc] : 1))
             }
-            let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver) + p.stageOct * 12
-            let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+            let transpose = machineTranspose(ci, machine) + octaveShift(cell.resolvedReceiver) + p.stageOct * 12
+            let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
             // PASS (count 1 at the window start) → contribute this cell's held chord to the global desired sustain.
             if columnCount(atTick: Double(Int((mWinStart / rate).rounded(.down))) * rate) == 1 {
                 for k in 0..<srcN {
@@ -4604,13 +4604,13 @@ final class Router {
         // gap / RATCHET column / playhead left), open the missing (own cable + All copy, both IMMORTAL).
         for i in voices.indices where voices[i].active && voices[i].rtcHold {
             var keep = false
-            for d in 0..<nDes where rtcDesWire[d] == voices[i].note && rtcDesBus[d] == voices[i].bus && rtcDesCI[d] == voices[i].colourIndex { keep = true; break }
+            for d in 0..<nDes where rtcDesWire[d] == voices[i].note && rtcDesBus[d] == voices[i].bus && rtcDesCI[d] == voices[i].machineIndex { keep = true; break }
             if !keep { closeVoice(i, atSample: windowStart, out: out) }
         }
         for d in 0..<nDes {
             let w = rtcDesWire[d], b = rtcDesBus[d], ci = rtcDesCI[d]
             if rtcHoldVoiceExists(note: w, bus: b, ci: ci) { continue }
-            currentColourIndex = ci; currentCellIndex = Int(rtcDesCell[d]); currentAlt = false
+            currentMachineIndex = ci; currentCellIndex = Int(rtcDesCell[d]); currentAlt = false
             let ch = (busChannels[Int(b)] &- 1) & 15
             _ = openVoice(note: w, chan: ch, cable: b + 1, bus: b, onSample: windowStart, offSample: .max, velocity: rtcDesVel[d], out: out, meter: true, rtcHold: true)
             _ = openVoice(note: w, chan: ch, cable: 0,     bus: b, onSample: windowStart, offSample: .max, velocity: rtcDesVel[d], out: out, meter: false, rtcHold: true)
@@ -4619,14 +4619,14 @@ final class Router {
 
     /// STRUM (§3): stagger the source chord's onsets over `spread` beats from the column start, held to the
     /// boundary. Emitted per-window as each onset arrives (strumProgress, reset per column) — each note fires once.
-    private func emitStrumRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+    private func emitStrumRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                               emits: Bool, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                               beatsPerSample: Double, S: Double, a: Double, chainDriver: Int = -1,
                               out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        let spread = effectiveSpread(colour)
-        let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
+        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
+        let spread = effectiveSpread(machine)
+        let curve = machine.a.curve, tilt = machine.a.velTilt, dir = machine.a.strumDir
         let colStart = columnStart(musicalOf(beatPos, stepBeats: S, a: a), S)
         let cycleBeats = Double(Snap.cols) * S
         // CELL MACHINE: a STRUM chain DRIVER staggers the composed set of the stages BEFORE it (derived once at colStart).
@@ -4639,7 +4639,7 @@ final class Router {
                                  beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
         while strumProgress[r] < count {
             let j = strumProgress[r]
-            let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve, normalize: colour.a.strumSpreadNorm)
+            let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve, normalize: machine.a.strumSpreadNorm)
             let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos,
                                        beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             if onsetSample >= windowEnd { break }        // onset lands in a later window
@@ -4671,26 +4671,26 @@ final class Router {
 
     /// STOPPED preview — the staged VIRTUAL cell as an ARP of the source pool on the free audition clock
     /// (no playhead → no row-feed; `filter` = the staged receiver's channel, 0 = OMNI). Solo + CLAIM-bypass.
-    private func previewStopped(colourIndex ci: Int, filter: Int, busMask: UInt8, box: SnapshotBox, pool: NotePool,
+    private func previewStopped(machineIndex ci: Int, filter: Int, busMask: UInt8, box: SnapshotBox, pool: NotePool,
                                 tempo: Double, sampleRate: Double, windowStart: Int64, frameCount: UInt32,
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
-        guard ci >= 0, ci < box.colours.count, busMask != 0, pool.count > 0 else { return }
-        let colour = box.colours[ci]
+        guard ci >= 0, ci < box.machines.count, busMask != 0, pool.count > 0 else { return }
+        let machine = box.machines[ci]
         let beatsPerSample = tempo / 60.0 / sampleRate
         let windowBeats = Double(frameCount) * beatsPerSample
         let windowEnd = windowStart + Int64(frameCount)
         let clockBeat = Double(windowStart - auditionStartSample) * beatsPerSample
-        let transpose = colourTranspose(ci, colour)
+        let transpose = machineTranspose(ci, machine)
         previewMode = true; defer { previewMode = false }
-        guard effectiveType(colour) == .arp else { return }
-        var arpBeats = effectiveRateBeats(colour); if arpBeats <= 0 { arpBeats = 0.25 }
-        let gate = effectiveGate(colour)
-        let octaves = effectiveOctaves(colour)
+        guard effectiveType(machine) == .arp else { return }
+        var arpBeats = effectiveRateBeats(machine); if arpBeats <= 0 { arpBeats = 0.25 }
+        let gate = effectiveGate(machine)
+        let octaves = effectiveOctaves(machine)
         auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: clockBeat, windowBeats: windowBeats,
                       windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
-            let pick = arpPick(phaseIndex: tick, octaves: octaves, pattern: colour.a.patternIndex,
+            let pick = arpPick(phaseIndex: tick, octaves: octaves, pattern: machine.a.patternIndex,
                                pool: pool, filter: UInt8(clamping: filter),
-                               octDown: colour.a.arpOctDown, randomAnchor: colour.a.arpRandomAnchor)
+                               octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor)
             guard pick.note >= 0 else { return }
             let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
             emitArtic(note: UInt8(n), busMask: busMask, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
@@ -4701,18 +4701,18 @@ final class Router {
     /// the per-row ARP/RATCHET/STRUM derivation for one virtual row: ⇐ROW n reads that row's sounding note by
     /// derivation (parentSoundingNote); receiver/OMNI reads the filtered source pool. Uses tick slot row 0
     /// (free during solo). busEnabled respected; CLAIM bypassed. (Chord-hold/mirror types = a later cut.)
-    private func previewPlaying(colourIndex ci: Int, filter: Int, busMask: UInt8, effColumn: Int,
+    private func previewPlaying(machineIndex ci: Int, filter: Int, busMask: UInt8, effColumn: Int,
                                box: SnapshotBox, pool: NotePool, beatPos: Double, windowBeats: Double,
                                windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                cycleBeats: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
-        guard ci >= 0, ci < box.colours.count, busMask != 0, pool.count > 0 else { return }
-        let colour = box.colours[ci]
-        let transpose = colourTranspose(ci, colour)
+        guard ci >= 0, ci < box.machines.count, busMask != 0, pool.count > 0 else { return }
+        let machine = box.machines[ci]
+        let transpose = machineTranspose(ci, machine)
         let vr = 0                                        // virtual tick-dedup row (grid-chaining retired: always source-fed)
         let f = UInt8(clamping: filter)
         previewMode = true; defer { previewMode = false }
-        let mode = cellMode(type: effectiveType(colour), bypassed: false,
-                            passMask: effectivePassMask(colour), pass: diag.pass)
+        let mode = cellMode(type: effectiveType(machine), bypassed: false,
+                            passMask: effectivePassMask(machine), pass: diag.pass)
 
         // Virtual-cell COLUMN TRANSITION: truncate its voices at the boundary, reset per-column state, and
         // (chord-hold types on SOURCE input) emit the treated held chord sustained to the column boundary.
@@ -4726,7 +4726,7 @@ final class Router {
             previewPrevColumn = effColumn
             lastTick[vr] = -1; strumProgress[vr] = 0
             if mode == .identity || mode == .chance || mode == .harmonize || mode == .tutti {
-                previewChordHold(isChance: mode == .chance, isHarmonize: mode == .harmonize, colour: colour,
+                previewChordHold(isChance: mode == .chance, isHarmonize: mode == .harmonize, machine: machine,
                                  transpose: transpose, filter: f, busMask: busMask, mNow: mNow, beatPos: beatPos,
                                  beatsPerSample: beatsPerSample, S: S, a: a, windowStart: windowStart,
                                  windowEnd: windowEnd, pool: pool, out: out, diag: &diag)
@@ -4735,21 +4735,21 @@ final class Router {
 
         switch mode {
         case .arp:
-            var arpBeats = effectiveRateBeats(colour); if arpBeats <= 0 { arpBeats = 0.25 }
-            let gate = effectiveGate(colour)
-            let octaves = effectiveOctaves(colour)
+            var arpBeats = effectiveRateBeats(machine); if arpBeats <= 0 { arpBeats = 0.25 }
+            let gate = effectiveGate(machine)
+            let octaves = effectiveOctaves(machine)
             iterateTicks(row: vr, effColumn: effColumn, sub: arpBeats, gateFraction: gate, beatPos: beatPos,
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
                 let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
-                                      cycleBeats: cycleBeats, phase: colour.a.phase, runStartColumn: -1)
-                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex, pool: pool, filter: f, octDown: colour.a.arpOctDown, randomAnchor: colour.a.arpRandomAnchor)
+                                      cycleBeats: cycleBeats, phase: machine.a.phase, runStartColumn: -1)
+                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: machine.a.patternIndex, pool: pool, filter: f, octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor)
                 guard pick.note >= 0 else { return }
                 let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
                 emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
             }
         case .ratchet:
-            let repeats = effectiveRepeats(colour)
-            let ramp = effectiveRamp(colour)
+            let repeats = effectiveRepeats(machine)
+            let ramp = effectiveRamp(machine)
             let sub = S / Double(max(1, repeats))
             iterateTicks(row: vr, effColumn: effColumn, sub: sub, gateFraction: 0.6, beatPos: beatPos,
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
@@ -4765,15 +4765,15 @@ final class Router {
                 }
             }
         case .strum:
-            let spread = effectiveSpread(colour)
-            let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
+            let spread = effectiveSpread(machine)
+            let curve = machine.a.curve, tilt = machine.a.velTilt, dir = machine.a.strumDir
             let count = pool.srcCount(filter: f)   // STRUM is source-based (no row-feed, matching the real loop)
             if count > 0 {
                 let colStart = columnStart(musicalOf(beatPos, stepBeats: S, a: a), S)
                 let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                 while strumProgress[vr] < count {
                     let j = strumProgress[vr]
-                    let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve, normalize: colour.a.strumSpreadNorm)
+                    let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve, normalize: machine.a.strumSpreadNorm)
                     let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     if onsetSample >= windowEnd { break }
                     strumProgress[vr] += 1
@@ -4793,14 +4793,14 @@ final class Router {
 
     /// The virtual cell's CHORD-HOLD (identity / open-passgate / CHANCE / HARMONIZE on SOURCE input): the
     /// per-cell body of `emitColumnHolds`, emitted once at the column transition, sustained to the boundary.
-    private func previewChordHold(isChance: Bool, isHarmonize: Bool, colour: SnapColour, transpose: Int,
+    private func previewChordHold(isChance: Bool, isHarmonize: Bool, machine: SnapMachine, transpose: Int,
                                   filter: UInt8, busMask: UInt8, mNow: Double, beatPos: Double, beatsPerSample: Double,
                                   S: Double, a: Double, windowStart: Int64, windowEnd: Int64, pool: NotePool,
                                   out: MIDIEmitter?, diag: inout KernelDiag) {
         let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
         let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-        let prob = isChance ? effectiveProbability(colour.a, step: Int((colStart / S).rounded())) : 1   // CHANCE PATTERN: per-step odds
+        let prob = isChance ? effectiveProbability(machine.a, step: Int((colStart / S).rounded())) : 1   // CHANCE PATTERN: per-step odds
         let srcN = pool.srcCount(filter: filter)
         for k in 0..<srcN {
             let sn = pool.srcAscending(k, filter: filter)
@@ -4809,9 +4809,9 @@ final class Router {
             if isChance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
             let vel = max(1, pool.velocity(sn))   // inherit the source velocity
             if isHarmonize {
-                emitHarmony(base: n, colour: colour, baseVel: vel, row: 0, storeArtics: false,
+                emitHarmony(base: n, machine: machine, baseVel: vel, row: 0, storeArtics: false,
                             busMask: busMask, on: onSample, off: offSample, beat: colStart, windowEnd: windowEnd,
-                            poolMask: colour.a.harmUnits == .pool ? pool.pitchClassMaskAll() : 0, out: out, diag: &diag)   // §2 audition parity
+                            poolMask: machine.a.harmUnits == .pool ? pool.pitchClassMaskAll() : 0, out: out, diag: &diag)   // §2 audition parity
             } else {
                 emitArtic(note: UInt8(n), busMask: busMask, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
             }
@@ -4841,20 +4841,20 @@ final class Router {
         let col = target / Snap.rows, row = target % Snap.rows
         guard col >= 0, col < Snap.maxCols, row >= 0, row < Snap.rows else { return }
         let cell = box.cells[col * Snap.rows + row]
-        guard cell.colourIndex >= 0, !cell.muted, cell.busMask != 0, !cell.bypassed else { return }
+        guard cell.machineIndex >= 0, !cell.muted, cell.busMask != 0, !cell.bypassed else { return }
         guard pool.count > 0 else { return }          // no held notes → silence (soundcheck)
-        let ci = Int(cell.colourIndex)
-        let colour = box.colours[ci]
+        let ci = Int(cell.machineIndex)
+        let machine = box.machines[ci]
         // CELL MACHINE: audition previews the cell's RESOLVED HEAD treatment (override/template-aware), not the raw
-        // Colour A face — `treat.a = cell.proc`, so effective*(treat) reads the head. (Multi-slot chains preview the
+        // Machine A face — `treat.a = cell.proc`, so effective*(treat) reads the head. (Multi-slot chains preview the
         // HEAD slot; a full serial preview of the tail is a follow-up.)
-        var treat = colour; treat.a = cell.proc
+        var treat = machine; treat.a = cell.proc
 
         let beatsPerSample = tempo / 60.0 / sampleRate
         let auditionBeat = Double(windowStart - auditionStartSample) * beatsPerSample   // free phase clock
         let windowBeats = Double(frameCount) * beatsPerSample
         let windowEnd = windowStart + Int64(frameCount)
-        let transpose = colourTranspose(ci, colour)
+        let transpose = machineTranspose(ci, machine)
 
         switch effectiveType(treat) {
         case .arp:
@@ -4891,12 +4891,12 @@ final class Router {
         case .strum:
             // STRUM: roll the held chord in over `spread` beats from the hold (its own onset per note),
             // then sustain — the audition clock drives the roll; reconcile tracks live key changes.
-            auditionStrum(cell: cell, colour: treat, pool: pool, transpose: transpose,
+            auditionStrum(cell: cell, machine: treat, pool: pool, transpose: transpose,
                           auditionBeat: auditionBeat, windowEnd: windowEnd, out: out, diag: &diag)
         default:
             // chord-hold types (passgate all-open / chance / harmonize): sustain the treated chord,
             // reconciled to the live held source each window (v2).
-            auditionChordHold(cell: cell, colour: treat, pool: pool, transpose: transpose,
+            auditionChordHold(cell: cell, machine: treat, pool: pool, transpose: transpose,
                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
     }
@@ -4906,12 +4906,12 @@ final class Router {
     /// currently sounding — close departed notes, open new ones (sustained; released by allNotesOff on
     /// hold-change / transport-start). passgate is forced all-open; chance seeds on the hold (beat 0) so
     /// each note is deterministically in or out for the whole hold; harmonize expands to its voices.
-    private func auditionChordHold(cell: SnapCell, colour: SnapColour, pool: NotePool,
+    private func auditionChordHold(cell: SnapCell, machine: SnapMachine, pool: NotePool,
                                    transpose: Int, windowStart: Int64, windowEnd: Int64,
                                    out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionDesired[i] = false }
-        let type = effectiveType(colour)
-        let prob = (type == .chance) ? effectiveProbability(colour.a) : 1   // audition is phase-zeroed → step 0
+        let type = effectiveType(machine)
+        let prob = (type == .chance) ? effectiveProbability(machine.a) : 1   // audition is phase-zeroed → step 0
         let srcN = pool.srcCount(for: cell)         // §7 source filter, forced source
         for k in 0..<srcN {
             let sn = pool.srcAscending(k, for: cell)
@@ -4920,11 +4920,11 @@ final class Router {
             let bv = max(1, pool.velocity(sn))   // inherit the source velocity
             switch type {
             case .harmonize:
-                let iv = (Int8(effectiveHarmInterval(colour, voice: 0)),
-                          Int8(effectiveHarmInterval(colour, voice: 1)),
-                          Int8(effectiveHarmInterval(colour, voice: 2)))
+                let iv = (Int8(effectiveHarmInterval(machine, voice: 0)),
+                          Int8(effectiveHarmInterval(machine, voice: 1)),
+                          Int8(effectiveHarmInterval(machine, voice: 2)))
                 let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
-                                          vel: bv, velScale: effectiveHarmVelScale(colour), vels: &harmVels)
+                                          vel: bv, velScale: effectiveHarmVelScale(machine), vels: &harmVels)
                 for j in 0..<cnt where harmNotes[j] >= 0 && harmNotes[j] <= 127 {
                     auditionDesired[harmNotes[j]] = true; auditionVel[harmNotes[j]] = harmVels[j]
                 }
@@ -4941,21 +4941,21 @@ final class Router {
     /// from the hold; a note joins the sustained set once the audition clock passes its onset. So the
     /// first hold rolls the chord; thereafter it sustains and reconcile tracks live key changes. No
     /// columns here, so direction uses pass 0 and notes never auto-release (offSample .max).
-    private func auditionStrum(cell: SnapCell, colour: SnapColour, pool: NotePool,
+    private func auditionStrum(cell: SnapCell, machine: SnapMachine, pool: NotePool,
                                transpose: Int, auditionBeat: Double,
                                windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionDesired[i] = false }
-        let spread = effectiveSpread(colour)
+        let spread = effectiveSpread(machine)
         let count = pool.srcCount(for: cell)
         for j in 0..<count {
-            guard auditionBeat >= strumOffset(index: j, count: count, spread: spread, curve: colour.a.curve, normalize: colour.a.strumSpreadNorm)
+            guard auditionBeat >= strumOffset(index: j, count: count, spread: spread, curve: machine.a.curve, normalize: machine.a.strumSpreadNorm)
             else { continue }                                   // this note's onset hasn't arrived yet
-            let sortedIdx = strumSortedIndex(position: j, count: count, direction: colour.a.strumDir, pass: 0)
+            let sortedIdx = strumSortedIndex(position: j, count: count, direction: machine.a.strumDir, pass: 0)
             let sn = pool.srcAscending(sortedIdx, for: cell)
             let n = Int(sn) + transpose
             guard n >= 0 && n <= 127 else { continue }
             auditionDesired[n] = true
-            auditionVel[n] = strumVelocity(index: j, count: count, tilt: colour.a.velTilt, base: max(1, Int(pool.velocity(sn))))   // inherit
+            auditionVel[n] = strumVelocity(index: j, count: count, tilt: machine.a.velTilt, base: max(1, Int(pool.velocity(sn))))   // inherit
         }
         reconcileAuditionVoices(busMask: cell.busMask, windowEnd: windowEnd, out: out, diag: &diag)
     }

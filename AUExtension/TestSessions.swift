@@ -8,7 +8,7 @@
 //
 //  Deliberately NOT built on PluginState.factory(): the factory carries designed defaults
 //  (gold octaves 2 / B rate 1/32, cyan = RATCHET, magenta transpose +12 & OUT CH 2) that
-//  would silently colour every result. Tests start from a flat, explicit baseline so a
+//  would silently machine every result. Tests start from a flat, explicit baseline so a
 //  failure means the engine, not the fixture.
 //
 //  IDENTITY TYPES (historical): these fixtures were authored when only ARP was implemented
@@ -29,13 +29,13 @@ enum TestSessions {
 
     // MARK: - Fixtures
 
-    /// 16 ARP Colours, all at documented defaults: UP, 1/16, 1 octave, gate 0.6, RETRIG,
+    /// 16 ARP Machines, all at documented defaults: UP, 1/16, 1 octave, gate 0.6, RETRIG,
     /// morph 0, transpose 0. Sessions override only what they are testing.
-    private static func baseColours() -> [Colour] {
-        colourIDs.map { Colour(colourID: $0, type: .arp) }
+    private static func baseMachines() -> [Machine] {
+        machineIDs.map { Machine(machineID: $0, type: .arp) }
     }
 
-    private static func idx(_ id: String) -> Int { colourIDs.firstIndex(of: id)! }
+    private static func idx(_ id: String) -> Int { machineIDs.firstIndex(of: id)! }
 
     /// Scene with the standing defaults: stepRate 1/2 (2 beats = 8 ticks of 1/16 per column),
     /// swing 50 (identity), QUANT off. Swing stays at 50 so T-cases never confound the
@@ -48,8 +48,8 @@ enum TestSessions {
         return s
     }
 
-    private static func doc(_ colours: [Colour], _ s: SceneState) -> PluginState {
-        var d = PluginState(colours: colours, scenes: [s])
+    private static func doc(_ machines: [Machine], _ s: SceneState) -> PluginState {
+        var d = PluginState(machines: machines, scenes: [s])
         d.formatVersion = 3   // v3.0 fixtures set inputRow directly — skip the legacy chain migration
         return d
     }
@@ -62,8 +62,8 @@ enum TestSessions {
                 expect: "Ascending 1/16 arp on Synth1 (bus A) only, and only while column 0 is "
                       + "active — 1 step in 8. Monitor A: clean on/off pairs, silence for the "
                       + "other 7 steps.") {
-            doc(baseColours(), scene { s in
-                s.cells[0][0] = Cell(colourID: "gold")            // buses default [.a]
+            doc(baseMachines(), scene { s in
+                s.cells[0][0] = Cell(machineID: "gold")            // buses default [.a]
             })
         },
 
@@ -71,9 +71,9 @@ enum TestSessions {
                 expect: "Sound leaves ONLY through row 1. Row 0 gold ARP has no letters lit → silent "
                       + "on every bus; row 1 references row 0 (FROM ROW 0) and MIRRORS it onto bus A. "
                       + "The old ▾ chain, now a receiver-picked reference (delta §1).") {
-            doc(baseColours(), scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [])                                 // parent, emits nothing
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // references row 0
+            doc(baseMachines(), scene { s in
+                s.cells[0][0] = Cell(machineID: "gold", buses: [])                                 // parent, emits nothing
+                s.cells[0][1] = Cell(machineID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // references row 0
             })
         },
 
@@ -82,18 +82,18 @@ enum TestSessions {
                       + "(no bus); row 1 references row 0 → bus A (the processed feed); row 2 hears "
                       + "MIDI IN → bus A (the source chord). Bus A carries BOTH, denser than T2. Two "
                       + "cells on the same bus, each well-paired on the monitor.") {
-            doc(baseColours(), scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [])                                 // parent arp
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // mirror the arp → A
-                s.cells[0][2] = Cell(colourID: "teal", buses: [.a], bypassed: true)               // MIDI IN → source chord → A
+            doc(baseMachines(), scene { s in
+                s.cells[0][0] = Cell(machineID: "gold", buses: [])                                 // parent arp
+                s.cells[0][1] = Cell(machineID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // mirror the arp → A
+                s.cells[0][2] = Cell(machineID: "teal", buses: [.a], bypassed: true)               // MIDI IN → source chord → A
             })
         },
 
         Session(id: "T4", title: "fan-out",
                 expect: "Identical simultaneous streams on Synth1 and Synth2. Monitors A and B "
                       + "show duplicate events, each independently well-paired (§2.3).") {
-            doc(baseColours(), scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+            doc(baseMachines(), scene { s in
+                s.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
             })
         },
 
@@ -102,11 +102,11 @@ enum TestSessions {
                       + "(delta §1 reroute) and plays the SOURCE chord — NOT silence; unmute → back to "
                       + "mirroring. Mute/unmute at speed while holding a chord: zero stuck notes "
                       + "(acceptance 30 — the reroute hotspot).") {
-            doc(baseColours(), scene { s in
-                var parent = Cell(colourID: "gold", buses: [])
+            doc(baseMachines(), scene { s in
+                var parent = Cell(machineID: "gold", buses: [])
                 parent.muted = true
                 s.cells[0][0] = parent
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true, inputRow: 0)   // references (muted) row 0
+                s.cells[0][1] = Cell(machineID: "cyan", buses: [.a], bypassed: true, inputRow: 0)   // references (muted) row 0
             })
         },
 
@@ -116,10 +116,10 @@ enum TestSessions {
                       + "bus B → stamped ch 2. Play the keyboard on ch 1: only col 0 sounds. Switch "
                       + "the keyboard to ch 2: col 1 joins. No origin channel survives — every emitted "
                       + "note carries its BUS's channel (A=1, B=2), on both its cable and All.") {
-            var c = baseColours()
+            var c = baseMachines()
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [.a])                       // OMNI in → bus A (ch 1)
-                var azure = Cell(colourID: "azure", buses: [.b])
+                s.cells[0][0] = Cell(machineID: "gold", buses: [.a])                       // OMNI in → bus A (ch 1)
+                var azure = Cell(machineID: "azure", buses: [.b])
                 azure.inputChannel = 2                                                     // filter: only ch-2 input
                 s.cells[1][0] = azure
             })
@@ -130,9 +130,9 @@ enum TestSessions {
                       + "on the same bus+channel. Expect ZERO dropouts in the sustained note, "
                       + "every arp strike re-articulating, and exactly ONE note-off after the "
                       + "last holder releases (§7 clauses 1–4). No off 'holes' mid-step.") {
-            doc(baseColours(), scene { s in
-                s.cells[0][0] = Cell(colourID: "teal", buses: [.a], bypassed: true)   // BYPASS identity: sustains its pool
-                s.cells[0][1] = Cell(colourID: "gold", buses: [.a])                   // same pitch, arped
+            doc(baseMachines(), scene { s in
+                s.cells[0][0] = Cell(machineID: "teal", buses: [.a], bypassed: true)   // BYPASS identity: sustains its pool
+                s.cells[0][1] = Cell(machineID: "gold", buses: [.a])                   // same pitch, arped
             })
         },
 
@@ -143,7 +143,7 @@ enum TestSessions {
                       + "restarts at 0. Col 7 = FREE, pattern length 3 (hold 3 notes) against 8 "
                       + "ticks per column, so successive passes catch different slices; loop the "
                       + "host and the slices stay consistent (no drift).") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("gold")].paramsA.phase = .retrig
             c[idx("azure")].paramsA.phase = .legato
             c[idx("azure")].paramsA.octaves = 2                // 4-note chord × 2 = the 8-note pattern
@@ -151,11 +151,11 @@ enum TestSessions {
             c[idx("mint")].paramsA.phase = .free
             c[idx("mint")].paramsA.octaves = 1                 // length 3 on a 3-note hold: coprime with 8
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [.a])    // RETRIG, column 0
-                s.cells[2][0] = Cell(colourID: "gold", buses: [.a])    // RETRIG, column 2
-                s.cells[4][0] = Cell(colourID: "azure", buses: [.a])   // LEGATO run, columns 4…
-                s.cells[5][0] = Cell(colourID: "azure", buses: [.a])   // …and 5
-                s.cells[7][0] = Cell(colourID: "mint", buses: [.a])    // FREE
+                s.cells[0][0] = Cell(machineID: "gold", buses: [.a])    // RETRIG, column 0
+                s.cells[2][0] = Cell(machineID: "gold", buses: [.a])    // RETRIG, column 2
+                s.cells[4][0] = Cell(machineID: "azure", buses: [.a])   // LEGATO run, columns 4…
+                s.cells[5][0] = Cell(machineID: "azure", buses: [.a])   // …and 5
+                s.cells[7][0] = Cell(machineID: "mint", buses: [.a])    // FREE
             })
         },
 
@@ -167,13 +167,13 @@ enum TestSessions {
                       + "(identity) → bus B. Row 3 references row 1 (grandchild identity) → bus C. A & "
                       + "B share melodic material from ONE arp under different processing; C follows "
                       + "row 1. MUTE row 0 → all three revert to source-derived behaviour at once.") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("azure")].paramsA.octaves = 2
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [])                                  // parent arp
-                s.cells[0][1] = Cell(colourID: "azure", buses: [.a], inputRow: 0)                  // arp-of-arp → A
-                s.cells[0][2] = Cell(colourID: "cyan", buses: [.b], bypassed: true, inputRow: 0)   // mirror parent → B
-                s.cells[0][3] = Cell(colourID: "teal", buses: [.c], bypassed: true, inputRow: 1)   // grandchild of azure → C
+                s.cells[0][0] = Cell(machineID: "gold", buses: [])                                  // parent arp
+                s.cells[0][1] = Cell(machineID: "azure", buses: [.a], inputRow: 0)                  // arp-of-arp → A
+                s.cells[0][2] = Cell(machineID: "cyan", buses: [.b], bypassed: true, inputRow: 0)   // mirror parent → B
+                s.cells[0][3] = Cell(machineID: "teal", buses: [.c], bypassed: true, inputRow: 1)   // grandchild of azure → C
             })
         },
 
@@ -181,12 +181,12 @@ enum TestSessions {
                 expect: "§2.6: transpose accumulates along a reference. Row 0 gold (+5, no bus); row "
                       + "1 cyan identity (+7) references row 0 → bus A sounds +12 semitones above the "
                       + "held notes (one octave up), NOT +7.") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("gold")].transpose = 5
             c[idx("cyan")].transpose = 7
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [])                                 // +5, no bus
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // +7 → +12
+                s.cells[0][0] = Cell(machineID: "gold", buses: [])                                 // +5, no bus
+                s.cells[0][1] = Cell(machineID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // +7 → +12
             })
         },
 
@@ -196,13 +196,13 @@ enum TestSessions {
                       + "downward reference that WORKS (ARP derivation) → bus A. COL 1 = a 2-cell "
                       + "CYCLE (row 0↔row 1 reference each other): nothing can enter → SILENT forever, "
                       + "no hang, no stuck notes. So: arp in column 0, silence in column 1.") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("azure")].paramsA.octaves = 2
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "azure", buses: [.a], inputRow: 1)   // references BELOW → arps row 1
-                s.cells[0][1] = Cell(colourID: "gold", buses: [])                   // MIDI IN source arp
-                s.cells[1][0] = Cell(colourID: "gold", buses: [.a], inputRow: 1)    // cycle: refs row 1…
-                s.cells[1][1] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)    // …which refs row 0 → silent
+                s.cells[0][0] = Cell(machineID: "azure", buses: [.a], inputRow: 1)   // references BELOW → arps row 1
+                s.cells[0][1] = Cell(machineID: "gold", buses: [])                   // MIDI IN source arp
+                s.cells[1][0] = Cell(machineID: "gold", buses: [.a], inputRow: 1)    // cycle: refs row 1…
+                s.cells[1][1] = Cell(machineID: "cyan", buses: [.a], inputRow: 0)    // …which refs row 0 → silent
             })
         },
 
@@ -213,12 +213,12 @@ enum TestSessions {
                       + "chord 4 times per column, staccato, with a velocity ramp (soft→loud, ramp "
                       + "0.8). Distinct from an ARP: no note-cycling — every stab is the full chord. "
                       + "Panel VOICES pulses to chord-size on each stab; EMIT climbs in bursts.") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("cyan")].type = .ratchet
             c[idx("cyan")].paramsA.count = 4                  // 4 stabs per column
             c[idx("cyan")].paramsA.ramp = 0.8                 // audible crescendo across the 4
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "cyan", buses: [.a])   // unfed RATCHET on the source chord
+                s.cells[0][0] = Cell(machineID: "cyan", buses: [.a])   // unfed RATCHET on the source chord
             })
         },
 
@@ -229,13 +229,13 @@ enum TestSessions {
                       + "arp again pass 2, silent pass 3 — repeating every 4 cycles (1 cycle = 16 "
                       + "beats at 1/2). Panel: 'pass' counts up; EMIT rises only on even passes. "
                       + "Click-safe — no stuck notes when it closes each cycle.") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("cyan")].type = .passgate
             c[idx("cyan")].paramsA.passes = [true, false, true, false]     // open on pass 0 & 2
             return doc(c, scene { s in
                 for col in 0..<8 {
-                    s.cells[col][0] = Cell(colourID: "gold", buses: [])                     // arp parent, no bus
-                    s.cells[col][1] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)      // PASSGATE references row 0
+                    s.cells[col][0] = Cell(machineID: "gold", buses: [])                     // arp parent, no bus
+                    s.cells[col][1] = Cell(machineID: "cyan", buses: [.a], inputRow: 0)      // PASSGATE references row 0
                 }
             })
         },
@@ -247,17 +247,17 @@ enum TestSessions {
                       + "CONSISTENT — identical every cycle; loop the host to confirm), col 4 "
                       + "AS-PLAYED (press-order). To hear AS-PLAYED differ from UP, press the notes "
                       + "in a NON-ascending order (e.g. highest first) — it follows your order.") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("orange")].paramsA.pattern = .down
             c[idx("vermilion")].paramsA.pattern = .upDown
             c[idx("wine")].paramsA.pattern = .random
             c[idx("magenta")].paramsA.pattern = .asPlayed
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [.a])        // UP (default)
-                s.cells[1][0] = Cell(colourID: "orange", buses: [.a])      // DOWN
-                s.cells[2][0] = Cell(colourID: "vermilion", buses: [.a])   // UP-DN
-                s.cells[3][0] = Cell(colourID: "wine", buses: [.a])        // RANDOM
-                s.cells[4][0] = Cell(colourID: "magenta", buses: [.a])     // AS-PLAYED
+                s.cells[0][0] = Cell(machineID: "gold", buses: [.a])        // UP (default)
+                s.cells[1][0] = Cell(machineID: "orange", buses: [.a])      // DOWN
+                s.cells[2][0] = Cell(machineID: "vermilion", buses: [.a])   // UP-DN
+                s.cells[3][0] = Cell(machineID: "wine", buses: [.a])        // RANDOM
+                s.cells[4][0] = Cell(machineID: "magenta", buses: [.a])     // AS-PLAYED
             })
         },
 
@@ -267,13 +267,13 @@ enum TestSessions {
                       + "gentle crescendo (velTilt 0.4). Not simultaneous like a plain hold — you "
                       + "hear the notes arrive one after another. DIR up · spread 0.25 · curve 0 "
                       + "(even) · tilt +0.4.") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("cyan")].type = .strum
             c[idx("cyan")].paramsA.strumDir = .up
             c[idx("cyan")].paramsA.spread = 0.25
             c[idx("cyan")].paramsA.velTilt = 0.4
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "cyan", buses: [.a])   // unfed STRUM on the source chord
+                s.cells[0][0] = Cell(machineID: "cyan", buses: [.a])   // unfed STRUM on the source chord
             })
         },
 
@@ -283,12 +283,12 @@ enum TestSessions {
                       + "stuttering arp (~half the notes). DETERMINISTIC: loop the host and the SAME "
                       + "notes drop every pass — not a live dice roll. Panel EMIT climbs ~half as "
                       + "fast as an ungated arp. (off follows on: dropped notes leave no stuck off.)") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("cyan")].type = .chance
             c[idx("cyan")].paramsA.probability = 0.5
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [])                    // arp parent, no bus
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)     // CHANCE references row 0
+                s.cells[0][0] = Cell(machineID: "gold", buses: [])                    // arp parent, no bus
+                s.cells[0][1] = Cell(machineID: "cyan", buses: [.a], inputRow: 0)     // CHANCE references row 0
             })
         },
 
@@ -299,15 +299,15 @@ enum TestSessions {
                       + "voices sit under the root (velScale 0.8). Col 2 gold ARP feeds azure "
                       + "HARMONIZE (+12) → each arp note doubled an octave up. Held to the column "
                       + "boundary; no stuck notes.") {
-            var c = baseColours()
+            var c = baseMachines()
             c[idx("cyan")].type = .harmonize
             c[idx("cyan")].paramsA.harmIntervals = [4, 7, 0]        // major triad
             c[idx("azure")].type = .harmonize
             c[idx("azure")].paramsA.harmIntervals = [12, 0, 0]      // octave doubler
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "cyan", buses: [.a])                   // MIDI IN → harmonize chord
-                s.cells[2][0] = Cell(colourID: "gold", buses: [])                     // arp parent
-                s.cells[2][1] = Cell(colourID: "azure", buses: [.a], inputRow: 0)     // harmonize the arp
+                s.cells[0][0] = Cell(machineID: "cyan", buses: [.a])                   // MIDI IN → harmonize chord
+                s.cells[2][0] = Cell(machineID: "gold", buses: [])                     // arp parent
+                s.cells[2][1] = Cell(machineID: "azure", buses: [.a], inputRow: 0)     // harmonize the arp
             })
         },
     ]
