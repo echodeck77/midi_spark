@@ -60,6 +60,7 @@ enum BuildSceneLogic {
         var playColSteps: [[String?]] = []             // per-column [step] → machineID (nil = a rest); used only when len > 1
         var playColStepChain: [[[ProcessorSlot]]] = [] // per-column [step] → the step machine's RESOLVED chain ([] = passthrough)
         var playColRate: [StepRate?] = []              // per-column pass step rate (captured from the flattened part; nil ⇒ scene default)
+        var rowLaunchAnchor: [Double] = []             // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-ENGINE-row launch anchor in beats (16-wide; 0 ⇒ no anchor). Active ferry → rows 0–7; background ferry t → row 8+t.
         var playColStepRecv: [[Int]] = []              // per-column [step] → the step's OWN input door (the part row it came from); short ⇒ playColRecv
         var playColStepEmit: [[Set<Bus>]] = []         // per-column [step] → the step's OWN output emitters; empty/short ⇒ playColEmit
         // PART AUTOMATION (Paul 2026-09-02): per-machine AUTO lanes. A machine's active lane ramps a param across its
@@ -75,6 +76,17 @@ enum BuildSceneLogic {
     /// A play column's pass length, clamped to [1, Snap.cols] (out-of-range / short array → a single cell). Shared by
     /// the composer + BuildPage's sweep-index helper so the clamp lives in ONE place. (refactor 2026-08-30)
     static func passLen(_ arr: [Int], _ c: Int) -> Int { c < arr.count ? max(1, min(Snap.maxCols, arr[c])) : 1 }   // §E: a play pass can be up to 16 steps
+    // PLAY-FERRY LAUNCH (Paul 2026-09-09, Phase 3): the ferries a NEW launch chokes — every OTHER currently-ON ferry sharing
+    // the launching ferry's non-OFF choke group. Pure so the choke rule is unit-tested. group ≤ 0 (OFF) ⇒ no victims.
+    static func chokeVictims(launching t: Int, group g: Int, parts: [BuildPart?], on: [Bool]) -> [Int] {
+        guard g > 0 else { return [] }
+        var victims: [Int] = []
+        for u in 0..<parts.count where u != t {
+            guard u < on.count, on[u], let p = parts[u], p.chokeGroupResolved == g else { continue }
+            victims.append(u)
+        }
+        return victims
+    }
 
     // MARK: PART AUTOMATION (the AUTO lanes, Paul 2026-09-02) — pure, testable, single source of truth for the band + the bake.
     /// The pre-mapped USEFUL default param per processor (Paul: "length for arp"). "" ⇒ fall to the first param.
@@ -283,6 +295,11 @@ enum BuildSceneLogic {
         }
         if rowStepRate.contains(where: { $0 != nil }) || rowLen.contains(where: { $0 != nil }) {
             s.rowStepRate = rowStepRate; s.rowLen = rowLen
+        }
+        // PLAY-FERRY LAUNCH (Paul 2026-09-09): carry the per-engine-row launch anchors onto the scene (0 ⇒ no anchor,
+        // transport-locked). A non-zero anchor forces the multi-clock path in the Router and phases the row from column 0.
+        if i.rowLaunchAnchor.contains(where: { $0 != 0 }) {
+            s.rowLaunchAnchor = (0..<Snap.rows).map { $0 < i.rowLaunchAnchor.count ? i.rowLaunchAnchor[$0] : 0 }
         }
 
         // PER-ROW LAP (Paul 2026-08-19): each row takes the loop mask of whichever voice's cell landed on it — mirroring

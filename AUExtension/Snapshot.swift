@@ -432,6 +432,7 @@ final class SnapshotBox {
     // RESOLVED arrays are stored (the raw ones were write-only dead — removed 2026-08-25 housekeeping).
     let rowStep: [Double]            // RESOLVED per-row step (always Snap.rows long; falls back to `stepBeats`) — what the render reads
     let rowLength: [Int]             // RESOLVED per-row loop length (always Snap.rows long; falls back to Snap.cols) — what the render reads
+    let rowLaunchAnchor: [Double]    // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-row launch phase anchor in beats. 0 ⇒ no anchor (transport-locked = today, byte-identical). Non-zero ⇒ the row derives its column from (beat − anchor) so a launched ferry plays FROM COLUMN 0; a non-zero anchor forces the multi-clock path + arms the row silent until beat ≥ anchor (quantized start).
     let rowLaneMask: [UInt16]         // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask; empty ⇒ use the EPHEMERAL global lap (laneMask) for every row (GRID tab = today). Non-empty (count Snap.rows) ⇒ each row laps its OWN columns (0 = no loop) — so the BUILD staging + perform grids loop independently.
     // ROW 8 (Paul 2026-08-22): FREEZE + HALFTIME are toggle cells whose LIT state is scene-captured, so they flow through
     // the box (no ephemeral channel). freezeActive = any lit FREEZE cell (sustain sounding notes + pause derivation).
@@ -469,6 +470,7 @@ final class SnapshotBox {
          receiverFile: [SnapFileClip] = [SnapFileClip(), SnapFileClip(), SnapFileClip(), SnapFileClip()],
          macroValues: [Double] = Array(repeating: 0, count: 16),
          rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt16] = [],
+         rowLaunchAnchor: [Double] = [],
          freezeActive: Bool = false, clockScale: Double = 1.0, busRemap: [UInt8] = [0, 1, 2, 3],
          broadcastActive: Bool = false, broadcastAll16: Bool = false) {
         self.freezeActive = freezeActive
@@ -535,6 +537,7 @@ final class SnapshotBox {
         func resolvedLen(_ r: Int) -> Int { (r >= 0 && r < rowLen.count && rowLen[r] >= 1) ? min(Snap.maxCols, rowLen[r]) : Snap.cols }   // CLAMP to maxCols (allow a 16-wide loop); UNSET ⇒ the default bar (Snap.cols = 8, byte-identical)
         self.rowStep = (0..<Snap.rows).map(resolvedStep)
         self.rowLength = (0..<Snap.rows).map(resolvedLen)
+        self.rowLaunchAnchor = (0..<Snap.rows).map { $0 < rowLaunchAnchor.count ? rowLaunchAnchor[$0] : 0 }   // PLAY-FERRY LAUNCH: pad to Snap.rows; unset ⇒ 0 = no anchor (byte-identical)
     }
 }
 

@@ -330,6 +330,7 @@ final class Router {
     private var rowCycBuf = [Double](repeating: 0, count: Snap.rows)     // per-row cycle beats (Lr · Sr)
     private var rowMNowBuf = [Double](repeating: 0, count: Snap.rows)    // per-row musical position
     private var rowPassBuf = [Int](repeating: 0, count: Snap.rows)       // per-row pass index
+    private var rowLaunchArmed = [Bool](repeating: false, count: Snap.rows)   // PLAY-FERRY LAUNCH: this row is armed (quantized start not yet reached) → emit nothing this window
     private var rowHeld = [UInt16](repeating: 0, count: Snap.rows)        // PER-ROW LAP: each row's effective loop mask (box.rowLaneMask[r], or the global ephemeral lap when the scene set none)
     // MULTI-SCENE S2b RESTART-the-pass: a beat offset shifting the WHOLE playing clock so the current moment
     // becomes column 0 ("take it from the top"). 0 = no restart (normal play is byte-identical). Reset on the
@@ -2500,7 +2501,8 @@ final class Router {
         // (today's sound, byte-identical FAST PATH). Non-uniform ⇒ each row has its own step rate/loop length, so its
         // column edge + hold reconcile + ticks all derive on that row's OWN clock (the multi-clock path below).
         let uniformClock = box.rowStep.allSatisfy { $0 * clockScale == S } && box.rowLength.allSatisfy { $0 == Snap.cols }   // HALFTIME scales S + each rowStep alike, so a uniform doc stays on the fast path
-        let uniformFast = uniformClock && !perRowLap   // a per-row lap (BUILD's two grids) forces the per-row path too
+        let anyLaunchAnchor = box.rowLaunchAnchor.contains { $0 != 0 }   // PLAY-FERRY LAUNCH: an anchored ferry needs the per-row clock (its own phase offset), so it can't ride the uniform fast path
+        let uniformFast = uniformClock && !perRowLap && !anyLaunchAnchor   // a per-row lap (BUILD's two grids) or a launch anchor forces the per-row path too
 
         // CLOCK-MODE SWITCH stuck-note fix (Paul 2026-09-01 bug-hunt): a LIVE uniform↔multi flip (a per-part-rate edit,
         // or entering/leaving a per-row lap) moves glide/mod's per-row tracker slot (onlyRow r ↔ nil → glideLastColumn/
@@ -2529,9 +2531,20 @@ final class Router {
             let globalPass = diag.pass
             if prevEffColumn == -1 || prevUniformFast { for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 } }   // a flush edge, OR a live uniform→multi switch (CR-11), re-seeds the per-row trackers so each row reconciles this window
             for r in 0..<Snap.rows {
+                // PLAY-FERRY LAUNCH (Paul 2026-09-09): a non-zero anchor phase-shifts the row so it plays FROM COLUMN 0 at
+                // the launch beat. Anchor 0 ⇒ SYNC/non-ferry (byte-identical, transport-locked). If the (quantized) start
+                // hasn't been reached yet (anchor > beat), the row is ARMED but silent this window (rowEffColBuf = -1 → the
+                // downstream ratchet subsystem skips via col==effCol; the mod/glide + tick loops skip via rowLaunchArmed).
+                let anchor = box.rowLaunchAnchor[r]
+                if anchor != 0 && anchor > beatPos {
+                    rowLaunchArmed[r] = true; prevEffColumnRow[r] = -1
+                    rowSBuf[r] = box.rowStep[r] * clockScale; rowCycBuf[r] = 1; rowMNowBuf[r] = 0; rowEffColBuf[r] = -1; rowPassBuf[r] = 0
+                    continue
+                }
+                rowLaunchArmed[r] = false
                 let Sr = box.rowStep[r] * clockScale   // ROW 8 HALFTIME scales every row's clock too
                 let Lr = box.rowLength[r]
-                let mNr = musicalOf(beatPos, stepBeats: Sr, a: a)
+                let mNr = musicalOf(beatPos - anchor, stepBeats: Sr, a: a)   // PLAY-FERRY LAUNCH: (beat − anchor) → the row's own phase-0 is the launch beat
                 let cycR = Double(Lr) * Sr
                 let posR = mNr - (mNr / cycR).rounded(.down) * cycR
                 let trueColR = min(Lr - 1, max(0, Int(posR / Sr)))
@@ -2543,7 +2556,7 @@ final class Router {
                 let pinnedRow = rowHeld[r] != 0 && (rowHeld[r] & (rowHeld[r] &- 1)) == 0   // exactly one held column = a PINNED continuous row (audition / single play-cell) → sustain-reconcile its legato holds every window
                 prevEffColumnRow[r] = emitColumnTransition(box: box, effCol: effColR, prevEdge: prevEffColumnRow[r], onlyRow: r,
                                                            S: Sr, a: a, mNow: mNr, pass: passR, tempo: tempo,
-                                                           beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                                           beatPos: beatPos - anchor, beatsPerSample: beatsPerSample,   // PLAY-FERRY LAUNCH: the ANCHORED beat, so the transition's strike/close sample offsets stay in the raw window (anchor cancels in the difference) while the phase shifts
                                                            windowStart: windowStart, windowEnd: windowEnd,
                                                            heldActive: rowHeld[r] != 0, pinned: pinnedRow, pool: pool, out: out, diag: &diag)
             }
@@ -2569,9 +2582,11 @@ final class Router {
                             beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
         } else {
             for r in 0..<Snap.rows {
-                emitColumnMod(box: box, column: rowEffColBuf[r], pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
+                if rowLaunchArmed[r] { continue }   // PLAY-FERRY LAUNCH: armed-not-started rows emit nothing (rowEffColBuf = -1)
+                let rowBeat = beatPos - box.rowLaunchAnchor[r]   // PLAY-FERRY LAUNCH: anchored beat (anchor cancels in the offset math; 0 ⇒ raw)
+                emitColumnMod(box: box, column: rowEffColBuf[r], pool: pool, beatPos: rowBeat, windowBeats: modWindowBeats,
                               beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
-                emitColumnGlide(box: box, column: rowEffColBuf[r], pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
+                emitColumnGlide(box: box, column: rowEffColBuf[r], pool: pool, beatPos: rowBeat, windowBeats: modWindowBeats,
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
             }
         }
@@ -2607,11 +2622,13 @@ final class Router {
         } else {
             let globalPass = diag.pass   // per-row ticks run on each row's OWN clock (buffers filled in the transition loop)
             for r in 0..<Snap.rows {
+                if rowLaunchArmed[r] { continue }   // PLAY-FERRY LAUNCH: armed-not-started rows emit no ticks (rowEffColBuf = -1)
                 diag.pass = rowPassBuf[r]
+                let rowBeat = beatPos - box.rowLaunchAnchor[r]   // PLAY-FERRY LAUNCH: anchored beat so the arp/tick PHASE shifts with the launch (offset math cancels the anchor); 0 ⇒ raw
                 emitTickRow(r: r, effColumn: rowEffColBuf[r], S: rowSBuf[r], cycleBeats: rowCycBuf[r], windowBeats: windowBeats,
-                            box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
+                            box: box, pool: pool, beatPos: rowBeat, windowStart: windowStart, windowEnd: windowEnd,
                             beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
-                emitGlideDriven(box: box, column: rowEffColBuf[r], row: r, beatPos: beatPos, windowBeats: windowBeats,   // §7① per-row clock
+                emitGlideDriven(box: box, column: rowEffColBuf[r], row: r, beatPos: rowBeat, windowBeats: windowBeats,   // §7① per-row clock
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: rowSBuf[r], a: a, out: out)
             }
             diag.pass = globalPass

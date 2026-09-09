@@ -1725,6 +1725,10 @@ extension DiagView {
                 guard let newID, newID != buildEditorSnapCid else { return }
                 buildEditorSnapshot = selectedMachineChain(); buildEditorSnapCid = newID
             }
+        } else if let a = buildActiveFerry, a >= 0, a < buildFerryParts.count, buildFerryParts[a] != nil {
+            // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): with a part on the bench and no processor open, this space is the
+            // selected ferry's launch/identity panel — until a processor is chosen (then buildProcessorPanel takes over above).
+            roomsFerryLaunchPanel(a).frame(width: w, height: h).offset(x: x, y: y)
         } else {
             roomsCardPlaceholder(empty: chain.isEmpty).frame(width: w, height: h).offset(x: x, y: y)
         }
@@ -1743,6 +1747,92 @@ extension DiagView {
                         .multilineTextAlignment(.center)
                 }.padding(12)
             )
+    }
+    // ── PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09, Docs/PLAN-play-ferry-launch.md) — the empty-card panel for the
+    // selected part's ferry: identity (name · colour) + how it fires when performed (playback · trigger · start · choke).
+    // Phase 1 = STORE the settings only (no engine yet). Edits write buildFerryParts[t] directly (its source of truth);
+    // buildCaptureBenchPart preserves these across a bench write-back, and buildCapturePlayGrid persists them.
+    @ViewBuilder func roomsFerryLaunchPanel(_ t: Int) -> some View {
+        let p = (t >= 0 && t < buildFerryParts.count ? buildFerryParts[t] : nil) ?? BuildPart()
+        let starts: [FerryStart] = [.sync, .instant, .step, .beat, .pass]
+        RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "slider.horizontal.3").font(.system(size: 12, weight: .bold)).foregroundColor(buildCyan)
+                            Text("FERRY SETTINGS").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.7))
+                            Spacer()
+                        }
+                        launchLabel("NAME")
+                        TextField("unnamed", text: Binding(
+                            get: { (t < buildFerryParts.count ? buildFerryParts[t]?.ferryName : nil) ?? "" },
+                            set: { v in buildEditFerry(t, publish: false) { $0.ferryName = v.isEmpty ? nil : v } }))
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced)).textFieldStyle(.plain)
+                            .foregroundColor(.white).padding(.horizontal, 8).frame(height: 30)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+                        launchLabel("COLOUR")
+                        roomsFerryHueRow(t)
+                        launchSeg("PLAYBACK", ["LOOP", "ONE-SHOT"], sel: p.launchPlaybackResolved == .oneShot ? 1 : 0) { i in
+                            buildEditFerry(t) { $0.launchPlayback = i == 1 ? .oneShot : .loop } }
+                        launchSeg("TRIGGER", ["LATCH", "SPRING"], sel: p.launchTriggerResolved == .spring ? 1 : 0) { i in
+                            buildEditFerry(t) { $0.launchTrigger = i == 1 ? .spring : .latch } }
+                        launchSeg("START", ["SYNC", "NOW", "STEP", "BEAT", "PASS"], sel: starts.firstIndex(of: p.launchStartResolved) ?? 0) { i in
+                            buildEditFerry(t) { $0.launchStart = starts[i] } }
+                        launchSeg("CHOKE", ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"], sel: p.chokeGroupResolved) { i in
+                            buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
+                    }.padding(12)
+                }
+            )
+    }
+    // Mutate the selected ferry's stored part (its source of truth). `publish:false` for the name field (display-only, avoids
+    // a republish per keystroke); the launch selectors publish so downstream (the Phase-2 engine) will pick them up.
+    func buildEditFerry(_ t: Int, publish: Bool = true, _ mut: (inout BuildPart) -> Void) {
+        guard t >= 0, t < buildFerryParts.count, var p = buildFerryParts[t] else { return }
+        mut(&p); buildFerryParts[t] = p
+        if publish { buildPublishScene() }
+    }
+    @ViewBuilder private func launchLabel(_ s: String) -> some View {
+        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.4))
+    }
+    @ViewBuilder private func launchSeg(_ label: String, _ options: [String], sel: Int, _ onPick: @escaping (Int) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            launchLabel(label)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in
+                        let on = idx == sel
+                        Text(opt).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(on ? .black : .white.opacity(0.6))
+                            .padding(.horizontal, 9).frame(height: 26)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : Color.white.opacity(0.06)))
+                            .contentShape(Rectangle()).onTapGesture { onPick(idx) }
+                    }
+                }
+            }
+        }
+    }
+    // The colour picker: AUTO (nil ⇒ the ferry's position default) + the 16 palette hues. Horizontal scroll so it never overflows.
+    @ViewBuilder private func roomsFerryHueRow(_ t: Int) -> some View {
+        let cur = t < buildFerryParts.count ? buildFerryParts[t]?.ferryHue : nil
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06))
+                    Text("AUTO").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                }
+                .frame(width: 36, height: 26)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(cur == nil ? buildCyan : Color.clear, lineWidth: 2))
+                .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = nil } }
+                ForEach(Array(machineHexes.enumerated()), id: \.offset) { _, hex in
+                    RoundedRectangle(cornerRadius: 5).fill(Color(hex: hex))
+                        .frame(width: 26, height: 26)
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(cur == hex ? Color.white : Color.clear, lineWidth: 2))
+                        .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = hex } }
+                }
+            }
+        }
     }
     // ── THE NAV SLIVERS — thin navigation bars that are a COMPONENT OF THE GRID BOX (Paul 2026-08-28). The ▲PLAY sliver
     // sits directly above the top-row selector buttons (1/3 cell tall, spanning cols 1–8); the SEAM sliver sits beside
@@ -1794,7 +1884,10 @@ extension DiagView {
             let part = t < buildFerryParts.count ? buildFerryParts[t] : nil
             let set = part != nil
             let repId: String? = part.flatMap { p in p.selID ?? p.stagingCells.flatMap({ $0 }).compactMap({ $0 }).first }   // the part's representative machine (for the ferry's identity hue)
-            let mHue = repId.flatMap { machineHue($0) } ?? Color(hex: machineHexes[t % machineHexes.count])
+            // PLAY-FERRY LAUNCH (Paul 2026-09-09): a per-ferry COLOUR override wins over the representative-machine hue; nil ⇒ the old position/machine default.
+            let mHue = part?.ferryHue.map { Color(hex: $0) } ?? repId.flatMap { machineHue($0) } ?? Color(hex: machineHexes[t % machineHexes.count])
+            let ferryName = part?.ferryName
+            let spring = part?.launchTriggerResolved == .spring   // PLAY-FERRY LAUNCH (Phase 2b): SPRING = momentary (hold-to-play); LATCH = tap-toggle (today)
             let eHue = emitterHue(part?.emitters ?? [.a])
             let on = t < buildPlayColOn.count && buildPlayColOn[t]        // this part is sounding
             let focused = buildActiveFerry == t                          // this part is the one loaded on the bench
@@ -1820,9 +1913,16 @@ extension DiagView {
                     .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
                     .overlay { Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) }   // PLAY/STOP (empty shows "+")
                     .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
+                    .overlay(alignment: .bottom) { if let nm = ferryName, !nm.isEmpty {   // PLAY-FERRY LAUNCH (2026-09-09): the ferry's name, if set
+                        Text(nm).font(.system(size: min(9, playH * 0.3), weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+                            .foregroundColor(.white.opacity(0.9)).padding(.horizontal, 3).padding(.bottom, 2) } }
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onTapGesture { if set { buildToggleFerryPlay(t) } else { buildActivateFerry(t) } }   // empty PLAY tap → open the browser too
+                    .onTapGesture { if set { if !spring { buildToggleFerryPlay(t) } } else { buildActivateFerry(t) } }   // LATCH toggles on tap; SPRING is handled by the press/release drag below; empty PLAY tap → open the browser
+                    .simultaneousGesture(   // PLAY-FERRY LAUNCH (Phase 2b): SPRING = momentary — press starts, release stops. Guarded to populated SPRING ferries so LATCH/empty ferries keep the tap + seed gestures.
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in guard set, spring else { return }; if !ferrySpringPressing.contains(t) { ferrySpringPressing.insert(t); buildSetFerryPlay(t, on: true) } }
+                            .onEnded { _ in guard set, spring else { return }; ferrySpringPressing.remove(t); buildSetFerryPlay(t, on: false) })
                     .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
                                         pressing: { p in if !set { buildGridSelStampPressing(t + 8, p) } },
                                         perform: { if !set && roomsRoom == .select { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT → seed a part from the selected chain
@@ -1881,8 +1981,16 @@ extension DiagView {
     // flatten (its mono line). Several may be on at once: one staging (the active) + up to seven play-layer.
     func buildToggleFerryPlay(_ t: Int) {
         guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
-        let willOn = !(t < buildPlayColOn.count && buildPlayColOn[t])
+        buildSetFerryPlay(t, on: !(t < buildPlayColOn.count && buildPlayColOn[t]))
+    }
+    // FORCE a ferry on/off (the toggle, spring press/release, one-shot expiry, and bulk play-all all route through this so the
+    // launch anchor is stamped/cleared consistently). PLAY-FERRY LAUNCH (Paul 2026-09-09).
+    func buildSetFerryPlay(_ t: Int, on willOn: Bool) {
+        guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
+        if t < buildPlayColOn.count, buildPlayColOn[t] == willOn { return }   // no-op if already in that state (spring onChanged fires repeatedly)
+        if willOn { buildChokeGroup(t) }   // PLAY-FERRY LAUNCH (Phase 3): launching one ferry stops the others in its choke group
         if t < buildPlayColOn.count { buildPlayColOn[t] = willOn }
+        buildStampFerryLaunch(t, on: willOn)                                  // PLAY-FERRY LAUNCH: anchor (from-top/quantized) on start, clear on stop
         if t == buildActiveFerry {
             buildVoiceOwner = willOn ? .part : .none                          // active → the STAGING sequencer (the visible part grid)
             buildClearFerryPlayback(t)                                        // …never also on the play layer (no double-audition)
@@ -1891,6 +1999,41 @@ extension DiagView {
         }
         if willOn { au?.clearMachineSolo(); buildHostHalted = false }
         buildPublishScene()
+    }
+    // CHOKE GROUP (Paul 2026-09-09, Phase 3): launching ferry `t` stops every OTHER currently-ON ferry that shares its non-OFF
+    // choke group (mutually-exclusive launch — a drum-fill group, an exclusive bassline, etc.). Victims are resolved BEFORE any
+    // state changes (pure chokeVictims), then each stopped via the normal stop path. group OFF (0/nil) ⇒ nothing chokes.
+    func buildChokeGroup(_ t: Int) {
+        guard t >= 0, t < buildFerryParts.count, let g = buildFerryParts[t]?.chokeGroup, g > 0 else { return }
+        let victims = BuildSceneLogic.chokeVictims(launching: t, group: g, parts: buildFerryParts, on: buildPlayColOn)
+        for u in victims { buildSetFerryPlay(u, on: false) }   // depth-1: a victim's stop never chokes (choke fires on launch only)
+    }
+    // ONE-SHOT expiry (Paul 2026-09-09, Phase 2b): a ferry whose PLAYBACK is ONE-SHOT stops itself one part-length after its
+    // launch. Driven by the 4 Hz poll (so the stop lands within a poll of the pass end — the ≤poll-granularity tail is a v1
+    // limit; a sample-accurate engine stop is a follow-up). `beat` = the effective (host/free-run) beat. Reuses the proven
+    // stop path (buildSetFerryPlay off), so a legato part's notes close cleanly like any ferry stop.
+    func buildTickFerryOneShot(_ beat: Double) {
+        for t in 0..<8 where t < buildPlayColOn.count && buildPlayColOn[t] {
+            guard let p = buildFerryParts[t], p.launchPlaybackResolved == .oneShot, t < launchBeat.count else { continue }
+            let step = p.rate?.beats ?? stepBeats
+            let expiry = launchBeat[t] + Double(max(1, p.length ?? Snap.cols)) * step
+            if beat >= expiry { buildSetFerryPlay(t, on: false) }
+        }
+    }
+    // PLAY-FERRY LAUNCH (Paul 2026-09-09): stamp/clear a ferry's launch anchor. SYNC ⇒ 0 (transport-locked, today). INSTANT/
+    // STEP/BEAT/PASS ⇒ the from-top phase anchor at that boundary (pure ferryLaunchAnchor). The beat is the tight extrapolated
+    // live beat (host or free-run) so INSTANT plays the part from column 0 at the tap. launchBeat mirrors it (one-shot expiry, 2b).
+    func buildStampFerryLaunch(_ t: Int, on: Bool) {
+        guard t >= 0, t < 8, t < launchAnchor.count else { return }
+        if on, let p = buildFerryParts[t] {
+            let step = p.rate?.beats ?? stepBeats
+            let passBeats = Double(max(1, p.length ?? Snap.cols)) * step
+            let beat = max(0, meters.beatAnchor + Date().timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0)
+            launchAnchor[t] = ferryLaunchAnchor(beat: beat, start: p.launchStartResolved, stepBeats: step, passBeats: passBeats)
+            launchBeat[t] = beat
+        } else {
+            launchAnchor[t] = 0; launchBeat[t] = 0
+        }
     }
     // Clear ferry `t`'s play-layer playback line — when it stops, OR when it becomes the ACTIVE ferry (then it plays via
     // the staging sequencer, so its play-layer row must be empty). Resets the pass to the inert single-cell default.
@@ -2926,7 +3069,11 @@ extension DiagView {
     // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
     func buildTogglePlayGrid() {
         let anyOn = buildPlayColOn.contains(true)
-        for c in 0..<8 { buildPlayColOn[c] = anyOn ? false : buildPlayColHasContent(c) }
+        for c in 0..<8 {
+            let willOn = anyOn ? false : buildPlayColHasContent(c)
+            buildPlayColOn[c] = willOn
+            if c < buildFerryParts.count, buildFerryParts[c] != nil { buildStampFerryLaunch(c, on: willOn) }   // PLAY-FERRY LAUNCH: stamp/clear each ferry's anchor on bulk play-all so an INSTANT/quantized ferry launches from its top too
+        }
         if !anyOn { buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false }   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02) + re-enables free-run after a host halt
         buildPublishScene()
     }
@@ -3916,6 +4063,14 @@ extension DiagView {
         input.playColLen = buildPlayColLen
         input.playColSteps = buildPlayColSteps
         input.playColRate = buildPlayColRate
+        // PLAY-FERRY LAUNCH (Paul 2026-09-09): map each ON ferry's per-ferry anchor to its ENGINE row(s) — the active ferry
+        // plays via staging (rows 0–7), a background ferry t via the play layer (row 8+t) — so the anchor follows the ferry.
+        var launchRows = [Double](repeating: 0, count: Snap.rows)
+        for t in 0..<8 where t < buildPlayColOn.count && buildPlayColOn[t] && t < launchAnchor.count && launchAnchor[t] != 0 {
+            if t == buildActiveFerry { for r in 0..<8 { launchRows[r] = launchAnchor[t] } }
+            else { launchRows[Snap.playLayerRowBase + t] = launchAnchor[t] }
+        }
+        input.rowLaunchAnchor = launchRows
         input.playColStepRecv = buildPlayColStepRecv
         input.playColStepEmit = buildPlayColStepEmit
         input.playColStepChain = (0..<8).map { c -> [[ProcessorSlot]] in
@@ -4247,6 +4402,14 @@ extension DiagView {
         p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots
         p.rowReceiver = buildRowReceiver; p.rowEmitters = buildRowEmitters
         p.rate = buildPartRate; p.length = buildPartLen; p.deployed = false
+        // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): these aren't bench @State — carry them from the active ferry's stored
+        // part so a bench write-back (this fresh capture) never wipes name/hue/launch. Every capture site captures the ACTIVE
+        // ferry, so buildFerryParts[buildActiveFerry] holds the authoritative launch fields (the panel edits it directly).
+        if let a = buildActiveFerry, a >= 0, a < buildFerryParts.count, let cur = buildFerryParts[a] {
+            p.ferryName = cur.ferryName; p.ferryHue = cur.ferryHue
+            p.launchPlayback = cur.launchPlayback; p.launchTrigger = cur.launchTrigger
+            p.launchStart = cur.launchStart; p.chokeGroup = cur.chokeGroup
+        }
         return p
     }
 

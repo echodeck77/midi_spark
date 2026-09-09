@@ -722,6 +722,29 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(fast, slow * 3, "the fast row (16× the step rate) strikes far more often than the slow row")
         assertNothingLeftSounding(e)                              // and no stuck notes across the mixed-tempo edges
     }
+    // PLAY-FERRY LAUNCH (Paul 2026-09-09): a per-row launch ANCHOR arms the row silent until its launch beat, then phases it
+    // from column 0. Row 0 is SYNC (anchor 0 ⇒ transport-locked, sounds from the start); row 1 is anchored at beat 4 ⇒ ARMED
+    // (silent) until beat 4, then plays. Proves the anchor forces the multi-clock path + the arm-guard + eventual play.
+    func testFerryLaunchAnchorArmsRowUntilItsStartBeat() {
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { s in
+            for col in 0..<8 {
+                s.cells[col][0] = Cell(machineID: "gold", buses: [.a])     // SYNC row (anchor 0) — sounds from beat 0
+                s.cells[col][1] = Cell(machineID: "orange", buses: [.b])   // anchored row — armed until beat 4
+            }
+            var anchor = [Double](repeating: 0, count: Snap.rows); anchor[1] = 4.0
+            s.rowLaunchAnchor = anchor
+        }
+        let before = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 3, into: before)               // beats 0…3 — before the anchored row's launch
+        XCTAssertGreaterThan(before.ons.filter { $0.cable == 1 }.count, 0, "the SYNC row sounds from the start")
+        XCTAssertEqual(before.ons.filter { $0.cable == 2 }.count, 0, "the anchored row is ARMED (silent) until its launch beat")
+        assertNothingLeftSounding(before)
+        let after = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 8, into: after)                // beats 0…8 — crosses beat 4
+        XCTAssertGreaterThan(after.ons.filter { $0.cable == 2 }.count, 0, "past its launch beat, the anchored row plays")
+        assertNothingLeftSounding(after)
+    }
     // PER-ROW LAP (Paul 2026-08-19): each grid ROW loops its OWN columns (the BUILD staging + perform grids loop
     // independently). Row 0's only cell lives in column 0 and laps column 0; row 1's only cell lives in column 4 and
     // laps column 4. With ONE global lap only a single column could loop, silencing one cell — the per-row lap lets

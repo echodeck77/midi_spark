@@ -219,6 +219,13 @@ struct DiagView: View {
     // buildPlayColEmit = the door + emitters copied from the source at ferry time. (buildPlayPlaying is now a computed
     // "any column on", in the BuildPage extension.)
     @State var buildPlayColOn: [Bool] = Array(repeating: false, count: 8)
+    // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-FERRY launch anchor beat (8-wide; 0 = no anchor). Stamped on launch
+    // (buildToggleFerryPlay), cleared on stop; buildPublishScene maps each ON ferry to its engine row(s) — active → rows
+    // 0–7, background t → row 8+t — so the anchor FOLLOWS the ferry across activation. Runtime only (not persisted).
+    // `launchBeat` mirrors the un-anchored launch beat (for the Phase-2b one-shot expiry).
+    @State var launchAnchor: [Double] = Array(repeating: 0, count: 8)
+    @State var launchBeat: [Double] = Array(repeating: 0, count: 8)
+    @State var ferrySpringPressing: Set<Int> = []   // PLAY-FERRY LAUNCH (Phase 2b): ferries currently held under a SPRING (momentary) press
     @State var buildPlayColRecv: [Int] = Array(repeating: 0, count: 8)
     @State var buildPlayColEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
     // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column can hold an N-step pass. len[c] = 1 ⇒ the single
@@ -817,6 +824,7 @@ struct DiagView: View {
             // nothing here changes, so the grid is quiescent; while PLAYING only the playhead fields move.
             let nd = au.kernelDiagnostics()
             meters.anchorBeat(nd.beat, tempo: nd.tempo, at: Date())       // BEAT clock (4 Hz) → the @State-held telemetry; the playheads extrapolate from it at 30 fps, so no body re-run for the beat
+            buildTickFerryOneShot(nd.beat)                                // PLAY-FERRY LAUNCH (Phase 2b): stop a ONE-SHOT ferry one part-length after its launch (≤ one poll of the pass end)
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
                 if holdLatch { setHold(false) }
                 // LOOP PERSISTS across a transport stop (user 2026-08-06): keep the selected columns (their LOOP

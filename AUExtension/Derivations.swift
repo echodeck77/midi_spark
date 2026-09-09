@@ -1522,6 +1522,27 @@ func tapExpiryBeat(onsetBeat: Double, duration: OnTapFor, stepBeats: Double) -> 
     }
 }
 
+/// PLAY-FERRY LAUNCH (Paul 2026-09-09, Docs/PLAN-play-ferry-launch.md): the beat a launched ferry ANCHORS to for its
+/// START mode. SYNC ⇒ 0 (no anchor — the row stays transport-locked, today's behaviour). INSTANT ⇒ the tap beat itself
+/// (off-grid, from the part's top on tap). STEP/BEAT/PASS ⇒ the NEXT such boundary at or after the tap (quantized launch).
+/// The engine derives the row's column from (beat − anchor), so a non-zero anchor plays the part from column 0.
+/// `passBeats` = the part's loop length × its step (the PASS quantize unit). Pure so the launch math is unit-tested.
+func ferryLaunchAnchor(beat: Double, start: FerryStart, stepBeats: Double, passBeats: Double) -> Double {
+    switch start {
+    case .sync:    return 0
+    case .instant: return max(0, beat)
+    case .step:    return ferryNextBoundary(beat, max(0.01, stepBeats))
+    case .beat:    return ferryNextBoundary(beat, 1.0)
+    case .pass:    return ferryNextBoundary(beat, max(max(0.01, stepBeats), passBeats))
+    }
+}
+/// The next multiple of `unit` at or after `b` (a tap exactly on a boundary launches now, not a whole unit later).
+private func ferryNextBoundary(_ b: Double, _ unit: Double) -> Double {
+    guard unit > 0 else { return b }
+    let floorB = (b / unit).rounded(.down) * unit
+    return floorB >= b - 1e-9 ? floorB : floorB + unit
+}
+
 /// One ON-TAP overlay: a timed, ephemeral flip on a cell (never a document write). `cell` = col*8+row;
 /// `busMask` carries the emitter bits (used by SOLO). Pure value type so the overlay logic stays testable.
 enum TapKind { case alt, mute, solo }

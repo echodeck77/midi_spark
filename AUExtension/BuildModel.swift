@@ -6,6 +6,14 @@ import Foundation
 // A PART — the workshop-level unit of the BUILD lifecycle (unassigned → built → staged → deployed). It owns its own
 // staging grid + variations, its cast selection, and its PART-OWNED I/O (one input door + a set of output emitters,
 // shared across every machine/cell of the part). `deployed` christens it (PART n) on first assignment to the play grid.
+// PLAY-FERRY LAUNCH (Paul 2026-09-09, Docs/PLAN-play-ferry-launch.md): a ferry IS a part, so its launch behaviour lives
+// on BuildPart. Two orthogonal axes (playback · trigger) + a start mode + a choke group. String-raw for stable persistence.
+enum FerryPlayback: String, Codable, Equatable { case loop, oneShot }   // stop at part end vs repeat (nil ⇒ .loop)
+enum FerryTrigger:  String, Codable, Equatable { case latch, spring }   // tap-on/tap-off vs hold-to-play (nil ⇒ .latch)
+// SYNC = stay locked to the transport (today's behaviour, NO launch anchor). The rest launch the part FROM ITS TOP at that
+// boundary via a per-ferry launch anchor (INSTANT = the tap moment = off-grid). Boundary math borrows Derivations.tapOnsetBeat.
+enum FerryStart:    String, Codable, Equatable { case sync, instant, step, beat, pass }
+
 struct BuildPart: Codable, Equatable {
     // §E 16-STEP (Paul 2026-09-02): the STAGING columns are now maxCols(16)-wide (was 8). `length` is the part's active
     // width/loop 1…16 (nil ⇒ the 8-wide default → byte-identical). Old 8-col saves decode short + are padded on restore.
@@ -27,6 +35,20 @@ struct BuildPart: Codable, Equatable {
     // independent tempos. Additive-Optional (old parts decode nil ⇒ the scene default rate + a full 8).
     var rate: StepRate? = nil         // the part's step rate (nil ⇒ the scene default)
     var length: Int? = nil            // the part's LOOP length in columns 1…8 (nil ⇒ 8; < 8 = a shorter loop, a future step)
+    // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): per-ferry identity + how it fires when performed. Additive-Optional →
+    // old parts decode nil ⇒ today's behaviour (unnamed · position hue · LOOP · LATCH · SYNC · no choke). These ride
+    // BuildPlayGridData.parts persistence for free. The launch ANCHOR itself is runtime (@State), NOT stored here.
+    var ferryName: String? = nil            // per-ferry label (nil ⇒ unnamed)
+    var ferryHue: UInt32? = nil             // display-hue override (nil ⇒ the position default playHexes[col])
+    var launchPlayback: FerryPlayback? = nil   // .oneShot | .loop  (nil ⇒ .loop)
+    var launchTrigger:  FerryTrigger?  = nil   // .spring  | .latch (nil ⇒ .latch)
+    var launchStart:    FerryStart?    = nil   // .sync/.instant/.step/.beat/.pass (nil ⇒ .sync = transport-locked)
+    var chokeGroup: Int? = nil              // 0/nil = OFF · 1…8 = mutually-exclusive launch group
+    // nil-safe resolvers (the engine + UI read these so a nil never means "special-case")
+    var launchPlaybackResolved: FerryPlayback { launchPlayback ?? .loop }
+    var launchTriggerResolved:  FerryTrigger  { launchTrigger  ?? .latch }
+    var launchStartResolved:    FerryStart    { launchStart    ?? .sync }
+    var chokeGroupResolved: Int { chokeGroup ?? 0 }   // 0 = OFF
 }
 
 // PART AUTOMATION (Paul 2026-09-02) — the AUTO lanes. Per machine, FIVE lanes; one is ACTIVE at a time (activeLane,
@@ -172,6 +194,12 @@ extension BuildPart {
         deployed     = try c.decodeIfPresent(Bool.self, forKey: .deployed) ?? false
         rate         = try c.decodeIfPresent(StepRate.self, forKey: .rate)
         length       = try c.decodeIfPresent(Int.self, forKey: .length)
+        ferryName      = try c.decodeIfPresent(String.self, forKey: .ferryName)                 // PLAY-FERRY LAUNCH (2026-09-09); nil = today
+        ferryHue       = try c.decodeIfPresent(UInt32.self, forKey: .ferryHue)
+        launchPlayback = try c.decodeIfPresent(FerryPlayback.self, forKey: .launchPlayback)
+        launchTrigger  = try c.decodeIfPresent(FerryTrigger.self, forKey: .launchTrigger)
+        launchStart    = try c.decodeIfPresent(FerryStart.self, forKey: .launchStart)
+        chokeGroup     = try c.decodeIfPresent(Int.self, forKey: .chokeGroup)
     }
 }
 extension BuildUnassignedData {
