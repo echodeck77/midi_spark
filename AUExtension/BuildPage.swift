@@ -1988,6 +1988,7 @@ extension DiagView {
     func buildSetFerryPlay(_ t: Int, on willOn: Bool) {
         guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
         if t < buildPlayColOn.count, buildPlayColOn[t] == willOn { return }   // no-op if already in that state (spring onChanged fires repeatedly)
+        if willOn { buildChokeGroup(t) }   // PLAY-FERRY LAUNCH (Phase 3): launching one ferry stops the others in its choke group
         if t < buildPlayColOn.count { buildPlayColOn[t] = willOn }
         buildStampFerryLaunch(t, on: willOn)                                  // PLAY-FERRY LAUNCH: anchor (from-top/quantized) on start, clear on stop
         if t == buildActiveFerry {
@@ -1998,6 +1999,14 @@ extension DiagView {
         }
         if willOn { au?.clearMachineSolo(); buildHostHalted = false }
         buildPublishScene()
+    }
+    // CHOKE GROUP (Paul 2026-09-09, Phase 3): launching ferry `t` stops every OTHER currently-ON ferry that shares its non-OFF
+    // choke group (mutually-exclusive launch — a drum-fill group, an exclusive bassline, etc.). Victims are resolved BEFORE any
+    // state changes (pure chokeVictims), then each stopped via the normal stop path. group OFF (0/nil) ⇒ nothing chokes.
+    func buildChokeGroup(_ t: Int) {
+        guard t >= 0, t < buildFerryParts.count, let g = buildFerryParts[t]?.chokeGroup, g > 0 else { return }
+        let victims = BuildSceneLogic.chokeVictims(launching: t, group: g, parts: buildFerryParts, on: buildPlayColOn)
+        for u in victims { buildSetFerryPlay(u, on: false) }   // depth-1: a victim's stop never chokes (choke fires on launch only)
     }
     // ONE-SHOT expiry (Paul 2026-09-09, Phase 2b): a ferry whose PLAYBACK is ONE-SHOT stops itself one part-length after its
     // launch. Driven by the 4 Hz poll (so the stop lands within a poll of the pass end — the ≤poll-granularity tail is a v1

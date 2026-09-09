@@ -76,6 +76,17 @@ enum BuildSceneLogic {
     /// A play column's pass length, clamped to [1, Snap.cols] (out-of-range / short array → a single cell). Shared by
     /// the composer + BuildPage's sweep-index helper so the clamp lives in ONE place. (refactor 2026-08-30)
     static func passLen(_ arr: [Int], _ c: Int) -> Int { c < arr.count ? max(1, min(Snap.maxCols, arr[c])) : 1 }   // §E: a play pass can be up to 16 steps
+    // PLAY-FERRY LAUNCH (Paul 2026-09-09, Phase 3): the ferries a NEW launch chokes — every OTHER currently-ON ferry sharing
+    // the launching ferry's non-OFF choke group. Pure so the choke rule is unit-tested. group ≤ 0 (OFF) ⇒ no victims.
+    static func chokeVictims(launching t: Int, group g: Int, parts: [BuildPart?], on: [Bool]) -> [Int] {
+        guard g > 0 else { return [] }
+        var victims: [Int] = []
+        for u in 0..<parts.count where u != t {
+            guard u < on.count, on[u], let p = parts[u], p.chokeGroupResolved == g else { continue }
+            victims.append(u)
+        }
+        return victims
+    }
 
     // MARK: PART AUTOMATION (the AUTO lanes, Paul 2026-09-02) — pure, testable, single source of truth for the band + the bake.
     /// The pre-mapped USEFUL default param per processor (Paul: "length for arp"). "" ⇒ fall to the first param.

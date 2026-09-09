@@ -158,8 +158,9 @@ render a new `roomsFerryLaunchPanel(ferry:)` in place of / above `roomsCardPlace
   stop, the spring press/release gesture. RouterTests: anchored row plays from col 0;
   SYNC == byte-identical to today; one-shot stops after one pass, no stuck notes; free-run
   anchor. Device ear.
-- **Phase 3 — choke groups.** `chokeVictims` + the cutoff in `buildToggleFerryPlay`.
-  Unit test + device.
+- **Phase 3 — DONE:** choke groups. Pure `BuildSceneLogic.chokeVictims` + `buildChokeGroup`
+  called from `buildSetFerryPlay` on launch (stops other ON ferries in the same non-OFF group).
+  +1 unit test. iOS builds, macOS green. FEATURE COMPLETE — device-feel/ear owed on the whole.
 
 ## Decisions resolved (Paul, 2026-09-09)
 

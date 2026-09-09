@@ -846,4 +846,21 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(gback.partsResolved[4]?.ferryName, "BASSLINE")
         XCTAssertEqual(gback.partsResolved[4]?.launchStart, .instant)
     }
+
+    // PLAY-FERRY LAUNCH (Paul 2026-09-09, Phase 3): launching a ferry chokes only the OTHER currently-ON ferries sharing its
+    // non-OFF choke group — not itself, not OFF ferries, not other groups, not the OFF (0/nil) group.
+    func testChokeVictimsAreOtherOnFerriesInTheSameGroup() {
+        func p(_ g: Int?) -> BuildPart { var x = BuildPart(); x.chokeGroup = g; return x }
+        var parts = Array(repeating: BuildPart?.none, count: 8)
+        parts[0] = p(1)    // the launching ferry (group 1)
+        parts[1] = p(1)    // same group, ON  → choked
+        parts[2] = p(1)    // same group, OFF → not choked
+        parts[3] = p(2)    // other group, ON → not choked
+        parts[4] = p(nil)  // OFF group, ON   → not choked
+        let on = [true, true, false, true, true, false, false, false]
+        XCTAssertEqual(BuildSceneLogic.chokeVictims(launching: 0, group: 1, parts: parts, on: on), [1],
+                       "only OTHER, ON, same-non-OFF-group ferries are choked")
+        XCTAssertEqual(BuildSceneLogic.chokeVictims(launching: 4, group: 0, parts: parts, on: on), [],
+                       "an OFF (0) choke group chokes nothing")
+    }
 }
