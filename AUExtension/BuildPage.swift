@@ -1933,8 +1933,8 @@ extension DiagView {
             let eHue = emitterHue(part?.emitters ?? [.a])
             let on = t < buildPlayColOn.count && buildPlayColOn[t]        // this part is sounding
             let focused = buildActiveFerry == t                          // this part is the one loaded on the bench
-            let selH = max(10, g.size.height / 3)
-            let playH = max(12, g.size.height - selH - 3)
+            let selH = max(10, g.size.height * 0.24)              // selector height — the M/S row below matches it (Paul 2026-09-09)
+            let playH = max(12, g.size.height - 2 * selH - 6)     // the PLAY button = the rest (largest); selector + M/S are the two equal-height ends
             VStack(spacing: 3) {
                 // ── THE SELECTOR (top ⅓) = the header bar (Paul 2026-09-09, no cyan) ──
                 // LIGHT EMANATES from the SELECTED ferry along the whole row: a strong tint of the selected colour,
@@ -1989,6 +1989,22 @@ extension DiagView {
                                             else if spring { buildSetFerryPlay(t, on: p) }               // SPRING populated → momentary: press on, release off
                                         },
                                         perform: { if !set && (roomsRoom == .select || roomsRoom == .part) { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT or PART → seed a part from the selected chain (was SELECT-only → the part-grid animation played but never populated, Paul 2026-09-09)
+                // ── M / S (Paul 2026-09-09): mute · solo THIS ferry's part, below the play cell, equal height to the selector ──
+                let muted = t < buildPlayColMute.count && buildPlayColMute[t]
+                let soloed = t < buildPlayColSolo.count && buildPlayColSolo[t]
+                HStack(spacing: 3) {
+                    Text("M").font(.system(size: min(11, selH * 0.5), weight: .heavy, design: .monospaced))
+                        .foregroundColor(muted ? .white : (set ? .white.opacity(0.55) : buildDim.opacity(0.5)))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(muted ? Color(hex: 0xC0392B) : Color.white.opacity(0.06)))
+                        .contentShape(Rectangle()).onTapGesture { if set { buildToggleFerryMute(t) } }
+                    Text("S").font(.system(size: min(11, selH * 0.5), weight: .heavy, design: .monospaced))
+                        .foregroundColor(soloed ? .black : (set ? .white.opacity(0.55) : buildDim.opacity(0.5)))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(soloed ? roomsAmber : Color.white.opacity(0.06)))
+                        .contentShape(Rectangle()).onTapGesture { if set { buildToggleFerrySolo(t) } }
+                }
+                .frame(height: selH)
             }
             // FOCUS is now shown by the SELECTOR (its own full colour) against the header's lighter-shade gradient —
             // the whole-ferry cyan ring is retired (Paul 2026-09-09: no cyan; highlight the small selector, not the ferry).
@@ -2020,6 +2036,16 @@ extension DiagView {
     }
     // SELECTOR tap: bring ferry `t`'s part onto the bench (empty ferry → the SELECT grid). The ferry is a LIVE VIEW of its
     // part, so the outgoing ferry's bench edits are written back first.
+    // PER-FERRY MUTE / SOLO (Paul 2026-09-09) — the M/S buttons below each play cell. Gate the AUDIO only (buildPlayColOn,
+    // the play glyph, is unchanged): a ferry is audible iff NOT muted and (no ferry soloed, or it is soloed).
+    func buildToggleFerryMute(_ t: Int) { guard t >= 0, t < buildPlayColMute.count else { return }; buildPlayColMute[t].toggle(); buildPublishScene() }
+    func buildToggleFerrySolo(_ t: Int) { guard t >= 0, t < buildPlayColSolo.count else { return }; buildPlayColSolo[t].toggle(); buildPublishScene() }
+    func buildFerryAudible(_ t: Int) -> Bool {
+        let anySolo = buildPlayColSolo.contains(true)
+        let muted = t >= 0 && t < buildPlayColMute.count && buildPlayColMute[t]
+        let soloed = t >= 0 && t < buildPlayColSolo.count && buildPlayColSolo[t]
+        return !muted && (!anySolo || soloed)
+    }
     func buildActivateFerry(_ t: Int) {
         guard t >= 0, t < 8 else { return }
         if let a = buildActiveFerry, a >= 0, a < 8, a != t {                  // the OUTGOING active ferry
@@ -4075,7 +4101,9 @@ extension DiagView {
         au?.clearMachineSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateMachine path, so the scene sweeps freely
         // (the loop keys now DRIVE the lap — same `laneMask` as the GRID tab; a held column-set laps the workshop. Paul 2026-08-19)
         var input = BuildSceneLogic.Input()
-        input.stagingPlaying = buildStagingPlaying
+        // MUTE/SOLO (Paul 2026-09-09): gate the AUDIO by buildFerryAudible — the active ferry's staging voice is silenced
+        // if the active ferry is muted / solo-excluded; the background play layer is gated below (input.playColOn).
+        input.stagingPlaying = buildStagingPlaying && (buildActiveFerry.map { buildFerryAudible($0) } ?? true)
         input.performPlaying = buildPerformPlaying
         input.chainActive = ddSolo
         input.performCells = buildPerformCells
@@ -4121,10 +4149,11 @@ extension DiagView {
         input.performLane = buildPerformLane
         // THE PLAY GRID (Paul 2026-08-29): each column an INDEPENDENT voice — only STARTED columns (buildPlayColOn) sound,
         // each carrying its ferried machine AND the I/O it was ferried with (buildPlayColRecv/Emit). No shared I/O toggles.
-        input.playPlaying = buildPlayColOn.contains(true)
+        let playColEffectiveOn = (0..<buildPlayColOn.count).map { buildPlayColOn[$0] && buildFerryAudible($0) }   // MUTE/SOLO gate (background ferries)
+        input.playPlaying = playColEffectiveOn.contains(true) || input.stagingPlaying
         input.playCells = buildPlayCells
         input.playSel = buildPlaySel
-        input.playColOn = buildPlayColOn
+        input.playColOn = playColEffectiveOn   // MUTE/SOLO: the ENGINE plays the effective set; the UI glyph still reads buildPlayColOn
         input.playColRecv = buildPlayColRecv
         input.playColEmit = buildPlayColEmit
         input.playColChain = (0..<8).map { c -> [ProcessorSlot] in

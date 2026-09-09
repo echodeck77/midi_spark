@@ -219,6 +219,8 @@ struct DiagView: View {
     // buildPlayColEmit = the door + emitters copied from the source at ferry time. (buildPlayPlaying is now a computed
     // "any column on", in the BuildPage extension.)
     @State var buildPlayColOn: [Bool] = Array(repeating: false, count: 8)
+    @State var buildPlayColMute: [Bool] = Array(repeating: false, count: 8)   // per-ferry MUTE (Paul 2026-09-09) — the M button; ephemeral like buildPlayColOn
+    @State var buildPlayColSolo: [Bool] = Array(repeating: false, count: 8)   // per-ferry SOLO — the S button; if any is set, only soloed ferries sound
     // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-FERRY launch anchor beat (8-wide; 0 = no anchor). Stamped on launch
     // (buildToggleFerryPlay), cleared on stop; buildPublishScene maps each ON ferry to its engine row(s) — active → rows
     // 0–7, background t → row 8+t — so the anchor FOLLOWS the ferry across activation. Runtime only (not persisted).
