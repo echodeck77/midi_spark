@@ -1903,17 +1903,21 @@ extension DiagView {
             let selH = max(10, g.size.height / 3)
             let playH = max(12, g.size.height - selH - 3)
             VStack(spacing: 3) {
-                // ── THE SELECTOR (top ⅓) = the FOCUS indicator (Paul 2026-09-09 header redesign, no cyan) ──
-                // FOCUSED = the highlight: its OWN colour, full/saturated (stands out against the light shades around it).
-                // OTHER populated = a LIGHTER SHADE of the SELECTED ferry's colour, ramped L→R so the row reads as one
-                // fading gradient; the ferry's own colour appears only on the ICON. Empty = neutral.
-                let selFill: Color = !set ? Color.white.opacity(0.06)
-                                   : (focused ? mHue : Color(hex: mixHex(focusHex, 0xFFFFFF, 0.34 + Double(t) / 7.0 * 0.30)))
-                let selIcon: Color = !set ? buildDim : (focused ? .black : mHue)   // populated non-focused: its OWN colour on the icon
-                RoundedRectangle(cornerRadius: 4).fill(selFill)
-                    .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(10, selH * 0.5), weight: .bold))
-                        .foregroundColor(selIcon))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? mHue : (set ? Color.white.opacity(0.22) : buildEdge), lineWidth: focused ? 2.5 : 1))
+                // ── THE SELECTOR (top ⅓) = the header bar (Paul 2026-09-09, no cyan) ──
+                // ONE continuous STRONG TINT of the SELECTED ferry's colour spans the whole bar: this ferry paints its
+                // SLICE [t/8 … (t+1)/8] of a bright→deep gradient, so adjacent selectors meet seamlessly (non-stepped).
+                // Non-selected ferries are PLAIN — just the shared tint + their icon (the selected colour, deepened for
+                // legibility). Only the FOCUSED ferry highlights, in its own full colour on top of the bar.
+                let barA = mixHex(focusHex, 0xFFFFFF, 0.14)                 // the bar's bright end
+                let barB = mixHex(focusHex, 0x000000, 0.34)                // …to its deep end (a stylish sheen)
+                let sliceLo = Color(hex: mixHex(barA, barB, Double(t) / 8.0)).opacity(0.88)
+                let sliceHi = Color(hex: mixHex(barA, barB, Double(t + 1) / 8.0)).opacity(0.88)
+                let selIcon: Color = !set ? buildDim : (focused ? .white : Color(hex: mixHex(focusHex, 0x000000, 0.45)))
+                RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))                                       // base
+                    .overlay { RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [sliceLo, sliceHi], startPoint: .leading, endPoint: .trailing)) }   // the CONTINUOUS bar tint — the WHOLE select row, populated AND empty (Paul 2026-09-09)
+                    .overlay { if focused { RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(0.95)) } }              // FOCUSED = the highlight, its OWN full colour on the bar
+                    .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(10, selH * 0.5), weight: .bold)).foregroundColor(selIcon))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? Color.white.opacity(0.9) : Color.white.opacity(0.12), lineWidth: focused ? 2 : 1))   // focused = a bright ring to lift it off the tinted bar
                     .frame(height: selH)
                     .contentShape(Rectangle())
                     .onTapGesture { buildActivateFerry(t) }
