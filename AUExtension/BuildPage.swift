@@ -1039,20 +1039,22 @@ extension DiagView {
     // top-right EMPTY corner cell (Paul 2026-08-31). Cell-sized; red + lit when anything plays.
     @ViewBuilder func buildStopAllButton() -> some View {
         let anyPlaying = buildDisplayVoice != .none || buildPerformPlaying || buildPlayColOn.contains(true)
+        let selHex = buildFerryHex(buildActiveFerry ?? 0)                                          // the SELECTED colour (Paul 2026-09-09)
         Image(systemName: "stop.fill").font(.system(size: 15, weight: .black))
             .foregroundColor(roomsDoorInk(to: .play))                                             // white ink — like the nav buttons (Paul 2026-08-31)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(anyPlaying ? roomsIndigo : roomsIndigo.opacity(0.35)))   // PLAY-GRID indigo (dimmer when idle)
+            .background(RoundedRectangle(cornerRadius: 5).fill(LinearGradient(colors: [Color(hex: selHex), Color(hex: mixHex(selHex, 0x000000, 0.45))], startPoint: .top, endPoint: .bottom)).opacity(anyPlaying ? 1.0 : 0.4))   // the SELECTED colour, faded with a gradient (dimmer when idle)
             .contentShape(Rectangle()).onTapGesture { buildStopAllOnTransportStop() }
     }
     // THE PLAY toggle — start/stop every populated play column. Lives in the grid's top-RIGHT corner (where the ▲▼ ferry
     // cursor used to be), styled to MIRROR the STOP button on the opposite (left) end (Paul 2026-09-08). Cell-sized.
     @ViewBuilder func buildPlayAllButton() -> some View {
         let playing = buildPlayPlaying
+        let selHex = buildFerryHex(buildActiveFerry ?? 0)                                          // the SELECTED colour (Paul 2026-09-09)
         Image(systemName: "play.fill").font(.system(size: 15, weight: .black))
             .foregroundColor(roomsDoorInk(to: .play))                                             // white ink — like the STOP button
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(playing ? roomsIndigo : roomsIndigo.opacity(buildPlayPopulated ? 0.55 : 0.35)))   // lit indigo while playing; dimmer idle (dimmest with nothing to play)
+            .background(RoundedRectangle(cornerRadius: 5).fill(LinearGradient(colors: [Color(hex: selHex), Color(hex: mixHex(selHex, 0x000000, 0.45))], startPoint: .top, endPoint: .bottom)).opacity(playing ? 1.0 : (buildPlayPopulated ? 0.6 : 0.4)))   // the SELECTED colour, faded with a gradient (dimmer idle · dimmest with nothing to play)
             .contentShape(Rectangle()).onTapGesture { buildTogglePlayGrid() }
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
@@ -1935,7 +1937,6 @@ extension DiagView {
                 // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
-                    .overlay { if set { buildOutputFace(buildPlayColRoll[t] ?? [], tint: eHue, playing: on, strikeIdx: buildPlayColSweepIndices(t), live: true).padding(2) } }   // emitter constellation; the ONLY animated face (Paul 2026-09-08) — stars drift/blink on strikes
                     .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                     .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed machine-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -2923,7 +2924,7 @@ extension DiagView {
         let hollow = buildAutoActive() >= 0 && !selected
         let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
                           flatFill: partFerryFill(r), flatFrame: partFerryFrame(r),   // P2b (Paul 2026-09-09): the 4 rows are the ACTIVE ferry's colour in darkening SHADES (was fixed-by-position)
-                          sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: Color.white.opacity(0.9), playing: buildStagingPlaying && selected, strikeIdx: [idx]) })   // the notes: a calm NEUTRAL ribbon (was per-emitter rainbow — Paul 2026-09-09: too many colours). One light ink on every row.
+                          sweep: { EmptyView() })   // NO piano-roll notes on the part cells (Paul 2026-09-09: lose them altogether) — the cell is its ferry-shade tile + state rings
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
         // punch look), so it is always clear + legible and NEVER becomes another machine. It fades only VERY slightly while
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
