@@ -179,6 +179,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RIFF CAPTURE §2 — "play a line in", the RIFF headline (2026-09-09, on `main`, merge of `feature/riff-capture`; iOS
+  builds, macOS 1083 green incl. fuzz; DEVICE ear/eye owed). Paul's launch-critical RIFF finishing (the stencil engine §1/§5
+  was already solid + tested). CAPTURE: LATCH a chord (the FRAME) → arm → play the line on the SAME door → keep. The line is
+  recorded AS RANKS against the frame → it FOLLOWS every chord after (zero pitches stored). **PURE (tested):**
+  `riffCaptureRank(pitch,frame)` = inverse of `riffResolve` (nearest rank+oct, round-trips a frame note; passing tone snaps) +
+  `riffCaptureStencil(events,frame,steps,rateBeats,startBeat)` = quantize the (beat,pitch) take onto the step grid → MONO
+  riffRanks/riffOct, unplayed steps REST, a take past one loop truncated. **KERNEL:** ephemeral capture state (never persisted,
+  like auditionTarget) — arm snapshots the door's held/latched chord as the frame + starts a ring; `handleIncoming` DIVERTS the
+  capture door's live line into the ring (never touches the pool → the frame can't shift); disarm drains on the main thread
+  (record-on-render / convert-on-main, the reel pattern → no stuck notes). **AU:** `armRiffCapture`/`cancelRiffCapture`/
+  `commitRiffCapture(colourID:)` (drain → `riffCaptureStencil` → write riffRanks/riffOct onto the colour's RIFF slot). **UI:** a
+  CAPTURE row on the RIFF editor (◉ PLAY A LINE IN · ● RECORDING—TAP TO KEEP · CANCEL). **v1 SCOPE (Paul-confirmed): HELD frame +
+  MONO line** — FOLLOWING (§4 re-voicing / pool-timeline) · POLY (chord capture) · §3 generator are flagged fast-follows. +1
+  RouterTest (capture→playback→FOLLOW-a-new-chord) + 2 DerivationsTests (round-trip incl. octave · quantize/rest/truncate).
+  Spec `AcceptanceCriteria-riff-capture.md`. **DEVICE-owed caveats:** capture needs a RUNNING CLOCK (host/free-run — beat-quantized,
+  so stopped lands all on step 0); LATCH-first (a physically-held chord on the same OMNI door pollutes the take); the recorder +
+  arm gesture aren't unit-testable (live MIDI in) — the pure conversion + playback are locked, the feel is Paul's to verify.
+  NEXT launch-critical: MOD (the CC-stage sources).**
 - **▶ RATCHET PATTERN standalone = PASS-THROUGH + unselect-to-mute (2026-09-09, on `main`, merge of `fix/ratchet-passthrough`;
   iOS builds, macOS 1080 green incl. fuzz; DEVICE EAR OWED). Paul's priority-1 fix. A lone (SINGLE-SLOT) RATCHET PATTERN cell
   is now a PROCESSOR of the input, NOT a self-clocked generator: it PASSES the held chord through, and its OWN clock
