@@ -1754,34 +1754,59 @@ extension DiagView {
     // buildCaptureBenchPart preserves these across a bench write-back, and buildCapturePlayGrid persists them.
     @ViewBuilder func roomsFerryLaunchPanel(_ t: Int) -> some View {
         let p = (t >= 0 && t < buildFerryParts.count ? buildFerryParts[t] : nil) ?? BuildPart()
+        let cur = t < buildFerryParts.count ? buildFerryParts[t]?.ferryHue : nil
         let starts: [FerryStart] = [.sync, .instant, .step, .beat, .pass]
+        let startLabels = ["SYNC", "NOW", "STEP", "BEAT", "PASS"]
         RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
             .overlay(
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 6) {
                             Image(systemName: "slider.horizontal.3").font(.system(size: 12, weight: .bold)).foregroundColor(buildCyan)
                             Text("FERRY SETTINGS").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.7))
                             Spacer()
                         }
-                        launchLabel("NAME")
-                        TextField("unnamed", text: Binding(
-                            get: { (t < buildFerryParts.count ? buildFerryParts[t]?.ferryName : nil) ?? "" },
-                            set: { v in buildEditFerry(t, publish: false) { $0.ferryName = v.isEmpty ? nil : v } }))
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced)).textFieldStyle(.plain)
-                            .foregroundColor(.white).padding(.horizontal, 8).frame(height: 30)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-                        launchLabel("COLOUR")
-                        roomsFerryHueRow(t)
-                        launchSeg("PLAYBACK", ["LOOP", "ONE-SHOT"], sel: p.launchPlaybackResolved == .oneShot ? 1 : 0) { i in
-                            buildEditFerry(t) { $0.launchPlayback = i == 1 ? .oneShot : .loop } }
-                        launchSeg("TRIGGER", ["LATCH", "SPRING"], sel: p.launchTriggerResolved == .spring ? 1 : 0) { i in
-                            buildEditFerry(t) { $0.launchTrigger = i == 1 ? .spring : .latch } }
-                        launchSeg("START", ["SYNC", "NOW", "STEP", "BEAT", "PASS"], sel: starts.firstIndex(of: p.launchStartResolved) ?? 0) { i in
-                            buildEditFerry(t) { $0.launchStart = starts[i] } }
-                        launchSeg("CHOKE", ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"], sel: p.chokeGroupResolved) { i in
-                            buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
+                        // NAME (short, ≤8 chars) + the 4×4 COLOUR grid to its right (Paul 2026-09-09)
+                        HStack(alignment: .top, spacing: 14) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                launchLabel("NAME")
+                                TextField("name", text: Binding(
+                                    get: { (t < buildFerryParts.count ? buildFerryParts[t]?.ferryName : nil) ?? "" },
+                                    set: { v in let s = String(v.prefix(8)); buildEditFerry(t, publish: false) { $0.ferryName = s.isEmpty ? nil : s } }))
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced)).textFieldStyle(.plain)
+                                    .foregroundColor(.white).padding(.horizontal, 6).frame(width: 78, height: 28)
+                                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+                                Button { buildEditFerry(t) { $0.ferryHue = nil } } label: {
+                                    Text(cur == nil ? "AUTO HUE ✓" : "AUTO HUE").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                                        .foregroundColor(cur == nil ? buildCyan : .white.opacity(0.5))
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                launchLabel("COLOUR")
+                                LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 5), count: 4), alignment: .leading, spacing: 5) {
+                                    ForEach(Array(machineHexes.enumerated()), id: \.offset) { _, hex in
+                                        RoundedRectangle(cornerRadius: 4).fill(Color(hex: hex))
+                                            .frame(width: 24, height: 24)
+                                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(cur == hex ? Color.white : Color.clear, lineWidth: 2))
+                                            .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = hex } }
+                                    }
+                                }.frame(width: 24 * 4 + 5 * 3)
+                            }
+                            Spacer()
+                        }
+                        // The launch controls — all on ONE line (compact menus) (Paul 2026-09-09)
+                        HStack(spacing: 6) {
+                            launchMenu("PLAY", p.launchPlaybackResolved == .oneShot ? "1-SHOT" : "LOOP", ["LOOP", "ONE-SHOT"]) { i in
+                                buildEditFerry(t) { $0.launchPlayback = i == 1 ? .oneShot : .loop } }
+                            launchMenu("TRIG", p.launchTriggerResolved == .spring ? "SPRING" : "LATCH", ["LATCH", "SPRING"]) { i in
+                                buildEditFerry(t) { $0.launchTrigger = i == 1 ? .spring : .latch } }
+                            launchMenu("START", startLabels[starts.firstIndex(of: p.launchStartResolved) ?? 0], startLabels) { i in
+                                buildEditFerry(t) { $0.launchStart = starts[i] } }
+                            launchMenu("CHOKE", p.chokeGroupResolved == 0 ? "OFF" : "\(p.chokeGroupResolved)", ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"]) { i in
+                                buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
+                            Spacer()
+                        }
                     }.padding(12)
                 }
             )
@@ -1796,42 +1821,19 @@ extension DiagView {
     @ViewBuilder private func launchLabel(_ s: String) -> some View {
         Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.4))
     }
-    @ViewBuilder private func launchSeg(_ label: String, _ options: [String], sel: Int, _ onPick: @escaping (Int) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            launchLabel(label)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in
-                        let on = idx == sel
-                        Text(opt).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                            .foregroundColor(on ? .black : .white.opacity(0.6))
-                            .padding(.horizontal, 9).frame(height: 26)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : Color.white.opacity(0.06)))
-                            .contentShape(Rectangle()).onTapGesture { onPick(idx) }
-                    }
-                }
+    // A compact labelled dropdown (LABEL value ▾) for the one-line launch controls.
+    @ViewBuilder private func launchMenu(_ label: String, _ current: String, _ options: [String], _ onPick: @escaping (Int) -> Void) -> some View {
+        Menu {
+            ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in Button(opt) { onPick(idx) } }
+        } label: {
+            HStack(spacing: 3) {
+                Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text(current).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).foregroundColor(.white.opacity(0.35))
             }
-        }
-    }
-    // The colour picker: AUTO (nil ⇒ the ferry's position default) + the 16 palette hues. Horizontal scroll so it never overflows.
-    @ViewBuilder private func roomsFerryHueRow(_ t: Int) -> some View {
-        let cur = t < buildFerryParts.count ? buildFerryParts[t]?.ferryHue : nil
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06))
-                    Text("AUTO").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-                }
-                .frame(width: 36, height: 26)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(cur == nil ? buildCyan : Color.clear, lineWidth: 2))
-                .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = nil } }
-                ForEach(Array(machineHexes.enumerated()), id: \.offset) { _, hex in
-                    RoundedRectangle(cornerRadius: 5).fill(Color(hex: hex))
-                        .frame(width: 26, height: 26)
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(cur == hex ? Color.white : Color.clear, lineWidth: 2))
-                        .contentShape(Rectangle()).onTapGesture { buildEditFerry(t) { $0.ferryHue = hex } }
-                }
-            }
+            .padding(.horizontal, 7).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06)))
+            .contentShape(Rectangle())
         }
     }
     // ── THE NAV SLIVERS — thin navigation bars that are a COMPONENT OF THE GRID BOX (Paul 2026-08-28). The ▲PLAY sliver
@@ -1876,6 +1878,12 @@ extension DiagView {
     // a cell to row 1 of a column, then move the cursor and ferry another to row 3 (each cell stays independent). Sits in
     // the ferry row's left corner. Compact: ▲ · Rn · ▼ in one cell.
     // The ▲▼ FERRY-ROW CURSOR is RETIRED (Paul 2026-09-08, Phase 3): a ferry is one PART now, not a column of per-row cells.
+    // A ferry's ONE identity colour as a hex: its explicit `ferryHue` override, else the P1 ferry-base palette (8 jewel
+    // tones by position). The header redesign (Paul 2026-09-09) reads this for the focus highlight + the fading gradient.
+    func buildFerryHex(_ t: Int) -> UInt32 {
+        let hue = (t >= 0 && t < buildFerryParts.count) ? buildFerryParts[t]?.ferryHue : nil
+        return hue ?? ferryBaseHex(t)
+    }
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
             // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): each ferry IS a BuildPart slot. The SELECTOR (top ⅓) opens
@@ -1883,9 +1891,12 @@ extension DiagView {
             // play at once). A long-press on an EMPTY ferry (on SELECT) seeds a new part from the selected chain.
             let part = t < buildFerryParts.count ? buildFerryParts[t] : nil
             let set = part != nil
-            let repId: String? = part.flatMap { p in p.selID ?? p.stagingCells.flatMap({ $0 }).compactMap({ $0 }).first }   // the part's representative machine (for the ferry's identity hue)
-            // PLAY-FERRY LAUNCH (Paul 2026-09-09): a per-ferry COLOUR override wins over the representative-machine hue; nil ⇒ the old position/machine default.
-            let mHue = part?.ferryHue.map { Color(hex: $0) } ?? repId.flatMap { machineHue($0) } ?? Color(hex: machineHexes[t % machineHexes.count])
+            // PLAY-FERRY LAUNCH (Paul 2026-09-09): the ferry's ONE identity colour = its ferryHue override, else the P1
+            // ferry-base palette (supersedes the old representative-machine hue). The header gradient is the SELECTED
+            // ferry's colour in lighter shades; each ferry shows its OWN colour only on its selector icon.
+            let mHex = buildFerryHex(t)
+            let mHue = Color(hex: mHex)
+            let focusHex = buildActiveFerry.map { buildFerryHex($0) } ?? mHex   // the SELECTED colour the header bar fades from
             let ferryName = part?.ferryName
             let spring = part?.launchTriggerResolved == .spring   // PLAY-FERRY LAUNCH (Phase 2b): SPRING = momentary (hold-to-play); LATCH = tap-toggle (today)
             let eHue = emitterHue(part?.emitters ?? [.a])
@@ -1894,11 +1905,31 @@ extension DiagView {
             let selH = max(10, g.size.height / 3)
             let playH = max(12, g.size.height - selH - 3)
             VStack(spacing: 3) {
-                // ── THE SELECTOR (top ⅓): open this ferry's part on the bench (empty → the SELECT grid) ──
-                RoundedRectangle(cornerRadius: 4).fill(set ? mHue.opacity(focused ? 0.55 : 0.28) : Color.white.opacity(0.06))
-                    .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: min(10, selH * 0.5), weight: .bold))
-                        .foregroundColor(set ? (focused ? .black : .white.opacity(0.85)) : buildDim))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(focused ? 0.9 : 0.4) : buildEdge, lineWidth: focused ? 2 : 1))
+                // ── THE SELECTOR (top ⅓) = the header bar (Paul 2026-09-09, no cyan) ──
+                // LIGHT EMANATES from the SELECTED ferry along the whole row: a strong tint of the selected colour,
+                // brightest at the focus and DIMMING outward (each ferry paints its slice of the continuous falloff →
+                // non-stepped, spanning populated AND empty selectors). Unselected ferries dim with distance; only the
+                // focused one highlights (its own full colour). The icon is FOUR DOTS in the ferry's own pre-allocated
+                // colour (identity); empty ferries show a "+".
+                let focusPos = Double(buildActiveFerry ?? t) + 0.5          // the selected ferry's centre, in ferry units
+                let iLo = max(0.0, 1.0 - abs(Double(t) - focusPos) / 5.5)   // glow reach ≈ 5–6 ferries
+                let iHi = max(0.0, 1.0 - abs(Double(t + 1) - focusPos) / 5.5)
+                let glow = mixHex(focusHex, 0xFFFFFF, 0.12)
+                let sliceLo = Color(hex: glow).opacity(0.05 + iLo * iLo * 0.80)   // near focus = bright · far = dim (dark base shows through)
+                let sliceHi = Color(hex: glow).opacity(0.05 + iHi * iHi * 0.80)
+                let dotHue: Color = focused ? Color(hex: mixHex(mHex, 0x000000, 0.55)) : mHue   // the ferry's OWN pre-allocated colour (deepened on the focused own-colour highlight for contrast)
+                let dotD = max(2.5, selH * 0.16)
+                RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.04))
+                    .overlay { RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [sliceLo, sliceHi], startPoint: .leading, endPoint: .trailing)) }   // the CONTINUOUS emanation (this ferry's slice)
+                    .overlay { if focused { RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(0.95)) } }              // FOCUSED = the light source: its OWN full colour
+                    .overlay {
+                        if set {
+                            HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
+                        } else {
+                            Image(systemName: "plus").font(.system(size: min(10, selH * 0.5), weight: .bold)).foregroundColor(buildDim)
+                        }
+                    }
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? Color.white.opacity(0.9) : Color.white.opacity(0.10), lineWidth: focused ? 2 : 1))
                     .frame(height: selH)
                     .contentShape(Rectangle())
                     .onTapGesture { buildActivateFerry(t) }
@@ -1909,7 +1940,7 @@ extension DiagView {
                     .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
                     .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed machine-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : (focused ? 0.9 : 0.5)) : buildEdge, lineWidth: on ? 3 : (focused ? 2.5 : (set ? 2 : 1))))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
                     .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
                     .overlay { Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) }   // PLAY/STOP (empty shows "+")
                     .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
@@ -1929,9 +1960,8 @@ extension DiagView {
                                         },
                                         perform: { if !set && (roomsRoom == .select || roomsRoom == .part) { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT or PART → seed a part from the selected chain (was SELECT-only → the part-grid animation played but never populated, Paul 2026-09-09)
             }
-            // SELECTED PLAY CELL (Paul 2026-09-08): an unmissable cyan ring + glow around the WHOLE ferry — this is the one
-            // whose part is loaded on the bench. Cyan = the app's selection accent (matches the edited-row keyline).
-            .overlay { if focused { RoundedRectangle(cornerRadius: 6).stroke(buildCyan, lineWidth: 3).shadow(color: buildCyan.opacity(0.8), radius: 4).allowsHitTesting(false) } }
+            // FOCUS is now shown by the SELECTOR (its own full colour) against the header's lighter-shade gradient —
+            // the whole-ferry cyan ring is retired (Paul 2026-09-09: no cyan; highlight the small selector, not the ferry).
         }
     }
     // buildPlayFerryStep (the ▲▼ cursor mover) + buildPlayFerryDuplicate (the faint-copy) are RETIRED (Paul 2026-09-08,
@@ -2891,7 +2921,7 @@ extension DiagView {
         // background) but keeps its border — so the sweep's target rung stands out. (Paul 2026-09-04)
         let hollow = buildAutoActive() >= 0 && !selected
         let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
-                          flatFill: partPosFill(r), flatFrame: partPosFrame(r),   // Paul 2026-09-06: DARK, FLAT, FIXED-BY-ROW-POSITION hue (design-cell-language decision 4 — was the machine hue)
+                          flatFill: partFerryFill(r), flatFrame: partFerryFrame(r),   // P2b (Paul 2026-09-09): the 4 rows are the ACTIVE ferry's colour in darkening SHADES (was fixed-by-position)
                           sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: emitterHue(buildRowEmittersResolved(r)), playing: buildStagingPlaying && selected, strikeIdx: [idx]) })   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
         // punch look), so it is always clear + legible and NEVER becomes another machine. It fades only VERY slightly while
@@ -4742,6 +4772,13 @@ extension DiagView {
     private func partPosHue(_ row: Int) -> Color { Color(hex: partPosHex(row)) }
     private func partPosFill(_ row: Int) -> Color { Color(hex: mixHex(0x0E1116, partPosHex(row), 0.16)) }   // DARK + FLAT, the same recipe as partCellFill but keyed on POSITION
     private func partPosFrame(_ row: Int) -> Color { Color(hex: mixHex(0x0E1116, partPosHex(row), 0.34)) }  // subtly-lighter dark edge — never the bright hue
+    // GRID REBUILD P2b (Paul 2026-09-09): the part grid's 4 rows are the ACTIVE ferry's colour in four darkening SHADES
+    // (the P1 palette) — its identity carries from the ferry into the bench. Each ground is that shade darkened toward the
+    // field so the bright ribbon still pops; the frame keeps more of the shade (a visible edge). The 0.5/0.28 mixes are
+    // the key device tunables (how differentiable the 4 shades read vs. how dark the ground sits behind the ribbon).
+    private func partFerryHue(_ row: Int) -> UInt32 { ferryShadeHex(buildFerryHex(buildActiveFerry ?? 0), row) }
+    private func partFerryFill(_ row: Int) -> Color { Color(hex: mixHex(partFerryHue(row), 0x0E1116, 0.5)) }
+    private func partFerryFrame(_ row: Int) -> Color { Color(hex: mixHex(partFerryHue(row), 0x0E1116, 0.28)) }
     // THE CONSTELLATION face (Paul 2026-09-05, design-cell-language.md): a dot per note (radius ∝ velocity) at (x=time,
     // y=pitch, both 0…1 with y already inverted so 0=top), joined by a faint path in x-order — the cell's output as a sigil.
     // SHARED by the live drift (buildNoteSweep + buildOutputFace playing) and the offline blueprint (buildOutputFace idle).
