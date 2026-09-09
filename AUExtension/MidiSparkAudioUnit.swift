@@ -252,6 +252,31 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// UI gesture — writes the render-thread target only, never the document (no rebuild, not persisted).
     func setAudition(col: Int, row: Int) { kernel.setAudition(col * 8 + row) }
     func clearAudition() { kernel.setAudition(-1) }
+
+    // RIFF CAPTURE (SPEC-riff-processor §2, Paul 2026-09-09): arm records the door's played line into the Kernel ring;
+    // commit converts it to a MONO rank stencil against the FRAME + writes it onto the colour's RIFF slot.
+    func armRiffCapture(door: Int) { kernel.armRiffCapture(door: door) }
+    func cancelRiffCapture() { kernel.disarmRiffCapture() }
+    var riffCaptureIsArmed: Bool { kernel.riffCaptureIsArmed }
+    /// Disarm + drain the captured line → `riffCaptureStencil` (steps/rate from the colour's RIFF slot) → write
+    /// `riffRanks`/`riffOct` onto that slot (MONO). Returns true iff a line was captured against a non-empty frame.
+    func commitRiffCapture(colourID: String) -> Bool {
+        kernel.disarmRiffCapture()
+        let (events, frame, startBeat) = kernel.riffCaptureDrain()
+        guard !events.isEmpty, !frame.isEmpty else { return false }
+        var didWrite = false
+        withChainColour(colourID) { chain in
+            guard let i = chain.firstIndex(where: { $0.type == .riff }) else { return }
+            let steps = chain[i].params.riffSteps ?? 16
+            let rate = (chain[i].params.riffRate ?? .r1_16).beats
+            let (ranks, oct) = riffCaptureStencil(events: events, frame: frame, steps: steps, rateBeats: rate, startBeat: startBeat)
+            chain[i].params.riffRanks = ranks
+            chain[i].params.riffOct = oct
+            chain[i].params.riffPoly = false   // HELD + MONO capture (v1)
+            didWrite = true
+        }
+        return didWrite
+    }
     // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell renders solo while PREVIEW is held.
     func setPreview(colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
         kernel.setPreview(colourIndex: colourIndex, filter: filter, busMask: busMask, inputRow: inputRow)

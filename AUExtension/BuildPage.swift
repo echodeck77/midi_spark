@@ -5206,6 +5206,37 @@ extension DiagView {
             .padding(.horizontal, 16).padding(.vertical, 8)
             .background(hue.opacity(0.10))
             Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
+            // RIFF CAPTURE (§2, Paul 2026-09-09): LATCH a chord (the FRAME) → tap PLAY A LINE IN → play the line on this
+            // cell's door → tap KEEP. The line is recorded AS RANKS against the frame and follows every chord after.
+            if proc.type == .riff {
+                let armed = buildRiffCaptureArmed
+                let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+                HStack(spacing: 10) {
+                    Text("CAPTURE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                    Text(armed ? "● RECORDING — TAP TO KEEP" : "◉ PLAY A LINE IN")
+                        .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .foregroundColor(armed ? .white : .black)
+                        .padding(.horizontal, 12).frame(height: 28)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(armed ? roomsRedSig : buildCyan))
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if armed { if au?.commitRiffCapture(colourID: cid) == true { buildPublishScene() }; buildRiffCaptureArmed = false }
+                            else { au?.armRiffCapture(door: door); buildRiffCaptureArmed = true }
+                        }
+                    if armed {
+                        Text("CANCEL").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                            .padding(.horizontal, 10).frame(height: 28)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+                            .contentShape(Rectangle()).onTapGesture { au?.cancelRiffCapture(); buildRiffCaptureArmed = false }
+                    }
+                    Text(armed ? "play the line on door \(["A", "B", "C", "D"][min(3, max(0, door))])" : "latch a chord first, then play the line")
+                        .font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                    Spacer()
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(hue.opacity(0.10))
+                Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
+            }
             // (ROW SELECTOR — the "Long press to copy" 1–8 tabs — removed, no longer required. Paul 2026-08-30)
             buildTruthStrips().padding(.horizontal, 16).padding(.vertical, 8)   // §1 IN | OUT truths — silence explains itself
             Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
