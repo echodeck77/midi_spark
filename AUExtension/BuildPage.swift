@@ -2310,7 +2310,9 @@ extension DiagView {
     @ViewBuilder private func roomsSideChip(_ n: Int, height: CGFloat, part: Bool) -> some View {
         let populated = buildRowMachine(n) != nil                          // this slot/row holds a chain
         let active = buildGridSelStampSourceRow == n                      // THE active side button
-        let mHue = partPosHue(n)                                          // ROW-POSITION identity (design-cell-language decision 4: "row 7 always yellow") — the BRIGHT row hue, used only for the number / focus inverse / stamp bloom
+        // The PART rail (part:true) now wears the ACTIVE ferry's colour in shades (P2b palette), matching the grid rows —
+        // was the 4 fixed-position primaries (Paul 2026-09-09). The SELECT→part ferry chip (part:false) keeps its own recipe.
+        let mHue = part ? Color(hex: partFerryHue(n)) : partPosHue(n)
         let eHue = emitterHue(buildRowEmittersResolved(n))               // EMITTER machine (routing)
         let selectedVis = active && (populated || part)   // PART rail: an EMPTY slot can be selected too (Paul 2026-09-03), so it highlights when active
         // IS THIS ROW'S CELL SOUNDING? PART grid → the SEQUENCER's active rung; SELECT→part ferry → the AIMED audition
@@ -2328,7 +2330,7 @@ extension DiagView {
             // FLAT dark, FIXED-BY-ROW-POSITION ground for BOTH rails (Paul 2026-09-06, design-cell-language decision 4):
             // the ferry reads IDENTICAL to the part slot it stamps, and the two halves of the one component finally agree —
             // dark position hue, no wash. (Was: part rail = a faint machine wash; ferry = a machine-hued partCellFill.)
-            .overlay(RoundedRectangle(cornerRadius: 5).fill(populated ? partPosFill(n) : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: 5).fill(populated ? (part ? partFerryFill(n) : partPosFill(n)) : Color.clear))
             // ONE emitter constellation (Paul 2026-09-06): the SAME buildOutputFace the part cell uses — the static blueprint at
             // rest, the ACTUAL emitted notes when auditioning (strikeIdx = the audition's live-strike row). Was a static sigil +
             // a separate live layer drifting over it (the rejected two-layer model) at 0.45–0.55 opacity.
@@ -2346,7 +2348,7 @@ extension DiagView {
             // notes animate), with a WHITE RING when the button is the active/aimed source (design-cell-language decision 5:
             // selected = white ring, not a hue brighten). Was: part rail = a bright machine frame; ferry = a machine partCellFrame.
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(
-                populated ? (selectedVis ? Color.white.opacity(0.85) : partPosFrame(n))
+                populated ? (selectedVis ? Color.white.opacity(0.85) : (part ? partFerryFrame(n) : partPosFrame(n)))
                           : (selectedVis ? Color.white.opacity(0.7) : buildEdge),
                 lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))
             .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
@@ -2530,7 +2532,7 @@ extension DiagView {
                             let cid = (rung >= 0 && col < buildStagingCells.count && rung < buildStagingCells[col].count) ? buildStagingCells[col][rung] : nil
                             let frame = CGRect(x: xOf(Double(st) * sb) + 1, y: 1, width: stepW - 2, height: size.height - 2)
                             if cid != nil, rung >= 0 {
-                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(partPosHue(rung).opacity(0.9)), lineWidth: 1.5)   // a BORDER in the CELL's POSITION machine (derive-from-position, Paul 2026-09-06) around the section (no fill)
+                                ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(Color(hex: partFerryHue(rung)).opacity(0.9)), lineWidth: 1.5)   // section BORDER in the ACTIVE ferry's shade for that rung (P2b palette — was the position primary, Paul 2026-09-09)
                             } else {
                                 ctx.stroke(Path(roundedRect: frame, cornerRadius: 4), with: .color(.white.opacity(0.08)), lineWidth: 1)
                             }
@@ -2922,7 +2924,7 @@ extension DiagView {
         let hollow = buildAutoActive() >= 0 && !selected
         let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
                           flatFill: partFerryFill(r), flatFrame: partFerryFrame(r),   // P2b (Paul 2026-09-09): the 4 rows are the ACTIVE ferry's colour in darkening SHADES (was fixed-by-position)
-                          sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: emitterHue(buildRowEmittersResolved(r)), playing: buildStagingPlaying && selected, strikeIdx: [idx]) })   // ALWAYS-VISIBLE emitter constellation; stars blink on live strikes
+                          sweep: { buildOutputFace(buildGridSelRowRoll[r] ?? [], tint: Color.white.opacity(0.9), playing: buildStagingPlaying && selected, strikeIdx: [idx]) })   // the notes: a calm NEUTRAL ribbon (was per-emitter rainbow — Paul 2026-09-09: too many colours). One light ink on every row.
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
         // punch look), so it is always clear + legible and NEVER becomes another machine. It fades only VERY slightly while
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
@@ -2938,9 +2940,10 @@ extension DiagView {
             } else {
                 cellBody
             }
-            // THE EDITED ROW — a STATIC cyan keyline (Paul 2026-09-08: the black breathe strobed; a steady marker instead).
+            // THE EDITED ROW — a STATIC WHITE DASHED keyline (Paul 2026-09-09: no cyan; dashed so it reads distinct from
+            // the SELECTED rung's solid-white ring below).
             if isEditedRow {
-                RoundedRectangle(cornerRadius: 5).stroke(buildCyan, lineWidth: 2.5).allowsHitTesting(false)
+                RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.7), style: StrokeStyle(lineWidth: 2, dash: [4, 3])).allowsHitTesting(false)
             }
             // AUTOMATION APPLIED → the lane label "AUTO N" on every extent cell (replaces the old dot).
             if inExtent {
@@ -2991,7 +2994,7 @@ extension DiagView {
     // whole row is the current per-column selection. (Paul 2026-08-28)
     @ViewBuilder private func roomsPartRightRail(_ n: Int) -> some View {
         let rowSel = buildStagingSel.allSatisfy { $0 == n }
-        RoundedRectangle(cornerRadius: 5).fill(rowSel ? buildCyan.opacity(0.5) : Color.white.opacity(0.11))
+        RoundedRectangle(cornerRadius: 5).fill(rowSel ? Color.white.opacity(0.28) : Color.white.opacity(0.11))   // no cyan (Paul 2026-09-09): whole-row select = a brighter neutral
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(rowSel ? Color.white.opacity(0.6) : buildEdge, lineWidth: 1))
             .overlay(Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.7)))   // same as the old gui's right rail
             .contentShape(Rectangle())
