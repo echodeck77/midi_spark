@@ -1615,15 +1615,10 @@ extension DiagView {
         }
         .padding(pad)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)    // CENTRED (Paul 2026-08-31): top-align dumped the whole leftover BELOW the emitter toggles (padding there) while the receiver toggles sat flush at the top — centring splits it so the gap above the receiver toggles == the gap below the emitter toggles
-        .background(Rectangle().fill(Color.white.opacity(0.05)))                 // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
-        // PAIRING (Paul 2026-08-30): the whole machine strip wears the FOCUSED machine's hue (buildSelHue) — the SAME hue
-        // the focused grid cell's frame brightens to. Matched frame ⇄ strip = "this cell is the machine in view."
-        // PAIRING: the selected-machine box wears the focused machine's hue — or the SELECT running-cell light grey (boxHue).
-        // GLOWING border (Paul 2026-08-31): the selected-machine's machine box (its toggles · MIDI chain · button box) wears a
-        // soft hue glow around its frame so the current machine reads at a glance.
-        .overlay(Rectangle().stroke(boxHue.opacity(0.9), lineWidth: 2.5)
-            .shadow(color: boxHue.opacity(0.75), radius: 5)
-            .shadow(color: boxHue.opacity(0.5), radius: 9))                       // SQUARE edges (Paul 2026-08-30, was cornerRadius 12)
+        // THE BOX WEARS A TINT OF THE SELECTED COLOUR (Paul 2026-09-10): the box background is now the focused machine's
+        // hue (grey on the SELECT audition, via boxHue), sitting BELOW the toggles · MIDI chain · buttons. The glowing
+        // border is REMOVED — the tint alone signals "this cell is the machine in view."
+        .background(Rectangle().fill(boxHue.opacity(0.16)))
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
@@ -1793,7 +1788,7 @@ extension DiagView {
         let startLabels = ["SYNC", "INSTANT", "STEP", "BEAT", "PASS"]
         let chokeOpts = ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"]
         let leftW: CGFloat = 26 * 4 + 6 * 3   // the 4×4 colour grid width — the whole left column
-        RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03))
+        RoundedRectangle(cornerRadius: 12).fill(Color(hex: buildFerryHex(t)).opacity(0.16))   // the SAME selected-colour tint as the machine box, in this ferry's hue (Paul 2026-09-10)
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
             .overlay(
                 ScrollView(showsIndicators: false) {
