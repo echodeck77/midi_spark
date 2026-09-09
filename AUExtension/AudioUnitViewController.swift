@@ -219,6 +219,12 @@ struct DiagView: View {
     // buildPlayColEmit = the door + emitters copied from the source at ferry time. (buildPlayPlaying is now a computed
     // "any column on", in the BuildPage extension.)
     @State var buildPlayColOn: [Bool] = Array(repeating: false, count: 8)
+    // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-FERRY launch anchor beat (8-wide; 0 = no anchor). Stamped on launch
+    // (buildToggleFerryPlay), cleared on stop; buildPublishScene maps each ON ferry to its engine row(s) — active → rows
+    // 0–7, background t → row 8+t — so the anchor FOLLOWS the ferry across activation. Runtime only (not persisted).
+    // `launchBeat` mirrors the un-anchored launch beat (for the Phase-2b one-shot expiry).
+    @State var launchAnchor: [Double] = Array(repeating: 0, count: 8)
+    @State var launchBeat: [Double] = Array(repeating: 0, count: 8)
     @State var buildPlayColRecv: [Int] = Array(repeating: 0, count: 8)
     @State var buildPlayColEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
     // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column can hold an N-step pass. len[c] = 1 ⇒ the single

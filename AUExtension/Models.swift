@@ -728,6 +728,7 @@ extension SceneState {
         swing = try c.decodeIfPresent(Int.self, forKey: .swing) ?? 50
         rowStepRate = try c.decodeIfPresent([StepRate?].self, forKey: .rowStepRate)
         rowLen = try c.decodeIfPresent([Int?].self, forKey: .rowLen)
+        rowLaunchAnchor = try c.decodeIfPresent([Double].self, forKey: .rowLaunchAnchor)   // PLAY-FERRY LAUNCH: ephemeral; nil on document scenes
         rowLane = try c.decodeIfPresent([UInt16].self, forKey: .rowLane)
         masterKey = try c.decodeIfPresent(Int.self, forKey: .masterKey)
         activeRow = try c.decodeIfPresent([Int?].self, forKey: .activeRow)
@@ -1033,6 +1034,7 @@ struct SceneState: Codable, Equatable {
     // independent tempos/lengths. Additive-Optional — old docs decode nil ⇒ every row uses `stepRate` / a full 8 (uniform).
     var rowStepRate: [StepRate?]? = nil   // per-row step (nil entry / nil array ⇒ the scene default)
     var rowLen: [Int?]? = nil             // per-row loop length in columns 1…8 (nil ⇒ 8)
+    var rowLaunchAnchor: [Double]? = nil  // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-ENGINE-row launch phase anchor in beats (0 ⇒ no anchor, transport-locked). Ephemeral (composed for the BUILD play grid), additive-Optional so old docs decode nil.
     // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask, so the BUILD staging + perform grids loop INDEPENDENTLY
     // in one combined scene. nil ⇒ no per-row lap (the render uses the ephemeral global lap, GRID-tab behaviour).
     var rowLane: [UInt16]? = nil           // count Snap.cols when set; entry = that row's loop mask (0 = no loop)

@@ -1978,6 +1978,7 @@ extension DiagView {
         guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
         let willOn = !(t < buildPlayColOn.count && buildPlayColOn[t])
         if t < buildPlayColOn.count { buildPlayColOn[t] = willOn }
+        buildStampFerryLaunch(t, on: willOn)                                  // PLAY-FERRY LAUNCH: anchor (from-top/quantized) on start, clear on stop
         if t == buildActiveFerry {
             buildVoiceOwner = willOn ? .part : .none                          // active → the STAGING sequencer (the visible part grid)
             buildClearFerryPlayback(t)                                        // …never also on the play layer (no double-audition)
@@ -1986,6 +1987,21 @@ extension DiagView {
         }
         if willOn { au?.clearMachineSolo(); buildHostHalted = false }
         buildPublishScene()
+    }
+    // PLAY-FERRY LAUNCH (Paul 2026-09-09): stamp/clear a ferry's launch anchor. SYNC ⇒ 0 (transport-locked, today). INSTANT/
+    // STEP/BEAT/PASS ⇒ the from-top phase anchor at that boundary (pure ferryLaunchAnchor). The beat is the tight extrapolated
+    // live beat (host or free-run) so INSTANT plays the part from column 0 at the tap. launchBeat mirrors it (one-shot expiry, 2b).
+    func buildStampFerryLaunch(_ t: Int, on: Bool) {
+        guard t >= 0, t < 8, t < launchAnchor.count else { return }
+        if on, let p = buildFerryParts[t] {
+            let step = p.rate?.beats ?? stepBeats
+            let passBeats = Double(max(1, p.length ?? Snap.cols)) * step
+            let beat = max(0, meters.beatAnchor + Date().timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0)
+            launchAnchor[t] = ferryLaunchAnchor(beat: beat, start: p.launchStartResolved, stepBeats: step, passBeats: passBeats)
+            launchBeat[t] = beat
+        } else {
+            launchAnchor[t] = 0; launchBeat[t] = 0
+        }
     }
     // Clear ferry `t`'s play-layer playback line — when it stops, OR when it becomes the ACTIVE ferry (then it plays via
     // the staging sequencer, so its play-layer row must be empty). Resets the pass to the inert single-cell default.
@@ -4011,6 +4027,14 @@ extension DiagView {
         input.playColLen = buildPlayColLen
         input.playColSteps = buildPlayColSteps
         input.playColRate = buildPlayColRate
+        // PLAY-FERRY LAUNCH (Paul 2026-09-09): map each ON ferry's per-ferry anchor to its ENGINE row(s) — the active ferry
+        // plays via staging (rows 0–7), a background ferry t via the play layer (row 8+t) — so the anchor follows the ferry.
+        var launchRows = [Double](repeating: 0, count: Snap.rows)
+        for t in 0..<8 where t < buildPlayColOn.count && buildPlayColOn[t] && t < launchAnchor.count && launchAnchor[t] != 0 {
+            if t == buildActiveFerry { for r in 0..<8 { launchRows[r] = launchAnchor[t] } }
+            else { launchRows[Snap.playLayerRowBase + t] = launchAnchor[t] }
+        }
+        input.rowLaunchAnchor = launchRows
         input.playColStepRecv = buildPlayColStepRecv
         input.playColStepEmit = buildPlayColStepEmit
         input.playColStepChain = (0..<8).map { c -> [[ProcessorSlot]] in

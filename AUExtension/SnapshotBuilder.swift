@@ -297,6 +297,8 @@ enum SnapshotBuilder {
         // PER-ROW LAP (Paul 2026-08-19): pass the per-row loop mask through when the scene set one (BUILD's two grids),
         // else empty ⇒ the render uses the ephemeral global lap for every row (GRID tab, byte-identical).
         let rowLaneResolved: [UInt16] = (scene.rowLane?.count == Snap.rows) ? scene.rowLane! : []
+        // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-engine-row launch anchor (0 ⇒ no anchor). Empty on any doc without one → byte-identical.
+        let rowLaunchAnchorResolved: [Double] = (scene.rowLaunchAnchor?.count == Snap.rows) ? scene.rowLaunchAnchor! : []
 
         // ROW 8 (Paul 2026-08-22): the toggle cells that flow through the box. A cell counts as ACTIVE when its scene
         // toggle (row8On) is lit. FREEZE ⇒ sustain + pause; HALFTIME ⇒ scale the play-grid clock (÷2 = 2.0 = slower).
@@ -368,6 +370,7 @@ enum SnapshotBuilder {
                            receiverFile: receiverFile,
                            macroValues: macroVals,
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
+                           rowLaunchAnchor: rowLaunchAnchorResolved,
                            freezeActive: freezeActive, clockScale: clockScale, busRemap: busRemap,
                            broadcastActive: broadcastActive, broadcastAll16: broadcastAll16)
         // PHASE 2 (Paul 2026-09-04): render-time AUTO descriptors — one per machine with an ACTIVE ×N-passes or SMOOTH
