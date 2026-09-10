@@ -103,9 +103,23 @@ final class LiveTelemetry {
     var beatAnchorAt = Date()
     var beat = 0.0
     var tempo = 120.0
+    var wasPlaying = false        // dejitter: transport-edge detector for syncBeat
+    var lastTempo = 120.0         // dejitter: tempo-change detector for syncBeat
     func emitter(_ i: Int, peak: Double) { guard i >= 0, i < 4 else { return }; emitPeak[i] = peak; emitPeakAt[i] = Date() }
     func receiver(_ i: Int, peak: Double) { guard i >= 0, i < 4 else { return }; receiverPeak[i] = peak; receiverPeakAt[i] = Date() }
-    func anchorBeat(_ b: Double, tempo t: Double, at when: Date) { beat = b; beatAnchor = b; beatAnchorAt = when; tempo = t }
+    // DEJITTER (Paul 2026-09-11): the playhead stutter cure. `nd.beat` is the host beat sampled at the START of the last
+    // render block; stamping it against the main-thread `Date()` every 4 Hz poll baked a VARYING clock-offset (render/output
+    // latency + main-thread jitter) into the extrapolation base → the playheads lurched ~4×/s on a steady tempo. Fix: only
+    // HARD re-anchor on a genuine discontinuity (first tick / transport start / tempo change / a jump = loop/seek); otherwise
+    // FREE-RUN from the existing anchor (host tempo is exact, so drift is negligible) so 4 Hz sampling jitter never shows.
+    func syncBeat(_ b: Double, tempo t: Double, playing: Bool, at when: Date) {
+        beat = b                  // raw polled beat kept for the InputMark roll etc.
+        let predicted = beatAnchor + when.timeIntervalSince(beatAnchorAt) * t / 60.0
+        if !playing || !wasPlaying || t != lastTempo || abs(b - predicted) > 0.25 {
+            beatAnchor = b; beatAnchorAt = when
+        }
+        tempo = t; wasPlaying = playing; lastTempo = t
+    }
 
     // The per-cell STRIKE / SOUNDING / NOTE-SWEEP / ROLL feed (Paul 2026-09-10): the 4 Hz poll writes these on every tick that
     // carries notes. As @State on the giant DiagView, each write re-ran the WHOLE BuildPage body — the on/near-each-step, and
@@ -849,7 +863,7 @@ struct DiagView: View {
             // whole grid every 0.25s (which used to tear down in-progress press-holds). When STOPPED
             // nothing here changes, so the grid is quiescent; while PLAYING only the playhead fields move.
             let nd = au.kernelDiagnostics()
-            meters.anchorBeat(nd.beat, tempo: nd.tempo, at: Date())       // BEAT clock (4 Hz) → the @State-held telemetry; the playheads extrapolate from it at 30 fps, so no body re-run for the beat
+            meters.syncBeat(nd.beat, tempo: nd.tempo, playing: nd.playing, at: Date())   // BEAT clock (4 Hz) → the telemetry; playheads extrapolate at 30 fps. DEJITTER: re-anchors only on a discontinuity, else free-runs (see syncBeat) → no 4 Hz stutter
             buildTickFerryOneShot(nd.beat)                                // PLAY-FERRY LAUNCH (Phase 2b): stop a ONE-SHOT ferry one part-length after its launch (≤ one poll of the pass end)
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
                 if holdLatch { setHold(false) }
