@@ -138,6 +138,7 @@ struct DiagView: View {
     @State var buildChainDragFrom: Int? = nil   // the processor box being dragged (nil = no drag in flight)
     @State var buildChainDragLoc: CGPoint = .zero   // finger location in the "chainBlock" coordinate space
     @State var buildChainDropTo: Int? = nil     // the slot index under the finger (highlighted; committed on release)
+    @State var buildChainOverTrash: Bool = false  // the dragged processor box is over the DELETE trash (left flank) — drop = remove (Paul 2026-09-10)
     @State var buildChainClipboard: [ProcessorSlot]? = nil   // COPY/PASTE buffer: a copied chain, pasted into a new row position
     // PROCESSOR EDITOR transaction (Paul 2026-08-19): the machine's chain as it was when the editor OPENED, so CANCEL can
     // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.

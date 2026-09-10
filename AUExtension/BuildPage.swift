@@ -1585,26 +1585,18 @@ extension DiagView {
                     // EMPTY part row selected (Paul 2026-09-10): the row-creator MENU is gone (creation is now the 4 in-row
                     // buttons). The machine box instead shows a FADED, EMPTY, UNSELECTABLE chain — same layout + footprint as
                     // a real chain (blockH, no scale change), just dimmed + inert so it clearly reads "nothing here yet".
-                    AnyView(HStack(alignment: .center, spacing: 0) {
-                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                    AnyView(HStack(alignment: .center, spacing: 0) {           // TRASH flank LEFT · chain centred · LIBRARY/MUTATE/CLEAR RIGHT — matches the populated layout (Paul 2026-09-10)
+                        AnyView(roomsChainTrash(width: sideW, height: blockH))
                         AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue, chainOverride: [])).frame(width: blockW)
-                        AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)
+                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
                     }
                     .opacity(0.35)
                     .allowsHitTesting(false))
                 } else {
-                    AnyView(HStack(alignment: .center, spacing: 0) {           // verb buttons on ONE side · MIDI CHAIN centred · VERTICAL PLAY + PLAYHEAD on the OPPOSITE side (Paul 2026-08-29)
-                        if room == .part {                                     // PART → verb buttons LEFT · vertical play RIGHT
-                            AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
-                        } else {                                               // SELECT → PLAY + SELECT column LEFT (opposite the right verb buttons)
-                            AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)
-                        }
+                    AnyView(HStack(alignment: .center, spacing: 0) {           // TRASH flank LEFT · MIDI CHAIN centred · verb buttons (LIBRARY/MUTATE/CLEAR) RIGHT — same sides in BOTH rooms (Paul 2026-09-10)
+                        AnyView(roomsChainTrash(width: sideW, height: blockH))   // LEFT — the DELETE trash (invisible until a chain box is held; PLAY + SELECT removed, Paul 2026-09-10)
                         AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
-                        if room == .part {
-                            AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)   // PART → PLAY + SELECT column RIGHT (opposite the left verb buttons)
-                        } else {
-                            AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // SELECT → verb buttons RIGHT
-                        }
+                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // RIGHT — LIBRARY / MUTATE / CLEAR (always the right, both rooms)
                     }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedMachineChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
                 }
                 Spacer(minLength: 8)
@@ -1701,6 +1693,27 @@ extension DiagView {
             .frame(width: g.size.width, height: height, alignment: .center)   // centre the pair in the flank
         }
     }
+    // THE CHAIN TRASH (Paul 2026-09-10) — replaces the PLAY + SELECT flank. INVISIBLE + non-interactive at rest (it
+    // renders nothing and never intercepts touch). While a MIDI-chain processor box is HELD (buildChainDragFrom set) a big
+    // red garbage-can box appears here; dragging the box over it (detected via the chainBlock x — the trash is the left
+    // flank, at x < 0) turns it EVEN REDDER, and dropping there deletes the processor from the chain (handled in buildProcBox).
+    @ViewBuilder func roomsChainTrash(width: CGFloat, height: CGFloat) -> some View {
+        let dragging = buildChainDragFrom != nil
+        let over = buildChainOverTrash
+        let boxH = 3 * 26 + 2 * BuildGeom.castGap   // SMALLER: the footprint of the LIBRARY/MUTATE/CLEAR stack (3 × 26 + 2 gaps) — Paul 2026-09-10
+        ZStack {
+            if dragging {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(red: 0.62, green: 0.12, blue: 0.10).opacity(over ? 0.92 : 0.28))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(red: 0.98, green: 0.28, blue: 0.22).opacity(over ? 1.0 : 0.5), lineWidth: over ? 3 : 1.5))
+                    .overlay(Image(systemName: "trash.fill").font(.system(size: over ? 26 : 20, weight: .bold)).foregroundColor(.white.opacity(over ? 1.0 : 0.8)))
+                    .shadow(color: over ? Color(red: 0.98, green: 0.2, blue: 0.16).opacity(0.7) : .clear, radius: over ? 9 : 0)
+                    .frame(width: width, height: boxH)   // centred in the flank (like the button stack)
+            }
+        }
+        .frame(width: width, height: height)
+        .allowsHitTesting(false)   // never responds to touch (the drag hit-tests via chainBlock coords, not this view) — Paul 2026-09-10
+    }
     // (The wide RECORD row was RETIRED 2026-08-29 — the PLAY button took its band. The reel is still reached via the
     // REEL room. buildReelButton remains for that room / a future RECORD home.)
 
@@ -1750,22 +1763,62 @@ extension DiagView {
         // §MERGE (Paul 2026-09-08): the card region is PERMANENT — always present below the grid, reflecting the selected
         // row/cell. Its CONTENT is the processor picked from the chain (buildEditSlot). With no pick (or an empty/stale
         // chain) it shows an invitation, so the space always reads as "the editor lives here".
-        if let slot = buildEditSlot, slot < chain.count, let cid = ddSelectedMachineID {
-            buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
-            .frame(width: w, height: h)                                   // fixed card box — the panel pins its header + scrolls its body inside this
-            .offset(x: x, y: y)
-            .onAppear { buildEditorSnapshot = selectedMachineChain(); buildEditorSnapCid = ddSelectedMachineID }   // OPEN snapshot for CANCEL
-            .onChange(of: ddSelectedMachineID) { newID in
-                guard let newID, newID != buildEditorSnapCid else { return }
-                buildEditorSnapshot = selectedMachineChain(); buildEditorSnapCid = newID
+        // TABS ALONG THE TOP (Paul 2026-09-10): a persistent header band — the CELL NAME tab (default "UNSET") then one tab
+        // per processor in the chain. The active tab selects the view below (cell/ferry settings when the cell tab is active,
+        // else that processor's controls). The card is FLAT now (no floating pop-up border/shadow) — it reads as part of the
+        // page, keeping only the header-band styling.
+        VStack(spacing: 0) {
+            buildProcCardTabs(chain: chain)
+            Group {
+                if let slot = buildEditSlot, slot < chain.count, let cid = ddSelectedMachineID {
+                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
+                } else if let a = buildActiveFerry, a >= 0, a < buildFerryParts.count, buildFerryParts[a] != nil {
+                    // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): the CELL tab (no processor selected) shows the selected
+                    // ferry's launch/identity panel — until a processor tab is chosen.
+                    roomsFerryLaunchPanel(a)
+                } else {
+                    roomsCardPlaceholder(empty: chain.isEmpty)
+                }
             }
-        } else if let a = buildActiveFerry, a >= 0, a < buildFerryParts.count, buildFerryParts[a] != nil {
-            // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): with a part on the bench and no processor open, this space is the
-            // selected ferry's launch/identity panel — until a processor is chosen (then buildProcessorPanel takes over above).
-            roomsFerryLaunchPanel(a).frame(width: w, height: h).offset(x: x, y: y)
-        } else {
-            roomsCardPlaceholder(empty: chain.isEmpty).frame(width: w, height: h).offset(x: x, y: y)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(width: w, height: h, alignment: .top)
+        .background(buildPanel)                                            // FLAT panel fill — not a floating pop-up (no hue border, no shadow)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .offset(x: x, y: y)                                                // OFFSET LAST — so the opaque background moves DOWN with the card (was before .background → the fill rendered at the un-offset origin, covering the select grid). Paul 2026-09-10 fix.
+        .onAppear { buildEditorSnapshot = selectedMachineChain(); buildEditorSnapCid = ddSelectedMachineID }
+        .onChange(of: ddSelectedMachineID) { newID in
+            guard let newID, newID != buildEditorSnapCid else { return }
+            buildEditorSnapshot = selectedMachineChain(); buildEditorSnapCid = newID
+        }
+    }
+    // THE CARD TAB ROW (Paul 2026-09-10) — the header band. Leftmost = the CELL NAME (the active ferry's name, else "UNSET";
+    // tap → the cell/ferry view, no processor selected). Then a tab per POPULATED processor in the chain (tap → edit it). The
+    // active tab wears the machine hue. Keeps the old header's hue-tinted styling.
+    @ViewBuilder private func buildProcCardTabs(chain: [ProcessorSlot]) -> some View {
+        let hue = buildCardHue
+        let cellName: String = buildActiveFerry
+            .flatMap { $0 >= 0 && $0 < buildFerryParts.count ? buildFerryParts[$0]?.ferryName : nil }
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "UNSET"
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                buildProcTab(cellName.uppercased(), active: buildEditSlot == nil, hue: hue) { buildEditSlot = nil; buildStageEye = false }
+                ForEach(0..<chain.count, id: \.self) { s in
+                    if !buildIsEmptySlot(chain[s]) {
+                        buildProcTab(buildProcLabel(chain[s]), active: buildEditSlot == s, hue: hue) { buildEditSlot = s; buildStageEye = false }
+                    }
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+        }
+        .background(hue.opacity(0.22))   // the KEPT header styling
+    }
+    @ViewBuilder private func buildProcTab(_ label: String, active: Bool, hue: Color, _ tap: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1)
+            .foregroundColor(active ? .black : .white.opacity(0.7))
+            .padding(.horizontal, 12).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(active ? hue : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
     // The always-present card region when no processor is being viewed: an invitation to pick one from the chain (or,
     // when the selected cell has no chain yet, to add one). Keeps the below-grid section permanently visible (Paul 2026-09-08).
@@ -3133,10 +3186,13 @@ extension DiagView {
         let cols = buildPartCols
         let rows = DiagView.roomsGridRows
         let ring: Color = buildAutoActive() >= 0 ? Color.white.opacity(0.8) : Color.white   // fades slightly while an AUTO tab is armed
+        // FADE the select border on the row showing the MUTATE/RANDOM/CREATE/CLONE creator buttons (a selected EMPTY row) —
+        // the bright ring fights those buttons; a faint outline is enough there (Paul 2026-09-10).
+        let creatorRow: Int? = buildGridSelStampSourceRow.flatMap { buildRowMachine($0) == nil ? $0 : nil }
         ZStack(alignment: .topLeading) {
             ForEach(0..<rows, id: \.self) { r in
                 ForEach(roomsSelectionRuns(row: r, cols: cols), id: \.self) { run in
-                    RoundedRectangle(cornerRadius: 5).stroke(ring, lineWidth: 2)
+                    RoundedRectangle(cornerRadius: 5).stroke(r == creatorRow ? ring.opacity(0.2) : ring, lineWidth: 2)
                         .frame(width: CGFloat(run.count) * colW + CGFloat(run.count - 1) * gap, height: rowH)
                         .offset(x: CGFloat(run.lowerBound) * (colW + gap), y: CGFloat(r) * (rowH + gap))
                 }
@@ -3866,6 +3922,7 @@ extension DiagView {
         let bw = w * 0.8, bh = h * 0.8                             // the button is 80% of the 2×2-cell footprint …
         let isDragged = buildChainDragFrom == i
         let isDropTarget = buildChainDragFrom != nil && buildChainDragFrom != i && buildChainDropTo == i
+        let isDest = buildChainDragFrom != nil && buildChainDragFrom != i && !isDropTarget   // during a drag, EVERY other box reads as a droppable destination (Paul 2026-09-10)
         Group {
             if populated {
                 Text(buildProcLabel(chain[i]))
@@ -3890,6 +3947,10 @@ extension DiagView {
         .opacity(isDragged ? 0.3 : 1)                             // DRAG-TO-REORDER: the lifted source recedes (the ghost carries it)
         .overlay {                                                 // … and the slot the finger is over rings cyan (where it will land)
             if isDropTarget { RoundedRectangle(cornerRadius: 8).stroke(buildCyan, lineWidth: 3).frame(width: bw + 4, height: bh + 4) }
+            else if isDest {                                       // a POTENTIAL destination while dragging — a soft dashed cyan ring + faint wash so it reads as droppable
+                RoundedRectangle(cornerRadius: 8).fill(buildCyan.opacity(0.10)).frame(width: bw, height: bh)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildCyan.opacity(0.55), style: StrokeStyle(lineWidth: 2, dash: [4, 3])).frame(width: bw, height: bh))
+            }
             else if populated && buildEditSlot == i {              // FOCUS (Paul 2026-09-10): the processor currently open in the card — a
                 // crisp white ring + a soft white halo, drawn as an OVERLAY so the box footprint / fill / section layout are
                 // untouched. Obvious where the focus sits, but stylish and quiet (static — no strobe, per Paul 2026-09-08).
@@ -3898,20 +3959,35 @@ extension DiagView {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { buildExitPlaceMode(); buildPlaceMsg = nil; if populated { buildEditSlot = i } else { buildAddSlot = i } }   // fresh pop-up → clear stale PLACE feedback; box is not a play-grid row → leaves PLACE mode
-        // DRAG-TO-REORDER (Paul 2026-08-25): a populated box is a drag source — track the finger in the "chainBlock" space,
-        // ring the slot under it, and on release move the processor there (array move, chain folds in the new order). A
-        // simultaneousGesture so a plain TAP still opens the editor; a >14pt drag reorders. Empty boxes aren't sources.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 14, coordinateSpace: .named("chainBlock"))
-                .onChanged { g in
+        .onTapGesture { buildExitPlaceMode(); buildPlaceMsg = nil; if populated { buildEditSlot = i } else { buildAddSlot = i } }   // quick TAP → open the editor (empty box → the ADD PROCESSOR picker)
+        // HOLD → DRAG → (Paul 2026-09-10): a populated box is HELD (long press ≥ 0.28s) to enter drag mode — the red TRASH
+        // appears in the left flank. DRAG onto the trash (chainBlock x < 0) + drop = DELETE; drag onto another box = REORDER;
+        // LONG-PRESS then RELEASE IN PLACE (no move) = toggle BYPASS. highPriorityGesture so a quick tap (< 0.28s) falls
+        // through to the editor (onTapGesture) and a completed hold is not double-handled. Empty boxes are not sources.
+        .highPriorityGesture(
+            LongPressGesture(minimumDuration: 0.28)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("chainBlock")))
+                .onChanged { value in
                     guard populated else { return }
-                    buildChainDragFrom = i; buildChainDragLoc = g.location
-                    buildChainDropTo = buildChainTargetIndex(g.location, boxW: w, boxH: h, gap: gap, count: chain.count)
+                    switch value {
+                    case .first(true):                                    // held → enter drag mode; the ghost starts at this box's centre
+                        buildChainDragFrom = i
+                        buildChainDragLoc = CGPoint(x: CGFloat(i % 2) * (w + gap) + w / 2, y: CGFloat(i / 2) * (h + gap) + h / 2)
+                        buildChainDropTo = nil; buildChainOverTrash = false
+                    case .second(true, let drag?):                        // dragging
+                        buildChainDragLoc = drag.location
+                        let overTrash = drag.location.x < -6              // the trash is the LEFT flank (negative x in the box-grid space)
+                        buildChainOverTrash = overTrash
+                        buildChainDropTo = overTrash ? nil : buildChainTargetIndex(drag.location, boxW: w, boxH: h, gap: gap, count: chain.count)
+                    default: break
+                    }
                 }
-                .onEnded { _ in
-                    if let from = buildChainDragFrom, let to = buildChainDropTo, from != to { buildChainMoveSlot(from: from, to: to) }
-                    buildChainDragFrom = nil; buildChainDropTo = nil
+                .onEnded { value in
+                    defer { buildChainDragFrom = nil; buildChainDropTo = nil; buildChainOverTrash = false }
+                    guard populated, case .second = value else { return }
+                    if buildChainOverTrash { buildChainRemoveSlot(i); if buildEditSlot == i { buildEditSlot = nil } }   // dropped on the trash → DELETE
+                    else if let to = buildChainDropTo, to != i { buildChainMoveSlot(from: i, to: to) }                  // dropped on another box → REORDER
+                    else { buildChainToggleBypass(i) }                                                                  // released in place → BYPASS
                 }
         )
     }
@@ -5476,49 +5552,10 @@ extension DiagView {
 
     @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, contentW: CGFloat) -> some View {
         let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
+        // BODY ONLY (Paul 2026-09-10): the old header (machine cell · emblem · name · BYPASS/DELETE/CANCEL/DONE) is GONE — the
+        // TAB ROW (buildProcCardTabs) now heads the card; bypass = long-press a chain box, delete = the trash. Just the controls.
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {                               // HEADER: machine + name · BYPASS · CANCEL · DELETE
-                RoundedRectangle(cornerRadius: 8).fill(hue).frame(width: 34, height: 34)
-                Image(systemName: emblemSymbol(proc.type)).font(.system(size: 20, weight: .black)).foregroundColor(.white)
-                Text(buildProcLabel(proc)).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)   // type + its fixed mode (the radio moved to the card)
-                Spacer()
-                // HOLD-BYPASS A/B (idea 23): TAP = toggle (persistent); HOLD = momentary flip (hear it in/out, restore on
-                // release). The momentary uses the same undoable bypass edit (v1: may add an undo step for a placed machine).
-                Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14).frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(proc.bypassed ? 0.9 : 0.3), lineWidth: buildBypassHeld == slot ? 2 : 1))
-                    .contentShape(Rectangle())
-                    .onTapGesture { buildChainToggleBypass(slot) }
-                    .onLongPressGesture(minimumDuration: 0.22, pressing: { pressing in
-                        if !pressing, buildBypassHeld == slot { buildChainToggleBypass(slot); buildBypassHeld = nil }   // release → restore
-                    }, perform: { buildChainToggleBypass(slot); buildBypassHeld = slot })                              // held → momentary flip
-                Button { buildChainRemoveSlot(slot); buildEditSlot = nil; buildStageEye = false } label: {
-                    Text("DELETE").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.red)
-                        .padding(.horizontal, 14).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.7), lineWidth: 1))
-                }.buttonStyle(.plain)
-                Button { buildEditorCancel() } label: {          // CANCEL — revert to the open-snapshot (Paul 2026-08-19)
-                    Text("CANCEL").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(buildDim)
-                        .padding(.horizontal, 14).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.3), lineWidth: 1))
-                }.buttonStyle(.plain)
-                Button { buildEditSlot = nil; buildStageEye = false } label: {          // DONE — keep the edits + close (Paul 2026-08-19)
-                    Text("DONE").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 16).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(buildCyan))
-                }.buttonStyle(.plain)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(hue.opacity(0.22))
-            // FIXED HEADER above · SCROLLABLE BODY below (Paul 2026-08-30) — the title + DONE/CANCEL/DELETE/BYPASS stay
-            // pinned while SOURCE/OCT, the truth strips, and the controls scroll under them.
+            // SCROLLABLE BODY — SOURCE/OCT, the truth strips, and the controls.
             ScrollView(.vertical, showsIndicators: true) {
               VStack(alignment: .leading, spacing: 0) {
             // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — the per-STAGE header standard: OCT ◀n▶ (this stage's own
@@ -5562,11 +5599,8 @@ extension DiagView {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
-        .clipShape(RoundedRectangle(cornerRadius: 8))                           // clip the header's top corners + the scroll body to the panel box
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(hue, lineWidth: 4))   // THICKER + LESS ROUNDED (Paul 2026-08-28)
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-        .contentShape(Rectangle()).onTapGesture { }            // swallow taps inside the panel so they don't reach the backdrop (close)
+        // (The pop-up chrome — buildPanel fill · rounded clip · thick hue border · drop shadow · tap-swallow — is REMOVED so the
+        // card reads as part of the page. The card region (roomsProcessorCardAt) provides the flat fill + clip. Paul 2026-09-10.)
     }
 
     // §1 TRUTH STRIPS (Paul 2026-08-22, the TUTTI-confusion cure): a slim IN | OUT band above the controls. IN = the
@@ -5901,6 +5935,13 @@ extension DiagView {
         // notes the NEW settings produce (born after the gesture started) stand out from the old ones, as you drag.
         let now = Date(); if buildEditStartedAt == nil { buildEditStartedAt = now }; buildLastEditAt = now
         buildWriteMachineSlots(cid, chain)
+        // PERSIST SELECT-GRID CELL EDITS (Paul 2026-09-10): a plain cell audition edits the transient gsAud. Store the edited
+        // chain onto the cell's in-memory OVERRIDE so LEAVING the cell and RETURNING restores it — buildGridSelChainAt reads
+        // the override BEFORE the dealt/library source (which would otherwise reload the ORIGINAL, dropping the edits). Only a
+        // real cell selection (buildGridSelSel != nil); a ferry aim (sel == nil) mirrors to its part row below instead.
+        if cid == buildGridSelAudID, let sel = buildGridSelSel, sel >= 0, sel < 64 {
+            buildGridSelOverride[sel] = (chain, machineHueOverride[buildGridSelAudID] ?? buildGridSelCellHex(sel))
+        }
         // FERRY MIRROR (Paul 2026-08-30): a SELECT-grid ferry aim edits the transient gsAud (so the audition stays quantized-
         // swappable). Card edits were auditioned but never written back — an ARP change was HEARD in the audition so it read
         // as "working", a PASSGATE change wasn't obvious → "not applied", and NEITHER persisted to the part row. Mirror the
