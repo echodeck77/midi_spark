@@ -1591,9 +1591,16 @@ extension DiagView {
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 Spacer(minLength: 8)                                         // centre the chain row VERTICALLY
                 if room == .part, let sr = buildGridSelStampSourceRow, buildRowMachine(sr) == nil {
-                    // ADD-A-ROW (Paul 2026-09-08): an EMPTY part row is selected → the chain area becomes the row-creator
-                    // menu (big buttons), in the SAME footprint as the chain block (blockH). The two toggle sets stay put.
-                    AnyView(buildRowCreatorMenu(sr, height: blockH))
+                    // EMPTY part row selected (Paul 2026-09-10): the row-creator MENU is gone (creation is now the 4 in-row
+                    // buttons). The machine box instead shows a FADED, EMPTY, UNSELECTABLE chain — same layout + footprint as
+                    // a real chain (blockH, no scale change), just dimmed + inert so it clearly reads "nothing here yet".
+                    AnyView(HStack(alignment: .center, spacing: 0) {
+                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                        AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue, chainOverride: [])).frame(width: blockW)
+                        AnyView(roomsPlaySelectColumn(room, height: blockH)).frame(width: sideW)
+                    }
+                    .opacity(0.35)
+                    .allowsHitTesting(false))
                 } else {
                     AnyView(HStack(alignment: .center, spacing: 0) {           // verb buttons on ONE side · MIDI CHAIN centred · VERTICAL PLAY + PLAYHEAD on the OPPOSITE side (Paul 2026-08-29)
                         if room == .part {                                     // PART → verb buttons LEFT · vertical play RIGHT
@@ -2637,6 +2644,11 @@ extension DiagView {
     }
     // The ACTIVE lane of the FOCUSED machine (−1 = NONE). Per-machine (each machine's automation is independent).
     func buildAutoActive() -> Int { buildAutoLanes[ddSelectedMachineID ?? ""]?.activeLane ?? -1 }
+    // Does anything on screen need the LIVE STEP (effColumn/absoluteStep) folded into `d`? Only the processor-editor matrix
+    // playheads (buildEditSlot) and the AUTO ramp playhead (an armed lane). When neither is up we keep the step OUT of `d` so
+    // its per-step change doesn't re-run the whole body — the part playhead is beat-derived and stays smooth without it, which
+    // is what removes the on/near-each-step choppiness. (Paul 2026-09-10, playhead-jitter fix — read by the VC poll.)
+    var buildLiveStepNeeded: Bool { buildEditSlot != nil || buildAutoActive() >= 0 }
     func buildAutoSetActive(_ i: Int) {
         let cid = ddSelectedMachineID ?? ""; guard !cid.isEmpty else { return }
         var pa = buildAutoLanes[cid] ?? PartAutoMachine()
@@ -3670,8 +3682,8 @@ extension DiagView {
 
     // The chain as the block's lower half: 8 processor boxes, each the size of 2×2 cast cells, laid 1·2·3·4 /
     // 5·6·7·8 with NO connectors. Empty slots read as their number (1–8); populated show the processor type.
-    @ViewBuilder private func buildProcessorBlock(castW: CGFloat, cell: CGFloat, hue: Color) -> some View {
-        let chain = selectedMachineChain()
+    @ViewBuilder private func buildProcessorBlock(castW: CGFloat, cell: CGFloat, hue: Color, chainOverride: [ProcessorSlot]? = nil) -> some View {
+        let chain = chainOverride ?? selectedMachineChain()   // chainOverride: force an EMPTY ghost chain for an unselectable empty row (Paul 2026-09-10)
         let gap = BuildGeom.castGap
         let swW = (castW - gap * 7) / 8                            // same swatch width as the cast → boxes sit on the 8-column grid
         let boxW = swW * 2 + gap                                   // 2 cast columns wide
@@ -4410,7 +4422,7 @@ extension DiagView {
         HStack(spacing: gap) {
             roomsRowCreatorSeg("MUTATE") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain) }
             roomsRowCreatorSeg("RANDOM") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng)) }
-            roomsRowCreatorSeg("CREATE") { buildCreateRowMachine(row, chain: []) }
+            roomsRowCreatorSeg("CREATE") { buildCreateRowMachine(row, chain: []); buildAddSlot = 0 }   // mint an empty machine + open the ADD PROCESSOR card (Paul 2026-09-10)
             roomsRowCreatorSeg("CLONE")  { buildCreateRowMachine(row, chain: refChain) }
         }.frame(width: rowW, height: rowH)
     }
@@ -4423,36 +4435,8 @@ extension DiagView {
             .contentShape(Rectangle())
             .onTapGesture(perform: action)
     }
-    @ViewBuilder private func buildRowCreatorMenu(_ row: Int, height: CGFloat) -> some View {
-        let populated = (0..<8).filter { buildRowMachine($0) != nil }
-        ScrollView(showsIndicators: false) {                     // scrolls if there are many rows — the SECTION stays a fixed `height`
-            VStack(spacing: 6) {
-                ForEach(populated, id: \.self) { r in
-                    buildRowCreatorButton("DUPLICATE ROW \(r + 1)", hue: buildRowMachine(r).flatMap { machineHue($0) } ?? buildCyan) {
-                        buildCreateRowMachine(row, chain: buildRowMachine(r).map { buildMachineChain($0) } ?? [])
-                    }
-                }
-                ForEach(populated, id: \.self) { r in
-                    buildRowCreatorButton("MUTATE ROW \(r + 1)", hue: buildRowMachine(r).flatMap { machineHue($0) } ?? buildCyan) {
-                        let base = buildRowMachine(r).map { buildMachineChain($0) } ?? []
-                        var rng = SystemRandomNumberGenerator()
-                        buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) ?? base)
-                    }
-                }
-                buildRowCreatorButton("RANDOMIZE", hue: buildCyan) { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng)) }
-                buildRowCreatorButton("CREATE NEW", hue: buildCyan) { buildCreateRowMachine(row, chain: []) }
-                buildRowCreatorButton("PICK FROM LIBRARY", hue: buildCyan) { buildOpenLibrary() }
-            }.padding(.vertical, 2)
-        }
-        .frame(height: height)
-    }
-    private func buildRowCreatorButton(_ label: String, hue: Color, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity).frame(minHeight: 34)
-            .background(RoundedRectangle(cornerRadius: 6).fill(hue.opacity(0.28)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(hue.opacity(0.85), lineWidth: 1.5))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
+    // (buildRowCreatorMenu / buildRowCreatorButton removed 2026-09-10 — creation is now the 4 in-row buttons
+    //  MUTATE/RANDOM/CREATE/CLONE via roomsRowCreatorInline; CREATE opens the ADD PROCESSOR card.)
     // <<< CLEAR — empty the SELECTED machine's midi chain (every processor box → "+"). (Paul 2026-08-18)
     // On the PART grid (Paul 2026-09-08) CLEAR ALSO removes the machine's PRESENCE from the part (its row); and when the
     // whole part is thereby empty it clears the ACTIVE FERRY too → an empty ferry, which is how you reach the SELECT
@@ -4950,9 +4934,13 @@ extension DiagView {
     @ViewBuilder private func buildNoteSweep(indices: [Int], active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
       if active, id != nil {
         let hue = emitterHue(emitter)   // ROUTING channel (Paul 2026-08-30): the drift is the cell's EMITTER machine, not its machine hue
-        let notes = indices.flatMap { $0 >= 0 && $0 < buildCellRoll.count ? buildCellRoll[$0] : [] }
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || notes.isEmpty)) { tl in
+        // Read the drifting roll LIVE from `meters` inside the TimelineView (Paul 2026-09-10): it lives off @State so a new
+        // strike no longer re-runs the body — this closure re-reads it each frame instead. Only ACTIVE cells (a few at most)
+        // build a TimelineView, so running it while momentarily silent is cheap (was: paused on notes.isEmpty, which needed
+        // the body re-run to un-pause — the very thing we're removing).
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
             let now = tl.date
+            let notes = indices.flatMap { $0 >= 0 && $0 < meters.cellRoll.count ? meters.cellRoll[$0] : [] }
             Canvas { ctx, size in
                 var pts: [(x: Double, y: Double, v: Double, a: Double)] = []
                 for n in notes {
@@ -5359,13 +5347,13 @@ extension DiagView {
                     let bandLevels: [Double]? = override != nil ? nil : playing.map { band in
                         guard !band.cellIdxs.isEmpty else { return level }
                         var best = 0.0
-                        for idx in band.cellIdxs where idx >= 0 && idx < cellSoundVel.count {
+                        for idx in band.cellIdxs where idx >= 0 && idx < meters.cellSoundVel.count {   // read live from `meters` (off @State, Paul 2026-09-10)
                             let lvl: Double
-                            if idx < cellSounding.count && cellSounding[idx] {   // HELD → steady at the sounding velocity
-                                lvl = cellSoundVel[idx]
+                            if idx < meters.cellSounding.count && meters.cellSounding[idx] {   // HELD → steady at the sounding velocity
+                                lvl = meters.cellSoundVel[idx]
                             } else {                                             // RELEASED → smooth 0.9 s decay from the note's velocity
-                                let age = tl.date.timeIntervalSince(idx < cellReleasedAt.count ? cellReleasedAt[idx] : .distantPast)
-                                lvl = max(0, cellHitVel[idx] * (1 - age / 0.9))
+                                let age = tl.date.timeIntervalSince(idx < meters.cellReleasedAt.count ? meters.cellReleasedAt[idx] : .distantPast)
+                                lvl = max(0, meters.cellHitVel[idx] * (1 - age / 0.9))
                             }
                             best = max(best, lvl)
                         }

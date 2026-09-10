@@ -82,6 +82,23 @@ final class LiveTelemetry {
     func emitter(_ i: Int, peak: Double) { guard i >= 0, i < 4 else { return }; emitPeak[i] = peak; emitPeakAt[i] = Date() }
     func receiver(_ i: Int, peak: Double) { guard i >= 0, i < 4 else { return }; receiverPeak[i] = peak; receiverPeakAt[i] = Date() }
     func anchorBeat(_ b: Double, tempo t: Double, at when: Date) { beat = b; beatAnchor = b; beatAnchorAt = when; tempo = t }
+
+    // The per-cell STRIKE / SOUNDING / NOTE-SWEEP / ROLL feed (Paul 2026-09-10): the 4 Hz poll writes these on every tick that
+    // carries notes. As @State on the giant DiagView, each write re-ran the WHOLE BuildPage body — the on/near-each-step, and
+    // rapid-arp, choppiness. Held here (not @State) they mutate WITHOUT a body re-run; the two consumers — the emitter fader
+    // and buildNoteSweep — read them LIVE inside their 30 fps TimelineViews, exactly like emitPeak. Index = col*Snap.rows+row.
+    var cellHitAt     = [Date](repeating: .distantPast, count: Snap.cells)   // SEAL comet: last-strike time (UI owns the decay)
+    var cellHitVel    = [Double](repeating: 0, count: Snap.cells)            // last-strike velocity 0…1 (the fader's release-decay start)
+    var cellStrikeSeq = [Int](repeating: 0, count: Snap.cells)              // per-cell strike-moment counter → drives the roll fold
+    var cellSoundVel  = [Double](repeating: 0, count: Snap.cells)            // SOUNDING velocity 0…1 (stays up while HELD) — the fader floor
+    var cellSounding  = [Bool](repeating: false, count: Snap.cells)          // is the cell sounding now (gate for the release decay)
+    var cellReleasedAt = [Date](repeating: .distantPast, count: Snap.cells)  // falling-edge stamp → the fader decays from here
+    var cellNotePitch = [UInt8](repeating: 0, count: Snap.cells * 6)         // NOTE-SWEEP: per-cell recent emitted notes (6 slots/cell)
+    var cellNoteVel   = [UInt8](repeating: 0, count: Snap.cells * 6)
+    var cellNoteCount = [UInt8](repeating: 0, count: Snap.cells)
+    var cellRoll: [[BuildRollNote]] = Array(repeating: [], count: Snap.cells)   // the drifting piano-roll notes per cell (buildNoteSweep)
+    var rollPrevSeq   = [Int](repeating: 0, count: Snap.cells)              // last folded strike-seq per cell (the roll fold's diff)
+    var lastStep = -1   // step-boundary detector for the quantized voice-switch commit (replaced .onChange(of: d.absoluteStep))
 }
 
 // Paul 2026-09-05: the WHOLE part-grid state, archived onto a play cell when a part/cell is promoted FROM the part grid, so
@@ -390,31 +407,14 @@ struct DiagView: View {
     @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (button removed 2026-08-05; localized holds pending)
     @State private var contentOverflows = false   // whole-UI scroll: the content column is taller than the viewport → wrap header+tabs+body in ONE ScrollView
     @State var ladderMode = false            // LADDER: exclusive-columns mode (mirror of au.uiLadderMode; LADDER factory presets)
-    // SEAL comet: per-cell last-strike time + velocity (index = col*Snap.rows+row), stamped from the 4 Hz poll of
-    // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
-    @State var cellHitAt = [Date](repeating: .distantPast, count: Snap.cells)   // Snap.cells = 128 (rows 0–15; index = col*Snap.rows+row)
-    @State var cellHitVel = [Double](repeating: 0, count: Snap.cells)
-    @State var cellSoundVel = [Double](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity 0…1 (stays up while HELD) — the emitter fader's per-machine floor (Paul 2026-09-07)
-    // SEAL comet note-on/off GATE: which cells are currently SOUNDING (derived from the 256-wide cellSoundVel feed > 0,
-    // covering cols 8–15), and when each last went SILENT. The spark travels for the held duration, then fades ~0.45s.
+    // The per-cell STRIKE / SOUNDING / NOTE-SWEEP / ROLL feed moved into `meters` (LiveTelemetry) so its 4 Hz per-note writes
+    // no longer re-run the whole BuildPage body — see the class. Only the OFFLINE part-roll + drag/transport state stay @State.
     @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL: the part's exact output (the OFFLINE feed, recomputed on input/selection/edit change — no lag)
     @State var partRollSig: String = ""                  // the recompute key (input · selection · rate · edit generation) — skip identical recomputes
     @State var buildPartRollGen: Int = 0                 // bumped by buildPublishScene so a CELL/CHAIN edit forces an offline recompute (even if the selection didn't change)
     @State var buildPartDragLast: Int? = nil   // PART GRID (Paul 2026-09-02): the last cell touched in the current tap/drag selection (nil = no active drag)
     @State var buildPartDragAnchor: Int? = nil // SPAN DRAW (Paul 2026-09-04): the COLUMN a span-draw drag started on (nil = no active span drag)
     @State var buildHostHalted: Bool = false   // TRANSPORT (Paul 2026-09-02): the host stopped while we were following it → HALT (free-run off), cells stay armed; cleared on host START or an explicit BUILD play
-    @State var cellSounding = [Bool](repeating: false, count: Snap.cells)
-    @State var cellReleasedAt = [Date](repeating: .distantPast, count: Snap.cells)
-    @State var cellStrikeSeq = [Int](repeating: 0, count: Snap.cells)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)
-    // NOTE-SWEEP feed (Paul 2026-08-19): per-cell RECENT emitted note-ons — pitch + velocity + count (6 slots/cell). The
-    // piano-roll faces place marks at REAL pitch. Polled from au.pollCellNotes(); stored only on a tick that carried notes.
-    @State var cellNotePitch = [UInt8](repeating: 0, count: Snap.cells * 6)
-    @State var cellNoteVel   = [UInt8](repeating: 0, count: Snap.cells * 6)
-    @State var cellNoteCount = [UInt8](repeating: 0, count: Snap.cells)
-    // BUILD grid PIANO-ROLL (Paul 2026-08-19): the BUILD cells echo a piano roll too — accumulate per-cell scrolling notes
-    // from the strike/note feed (same as the perform grid's face), read by buildNoteSweep→buildPianoRoll.
-    @State var buildCellRoll: [[BuildRollNote]] = Array(repeating: [], count: Snap.cells)
-    @State var buildRollPrevSeq = [Int](repeating: 0, count: Snap.cells)
     // §6a meter peaks (emitter + receiver) live in `meters` — a @State-held class so the 30 Hz updates DON'T re-run the
     // body (CPU, device 2026-08-24). The meter TimelineViews read `meters.emitPeak`/`emitPeakAt` etc. live through the reference.
     @State var meters = LiveTelemetry()
@@ -798,9 +798,8 @@ struct DiagView: View {
         .onChange(of: sel.cells) { _ in                       // SINGLE-mode editing: the selection drives the ladder's
             syncSingleModeActivation()                        // ACTIVE rung (ferry 2026-08-06); no-op in MULTI or outside ADD/EDIT
         }
-        .onChange(of: d.absoluteStep) { _ in                  // BUILD: apply an armed CHAIN⟷PART voice switch on the cell boundary
-            buildCommitPendingVoice()                          // (Paul 2026-08-14). absoluteStep increments each step EVEN during a column lap.
-        }
+        // (The quantized CHAIN⟷PART voice switch moved from .onChange(of: d.absoluteStep) into the poll — Paul 2026-09-10 —
+        //  so the step no longer needs to be folded into `d` at step rate. See the poll's step-boundary block.)
         .onChange(of: d.playing) { playing in                 // transport stopped mid-arm → apply the pending voice switch now (no boundary will come)
             if !playing { buildCommitPendingVoice() }
         }
@@ -834,14 +833,26 @@ struct DiagView: View {
                 clearOnTap()                                              // ON TAP: momentary flips/mute/solo clear on stop
                 clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
                 clearEmitterPerform()                                     // emitter strip: output OCT = weather
-                if buildCellRoll.contains(where: { !$0.isEmpty }) { buildCellRoll = Array(repeating: [], count: Snap.cells) }   // BUILD piano-roll: clear on stop so idle faces pause
+                if meters.cellRoll.contains(where: { !$0.isEmpty }) { meters.cellRoll = Array(repeating: [], count: Snap.cells) }   // BUILD piano-roll: clear on stop so idle faces pause
             }
             let lm = au.uiLadderMode(); if lm != ladderMode { ladderMode = lm }   // LADDER: sync the mode (preset load / external change)
             // `d` drives the BODY (effColumn highlight, pass, etc.). DON'T update it on `beat` alone — that fired every
             // tick while playing (→ a full BuildPage recompute at 4 Hz just to move a beat the playheads extrapolate).
-            // The beat now lives in `meters`; `d` updates only at STEP boundaries (effColumn/absoluteStep) + transport/tempo/pass.
+            // The beat now lives in `meters`. FURTHER (Paul 2026-09-10): the STEP index (effColumn/absoluteStep) also re-runs the
+            // whole body when it lands in `d` — the on/near-each-step choppiness — so fold it in ONLY when a per-step CONSUMER is
+            // on screen (the processor-editor matrix playheads / the AUTO ramp). Otherwise `d` updates only on the SLOW fields
+            // (playing/tempo/pass) and the beat-derived part playhead stays smooth. The quantized voice switch that used to ride
+            // .onChange(of: d.absoluteStep) now fires from the poll (below), so it no longer needs the step folded into `d`.
+            let needStep = buildLiveStepNeeded
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
-                || (nd.playing && (nd.effColumn != d.effColumn || nd.absoluteStep != d.absoluteStep)) { d = nd }
+                || (needStep && nd.playing && (nd.effColumn != d.effColumn || nd.absoluteStep != d.absoluteStep)) { d = nd }
+            // QUANTIZED CHAIN⟷PART VOICE SWITCH (was .onChange(of: d.absoluteStep), Paul 2026-08-14): commit an armed switch on
+            // the step boundary. Detect the boundary against the reference-held last-step so a plain step change re-runs nothing;
+            // buildCommitPendingVoice (which does mutate @State) only runs when a switch/reengage is actually armed (rare).
+            if nd.playing, nd.absoluteStep != meters.lastStep {
+                meters.lastStep = nd.absoluteStep
+                if buildPendingWorkshopVoice != nil || buildPendingReengage { buildCommitPendingVoice() }
+            }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
             let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // THE REEL-TO-REEL glyph state
@@ -965,7 +976,7 @@ struct DiagView: View {
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
             let cn = au.pollCellNotes()                    // NOTE-SWEEP: per-cell recent emitted notes (pitch/vel/count) — drained every tick
-            if cn.count.contains(where: { $0 > 0 }) { cellNotePitch = cn.pitch; cellNoteVel = cn.vel; cellNoteCount = cn.count }
+            if cn.count.contains(where: { $0 > 0 }) { meters.cellNotePitch = cn.pitch; meters.cellNoteVel = cn.vel; meters.cellNoteCount = cn.count }
             // FOCUS note-event feed (Paul 2026-08-31): the machine's cell → its REAL emitted notes + beats, for the chain-flow
             // comets. The focus cell = a selected ferry's play cell (col 0, row 8+col), else the chain audition's engine row.
             let focusIdx: Int = buildSelectedPlayCol.map { Snap.playLayerRowBase + $0 } ?? (buildDisplayVoice == .chain ? (buildChainAuditionRow ?? -1) : -1)
@@ -1006,51 +1017,46 @@ struct DiagView: View {
             } else if !buildEyeInRoll.isEmpty || !buildEyeInPrev.isEmpty { buildEyeInRoll = []; buildEyeInPrev = [] }
             // idea 24: the edit gesture is over once the chain has been quiet ~0.6s → the OUT diff-highlight relaxes.
             if let e = buildLastEditAt, Date().timeIntervalSince(e) > 0.6 { buildEditStartedAt = nil; buildLastEditAt = nil }
+            // STRIKE / ROLL / SOUNDING feed → written to `meters` (a reference class) so these per-note writes DON'T re-run the
+            // BuildPage body; the emitter fader + buildNoteSweep read them live in their TimelineViews. (Paul 2026-09-10.)
             let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
-                let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq
-                for i in 0..<min(Snap.cells, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0; seq[i] &+= 1 }
-                cellHitAt = at; cellHitVel = vel; cellStrikeSeq = seq   // MOSAIC: advance the per-cell moment counter
+                let now = Date()
+                for i in 0..<min(Snap.cells, strikes.count) where strikes[i] > 0 { meters.cellHitAt[i] = now; meters.cellHitVel[i] = Double(strikes[i]) / 127.0; meters.cellStrikeSeq[i] &+= 1 }
                 if activeTab == .build {                            // BUILD grid PIANO-ROLL: fold new strikes into per-cell scrolling notes (at real pitch)
-                    let now = Date(); var roll = buildCellRoll; var changed = false
                     for i in 0..<Snap.cells {
-                        roll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }   // drop notes that have crossed
-                        guard cellStrikeSeq[i] > buildRollPrevSeq[i] else { continue }
-                        let cnt = Int(cellNoteCount[i])
+                        meters.cellRoll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }   // drop notes that have crossed
+                        guard meters.cellStrikeSeq[i] > meters.rollPrevSeq[i] else { continue }
+                        let cnt = Int(meters.cellNoteCount[i])
                         if cnt > 0 {                                // REAL pitch: one mark per emitted note
-                            for k in 0..<min(cnt, 6) where i * 6 + k < cellNotePitch.count {
-                                roll[i].append(BuildRollNote(born: now, vel: Double(cellNoteVel[i * 6 + k]) / 127.0, lane: rollLaneForPitch(Int(cellNotePitch[i * 6 + k]))))
+                            for k in 0..<min(cnt, 6) where i * 6 + k < meters.cellNotePitch.count {
+                                meters.cellRoll[i].append(BuildRollNote(born: now, vel: Double(meters.cellNoteVel[i * 6 + k]) / 127.0, lane: rollLaneForPitch(Int(meters.cellNotePitch[i * 6 + k]))))
                             }
                         } else {
-                            roll[i].append(BuildRollNote(born: now, vel: cellHitVel[i], lane: 0.35 + 0.3 * Double((i &* 40503) % 100) / 100.0))
+                            meters.cellRoll[i].append(BuildRollNote(born: now, vel: meters.cellHitVel[i], lane: 0.35 + 0.3 * Double((i &* 40503) % 100) / 100.0))
                         }
-                        if roll[i].count > 16 { roll[i].removeFirst(roll[i].count - 16) }
-                        changed = true
+                        if meters.cellRoll[i].count > 16 { meters.cellRoll[i].removeFirst(meters.cellRoll[i].count - 16) }
                     }
-                    buildRollPrevSeq = cellStrikeSeq
-                    if changed { buildCellRoll = roll }
+                    meters.rollPrevSeq = meters.cellStrikeSeq
                 }
             }
             if activeTab == .build && nd.playing {         // BUILD piano-roll: prune crossed notes each tick so idle faces pause (matches GridUI's beat prune)
-                let now = Date(); var roll = buildCellRoll; var pruned = false
-                for i in 0..<roll.count { let n0 = roll[i].count; roll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }; if roll[i].count != n0 { pruned = true } }
-                if pruned { buildCellRoll = roll }
+                let now = Date()
+                for i in 0..<meters.cellRoll.count { meters.cellRoll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 } }
             }
             let svRaw = au.pollCellSoundingVel()           // per-cell SOUNDING velocity (256-wide) → the emitter fader's per-machine floor
-            let sv = svRaw.map { Double($0) / 127.0 }; if sv != cellSoundVel { cellSoundVel = sv }   // deduped write (no re-render on a steady value)
-            var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
+            meters.cellSoundVel = svRaw.map { Double($0) / 127.0 }
             let nowG = Date()
             // PER-CELL SOUNDING GATE (Paul 2026-09-08): derive from the 256-wide velocity feed (sv > 0), NOT the old 128-bit
             // lo/hi mask — that mask only covered indices 0…127 (columns 0–7), so a 16-wide part's second half (cols 8–15,
             // index ≥128) always read "not sounding" and the emitter strip's HELD branch never fired there.
             for i in 0..<Snap.cells {
-                let on = sv[i] > 0
-                if on != newSounding[i] {
-                    if !on { relAt[i] = nowG }             // falling edge → stamp the release (the spark fades from here)
-                    newSounding[i] = on; gateChanged = true
+                let on = meters.cellSoundVel[i] > 0
+                if on != meters.cellSounding[i] {
+                    if !on { meters.cellReleasedAt[i] = nowG }   // falling edge → stamp the release (the spark fades from here)
+                    meters.cellSounding[i] = on
                 }
             }
-            if gateChanged { cellSounding = newSounding; cellReleasedAt = relAt }
         }
         // §4c INVISIBLE = FROZEN: freeze every animated TimelineView (sweeps · marks · flow · emblems · dots)
         // when our plugin view is hidden or the app is backgrounded — the render engine is untouched. onAppear/
