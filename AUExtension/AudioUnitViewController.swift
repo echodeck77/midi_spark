@@ -317,6 +317,7 @@ struct DiagView: View {
     @State var buildGridSelPriorSolo = false             // pre-open workshop-voice snapshot — restored on CANCEL (never silence a voice we didn't own)
     @State var buildGridSelPriorStaging = false
     @State var buildGridSelPriorSel: String? = nil
+    @State var buildGridSelLastSlot: [Int: Int] = [:]     // per SELECT-grid cell index → the last processor slot VIEWED there; leaving remembers it, returning re-opens it (Paul 2026-09-10)
     @State var buildGridSelPriorReceiver = 0
     @State var buildGridSelPriorEmitters: Set<Bus> = []   // the part-default emitters borrowed for the grid-sel audition (restored on teardown)
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)

@@ -331,17 +331,10 @@ extension DiagView {
                 buildDoorRangeRow(i, r)                             // RANGE: Full / a note window → the keyboard picker
             }
             if buildRangeKbdDoor == i { buildRangeKeyboard(i, r) } // the large multi-octave range keyboard (min/max + DONE)
-            ZStack(alignment: .topTrailing) {                      // the mode list, with the EXACT main-page strip OVERLAID over LATCH/HOLD/KEYS on the right, below OCT/RANGE (Paul 2026-08-23)
-                VStack(alignment: .leading, spacing: 8) {          // the mode list — FULL width, selected mode carries its controls inline
-                    ForEach(DoorMode.allCases.filter { $0 != .thru }, id: \.self) { m in buildDoorModeOption(i, m, r: r) }   // THRU retired (Paul 2026-08-31)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                buildReceiverControl(i).frame(width: 96)           // the receiver strip at its OWN width, floating over the radios (not squeezing the column)
-                    .padding(6)                                    // ABOVE the mode-row highlight (Paul 2026-08-26): an opaque backing + zIndex so the selected LATCH/HOLD row's cyan tint can't bleed through the strip's gaps
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(red: 0.10, green: 0.115, blue: 0.145)).allowsHitTesting(false))   // DECORATIVE only — must not swallow taps meant for the mode rows behind it (review fix 2026-08-26)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1).allowsHitTesting(false))
-                    .zIndex(1)
+            VStack(alignment: .leading, spacing: 8) {              // the mode list — FULL width, selected mode carries its controls inline (the overlaid main-page strip was removed, Paul 2026-09-10)
+                ForEach(DoorMode.allCases.filter { $0 != .thru }, id: \.self) { m in buildDoorModeOption(i, m, r: r) }   // THRU retired (Paul 2026-08-31)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
@@ -1027,9 +1020,7 @@ extension DiagView {
             if !reelShowPopup {
                 // The SELECT|PART grid toggle is RETIRED (Paul 2026-09-08): the ferry row IS the navigation — tap a populated
                 // ferry to open its part, an empty ferry to reach the SELECT browser. CLEARing a part empties its ferry.
-                buildStepsControl()                             // §E: the per-part STEP count (8 | 16)
-                buildConfigButton("MIDI IN")  { buildMidiConfigOpen = true }    // the MIDI-IN doors sheet
-                buildConfigButton("MIDI OUT") { buildMidiOutConfigOpen = true } // the emitter stamp-channels sheet
+                // RATE + STEPS (8|16) moved to the FERRY SETTINGS card; MIDI IN / MIDI OUT buttons deleted (Paul 2026-09-10).
                 buildConfigButton("RACK")     { buildRackConfigOpen = true }    // the rack / OUTPUT CHAIN sheet (config-sheets §6)
             }
             buildReelButton()                                   // RECORD — top-right (Paul 2026-08-23); handles the pass-browser hide + share anchor
@@ -1625,7 +1616,14 @@ extension DiagView {
         // THE BOX WEARS A TINT OF THE SELECTED COLOUR (Paul 2026-09-10): the box background is now the focused machine's
         // hue (grey on the SELECT audition, via boxHue), sitting BELOW the toggles · MIDI chain · buttons. The glowing
         // border is REMOVED — the tint alone signals "this cell is the machine in view."
-        .background(Rectangle().fill(boxHue.opacity(0.16)))
+        // TAP OUTSIDE ANY BUTTON (Paul 2026-09-10): the box's tinted background is itself tappable — a tap that no control
+        // consumes DESELECTS the processor (buildEditSlot = nil), so the card region falls back to the FERRY SETTINGS panel
+        // (or the invitation when no ferry is on the bench). Buttons/boxes/toggles sit in front and swallow their own taps.
+        .background(
+            Rectangle().fill(boxHue.opacity(0.16))
+                .contentShape(Rectangle())
+                .onTapGesture { buildEditSlot = nil; buildAddSlot = nil; buildStageEye = false }
+        )
     }
     // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
     // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
@@ -1795,6 +1793,10 @@ extension DiagView {
         let startLabels = ["SYNC", "INSTANT", "STEP", "BEAT", "PASS"]
         let chokeOpts = ["OFF", "1", "2", "3", "4", "5", "6", "7", "8"]
         let leftW: CGFloat = 26 * 4 + 6 * 3   // the 4×4 colour grid width — the whole left column
+        // PER-PART TIMING (Paul 2026-09-10) — moved here from the header: RATE ("—" = the scene default) + STEPS (8 | 16). The
+        // ferry IS a part, so these edit the on-bench part via the existing setters (the card only shows for the active ferry).
+        let rateLabels = ["\u{2014}"] + StepRate.allCases.map(\.rawValue)
+        let rateSel = buildPartRate.flatMap { StepRate.allCases.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
         RoundedRectangle(cornerRadius: 12).fill(Color(hex: buildFerryHex(t)).opacity(0.16))   // the SAME selected-colour tint as the machine box, in this ferry's hue (Paul 2026-09-10)
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
             .overlay(
@@ -1837,6 +1839,17 @@ extension DiagView {
                                     buildEditFerry(t) { $0.launchStart = starts[i] } }
                                 launchInline("CHOKE", chokeOpts, sel: p.chokeGroupResolved, minChip: 34) { i in
                                     buildEditFerry(t) { $0.chokeGroup = i == 0 ? nil : i } }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        // PER-PART TIMING — RATE + STEPS, moved from the header (Paul 2026-09-10). Edits the on-bench part.
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 12) {   // RATE ("—" = scene default)
+                                launchInline("RATE", rateLabels, sel: rateSel, minChip: 44) { i in
+                                    buildSetPartRate(i == 0 ? nil : StepRate.allCases[i - 1]) }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 12) {   // STEPS 8 | 16 (the part width / loop length)
+                                launchInline("STEPS", ["8", "16"], sel: buildPartCols == 16 ? 1 : 0, minChip: 54) { i in
+                                    buildSetPartLen(i == 1 ? 16 : nil) }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }.padding(12)
@@ -1971,16 +1984,22 @@ extension DiagView {
                 // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
-                    .overlay { if set { roomsCellPlayhead(active: on).padding(2) } }   // PER-CELL PLAYHEAD
+                    .overlay { if set { roomsCellPlayhead(active: on && !(focused && roomsRoom == .part)).padding(2) } }   // PER-CELL PLAYHEAD — but the SELECTED ferry playing on the part grid already shows playheads on its part cells, so don't double the sweep here (Paul 2026-09-10)
                     .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed machine-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
-                    .overlay(alignment: .topTrailing) { if set { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
-                    .overlay { Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0) }   // PLAY/STOP (empty shows "+")
                     .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
-                    .overlay(alignment: .bottom) { if let nm = ferryName, !nm.isEmpty {   // PLAY-FERRY LAUNCH (2026-09-09): the ferry's name, if set
-                        Text(nm).font(.system(size: min(9, playH * 0.3), weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
-                            .foregroundColor(.white.opacity(0.9)).padding(.horizontal, 3).padding(.bottom, 2) } }
+                    // PLAY/STOP icon (left) + the ferry NAME (right) on ONE vertically-centred line — the name right-aligned (Paul 2026-09-10)
+                    .overlay {
+                        HStack(spacing: 4) {
+                            Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0)
+                            Spacer(minLength: 2)
+                            if let nm = ferryName, !nm.isEmpty {
+                                Text(nm).font(.system(size: min(9, playH * 0.3), weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+                                    .foregroundColor(.white.opacity(0.9)).multilineTextAlignment(.trailing)
+                            }
+                        }.padding(.horizontal, 5)
+                    }
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .onTapGesture { if set { if !spring { buildToggleFerryPlay(t) } } else { buildActivateFerry(t) } }   // LATCH toggles on tap; SPRING is momentary (handled by the press below); empty PLAY tap → open the browser
@@ -2311,6 +2330,7 @@ extension DiagView {
     private func buildGridSelSetPage(_ c: Int) {
         buildGridSelStopAudition()
         buildGridSelOverride = [:]; buildGridSelSel = nil
+        buildGridSelLastSlot.removeAll()                                // page remaps index→chain → the last-viewed-slot memory is stale (Paul 2026-09-10)
         buildGridSelPage = c
         buildGridSelRecomputeCategory()
         buildGridSelComputeCellRolls()
@@ -2374,7 +2394,6 @@ extension DiagView {
         // The PART rail (part:true) now wears the ACTIVE ferry's colour in shades (P2b palette), matching the grid rows —
         // was the 4 fixed-position primaries (Paul 2026-09-09). The SELECT→part ferry chip (part:false) keeps its own recipe.
         let mHue = part ? Color(hex: partFerryHue(n)) : partPosHue(n)
-        let eHue = emitterHue(buildRowEmittersResolved(n))               // EMITTER machine (routing)
         let selectedVis = active && (populated || part)   // PART rail: an EMPTY slot can be selected too (Paul 2026-09-03), so it highlights when active
         // IS THIS ROW'S CELL SOUNDING? PART grid → the SEQUENCER's active rung; SELECT→part ferry → the AIMED audition
         // (the select page's extra voice; the sequenced part does NOT run on select).
@@ -2408,7 +2427,7 @@ extension DiagView {
                           : (selectedVis ? Color.white.opacity(0.7) : buildEdge),
                 lineWidth: playing ? 3 : (selectedVis ? 2.5 : (populated ? 2 : 1))))
             .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
-            .overlay(alignment: .topTrailing) { if populated { Circle().fill(eHue).frame(width: 5, height: 5).padding(3) } }   // EMITTER dot — routing, always visible when populated
+            // (the corner EMITTER dot was removed — Paul 2026-09-10)
             .overlay {
                 if part {                                                // PART rail → the slot NUMBER: machine hue normally; an ALPHA knockout when the chip is inverted (focused)
                     Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced))
@@ -3871,6 +3890,12 @@ extension DiagView {
         .opacity(isDragged ? 0.3 : 1)                             // DRAG-TO-REORDER: the lifted source recedes (the ghost carries it)
         .overlay {                                                 // … and the slot the finger is over rings cyan (where it will land)
             if isDropTarget { RoundedRectangle(cornerRadius: 8).stroke(buildCyan, lineWidth: 3).frame(width: bw + 4, height: bh + 4) }
+            else if populated && buildEditSlot == i {              // FOCUS (Paul 2026-09-10): the processor currently open in the card — a
+                // crisp white ring + a soft white halo, drawn as an OVERLAY so the box footprint / fill / section layout are
+                // untouched. Obvious where the focus sits, but stylish and quiet (static — no strobe, per Paul 2026-09-08).
+                RoundedRectangle(cornerRadius: 8).stroke(Color.white, lineWidth: 2).frame(width: bw, height: bh)
+                    .shadow(color: Color.white.opacity(0.6), radius: 5)
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture { buildExitPlaceMode(); buildPlaceMsg = nil; if populated { buildEditSlot = i } else { buildAddSlot = i } }   // fresh pop-up → clear stale PLACE feedback; box is not a play-grid row → leaves PLACE mode
@@ -3899,7 +3924,14 @@ extension DiagView {
         buildIONullPending = false                               // Paul 2026-09-05: picking the door dismisses the fresh-cell null/pulse invitation
         buildClearPendingOnEdit()                                // a RECEIVER change ends the fresh-row flash (Paul 2026-08-25)
         if let r = buildSelectedRow, r < buildRowReceiver.count { buildRowReceiver[r] = i }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
-        else if let pc = buildSelectedPlayCol, pc < buildPlayColRecv.count { buildPlayColRecv[pc] = i; buildPublishScene() }   // a selected PLAY cell edits its OWN door (Paul 2026-08-30)
+        else if let pc = buildSelectedPlayCol, pc < buildPlayColRecv.count {   // a selected PLAY cell edits its OWN door (Paul 2026-08-30)
+            buildPlayColRecv[pc] = i
+            // FLATTENED-PASS FIX (Paul 2026-09-10): mirror the emitter fix — a multi-step pass plays from the PER-STEP door,
+            // so update every step + persist onto the ferry part, else the door change is silent for a flattened ferry.
+            if pc < buildPlayColStepRecv.count, !buildPlayColStepRecv[pc].isEmpty { buildPlayColStepRecv[pc] = buildPlayColStepRecv[pc].map { _ in max(0, min(3, i)) } }
+            if pc < buildFerryParts.count, buildFerryParts[pc] != nil { buildEditFerry(pc, publish: false) { $0.receiver = i; $0.rowReceiver = nil } }
+            buildPublishScene()
+        }
         else { buildSelReceiver = i }                            // nothing on a row → set the part DEFAULT
         ddStickyReceiver = i                                     // a new row inherits the LAST-USED
         receivers = au?.uiReceivers() ?? receivers               // mirror so the source toggle/keyboard reflect the newly-selected door at once
@@ -3923,7 +3955,15 @@ extension DiagView {
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
         if buses.isEmpty { buses = [bus] }                        // never leave a row with no output
         if let r = selR, r < buildRowEmitters.count { buildRowEmitters[r] = buses }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
-        else if let pc = selPC, pc < buildPlayColEmit.count { buildPlayColEmit[pc] = buses }   // the selected play column
+        else if let pc = selPC, pc < buildPlayColEmit.count {     // the selected play column
+            buildPlayColEmit[pc] = buses
+            // FLATTENED-PASS FIX (Paul 2026-09-10): a play ferry / multi-step pass (len>1) plays from the PER-STEP emitters,
+            // NOT buildPlayColEmit — composeScene ignores the latter there — so re-pointing a play ferry's emitter was SILENT
+            // (both same-source ferries stayed on the ORIGINAL emitter → identical output collided into one voice). Re-point
+            // EVERY step of this column, and persist onto the ferry part (nil per-row overrides) so a re-flatten keeps it.
+            if pc < buildPlayColStepEmit.count, !buildPlayColStepEmit[pc].isEmpty { buildPlayColStepEmit[pc] = buildPlayColStepEmit[pc].map { _ in buses } }
+            if pc < buildFerryParts.count, buildFerryParts[pc] != nil { buildEditFerry(pc, publish: false) { $0.emitters = buses; $0.rowEmitters = nil } }
+        }
         else { buildPartEmitters = buses }                        // nothing on a row → the part DEFAULT
         ddStickyBuses = buses                                     // a new row inherits the LAST-USED
         buildPublishScene()                                       // apply the row's output LIVE to whatever's sounding
@@ -6125,6 +6165,7 @@ extension DiagView {
     private func buildGridSelDeal() {
         // §3.1 THE PREGEN CORPUS: once the pool exists, DEAL is INSTANT — a seeded shuffle drawing 64 (RE-DEAL bumps the
         // seed → a fresh 64). While the corpus is still building, fall back to a fresh 64-roll so the first open isn't empty.
+        buildGridSelLastSlot.removeAll()                                // a re-deal remaps index→chain → drop the last-viewed-slot memory (Paul 2026-09-10)
         if !buildGridSelCorpus.isEmpty {
             var rng = DiceRNG(seed: buildGridSelDealSeed)
             buildGridSelDealt = Array(buildGridSelCorpus.shuffled(using: &rng).prefix(64))
@@ -6212,9 +6253,33 @@ extension DiagView {
         buildGridSelStampSourceRow = nil
         buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i, play: false)
     }
+    // THE MOST IMPACTFUL PROCESSOR (Paul 2026-09-10): when a chain is chosen (or defaulted) on the SELECT grid, the
+    // processor card defaults to whichever slot carries the most impact — a note-generating DRIVER (arp/riff/…) wins over
+    // a harmony/dynamics shaper, which wins over a utility/routing stage. Skips bypassed slots; nil for an empty/all-util
+    // chain (→ the card shows its invitation). Ranking mirrors isDriverType's spirit (drivers first).
+    private func buildImpactRank(_ t: ProcessorType) -> Int {
+        switch t {
+        case .arp, .riff:                                                    return 100   // the headline drivers (Paul's examples)
+        case .ratchet, .strum, .euclid, .burst, .cascade, .weave, .hocket:  return 90    // other note-generating drivers
+        case .chords, .harmonize:                                           return 70    // harmony set-shapers
+        case .tutti, .chance, .split, .avoid, .length, .velocity:           return 60    // set / dynamics shapers
+        case .drone, .shift, .humanize:                                     return 50    // texture generators
+        case .echo, .glide, .mod:                                          return 40
+        default:                                                           return 20    // octave/transpose/channel/nudge/dest/muteMatrix/tap/passgate — utility & routing
+        }
+    }
+    private func buildMostImpactfulSlot(_ chain: [ProcessorSlot]) -> Int? {
+        var best: Int? = nil; var bestRank = Int.min
+        for (i, s) in chain.enumerated() where !s.bypassed {
+            let r = buildImpactRank(s.type)
+            if r > bestRank { bestRank = r; best = i }                       // first slot wins ties → earliest-in-chain
+        }
+        return best
+    }
     // Load a chain onto the ONE transient audition machine, select it, and drive the chain voice (quantized). Shared by a
     // cell audition (sel = the cell index → the commit source) and a ROW press (sel = nil → a view/hear of that part's chain).
     private func buildGridSelLoadChain(_ raw: [ProcessorSlot], transpose: Int, hex: UInt32, sel: Int?, play: Bool = true) {
+        if let prev = buildGridSelSel, prev != sel, let s = buildEditSlot { buildGridSelLastSlot[prev] = s }   // REMEMBER the last processor viewed on the cell we're leaving (Paul 2026-09-10)
         buildGridSelSel = sel
         buildGridSelActiveRoll = gridSelRollBars(raw)                     // the piano-roll shown on the cell + the right column
         // BAKE the register home into the CHAIN (a leading TRANSPOSE utility) rather than the ephemeral machine's transpose:
@@ -6228,6 +6293,12 @@ extension DiagView {
         buildMachineTranspose[buildGridSelAudID] = 0
         buildSyncMachines()
         buildSelID = buildGridSelAudID; ddMachineSel = -1                  // ddSelectedMachineID now returns the transient
+        // THE PROCESSOR CARD (Paul 2026-09-10): RETURNING to a cell re-opens the LAST processor viewed there; a first visit
+        // defaults to the most impactful stage of the chain (arp/riff …) — either way the card lands on a processor, not the
+        // empty invitation. (The stored slot is guarded against a chain that changed length under it.)
+        if let s = sel, let last = buildGridSelLastSlot[s], last < chain.count { buildEditSlot = last }
+        else { buildEditSlot = buildMostImpactfulSlot(chain) }
+        buildAddSlot = nil; buildStageEye = false
         guard play else { return }                                        // FOCUS ONLY (SELECT mode): shown in the machine, voice untouched (Paul 2026-08-31)
         let instant = !buildGridSelQuantStep || !d.playing
         if !ddSolo {                                                       // chain voice OFF → turn it on

@@ -377,6 +377,28 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s.cellAt(1, base)?.buses, [.b], "step 1 too")
         XCTAssertEqual(s.cellAt(0, base)?.inputReceiver, 3, "the SHORT per-step door falls back to the column default (D)")
     }
+    // TWO same-machine flattened passes on DIFFERENT emitters get DISTINCT per-cell buses → distinct cables, so both sound
+    // (they don't collide to one). Locks the flattened-pass emitter fix (Paul 2026-09-10 bug: re-pointing the 2nd play ferry's
+    // emitter was silent → both stayed on the ORIGINAL emitter → identical output collided). The engine reads per-step emitters.
+    func testTwoSameMachinePassesOnDifferentEmittersGetDistinctBuses() throws {
+        var i = BuildSceneLogic.Input()
+        i.playPlaying = true
+        i.playColOn = [true, true, false, false, false, false, false, false]
+        i.playColLen = [2, 2, 1, 1, 1, 1, 1, 1]
+        i.playColSteps    = [["m", "m"], ["m", "m"], [], [], [], [], [], []]   // SAME machine "m" in both passes
+        i.playColStepChain = [[[], []], [[], []], [], [], [], [], [], []]
+        i.playColStepEmit = [[[.a], [.a]], [[.c], [.c]], [], [], [], [], [], []]   // pass 0 → A · pass 1 → C (the re-pointed one)
+        i.playColStepRecv = [[0, 0], [0, 0], [], [], [], [], [], []]
+        i.playColEmit = [[.a], [.a], [.a], [.a], [.a], [.a], [.a], [.a]]        // the single-cell default is IGNORED for len>1 — the bug wrote only here
+        i.playColRecv = [0, 0, 0, 0, 0, 0, 0, 0]
+        let s = BuildSceneLogic.composeScene(i)!
+        let base = Snap.playLayerRowBase
+        XCTAssertEqual(s.cellAt(0, base)?.machineID, "m")
+        XCTAssertEqual(s.cellAt(0, base + 1)?.machineID, "m", "both passes are the SAME machine")
+        XCTAssertEqual(s.cellAt(0, base)?.buses, [.a], "pass 0 emits on A")
+        XCTAssertEqual(s.cellAt(0, base + 1)?.buses, [.c], "pass 1 emits on C (the re-pointed emitter) — NOT A → no collision")
+        XCTAssertNotEqual(s.cellAt(0, base)?.buses, s.cellAt(0, base + 1)?.buses, "distinct cables → both are audible")
+    }
     func testPlayGridAloneProducesASceneOnlyWhenAColumnIsStarted() {
         var i = BuildSceneLogic.Input()
         i.playPlaying = true; i.playCells = grid([(0, 0, "b1")]); i.playSel = [0, -1, -1, -1, -1, -1, -1, -1]
