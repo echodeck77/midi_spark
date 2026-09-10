@@ -1698,8 +1698,8 @@ extension DiagView {
     // red garbage-can box appears here; dragging the box over it (detected via the chainBlock x — the trash is the left
     // flank, at x < 0) turns it EVEN REDDER, and dropping there deletes the processor from the chain (handled in buildProcBox).
     @ViewBuilder func roomsChainTrash(width: CGFloat, height: CGFloat) -> some View {
-        let dragging = buildChainDragFrom != nil
-        let over = buildChainOverTrash
+        let dragging = chainDragActive   // ONLY while a box is actively held (auto-resets on end/cancel — never sticks). Paul 2026-09-10
+        let over = chainDragActive && buildChainOverTrash
         let boxH = 3 * 26 + 2 * BuildGeom.castGap   // SMALLER: the footprint of the LIBRARY/MUTATE/CLEAR stack (3 × 26 + 2 gaps) — Paul 2026-09-10
         ZStack {
             if dragging {
@@ -3790,7 +3790,7 @@ extension DiagView {
     }
     // DRAG-TO-REORDER: the floating ghost of the box under the finger (drawn in the "chainBlock" space, hit-transparent).
     @ViewBuilder private func buildChainDragGhost(chain: [ProcessorSlot], boxW: CGFloat, boxH: CGFloat, hue: Color) -> some View {
-        if let from = buildChainDragFrom, from < chain.count, !buildIsEmptySlot(chain[from]) {
+        if chainDragActive, let from = buildChainDragFrom, from < chain.count, !buildIsEmptySlot(chain[from]) {   // ghost only while actively held (auto-resets — never sticks). Paul 2026-09-10
             Text(buildProcLabel(chain[from]))
                 .font(.system(size: 11, weight: .heavy, design: .monospaced))
                 .foregroundColor(.black)
@@ -3920,9 +3920,10 @@ extension DiagView {
     @ViewBuilder private func buildProcBox(_ i: Int, chain: [ProcessorSlot], w: CGFloat, h: CGFloat, gap: CGFloat, hue: Color) -> some View {
         let populated = i < chain.count && !buildIsEmptySlot(chain[i])
         let bw = w * 0.8, bh = h * 0.8                             // the button is 80% of the 2×2-cell footprint …
-        let isDragged = buildChainDragFrom == i
-        let isDropTarget = buildChainDragFrom != nil && buildChainDragFrom != i && buildChainDropTo == i
-        let isDest = buildChainDragFrom != nil && buildChainDragFrom != i && !isDropTarget   // during a drag, EVERY other box reads as a droppable destination (Paul 2026-09-10)
+        // ALL drag visuals gate on chainDragActive (auto-resets on end/cancel) so the trash + highlights NEVER stick (Paul 2026-09-10)
+        let isDragged = chainDragActive && buildChainDragFrom == i
+        let isDropTarget = chainDragActive && buildChainDragFrom != i && buildChainDropTo == i
+        let isDest = chainDragActive && buildChainDragFrom != i && !isDropTarget   // during a drag, EVERY other box reads as a droppable destination (Paul 2026-09-10)
         Group {
             if populated {
                 Text(buildProcLabel(chain[i]))
@@ -3967,6 +3968,11 @@ extension DiagView {
         .highPriorityGesture(
             LongPressGesture(minimumDuration: 0.28)
                 .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("chainBlock")))
+                // AUTO-RESETTING "actively held" flag — true only once the hold completes (.first(true)) through the drag; SwiftUI
+                // resets it when the gesture ends OR is CANCELLED, so the trash + highlights can never stick visible. Paul 2026-09-10.
+                .updating($chainDragActive) { value, state, _ in
+                    switch value { case .first(true), .second: if populated { state = true }; default: break }
+                }
                 .onChanged { value in
                     guard populated else { return }
                     switch value {
