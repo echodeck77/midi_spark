@@ -4417,8 +4417,8 @@ extension DiagView {
     @ViewBuilder private func roomsRowCreatorSeg(_ label: String, _ action: @escaping () -> Void) -> some View {
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                          // identical cell styling: dark stage + edge
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
-            .overlay(Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.5)
-                        .foregroundColor(.white.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 2))
+            .overlay(Text(label).font(.system(size: 14, weight: .bold, design: .rounded)).tracking(0.5)
+                        .foregroundColor(.white.opacity(0.95)).lineLimit(1).minimumScaleFactor(0.55).padding(.horizontal, 3))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .onTapGesture(perform: action)
