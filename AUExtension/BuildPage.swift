@@ -2042,15 +2042,16 @@ extension DiagView {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
                     .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
-                    // PLAY/STOP icon (left) + the ferry NAME (right) on ONE vertically-centred line — the name right-aligned (Paul 2026-09-10)
+                    // PLAY/STOP icon (left) + the ferry NAME on ONE vertically-centred line — the name LEFT-aligned, right of the
+                    // icon (a trailing Spacer keeps the icon+name group hugging the left). Paul 2026-09-10.
                     .overlay {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 6) {
                             Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0)
-                            Spacer(minLength: 2)
                             if let nm = ferryName, !nm.isEmpty {
                                 Text(nm).font(.system(size: min(9, playH * 0.3), weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
-                                    .foregroundColor(.white.opacity(0.9)).multilineTextAlignment(.trailing)
+                                    .foregroundColor(.white.opacity(0.9)).multilineTextAlignment(.leading)
                             }
+                            Spacer(minLength: 0)
                         }.padding(.horizontal, 5)
                     }
                     .frame(maxHeight: .infinity)
