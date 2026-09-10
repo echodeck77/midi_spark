@@ -4147,26 +4147,7 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(f, Set([65, 69, 72]), "the SAME stencil plays F's notes — chord-following, no pitches stored")
         XCTAssertNotEqual(cm, f, "a different chord → different pitches")
     }
-    // RIFF CAPTURE (SPEC-riff-processor §2, Paul 2026-09-09): a line PLAYED against a FRAME, converted by
-    // riffCaptureStencil to a rank stencil, plays back AND FOLLOWS a different chord — proving capture→playback→derive
-    // end-to-end off-device. (The live recorder + arm gesture are device-owed; this locks the pure conversion + playback.)
-    func testRiffCapturedLineFollowsANewChord() {
-        let frame = [60, 64, 67]   // the FRAME latched at capture (Cmaj)
-        let events: [(beat: Double, pitch: Int)] = [(0.0, 60), (0.5, 64), (1.0, 67)]   // the frame notes ascending → ranks 1,2,3
-        let (ranks, oct) = riffCaptureStencil(events: events, frame: frame, steps: 8, rateBeats: 0.5, startBeat: 0.0)
-        XCTAssertEqual(Array(ranks.prefix(3)), [1, 2, 3], "the played line records as ascending ranks")
-        func played(_ notes: [UInt8]) -> Set<UInt8> {
-            var c = Machine(machineID: "gold", type: .riff)
-            c.paramsA.riffRanks = ranks; c.paramsA.riffOct = oct; c.paramsA.riffSteps = 8; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .fold
-            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord(notes), beats: 2, into: e)
-            assertNothingLeftSounding(e)
-            return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
-        }
-        XCTAssertEqual(played([60, 64, 67]), Set([60, 64, 67]), "the captured line replays its own frame chord")
-        XCTAssertEqual(played([62, 65, 69]), Set([62, 65, 69]), "the SAME captured stencil FOLLOWS a new chord (Dm) — no pitches stored")
-    }
+    // (RIFF CAPTURE test removed 2026-09-10 — the §2 capture feature was deleted.)
     // SPAN RE-ANCHOR (Paul 2026-08-27, the universal re-sync model — riff is the first card): a 3-step stencil [1,2,3]
     // FREE-runs and cycles all three chord notes across the row; SPAN=1 re-syncs the stencil to step 0 EVERY column, so
     // only step 0 (rank 1 = the lowest note) ever plays. One step per column (riffRate == stepRate == 1/8 = 0.5 beat).

@@ -133,7 +133,6 @@ struct DiagView: View {
     // machine's row. Reset to false when a fresh part is created, so a new part re-defaults.
     @State var buildPartTouched: Bool = false
     @State var buildBypassHeld: Int? = nil      // HOLD-BYPASS A/B (idea 23): the slot momentarily bypassed while the BYPASS button is held
-    @State var buildRiffCaptureArmed = false    // RIFF CAPTURE (§2): recording a played line into the armed door (device-owned; cleared on commit/cancel)
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
     // DRAG-TO-REORDER the chain (Paul 2026-08-25): a custom finger-track (native .onDrag doesn't survive the AU host).
     @State var buildChainDragFrom: Int? = nil   // the processor box being dragged (nil = no drag in flight)

@@ -61,31 +61,6 @@ final class Kernel {
     }
     func clearPreview() { previewActive = false; previewMachineIndex = -1; previewBusMask = 0 }
 
-    // RIFF CAPTURE (SPEC-riff-processor §2, Paul 2026-09-09): play a line in → record it AS RANKS against a FRAME.
-    // Ephemeral, never persisted (like auditionTarget). Arm SNAPSHOTS the armed door's held/latched chord as the frame;
-    // while armed, that door's live note-ONs DIVERT into a ring (they never touch the pool, so the frame can't shift
-    // under the line being played). Disarm drains the ring on the MAIN thread → `riffCaptureStencil` → the document
-    // (mirrors the reel/replay: record on the render thread, convert + write on the main thread). HELD + MONO v1.
-    private var riffCaptureArmReq = false
-    private var riffCaptureArmed = false
-    private var riffCaptureDoor: Int32 = -1
-    private var riffCaptureFrame: [Int] = []
-    private var riffCaptureStartBeat = 0.0
-    private var riffCaptureBeat = [Double](repeating: 0, count: 512)
-    private var riffCapturePitch = [Int](repeating: 0, count: 512)
-    private var riffCaptureCount = 0
-    func armRiffCapture(door: Int) { riffCaptureDoor = Int32(door); riffCaptureArmReq = true }
-    func disarmRiffCapture() { riffCaptureArmed = false; riffCaptureArmReq = false }
-    var riffCaptureIsArmed: Bool { riffCaptureArmed || riffCaptureArmReq }
-    /// Drain the recorded line (MAIN thread, after disarm) → (beat, pitch) note-ons + the FRAME + the take's start beat.
-    func riffCaptureDrain() -> (events: [(beat: Double, pitch: Int)], frame: [Int], startBeat: Double) {
-        var ev: [(beat: Double, pitch: Int)] = []
-        let c = min(riffCaptureCount, riffCaptureBeat.count)
-        ev.reserveCapacity(c)
-        for i in 0..<c { ev.append((riffCaptureBeat[i], riffCapturePitch[i])) }
-        return (ev, riffCaptureFrame, riffCaptureStartBeat)
-    }
-
     // §5b COLUMN-SUBSET LAP: the held column keys (bit i = column i), set from the UI (PERFORM only),
     // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
     private var laneMask: UInt16 = 0
@@ -908,15 +883,6 @@ final class Kernel {
         recordBps = sampleRate > 0 ? tempo / 60.0 / sampleRate : 0
         recordWinStart = Int64(timestamp.pointee.mSampleTime)
         recordPlaying = playing
-        // RIFF CAPTURE: consume an arm request — snapshot the door's held/latched chord as the FRAME + start the ring.
-        if riffCaptureArmReq, riffCaptureDoor >= 0, riffCaptureDoor < 4 {
-            let d = Int(riffCaptureDoor)
-            let src = (d < latchedPools.count && latchedPools[d].count > 0) ? latchedPools[d] : pool
-            var frame: [Int] = []
-            for n in 0...127 where src.heldVelocity(UInt8(n)) > 0 { frame.append(n) }   // distinct pitches, ascending
-            riffCaptureFrame = frame; riffCaptureStartBeat = beatPos; riffCaptureCount = 0
-            riffCaptureArmed = true; riffCaptureArmReq = false
-        }
         renderWindowBeats = Double(frameCount) * recordBps   // REPLAY look-ahead: sample the loop at the block END so a loop onset lands in the SAME block it would as live input (else it's one block late — the "constant lag")
         // TRANSPORT DISCONTINUITY → clear the DoorRing HISTORY (Paul 2026-08-23): the ring records at ABSOLUTE host beats
         // in arrival order, and capture()/notesSoundingAt() assume arrival order == ascending beat. A stop→start, a host
@@ -1200,17 +1166,6 @@ final class Kernel {
         let status = bytes[0] & 0xF0
         let isNote = (status == 0x90 || status == 0x80)
         let channel = bytes[0] & 0x0F
-        // RIFF CAPTURE (§2): while armed, DIVERT the capture door's live line into the ring — it never touches the pool
-        // (so the frame can't shift). Record note-ONs (beat + pitch); on + off both diverted. Other doors are unaffected.
-        if riffCaptureArmed, isNote, riffCaptureDoor >= 0, riffCaptureDoor < 4,
-           receiverHearsCable(mask: Int(receiverCables[Int(riffCaptureDoor)]), eventCable: cable),
-           receiverHearsMask(receiverChanMask[Int(riffCaptureDoor)], channel: channel) {
-            if status == 0x90, length >= 3, bytes[2] > 0, riffCaptureCount < riffCaptureBeat.count {
-                riffCaptureBeat[riffCaptureCount] = recordBeatBase + Double(Int64(sampleTime) - recordWinStart) * recordBps
-                riffCapturePitch[riffCaptureCount] = Int(bytes[1]); riffCaptureCount += 1
-            }
-            return
-        }
         if status == 0x90, length >= 3 {
             pool.noteOn(bytes[1], velocity: bytes[2], channel: channel, cable: UInt8(clamping: cable))
             if bytes[2] > 0 { blockStruckPool.noteOn(bytes[1], velocity: bytes[2], channel: channel, cable: UInt8(clamping: cable)) }   // record the STRIKE (survives a same-block note-off) so HOLD capture can't miss a staccato chord (Paul 2026-09-07)
