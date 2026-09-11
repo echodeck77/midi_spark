@@ -3695,78 +3695,37 @@ extension DiagView {
         return last
     }
     @ViewBuilder private func buildChainFlowOverlay(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color, chain: [ProcessorSlot]) -> some View {
-        let boxW = (blockW - gap) / 2                                          // 2 columns of boxes
-        let populated = (0..<8).map { $0 < chain.count && !buildIsEmptySlot(chain[$0]) }   // only POPULATED (opaque) boxes clip the comets — EMPTY boxes are transparent, the comet flows through (Paul 2026-08-31)
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !d.playing)) { tl in   // STILL when stopped (Paul 2026-09-11 perf) — matches the cell/part playheads
+        // THE FLOW COMETS ARE REMOVED (Paul 2026-09-11) — only the dotted connectors + the two flank circles remain (the
+        // dotted ORDER thread through the boxes is buildChainFlowLine, kept). The circles are now LIVE VELOCITY METERS:
+        // LEFT = the loudest note HELD at this machine's input door (what's going IN); RIGHT = the loudest recent EMITTED
+        // note (what's coming OUT) — so the user can read what MIDI enters the machine and what leaves it. A held chord
+        // fills the left circle even when the transport is stopped.
+        let inVel = (buildSelReceiver >= 0 && buildSelReceiver < recvHeld.count) ? (recvHeld[buildSelReceiver].max() ?? 0) : 0
+        let active = !buildChainLiveChord.isEmpty || !buildFocusNotes.isEmpty      // freeze the loop when there's no MIDI either side
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !active)) { tl in
             Canvas { ctx, _ in
                 let cr = max(3.5, min(boxH * 0.16, sideW * 0.42))
                 let lx = sideW / 2, rx = sideW + blockW + sideW / 2            // flank-column centres
                 let ty = boxH / 2, by = blockH - boxH / 2                      // first / last processor rows
-                func boxC(_ i: Int) -> CGPoint { CGPoint(x: sideW + CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2) }   // box centre in HStack space
-                // THE FULL PATH: left circle ▸ door ▸ box 0 … box 7 ▸ wire ▸ right circle.
-                var P: [CGPoint] = [CGPoint(x: lx, y: ty), CGPoint(x: sideW, y: ty)]
-                for i in 0..<8 { P.append(boxC(i)) }
-                P.append(CGPoint(x: sideW + blockW, y: by)); P.append(CGPoint(x: rx, y: by))
-                // DOTTED CONNECTORS (circle ▸ block edge) — the in-block flow line carries the middle; these reach the circles.
+                // DOTTED CONNECTORS (kept) — circle ▸ block edge, both flanks.
                 let dash = StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 3])
                 var lseg = Path(); lseg.move(to: CGPoint(x: lx + cr, y: ty)); lseg.addLine(to: CGPoint(x: sideW, y: ty))
                 var rseg = Path(); rseg.move(to: CGPoint(x: sideW + blockW, y: by)); rseg.addLine(to: CGPoint(x: rx - cr, y: by))
                 ctx.stroke(lseg, with: .color(hue.opacity(0.32)), style: dash)
                 ctx.stroke(rseg, with: .color(hue.opacity(0.32)), style: dash)
-                for end in [CGPoint(x: lx, y: ty), CGPoint(x: rx, y: by)] {     // THE CIRCLES
-                    ctx.stroke(Path(ellipseIn: CGRect(x: end.x - cr, y: end.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
-                    ctx.fill(Path(ellipseIn: CGRect(x: end.x - cr * 0.34, y: end.y - cr * 0.34, width: cr * 0.68, height: cr * 0.68)), with: .color(hue.opacity(0.5)))
+                // OUTPUT level — the loudest recent emitted note, decaying at its real timing (a live pulse, not a flowing comet).
+                let liveBeat = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                var outVel = 0.0
+                for note in buildFocusNotes { let age = liveBeat - note.beat; if age >= 0, age < 0.5 { outVel = max(outVel, note.vel * (1 - age / 0.5)) } }
+                // THE TWO VELOCITY CIRCLES — a fill disc that grows + brightens with velocity, over the machine-hue outline.
+                func velCircle(_ c: CGPoint, _ v: Double) {
+                    let lvl = min(1, max(0, v))
+                    ctx.stroke(Path(ellipseIn: CGRect(x: c.x - cr, y: c.y - cr, width: 2 * cr, height: 2 * cr)), with: .color(hue.opacity(0.85)), lineWidth: 1.8)
+                    let fr = cr * CGFloat(0.18 + 0.82 * lvl)
+                    ctx.fill(Path(ellipseIn: CGRect(x: c.x - fr, y: c.y - fr, width: 2 * fr, height: 2 * fr)), with: .color(hue.opacity(0.28 + 0.62 * lvl)))
                 }
-                // REAL FLOW (Paul 2026-08-31): driven by the engine's actual data — the held INPUT chord (buildChainLiveChord)
-                // draws as a HARD LINE up to the processor that turns it rhythmic, and the REAL emitted notes (buildFocusNotes,
-                // pitch + true beat) flow out from there as comets at their ACTUAL timing. No offline simulation.
-                let ferryOn = buildSelectedPlayCol.map { $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? false
-                guard buildDisplayVoice == .chain || ferryOn else { return }   // the machine is a live voice (real feed = empty when silent)
-                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-                let nSeg = P.count - 1
-                // THE PIVOT box — the last rhythm-creating processor (arp/ratchet/…); before it the chord is still held, from it
-                // the notes are rhythmic. No such processor ⇒ the whole chain is a held-chord line to the wire.
-                let pivot: Int = buildRhythmDriverSlot(chain).map { min($0 + 2, nSeg) } ?? nSeg
-                func subPoint(_ from: Int, _ f: Double) -> CGPoint {          // a point at fraction f along the sub-path P[from … end]
-                    var lens = [CGFloat](); var tot: CGFloat = 0
-                    for j in from..<nSeg { let l = max(0.001, hypot(P[j + 1].x - P[j].x, P[j + 1].y - P[j].y)); lens.append(l); tot += l }
-                    guard !lens.isEmpty else { return P[min(from, P.count - 1)] }
-                    var dist = CGFloat(max(0, min(1, f))) * tot
-                    for i in 0..<lens.count {
-                        if dist <= lens[i] || i == lens.count - 1 { let t = dist / lens[i], a = P[from + i], b = P[from + i + 1]; return CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t) }
-                        dist -= lens[i]
-                    }
-                    return P.last!
-                }
-                // CLIP out the POPULATED boxes for BOTH the line and the comets → nothing ever draws over a processor's opaque
-                // face or its label (Paul 2026-08-31: the flow was showing through the box text). Flows through the gaps + empties.
-                var boxesPath = Path()
-                for i in 0..<8 where populated[i] { let c = boxC(i); boxesPath.addRoundedRect(in: CGRect(x: c.x - boxW * 0.4, y: c.y - boxH * 0.4, width: boxW * 0.8, height: boxH * 0.8), cornerSize: CGSize(width: 8, height: 8)) }
-                if !boxesPath.isEmpty { ctx.clip(to: boxesPath, options: .inverse) }
-                // INPUT LINE circle → pivot: the held chord, one solid line (clipped out of the boxes).
-                if !buildChainLiveChord.isEmpty {
-                    var linePath = Path(); linePath.move(to: P[0]); for j in 1...pivot { linePath.addLine(to: P[j]) }
-                    ctx.stroke(linePath, with: .color(hue.opacity(0.72)), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-                }
-                // OUTPUT COMETS from the pivot to the wire — the REAL emitted notes, each flowing over ONE STEP from the moment it
-                // actually fired (live − note.beat).
-                guard pivot < nSeg, !buildFocusNotes.isEmpty else { return }
-                ctx.blendMode = .plusLighter
-                let transit = max(0.06, stepBeats)                            // beats to cross the output region (one step)
-                for note in buildFocusNotes {
-                    let age = live - note.beat
-                    guard age >= 0, age <= transit else { continue }
-                    let prog = age / transit
-                    let head = subPoint(pivot, prog)
-                    let r = 1.3 + 2.4 * CGFloat(note.vel)
-                    let steps = 5                                             // FINE tail — follows the zig-zag path, never cuts a corner (Paul 2026-08-31)
-                    for k in 0..<steps {
-                        let p0 = max(0, prog - 0.16 * Double(k + 1) / Double(steps)), p1 = max(0, prog - 0.16 * Double(k) / Double(steps))
-                        var s = Path(); s.move(to: subPoint(pivot, p0)); s.addLine(to: subPoint(pivot, p1))
-                        ctx.stroke(s, with: .color(hue.opacity((0.32 * note.vel) * (1 - Double(k) / Double(steps)))), style: StrokeStyle(lineWidth: r, lineCap: .round))
-                    }
-                    ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(hue.opacity(0.6 + 0.4 * note.vel)))
-                }
+                velCircle(CGPoint(x: lx, y: ty), inVel)      // LEFT = INPUT going into the machine
+                velCircle(CGPoint(x: rx, y: by), outVel)     // RIGHT = OUTPUT coming out
             }
             .allowsHitTesting(false)
         }
