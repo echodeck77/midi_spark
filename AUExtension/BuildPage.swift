@@ -2894,9 +2894,8 @@ extension DiagView {
             } else {
                 cellBody
             }
-            // FLASH THE SELECTED RUNG at its velocity as the playhead hits it (Paul 2026-09-11). Only the selected cell of
-            // each column flashes (it's the rung that plays); the strike coincides with the playhead crossing the column.
-            if selected { buildPartCellFlash(idx) }
+            // (The selected-rung VELOCITY FLASH is now drawn in roomsPartPlayhead's single loop — Paul 2026-09-11 — not a
+            // per-cell TimelineView here, which spawned 8–16 always-on 30 fps loops and stuttered the playhead.)
             // (The edited-row dashed keyline is removed — Paul 2026-09-09: the machine box already matches the focused
             // row's colour, so the extra marker was redundant + confusing.)
             // AUTOMATION APPLIED → the lane label "AUTO N" on every extent cell (replaces the old dot).
@@ -2970,7 +2969,8 @@ extension DiagView {
             let cols = buildPartCols                                        // §E: the active width
             let rows = DiagView.roomsGridRows
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let now = tl.date
+                let live = meters.beatAnchor + now.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
                 let colF = sb > 0 ? musical / sb : 0
                 let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
@@ -2978,11 +2978,26 @@ extension DiagView {
                 let c = min(cols - 1, max(0, Int(pcol)))                    // the CURRENT column
                 let fract = min(1.0, max(0.0, pcol - Double(c)))           // progress ALONG that column's active cell, [0,1)
                 let r = c < buildStagingSel.count ? buildStagingSel[c] : -1 // the ACTIVE cell = this column's selected rung
-                if r >= 0 && r < rows {
-                    let sweepX = CGFloat(c) * (colW + gap) + colW * CGFloat(fract)
-                    let cellY = CGFloat(r) * (rowH + gap)
-                    Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: rowH)
-                        .offset(x: sweepX, y: cellY).allowsHitTesting(false)
+                ZStack(alignment: .topLeading) {
+                    // VELOCITY FLASH per selected rung (Paul 2026-09-11): FOLDED into this ONE playhead loop — was a separate
+                    // 30 fps TimelineView per selected cell (8–16 of them), which starved the main thread and stuttered the
+                    // playhead itself. One loop draws every selected cell's flash from the live strike feed (meters, off @State).
+                    ForEach(0..<cols, id: \.self) { cc in
+                        let rr = cc < buildStagingSel.count ? buildStagingSel[cc] : -1
+                        let lvl = (rr >= 0 && rr < rows) ? buildFlashLevel([cc * Snap.rows + rr], now: now) : 0
+                        if lvl > 0.001 {
+                            RoundedRectangle(cornerRadius: 5).fill(Color.white).opacity(lvl * 0.55)
+                                .frame(width: colW, height: rowH)
+                                .offset(x: CGFloat(cc) * (colW + gap), y: CGFloat(rr) * (rowH + gap))
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    if r >= 0 && r < rows {
+                        let sweepX = CGFloat(c) * (colW + gap) + colW * CGFloat(fract)
+                        let cellY = CGFloat(r) * (rowH + gap)
+                        Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: rowH)
+                            .offset(x: sweepX, y: cellY).allowsHitTesting(false)
+                    }
                 }
             }
         }
@@ -3246,13 +3261,8 @@ extension DiagView {
             RoundedRectangle(cornerRadius: 4).fill(hue).opacity(buildFlashLevel(idxs, now: tl.date) * 0.6).allowsHitTesting(false)
         }
     }
-    // FLASH the SELECTED part cell with its velocity as the playhead hits it (Paul 2026-09-11) — the strike coincides with
-    // the playhead crossing that column, so the selected rung pulses at its note velocity each pass.
-    @ViewBuilder private func buildPartCellFlash(_ idx: Int) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-            RoundedRectangle(cornerRadius: 5).fill(Color.white).opacity(buildFlashLevel([idx], now: tl.date) * 0.55).allowsHitTesting(false)
-        }
-    }
+    // (buildPartCellFlash removed 2026-09-11 — the selected-rung flash is now drawn inside roomsPartPlayhead's single
+    // TimelineView, not one loop per cell, which was starving the main thread and stuttering the playhead.)
 
     // (The play-grid I/O toggles were REMOVED 2026-08-29 — Paul: the play grid has NO I/O toggles. Each ferried cell
     // DERIVES its door + emitters from the source it was copied from, stored per-column in buildPlayColRecv/Emit.)
