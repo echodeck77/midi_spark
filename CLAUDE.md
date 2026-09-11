@@ -12,25 +12,34 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   ask, opacity/size/colour values I picked, and interpretations that could differ from his intent. Never
   let a likely mismatch go unstated; naming it up front saves a round-trip.
 
-## Git workflow — TWO INSTANCES, SEPARATE WORKTREES (Paul 2026-09-10, hard rule — supersedes the shared-tree rule)
-Paul runs **two Claude Code instances**, now each in its OWN git worktree so they can NEVER collide in the
-working tree (the old shared-tree "only commit my own files" rule caused 3 collisions and is RETIRED):
+## Git workflow — AT LEAST TWO INSTANCES, SEPARATE WORKTREES (Paul 2026-09-11, hard rule — supersedes the shared-tree rule)
+Paul runs **AT LEAST TWO Claude Code instances at once** (sometimes more), each in its OWN git **worktree** — a
+separate working directory backed by the ONE shared `.git`. This is why they can NEVER collide in the working tree
+(the old shared-tree "only commit my own files" rule caused 3 collisions and is RETIRED):
 - **Worktree A (primary):** `/Users/paulbarrett/src/midi_spark`
-- **Worktree B (second instance):** `/Users/paulbarrett/src/midi_spark-b` (created via `git worktree add`, branch `wt-b`)
-- Both share the SAME `.git` (one repo, one set of refs/remotes); each has its OWN checkout + its OWN branch, so
-  `git status` in one NEVER shows the other's edits, and `build/`/`DerivedData` are per-worktree (gitignored).
+- **Worktree B (second instance):** `/Users/paulbarrett/src/midi_spark-b` (branch `wt-b`)
+- (Further worktrees may exist — the same rules apply to all.) Every worktree shares the SAME `.git` (one repo, one
+  set of refs/remotes) but has its OWN checkout + its OWN branch, so `git status` in one NEVER shows another's edits,
+  and `build/`/`DerivedData` are per-worktree (gitignored). The only shared state is the refs/remote — so integration
+  is the only coordination point.
+
+**▶ WHEN A PIECE OF WORK IS COMPLETE: commit → merge to `main` → push — ROUTINELY, WITHOUT ASKING (standing
+authorization).** Don't leave finished work sitting on a local branch. "Complete" = it builds and its tests are green
+(for device-only/visual work, when the off-device checks pass — flag that device verification is still owed, but
+still commit+merge+push).
 
 **Rules (standing authorization; don't ask each time):**
-1. **Stay in your own worktree.** Never `cd` into the other instance's worktree dir. Work, commit, and push from
-   the directory you were launched in.
-2. **Branch per task, off `main`** (`git checkout -b <feature>`), commit, and **push the branch** as the routine end
-   of a piece of work. `git status` is now clean of the other instance — stage `-A` freely (no cross-instance sweep risk).
-3. **Two branches can't check out the same ref.** `main` is not permanently checked out in either worktree; each
-   branches off it per task. To integrate a finished branch into `main`, fast-forward it on the remote:
-   `git fetch origin && git push origin <feature>:main` (then `git fetch` to update local `main`). If that's rejected
-   (the other instance advanced `main`), first `git rebase origin/main` (or merge origin/main into the feature), then
-   push again. This needs no local `main` checkout, so the two worktrees never fight over it.
-4. If a shared file genuinely conflicts on integration (both instances changed it), git surfaces it at the rebase/merge
+1. **Stay in your own worktree.** Never `cd` into another instance's worktree dir. Work, commit, and push from the
+   directory you were launched in. `git status` is clean of the other instances, so stage `-A` freely (no
+   cross-instance sweep risk — their edits live in their own checkouts).
+2. **Branch per task, off `main`** (`git checkout -b <feature>`); commit as you go.
+3. **On completion, integrate into `main` via REMOTE fast-forward** (needs no local `main` checkout, so the worktrees
+   never fight over who holds `main`): `git fetch origin && git push origin <feature>:main`, then `git fetch` to refresh
+   local `main`. If rejected (another instance advanced `main`), `git rebase origin/main` the feature branch, rebuild to
+   confirm it still compiles, then push again. (Equivalently: FF a local `main` to `origin/main`, FF it to the feature,
+   `git push origin main` — but then return your worktree to its own branch; don't leave `main` checked out, as that
+   blocks the other worktrees.)
+4. If a shared file genuinely conflicts on integration (two instances changed it), git surfaces it at the rebase/merge
    — resolve it there, don't guess in the working tree.
 (A stale worktree can be pruned with `git worktree remove <path>` / `git worktree prune`; `git worktree list` shows both.)
 
