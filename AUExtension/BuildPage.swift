@@ -1629,6 +1629,9 @@ extension DiagView {
         let active = isFerry ? bind.playing : (bind.playing && d.playing)
         let sweeping = active && d.playing                             // the playhead moves ONLY while the host transport runs
         let hue: Color = bind.isGrey ? buildSelectGrey : buildSelHue   // SAME hue as the machine box + chain (grey on SELECT audition, the machine/ferry machine otherwise)
+        // THE FOCUSED CELL'S velocity feed (Paul 2026-09-11): a ferry bind → its play column's steps; else the chain/part
+        // AUDITION row (the focused machine parks there). Drives the play-button icon flash below.
+        let focusIdx: [Int] = { if case let .playFerry(pc) = bind.kind { return buildPlayColSweepIndices(pc) }; return buildChainAuditionRow.map { [$0] } ?? [] }()
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
             if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when armed/playing
@@ -1641,8 +1644,11 @@ extension DiagView {
                     }
                 }
             }
-            Image(systemName: active ? "stop.fill" : "play.fill").font(.system(size: 16, weight: .black))
-                .foregroundColor(active ? hue : hue.opacity(0.8))
+            if active {   // PLAYING → the STOP icon FLASHES the focused cell's velocity (Paul 2026-09-11: flash the icon)
+                flashingIcon("stop.fill", size: 16, tint: hue, baseOpacity: 1.0, indices: focusIdx)
+            } else {
+                Image(systemName: "play.fill").font(.system(size: 16, weight: .black)).foregroundColor(hue.opacity(0.8))
+            }
         }
         .frame(maxWidth: .infinity).frame(height: buttonH)              // FILL the slot (Paul 2026-08-31: no centring gap between play + SELECT)
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -2014,7 +2020,6 @@ extension DiagView {
                 // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
-                    .overlay { if set && on { buildFerryPlayFlash(t, hue: Color(hex: mixHex(mHex, 0xFFFFFF, 0.55))) } }   // FLASH the play button at the play column's velocity while running (Paul 2026-09-11)
                     .overlay { if set { roomsCellPlayhead(active: on && !(focused && roomsRoom == .part)).padding(2) } }   // PER-CELL PLAYHEAD — but the SELECTED ferry playing on the part grid already shows playheads on its part cells, so don't double the sweep here (Paul 2026-09-10)
                     .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed machine-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -2024,7 +2029,11 @@ extension DiagView {
                     // icon (a trailing Spacer keeps the icon+name group hugging the left). Paul 2026-09-10.
                     .overlay {
                         HStack(spacing: 6) {
-                            Image(systemName: set ? (on ? "stop.fill" : "play.fill") : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim).opacity(on ? 0.85 : 1.0)
+                            if set && on {   // RUNNING → the STOP icon FLASHES the play column's velocity (Paul 2026-09-11: flash the icon, not the cell)
+                                flashingIcon("stop.fill", size: min(12, playH * 0.5), tint: mHue, baseOpacity: 0.85, indices: buildPlayColSweepIndices(t))
+                            } else {
+                                Image(systemName: set ? "play.fill" : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim)
+                            }
                             if let nm = ferryName, !nm.isEmpty {
                                 Text(nm).font(.system(size: min(9, playH * 0.3), weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
                                     .foregroundColor(.white.opacity(0.9)).multilineTextAlignment(.leading)
@@ -2969,8 +2978,7 @@ extension DiagView {
             let cols = buildPartCols                                        // §E: the active width
             let rows = DiagView.roomsGridRows
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let now = tl.date
-                let live = meters.beatAnchor + now.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
                 let colF = sb > 0 ? musical / sb : 0
                 let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
@@ -2978,26 +2986,13 @@ extension DiagView {
                 let c = min(cols - 1, max(0, Int(pcol)))                    // the CURRENT column
                 let fract = min(1.0, max(0.0, pcol - Double(c)))           // progress ALONG that column's active cell, [0,1)
                 let r = c < buildStagingSel.count ? buildStagingSel[c] : -1 // the ACTIVE cell = this column's selected rung
-                ZStack(alignment: .topLeading) {
-                    // VELOCITY FLASH per selected rung (Paul 2026-09-11): FOLDED into this ONE playhead loop — was a separate
-                    // 30 fps TimelineView per selected cell (8–16 of them), which starved the main thread and stuttered the
-                    // playhead itself. One loop draws every selected cell's flash from the live strike feed (meters, off @State).
-                    ForEach(0..<cols, id: \.self) { cc in
-                        let rr = cc < buildStagingSel.count ? buildStagingSel[cc] : -1
-                        let lvl = (rr >= 0 && rr < rows) ? buildFlashLevel([cc * Snap.rows + rr], now: now) : 0
-                        if lvl > 0.001 {
-                            RoundedRectangle(cornerRadius: 5).fill(Color.white).opacity(lvl * 0.55)
-                                .frame(width: colW, height: rowH)
-                                .offset(x: CGFloat(cc) * (colW + gap), y: CGFloat(rr) * (rowH + gap))
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    if r >= 0 && r < rows {
-                        let sweepX = CGFloat(c) * (colW + gap) + colW * CGFloat(fract)
-                        let cellY = CGFloat(r) * (rowH + gap)
-                        Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: rowH)
-                            .offset(x: sweepX, y: cellY).allowsHitTesting(false)
-                    }
+                // (The per-cell VELOCITY FLASH on the grid body was removed 2026-09-11 — Paul: no flashing on the main grid.
+                // Velocity now flashes only on the play-ferry icons + the focused machine's play button.)
+                if r >= 0 && r < rows {
+                    let sweepX = CGFloat(c) * (colW + gap) + colW * CGFloat(fract)
+                    let cellY = CGFloat(r) * (rowH + gap)
+                    Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: rowH)
+                        .offset(x: sweepX, y: cellY).allowsHitTesting(false)
                 }
             }
         }
@@ -3253,16 +3248,19 @@ extension DiagView {
         }
         return lvl
     }
-    // FLASH the play button with the play column's velocity on each strike, while the ferry is running (Paul 2026-09-11).
-    // Reads ALL of the ferry's step cells (buildPlayColSweepIndices) so any step's strike pulses the button.
-    @ViewBuilder private func buildFerryPlayFlash(_ t: Int, hue: Color) -> some View {
-        let idxs = buildPlayColSweepIndices(t)
+    // An SF-symbol ICON that FLASHES its velocity on each strike across `indices` (brighten + a subtle pulse) — used for the
+    // play/stop icon on a running play ferry AND the focused machine's play button (Paul 2026-09-11: flash the ICON, not the
+    // cell body). One TimelineView; reads the live strike feed (meters, off @State).
+    @ViewBuilder private func flashingIcon(_ systemName: String, size: CGFloat, tint: Color, baseOpacity: Double, indices: [Int]) -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-            RoundedRectangle(cornerRadius: 4).fill(hue).opacity(buildFlashLevel(idxs, now: tl.date) * 0.6).allowsHitTesting(false)
+            let lvl = buildFlashLevel(indices, now: tl.date)
+            Image(systemName: systemName).font(.system(size: size, weight: .black))
+                .foregroundColor(tint).opacity(baseOpacity)
+                .brightness(lvl * 0.6).scaleEffect(1.0 + lvl * 0.22)
         }
     }
-    // (buildPartCellFlash removed 2026-09-11 — the selected-rung flash is now drawn inside roomsPartPlayhead's single
-    // TimelineView, not one loop per cell, which was starving the main thread and stuttering the playhead.)
+    // (buildFerryPlayFlash + buildPartCellFlash removed 2026-09-11 — the cell-body flashes are gone; velocity now flashes the
+    // play-ferry icon + the focused machine's play button via flashingIcon, and the grid body no longer flashes at all.)
 
     // (The play-grid I/O toggles were REMOVED 2026-08-29 — Paul: the play grid has NO I/O toggles. Each ferried cell
     // DERIVES its door + emitters from the source it was copied from, stored per-column in buildPlayColRecv/Emit.)
