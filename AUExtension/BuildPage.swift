@@ -1687,8 +1687,8 @@ extension DiagView {
     // red garbage-can box appears here; dragging the box over it (detected via the chainBlock x — the trash is the left
     // flank, at x < 0) turns it EVEN REDDER, and dropping there deletes the processor from the chain (handled in buildProcBox).
     @ViewBuilder func roomsChainTrash(width: CGFloat, height: CGFloat) -> some View {
-        let dragging = chainDragActive   // ONLY while a box is actively held (auto-resets on end/cancel — never sticks). Paul 2026-09-10
-        let over = chainDragActive && buildChainOverTrash
+        let dragging = chainDragActive && buildChainDragMoved   // DRAG ONLY (Paul 2026-09-11): shown once the held box actually MOVES, not on the hold itself (chainDragActive auto-resets so it never sticks)
+        let over = dragging && buildChainOverTrash
         let boxH = 3 * 26 + 2 * BuildGeom.castGap   // SMALLER: the footprint of the LIBRARY/MUTATE/CLEAR stack (3 × 26 + 2 gaps) — Paul 2026-09-10
         ZStack {
             if dragging {
@@ -3836,11 +3836,14 @@ extension DiagView {
         // (onTapGesture) and a completed hold is not double-handled. Empty boxes are not sources.
         // LEAVE A BEAT (Paul 2026-09-11): the trash + drop highlights used to fire at 0.28s — too eager on a casual hold.
         // Now it waits buildGridSelStampDur (0.65s, the house hold beat), so a hold doesn't instantly apply the drag UI.
+        // EMPTY BOXES ARE NOT SOURCES (Paul 2026-09-11): disable this gesture for an unpopulated box (`including: .none`) so a
+        // tap falls straight through to the onTapGesture above → the ADD PROCESSOR card. (highPriorityGesture on every box
+        // was swallowing the empty-box tap.)
         .highPriorityGesture(
             LongPressGesture(minimumDuration: buildGridSelStampDur)
                 .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("chainBlock")))
-                // AUTO-RESETTING "actively held" flag — true only once the hold completes (.first(true)) through the drag; SwiftUI
-                // resets it when the gesture ends OR is CANCELLED, so the trash + highlights can never stick visible. Paul 2026-09-10.
+                // AUTO-RESETTING "actively held" flag — true once the hold completes through the drag; SwiftUI resets it when
+                // the gesture ends OR is CANCELLED, so the highlights can never stick visible. Paul 2026-09-10.
                 .updating($chainDragActive) { value, state, _ in
                     switch value { case .first(true), .second: if populated { state = true }; default: break }
                 }
@@ -3850,8 +3853,9 @@ extension DiagView {
                     case .first(true):                                    // held → enter drag mode; the ghost starts at this box's centre
                         buildChainDragFrom = i
                         buildChainDragLoc = CGPoint(x: CGFloat(i % 2) * (w + gap) + w / 2, y: CGFloat(i / 2) * (h + gap) + h / 2)
-                        buildChainDropTo = nil; buildChainOverTrash = false
+                        buildChainDropTo = nil; buildChainOverTrash = false; buildChainDragMoved = false   // no movement yet → the trash stays hidden
                     case .second(true, let drag?):                        // dragging
+                        if abs(drag.translation.width) + abs(drag.translation.height) > 8 { buildChainDragMoved = true }   // a REAL drag → reveal the trash (Paul 2026-09-11: drag only, not the hold)
                         buildChainDragLoc = drag.location
                         let overTrash = drag.location.x < -6              // the trash is the LEFT flank (negative x in the box-grid space)
                         buildChainOverTrash = overTrash
@@ -3860,13 +3864,13 @@ extension DiagView {
                     }
                 }
                 .onEnded { value in
-                    defer { buildChainDragFrom = nil; buildChainDropTo = nil; buildChainOverTrash = false }
+                    defer { buildChainDragFrom = nil; buildChainDropTo = nil; buildChainOverTrash = false; buildChainDragMoved = false }
                     guard populated, case .second = value else { return }
                     if buildChainOverTrash { buildChainRemoveSlot(i); if buildEditSlot == i { buildEditSlot = nil } }   // dropped on the trash → DELETE
                     else if let to = buildChainDropTo, to != i { buildChainMoveSlot(from: i, to: to) }                  // dropped on another box → REORDER
                     else { buildChainToggleBypass(i) }                                                                  // released in place → BYPASS
-                }
-        )
+                },
+            including: populated ? .all : .none)
     }
 
 

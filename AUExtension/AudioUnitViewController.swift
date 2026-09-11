@@ -174,6 +174,7 @@ struct DiagView: View {
     @State var buildChainDragLoc: CGPoint = .zero   // finger location in the "chainBlock" coordinate space
     @State var buildChainDropTo: Int? = nil     // the slot index under the finger (highlighted; committed on release)
     @State var buildChainOverTrash: Bool = false  // the dragged processor box is over the DELETE trash (left flank) — drop = remove (Paul 2026-09-10)
+    @State var buildChainDragMoved: Bool = false  // the held box has actually MOVED (a real drag) — gates the DELETE trash so it shows on DRAG only, not on the hold (Paul 2026-09-11)
     @GestureState var chainDragActive: Bool = false   // TRUE only while a chain box is actively HELD/dragged — AUTO-RESETS when the gesture ends OR is cancelled (so the trash + destination highlights never stick visible). Paul 2026-09-10
     @State var buildChainClipboard: [ProcessorSlot]? = nil   // COPY/PASTE buffer: a copied chain, pasted into a new row position
     // PROCESSOR EDITOR transaction (Paul 2026-08-19): the machine's chain as it was when the editor OPENED, so CANCEL can
