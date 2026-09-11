@@ -440,6 +440,7 @@ struct DiagView: View {
     // no longer re-run the whole BuildPage body — see the class. Only the OFFLINE part-roll + drag/transport state stay @State.
     @State var partRollNotes: [PartRollDeck.Note] = []   // PART ROLL: the part's exact output (the OFFLINE feed, recomputed on input/selection/edit change — no lag)
     @State var partRollSig: String = ""                  // the recompute key (input · selection · rate · edit generation) — skip identical recomputes
+    @State var partRollComputing = false                 // an offline part-roll render is in flight OFF-MAIN (one at a time) — the 188× Router loop no longer stalls the main thread (Paul 2026-09-11)
     @State var buildPartRollGen: Int = 0                 // bumped by buildPublishScene so a CELL/CHAIN edit forces an offline recompute (even if the selection didn't change)
     @State var buildPartDragLast: Int? = nil   // PART GRID (Paul 2026-09-02): the last cell touched in the current tap/drag selection (nil = no active drag)
     @State var buildPartDragAnchor: Int? = nil // SPAN DRAW (Paul 2026-09-04): the COLUMN a span-draw drag started on (nil = no active span drag)
@@ -950,10 +951,17 @@ struct DiagView: View {
             if activeTab == .build && roomsRoom == .part {
                 let cyc = Double(max(1, buildPartCols)) * (buildPartRate?.beats ?? stepBeats)
                 let sig = "\(recvHeldNotes)|\(buildStagingSel)|\(cyc)|\(buildPartRollGen)"
-                if sig != partRollSig {
-                    partRollSig = sig
-                    let pr = au.offlinePartRoll(cyc: cyc)
-                    if pr != partRollNotes { partRollNotes = pr }
+                // OFF-MAIN (Paul 2026-09-11, perf): offlinePartRoll runs a fresh Router ~188× (a full part render). Doing that
+                // synchronously on the main thread stalled the UI on every held-chord/selection/edit change. Run it on a
+                // large-stack thread (deep enough for Router.process); marshal the result back. One at a time (partRollComputing);
+                // the 4 Hz poll re-kicks within a tick if the key changed while computing. It only feeds a visual roll — no audio.
+                if sig != partRollSig && !partRollComputing {
+                    partRollSig = sig; partRollComputing = true
+                    let auRef = au
+                    runOnLargeStack {
+                        let pr = auRef.offlinePartRoll(cyc: cyc)
+                        DispatchQueue.main.async { self.partRollComputing = false; if pr != self.partRollNotes { self.partRollNotes = pr } }
+                    }
                 }
             } else if !partRollNotes.isEmpty { partRollNotes = []; partRollSig = "" }
             if buildMidiConfigOpen {

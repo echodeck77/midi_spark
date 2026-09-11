@@ -3697,7 +3697,7 @@ extension DiagView {
     @ViewBuilder private func buildChainFlowOverlay(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color, chain: [ProcessorSlot]) -> some View {
         let boxW = (blockW - gap) / 2                                          // 2 columns of boxes
         let populated = (0..<8).map { $0 < chain.count && !buildIsEmptySlot(chain[$0]) }   // only POPULATED (opaque) boxes clip the comets — EMPTY boxes are transparent, the comet flows through (Paul 2026-08-31)
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !d.playing)) { tl in   // STILL when stopped (Paul 2026-09-11 perf) — matches the cell/part playheads
             Canvas { ctx, _ in
                 let cr = max(3.5, min(boxH * 0.16, sideW * 0.42))
                 let lx = sideW / 2, rx = sideW + blockW + sideW / 2            // flank-column centres
