@@ -4,6 +4,14 @@
 import CoreAudioKit
 import SwiftUI
 
+#if DEBUG
+// DEV-ONLY FULL RELOAD (Paul 2026-09-11): the header RESET posts this; the VIEW CONTROLLER (which survives the SwiftUI
+// rebuild) resets the document to INIT and TEARS DOWN + REBUILDS the hosting controller, so every BUILD @State is
+// discarded and reconstructed from the fresh document — a true "just added" state. (loadFactoryPreset alone only reset
+// the document; the GUI @State persisted, which is why the button seemed not to respond.)
+extension Notification.Name { static let midiSparkReloadUI = Notification.Name("midiSparkReloadUI") }
+#endif
+
 public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
     var audioUnit: MidiSparkAudioUnit?
 
@@ -17,6 +25,9 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
     public override func viewDidLoad() {
         super.viewDidLoad()
         preferredContentSize = CGSize(width: 760, height: 480)
+        #if DEBUG
+        NotificationCenter.default.addObserver(self, selector: #selector(reloadFresh), name: .midiSparkReloadUI, object: nil)
+        #endif
         if audioUnit != nil { embedUI() }
     }
 
@@ -29,6 +40,19 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
         view.addSubview(host.view)
         host.didMove(toParent: self)
     }
+
+    #if DEBUG
+    // Reset the document to the fresh INIT, then rebuild the SwiftUI tree from scratch (new DiagView ⇒ all @State fresh).
+    @objc private func reloadFresh() {
+        audioUnit?.loadFactoryPreset(named: "INIT")     // flush voices · replace doc with INIT · clear pending BUILD · resync tree
+        for child in children {                          // tear down the existing hosting controller
+            child.willMove(toParent: nil)
+            child.view.removeFromSuperview()
+            child.removeFromParent()
+        }
+        embedUI()                                        // children now empty → rebuilds a fresh DiagView over the INIT document
+    }
+    #endif
 }
 
 /// delta item 8: a lifted processor on the clipboard — {type, params, transpose} — COPY'd from one panel,

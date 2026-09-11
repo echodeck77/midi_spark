@@ -1018,6 +1018,9 @@ extension DiagView {
     @ViewBuilder func buildHeaderControls() -> some View {
         HStack(alignment: .center, spacing: 8) {
             if !reelShowPopup {
+                #if DEBUG
+                buildResetButton()            // DEV-ONLY (Paul 2026-09-11): wipe to the fresh INIT document
+                #endif
                 // The SELECT|PART grid toggle is RETIRED (Paul 2026-09-08): the ferry row IS the navigation — tap a populated
                 // ferry to open its part, an empty ferry to reach the SELECT browser. CLEARing a part empties its ferry.
                 // RATE + STEPS (8|16) moved to the FERRY SETTINGS card; MIDI IN / MIDI OUT buttons deleted (Paul 2026-09-10).
@@ -1026,6 +1029,22 @@ extension DiagView {
             buildReelButton()                                   // RECORD — top-right (Paul 2026-08-23); handles the pass-browser hide + share anchor
         }
     }
+    #if DEBUG
+    // DEV-ONLY RESET (Paul 2026-09-11): FULLY RELOADS the app to its "just added" state. Posting .midiSparkReloadUI lets the
+    // VIEW CONTROLLER (which survives the rebuild) reset the document to INIT AND tear down + recreate the SwiftUI hosting
+    // controller, so every BUILD @State (ferries, staging, ephemeral colours, play columns) is discarded and rebuilt fresh.
+    // (Calling loadFactoryPreset from here only reset the document — the GUI @State persisted, so the button seemed dead.)
+    // Red-tinted to mark it destructive; never ships on the product face.
+    @ViewBuilder private func buildResetButton() -> some View {
+        let red = Color(red: 0.95, green: 0.24, blue: 0.24)
+        Text("RESET").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(red).lineLimit(1).minimumScaleFactor(0.8)
+            .frame(width: 84, height: 30)
+            .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(red.opacity(0.5), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { NotificationCenter.default.post(name: .midiSparkReloadUI, object: nil) }
+    }
+    #endif
     // The global STOP — stops every playing voice (chain audition · part · every play column). Lives in the SELECT grid's
     // top-right EMPTY corner cell (Paul 2026-08-31). Cell-sized; red + lit when anything plays.
     @ViewBuilder func buildStopAllButton() -> some View {
@@ -2037,6 +2056,7 @@ extension DiagView {
                 // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
+                    .overlay { if set && on { buildFerryPlayFlash(t, hue: Color(hex: mixHex(mHex, 0xFFFFFF, 0.55))) } }   // FLASH the play button at the play column's velocity while running (Paul 2026-09-11)
                     .overlay { if set { roomsCellPlayhead(active: on && !(focused && roomsRoom == .part)).padding(2) } }   // PER-CELL PLAYHEAD — but the SELECTED ferry playing on the part grid already shows playheads on its part cells, so don't double the sweep here (Paul 2026-09-10)
                     .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed machine-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -3080,6 +3100,9 @@ extension DiagView {
             } else {
                 cellBody
             }
+            // FLASH THE SELECTED RUNG at its velocity as the playhead hits it (Paul 2026-09-11). Only the selected cell of
+            // each column flashes (it's the rung that plays); the strike coincides with the playhead crossing the column.
+            if selected { buildPartCellFlash(idx) }
             // (The edited-row dashed keyline is removed — Paul 2026-09-09: the machine box already matches the focused
             // row's colour, so the extra marker was redundant + confusing.)
             // AUTOMATION APPLIED → the lane label "AUTO N" on every extent cell (replaces the old dot).
@@ -3409,6 +3432,32 @@ extension DiagView {
                     .allowsHitTesting(false)
                 }
             }
+        }
+    }
+    // VELOCITY FLASH (Paul 2026-09-11): the peak recent-strike intensity across `indices`, 0…1, decaying over ~0.28s.
+    // Reads the live STRIKE feed (cellHitAt/cellHitVel on `meters`, off @State so it never re-runs the body). Meant to be
+    // called INSIDE a TimelineView — one flash per note, brightness = that note's velocity, so a cell "flashes its velocity".
+    private func buildFlashLevel(_ indices: [Int], now: Date) -> Double {
+        var lvl = 0.0
+        for idx in indices where idx >= 0 && idx < meters.cellHitVel.count {
+            let age = now.timeIntervalSince(meters.cellHitAt[idx])
+            if age >= 0, age < 0.28 { lvl = max(lvl, meters.cellHitVel[idx] * (1.0 - age / 0.28)) }
+        }
+        return lvl
+    }
+    // FLASH the play button with the play column's velocity on each strike, while the ferry is running (Paul 2026-09-11).
+    // Reads ALL of the ferry's step cells (buildPlayColSweepIndices) so any step's strike pulses the button.
+    @ViewBuilder private func buildFerryPlayFlash(_ t: Int, hue: Color) -> some View {
+        let idxs = buildPlayColSweepIndices(t)
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+            RoundedRectangle(cornerRadius: 4).fill(hue).opacity(buildFlashLevel(idxs, now: tl.date) * 0.6).allowsHitTesting(false)
+        }
+    }
+    // FLASH the SELECTED part cell with its velocity as the playhead hits it (Paul 2026-09-11) — the strike coincides with
+    // the playhead crossing that column, so the selected rung pulses at its note velocity each pass.
+    @ViewBuilder private func buildPartCellFlash(_ idx: Int) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+            RoundedRectangle(cornerRadius: 5).fill(Color.white).opacity(buildFlashLevel([idx], now: tl.date) * 0.55).allowsHitTesting(false)
         }
     }
 
@@ -3962,12 +4011,14 @@ extension DiagView {
         }
         .contentShape(Rectangle())
         .onTapGesture { buildExitPlaceMode(); buildPlaceMsg = nil; if populated { buildEditSlot = i } else { buildAddSlot = i } }   // quick TAP → open the editor (empty box → the ADD PROCESSOR picker)
-        // HOLD → DRAG → (Paul 2026-09-10): a populated box is HELD (long press ≥ 0.28s) to enter drag mode — the red TRASH
-        // appears in the left flank. DRAG onto the trash (chainBlock x < 0) + drop = DELETE; drag onto another box = REORDER;
-        // LONG-PRESS then RELEASE IN PLACE (no move) = toggle BYPASS. highPriorityGesture so a quick tap (< 0.28s) falls
-        // through to the editor (onTapGesture) and a completed hold is not double-handled. Empty boxes are not sources.
+        // HOLD → DRAG → (Paul 2026-09-10): a populated box is HELD to enter drag mode — the red TRASH appears in the left
+        // flank. DRAG onto the trash (chainBlock x < 0) + drop = DELETE; drag onto another box = REORDER; LONG-PRESS then
+        // RELEASE IN PLACE (no move) = toggle BYPASS. highPriorityGesture so a quick tap falls through to the editor
+        // (onTapGesture) and a completed hold is not double-handled. Empty boxes are not sources.
+        // LEAVE A BEAT (Paul 2026-09-11): the trash + drop highlights used to fire at 0.28s — too eager on a casual hold.
+        // Now it waits buildGridSelStampDur (0.65s, the house hold beat), so a hold doesn't instantly apply the drag UI.
         .highPriorityGesture(
-            LongPressGesture(minimumDuration: 0.28)
+            LongPressGesture(minimumDuration: buildGridSelStampDur)
                 .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("chainBlock")))
                 // AUTO-RESETTING "actively held" flag — true only once the hold completes (.first(true)) through the drag; SwiftUI
                 // resets it when the gesture ends OR is CANCELLED, so the trash + highlights can never stick visible. Paul 2026-09-10.
