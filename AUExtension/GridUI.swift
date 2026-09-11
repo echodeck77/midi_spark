@@ -185,6 +185,7 @@ struct ProcessorBox: View {
     var tempo: Double = 120
     var clockPlaying: Bool = false
     var driverNoteRate: Double = 0                       // RATCHET PATTERN NOTE clock: the upstream driver's note rate in beats (0 = unknown/standalone → the playhead can't sweep per-note)
+    var gridStepBeats: Double = 0.25                     // the SCENE step in beats → the DEFAULT (grid-column) matrix/lane/passgate playhead clock (Paul 2026-09-11)
     // A self-clock for a state matrix's playhead — extrapolated per frame so it can sweep faster than the diag poll.
     // `span` = the loop period in BEATS (0 = free-run over all STEPS); the playhead re-anchors every `span`.
     struct StateMatrixClock { let anchor: Double; let anchorAt: Date; let tempo: Double; let rate: Double; let steps: Int; let rotate: Int; let span: Double }
@@ -203,6 +204,21 @@ struct ProcessorBox: View {
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
     private var isB: Bool { face == .b }
+    // DEFAULT grid-column clock (0…7 over one bar) for the matrices/lanes/passgate that DON'T carry a bespoke clock
+    // (Paul 2026-09-11): these used to light the live column from the ~4 Hz polled `d.effColumn`, folded into the whole-page
+    // @State — which re-rendered the entire page every step and hitched every playhead. Self-animating from the free-running
+    // beat anchor (the RATCHET matrix's pattern) frees the page from the per-step re-render. span 0 = free-run over all STEPS.
+    private var gridClock: StateMatrixClock? {
+        clockPlaying ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo,
+                                        rate: Swift.max(0.0001, gridStepBeats), steps: 8, rotate: 0, span: 0) : nil
+    }
+    // The live pass index (0…3) extrapolated from the anchor — the passgate playhead, self-clocked like gridClock.
+    private func livePass(at date: Date) -> Int {
+        guard clockPlaying else { return -1 }
+        let bar = 8.0 * Swift.max(0.0001, gridStepBeats)
+        let b = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+        return ((Int((b / bar).rounded(.down)) % 4) + 4) % 4
+    }
     private var accent: Color { accentOverride ?? (machineHue(machine.machineID) ?? .gray) }
     private var faceType: ProcessorType? { isB ? machine.typeB : machine.type }   // B may be nil = B-less
     private var p: MachineParams { isB ? machine.paramsB : machine.paramsA }
@@ -487,19 +503,23 @@ struct ProcessorBox: View {
             }
         })
         case .passgate: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
-            field("PLAY ON PASS") { HStack(spacing: 6) {
+            field("PLAY ON PASS") {
+              TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in   // SELF-CLOCKED pass playhead (Paul 2026-09-11): extrapolated from the anchor, no per-step page re-render
+                let head = livePass(at: tl.date)
+                HStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { i in
                     let on = (p.passes ?? [true,true,true,true])[i]
-                    let head = i == passHead                 // MODE ROW: the playhead sits on the live pass
                     Text("\(i+1)").font(.system(size: 16, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? .black : .white.opacity(0.6))
                         .frame(maxWidth: .infinity).frame(height: 42)
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.1)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(head ? Color.white : .clear, lineWidth: 3))   // the playhead ring
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(i == head ? Color.white : .clear, lineWidth: 3))   // the playhead ring
                         .contentShape(Rectangle())
                         .onTapGesture { setParam { var pp = $0.passes ?? [true,true,true,true]; pp[i].toggle(); $0.passes = pp } }
                 }
-            } }
+                }
+              }
+            }
         })
         case .strum: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
             heroField("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
@@ -1304,7 +1324,7 @@ struct ProcessorBox: View {
         // RATCHET PATTERN own-clock playhead: EXTRAPOLATE the beat every animation frame (the ~4 Hz poll aliases a fast rate —
         // a 1/8 sweep read at 4 Hz collapses to a 1↔5 jump). col = floor(beat ÷ RATE) mod STEPS (+ ROTATE). No clock → liveStep.
         let grid = Group {
-            if let c = clock {
+            if let c = clock ?? gridClock {   // bespoke ratchet clock, else the DEFAULT grid-column clock (Paul 2026-09-11) — both extrapolated per frame so NO per-step page re-render
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
                     let b = c.anchor + tl.date.timeIntervalSince(c.anchorAt) * c.tempo / 60.0
                     let localBeat = c.span > 0 ? (b - columnStart(b, c.span)) : b   // SPAN re-anchors every `span` beats; else free-run
@@ -1312,7 +1332,7 @@ struct ProcessorBox: View {
                     makeGrid((((g + c.rotate) % c.steps) + c.steps) % c.steps)
                 }
             } else {
-                makeGrid(liveStep)
+                makeGrid(liveStep)   // stopped (no clock) → liveStep is -1 from the caller → no playhead
             }
         }
         if let onRotate { grid.modifier(RotateOnDrag(onRotate: onRotate)) } else { grid }   // ROTATE §2: drag the matrix to rotate
@@ -1334,33 +1354,46 @@ struct ProcessorBox: View {
         // bar touched captured the whole drag and the rest never responded). x → column · y → value.
         GeometryReader { lane in
             let W = lane.size.width, H = lane.size.height
-            HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
-                ForEach(0..<count, id: \.self) { i in
-                    let v = i < steps.count ? steps[i] : 0
-                    let live = i == liveStep                       // PLAYHEAD (idea 15): the live grid column
-                    ZStack(alignment: center ? .center : .bottom) {   // CENTRE = a bipolar lane (0 = mid, + above, − below) — the TIMING pocket
-                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(live ? 0.16 : 0.08))
-                        if center {
-                            let frac = CGFloat(v) / CGFloat(maxV)   // −1…1
-                            let barH = Swift.max(2, abs(frac) * H / 2)
-                            RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: barH).offset(y: frac >= 0 ? -barH / 2 : barH / 2)
-                        } else {
-                            RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, H * CGFloat(v) / CGFloat(maxV)))
+            // SELF-CLOCKED PLAYHEAD (Paul 2026-09-11): the bars' live-column highlight extrapolates from the beat anchor inside
+            // its own TimelineView (so it no longer needs `liveStep` folded into the whole-page @State → no per-step re-render).
+            // The DRAG gesture stays on a stable overlay layer (NOT inside the TimelineView) so it isn't re-created each frame.
+            ZStack(alignment: .topLeading) {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+                    let liveCol: Int = {
+                        guard let c = gridClock else { return -1 }
+                        let b = c.anchor + tl.date.timeIntervalSince(c.anchorAt) * c.tempo / 60.0
+                        return (((Int((b / c.rate).rounded(.down))) % c.steps) + c.steps) % c.steps
+                    }()
+                    HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
+                        ForEach(0..<count, id: \.self) { i in
+                            let v = i < steps.count ? steps[i] : 0
+                            let live = i == liveCol                       // PLAYHEAD (idea 15): the live grid column
+                            ZStack(alignment: center ? .center : .bottom) {   // CENTRE = a bipolar lane (0 = mid, + above, − below) — the TIMING pocket
+                                RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(live ? 0.16 : 0.08))
+                                if center {
+                                    let frac = CGFloat(v) / CGFloat(maxV)   // −1…1
+                                    let barH = Swift.max(2, abs(frac) * H / 2)
+                                    RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: barH).offset(y: frac >= 0 ? -barH / 2 : barH / 2)
+                                } else {
+                                    RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, H * CGFloat(v) / CGFloat(maxV)))
+                                }
+                            }
+                            .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
+                            .frame(maxWidth: .infinity)
                         }
                     }
-                    .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
-                    .frame(maxWidth: .infinity)
+                    .frame(width: W, height: H)
                 }
+                Color.clear.frame(width: W, height: H)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { val in
+                        let colW = W / CGFloat(Swift.max(1, count))
+                        let col = Swift.max(0, Swift.min(count - 1, Int(val.location.x / Swift.max(1, colW))))   // which bar the finger is over
+                        let y = Swift.min(1, Swift.max(0, val.location.y / Swift.max(1, H)))   // 0 top … 1 bottom
+                        let nv = center ? Int(((0.5 - y) * 2 * CGFloat(maxV)).rounded()) : Int((1 - y) * CGFloat(maxV))
+                        set(col, nv); laneReadout = (center && nv > 0 ? "+" : "") + "\(nv)"   // idea 18: float the value
+                    }.onEnded { _ in laneReadout = nil })
             }
-            .frame(width: W, height: H)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { val in
-                let colW = W / CGFloat(Swift.max(1, count))
-                let col = Swift.max(0, Swift.min(count - 1, Int(val.location.x / Swift.max(1, colW))))   // which bar the finger is over
-                let y = Swift.min(1, Swift.max(0, val.location.y / Swift.max(1, H)))   // 0 top … 1 bottom
-                let nv = center ? Int(((0.5 - y) * 2 * CGFloat(maxV)).rounded()) : Int((1 - y) * CGFloat(maxV))
-                set(col, nv); laneReadout = (center && nv > 0 ? "+" : "") + "\(nv)"   // idea 18: float the value
-            }.onEnded { _ in laneReadout = nil })
         }
         .frame(height: 84)
         if let r = laneReadout {   // LANE READOUT (idea 18): the touched bar's value floats at the top

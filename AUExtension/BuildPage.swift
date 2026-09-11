@@ -2735,13 +2735,14 @@ extension DiagView {
         let a = buildAutoLanes[cid]?.lanes ?? []
         return (0..<5).map { $0 < a.count ? a[$0] : AutoLane() }
     }
-    // The ACTIVE lane of the FOCUSED machine (−1 = NONE). Per-machine (each machine's automation is independent).
-    func buildAutoActive() -> Int { buildAutoLanes[ddSelectedMachineID ?? ""]?.activeLane ?? -1 }
-    // Does anything on screen need the LIVE STEP (effColumn/absoluteStep) folded into `d`? Only the processor-editor matrix
-    // playheads (buildEditSlot) and the AUTO ramp playhead (an armed lane). When neither is up we keep the step OUT of `d` so
-    // its per-step change doesn't re-run the whole body — the part playhead is beat-derived and stays smooth without it, which
-    // is what removes the on/near-each-step choppiness. (Paul 2026-09-10, playhead-jitter fix — read by the VC poll.)
-    var buildLiveStepNeeded: Bool { buildEditSlot != nil || buildAutoActive() >= 0 }
+    // AUTO RETIRED FROM THE GUI (Paul 2026-09-11): the span-automation UI is gone — its job moves to an LFO processor. Forcing
+    // −1 inerts every live AUTO surface at once (hollow cells · amber extent wash · "AUTO N" label · span-draw drag · the ring
+    // fade) AND removes the AUTO trigger from the per-step fold. The engine/model (partAuto, applyAuto, AutoLane) is left
+    // DORMANT (no active lane ⇒ no fold) — revertible; the orphaned panel roomsPartMacroSection is already unmounted.
+    func buildAutoActive() -> Int { -1 }
+    // (buildLiveStepNeeded removed Paul 2026-09-11: the processor-editor matrices/lanes/passgate + the stage-eye now SELF-CLOCK
+    //  their playheads from the free-running beat anchor, so NOTHING needs the live step folded into the whole-page `d` — the
+    //  per-step fold that re-rendered the page every step, hitching every playhead, is gone. The VC poll no longer reads it.)
     func buildAutoSetActive(_ i: Int) {
         let cid = ddSelectedMachineID ?? ""; guard !cid.isEmpty else { return }
         var pa = buildAutoLanes[cid] ?? PartAutoMachine()
@@ -5822,13 +5823,20 @@ extension DiagView {
     }
     // EUCLID: the K-of-N rhythm on a rail — a BOLD hue dot on every HIT step, a faint tick on the rests, and a ring on the
     // step under the playhead (whether hit or rest). INVERT strikes the rests (matches the engine). Reads as the pattern.
+    // STAGE-EYE live beat — extrapolated from the free-running anchor (Paul 2026-09-11), so the eye's playhead self-animates
+    // inside its own TimelineView instead of reading the polled `d.effColumn`/`d.beat` (which had to fold into the whole-page
+    // @State → a per-step re-render + playhead stutter). -1/stopped handled by the callers.
+    private func buildEyeLiveBeat(_ date: Date) -> Double {
+        meters.beatAnchor + date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+    }
     private func buildEyeEuclid(_ proc: ProcessorSlot, hue: Color) -> some View {
         let n = max(2, min(16, proc.params.euclidSteps ?? 8))
         let k = max(0, min(n, proc.params.euclidPulses ?? 5))
         let base = euclidPattern(pulses: k, steps: n, rotation: proc.params.euclidRot ?? 0)
         let inv = proc.params.euclidInvert ?? false
-        let live = (d.playing && d.effColumn >= 0) ? d.effColumn % n : -1
-        return Canvas { ctx, size in
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !d.playing)) { tl in
+        let live = d.playing ? (((Int((buildEyeLiveBeat(tl.date) / max(0.0001, stepBeats)).rounded(.down)) % n) + n) % n) : -1
+        Canvas { ctx, size in
             let cw = size.width / CGFloat(n), cy = size.height / 2
             ctx.stroke(Path { $0.move(to: CGPoint(x: cw / 2, y: cy)); $0.addLine(to: CGPoint(x: size.width - cw / 2, y: cy)) },
                        with: .color(.white.opacity(0.1)), lineWidth: 1)                 // the rail
@@ -5846,17 +5854,20 @@ extension DiagView {
                 }
             }
         }
+        }
     }
     // GENERIC MECHANISM (types without bespoke art yet): the 8-column position lane, the live column lit.
     private func buildEyeStepLane(_ proc: ProcessorSlot, hue: Color) -> some View {
-        let col = (d.playing && d.effColumn >= 0) ? d.effColumn % 8 : -1
-        return Canvas { ctx, size in
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !d.playing)) { tl in
+        let col = d.playing ? (((Int((buildEyeLiveBeat(tl.date) / max(0.0001, stepBeats)).rounded(.down)) % 8) + 8) % 8) : -1
+        Canvas { ctx, size in
             let cw = size.width / 8
             for s in 0..<8 {
                 let cell = CGRect(x: CGFloat(s) * cw + 2, y: 6, width: max(2, cw - 4), height: size.height - 12)
                 ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(.white.opacity(0.08)))
                 if s == col { ctx.fill(Path(roundedRect: cell, cornerRadius: 5), with: .color(hue.opacity(0.9))) }
             }
+        }
         }
     }
     // ARP note-WALK: the arp visits `pool × octaves` notes one per rate-tick, ordered by PATTERN. Drawn as a contour of
@@ -5868,8 +5879,9 @@ extension DiagView {
         let cyc = min(16, max(2, max(1, poolN) * oct))
         let ranks = (0..<cyc).map { arpRankForStep($0, cyc: cyc, pattern: pat) }
         let rate = proc.params.rate?.beats ?? 0.25
-        let pos = (d.playing && rate > 0) ? ((Int((d.beat / rate).rounded(.down)) % cyc) + cyc) % cyc : -1
-        return Canvas { ctx, size in
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !d.playing)) { tl in
+        let pos = (d.playing && rate > 0) ? ((Int((buildEyeLiveBeat(tl.date) / rate).rounded(.down)) % cyc) + cyc) % cyc : -1
+        Canvas { ctx, size in
             let cw = size.width / CGFloat(cyc)
             func pt(_ i: Int) -> CGPoint {
                 CGPoint(x: CGFloat(i) * cw + cw / 2,
@@ -5885,6 +5897,7 @@ extension DiagView {
                 if live { ctx.stroke(Path { $0.move(to: CGPoint(x: p.x, y: 0)); $0.addLine(to: CGPoint(x: p.x, y: size.height)) },
                                      with: .color(.white.opacity(0.25)), lineWidth: 1) }
             }
+        }
         }
     }
     // The pool-RANK the arp lands on at step i (its note-order shape). Pure geometry — the drawing, not the exact pitch.
@@ -5972,10 +5985,12 @@ extension DiagView {
             onSetTypeA: { t in buildChainSetType(i, t) },
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
             accentOverride: buildCardHue,   // the ONE machine/card hue (grey on the SELECT audition) — matches the machine box
-            passHead: d.playing ? (d.pass & 3) : -1,
-            liveStep: d.playing ? ((d.effColumn % 8) + 8) % 8 : -1,   // PLAYHEAD (idea 15): the live grid column sweeps the matrix/lane
+            // PLAYHEADS (Paul 2026-09-11): the matrix/lane/passgate playheads now SELF-CLOCK inside ProcessorBox from the beat
+            // anchor below (gridStepBeats = the scene step), so `liveStep`/`passHead` no longer fold the step into the whole-page
+            // @State (which re-rendered the page every step → the per-step playhead stutter). Left at their -1 defaults.
             beatAnchor: meters.beatAnchor, beatAnchorAt: meters.beatAnchorAt, tempo: meters.tempo, clockPlaying: d.playing,   // RATCHET PATTERN extrapolates its OWN-clock playhead (Paul 2026-09-07)
             driverNoteRate: driverNoteRate,   // NOTE clock: the upstream driver's note rate → the playhead sweeps per-note
+            gridStepBeats: stepBeats,   // the DEFAULT grid-column clock for the generic matrices/lanes/passgate (Paul 2026-09-11)
 
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },

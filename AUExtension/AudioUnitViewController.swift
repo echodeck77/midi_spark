@@ -878,14 +878,12 @@ struct DiagView: View {
             let lm = au.uiLadderMode(); if lm != ladderMode { ladderMode = lm }   // LADDER: sync the mode (preset load / external change)
             // `d` drives the BODY (effColumn highlight, pass, etc.). DON'T update it on `beat` alone — that fired every
             // tick while playing (→ a full BuildPage recompute at 4 Hz just to move a beat the playheads extrapolate).
-            // The beat now lives in `meters`. FURTHER (Paul 2026-09-10): the STEP index (effColumn/absoluteStep) also re-runs the
-            // whole body when it lands in `d` — the on/near-each-step choppiness — so fold it in ONLY when a per-step CONSUMER is
-            // on screen (the processor-editor matrix playheads / the AUTO ramp). Otherwise `d` updates only on the SLOW fields
-            // (playing/tempo/pass) and the beat-derived part playhead stays smooth. The quantized voice switch that used to ride
-            // .onChange(of: d.absoluteStep) now fires from the poll (below), so it no longer needs the step folded into `d`.
-            let needStep = buildLiveStepNeeded
-            if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
-                || (needStep && nd.playing && (nd.effColumn != d.effColumn || nd.absoluteStep != d.absoluteStep)) { d = nd }
+            // The beat now lives in `meters`. FURTHER (Paul 2026-09-11): the STEP index (effColumn/absoluteStep) is NO LONGER
+            // folded into `d` at all — every per-step playhead (the processor-editor matrices/lanes/passgate + the stage-eye)
+            // now SELF-CLOCKS from the free-running beat anchor, so re-rendering the whole page each step is pure waste that
+            // dropped a frame per step and hitched every playhead. `d` now updates only on the SLOW fields (playing/tempo/pass);
+            // the beat-derived playheads stay smooth. The quantized voice switch rides the poll's own step detector (below).
+            if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass { d = nd }
             // QUANTIZED CHAIN⟷PART VOICE SWITCH (was .onChange(of: d.absoluteStep), Paul 2026-08-14): commit an armed switch on
             // the step boundary. Detect the boundary against the reference-held last-step so a plain step change re-runs nothing;
             // buildCommitPendingVoice (which does mutate @State) only runs when a switch/reengage is actually armed (rare).
