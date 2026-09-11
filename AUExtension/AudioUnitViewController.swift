@@ -157,9 +157,7 @@ struct DiagView: View {
     // BUILD page (user 2026-08-11): the selected PART's cast machine (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
-    @State var buildRowMode: BuildRowMode = .select  // STAGING grid: what its left row buttons do (SELECT · MUTATE; PLACE retired from the centre column — Paul 2026-08-17)
     @State var buildPlaceArmed: Bool = false         // PLAY-grid PLACE mode — a standalone toggle (NOT the staging radio); armed from the left PLACE button
-    @State var buildPlaceMsg: String? = nil          // the processor pop-up's PLACE feedback line ("added to row 6 — 2 remaining")
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
     // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-machine.
@@ -170,7 +168,6 @@ struct DiagView: View {
     // edits the machine). While false, entering the PART room defaults the selected row to the currently-playing (audition)
     // machine's row. Reset to false when a fresh part is created, so a new part re-defaults.
     @State var buildPartTouched: Bool = false
-    @State var buildBypassHeld: Int? = nil      // HOLD-BYPASS A/B (idea 23): the slot momentarily bypassed while the BYPASS button is held
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
     // DRAG-TO-REORDER the chain (Paul 2026-08-25): a custom finger-track (native .onDrag doesn't survive the AU host).
     @State var buildChainDragFrom: Int? = nil   // the processor box being dragged (nil = no drag in flight)
@@ -181,8 +178,6 @@ struct DiagView: View {
     @State var buildChainClipboard: [ProcessorSlot]? = nil   // COPY/PASTE buffer: a copied chain, pasted into a new row position
     // PROCESSOR EDITOR transaction (Paul 2026-08-19): the machine's chain as it was when the editor OPENED, so CANCEL can
     // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.
-    @State var buildEditorSnapshot: [ProcessorSlot] = []
-    @State var buildEditorSnapCid: String? = nil
     // I/O toggle LONG-PRESS → apply to EVERY row (Paul 2026-08-19): a "Hold to apply to all" hint shows a moment into the hold.
     @State var buildIOHoldMsg: String? = nil
     @State var buildIOHoldPressing = false
@@ -191,8 +186,6 @@ struct DiagView: View {
     @State var buildStagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)   // §E: 16-wide; the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
     @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
     @State var buildRowShade: [Double] = Array(repeating: 0, count: 8)   // STAGE THE GRID: per-row shade of the selected machine (+lighter … −darker), by output complexity
-    @State var buildPulseMachineID: String? = nil   // a touched grid cell's machine, offered as a PULSING candidate in the last free palette slot (nil = none)
-    @State var buildPulseChain: [ProcessorSlot] = []   // the candidate's machine (for a staged variation cell); empty → use the machine's own chain
     @State var buildParts: [BuildPart] = [BuildPart()]   // the PARTS (workshop lifecycle); the CURRENT part's fields live in the working @State below, synced on switch
     @State var buildCurrentPart: Int = 0                 // index of the part currently on the build column
     @State var buildReturnPart: Int? = nil               // QoL: the UNDEFINED bench to auto-return to after promoting a restored part (Paul 2026-08-15)
@@ -201,7 +194,6 @@ struct DiagView: View {
     @State var buildPartLen: Int? = Snap.maxCols         // PER-PART CLOCK: the CURRENT part's loop length 1…16 — DEFAULTS to 16 steps (Paul 2026-09-09); a loaded part restores its own length (nil ⇒ 8 for old docs)
     @State var buildPartCast: [String] = []              // the CURRENT part's cast MEMBERSHIP (visible palette over the global store); §2 cast view
     @State var buildCastSlots: [Int: String] = [:]       // §2 explicit slot→machineID for non-default machines (long-press places a machine on its pressed cell)
-    @State var buildAuditionID: String? = nil            // the standing uncommitted "create a duplicate" candidate (ephemeral), auditioned after a PLACE
     @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined machines ONCE on first BUILD appear
     @State var buildPendingTab: Int? = nil               // the ONE pending (copied-unedited, PULSING) tab; nil = none
     @State var reelState: Int = 0                        // THE REEL-TO-REEL: 0 off · 1 armed · 2 replaying (polled)
@@ -262,7 +254,6 @@ struct DiagView: View {
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → machineID; nil = blank). Not the real scene; the
     // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a machine here.
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
-    @State var buildPlayCellPart: [[BuildPart?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)   // PLAY-GRID FERRY EDITING (Paul 2026-09-05, option C): per CELL [col][row], the full BuildPart archived on flatten/promote (part-backed) so unpack round-trips losslessly. Reconciled from the earlier per-column BuildPartSnapshot onto the BuildPart model. In-memory this session; persists with the play grid at Stage 5.
     // THE PLAY GRID (Paul 2026-08-29) — its OWN arrangement, INDEPENDENT of the part's buildStagingCells so the SELECT
     // top-button assign lands only on PLAY (was writing the shared staging → it wrongly lit the part-grid side buttons).
     // [column][row]; one selected rung per column (buildPlaySel, default ROW 1 = 0). Populated by the top-button ferry.
@@ -342,8 +333,6 @@ struct DiagView: View {
     @State var buildGridSelQuantStep = false             // §2 QUANTIZE: INSTANT (default — snappy switching) | STEP
     @State var buildGridSelActiveRoll: [GridSelBar] = []  // the auditioning chain's piano-roll (offline render, shown on the active cell + right column)
     @State var buildGridSelCellRoll: [Int: [GridSelBar]] = [:]   // per-CELL piano-roll fingerprints (bg-computed per deal/tab) — the drifting note face on every present cell (Paul 2026-08-26)
-    @State var buildGridSelRowRoll: [Int: [GridSelBar]] = [:]    // per-ROW-chip piano-roll fingerprints (bg-computed on open) — the row selectors get the same drifting face
-    @State var buildPlayColRoll: [Int: [GridSelBar]] = [:]       // Paul 2026-09-05: per PLAY COLUMN, the offline expected-output bars — the play/ferry cells' always-visible constellation face
     @State var buildGridSelRollGen = 0                   // generation token so a stale bg roll batch (deal/tab changed under it) is discarded
     @State var buildGridSelStampRow: Int? = nil          // HOLD-TO-STAMP (Paul 2026-08-26): the row being held — a white sweep fills it while held; at completion the auditioning chain stamps onto it (keeping its machine)
     @State var buildGridSelStampAt: Date? = nil          // when the hold began (drives the rising white-fill fraction)
@@ -354,12 +343,8 @@ struct DiagView: View {
     @State var buildFerryHeld = false                    // a ferry button was HELD (deliberate copy hold) then released BEFORE committing → suppress the follow-up tap so it doesn't steal focus / re-audition the playing cell (Paul 2026-08-29)
     @State var buildGridSelOverride: [Int: (chain: [ProcessorSlot], hex: UInt32)] = [:]   // NEW INTERFACE (Paul 2026-08-28): SELECT cell-to-cell copies land here as NEW in-memory INSTANCES (position → chain+hue) — the saved library on disk is never overwritten. Cleared on re-deal / tab switch.
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
-    @State var buildGridSelPriorSolo = false             // pre-open workshop-voice snapshot — restored on CANCEL (never silence a voice we didn't own)
-    @State var buildGridSelPriorStaging = false
     @State var buildGridSelPriorSel: String? = nil
     @State var buildGridSelLastSlot: [Int: Int] = [:]     // per SELECT-grid cell index → the last processor slot VIEWED there; leaving remembers it, returning re-opens it (Paul 2026-09-10)
-    @State var buildGridSelPriorReceiver = 0
-    @State var buildGridSelPriorEmitters: Set<Bus> = []   // the part-default emitters borrowed for the grid-sel audition (restored on teardown)
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
     // (the playhead beat anchor moved into `meters` — a @State-held class — so its 4 Hz re-anchor doesn't re-run the body)

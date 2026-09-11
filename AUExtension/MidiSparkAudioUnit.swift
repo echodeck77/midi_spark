@@ -169,26 +169,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setMachineChain(_ machineID: String, _ chain: [ProcessorSlot]) {
         storeMachineChainClearingOverrides(machineID, chain)
     }
-    func addSlotMachine(_ id: String, type: ProcessorType = .passgate) { withChainMachine(id) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
-    func removeSlotMachine(_ id: String, slot: Int) { withChainMachine(id) { if slot < $0.count { $0.remove(at: slot) } } }
-    func editSlotMachine(_ id: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withChainMachine(id) { if slot < $0.count { mutate(&$0[slot]) } } }
-    func setSlotTypeMachine(_ id: String, slot: Int, _ type: ProcessorType) { editSlotMachine(id, slot: slot) { $0.type = type } }
-    func toggleSlotBypassMachine(_ id: String, slot: Int) { editSlotMachine(id, slot: slot) { $0.bypassed.toggle() } }
-    /// Apply `mutate` to EVERY cell of a machine, across all scenes — the machine-scoped path for the per-cell ROUTING
-    /// fields (receiver / emitters / chop are stored on the Cell, not the Machine, so "edit the machine" fans out to
-    /// all its cells). Used by the DRAG&DROP page so a receiver/emitter pick pushes to every instance. ONE undoable
-    /// document edit. (user 2026-08-09)
-    func editCellsOfMachine(_ machineID: String, _ mutate: (inout Cell) -> Void) {
-        editDocument { doc in
-            for si in doc.scenes.indices {
-                for c in doc.scenes[si].cells.indices {
-                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.machineID == machineID {
-                        if var cell = doc.scenes[si].cells[c][r] { mutate(&cell); doc.scenes[si].cells[c][r] = cell }
-                    }
-                }
-            }
-        }
-    }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
 
     // MARK: - CELL MACHINE stage-4 — the CELL LIBRARY (named saved cells, reusable across sessions)
@@ -867,79 +847,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(max(0, min(1, value)))
     }
 
-    /// Set a macro's value. SLIDERS (0…7) route via the AU param tree so host automation / the CC rail / the in-app
-    /// panel stay in sync (the observer folds it into the document). TOGGLES (8…15) aren't AU params — write the
-    /// document directly (still an OFFSET; bases untouched). Coalesced so a drag/hold isn't undo spam.
-    func setMacroValue(_ index: Int, _ value: Double) {
-        guard (0..<PluginState.macroBankCount).contains(index) else { return }
-        let v = max(0, min(1, value))
-        if index < ParamAddress.macroSliderCount {
-            _parameterTree.parameter(withAddress: ParamAddress.macro(index))?.value = AUValue(v)
-        } else {
-            editDocument(record: false, coalesceKey: "macro\(index)") { d in
-                if d.macros == nil { d.macros = d.macrosResolved }
-                d.macros?[index].value = v
-            }
-        }
-    }
-    /// The 16 live macros for the UI (8 slider + 8 toggle; timelines retired §K3). Read-back; slider values mirror the automatable params.
-    func uiMacros() -> [Macro] { document.macrosResolved }
-    /// Macro NAME (document-level, not an AU param) — 12 chars max; "" = unset/invitation.
-    func setMacroName(_ index: Int, _ name: String) {
-        guard (0..<PluginState.macroBankCount).contains(index) else { return }
-        editDocument { d in
-            if d.macros == nil { d.macros = d.macrosResolved }
-            d.macros?[index].name = String(name.prefix(12))
-        }
-    }
-    /// Macro PADLOCK — false = SPRING (release returns home) · true = FIXED (latched). Document-level.
-    func setMacroFixed(_ index: Int, _ fixed: Bool) {
-        guard (0..<PluginState.macroBankCount).contains(index) else { return }
-        editDocument { d in
-            if d.macros == nil { d.macros = d.macrosResolved }
-            d.macros?[index].fixed = fixed
-        }
-    }
-    /// A/B AUTHORING: replace a cell's chain wholesale — used to RESTORE the A state after a live B demonstration
-    /// (the demonstration is heard at full while authoring; committing binds the delta, then the base returns to A).
-    /// A/B AUTHORING: bind (append) offset targets to a macro — the delta vector (B − A per touched param). Overlaps
-    /// on the same param SUM at derivation (the offset law), so appending is correct even across sections/cells.
-    func addMacroTargets(_ index: Int, _ targets: [MacroTarget]) {
-        guard (0..<PluginState.macroBankCount).contains(index), !targets.isEmpty else { return }
-        editDocument { d in
-            if d.macros == nil { d.macros = d.macrosResolved }
-            d.macros?[index].targets.append(contentsOf: targets)
-        }
-    }
-    /// A/B AUTHORING: remove a macro's binding to a cell — every target it holds on (col,row), or only those on a
-    /// specific `slot` when given (the macro pop-up's per-slot "Remove from M{n}"). Reflected LIVE in the MIDI out.
-    func removeMacroTargets(_ index: Int, col: Int, row: Int, slot: Int? = nil) {
-        guard (0..<PluginState.macroBankCount).contains(index), document.macros != nil else { return }
-        editDocument { d in d.macros?[index].targets.removeAll { $0.col == col && $0.row == row && (slot == nil || $0.slot == slot) } }
-    }
-    /// A/B AUTHORING (OUTPUT group): bind (append) per-emitter role-amount deltas to a macro.
-    func addMacroEmitterTargets(_ index: Int, _ targets: [MacroEmitterTarget]) {
-        guard (0..<PluginState.macroBankCount).contains(index), !targets.isEmpty else { return }
-        editDocument { d in
-            if d.macros == nil { d.macros = d.macrosResolved }
-            d.macros?[index].emitterTargets.append(contentsOf: targets)
-        }
-    }
-    /// A/B AUTHORING (OUTPUT group): clear a macro's OUTPUT bindings (the "remove OUTPUT" chip).
-    func removeMacroEmitterTargets(_ index: Int) {
-        guard (0..<PluginState.macroBankCount).contains(index), document.macros != nil else { return }
-        editDocument { d in d.macros?[index].emitterTargets.removeAll() }
-    }
-    /// MACRO AUTHORING (canonical pop-up): restore the WHOLE macros vector — the pop-up's CANCEL reverts every
-    /// binding/value change since it opened. Re-syncs the slider AU params (0–7) so their live values match.
-    func setMacrosDocument(_ m: [Macro]?) {
-        editDocument(record: false) { $0.macros = m }
-        if let m = m {
-            for i in 0..<ParamAddress.macroSliderCount where i < m.count {
-                _parameterTree.parameter(withAddress: ParamAddress.macro(i))?.value = AUValue(max(0, min(1, m[i].value)))
-            }
-        }
-    }
 
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.

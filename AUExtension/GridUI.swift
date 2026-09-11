@@ -108,7 +108,6 @@ func ferryBaseHex(_ ferry: Int) -> UInt32 { ferryHexes[((ferry % ferryHexes.coun
 /// A part ROW's colour = its ferry's base darkened by the row index (0 = base · 1…3 progressively darker). Four
 /// differentiable shades of one hue (Paul 2026-09-08: DARKEN only). `row` clamps to 0…3.
 func ferryShadeHex(_ base: UInt32, _ row: Int) -> UInt32 { mixHex(base, 0x000000, [0.0, 0.20, 0.38, 0.55][max(0, min(3, row))]) }
-func ferryShade(_ base: UInt32, _ row: Int) -> Color { Color(hex: ferryShadeHex(base, row)) }
 
 // THE RECEIVER SIGNATURE GREYS (Paul 2026-08-30): the four MIDI-IN receivers A→D are now 4 shades of grey, LIGHT→DARK — their
 // identity machine going forward (the OMNI/ENABLE button on the receiver strip + the MIDI-IN toggle chips). Kept light enough
@@ -1984,9 +1983,4 @@ let usePianoRollFace = true
 
 private let stagingCyan = UI.cyan
 
-/// A 0→1→0 breathing fraction for the staging pulses (chip, empty-cell border, placed-cell fill) — one
-/// cosine so every pulse shares the same rhythm. `period` in seconds.
-func stagingPulseFraction(_ date: Date, period: Double) -> Double {
-    0.5 - 0.5 * cos(date.timeIntervalSinceReferenceDate * 2 * .pi / period)
-}
 
