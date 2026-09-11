@@ -112,7 +112,11 @@ enum CellLibraryStore {
 
     /// A small read-only FACTORY set so the library isn't empty first-run. Each is "machine minus routing"
     /// (a chain + machine, no routing) — the user STAMPs it and wires input/output. Built in code (no bundle).
-    static func factory() -> [(name: String, cell: Cell)] {
+    static func factory() -> [(name: String, cell: Cell)] { factoryCached }
+    // Built ONCE per process (Paul 2026-09-11, startup perf): the grid-selector opened on the SELECT room's first appear and
+    // REBUILT all ~53 hand-authored cells + the 200 Dice.factorySet chains on EVERY open, synchronously on the main thread.
+    private static let factoryCached: [(name: String, cell: Cell)] = buildFactory()
+    private static func buildFactory() -> [(name: String, cell: Cell)] {
         func slot(_ t: ProcessorType, _ f: (inout MachineParams) -> Void = { _ in }) -> ProcessorSlot {
             var p = MachineParams(); f(&p); return ProcessorSlot(type: t, params: p)
         }

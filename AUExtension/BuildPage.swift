@@ -6261,10 +6261,20 @@ extension DiagView {
         buildGridSelPriorReceiver = buildSelReceiver
         buildGridSelPriorEmitters = buildPartEmitters
         if let r = buildGridSelArrivalRow { buildSelReceiver = buildRowReceiverResolved(r) }   // audition through the ARRIVAL row's door (faithful preview)
-        let saved = au?.libraryCellSummaries() ?? []
-        buildGridSelLib = saved + (au?.factoryLibrarySummaries() ?? [])  // v1 folds factory in so first run isn't empty
-        buildGridSelLibFactoryFrom = saved.count                         // entries at/after this index are FACTORY (resolve by section, not by name)
-        buildGridSelRecomputeCategory()                                  // the current category's matching library slice (SELECT rail filter)
+        // THE LIBRARY (saved-cell disk scan + decode · the 200-chain factory set) OFF THE MAIN THREAD (Paul 2026-09-11,
+        // startup perf): this ran SYNCHRONOUSLY on the SELECT room's first appear — the default — blocking the UI from
+        // showing. The DEAL/corpus are already async; load the library the same way and fill buildGridSelLib when ready. The
+        // grid shows at once; the MY-LIBRARY section populates a beat later (faithful — same result, just not blocking).
+        let auRef = au
+        DispatchQueue.global(qos: .userInitiated).async {
+            let saved = auRef?.libraryCellSummaries() ?? []
+            let factory = auRef?.factoryLibrarySummaries() ?? []        // forces the cached Dice.factorySet / CellLibraryStore.factory once
+            DispatchQueue.main.async {
+                self.buildGridSelLib = saved + factory                  // v1 folds factory in so first run isn't empty
+                self.buildGridSelLibFactoryFrom = saved.count           // entries at/after this index are FACTORY (resolve by section, not by name)
+                self.buildGridSelRecomputeCategory()                    // the current category's matching library slice (SELECT rail filter)
+            }
+        }
         buildGridSelSel = nil
         buildGridSelBuildCorpus()                                        // §3.1 kick the pregen corpus (background, once) — DEAL upgrades to it when ready
         if buildGridSelDealt.isEmpty || !buildGridSelCorpus.isEmpty { buildGridSelDeal() }   // corpus ready ⇒ instant draw; else a fresh 64

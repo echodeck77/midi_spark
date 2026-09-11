@@ -14,7 +14,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private var _inputBusses: AUAudioUnitBusArray!
     private var _outputBusses: AUAudioUnitBusArray!
     private var _parameterTree: AUParameterTree!
-    private var document = PluginState.makeInit()   // user 2026-08-09: a fresh instance loads the EMPTY "INIT" (the ARC is a named preset)
+    private var document: PluginState   // a fresh instance loads the EMPTY "INIT" (the ARC is a named preset); built ONCE in init (Paul 2026-09-11 startup perf — was makeInit'd twice)
     private let store: SnapshotStore
     private var rebuildPending = false
     private var snapshotGeneration: UInt64 = 1
@@ -992,7 +992,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     public override init(componentDescription: AudioComponentDescription,
                          options: AudioComponentInstantiationOptions = []) throws {
-        store = SnapshotStore(initial: SnapshotBuilder.build(from: PluginState.makeInit(), generation: 1))
+        let initDoc = PluginState.makeInit()   // ONE build (Paul 2026-09-11): reuse it for both the document and the initial snapshot (was two makeInit calls at instantiation)
+        document = initDoc
+        store = SnapshotStore(initial: SnapshotBuilder.build(from: initDoc, generation: 1))
         try super.init(componentDescription: componentDescription, options: options)
 
         // aumi units still require audio busses; a silent stereo pair is conventional.
