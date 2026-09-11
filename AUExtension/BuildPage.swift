@@ -2475,9 +2475,14 @@ extension DiagView {
             .overlay { if buildSelectMode && populated { RoundedRectangle(cornerRadius: 5).stroke(Color.white, lineWidth: 2.5) } }   // SELECT MODE: light white — tap to focus (Paul 2026-08-31)
             // (the corner EMITTER dot was removed — Paul 2026-09-10)
             .overlay {
-                if part {                                                // PART rail → the slot NUMBER: machine hue normally; an ALPHA knockout when the chip is inverted (focused)
-                    Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced))
-                        .foregroundColor(selectedVis ? Color.black.opacity(0.6) : Color.white.opacity(populated ? 0.6 : 0.3))   // NEUTRAL number unless selected — no stray shade (Paul 2026-09-09)
+                if part {                                                // PART rail → UNPOPULATED shows a "+" (add invitation); POPULATED shows its preallocated NUMBER (Paul 2026-09-11)
+                    if populated {
+                        Text("\(n + 1)").font(.system(size: min(13, height * 0.42), weight: .heavy, design: .monospaced))
+                            .foregroundColor(selectedVis ? Color.black.opacity(0.6) : Color.white.opacity(0.6))   // NEUTRAL number unless selected — no stray shade (Paul 2026-09-09)
+                    } else {
+                        Image(systemName: "plus").font(.system(size: min(12, height * 0.42), weight: .bold))
+                            .foregroundColor(selectedVis ? Color.black.opacity(0.6) : Color.white.opacity(0.35))   // empty row → add invitation
+                    }
                 } else {                                                 // SELECT→part ferry → a small PLAY/STOP status glyph in the machine hue (over the flat dark ground)
                     Image(systemName: playing ? "stop.fill" : "play.fill").font(.system(size: min(11, height * 0.4), weight: .black)).foregroundColor(populated ? mHue : buildDim).opacity(playing ? 0.85 : 1.0)
                 }
@@ -2936,6 +2941,8 @@ extension DiagView {
     func buildPartGridDrag(_ loc: CGPoint, cw: CGFloat, ch: CGFloat, gap: CGFloat, cols: Int) {
         let c = Int(loc.x / (cw + gap)), r = Int(loc.y / (ch + gap))
         guard c >= 0, c < cols, r >= 0, r < 8 else { return }
+        if buildRowGenConfirm?.row == r { return }   // this row shows KEEP | TRY AGAIN, not cells — its buttons own the touch
+        buildKeepRowGen()                            // touching any OTHER row's cells acts as KEEP (Paul 2026-09-11)
         let key = c * 100 + r
         let first = buildPartDragLast == nil
         // SPAN DRAW (Paul 2026-09-04, span-only): while an AUTO lane is armed (and not SELECT mode), the drag DRAWS the
@@ -3866,6 +3873,7 @@ extension DiagView {
     // §2: the INPUT door is PART-owned — one door for the whole part (every machine follows). Applied uniformly at
     // scene-build + audition; no per-machine cell fanning.
     private func buildSelectDoor(_ i: Int) {
+        buildKeepRowGen()   // a toggle acts as KEEP
         buildRecordUndo()   // BUILD UNDO: pick the input door (receiver)
         buildIONullPending = false                               // Paul 2026-09-05: picking the door dismisses the fresh-cell null/pulse invitation
         buildClearPendingOnEdit()                                // a RECEIVER change ends the fresh-row flash (Paul 2026-08-25)
@@ -3890,6 +3898,7 @@ extension DiagView {
 
 
     private func buildToggleBus(_ bus: Bus) {
+        buildKeepRowGen()   // a toggle acts as KEEP
         buildRecordUndo()   // BUILD UNDO: toggle an output emitter
         let wasNull = buildIONullPending; buildIONullPending = false   // Paul 2026-09-05: the first emitter pick WIRES the fresh cell — build from EMPTY, not the [.a] default
         buildClearPendingOnEdit()                                // an EMITTER change ends the fresh-row flash (Paul 2026-08-25)
@@ -3916,6 +3925,7 @@ extension DiagView {
     }
     // LONG-PRESS → apply the door to EVERY row (Paul 2026-08-19).
     private func buildSelectDoorAll(_ i: Int) {
+        buildKeepRowGen()   // a toggle acts as KEEP
         if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildSelectDoor(i); return }   // a play cell has no "all rows" — edit just its door (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the door to every row (U7 fix 2026-08-27 — the single-row sibling records; this didn't)
         buildIONullPending = false                               // Paul 2026-09-05: dismiss the fresh-cell invitation
@@ -3927,6 +3937,7 @@ extension DiagView {
     }
     // LONG-PRESS → toggle the emitter on EVERY row (all rows take the reference row's toggled set). (Paul 2026-08-19)
     private func buildToggleBusAll(_ bus: Bus) {
+        buildKeepRowGen()   // a toggle acts as KEEP
         if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildToggleBus(bus); return }   // a play cell has no "all rows" — edit just its emitters (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the emitter to every row (U7 fix 2026-08-27)
         let wasNull = buildIONullPending; buildIONullPending = false   // Paul 2026-09-05: dismiss the fresh-cell invitation, build from EMPTY
@@ -3980,6 +3991,7 @@ extension DiagView {
     // While the transport runs the switch is QUANTIZED to the next cell boundary (buildCommitPendingVoice, fired from the
     // VC's absoluteStep hook) so it lands on the grid, not mid-cell. Stopped, or re-requesting the live voice → immediate.
     func buildRequestWorkshopVoice(_ target: BuildWorkshopVoice) {
+        buildKeepRowGen()   // playing the machine acts as KEEP
         if d.playing && target != buildWorkshopVoice {
             buildPendingWorkshopVoice = target                   // arm — applied at the next cell boundary
         } else {
@@ -4279,6 +4291,7 @@ extension DiagView {
     }
     // Write a machine's machine to the right store, and reflect it live.
     private func buildWriteMachineSlots(_ cid: String, _ chain: [ProcessorSlot]) {
+        buildKeepRowGen()   // editing the processor/machine chain acts as KEEP
         if buildMachineReg[cid] != nil { buildMachineReg[cid] = chain; buildSyncMachines() }   // ephemeral
         else { au?.setMachineChain(cid, chain); refreshFromDocument() }                       // document machine
         buildStagingSyncIfPlaying()
@@ -4431,7 +4444,11 @@ extension DiagView {
             let refChain = ref.flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
             buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain)
         }
+        buildRowGenConfirm = RowGenConfirm(row: row, random: random)   // re-assert: TRY AGAIN keeps offering KEEP | TRY AGAIN for the new result
     }
+    // IMPLICIT KEEP (Paul 2026-09-11): any real action on the processor / machine / toggles / grid accepts a pending
+    // MUTATE/RANDOM result → the KEEP | TRY AGAIN confirm disappears. (The TRY AGAIN button re-asserts it above; KEEP nils it.)
+    private func buildKeepRowGen() { if buildRowGenConfirm != nil { buildRowGenConfirm = nil } }
     @ViewBuilder private func roomsRowCreatorSeg(_ label: String, _ action: @escaping () -> Void) -> some View {
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                          // identical cell styling: dark stage + edge
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
@@ -5821,6 +5838,7 @@ extension DiagView {
     // BUILD chain edits — machine-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
     // whole with setMachineChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
     private func buildApplyChain(_ chain: [ProcessorSlot]) {
+        buildKeepRowGen()   // editing the processor chain acts as KEEP
         guard let cid = ddSelectedMachineID else { return }   // guard ABOVE the record so a nil selection never pushes a no-op undo step (U10 fix 2026-08-27)
         buildRecordUndo("chain")   // BUILD UNDO: chain edit (add/remove/move/param) — coalesced so a param scrub is one step
         // idea 24 TOUCH-TO-DIFF: every chain edit funnels here — stamp the edit clock so the OUT read-out glows and the
