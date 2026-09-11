@@ -6,6 +6,10 @@ import UniformTypeIdentifiers   // FILE import: the .mid content type for the do
 // toggles its own section (play ⇄ stop) so both can be off; picking one stops the other (they never sound together).
 enum BuildWorkshopVoice { case none, chain, part }
 
+// After MUTATE/RANDOM on the part-grid row creator, the generated row offers KEEP | TRY AGAIN (Paul 2026-09-11).
+// `random` remembers which mode to re-run on TRY AGAIN. Cleared on KEEP or when focus leaves the row.
+struct RowGenConfirm: Equatable { let row: Int; let random: Bool }
+
 // Run heavy offline Dice→Router evaluation on a dedicated LARGE-STACK thread (Paul 2026-09-11, crash fix). The grid-
 // selector DEAL / corpus / library-warm / face computation each drive `Dice.runRecorder` → the full `Router.process` →
 // `openVoice` chain — a very deep call stack with a huge per-frame footprint. A GCD global-queue worker has only a
@@ -2553,7 +2557,9 @@ extension DiagView {
                             VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }   // LEFT = chevron (row-select for playback)
                             ZStack(alignment: .topLeading) {
                                 VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in
-                                    if r == buildGridSelStampSourceRow && buildRowMachine(r) == nil {   // selected EMPTY row → 4 in-row creator buttons (Paul 2026-09-10)
+                                    if buildRowGenConfirm?.row == r {   // just MUTATE/RANDOM'd this row → KEEP | TRY AGAIN, same place/style (Paul 2026-09-11)
+                                        roomsRowConfirmInline(r, random: buildRowGenConfirm?.random ?? true, cw: cw, gap: gap, cols: cols, rowH: rowH)
+                                    } else if r == buildGridSelStampSourceRow && buildRowMachine(r) == nil {   // selected EMPTY row → 4 in-row creator buttons (Paul 2026-09-10)
                                         roomsRowCreatorInline(r, cw: cw, gap: gap, cols: cols, rowH: rowH)
                                     } else {
                                         HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } }
@@ -4398,11 +4404,33 @@ extension DiagView {
         let ref = (0..<8).first { buildRowMachine($0) != nil }
         let refChain = ref.flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
         HStack(spacing: gap) {
-            roomsRowCreatorSeg("MUTATE") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain) }
-            roomsRowCreatorSeg("RANDOM") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng)) }
+            // MUTATE/RANDOM generate, then OFFER KEEP | TRY AGAIN (Paul 2026-09-11); CREATE/CLONE commit directly (no confirm).
+            roomsRowCreatorSeg("MUTATE") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain); buildRowGenConfirm = RowGenConfirm(row: row, random: false) }
+            roomsRowCreatorSeg("RANDOM") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng)); buildRowGenConfirm = RowGenConfirm(row: row, random: true) }
             roomsRowCreatorSeg("CREATE") { buildCreateRowMachine(row, chain: []); buildAddSlot = 0 }   // mint an empty machine + open the ADD PROCESSOR card (Paul 2026-09-10)
             roomsRowCreatorSeg("CLONE")  { buildCreateRowMachine(row, chain: refChain) }
         }.frame(width: rowW, height: rowH)
+    }
+    // KEEP | TRY AGAIN — shown in the row after MUTATE/RANDOM, in the SAME place/style as the creator buttons (Paul 2026-09-11).
+    // KEEP accepts (the confirm DISAPPEARS → the row shows the generated cells); TRY AGAIN regenerates the same mode + re-offers.
+    @ViewBuilder private func roomsRowConfirmInline(_ row: Int, random: Bool, cw: CGFloat, gap: CGFloat, cols: Int, rowH: CGFloat) -> some View {
+        let rowW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
+        HStack(spacing: gap) {
+            roomsRowCreatorSeg("KEEP")      { buildRowGenConfirm = nil }        // accept → the menu disappears
+            roomsRowCreatorSeg("TRY AGAIN") { buildRegenRow(row, random: random) }   // regenerate (same mode) → still offering KEEP | TRY AGAIN
+        }.frame(width: rowW, height: rowH)
+    }
+    // Re-run MUTATE/RANDOM on `row` for TRY AGAIN. MUTATE re-mutates the ORIGINAL source (a populated OTHER row), not the
+    // just-generated result. The confirm stays set (same row/mode) so KEEP | TRY AGAIN re-presents for the new result.
+    private func buildRegenRow(_ row: Int, random: Bool) {
+        var rng = SystemRandomNumberGenerator()
+        if random {
+            buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng))
+        } else {
+            let ref = (0..<8).first { $0 != row && buildRowMachine($0) != nil }
+            let refChain = ref.flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
+            buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain)
+        }
     }
     @ViewBuilder private func roomsRowCreatorSeg(_ label: String, _ action: @escaping () -> Void) -> some View {
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                          // identical cell styling: dark stage + edge
@@ -6259,7 +6287,10 @@ extension DiagView {
             sideRow: buildGridSelStampSourceRow.flatMap { s in buildRowMachine(s).map { (buildMachineChain($0), buildMachineTranspose[$0] ?? 0) } })
     }
     // Make the side button the ONE active source (clear the library-cell source) — "one thing is active". (Paul 2026-08-28)
-    private func buildRoomsSetActiveSide(_ n: Int) { buildGridSelStampSourceRow = n; buildGridSelSel = nil }
+    private func buildRoomsSetActiveSide(_ n: Int) {
+        if n != buildRowGenConfirm?.row { buildRowGenConfirm = nil }   // focusing a DIFFERENT row drops any pending KEEP|TRY-AGAIN (never sticks) — Paul 2026-09-11
+        buildGridSelStampSourceRow = n; buildGridSelSel = nil
+    }
     private func buildGridSelStampCommit(_ row: Int) {
         guard let hit = buildGridSelStampSource() else { return }
         buildRecordUndo()   // BUILD UNDO: capture the auditioning chain onto a part row

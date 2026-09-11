@@ -289,6 +289,9 @@ struct DiagView: View {
     // loaded on the bench (nil = browsing the SELECT grid, no part active).
     @State var buildFerryParts: [BuildPart?] = Array(repeating: nil, count: 8)
     @State var buildActiveFerry: Int? = nil
+    // ROW-CREATOR CONFIRM (Paul 2026-09-11): after MUTATE/RANDOM generates a row's machine, that row shows KEEP | TRY AGAIN
+    // in place of the creator buttons until the user picks one (KEEP dismisses; TRY AGAIN regenerates + re-offers). nil = none.
+    @State var buildRowGenConfirm: RowGenConfirm? = nil
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildVoiceOwner: BuildWorkshopVoice = .none   // SINGLE SOURCE OF TRUTH for the page-owned audition voice (none | chain | part). ddSolo/buildStagingPlaying are computed mirrors of this (Paul 2026-08-31) — one owner, so a play-ferry stop can never leave the shared audition sounding.
     // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.
