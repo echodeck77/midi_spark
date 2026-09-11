@@ -1703,7 +1703,10 @@ extension DiagView {
     func roomsSelectSetup() {
         let carryFromPart = buildVoiceOwner == .part                         // the PART was AUDITIONING → carry the playing cell onto SELECT
         buildEnsureGridSelOpen()                                              // opens the selector (loads library summaries + deals), guarded — no-op if already open
-        if buildGridSelTab != 1 {                                            // SELECT shows MY LIBRARY, not the DEALT bank
+        // SELECT shows MY LIBRARY — but ONLY once it's LOADED (the summaries build async off-main, Paul 2026-09-11). Forcing
+        // tab 1 before the load left the grid EMPTY at startup; stay on the DEALT bank until the library arrives (the async
+        // lib-load completion in buildOpenGridSel flips to tab 1 when ready). A re-entry after load goes straight to library.
+        if buildGridSelTab != 1 && !buildGridSelLib.isEmpty {
             buildGridSelStopAudition()                                       // (no-op while owner == .part — its guard needs a chain/browse voice)
             buildGridSelTab = 1
             buildGridSelComputeCellRolls()                                    // the library cells' drifting faces
@@ -6044,6 +6047,14 @@ extension DiagView {
                 self.buildGridSelLib = saved + factory                  // v1 folds factory in so first run isn't empty
                 self.buildGridSelLibFactoryFrom = saved.count           // entries at/after this index are FACTORY (resolve by section, not by name)
                 self.buildGridSelRecomputeCategory()                    // the current category's matching library slice (SELECT rail filter)
+                // THE LIBRARY IS NOW LOADED (Paul 2026-09-11): SELECT wants MY LIBRARY, but the load is async off-main, so
+                // startup showed an EMPTY library tab. We open on the DEALT bank (populates from the faster rollEnsemble) to
+                // avoid the empty grid; now that the library summaries exist, switch SELECT to MY LIBRARY.
+                if self.roomsRoom == .select && self.buildGridSelTab == 0 {
+                    self.buildGridSelStopAudition()
+                    self.buildGridSelTab = 1
+                    self.buildGridSelComputeCellRolls()
+                }
             }
         }
         buildGridSelSel = nil
