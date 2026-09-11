@@ -1995,12 +1995,17 @@ extension DiagView {
                 // non-stepped, spanning populated AND empty selectors). Unselected ferries dim with distance; only the
                 // focused one highlights (its own full colour). The icon is FOUR DOTS in the ferry's own pre-allocated
                 // colour (identity); empty ferries show a "+".
+                // NO SELECTION (fresh app start / nothing on the bench) ⇒ NO given-colour emanation (Paul 2026-09-11): with
+                // buildActiveFerry nil the glow used to fake each ferry as its own focus, washing the whole row in colour at
+                // startup. Only emanate once a ferry is actually SELECTED; until then the selectors are the neutral dark base.
+                let hasFocus = buildActiveFerry != nil
                 let focusPos = Double(buildActiveFerry ?? t) + 0.5          // the selected ferry's centre, in ferry units
-                let iLo = max(0.0, 1.0 - abs(Double(t) - focusPos) / 5.5)   // glow reach ≈ 5–6 ferries
-                let iHi = max(0.0, 1.0 - abs(Double(t + 1) - focusPos) / 5.5)
+                let iLo = hasFocus ? max(0.0, 1.0 - abs(Double(t) - focusPos) / 5.5) : 0        // glow reach ≈ 5–6 ferries
+                let iHi = hasFocus ? max(0.0, 1.0 - abs(Double(t + 1) - focusPos) / 5.5) : 0
                 let glow = mixHex(focusHex, 0xFFFFFF, 0.12)
-                let sliceLo = Color(hex: glow).opacity(0.05 + iLo * iLo * 0.80)   // near focus = bright · far = dim (dark base shows through)
-                let sliceHi = Color(hex: glow).opacity(0.05 + iHi * iHi * 0.80)
+                let base = hasFocus ? 0.05 : 0.0                            // no selection → fully neutral (dark base only)
+                let sliceLo = Color(hex: glow).opacity(base + iLo * iLo * 0.80)   // near focus = bright · far = dim (dark base shows through)
+                let sliceHi = Color(hex: glow).opacity(base + iHi * iHi * 0.80)
                 let dotHue: Color = focused ? Color(hex: mixHex(mHex, 0x000000, 0.55)) : mHue   // the ferry's OWN pre-allocated colour (deepened on the focused own-colour highlight for contrast)
                 let dotD = max(2.5, selH * 0.16)
                 RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.04))
