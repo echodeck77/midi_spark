@@ -6039,22 +6039,23 @@ extension DiagView {
         // startup perf): this ran SYNCHRONOUSLY on the SELECT room's first appear — the default — blocking the UI from
         // showing. The DEAL/corpus are already async; load the library the same way and fill buildGridSelLib when ready. The
         // grid shows at once; the MY-LIBRARY section populates a beat later (faithful — same result, just not blocking).
+        // INSTANT SEED (Paul 2026-09-11): the CHEAP library cells (saved disk scan + the hand-authored factory cells) load
+        // SYNCHRONOUSLY so the SELECT grid is populated AT ONCE. The heavy part — the ~200 Dice.factorySet chains, each of
+        // which runs the offline Router (tens of seconds total) — appends in the BACKGROUND. Before, the WHOLE library incl.
+        // the Dice chains loaded async, so the grid sat EMPTY for tens of seconds at startup (the reported bug).
+        let saved = au?.libraryCellSummaries() ?? []
+        buildGridSelLib = saved + (au?.handFactorySummaries() ?? [])      // cheap → instant; the grid has real cells immediately
+        buildGridSelLibFactoryFrom = saved.count                         // entries at/after this index are FACTORY (resolve by section, not name)
+        buildGridSelRecomputeCategory()                                  // fill the category slice now so cells are PRESENT on the first frame
         let auRef = au
-        runOnLargeStack {                                                // large stack: factoryLibrarySummaries warms Dice.factorySet (deep Router eval)
-            let saved = auRef?.libraryCellSummaries() ?? []
-            let factory = auRef?.factoryLibrarySummaries() ?? []        // forces the cached Dice.factorySet / CellLibraryStore.factory once
+        runOnLargeStack {                                                // large stack: the FULL factory warms Dice.factorySet (deep Router eval)
+            let savedFull = auRef?.libraryCellSummaries() ?? []
+            let factory = auRef?.factoryLibrarySummaries() ?? []        // the full set (hand + the 200 Dice chains)
             DispatchQueue.main.async {
-                self.buildGridSelLib = saved + factory                  // v1 folds factory in so first run isn't empty
-                self.buildGridSelLibFactoryFrom = saved.count           // entries at/after this index are FACTORY (resolve by section, not by name)
-                self.buildGridSelRecomputeCategory()                    // the current category's matching library slice (SELECT rail filter)
-                // THE LIBRARY IS NOW LOADED (Paul 2026-09-11): SELECT wants MY LIBRARY, but the load is async off-main, so
-                // startup showed an EMPTY library tab. We open on the DEALT bank (populates from the faster rollEnsemble) to
-                // avoid the empty grid; now that the library summaries exist, switch SELECT to MY LIBRARY.
-                if self.roomsRoom == .select && self.buildGridSelTab == 0 {
-                    self.buildGridSelStopAudition()
-                    self.buildGridSelTab = 1
-                    self.buildGridSelComputeCellRolls()
-                }
+                self.buildGridSelLib = savedFull + factory              // append the Dice chains now they're ready
+                self.buildGridSelLibFactoryFrom = savedFull.count
+                self.buildGridSelRecomputeCategory()
+                self.buildGridSelComputeCellRolls()                     // faces for the now-complete library
             }
         }
         buildGridSelSel = nil

@@ -197,6 +197,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func factoryLibrarySummaries() -> [LibEntry] {
         CellLibraryStore.factory().map { LibEntry(name: $0.name, types: ($0.cell.processors ?? []).map { $0.type }, stars: $0.cell.starsResolved) }
     }
+    // The CHEAP curated factory cells only (no Dice.factorySet). The grid-selector seeds the library with these INSTANTLY at
+    // startup, then appends the full set (incl. the slow Dice chains) via factoryLibrarySummaries in the background. (Paul 2026-09-11)
+    func handFactorySummaries() -> [LibEntry] {
+        CellLibraryStore.handFactory().map { LibEntry(name: $0.name, types: ($0.cell.processors ?? []).map { $0.type }, stars: $0.cell.starsResolved) }
+    }
     // Re-rate a SAVED cell (0–5) and persist. Factory cells are read-only.
     func setLibraryStars(_ name: String, _ stars: Int) {
         guard var c = CellLibraryStore.load(name) else { return }
@@ -204,7 +209,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     func loadLibraryCell(name: String) -> Cell? { CellLibraryStore.load(name) }
     func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }
-    func factoryLibraryCell(name: String) -> Cell? { CellLibraryStore.factory().first { $0.name == name }?.cell }
+    // Resolve a factory cell by name — check the CHEAP hand cells FIRST so tapping one doesn't trigger the slow Dice build
+    // (Paul 2026-09-11); fall back to the full set for the Dice-generated names.
+    func factoryLibraryCell(name: String) -> Cell? {
+        CellLibraryStore.handFactory().first { $0.name == name }?.cell ?? CellLibraryStore.factory().first { $0.name == name }?.cell
+    }
 
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
     // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),

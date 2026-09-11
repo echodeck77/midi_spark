@@ -113,19 +113,22 @@ enum CellLibraryStore {
     /// A small read-only FACTORY set so the library isn't empty first-run. Each is "machine minus routing"
     /// (a chain + machine, no routing) — the user STAMPs it and wires input/output. Built in code (no bundle).
     static func factory() -> [(name: String, cell: Cell)] { factoryCached }
-    // Built ONCE per process (Paul 2026-09-11, startup perf): the grid-selector opened on the SELECT room's first appear and
-    // REBUILT all ~53 hand-authored cells + the 200 Dice.factorySet chains on EVERY open, synchronously on the main thread.
-    private static let factoryCached: [(name: String, cell: Cell)] = buildFactory()
-    private static func buildFactory() -> [(name: String, cell: Cell)] {
-        func slot(_ t: ProcessorType, _ f: (inout MachineParams) -> Void = { _ in }) -> ProcessorSlot {
-            var p = MachineParams(); f(&p); return ProcessorSlot(type: t, params: p)
-        }
-        func cell(_ machineID: String, _ slots: [ProcessorSlot], _ stars: Int = 0) -> Cell {   // stars = FAVOURITE flag now (0/1); the curated standouts pass 1
-            var c = Cell(machineID: machineID); c.processors = slots; c.buses = []; c.stars = stars; return c
-        }
+    // THE CHEAP curated cells only (Paul 2026-09-11, startup perf): pure struct construction — NO Dice.factorySet (which runs
+    // the offline Router ~200× and takes tens of seconds). Lets the grid-selector library populate INSTANTLY at startup; the
+    // heavy Dice chains append in the background. Both built ONCE per process (the full set rebuilt on EVERY open before).
+    static func handFactory() -> [(name: String, cell: Cell)] { handCached }
+    private static let handCached: [(name: String, cell: Cell)] = buildHand()
+    private static let factoryCached: [(name: String, cell: Cell)] = handCached + buildDice()
+    private static func slot(_ t: ProcessorType, _ f: (inout MachineParams) -> Void = { _ in }) -> ProcessorSlot {
+        var p = MachineParams(); f(&p); return ProcessorSlot(type: t, params: p)
+    }
+    private static func cell(_ machineID: String, _ slots: [ProcessorSlot], _ stars: Int = 0) -> Cell {   // stars = FAVOURITE flag now (0/1); the curated standouts pass 1
+        var c = Cell(machineID: machineID); c.processors = slots; c.buses = []; c.stars = stars; return c
+    }
+    private static func buildHand() -> [(name: String, cell: Cell)] {
         // A curated set of MUSICAL CHAINS (each is a machine's machine you STAMP onto the selected machine, then wire
         // your own I/O). Rebuilt for the current 19-processor model (2026-08-17). Ordered light → dense.
-        var list: [(name: String, cell: Cell)] = [
+        let list: [(name: String, cell: Cell)] = [
             // — melodic / arpeggiated —
             ("Shimmer",    cell("gold",    [slot(.harmonize) { $0.harmIntervals = [7, 12, 19] },        // add 5th + octave + 12th
                                             slot(.arp) { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 2 }])),
@@ -210,11 +213,16 @@ enum CellLibraryStore {
             ("Rhythm Voice", cell("mint",      [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.low, .all, .high, .all, .low, .all, .high, .all] },
                                                 slot(.length) { $0.lenSlices = [.short, .short, .pass, .short, .short, .short, .pass, .short]; $0.lenShort = 0.4 }], 4)),
         ]
-        // — THE 200 FACTORY CHAINS (design commission REQUEST-200-chains, 2026-08-28) — generated DETERMINISTICALLY by
-        //   Dice.factorySet (seeded · audible/density-gated · fingerprint-deduped · categorized by musical intent). The
-        //   register home is baked as a leading TRANSPOSE utility; machines cycle the canonical palette. Names are the
-        //   plain-recipe register; Paul auditions + renames + prunes keepers via the pick grid. —
+        return list
+    }
+    // — THE 200 FACTORY CHAINS (design commission REQUEST-200-chains, 2026-08-28) — generated DETERMINISTICALLY by
+    //   Dice.factorySet (seeded · audible/density-gated · fingerprint-deduped · categorized by musical intent). The
+    //   register home is baked as a leading TRANSPOSE utility; machines cycle the canonical palette. Names are the
+    //   plain-recipe register; Paul auditions + renames + prunes keepers via the pick grid. This is the SLOW part
+    //   (Dice.factorySet runs the offline Router ~200×) — kept out of handFactory() so the library can show instantly. —
+    private static func buildDice() -> [(name: String, cell: Cell)] {
         let palette = ["gold", "cyan", "vermilion", "teal", "magenta", "indigo", "violet", "chartreuse", "orange", "wine", "blush", "purple", "mint", "azure", "green", "slate"]
+        var list: [(name: String, cell: Cell)] = []
         for (i, fc) in Dice.factorySet.enumerated() {
             var ch = fc.chain
             if fc.transpose != 0 { var tr = ProcessorSlot(type: .transpose); tr.params.utilTranspose = fc.transpose; ch.insert(tr, at: 0) }
