@@ -6,6 +6,18 @@ import UniformTypeIdentifiers   // FILE import: the .mid content type for the do
 // toggles its own section (play ⇄ stop) so both can be off; picking one stops the other (they never sound together).
 enum BuildWorkshopVoice { case none, chain, part }
 
+// Run heavy offline Dice→Router evaluation on a dedicated LARGE-STACK thread (Paul 2026-09-11, crash fix). The grid-
+// selector DEAL / corpus / library-warm / face computation each drive `Dice.runRecorder` → the full `Router.process` →
+// `openVoice` chain — a very deep call stack with a huge per-frame footprint. A GCD global-queue worker has only a
+// ~512 KB stack, which this chain overflows at launch (SIGBUS at the stack guard, `___chkstk_darwin`). A Thread lets
+// us set an ample stack. The closure marshals its own results back to the main queue (unchanged).
+func runOnLargeStack(qos: QualityOfService = .userInitiated, _ body: @escaping () -> Void) {
+    let t = Thread { body() }
+    t.stackSize = 16 * 1024 * 1024   // 16 MB — ample for the offline-eval recursion (GCD workers give ~512 KB)
+    t.qualityOfService = qos
+    t.start()
+}
+
 // THE BUILD PAGE — design: Docs/AcceptanceCriteria/AcceptanceCriteria-build-page-two-grid-flow.md +
 // -build-page-iteration-3.md + -build-page-iteration-4.md + Docs/mockup-build-three-grids-landscape.html
 // (user 2026-08-11). The new PRIMARY workshop and default landing tab. Destined to REPLACE the DRAG&DROP + PROCESSORS
@@ -6025,7 +6037,7 @@ extension DiagView {
         // showing. The DEAL/corpus are already async; load the library the same way and fill buildGridSelLib when ready. The
         // grid shows at once; the MY-LIBRARY section populates a beat later (faithful — same result, just not blocking).
         let auRef = au
-        DispatchQueue.global(qos: .userInitiated).async {
+        runOnLargeStack {                                                // large stack: factoryLibrarySummaries warms Dice.factorySet (deep Router eval)
             let saved = auRef?.libraryCellSummaries() ?? []
             let factory = auRef?.factoryLibrarySummaries() ?? []        // forces the cached Dice.factorySet / CellLibraryStore.factory once
             DispatchQueue.main.async {
@@ -6057,7 +6069,7 @@ extension DiagView {
         guard !buildGridSelGenerating else { return }                    // re-entrancy: one deal at a time (racing deals could land out of seed order)
         buildGridSelGenerating = true
         let seed = buildGridSelDealSeed
-        DispatchQueue.global(qos: .userInitiated).async {
+        runOnLargeStack {                                                // large stack: rollEnsemble runs the offline Router many times
             var rng = DiceRNG(seed: seed)
             var out: [Dice.EnsembleRow] = []
             for _ in 0..<8 { out.append(contentsOf: Dice.rollEnsemble(using: &rng)) }   // each call = 8 contrasting archetypes
@@ -6072,7 +6084,7 @@ extension DiagView {
         guard !buildGridSelCorpusBuilding, buildGridSelCorpus.count < target else { return }
         buildGridSelCorpusBuilding = true
         let have = buildGridSelCorpus.count
-        DispatchQueue.global(qos: .utility).async {
+        runOnLargeStack(qos: .utility) {                                 // large stack: rollCorpus runs the offline Router many times
             var rng = DiceRNG(seed: 0xC0DE_5EED &+ UInt64(have))         // per-batch seed offset → deterministic, non-repeating
             let batch = Dice.rollCorpus(count: 64, using: &rng)
             DispatchQueue.main.async {
@@ -6298,7 +6310,7 @@ extension DiagView {
         for i in 0..<64 where buildGridSelPresent(i) { if let hit = buildGridSelChainAt(i) { chains.append((i, hit.chain)) } }
         // Paul 2026-09-05: do NOT clear the cache here — keep the old faces until the new ones are ready, else every cell
         // blanks in the async gap ("goes blank then redraws"). The gen guard + full-dict swap below replace them atomically.
-        DispatchQueue.global(qos: .userInitiated).async {
+        runOnLargeStack {                                                // large stack: gridSelRollBars → Dice.runRecorder (deep Router eval) ×64
             var out: [Int: [GridSelBar]] = [:]
             for (i, chain) in chains { out[i] = gridSelRollBars(chain) }
             DispatchQueue.main.async { if self.buildGridSelRollGen == gen { self.buildGridSelCellRoll = out } }
