@@ -2355,15 +2355,17 @@ extension DiagView {
     // THE CATEGORY RAIL (Paul 2026-08-29) — the SELECT grid's LEFT buttons are FIXED processor-type categories; tapping one
     // filters the library grid to presets containing that processor. ONE is always selected (default 0 = ARP).
     // §MERGE (Paul 2026-09-08): FOUR categories, one per rail row (the SELECT grid is now 4 rows): ARP · RIFF · RATCHET · CC.
-    var roomsSelectCategories: [(label: String, type: ProcessorType)] {
-        [("ARP", .arp), ("RIFF", .riff), ("RATCHET", .ratchet), ("CC", .mod)]
+    // FOUR rail rows, one per SELECT grid row. Each covers a SET of processor types (Paul 2026-09-11): PULSE gathers the
+    // rhythm/strike drivers (euclid · ratchet + the variety strikers) so euclid machines are browsable within the 4-row rail.
+    var roomsSelectCategories: [(label: String, types: [ProcessorType])] {
+        [("ARP", [.arp]), ("RIFF", [.riff]), ("PULSE", [.euclid, .ratchet, .cascade, .strum, .weave, .burst]), ("CC", [.mod])]
     }
-    private func buildGridSelCategoryType(_ c: Int) -> ProcessorType { roomsSelectCategories[max(0, min(roomsSelectCategories.count - 1, c))].type }
+    private func buildGridSelCategoryTypes(_ c: Int) -> [ProcessorType] { roomsSelectCategories[max(0, min(roomsSelectCategories.count - 1, c))].types }
     // Recompute the CURRENT category's matching library indices (an entry matches if its chain contains the category's
     // processor). Called on a category change + when the library loads. Cheap O(lib) scan, cached in buildGridSelCatIndices.
     func buildGridSelRecomputeCategory() {
-        let ty = buildGridSelCategoryType(buildGridSelPage)
-        buildGridSelCatIndices = buildGridSelLib.indices.filter { buildGridSelLib[$0].types.contains(ty) }
+        let cats = buildGridSelCategoryTypes(buildGridSelPage)
+        buildGridSelCatIndices = buildGridSelLib.indices.filter { i in buildGridSelLib[i].types.contains { cats.contains($0) } }
     }
     @ViewBuilder private func roomsSelectPage(_ r: Int) -> some View {
         let cat = r < roomsSelectCategories.count ? roomsSelectCategories[r].label : ""

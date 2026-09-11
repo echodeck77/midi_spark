@@ -113,113 +113,20 @@ enum CellLibraryStore {
     /// A small read-only FACTORY set so the library isn't empty first-run. Each is "machine minus routing"
     /// (a chain + machine, no routing) — the user STAMPs it and wires input/output. Built in code (no bundle).
     static func factory() -> [(name: String, cell: Cell)] { factoryCached }
-    // THE CHEAP curated cells only (Paul 2026-09-11, startup perf): pure struct construction — NO Dice.factorySet (which runs
-    // the offline Router ~200× and takes tens of seconds). Lets the grid-selector library populate INSTANTLY at startup; the
-    // heavy Dice chains append in the background. Both built ONCE per process (the full set rebuilt on EVERY open before).
-    static func handFactory() -> [(name: String, cell: Cell)] { handCached }
-    private static let handCached: [(name: String, cell: Cell)] = buildHand()
-    private static let factoryCached: [(name: String, cell: Cell)] = handCached + buildDice()
+    // THE SELECT LIBRARY = a fresh GENERATED RANGE (Paul 2026-09-11 regen — the hand-authored set is dropped). Built ONCE
+    // per process and CHEAP now (Dice.factorySet is pure struct construction — no offline Router), so the SAME set serves
+    // as the INSTANT startup seed (handFactory) too — no separate cheap-cell set needed.
+    static func handFactory() -> [(name: String, cell: Cell)] { factoryCached }
+    private static let factoryCached: [(name: String, cell: Cell)] = buildDice()
     private static func slot(_ t: ProcessorType, _ f: (inout MachineParams) -> Void = { _ in }) -> ProcessorSlot {
         var p = MachineParams(); f(&p); return ProcessorSlot(type: t, params: p)
     }
     private static func cell(_ machineID: String, _ slots: [ProcessorSlot], _ stars: Int = 0) -> Cell {   // stars = FAVOURITE flag now (0/1); the curated standouts pass 1
         var c = Cell(machineID: machineID); c.processors = slots; c.buses = []; c.stars = stars; return c
     }
-    private static func buildHand() -> [(name: String, cell: Cell)] {
-        // A curated set of MUSICAL CHAINS (each is a machine's machine you STAMP onto the selected machine, then wire
-        // your own I/O). Rebuilt for the current 19-processor model (2026-08-17). Ordered light → dense.
-        let list: [(name: String, cell: Cell)] = [
-            // — melodic / arpeggiated —
-            ("Shimmer",    cell("gold",    [slot(.harmonize) { $0.harmIntervals = [7, 12, 19] },        // add 5th + octave + 12th
-                                            slot(.arp) { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 2 }])),
-            ("Human Arp",  cell("vermilion",   [slot(.arp) { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 2 },
-                                            slot(.humanize) { $0.spread = 0.35 }])),                    // loose, hand-played feel
-            ("Push",       cell("teal",    [slot(.shift) { $0.spread = 0.16 },                          // nudge the whole chord late
-                                            slot(.arp) { $0.pattern = .upDown; $0.rate = .r1_8 }])),
-            // — rhythmic gates / rolls —
-            ("Trance Gate",cell("cyan",    [slot(.length) { $0.lenSlices = [.pass, .mute, .pass, .mute, .pass, .mute, .pass, .mute] }])),
-            ("Trap Roll",  cell("magenta", [slot(.ratchet) { $0.rtcMode = .pattern; $0.rtcSlices = [0, 0, 3, 0, 0, 4, 0, 2]; $0.rtcRate = .r1_16 }])),
-            ("Euclid Dub", cell("indigo",  [slot(.euclid) { $0.euclidPulses = 5; $0.euclidSteps = 8 },  // 5-in-8 pulse …
-                                            slot(.echo) { $0.echoDelayDiv = 6; $0.echoRepeats = 5; $0.echoDecay = 0.7 }])),  // … into a dotted dub tail
-            // — polyrhythm / ensemble —
-            ("Weave",      cell("violet",  [slot(.weave) { $0.weaveMode = .ladder; $0.weaveBaseStep = .r1_2; $0.weaveSpan = 4 }])),
-            ("Cascade",    cell("chartreuse",    [slot(.cascade) { $0.rate = .r1_4; $0.strumDir = .up }])),   // reveal the chord note by note
-            // — expressive / gestural —
-            ("Rake",       cell("orange",  [slot(.strum) { $0.strumDir = .down; $0.spread = 0.28; $0.velTilt = 0.5 }])),
-            ("Glide Bass", cell("wine",    [slot(.split) { $0.splitSet = ChordSplit(mode: .bottom, n: 1) },   // keep the lowest note …
-                                            slot(.glide) { $0.glideTime = 0.18; $0.glideRange = 12 }])),      // … as one sliding mono voice
-            ("Burst",      cell("blush",   [slot(.burst) { $0.count = 6; $0.curve = -0.6 },              // an accelerating entry roll …
-                                            slot(.harmonize) { $0.harmIntervals = [0, 12, 0] }])),       // … doubled an octave up
-            // — generative / evolving —
-            ("Sparse",     cell("purple",  [slot(.chance) { $0.probability = 0.55; $0.chanceDensity = true },
-                                            slot(.arp) { $0.pattern = .upDown; $0.rate = .r1_8 }])),
-            ("Tutti Stab", cell("mint",    [slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.35; $0.tuttiPick = .high }])),
-
-            // ── SECOND SET (2026-08-17) — 20 more, each differing from the first set in an interesting way ──────────
-            // — harmony / voicing —
-            ("Descend",     cell("azure",     [slot(.harmonize) { $0.harmIntervals = [7, 12, 0] },              // 5th + octave …
-                                               slot(.arp) { $0.pattern = .down; $0.rate = .r1_16; $0.octaves = 2 }])),  // … falling (vs Shimmer's rise)
-            ("Wide Voicing",cell("green",     [slot(.harmonize) { $0.harmIntervals = [12, 16, 19] }])),          // octave · 10th · 12th — a spread chord
-            // — arpeggiator characters —
-            ("Down Runner", cell("slate",     [slot(.arp) { $0.pattern = .down; $0.rate = .r1_16; $0.octaves = 3; $0.arpFit = true }])),
-            ("Random Walk", cell("magenta",   [slot(.arp) { $0.pattern = .random; $0.rate = .r1_16; $0.octaves = 2 }])),
-            ("Top Line",    cell("chartreuse",[slot(.split) { $0.splitSet = ChordSplit(mode: .top, n: 2) },       // the two highest notes …
-                                               slot(.arp) { $0.pattern = .up; $0.rate = .r1_16 }])),             // … as a melody line
-            // — echo characters —
-            ("Climb",       cell("orange",    [slot(.echo) { $0.echoDelayDiv = 2; $0.echoRepeats = 6; $0.echoDecay = 0.6; $0.echoPitch = 2 }])),  // each echo a step higher
-            ("Cavern",      cell("indigo",    [slot(.echo) { $0.echoDelayDiv = 8; $0.echoRepeats = 4; $0.echoDecay = 0.7; $0.echoOffset = 0.2 }])),  // slow, wide, off-grid
-            // — weave modes (the first set only had LADDER) —
-            ("Harmonic Weave", cell("violet", [slot(.weave) { $0.weaveMode = .harmonic; $0.weaveBaseStep = .r1_4; $0.weaveSpan = 5 }])),
-            ("Euclid Weave",cell("purple",    [slot(.weave) { $0.weaveMode = .euclid; $0.weaveEuclidSteps = 8 }])),
-            ("Drawn Weave", cell("blush",     [slot(.weave) { $0.weaveMode = .drawn; $0.weaveDrawn = [.r1_1, .r1_2, .r1_4, .r1_8, .r1_8, .r1_4, .r1_2, .r1_1] }])),
-            // — sustained / pads —
-            ("Pad",         cell("teal",      [slot(.drone) { $0.gate = 0.9 }])),                                // hold the entry chord flat
-            ("Top Pad",     cell("cyan",      [slot(.split) { $0.splitSet = ChordSplit(mode: .top, n: 2) },       // the top two …
-                                               slot(.drone) { $0.gate = 0.85 }])),                               // … held as a pad
-            // — length / gate shapes (the first set only had the PASS/MUTE trance gate) —
-            ("Gallop",      cell("wine",      [slot(.length) { $0.lenSlices = [.short, .short, .mute, .short, .short, .mute, .short, .mute] }])),
-            ("Legato Tie",  cell("gold",      [slot(.length) { $0.lenSlices = [.long, .pass, .pass, .long, .pass, .pass, .long, .pass]; $0.lenLong = 0.85 }])),
-            // — ratchet modes (the first set only had PATTERN) —
-            ("Machine Gun", cell("vermilion", [slot(.ratchet) { $0.rtcMode = .all; $0.count = 4; $0.ramp = 0.3 }])),  // every step bursts
-            ("Coin Roll",   cell("magenta",   [slot(.ratchet) { $0.rtcMode = .coin; $0.rtcChance = 0.5; $0.rtcCountLo = 2; $0.rtcCountHi = 4 }])),  // sometimes rolls
-            // — set-level / voice —
-            ("Tutti Pattern",cell("blush",    [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.all, .low, .high, .top2, .all, .low, .high, .all]; $0.tuttiRate = .r1_8 }])),
-            ("Glide Lead",  cell("green",     [slot(.glide) { $0.glideTime = 0.3; $0.glideRange = 7; $0.glidePriority = .high }])),  // slides, tracks the top note
-            // — CC + gate (first set had neither MOD nor PASSGATE) —
-            ("Filter Arp",  cell("slate",     [slot(.arp) { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 2 },
-                                               slot(.mod) { $0.modCC = 74; $0.modShape = .sine; $0.modRate = .r2 }])),  // an arp under a filter LFO
-            ("Skip Gate",   cell("azure",     [slot(.passgate) { $0.passes = [true, false, true, true] },        // drop every 2nd step …
-                                               slot(.arp) { $0.pattern = .up; $0.rate = .r1_8 }])),              // … then arp what passes
-
-            // ── THIRD SET (2026-08-17) — a deep dive on LENGTH (per-slice gate/duration) + TUTTI (solo vs whole
-            //    chord), star-rated (the curation basis for the future library) ────────────────────────────────
-            // LENGTH — trance gates, rhythms, ties
-            ("Half Gate",    cell("cyan",      [slot(.length) { $0.lenSlices = [.pass, .pass, .mute, .mute, .pass, .pass, .mute, .mute] }], 4)),
-            ("Off-Beat",     cell("teal",      [slot(.length) { $0.lenSlices = [.mute, .pass, .mute, .pass, .mute, .pass, .mute, .pass] }], 4)),
-            ("Stutter",      cell("magenta",   [slot(.length) { $0.lenSlices = [.short, .mute, .short, .mute, .short, .mute, .short, .mute]; $0.lenShort = 0.3 }], 4)),
-            ("Tremolo",      cell("vermilion", [slot(.length) { $0.lenSlices = [.short, .short, .short, .short, .short, .short, .short, .short]; $0.lenShort = 0.2 }], 3)),
-            ("Tresillo",     cell("orange",    [slot(.length) { $0.lenSlices = [.pass, .mute, .mute, .pass, .mute, .mute, .pass, .mute] }], 5)),   // 3-3-2 clave feel
-            ("Long Tie",     cell("gold",      [slot(.length) { $0.lenSlices = [.long, .pass, .pass, .pass, .long, .pass, .pass, .pass]; $0.lenLong = 0.9 }], 4)),
-            ("Build Up",     cell("blush",     [slot(.length) { $0.lenSlices = [.mute, .mute, .short, .short, .pass, .pass, .long, .long]; $0.lenLong = 0.8 }], 3)),   // grows across the bar
-            // TUTTI — solo vs full-chord shapes
-            ("Sparse Stab",  cell("indigo",    [slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.2; $0.tuttiPick = .high }], 5)),          // mostly one note, rare full chord
-            ("Full Swell",   cell("violet",    [slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.8 }], 3)),
-            ("Call & Chord", cell("purple",    [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.low, .all, .high, .all, .low, .all, .high, .all]; $0.tuttiRate = .r1_8 }], 5)),
-            ("Downbeat",     cell("wine",      [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.all, .rest, .all, .rest, .all, .rest, .all, .rest]; $0.tuttiRate = .r1_8 }], 4)),
-            ("Bass & Top",   cell("green",     [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.low, .low, .high, .low, .low, .low, .high, .low]; $0.tuttiRate = .r1_8 }], 4)),
-            // LENGTH + TUTTI combined
-            ("Gated Chords", cell("chartreuse",[slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.75 },
-                                                slot(.length) { $0.lenSlices = [.pass, .mute, .pass, .mute, .pass, .mute, .pass, .mute] }], 5)),   // full chords, trance-gated
-            ("Rhythm Voice", cell("mint",      [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.low, .all, .high, .all, .low, .all, .high, .all] },
-                                                slot(.length) { $0.lenSlices = [.short, .short, .pass, .short, .short, .short, .pass, .short]; $0.lenShort = 0.4 }], 4)),
-        ]
-        return list
-    }
-    // — THE 200 FACTORY CHAINS (design commission REQUEST-200-chains, 2026-08-28) — generated DETERMINISTICALLY by
-    //   Dice.factorySet (seeded · audible/density-gated · fingerprint-deduped · categorized by musical intent). The
-    //   register home is baked as a leading TRANSPOSE utility; machines cycle the canonical palette. Names are the
-    //   plain-recipe register; Paul auditions + renames + prunes keepers via the pick grid. This is the SLOW part
-    //   (Dice.factorySet runs the offline Router ~200×) — kept out of handFactory() so the library can show instantly. —
+    // — THE GENERATED RANGE (Paul 2026-09-11): Dice.factorySet = 200 seeded chains, EQUAL across lengths 1/2/3/4, prominent
+    //   euclid/arp/ratchet/riff/cc, consonant, no passgate. Register home baked as a leading TRANSPOSE; machines cycle the
+    //   canonical palette. Pure struct construction (no offline Router) → cheap to build. Paul renames/prunes via the grid. —
     private static func buildDice() -> [(name: String, cell: Cell)] {
         let palette = ["gold", "cyan", "vermilion", "teal", "magenta", "indigo", "violet", "chartreuse", "orange", "wine", "blush", "purple", "mint", "azure", "green", "slate"]
         var list: [(name: String, cell: Cell)] = []

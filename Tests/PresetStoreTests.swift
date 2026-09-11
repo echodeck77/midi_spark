@@ -92,8 +92,9 @@ final class PresetStoreTests: XCTestCase {
             XCTAssertNil(cell.inputRow); XCTAssertNil(cell.inputReceiver, "\(name) has no input routing")
             XCTAssertNotNil(machineIDs.firstIndex(of: cell.machineID), "\(name)'s machine is canonical")
         }
-        let shimmer = factory.first { $0.name == "Shimmer" }!.cell   // round-trips like any saved cell
-        let rt = try! JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(shimmer))
-        XCTAssertEqual(rt.processors?.count, 2, "Shimmer = harmonize→arp")
+        let sample = factory.first!.cell   // round-trips like any saved cell (hand-authored set dropped 2026-09-11; generated range now)
+        let rt = try! JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(sample))
+        XCTAssertEqual(rt.processors?.count, sample.processors?.count, "the chain round-trips intact")
+        XCTAssertFalse(rt.processors?.isEmpty ?? true, "a factory cell carries a chain")
     }
 }

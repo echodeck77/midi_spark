@@ -19,21 +19,38 @@ final class AcceptanceFactoryLibraryTests: XCTestCase {
         }
     }
 
-    // THE 200-CHAIN COMMISSION (REQUEST-200-chains, 2026-08-28): the generated factory set is deterministic, near the
-    // 200 target, diverse (no duplicate chains), lean (1–4 stages), and covers every musical-intent category.
-    func testGeneratedFactorySetIsDeterministicDiverseAndCategorised() {
+    // THE REGENERATED RANGE (Paul 2026-09-11): chains of up to 4 processors, EQUAL weighting on lengths 1/2/3/4, with
+    // euclid/arp/ratchet/riff/cc prominent, consonant (no clashing intervals), non-chaotic, and NO PASSGATE.
+    func testRegeneratedFactorySetMatchesTheSpec() {
         let set = Dice.factorySet
-        XCTAssertGreaterThanOrEqual(set.count, 190, "expected ~200 generated factory chains, got \(set.count)")
         // Diversity — no two structurally identical chains.
         var seen = Set<String>()
         for fc in set { XCTAssertTrue(seen.insert(String(describing: fc.chain)).inserted, "duplicate chain: \(fc.name)") }
         // Lean — 1…4 stages each (the chain law).
         for fc in set { XCTAssertTrue((1...4).contains(fc.chain.count), "\(fc.name): \(fc.chain.count) stages (want 1–4)") }
-        // Category coverage — all ten intents present.
-        let byTag = Dictionary(grouping: set, by: { $0.tag }).mapValues { $0.count }
-        for t in ["RHYTHM", "MELODIC", "PADS", "ACID", "COMPING", "DYNAMICS", "TEACHING", "TEXTURE", "RELATIONSHIP", "WILDCARDS"] {
-            XCTAssertNotNil(byTag[t], "missing category \(t)")
+        // EQUAL weighting across the four lengths (tagged SOLO/PAIR/TRIO/QUAD).
+        let byLen = Dictionary(grouping: set, by: { $0.chain.count }).mapValues { $0.count }
+        XCTAssertEqual(set.count, 200, "expected 4×50 = 200 machines, got \(set.count)")
+        for len in 1...4 { XCTAssertEqual(byLen[len], 50, "length \(len): expected 50, got \(byLen[len] ?? 0)") }
+        // NO PASSGATE anywhere (Paul's hard exclusion).
+        for fc in set { XCTAssertFalse(fc.chain.contains { $0.type == .passgate }, "\(fc.name): contains PASSGATE") }
+        // The prominent types are all well represented.
+        for t in [ProcessorType.euclid, .arp, .ratchet, .riff, .mod] {
+            let n = set.filter { $0.chain.contains { s in s.type == t } }.count
+            XCTAssertGreaterThanOrEqual(n, 10, "expected \(t) prominent, only \(n) machines feature it")
         }
+        // CONSONANT — every HARMONIZE interval is a perfect 4th/5th/octave/12th (or a stack), never a 3rd/2nd/tritone.
+        let consonant: Set<Int> = [0, 5, 7, 12, 17, 19, 24]   // unison · P4 · P5 · octave · +P4 · +P5 · 2 octaves
+        for fc in set {
+            for slot in fc.chain where slot.type == .harmonize {
+                for iv in (slot.params.harmIntervals ?? []) {
+                    XCTAssertTrue(consonant.contains(iv), "\(fc.name): discordant harmonize interval \(iv)")
+                }
+            }
+        }
+        // BROWSABLE — every machine matches a SELECT rail row (contains a driver or CC), so none is invisible.
+        let railTypes: Set<ProcessorType> = [.arp, .riff, .euclid, .ratchet, .cascade, .strum, .weave, .burst, .mod]
+        for fc in set { XCTAssertTrue(fc.chain.contains { railTypes.contains($0.type) }, "\(fc.name): no rail-visible type") }
         // Determinism — the cache is stable + seeded (no Date/Math.random in the makers), so a fresh access matches.
         let again = Dice.factorySet
         XCTAssertEqual(set.map { $0.name }, again.map { $0.name })
