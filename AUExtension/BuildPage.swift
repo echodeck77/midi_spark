@@ -3761,10 +3761,12 @@ extension DiagView {
     @ViewBuilder private func buildProcBox(_ i: Int, chain: [ProcessorSlot], w: CGFloat, h: CGFloat, gap: CGFloat, hue: Color) -> some View {
         let populated = i < chain.count && !buildIsEmptySlot(chain[i])
         let bw = w * 0.8, bh = h * 0.8                             // the button is 80% of the 2×2-cell footprint …
-        // ALL drag visuals gate on chainDragActive (auto-resets on end/cancel) so the trash + highlights NEVER stick (Paul 2026-09-10)
-        let isDragged = chainDragActive && buildChainDragFrom == i
-        let isDropTarget = chainDragActive && buildChainDragFrom != i && buildChainDropTo == i
-        let isDest = chainDragActive && buildChainDragFrom != i && !isDropTarget   // during a drag, EVERY other box reads as a droppable destination (Paul 2026-09-10)
+        // DRAG ONLY (Paul 2026-09-12): the box highlights now appear only once the held box actually MOVES (buildChainDragMoved),
+        // matching the delete box — a hold alone no longer lights them. chainDragActive still auto-resets so they never stick.
+        let dragging = chainDragActive && buildChainDragMoved
+        let isDragged = dragging && buildChainDragFrom == i
+        let isDropTarget = dragging && buildChainDragFrom != i && buildChainDropTo == i
+        let isDest = dragging && buildChainDragFrom != i && !isDropTarget   // during a drag, EVERY other box reads as a droppable destination (Paul 2026-09-10)
         Group {
             if populated {
                 Text(buildProcLabel(chain[i]))
@@ -3840,7 +3842,7 @@ extension DiagView {
                     guard populated, case .second = value else { return }
                     if buildChainOverTrash { buildChainRemoveSlot(i); if buildEditSlot == i { buildEditSlot = nil } }   // dropped on the trash → DELETE
                     else if let to = buildChainDropTo, to != i { buildChainMoveSlot(from: i, to: to) }                  // dropped on another box → REORDER
-                    else { buildChainToggleBypass(i) }                                                                  // released in place → BYPASS
+                    else if !buildChainDragMoved { buildChainToggleBypass(i) }                                          // HELD + released IN PLACE (no drag) → BYPASS; a drag that returns to the same box is a no-op (Paul 2026-09-12)
                 },
             including: populated ? .all : .none)
     }
