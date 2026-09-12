@@ -5333,38 +5333,7 @@ extension DiagView {
             // SCROLLABLE BODY — SOURCE/OCT, the truth strips, and the controls.
             ScrollView(.vertical, showsIndicators: true) {
               VStack(alignment: .leading, spacing: 0) {
-            // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — the per-STAGE header standard: OCT ◀n▶ (this stage's own
-            // voice, ±3 octaves, dimmed at 0). Distinct from the OCTAVE utility card (a positional stream transform).
-            HStack(spacing: 10) {
-                // SOURCE: CHAIN | MIDI IN | BOTH — this stage reads the upstream chain, the row's own door, or both.
-                Text("SOURCE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
-                let ssrc = proc.params.stageSource ?? .chain
-                ForEach([StageSource.chain, .midiIn, .both], id: \.self) { s in
-                    let on = ssrc == s
-                    Text(s == .chain ? "CHAIN" : (s == .midiIn ? "MIDI IN" : "BOTH")).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.6)).padding(.horizontal, 10).frame(height: 28)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan : Color.white.opacity(0.08)))
-                        .contentShape(Rectangle()).onTapGesture { buildChainEditSlot(slot) { $0.params.stageSource = s } }
-                }
-                Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1, height: 22)
-                Text("OCT").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
-                let oct = proc.params.stageOct ?? 0
-                Button { buildChainEditSlot(slot) { $0.params.stageOct = max(-3, ($0.params.stageOct ?? 0) - 1) } } label: {
-                    Image(systemName: "chevron.left").font(.system(size: 12, weight: .bold)).foregroundColor(.white).frame(width: 30, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
-                }.buttonStyle(.plain)
-                Text(oct == 0 ? "0" : (oct > 0 ? "+\(oct)" : "\(oct)")).font(.system(size: 14, weight: .heavy, design: .monospaced))
-                    .foregroundColor(oct == 0 ? buildDim : .white).frame(minWidth: 28)
-                Button { buildChainEditSlot(slot) { $0.params.stageOct = min(3, ($0.params.stageOct ?? 0) + 1) } } label: {
-                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white).frame(width: 30, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
-                }.buttonStyle(.plain)
-                Text("this stage's own voice").font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
-                Spacer()
-            }
-            .padding(.horizontal, 16).padding(.vertical, 8)
-            .background(hue.opacity(0.10))
-            Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
+            // (SOURCE / OCT stage header removed 2026-09-12 — the §1 ANATOMY per-stage CHAIN|MIDI IN|BOTH + OCT ±3 feature was deleted.)
             // (RIFF CAPTURE row removed 2026-09-10 — the §2 capture feature was deleted.)
             // (ROW SELECTOR — the "Long press to copy" 1–8 tabs — removed, no longer required. Paul 2026-08-30)
             buildTruthStrips().padding(.horizontal, 16).padding(.vertical, 8)   // §1 IN | OUT truths — silence explains itself

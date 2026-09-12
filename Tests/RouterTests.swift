@@ -537,64 +537,6 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(onCount(sps: true, spanN: 4), 2, "PER SPAN=4 re-articulates at the span origins (cols 0, 4)")
         XCTAssertEqual(onCount(sps: true, spanN: 4), 2, "replay-safe (deterministic)")
     }
-    // §1 STANDARD PANEL ANATOMY (Paul 2026-08-27) — the per-STAGE OCT header standard: a slot's stageOct shifts its OWN
-    // output ±3 octaves. Single-slot cells shift via the transpose sum (hold + tick paths); 0 = byte-identical.
-    func testStageOctShiftsSingleSlotStageOutput() {
-        func droneNotes(_ oct: Int) -> Set<Int> {                                     // hold path (emitColumnHolds transpose)
-            var c = Machine(machineID: "gold", type: .drone); c.paramsA.stageOct = oct
-            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
-            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        }
-        XCTAssertEqual(droneNotes(0), [60, 64, 67], "stageOct 0 = the raw held chord")
-        XCTAssertEqual(droneNotes(1), [72, 76, 79], "stageOct +1 = up an octave (hold path)")
-        XCTAssertEqual(droneNotes(-1), [48, 52, 55], "stageOct -1 = down an octave (hold path)")
-        func arpNotes(_ oct: Int) -> Set<Int> {                                       // tick/driver path (emitTickRow transpose)
-            var c = Machine(machineID: "gold", type: .arp); c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.stageOct = oct
-            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
-            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        }
-        let a0 = arpNotes(0), a1 = arpNotes(1)
-        XCTAssertFalse(a0.isEmpty, "the arp sounds")
-        XCTAssertEqual(Set(a1.map { $0 - 12 }), a0, "arp stageOct +1 shifts every arp note up an octave (tick path)")
-    }
-    func testStageOctShiftsAFoldedChainStage() {
-        // [ARP → HARMONIZE]: HARMONIZE folds downstream (emitDriverNote → applyStage). Its stageOct shifts the whole
-        // folded output ±12 — the folded-slot path, distinct from the driver's own transpose.
-        func notes(_ oct: Int) -> Set<Int> {
-            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16; arp.params.octaves = 1
-            var harm = ProcessorSlot(type: .harmonize); harm.params.stageOct = oct
-            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, harm]; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
-            assertNothingLeftSounding(e)
-            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        }
-        let n0 = notes(0), n1 = notes(1)
-        XCTAssertFalse(n0.isEmpty, "the [ARP→HARMONIZE] chain sounds")
-        XCTAssertEqual(Set(n1.map { $0 - 12 }), n0, "the folded HARMONIZE stage's stageOct +1 shifts its whole output up an octave")
-    }
-    // §1 ANATOMY SOURCE (Paul 2026-08-27): a stage's SOURCE — CHAIN reads the upstream output · MIDI IN reads the row's raw
-    // DOOR · BOTH merges. v1 acts in composeChainSet (folded/upstream stages). [OCTAVE(+1) → TRANSPOSE(0, SOURCE) → ARP]:
-    // CHAIN sees the octave-shifted set (+12), MIDI IN sees the raw door (+0), BOTH sees both — distinguishable by pitch.
-    func testStageSourceReadsTheDoorInChainCompose() {
-        func notes(_ src: StageSource) -> Set<Int> {
-            var oct = ProcessorSlot(type: .octave); oct.params.utilOctave = 1
-            var mid = ProcessorSlot(type: .transpose); mid.params.utilTranspose = 0; mid.params.stageSource = src
-            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16; arp.params.octaves = 1
-            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [oct, mid, arp]; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
-            assertNothingLeftSounding(e)
-            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        }
-        XCTAssertEqual(notes(.chain), [72, 76, 79], "CHAIN reads the OCTAVE-shifted upstream set")
-        XCTAssertEqual(notes(.midiIn), [60, 64, 67], "MIDI IN reads the raw door chord (ignores the upstream octave)")
-        XCTAssertEqual(notes(.both), [60, 64, 67, 72, 76, 79], "BOTH merges the door with the upstream set")
-    }
     // RATCHET PATTERN SPAN (Paul 2026-09-07): SPAN N re-anchors the ratchet's playhead every N MATRIX columns (N × RATE);
     // FREE (0) = free-run over all STEPS. So with STEPS = 8: FREE == span 8 (a full-loop re-anchor is the same as no
     // re-anchor), and a SHORT span (2) confines the playhead to columns 0..1 → a different note count. This is the
