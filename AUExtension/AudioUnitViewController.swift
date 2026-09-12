@@ -185,6 +185,7 @@ struct DiagView: View {
     @State var buildFerryHover: FerryDropZone? = nil             // the drop zone under the finger
     @State var buildFerryZones: [FerryDropZone: CGRect] = [:]    // drop-zone frames (8 ferries + trash) in the "rooms" space
     @GestureState var ferryDragActive: Bool = false              // TRUE only while a ferry drag is live — AUTO-RESETS on end/cancel so nothing sticks
+    @State var buildFerryHueAlloc: [Int: UInt32] = [:]           // EMPTY-ferry colour reallocation: slot → displaced colour (populated ferries carry their hue on the part). Paul 2026-09-12
     // PROCESSOR EDITOR transaction (Paul 2026-08-19): the machine's chain as it was when the editor OPENED, so CANCEL can
     // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.
     // I/O toggle LONG-PRESS → apply to EVERY row (Paul 2026-08-19): a "Hold to apply to all" hint shows a moment into the hold.

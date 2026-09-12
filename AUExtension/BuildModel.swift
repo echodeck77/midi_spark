@@ -126,6 +126,10 @@ struct BuildPlayGridData: Codable, Equatable {
     var gridSelChains: [Int: [ProcessorSlot]]? = nil
     var gridSelHues: [Int: UInt32]? = nil
     var gridSelNames: [Int: String]? = nil
+    // EMPTY-FERRY COLOUR ALLOCATION (Paul 2026-09-12): when a SELECT cell dragged onto a populated ferry would duplicate the
+    // colour of an EMPTY ferry, that empty ferry is re-allocated the displaced colour. Populated ferries carry their own hue
+    // on the part (ferryHue); this map only overrides EMPTY slots' positional base. Additive-Optional → old docs decode nil.
+    var ferryHueAlloc: [Int: UInt32]? = nil
 }
 extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedData pattern) — a field added later never fails an older save
     init(from decoder: Decoder) throws {
@@ -149,6 +153,7 @@ extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedDat
         gridSelChains = try c.decodeIfPresent([Int: [ProcessorSlot]].self, forKey: .gridSelChains)   // committed SELECT cells (2026-09-12); nil = absent
         gridSelHues  = try c.decodeIfPresent([Int: UInt32].self, forKey: .gridSelHues)
         gridSelNames = try c.decodeIfPresent([Int: String].self, forKey: .gridSelNames)
+        ferryHueAlloc = try c.decodeIfPresent([Int: UInt32].self, forKey: .ferryHueAlloc)   // empty-ferry colour reallocation (2026-09-12); nil = absent
     }
     /// THE 8 FERRY PARTS (Paul 2026-09-08), migration-aware: `parts` when present (padded/clamped to 8), else derived
     /// from the legacy per-cell `playCellPart` — each ferry COLUMN's first part-backed cell — else all-nil. Always 8 slots.

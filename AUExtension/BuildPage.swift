@@ -1997,8 +1997,8 @@ extension DiagView {
     // A ferry's ONE identity colour as a hex: its explicit `ferryHue` override, else the P1 ferry-base palette (8 jewel
     // tones by position). The header redesign (Paul 2026-09-09) reads this for the focus highlight + the fading gradient.
     func buildFerryHex(_ t: Int) -> UInt32 {
-        let hue = (t >= 0 && t < buildFerryParts.count) ? buildFerryParts[t]?.ferryHue : nil
-        return hue ?? ferryBaseHex(t)
+        if let hue = ((t >= 0 && t < buildFerryParts.count) ? buildFerryParts[t]?.ferryHue : nil) { return hue }   // populated → the part's own hue (inherited from the ferried cell)
+        return buildFerryHueAlloc[t] ?? ferryBaseHex(t)   // empty → a re-allocated displaced colour, else the positional base
     }
     @ViewBuilder func roomsPlayFerry(_ t: Int) -> some View {
         GeometryReader { g in
@@ -2280,22 +2280,36 @@ extension DiagView {
         default: break
         }
     }
-    // Populate ferry `t` with SELECT grid cell `i`'s chain (overwrites a populated ferry — Paul 2026-09-12).
+    // Populate ferry `t` with SELECT grid cell `i` — a PART WITH ONE ROW (Paul 2026-09-12). The ferry INHERITS the cell's
+    // name, colour and settings (chain). Overwrites a populated ferry.
     func buildPopulateFerryFromSelect(_ i: Int, into t: Int) {
         guard let hit = buildGridSelChainAt(i) else { return }
-        buildPopulateFerry(t, chain: hit.chain, transpose: hit.transpose)
+        let name = buildGridSelName[i] ?? buildChainShortHash(hit.chain)             // the committed name, else a short hash (inherit a name either way)
+        buildPopulateFerry(t, chain: hit.chain, transpose: hit.transpose, hue: hit.hex, name: name)
     }
-    // The shared populate core: mint a part carrying `chain` across a full 16-step row, store it in ferry `t`, open it.
-    func buildPopulateFerry(_ t: Int, chain: [ProcessorSlot], transpose: Int) {
+    // The shared populate core: mint a part carrying `chain` across a full 16-step row, inheriting `hue`/`name`, store it in
+    // ferry `t`, open it. COLOUR REALLOCATION (Paul 2026-09-12): if this overwrites a populated ferry of a DIFFERENT colour
+    // whose incoming colour is currently allocated to an EMPTY ferry, that empty ferry is re-allocated the DISPLACED colour
+    // (so the palette never doubles up).
+    func buildPopulateFerry(_ t: Int, chain: [ProcessorSlot], transpose: Int, hue: UInt32? = nil, name: String? = nil) {
         guard t >= 0, t < 8 else { return }
         buildRecordUndo()
-        let y = buildNewTabMachine(t, machine: chain, transpose: transpose)          // a fresh part machine carrying the chain (vivid part hue)
+        if let cellHex = hue, t < buildFerryParts.count, buildFerryParts[t] != nil {   // overwriting a populated ferry
+            let oldHex = buildFerryHex(t)
+            if oldHex != cellHex, let u = (0..<8).first(where: { $0 != t && buildFerryParts[$0] == nil && buildFerryHex($0) == cellHex }) {
+                buildFerryHueAlloc[u] = oldHex                                        // the displaced colour moves to the empty ferry that held the incoming colour
+            }
+        }
+        let y = buildNewTabMachine(t, machine: chain, transpose: transpose, hex: hue)   // a fresh part machine carrying the chain, in the CELL's hue (nil ⇒ the vivid part hue)
         var p = BuildPart()
         p.length = Snap.maxCols                                                       // a full 16-step part (the grid defaults to 16)
         for c in 0..<Snap.maxCols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }   // the chain across the WHOLE first row → a full sequence, not one cell
         p.selID = y; p.cast = [y]
         p.receiver = buildSelReceiver; p.emitters = buildDefaultEmitters
+        p.ferryHue = hue                                                              // the ferry INHERITS the cell's colour (Paul 2026-09-12)
+        p.ferryName = name                                                            // …and its name
         buildFerryParts[t] = p
+        buildFerryHueAlloc[t] = nil                                                   // a populated ferry's colour comes from its part now, not the empty-slot alloc
         buildSyncMachines()
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }                      // a populated ferry starts playing at once (via the staging sequencer once activated)
         if buildActiveFerry == t { buildActiveFerry = nil }                           // force a fresh load of the NEW part (skip the stale-bench writeback)
@@ -2339,6 +2353,7 @@ extension DiagView {
         if t < buildPlayColSolo.count { buildPlayColSolo[t] = false }
         if t < launchAnchor.count     { launchAnchor[t] = 0 }
         if t < launchBeat.count       { launchBeat[t] = 0 }
+        buildFerryHueAlloc[t] = nil                                                   // a freshly-emptied slot returns to its positional base colour
         buildClearFerryPlayback(t)                                                    // steps/len/recv/emit/playCells
     }
     // The FLOATING GHOST that follows the finger during a ferry drag (drawn in the "rooms" space, hit-transparent).
@@ -4748,6 +4763,7 @@ extension DiagView {
             data.gridSelHues = buildGridSelOverride.mapValues { $0.hex }
         }
         if !buildGridSelName.isEmpty { data.gridSelNames = buildGridSelName }   // …and their generated hash names
+        if !buildFerryHueAlloc.isEmpty { data.ferryHueAlloc = buildFerryHueAlloc }   // empty-ferry colour reallocation (Paul 2026-09-12)
         return data
     }
     func buildRestorePlayGrid(_ d: BuildPlayGridData) {
@@ -4772,6 +4788,7 @@ extension DiagView {
             buildGridSelOverride = ov
         }
         if let names = d.gridSelNames { buildGridSelName = names }
+        buildFerryHueAlloc = d.ferryHueAlloc ?? [:]   // empty-ferry colour reallocation (Paul 2026-09-12)
         buildPublishScene()   // republish so restored STARTED ferries sound at once
     }
     // PART AUTOMATION (Paul 2026-09-02): capture the per-machine AUTO lanes for the save (prune machines with no active
