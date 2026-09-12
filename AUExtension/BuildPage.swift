@@ -6354,6 +6354,7 @@ extension DiagView {
         // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
         let selGrey = greyUnlessSel && sel && !committed
         let fill = present ? (sel ? (selGrey ? buildSelectGrey : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)   // selGrey ALTERNATES two bright shades per selection (matches the machine box; Paul 2026-09-01)
+        let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
         // TASTEFUL CHEQUER (Paul 2026-08-31): the SELECT grid reads as a BOARD — a faint two-tone parity wash on every
         // non-selected cell (the classic chessboard), subtle enough not to fight the roll. SELECT grid only (greyUnlessSel);
         // the bright selected/focus cell stays clean.
@@ -6361,8 +6362,11 @@ extension DiagView {
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(fill)
             if chequer { RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)) }   // the lighter square of the board
-            // (THE PIANO-ROLL / CONSTELLATION FACE IS REMOVED from the SELECT cell — Paul 2026-09-12: a plain coloured tile.)
-            if committed, let nm = buildGridSelName[i] {   // the generated hash name, on the selected-colour cell (Paul 2026-09-12)
+            if present && !committed {   // the piano-roll face — shown UNTIL the cell is committed, then REPLACED by its name (Paul 2026-09-12)
+                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint, strikeIdx: sel ? (buildChainAuditionRow.map { [$0] } ?? []) : [])
+                    .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
+            }
+            if committed, let nm = buildGridSelName[i] {   // the generated hash name, REPLACING the roll on a committed cell (Paul 2026-09-12)
                 Text(nm).font(.system(size: min(11, h * 0.4), weight: .heavy, design: .monospaced)).tracking(0.5)
                     .foregroundColor(.black.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
                     .shadow(color: .white.opacity(0.25), radius: 1)
