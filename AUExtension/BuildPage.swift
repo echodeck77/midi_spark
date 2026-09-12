@@ -1747,6 +1747,14 @@ extension DiagView {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 buildProcTab(cellName.uppercased(), active: buildEditSlot == nil, hue: hue) { buildEditSlot = nil; buildStageEye = false }
+                // THE FOUR PART-ROW SELECTORS (Paul 2026-09-12): after the name tab, a compact mirror of the part grid's
+                // right-rail selector buttons (roomsSideButton part:true — IDENTICAL styling + behaviour) showing which of the
+                // 4 rows is selected + in focus. PART grid only (the 4-row rail is a part concept; the SELECT card has no rows).
+                if roomsRoom == .part {
+                    ForEach(0..<DiagView.roomsGridRows, id: \.self) { n in
+                        roomsSideButton(n, part: true).frame(width: 26, height: 26)
+                    }
+                }
                 ForEach(0..<chain.count, id: \.self) { s in
                     if !buildIsEmptySlot(chain[s]) {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.45))   // the chain flow, tab → tab (Paul 2026-09-12)
