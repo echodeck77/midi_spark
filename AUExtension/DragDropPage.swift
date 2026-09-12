@@ -61,16 +61,5 @@ extension DiagView {
         ddStickyReceiver = c.inputReceiver ?? 0
         ddStickyBuses = c.buses.isEmpty ? [.a] : c.buses
     }
-    /// The placed cells of a machine — the cross-file-visible read `editPointedCell` uses to detect an unplaced machine.
-    func ddMachineCellsPublic(_ id: String) -> [GridPos] { ddMachineCells(id) }
-    /// UNPLACED-machine routing: apply a cell mutation to a synthetic cell carrying the current sticky routing, then
-    /// read the result back into the sticky — so a receiver/emitter tap on a not-yet-placed machine sticks + shows.
-    func ddApplyStickyRoutingMutation(_ id: String, _ mutate: (inout Cell) -> Void) {
-        var c = Cell(machineID: id)
-        c.inputReceiver = ddStickyReceiver
-        c.buses = ddStickyBuses
-        mutate(&c)
-        ddStickyReceiver = c.inputReceiver ?? 0
-        ddStickyBuses = c.buses
-    }
+    // ddMachineCellsPublic + ddApplyStickyRoutingMutation RETIRED (Paul 2026-09-12 dead-code sweep — no caller).
 }

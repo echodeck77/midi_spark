@@ -504,13 +504,7 @@ extension Dice {
         case .mod: return "MOD"; case .passgate: return "PASS"; default: return "CHAIN"
         }
     }
-    private static func fRole(_ tag: String) -> String {
-        switch tag {
-        case "RHYTHM": return "BED"; case "MELODIC": return "LEAD"; case "PADS": return "PAD"; case "ACID": return "ACID"
-        case "COMPING": return "STAB"; case "DYNAMICS": return "FEEL"; case "TEACHING": return "SOLO"; case "TEXTURE": return "MOTION"
-        case "RELATIONSHIP": return "DUET"; case "WILDCARDS": return "WILD"; default: return "CHAIN"
-        }
-    }
+    // fRole RETIRED (Paul 2026-09-12 dead-code sweep — no caller).
     // The characteristic processor = the first generator/driver in the chain, else the head.
     private static func fCharacteristic(_ chain: [ProcessorSlot]) -> ProcessorType {
         let drivers: Set<ProcessorType> = [.arp, .euclid, .ratchet, .riff, .tutti, .burst, .cascade, .weave, .strum, .drone, .hocket, .glide]

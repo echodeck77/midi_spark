@@ -175,11 +175,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     /// Save the cell at (col,row) to the library under `name` — "machine minus routing" (chain materialised +
     /// source-shaping; routing/perform state stripped). Returns false if the slot is empty or the write fails.
-    @discardableResult
-    func saveCellToLibrary(col: Int, row: Int, name: String) -> Bool {
-        guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return false }
-        return CellLibraryStore.save(cell.libraryStripped(materialisedChain: materializedChain(cell)), as: name)
-    }
+    // saveCellToLibrary RETIRED (Paul 2026-09-12 dead-code sweep — no caller; saveChainToLibrary is the live save path).
     // BUILD-side save: a MACHINE's machine (chain) becomes a library cell (no grid cell needed). Routing stripped.
     @discardableResult
     func saveChainToLibrary(machineID: String, chain: [ProcessorSlot], name: String) -> Bool {
@@ -379,7 +375,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     /// delta §9 item 11: per-receiver INPUT peak velocity + event count since the last poll (read-and-clear).
     func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32], channels: [UInt16]) { kernel.drainReceiverActivity() }
-    func pollEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterMarks() }   // item 4 velocity marks
     func pollCellStrikes() -> [UInt8] { kernel.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity (col*Snap.rows+row)
     func pollCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { kernel.drainCellNotes() }   // NOTE-SWEEP: per-cell recent emitted note-ons
     func setFocusCell(_ cell: Int) { kernel.setFocusCell(cell) }   // FOCUS note-event feed: the machine's cell
@@ -389,11 +384,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setPartRoll(active: Bool, cycleBeats: Double) { kernel.setPartRoll(active: active, cycleBeats: cycleBeats) }
     func pollPartRoll() -> [PartRollDeck.Note] { kernel.pollPartRoll() }
     func offlinePartRoll(cyc: Double) -> [PartRollDeck.Note] { kernel.offlinePartRoll(cyc: cyc) }   // the deterministic no-lag feed
-    func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes (latch-aware meter)
     func pollReceiverSoundingNotes() -> [[UInt8]] { kernel.pollReceiverSoundingNotes() }   // PITCHES held per door (REPLAY roll)
     func pollReceiverLiveHeld() -> UInt8 { kernel.pollReceiverLiveHeld() }       // the header dot: bit i = a LIVE accepted note is held (scalar, race-safe)
-    func pollEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterSounding() }   // §strips-done: currently-sounding per emitter (cargo-tinted)
+    // pollEmitterMarks/pollWithheldMarks/pollEmitterSounding (UI mark-feed forwarders) RETIRED 2026-09-12 — no caller.
+    // (The kernel drains they wrapped stay: drainEmitterSounding et al. are exercised directly by RouterTests.)
 
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannelsResolved }

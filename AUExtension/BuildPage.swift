@@ -1626,76 +1626,9 @@ extension DiagView {
                 .onTapGesture { buildEditSlot = nil; buildAddSlot = nil; buildStageEye = false }
         )
     }
-    // THE PLAY SECTION HEADER — the room-aware play/stop button. Now sits in the machine strip's BAND 2 (m.ch), PARALLEL
-    // with the grid's FERRY row (the caller frames it to m.ch); fillHeight makes the button FILL that band so its top/
-    // bottom line up exactly with the ferry buttons. SELECT plays the CHAIN audition, PART plays the PART. (Paul 2026-08-29)
-    // THE VERTICAL PLAY BUTTON + PLAYHEAD (Paul 2026-08-29) — a tall thin play/stop toggle beside the MIDI chain, on the
-    // OPPOSITE side from the verb buttons. Its PLAYHEAD is a TOP→BOTTOM fill running the chain's play duration (buildHeaderFill).
-    // THE PLAY BUTTON — now a SQUARE (~one MIDI-chain box) with a LEFT→RIGHT playhead sweep (Paul 2026-08-30, was a tall
-    // narrow button with a top→bottom fill). Sits centred in its flank; tap = play/stop the chain (SELECT) or part (PART).
-    @ViewBuilder func roomsVerticalPlay(_ room: Room, buttonH: CGFloat) -> some View {
-        let voice: BuildWorkshopVoice = room == .part ? .part : .chain
-        // If the SELECTED machine IS a play-ferry's chain, this button STARTS/STOPS THAT FERRY (its play column) — not a
-        // separate isolated chain audition. "This MIDI chain IS the one of the ferry button." (Paul 2026-08-31)
-        let bind = buildMachineBinding(room)     // ONE source of truth for what the machine represents + its play state (Paul 2026-09-01)
-        // ENTIRELY STILL WHEN THE HOST IS STOPPED (Paul 2026-09-04). The playhead animation is gated on the HOST transport
-        // (d.playing) ONLY — never free-run, never the auto-engaged voice. A held/latched note keeps free-run alive, and
-        // buildHeaderFill extrapolates the beat by wall-clock, so gating on free-run made the sweep jiggle while stopped.
-        // A play FERRY shows its explicit armed state (icon/frame/glow) even when stopped; the chain/part AUDITION reads as
-        // playing only while the host runs. The SWEEP animates for BOTH only while the host plays → frozen = no motion.
-        let isFerry: Bool = { if case .playFerry = bind.kind { return true } else { return false } }()
-        let active = isFerry ? bind.playing : (bind.playing && d.playing)
-        let sweeping = active && d.playing                             // the playhead moves ONLY while the host transport runs
-        let hue: Color = buildMachineHue(room)   // SAME hue as the machine box + chain — the SELECTED selector's colour on SELECT (Paul 2026-09-12), the machine/ferry machine otherwise
-        // THE FOCUSED CELL'S velocity feed (Paul 2026-09-11): a ferry bind → its play column's steps; else the chain/part
-        // AUDITION row (the focused machine parks there). Drives the play-button icon flash below.
-        let focusIdx: [Int] = { if case let .playFerry(pc) = bind.kind { return buildPlayColSweepIndices(pc) }; return buildChainAuditionRow.map { [$0] } ?? [] }()
-        ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(buildCell)            // DARK STAGE (like a grid cell)
-            if active { RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.24)) }   // machine-hue wash when armed/playing
-            if sweeping {                                               // the PLAYHEAD — animates ONLY while the host transport runs, so it is entirely still when stopped
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                    GeometryReader { g in
-                        RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.34))
-                            .frame(width: g.size.width * buildHeaderFill(.grid, tl.date))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)   // grows from the left across
-                    }
-                }
-            }
-            if active {   // PLAYING → the STOP icon FLASHES the focused cell's velocity (Paul 2026-09-11: flash the icon)
-                flashingIcon("stop.fill", size: 16, tint: hue, baseOpacity: 1.0, indices: focusIdx)
-            } else {
-                Image(systemName: "play.fill").font(.system(size: 16, weight: .black)).foregroundColor(hue.opacity(0.8))
-            }
-        }
-        .frame(maxWidth: .infinity).frame(height: buttonH)              // FILL the slot (Paul 2026-08-31: no centring gap between play + SELECT)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? hue : buildEdge, lineWidth: active ? 3 : 1))   // BRIGHT hue frame when playing
-        .shadow(color: active ? hue.opacity(0.6) : .clear, radius: active ? 5 : 0)   // hue glow when playing (ferry-style)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if case let .playFerry(pc) = bind.kind { buildTogglePlayColumn(pc) }   // the ferry's OWN play column (start/stop the ferry)
-            else { buildRequestWorkshopVoice(active ? .none : voice) }             // else the chain/part audition
-        }
-    }
-    // THE SELECT-MODE BUTTON (Paul 2026-08-31) — directly under the play button, SAME size/style. Toggles buildSelectMode: while
-    // on, every cell (select + ferry) lights white and a TAP only FOCUSES it into the machine (no start/stop). A way to pick a
-    // cell for editing/viewing without playing it.
-    @ViewBuilder func roomsSelectButton(buttonH: CGFloat) -> some View {
-        let on = buildSelectMode
-        ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(buildCell)
-            if on { RoundedRectangle(cornerRadius: 8).fill(buildCyan.opacity(0.28)) }   // lit cyan when armed
-            Text("SELECT").font(.system(size: min(11, buttonH * 0.48), weight: .black, design: .monospaced))
-                .foregroundColor(on ? buildCyan : buildDim).lineLimit(1).minimumScaleFactor(0.5)
-        }
-        .frame(maxWidth: .infinity).frame(height: buttonH)              // FILL the slot — matches the play button, no gap
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? buildCyan : buildEdge, lineWidth: on ? 3 : 1))
-        .shadow(color: on ? buildCyan.opacity(0.5) : .clear, radius: on ? 4 : 0)
-        .contentShape(Rectangle())
-        .onTapGesture { buildSelectMode.toggle() }
-    }
+    // roomsVerticalPlay + roomsSelectButton RETIRED (Paul 2026-09-12 dead-code sweep — neither view is mounted. NOTE:
+    // roomsSelectButton was the only thing that toggled buildSelectMode true, so SELECT-mode is already inaccessible; its
+    // readers are now a dormant cluster — flagged in pending-tasks for a follow-up, not removed here.)
     // THE CHAIN TRASH (Paul 2026-09-10) — replaces the PLAY + SELECT flank. INVISIBLE + non-interactive at rest (it
     // renders nothing and never intercepts touch). While a MIDI-chain processor box is HELD (buildChainDragFrom set) a big
     // red garbage-can box appears here; dragging the box over it (detected via the chainBlock x — the trash is the left
@@ -1976,12 +1909,7 @@ extension DiagView {
     func roomsField(_ room: Room) -> Color {
         room == .play ? Color(red: 0.02, green: 0.02, blue: 0.03) : Color(red: 0.06, green: 0.07, blue: 0.085)
     }
-    @ViewBuilder func roomsPlayNavSliver(width: CGFloat, height: CGFloat) -> some View {
-        roomsDoorBar(to: .play)                                             // → PLAY = INDIGO (retires cyan)
-            .frame(width: width, height: height)
-            .overlay(HStack(spacing: 5) { Image(systemName: "chevron.up"); Text("PLAY GRID"); Image(systemName: "chevron.up") }.font(.system(size: min(11, height * 0.7), weight: .heavy, design: .monospaced)).foregroundColor(roomsDoorInk(to: .play)))   // a chevron on EACH side (Paul 2026-08-31)
-            .contentShape(Rectangle()).onTapGesture { roomsRoom = .play }
-    }
+    // roomsPlayNavSliver RETIRED (Paul 2026-09-12 dead-code sweep — not mounted; the ferry row is the sole navigation).
     // The part↔select SEAM sliver/column are RETIRED (Paul 2026-09-08, Phase 3): the ferry row is the sole navigation.
     // THE PLAY FERRY button (Paul 2026-08-29) — the SELECT grid's top-row buttons that FERRY the selected cell to the
     // PLAY grid. LONG-PRESS copies the currently-selected cell onto the play grid at THIS column's selected rung (→ its
@@ -2389,9 +2317,7 @@ extension DiagView {
             let cw = max(6, (g.size.width - 2 * pad - 9 * gap) / 10)           // 10 cols (LEFT page rail + 8 interior + right side button)
             let ch = m.ch
             let rowH = ch * 0.5                                             // §MERGE (Paul 2026-09-08): interior cells are HALF the ferry-cell height
-            let interiorW = cw * 8 + gap * 7
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)   // the 4-row browser (half-height cells)
-            let leftInset = cw + gap                                        // the left page rail → the interior's left edge
             let footerH = ch / 3.0                                           // HALVED (Paul 2026-09-09): the footer rail is now 1/3 the ferry height
             let footerY = interiorH + gap                                    // the footer sits flush beneath the last grid row (NOT at the bottom of the unit)
             let cardY = footerY + ch * 2.0 / 3.0 + gap                       // the card stays put → the freed half is a HIDDEN-CELL GAP between the footer and the card (Paul 2026-09-09)
@@ -2613,7 +2539,6 @@ extension DiagView {
             // two columns), never becoming 16 (which would index the 8-slot play layer out of range). (Paul 2026-09-04)
             let ferryW = (interiorW - CGFloat(7) * gap) / 8
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)  // the 4-row grid
-            let leftInset = railW + gap                                     // full rail → the interior's left edge
             let footerH = ch / 3.0                                           // HALVED (Paul 2026-09-09): the footer rail is now 1/3 the ferry height
             let footerY = interiorH + gap                                    // flush beneath the last grid row
             let cardY = footerY + ch * 2.0 / 3.0 + gap                       // the card stays put → the freed half is a HIDDEN-CELL GAP between the footer and the card (Paul 2026-09-09)
@@ -3177,17 +3102,7 @@ extension DiagView {
         if buildPlayColOn[c] { buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false }   // an explicit start re-enables free-run after a host halt
         buildPublishScene()
     }
-    // SELECT a play column's cell → the machine strip + the I/O toggles reflect it (Paul 2026-08-30: play-ferry selection,
-    // parity with ferry-to-part). Independent of playback: focusing a play ferry never starts/stops it. Clears the SELECT
-    // browse-cell + active-side selection so the SOURCE deselects (else it stays lit). buildSelectedPlayCol then resolves
-    // buildSelID → this column, so buildSelectDoor/buildToggleBus reflect + edit its OWN receiver/emitters.
-    func buildSelectPlayColumn(_ c: Int) {
-        let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
-        guard r >= 0, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return }
-        buildGridSelSel = nil; buildGridSelStampSourceRow = nil      // the source select cell / active side button deselects
-        buildVoiceOwner = .none                                      // a play column owns its OWN voice (the play layer) — never route it through the shared audition (else buildSelectID would re-inject it there, unstoppable by the ferry). Paul 2026-08-31
-        buildSelectID(cid)
-    }
+    // buildSelectPlayColumn RETIRED (Paul 2026-09-12 dead-code sweep — its callers were the removed play-column ferry paths).
     // The PLAY column currently selected — its selected-rung cell's machine == buildSelID. The play-grid analogue of
     // buildSelectedRow (which only searches STAGING rows), so the I/O toggles reflect + edit a ferried play cell's OWN
     // receiver/emitters. nil unless buildSelID names a live play cell. (Paul 2026-08-30)
@@ -3755,12 +3670,7 @@ extension DiagView {
     // The LAST non-bypassed processor that turns a held chord into a RHYTHM (arp/ratchet/strum/euclid/burst/cascade/weave/
     // riff/hocket). Before it the chord is still held (a line); from it the notes are rhythmic (comets). nil ⇒ no rhythm
     // processor (the whole chain is a held-chord line). (Paul 2026-08-31.)
-    private func buildRhythmDriverSlot(_ chain: [ProcessorSlot]) -> Int? {
-        let rhythm: Set<ProcessorType> = [.arp, .ratchet, .strum, .euclid, .burst, .cascade, .weave, .riff, .hocket]
-        var last: Int? = nil
-        for (i, s) in chain.enumerated() where !s.bypassed && rhythm.contains(s.type) { last = i }
-        return last
-    }
+    // buildRhythmDriverSlot RETIRED (Paul 2026-09-12 dead-code sweep — no caller).
     @ViewBuilder private func buildChainFlowOverlay(sideW: CGFloat, blockW: CGFloat, blockH: CGFloat, boxH: CGFloat, gap: CGFloat, hue: Color, chain: [ProcessorSlot]) -> some View {
         // THE FLOW COMETS ARE REMOVED (Paul 2026-09-11) — only the dotted connectors + the two flank circles remain (the
         // dotted ORDER thread through the boxes is buildChainFlowLine, kept). The circles are now LIVE VELOCITY METERS:
@@ -4536,17 +4446,7 @@ extension DiagView {
         while let last = chain.last, buildIsEmptySlot(last) { chain.removeLast() }
         return chain
     }
-    // The FOCUSED machine's chain for the AUTO flow (Paul 2026-09-01): the selected machine's built chain, else its A-FACE
-    // as a single slot. A canonical/factory machine stores its machine as `type`+`paramsA` (not a templateChain), which
-    // buildMachineSlots doesn't surface — the SnapshotBuilder resolves exactly this fallback, so mirror it here so the
-    // PROCESSOR list populates for ANY focused machine that actually has a processor (was empty for A-face machines).
-    func buildFocusedChain() -> [ProcessorSlot] {
-        let c = selectedMachineChain()
-        if !c.isEmpty { return c }
-        guard let cid = ddSelectedMachineID, let col = docMachines.first(where: { $0.machineID == cid }) else { return [] }
-        var s = ProcessorSlot(type: col.type); s.params = col.paramsA
-        return buildIsEmptySlot(s) ? [] : [s]
-    }
+    // buildFocusedChain RETIRED (Paul 2026-09-12 dead-code sweep — the AUTO-flow focused-chain reader, no caller).
     // An EMPTY processor box = a passthrough placeholder (a bypassed PASSGATE — a true no-op the engine passes through).
     private func buildIsEmptySlot(_ s: ProcessorSlot) -> Bool { s.type == .passgate && s.bypassed }
     private func buildPassthroughSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }
@@ -4823,33 +4723,8 @@ extension DiagView {
     }
     // The next UNDEFINED global machine to materialize (nil = all 16 exist).
     private func buildFirstUndefinedGlobal() -> Int? { (0..<machineIDs.count).first { !ddMachineShown($0) } }
-    // ADD a fresh (passthrough) machine to THIS part's cast: a free DOCUMENT slot if one remains, else an unlimited
-    // EPHEMERAL machine with a canonical-ish hue. Then select it. (Paul 2026-08-15 — no 16-machine cap.)
-    // Long-pressing an empty cast cell CLONES the last-used machine: a brand-new machine carrying the SAME machine
-    // (settings) as the currently-selected machine — the last one placed or whose settings were changed — under a
-    // fresh unique hue. Falls back to a blank machine when nothing is selected yet. (Paul 2026-08-17)
-    private func buildAddCastMachine(atSlot slot: Int? = nil) {
-        buildRecordUndo()   // BUILD UNDO: record BEFORE minting so undo reverts the new machine + its placement (U6 fix 2026-08-27)
-        let id: String
-        if let j = buildFirstUndefinedGlobal() {
-            buildCreateMachine(j); id = machineIDs[j]
-        } else {
-            buildIDCounter += 1; id = "b\(buildIDCounter)"
-            buildMachineReg[id] = []; machineHueOverride[id] = machineHexes[buildIDCounter % machineHexes.count]; buildSyncMachines()
-        }
-        if !buildPartCast.contains(id) { buildPartCast.append(id) }
-        buildPlaceCastSlot(id, slot)
-        buildEnforceCastHues()                                                                // strong rule: never two alike in the cast
-        buildSelectID(id)
-    }
-    // Assign a NON-default machine its cast slot: the requested one if it's a free extras cell, else the first free.
-    // The undo step is recorded by each CALLER (before it mints the machine) so undo reverts the whole action — not
-    // just this placement (U6 fix 2026-08-27; the three callers are buildCloneLastMachine/buildAddCastMachine/buildCommitPulse).
-    private func buildPlaceCastSlot(_ id: String, _ requested: Int?) {
-        buildCastSlots = buildCastSlots.filter { $0.value != id }                             // this machine claims exactly one slot
-        if let s = requested, !buildIsDefaultSlot(s), buildCastSlots[s] == nil { buildCastSlots[s] = id }
-        else if let s = buildFirstFreeCastSlot() { buildCastSlots[s] = id }
-    }
+    // buildAddCastMachine + buildPlaceCastSlot RETIRED (Paul 2026-09-12 dead-code sweep — the empty-cast-cell long-press
+    // clone gesture is gone; buildPlaceCastSlot was orphaned once buildAddCastMachine (its only caller) went).
     // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette machine (carrying its machine); an existing
     // machine is simply selected. Either way the machine is SELECTED (its machine loads into the footer) — and THE TARGET
     // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
@@ -4868,16 +4743,7 @@ extension DiagView {
 
 
 
-    // A staging cell tap. In PLAY mode the verbs are DISABLED — a tap on a STOCKED cell just makes it the active
-    // (playing) cell for its column. In EDIT mode: PLACE stocks the selected machine, DELETE clears, etc.
-    private func buildStagingTap(_ c: Int, _ r: Int) {
-        buildPartTouched = true                                   // a cell tap is a part-grid edit → stop auto-defaulting the row on entry
-        // A cell tap always SELECTS / DESELECTS one rung per column (populated or NOT — Paul 2026-08-15). EDIT mode is
-        // retired; the row BUTTONS carry the place/mutate actions now (buildRowMode). (Paul 2026-08-16)
-        buildStagingSel[c] = (buildStagingSel[c] == r) ? -1 : r   // tap the selected rung → deselect (column silent); else select it
-        buildStagingSyncIfPlaying()
-    }
-
+    // buildStagingTap RETIRED (Paul 2026-09-12 dead-code sweep — no caller; the part grid drives selection elsewhere).
     private func buildRowMachine(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<Snap.maxCols).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe; §E: scan all 16 columns
     private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one machine
         for c in 0..<Snap.maxCols { buildStagingCells[c][r] = cid }   // §E: fill the whole 16-col row (width governs view/play)
@@ -4885,25 +4751,8 @@ extension DiagView {
         if r < buildRowShade.count { buildRowShade[r] = 0 }
         buildDeletedRows[r] = nil
     }
-    private func buildClearPartGrid() {
-        for r in 0..<8 { buildSetRow(r, to: nil) }                 // clears cells + per-row chain/shade/deletedRows
-        buildStagingSel = Array(repeating: -1, count: Snap.maxCols)
-        buildRowReceiver = Array(repeating: nil, count: 8)
-        buildRowEmitters = Array(repeating: nil, count: 8)
-        buildRowUnder = Array(repeating: nil, count: 8)
-        buildDeletedRows = [:]
-        buildPartCast = []
-        buildPartLen = nil; buildPartRate = nil
-    }
-    // PLAY-GRID FERRY EDITING (Paul 2026-09-05, option C): PROMOTION archives the WHOLE part as a BuildPart onto the
-    // target play CELL (t, r) for lossless UNPACK, then CLEARS the grid — the part is stashed (part-backed), not lost.
-    // Reconciled onto the per-cell BuildPart store (was the per-column BuildPartSnapshot). Both promote paths call this.
-    private func buildArchivePartToPlay(_ t: Int, _ r: Int) {
-        guard t >= 0, t < 8, r >= 0, r < 8 else { return }
-        buildClearPartGrid()   // (part-backing store retired — the archive is dropped; only the grid clear remains)
-    }
-
-
+    // buildClearPartGrid + buildArchivePartToPlay RETIRED (Paul 2026-09-12 dead-code sweep — the old PROMOTE-to-play-cell
+    // archive path; its only caller (roomsAssignPlayColumn/roomsFlattenPartToPlay) went in the 2026-09-12 ferry sweep).
     // SELECT mode: make this row the selected rung in EVERY column — the whole-row equivalent of tapping a cell.
     private func buildSelectRow(_ row: Int) {
         guard row >= 0, row < 8 else { return }
@@ -4937,8 +4786,7 @@ extension DiagView {
     // step*Snap.rows + 8+c), so the ferry gathers ALL its steps' feeds → the whole pass's notes drift, not just step 0.
     // THE PART cell machine (Paul 2026-09-05 v2): a DARK, SATURATED, FLAT version of the row's MACHINE hue (row 7 = its yellow
     // machine, etc.) — matches the row selector (same hue), no wash/fade. The bright emitter constellation rides on top.
-    private func partCellFill(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.16)) } ?? buildCell }   // DEEP dark (Paul 2026-09-05: "primary as fuck" → much darker, just a hint of hue over the ground). MACHINE hue — kept for the PLAY ferry (roomsPlayFerry) only.
-    private func partCellFrame(_ id: String?) -> Color { id.map { Color(hex: mixHex(0x0E1116, buildBaseHex($0), 0.34)) } ?? buildEdge }   // a subtly-lighter dark edge — never the bright hue
+    // partCellFill / partCellFrame RETIRED (Paul 2026-09-12 dead-code sweep — no caller; the part cells use partPos* now).
     // FIXED-BY-ROW-POSITION dark-flat ground for the BENCH surfaces — the part cells + the part/SELECT→part side rails
     // (design-cell-language.md decision 4, RATIFIED: "row 7 always yellow", fixed by POSITION not machine identity; Paul
     // 2026-09-06 — "dark machines for the side rails and bright machines for the emitters", using partRowHexes). The dark

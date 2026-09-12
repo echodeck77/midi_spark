@@ -1164,18 +1164,7 @@ final class Router {
     var quiescent: Bool {
         distinctSounding == 0 && voices.allSatisfy { !$0.active } && refcount.allSatisfy { $0 == 0 } && !echoTailsActive
     }
-    /// I3 helper: true if two ACTIVE, non-silent voices share a full identity (note·chan·cable·emitter·Machine·face).
-    /// The adoption law folds an identically re-held voice into ONE — a duplicate here is a phantom (adoption miss).
-    var hasDuplicateVoices: Bool {
-        var seen = Set<UInt64>()
-        for v in voices where v.active && !v.silent {
-            let key = (UInt64(v.note) << 40) | (UInt64(v.chan) << 32) | (UInt64(v.cable) << 24)
-                    | (UInt64(v.bus) << 16) | (UInt64(bitPattern: Int64(v.machineIndex)) & 0xFF) << 8 | (v.alt ? 1 : 0)
-            if !seen.insert(key).inserted { return true }
-        }
-        return false
-    }
-
+    // hasDuplicateVoices (an I3 adoption-miss diagnostic) RETIRED (Paul 2026-09-12 dead-code sweep — no caller, not even in Tests).
     /// a8 DUMP: a compact one-line fingerprint of every still-open voice — the readable "corpse" for the
     /// assert-on-silence dump. Off the render hot path (called only when the silence invariant is violated).
     func stuckVoiceFingerprint() -> String {
