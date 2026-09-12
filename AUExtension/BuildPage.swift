@@ -2097,7 +2097,11 @@ extension DiagView {
     }
     func buildActivateFerry(_ t: Int) {
         guard t >= 0, t < 8 else { return }
-        if let a = buildActiveFerry, a >= 0, a < 8, a != t {                  // the OUTGOING active ferry
+        if t == buildActiveFerry {                                            // RE-TAPPING the ferry already on the bench
+            // The LIVE bench is the truth — capture it BEFORE the reload below, so re-tapping never discards
+            // in-progress edits by reloading the STALE stored part (Paul 2026-09-12: was silent data loss).
+            if buildFerryParts[t] != nil { buildFerryParts[t] = buildCaptureBenchPart() }
+        } else if let a = buildActiveFerry, a >= 0, a < 8 {                    // the OUTGOING active ferry
             if buildFerryParts[a] != nil { buildFerryParts[a] = buildCaptureBenchPart() }   // write back ONLY a POPULATED ferry's bench edits — an EMPTY selector must NOT be captured into a part (Paul 2026-09-12: navigating away from an empty selector was populating it)
             if buildVoiceOwner == .part { buildVoiceOwner = .none }           // release the single STAGING voice (the incoming ferry reclaims it if on)
             if a < buildPlayColOn.count, buildPlayColOn[a] { buildFlattenFerry(a) } else { buildClearFerryPlayback(a) }   // if it's still ON it keeps sounding in the BACKGROUND (the play layer)
@@ -3131,7 +3135,10 @@ extension DiagView {
         }
     }
     // ANY play column is running (the free-run gate + "is the play grid a voice"). Each column is independent (buildPlayColOn).
-    var buildPlayPlaying: Bool { buildPlayColOn.contains(true) }
+    // "The play surface is producing sound" — a play-layer ferry is ON, OR the ACTIVE on-bench ferry is sounding via the
+    // STAGING voice (buildVoiceOwner == .part). The staging case was omitted, so the header transport couldn't see (or
+    // stop) the active ferry — the STOP-won't-stop / PLAY-silences desync (Paul 2026-09-12).
+    var buildPlayPlaying: Bool { buildPlayColOn.contains(true) || buildStagingPlaying }
     // Toggle ONE play column's independent playback + republish. (Paul 2026-08-29 — each play cell starts/stops on its own.)
     func buildTogglePlayColumn(_ c: Int) {
         guard c >= 0, c < buildPlayColOn.count, buildPlayColHasContent(c) else { return }
@@ -3154,13 +3161,17 @@ extension DiagView {
     }
     // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
     func buildTogglePlayGrid() {
-        let anyOn = buildPlayColOn.contains(true)
+        let anyOn = buildPlayPlaying   // counts play-layer ferries AND the active-ferry staging voice, so STOP stops what's ACTUALLY sounding (Paul 2026-09-12)
         for c in 0..<8 {
             let willOn = anyOn ? false : buildPlayColHasContent(c)
             buildPlayColOn[c] = willOn
             if c < buildFerryParts.count, buildFerryParts[c] != nil { buildStampFerryLaunch(c, on: willOn) }   // PLAY-FERRY LAUNCH: stamp/clear each ferry's anchor on bulk play-all so an INSTANT/quantized ferry launches from its top too
         }
-        if !anyOn { buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false }   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02) + re-enables free-run after a host halt
+        if anyOn {
+            if buildVoiceOwner == .part { buildVoiceOwner = .none }   // STOP: also silence the ACTIVE-ferry staging voice — it sounds via buildVoiceOwner, not buildPlayColOn, so clearing the columns alone left it ringing (the STOP-won't-stop bug, Paul 2026-09-12)
+        } else {
+            buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02) + re-enables free-run after a host halt
+        }
         buildPublishScene()
     }
     // Column c has a populated selected rung (something to sound).
@@ -3185,7 +3196,7 @@ extension DiagView {
     // MASTER START/STOP — starts EVERY populated column at once (or stops all). Per-column control lives on the bottom
     // readout buttons (roomsPlayBottom) + the SELECT play-ferry buttons. Disabled until the grid has a populated rung.
     @ViewBuilder func roomsPlayStartStop() -> some View {
-        buildColumnButton(buildPlayPlaying ? "STOP ALL" : "START ALL", active: buildPlayPlaying, fill: .grid, enabled: buildPlayPopulated, fillHeight: true,
+        buildColumnButton(buildPlayPlaying ? "STOP ALL" : "START ALL", active: buildPlayPlaying, fill: .grid, enabled: buildPlayPopulated || buildPlayPlaying, fillHeight: true,   // keep STOP tappable even when nothing counts as "populated" but the staging voice is sounding (Paul 2026-09-12)
                           action: { buildTogglePlayGrid() })
     }
     @ViewBuilder func roomsPlayGrid() -> some View {
@@ -4438,9 +4449,7 @@ extension DiagView {
             for r in 0..<8 where buildRowMachine(r) == cid { buildSetRow(r, to: nil) }          // remove the machine's presence on the part grid (its row)
             buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)
             if (0..<8).allSatisfy({ buildRowMachine($0) == nil }), let a = buildActiveFerry, a >= 0, a < 8 {   // the whole part is now empty → clear the ferry cell
-                buildFerryParts[a] = nil
-                if a < buildPlayColOn.count { buildPlayColOn[a] = false }
-                buildClearFerryPlayback(a)
+                buildResetFerrySlot(a)                                    // FULL reset — parts + on + MUTE/SOLO + launch + hue-alloc (Paul 2026-09-12: was leaving solo/mute STALE, so a soloed ferry cleared to empty silenced every OTHER ferry with no UI path back)
                 buildVoiceOwner = .none; roomsRoom = .select              // → the SELECT browser; ferry `a` STAYS SELECTED (now empty) so a selector is always selected (Paul 2026-09-12)
                 roomsSelectSetup()                                                                // open the library browser (like the retired toggle)
             }
