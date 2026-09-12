@@ -16,15 +16,26 @@ OPEN:
   ring, the trash reveal on a ferry drag; the empty-slot colour REALLOCATION on a real 8-ferry palette. Spring-momentary
   play coexists with the drag (a SPRING ferry could briefly play as a drag starts — verify). (Replaces the retired
   long-press seed/copy.)
-- **DEAD-CODE PASS (grep-verified, needs a dedicated device-verified sweep):** the entangled legacy play-grid cluster —
-  `buildPlayCells`/`buildPlaySel`/`buildSelectMode`, the SELECT-ferry cluster (`roomsAssignPlayColumn`→`roomsFlattenPartToPlay`
-  →`buildSelectPlayColumn`→`buildArchivePartToPlay`→`buildPlayCellPart` (write-only)→`buildPlayFerryRow` — **NOTE 2026-09-12:
-  `roomsAssignPlayColumn`/`roomsFlattenPartToPlay`/`roomsStampSourceIO` are now REMOVED; `buildSelectPlayColumn`/
-  `buildArchivePartToPlay`/`buildPlayFerryRow` are the newly-exposed orphans remaining**), and the vestigial
-  `.play`/`.reel` room subtree (`roomsPlay`/`roomsPlayGrid`/`roomsPlayStartStop`/`roomsReel`/`roomsPlayNavSliver` — confirm no
-  reel entry outside the room system before removing the enum cases + their switch arms). Plus standalone orphans a survey
-  flagged: `buildSetPartRate`/`roomsGridCellW`/`roomsPartPianoRoll`/`roomsPartMacroSection`/`buildAddCastColour`/`buildStagingTap`/
-  `partCellFill`/`partCellFrame`/`buildGridSelDriftFace` + `@State buildRowMode`/`brush`.
+- **DEAD-CODE SWEEP 2026-09-12 (DONE, on `main`):** removed a whole-tree batch of grep-verified orphans —
+  `buildArchivePartToPlay`/`buildClearPartGrid`/`buildSelectPlayColumn`/`buildStagingTap`/`buildAddCastMachine`/
+  `buildPlaceCastSlot`/`buildRhythmDriverSlot`/`buildFocusedChain`/`partCellFill`/`partCellFrame`/`roomsPlayNavSliver`/
+  `roomsSelectButton`/`roomsVerticalPlay` (BuildPage) · `roomsAssignPlayColumn`/`roomsFlattenPartToPlay`/`roomsStampSourceIO`
+  + the stamp-copy cluster (earlier 2026-09-12 commit) · `Dice.fRole` · `DragDropPage.ddMachineCellsPublic`/
+  `ddApplyStickyRoutingMutation` · `MidiSparkAudioUnit.saveCellToLibrary` + 3 UI mark-feed poll wrappers ·
+  `Router.hasDuplicateVoices` · `@State buildPlayFerryRow`/`brush` · the whole `GridMacroBand.swift` file.
+- **DORMANT CLUSTERS (flagged, NOT a live bug — investigated 2026-09-12):** ① `buildSelectMode` + its ~readers — the
+  only thing that armed it (`roomsSelectButton`) was removed, so SELECT-mode is inaccessible; the readers are a harmless
+  dormant cluster. ② `editArmed`/`editingCell` — `editArmed` is never set true → `editingCell` is always nil → the
+  DragDropPage edit reads (`DragDropPage.swift:11,60`) are dead; this is the OLD edit-page machinery superseded by rooms.
+  ③ `buildPlaceArmed` — never set true → `buildExitPlaceMode`'s body is a permanent no-op (PLACE-mode arming UI was
+  removed); `buildExitPlaceMode` is still called from 5 live sites (kept — PLACE may return). All three want a dedicated
+  DragDropPage/rooms-legacy pass, not a piecemeal removal. (`buildStopAllOnTransportStop` — the old "stop de-arms all"
+  handler — was confirmed superseded by `buildTransportEdge` and REMOVED in the sweep; not a bug.)
+- **REMAINING DEAD-CODE PASS (grep-verified, needs a device-verified sweep):** the vestigial `.play`/`.reel` room subtree
+  (`roomsPlay`/`roomsPlayGrid`/`roomsPlayStartStop`/`roomsReel` — confirm no reel entry outside the room system before
+  removing the enum cases + switch arms). Plus survey-flagged standalone orphans to RE-verify (some may now be live):
+  `buildSetPartRate`/`roomsGridCellW`/`roomsPartPianoRoll`/`roomsPartMacroSection`/`buildAddCastColour` + `@State buildRowMode`.
+  (`buildGridSelDriftFace` is RESERVED — "the ferries keep it".)
 - **PICK-FROM-LIBRARY (add-a-row):** currently opens `buildOpenLibrary` (the browser); may need a row-targeted placement so the
   picked chain lands on the empty row directly. Also DUPLICATE copies the chain, not the register-home transpose.
 - **GRID FOOTERS are PLACEHOLDER, not wired** (SELECT=pages · PART=column-loop) — reserve-space only; behaviour unbuilt.

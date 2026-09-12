@@ -4179,17 +4179,9 @@ extension DiagView {
         // edge clears it so the armed voices RESUME in sync. An explicit BUILD play also clears it (audition while stopped).
         au?.setFreeRunEnabled((ddSolo || buildStagingPlaying || buildPerformPlaying || buildPlayPlaying) && !buildHostHalted)   // halted (host stopped after playing) → NO free-run, the voices resume when the host does
     }
-    // TRANSPORT STOPPED → stop everything (Paul 2026-08-31). Clears the shared audition + every play column and republishes,
-    // so the machine play button, the ferries, the cells and the comets/rolls all read STOPPED. Called on the d.playing
-    // falling edge (the poll's transport flag).
-    func buildStopAllOnTransportStop() {
-        var changed = false
-        if buildVoiceOwner != .none { buildVoiceOwner = .none; changed = true }
-        if buildPerformPlaying { buildPerformPlaying = false; changed = true }   // the PIECE is a free-run gate term too — STOP must clear it (else free-run stays enabled with no lit button)
-        for i in buildPlayColOn.indices where buildPlayColOn[i] { buildPlayColOn[i] = false; changed = true }
-        buildPendingWorkshopVoice = nil; buildPendingReengage = false
-        if changed { au?.clearMachineSolo(); buildPublishScene() }
-    }
+    // buildStopAllOnTransportStop RETIRED (Paul 2026-09-12): the OLD "host stop de-arms everything" handler. SUPERSEDED by
+    // buildTransportEdge (wired at the poll) — which HALTS play but KEEPS cells armed so START resumes in sync (Paul
+    // 2026-09-02). It had no caller; wiring it back would regress that intentional behaviour. NOT a bug.
     // THE HOST TRANSPORT drives 8×8's playback (Paul 2026-09-02): hitting STOP in the host HALTS play (silence) but does
     // NOT de-arm any cell — the armed state (owner + play columns + rung selections) is kept, so PLAY resumes IN SYNC with
     // the host. `buildHostHalted` gates free-run OFF while the host is stopped-after-playing (so it truly halts, not
