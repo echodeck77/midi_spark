@@ -3852,6 +3852,12 @@ extension DiagView {
                     else if !buildChainDragMoved { buildChainToggleBypass(i) }                                          // HELD + released IN PLACE (no drag) → BYPASS; a drag that returns to the same box is a no-op (Paul 2026-09-12)
                 },
             including: populated ? .all : .none)
+        // EMPTY box: a LONG PRESS also opens the ADD PROCESSOR card (Paul 2026-09-12) — the drag gesture above is disabled
+        // for empty boxes (`including: .none`) and a hold isn't a tap, so without this a long press did nothing. Guarded to
+        // the empty case; a populated box's hold is owned by the highPriorityGesture (drag) above, which wins.
+        .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44) {
+            if !populated { buildExitPlaceMode(); buildAddSlot = i }
+        }
     }
 
 
