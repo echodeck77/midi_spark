@@ -1795,6 +1795,7 @@ extension DiagView {
                 buildProcTab(cellName.uppercased(), active: buildEditSlot == nil, hue: hue) { buildEditSlot = nil; buildStageEye = false }
                 ForEach(0..<chain.count, id: \.self) { s in
                     if !buildIsEmptySlot(chain[s]) {
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.45))   // the chain flow, tab → tab (Paul 2026-09-12)
                         buildProcTab(buildProcLabel(chain[s]), active: buildEditSlot == s, hue: hue) { buildEditSlot = s; buildStageEye = false }
                     }
                 }
@@ -1804,9 +1805,11 @@ extension DiagView {
         .background(hue.opacity(0.22))   // the KEPT header styling
     }
     @ViewBuilder private func buildProcTab(_ label: String, active: Bool, hue: Color, _ tap: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1)
+        Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced))
+            .lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.7)   // LONGER names wrap to two lines (Paul 2026-09-12); a single long word shrinks rather than clip
             .foregroundColor(active ? .black : .white.opacity(0.7))
-            .padding(.horizontal, 12).frame(height: 30)
+            .frame(maxWidth: 64)                                                    // cap the text width → a long label wraps; a short one stays compact + one line
+            .padding(.horizontal, 12).padding(.vertical, 6).frame(minHeight: 30)     // min touch height; grows to fit two lines
             .background(RoundedRectangle(cornerRadius: 7).fill(active ? hue : Color.white.opacity(0.08)))
             .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
