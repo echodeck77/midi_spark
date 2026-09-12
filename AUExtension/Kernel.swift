@@ -451,10 +451,10 @@ final class Kernel {
     // a8 hang fix (2026-07-25): the passthrough echo is note-balanced through this gate so a note-OFF is
     // forwarded whenever its ON was — even if playing/audition flipped in between (else = a stuck note).
     private var passthroughGate = PassthroughGate()
-    // a8 assert-on-silence dump/trap: os_log surfaces the corpse in every build; DEBUG additionally traps
-    // (dump-before-trap, design side 2026-07-25). Flip `hardTrapOnStuckNote` to keep testing THROUGH a
-    // stuck note in a debug build (it still logs + self-heals). RELEASE never traps — never crash a gig.
-    private static let hangLog = OSLog(subsystem: "com.paulbarrett.MidiSpark", category: "hang")
+    // a8 assert-on-silence: the render thread self-HEALS (all-notes-off) and records the episode as plain numbers in
+    // KernelDiag; the human os_log now happens OFF the render thread (the VC poll, edge-triggered on `panics`) so a
+    // persistent violation can't crackle the audio thread. DEBUG additionally traps into the freshly-built corpse
+    // (flip `hardTrapOnStuckNote` to keep testing THROUGH one). RELEASE never traps — never crash a gig.
     #if DEBUG
     private static let hardTrapOnStuckNote = true
     #endif
@@ -1062,9 +1062,7 @@ final class Kernel {
         let producing = rPlaying || reel.state == .replaying
         if silenceInvariantViolated(playing: producing, heldInput: pool.count, auditioning: audition >= 0,
                                     activeVoices: diag.activeVoiceCount, passthroughHeld: diag.passthroughHeld) {
-            healStuckNotes(now: now, hardTrap: true,   // a hard invariant: DEBUG traps into the corpse
-                           reason: "silence violated (playing=\(playing) rPlaying=\(rPlaying) held=\(pool.count) audition=\(audition))",
-                           diag: &diag)
+            healStuckNotes(now: now, hardTrap: true, reasonCode: 1, diag: &diag)   // 1 = silence invariant (stopped); DEBUG traps into the corpse
             emptyInputSamples = 0
         } else {
             diag.silenceViolated = false
@@ -1084,9 +1082,7 @@ final class Kernel {
                                   auditioning: audition >= 0, emptyInputSamples: emptyInputSamples,
                                   debounceSamples: debounce, activeVoices: diag.activeVoiceCount,
                                   passthroughHeld: diag.passthroughHeld) {
-                healStuckNotes(now: now, hardTrap: false,
-                               reason: "playing silence leak (no source for \(emptyInputSamples) samples)",
-                               diag: &diag)
+                healStuckNotes(now: now, hardTrap: false, reasonCode: 2, diag: &diag)   // 2 = playing silence leak (soft — no trap)
                 emptyInputSamples = 0
             }
         }
@@ -1096,15 +1092,20 @@ final class Kernel {
     /// log FIRST (always legible), all-notes-off every router voice, flush any stranded passthrough echo as a
     /// note-off on All + Emit A, and count the self-heal. `hardTrap` = a HARD invariant (DEBUG crashes into the
     /// logged corpse); false = a heuristic net (soft-heal only, no trap).
-    private func healStuckNotes(now: Int64, hardTrap: Bool, reason: String, diag: inout KernelDiag) {
-        let dump = "MidiSpark STUCK-NOTE: \(reason) — voices=[\(router.stuckVoiceFingerprint())] "
-                 + "echoes=[\(passthroughGate.heldFingerprint())]"
-        os_log(.fault, log: Self.hangLog, "%{public}s", dump)            // RELEASE: soft — surfaces without crashing a gig
+    private func healStuckNotes(now: Int64, hardTrap: Bool, reasonCode: Int32, diag: inout KernelDiag) {
+        // RENDER-THREAD DISCIPLINE (Paul 2026-09-12): the CURE runs here (alloc-free); the REPORT does NOT. We record
+        // the reason + pre-flush counts as plain numbers and the main-thread poll (edge-triggered on `panics`, at 4 Hz,
+        // ONCE per episode) builds the human line + os_logs it. The old version built a `[String]` voice fingerprint +
+        // a `dump` String + `os_log(.fault)` on the audio thread EVERY block the violation persisted — a per-block heap
+        // alloc + hang-subsystem log = audible crackle / a DSP MAX overload. No String / no os_log on this path now.
+        diag.stuckReason = reasonCode
+        diag.stuckVoices = diag.activeVoiceCount        // capture BEFORE the flush zeroes them (for the off-thread log)
+        diag.stuckEchoes = diag.passthroughHeld
         diag.silenceViolated = true
         diag.panics &+= 1
-        router.allNotesOff(atSample: now, out: liveEmitter)              // close any leaked sequenced voices
+        router.allNotesOff(atSample: now, out: liveEmitter)              // close any leaked sequenced voices (alloc-free)
         if let out = midiOut {                                           // flush stranded echoes as offs on All + Emit A
-            for (chan, note) in passthroughGate.drainActive() {
+            for (chan, note) in passthroughGate.drainActive() {         // drainActive returns the shared empty array (no alloc) unless echoes are genuinely stranded
                 passthroughScratch[0] = 0x80 | chan; passthroughScratch[1] = note; passthroughScratch[2] = 0
                 _ = out(now, 0, 3, &passthroughScratch)
                 _ = out(now, 1, 3, &passthroughScratch)
@@ -1112,7 +1113,11 @@ final class Kernel {
         }
         diag.activeVoiceCount = 0; diag.passthroughHeld = 0
         #if DEBUG
-        if hardTrap && Self.hardTrapOnStuckNote { assertionFailure(dump) }   // DEBUG: crash into the (already-logged) corpse
+        if hardTrap && Self.hardTrapOnStuckNote {                        // DEBUG ONLY (never the crackle build): build the corpse + crash into it
+            let dump = "MidiSpark STUCK-NOTE (reason \(reasonCode)): voices=[\(router.stuckVoiceFingerprint())] "
+                     + "echoes=[\(passthroughGate.heldFingerprint())]"
+            assertionFailure(dump)
+        }
         #endif
     }
 

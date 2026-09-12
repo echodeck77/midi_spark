@@ -3,6 +3,7 @@
 
 import CoreAudioKit
 import SwiftUI
+import os
 
 #if DEBUG
 // DEV-ONLY FULL RELOAD (Paul 2026-09-11): the header RESET posts this; the VIEW CONTROLLER (which survives the SwiftUI
@@ -145,6 +146,8 @@ final class LiveTelemetry {
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State var d = KernelDiag()      // polled for the grid's effColumn / playing
+    @State var lastStuckPanics: UInt64 = 0   // a8 STUCK-NOTE: last-seen heal count — the poll logs a heal ONCE (off the render thread) when this rises
+    static let hangLog = OSLog(subsystem: "com.paulbarrett.MidiSpark", category: "hang")   // a8 corpse log — now written from the MAIN thread (the render thread only records counts) so it can't crackle the audio
     @State var uiAppeared = true     // §4c INVISIBLE=FROZEN: this view is on-screen (host shows our plugin)
     @State var appActive = true      // §4c: the app is foregrounded
     var animationsPaused: Bool { !(uiAppeared && appActive) }   // hidden OR backgrounded ⇒ freeze the canvas
@@ -860,6 +863,13 @@ struct DiagView: View {
             // whole grid every 0.25s (which used to tear down in-progress press-holds). When STOPPED
             // nothing here changes, so the grid is quiescent; while PLAYING only the playhead fields move.
             let nd = au.kernelDiagnostics()
+            if nd.panics != lastStuckPanics {   // a8 STUCK-NOTE: the render thread healed since the last poll — log it ONCE here, off the audio thread (was an os_log PER BLOCK on the render path = crackle; Paul 2026-09-12)
+                lastStuckPanics = nd.panics
+                let why = nd.stuckReason == 1 ? "silence invariant violated (stopped)"
+                        : nd.stuckReason == 2 ? "playing silence leak (no source)" : "stuck note"
+                os_log(.fault, log: DiagView.hangLog, "MidiSpark STUCK-NOTE: %{public}s — voices=%d echoes=%d panics=%llu",
+                       why, nd.stuckVoices, nd.stuckEchoes, nd.panics)
+            }
             meters.syncBeat(nd.beat, tempo: nd.tempo, playing: nd.playing, at: Date())   // BEAT clock (4 Hz) → the telemetry; playheads extrapolate at 30 fps. DEJITTER: re-anchors only on a discontinuity, else free-runs (see syncBeat) → no 4 Hz stutter
             buildTickFerryOneShot(nd.beat)                                // PLAY-FERRY LAUNCH (Phase 2b): stop a ONE-SHOT ferry one part-length after its launch (≤ one poll of the pass end)
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop

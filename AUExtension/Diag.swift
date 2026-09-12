@@ -43,6 +43,13 @@ struct KernelDiag {
     var passthroughHeld = 0
     var silenceViolated = false
     var panics: UInt64 = 0
+    // The last heal's context, captured on the render thread as PLAIN NUMBERS so the main-thread poll can build the
+    // human log line + os_log it OFF the audio thread (edge-triggered on `panics`). The render thread must NOT build
+    // a String or os_log — a persistent violation would then alloc+log every audio block = crackle / DSP overload
+    // (Paul 2026-09-12). Reason: 0 none · 1 silence invariant violated (stopped, hard) · 2 playing silence leak (soft).
+    var stuckReason: Int32 = 0
+    var stuckVoices = 0                // router voices active at the last heal (captured before the flush cleared them)
+    var stuckEchoes = 0                // passthrough echoes stranded at the last heal
     // DOOR REPLAY diagnostic (2026-08-22): localize "loop animates but silent" — engaged mask → captured loop size →
     // frozen-pool size. engaged=0 ⇒ never engaged · loopN=0 ⇒ recording/capture empty · loopN>0 & poolN=0 ⇒ the
     // notesSoundingAt/fill isn't reaching the pool · poolN>0 & still silent ⇒ no grid cell reads the door (or emit gate).
