@@ -120,6 +120,12 @@ struct BuildPlayGridData: Codable, Equatable {
     // ONE full BuildPart (nil ⇒ an empty ferry). This SUPERSEDES the 8×8 `playCellPart`; additive-Optional → an old doc
     // decodes `parts == nil` and migrates via `partsResolved` (below). Phase 1: the model + persistence only (invisible).
     var parts: [BuildPart?]? = nil
+    // COMMITTED SELECT-GRID CELLS (Paul 2026-09-12): an edited SELECT cell pins a chain + colour + a generated hash NAME at
+    // its grid index (an override that wins over the dealt/library bank). Persisted so the edit survives save/reload and a
+    // re-deal. All additive-Optional → old docs decode nil. Index-keyed (Codable encodes [Int: …] as an array).
+    var gridSelChains: [Int: [ProcessorSlot]]? = nil
+    var gridSelHues: [Int: UInt32]? = nil
+    var gridSelNames: [Int: String]? = nil
 }
 extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedData pattern) — a field added later never fails an older save
     init(from decoder: Decoder) throws {
@@ -140,6 +146,9 @@ extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedDat
         playCellPart = try c.decodeIfPresent([[BuildPart?]].self, forKey: .playCellPart)   // PLAY-GRID FERRY EDITING (2026-09-05); nil = absent
         workingPart  = try c.decodeIfPresent(BuildPart.self, forKey: .workingPart)
         parts        = try c.decodeIfPresent([BuildPart?].self, forKey: .parts)             // THE PLAY FERRIES ARE PARTS (2026-09-08); nil = absent → partsResolved migrates
+        gridSelChains = try c.decodeIfPresent([Int: [ProcessorSlot]].self, forKey: .gridSelChains)   // committed SELECT cells (2026-09-12); nil = absent
+        gridSelHues  = try c.decodeIfPresent([Int: UInt32].self, forKey: .gridSelHues)
+        gridSelNames = try c.decodeIfPresent([Int: String].self, forKey: .gridSelNames)
     }
     /// THE 8 FERRY PARTS (Paul 2026-09-08), migration-aware: `parts` when present (padded/clamped to 8), else derived
     /// from the legacy per-cell `playCellPart` — each ferry COLUMN's first part-backed cell — else all-nil. Always 8 slots.

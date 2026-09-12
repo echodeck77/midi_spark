@@ -1787,9 +1787,13 @@ extension DiagView {
     // active tab wears the machine hue. Keeps the old header's hue-tinted styling.
     @ViewBuilder private func buildProcCardTabs(chain: [ProcessorSlot]) -> some View {
         let hue = buildCardHue
-        let cellName: String = buildActiveFerry
+        // The first (cell/ferry-settings) tab's name: a COMMITTED audition's generated hash name wins (Paul 2026-09-12), else
+        // the active ferry's own name, else "UNSET".
+        let committedName = buildGridSelSel.flatMap { buildGridSelName[$0] }
+        let ferryName = buildActiveFerry
             .flatMap { $0 >= 0 && $0 < buildFerryParts.count ? buildFerryParts[$0]?.ferryName : nil }
-            .flatMap { $0.isEmpty ? nil : $0 } ?? "UNSET"
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let cellName = committedName ?? ferryName ?? "UNSET"
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 buildProcTab(cellName.uppercased(), active: buildEditSlot == nil, hue: hue) { buildEditSlot = nil; buildStageEye = false }
@@ -4605,7 +4609,7 @@ extension DiagView {
         var parts = buildFerryParts                                          // THE PLAY FERRIES ARE PARTS — the source of truth
         if let a = buildActiveFerry, a >= 0, a < 8, buildFerryParts[a] != nil { parts[a] = buildCaptureBenchPart() }   // fold in a POPULATED active ferry's live bench edits — never persist an empty selector as a part (Paul 2026-09-12)
         let anyPart = parts.contains { $0 != nil }
-        let hasContent = anyPart || (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }
+        let hasContent = anyPart || !buildGridSelName.isEmpty || (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }   // committed SELECT cells are content too (Paul 2026-09-12)
         guard hasContent else { return nil }
         var ids = Set<String>()
         for col in buildPlayCells { for cell in col { if let id = cell { ids.insert(id) } } }
@@ -4621,6 +4625,11 @@ extension DiagView {
                                      colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
                                      colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, machines: machines, hues: hues, idCounter: buildIDCounter)
         data.parts = parts
+        if !buildGridSelOverride.isEmpty {   // COMMITTED SELECT cells — persist the pinned chain + colour (Paul 2026-09-12)
+            data.gridSelChains = buildGridSelOverride.mapValues { $0.chain }
+            data.gridSelHues = buildGridSelOverride.mapValues { $0.hex }
+        }
+        if !buildGridSelName.isEmpty { data.gridSelNames = buildGridSelName }   // …and their generated hash names
         return data
     }
     func buildRestorePlayGrid(_ d: BuildPlayGridData) {
@@ -4637,6 +4646,14 @@ extension DiagView {
             buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
         }
         for t in 0..<8 { buildFlattenFerry(t) }                              // regenerate each ferry's playback line from its part (canonical)
+        // COMMITTED SELECT cells (Paul 2026-09-12): restore the pinned chain + colour + name so an edited cell survives reload.
+        if let chains = d.gridSelChains {
+            let hues = d.gridSelHues ?? [:]
+            var ov: [Int: (chain: [ProcessorSlot], hex: UInt32)] = [:]
+            for (i, ch) in chains { ov[i] = (ch, hues[i] ?? machineHexes[((i % 8) * 2) % 16]) }
+            buildGridSelOverride = ov
+        }
+        if let names = d.gridSelNames { buildGridSelName = names }
         buildPublishScene()   // republish so restored STARTED ferries sound at once
     }
     // PART AUTOMATION (Paul 2026-09-02): capture the per-machine AUTO lanes for the save (prune machines with no active
@@ -6126,7 +6143,8 @@ extension DiagView {
         // §3.1 THE PREGEN CORPUS: once the pool exists, DEAL is INSTANT — a seeded shuffle drawing 64 (RE-DEAL bumps the
         // seed → a fresh 64). While the corpus is still building, fall back to a fresh 64-roll so the first open isn't empty.
         buildGridSelLastSlot.removeAll()                                // a re-deal remaps index→chain → drop the last-viewed-slot memory (Paul 2026-09-10)
-        buildGridSelName.removeAll()                                    // …and the committed hash names (index-keyed → stale after a re-deal) — Paul 2026-09-12
+        // COMMITTED cells PERSIST across a re-deal (Paul 2026-09-12): their override pins the index, so DON'T clear
+        // buildGridSelName here — the background corpus upgrade re-deals, and wiping names made committed cells revert by themselves.
         if !buildGridSelCorpus.isEmpty {
             var rng = DiceRNG(seed: buildGridSelDealSeed)
             buildGridSelDealt = Array(buildGridSelCorpus.shuffled(using: &rng).prefix(64))
@@ -6336,7 +6354,6 @@ extension DiagView {
         // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
         let selGrey = greyUnlessSel && sel && !committed
         let fill = present ? (sel ? (selGrey ? buildSelectGrey : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)   // selGrey ALTERNATES two bright shades per selection (matches the machine box; Paul 2026-09-01)
-        let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
         // TASTEFUL CHEQUER (Paul 2026-08-31): the SELECT grid reads as a BOARD — a faint two-tone parity wash on every
         // non-selected cell (the classic chessboard), subtle enough not to fight the roll. SELECT grid only (greyUnlessSel);
         // the bright selected/focus cell stays clean.
@@ -6344,12 +6361,7 @@ extension DiagView {
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(fill)
             if chequer { RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)) }   // the lighter square of the board
-            if present {   // EVERY present cell wears its chain's notes drifting right→left (like the part/play grid) — the active one brighter, over its live roll
-                // The drift ANIMATES only while the chain is actually PLAYING (Paul 2026-08-30 bug): gating on `sel` alone kept
-                // the fingerprint looping after STOP on "play this midi chain" (MIDI stopped, animation didn't) — reads as still running.
-                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint, strikeIdx: sel ? (buildChainAuditionRow.map { [$0] } ?? []) : [])   // Paul 2026-09-05: SELECTED cell scrolls (only when playing) + its stars blink on live strikes
-                    .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
-            }
+            // (THE PIANO-ROLL / CONSTELLATION FACE IS REMOVED from the SELECT cell — Paul 2026-09-12: a plain coloured tile.)
             if committed, let nm = buildGridSelName[i] {   // the generated hash name, on the selected-colour cell (Paul 2026-09-12)
                 Text(nm).font(.system(size: min(11, h * 0.4), weight: .heavy, design: .monospaced)).tracking(0.5)
                     .foregroundColor(.black.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
