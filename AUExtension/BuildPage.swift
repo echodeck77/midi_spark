@@ -2017,7 +2017,18 @@ extension DiagView {
                     .overlay { if focused { RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(0.95)) } }              // FOCUSED = the light source: its OWN full colour
                     .overlay {
                         if set {
-                            HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
+                            // THE SELECTED selector PULSES with the part's MIDI output (Paul 2026-09-12): the focused ferry is
+                            // the part on the bench, so its identity dots flash the same velocity feed as its play button —
+                            // matching the play-ferry pulse. Non-focused selectors stay static (only the selected one animates).
+                            if focused {
+                                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                                    let lvl = buildFlashLevel(buildPlayColSweepIndices(t), now: tl.date)
+                                    HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
+                                        .brightness(lvl * 0.6).scaleEffect(1.0 + lvl * 0.22)
+                                }
+                            } else {
+                                HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
+                            }
                         } else {
                             Image(systemName: "plus").font(.system(size: min(10, selH * 0.5), weight: .bold)).foregroundColor(buildDim)
                         }
@@ -2038,8 +2049,8 @@ extension DiagView {
                     // icon (a trailing Spacer keeps the icon+name group hugging the left). Paul 2026-09-10.
                     .overlay {
                         HStack(spacing: 6) {
-                            if set && on {   // RUNNING → the STOP icon FLASHES the play column's velocity (Paul 2026-09-11: flash the icon, not the cell)
-                                flashingIcon("stop.fill", size: min(12, playH * 0.5), tint: mHue, baseOpacity: 0.85, indices: buildPlayColSweepIndices(t))
+                            if set && on {   // RUNNING → the PLAY icon FLASHES the play column's velocity (Paul 2026-09-12: always a PLAY icon, never STOP — keep the velocity flash)
+                                flashingIcon("play.fill", size: min(12, playH * 0.5), tint: mHue, baseOpacity: 0.85, indices: buildPlayColSweepIndices(t))
                             } else {
                                 Image(systemName: set ? "play.fill" : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim)
                             }
