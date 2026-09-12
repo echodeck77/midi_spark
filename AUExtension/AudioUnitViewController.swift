@@ -1044,8 +1044,8 @@ struct DiagView: View {
             // §1 TRUTH STRIPS — OUT mini-roll: while the processor editor is open, accumulate emitted note-ons into a
             // drifting roll (cn is read-and-clear → every note is a fresh onset; no diffing). Aggregated across the board:
             // during a chain audition (part stopped) that IS the chain's output. Pruned to ~2.5s; ≤96 marks.
-            if editorOpen {
-                var out = buildOutRoll
+            if editorOpen && buildProcessingNow {               // ACCUMULATE only while MIDI reaches THIS processor instance
+                var out = buildOutRoll                          // (Paul 2026-09-12) — so a DIFFERENT row's output never enters this roll
                 for i in 0..<Snap.cells {
                     let k = min(Int(cn.count[i]), 6)
                     for j in 0..<k where i * 6 + j < cn.pitch.count {
@@ -1055,6 +1055,9 @@ struct DiagView: View {
                 out = out.filter { mnow.timeIntervalSince($0.born) < 2.5 }
                 if out.count > 96 { out = Array(out.suffix(96)) }
                 if out != buildOutRoll { buildOutRoll = out }   // guard idle re-renders
+            } else if editorOpen {                              // editor open but NOT processing: stop accumulating, let the
+                let out = buildOutRoll.filter { mnow.timeIntervalSince($0.born) < 2.5 }   // last notes drift out + gray (never a different row's live output)
+                if out != buildOutRoll { buildOutRoll = out }
             } else if !buildOutRoll.isEmpty { buildOutRoll = [] }
             // §4 STAGE EYE — INPUT roll: while the eye is open, accumulate the watched door's note ONSETS (diff the held set)
             // so the top lane scrolls what arrives. recvHeldNotes is already updated above (editor open ⊇ eye open).

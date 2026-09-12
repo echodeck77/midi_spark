@@ -5394,14 +5394,23 @@ extension DiagView {
     // Is the EDITED cell the one actually sounding right now? In "PLAY THIS MIDI CHAIN" the OUT IS this chain (true). In
     // "PLAY THIS PART" it's only this cell when the edited machine's rung is the active one under the playhead — otherwise
     // the OUT strip is showing OTHER cells of the part, so we say so + dim it (idea 24 follow-up, Paul 2026-08-25).
+    // Is MIDI actually reaching THIS focused processor instance right now? (Paul 2026-09-12) — the ONE gate the IN piano +
+    // the OUT roll share: a chain audition IS this processor; a PART cell only while its row is the active rung under the
+    // playhead (the playhead on a column where this row isn't selected ⇒ NOT processing); nothing when stopped/no voice.
+    var buildProcessingNow: Bool {
+        switch buildDisplayVoice {
+        case .chain: return true
+        case .part:
+            guard d.playing, let r = buildSelectedRow else { return false }
+            return d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == r
+        case .none: return false
+        }
+    }
     private var buildTruthOutContext: (label: String, live: Bool) {
         switch buildDisplayVoice {
         case .chain: return ("this chain", true)
-        case .part:
-            let r = buildSelectedRow
-            let sounding = d.playing && r != nil && d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == r
-            return (sounding ? "this cell — live" : "part — not this cell", sounding)
-        case .none: return ("press ▶ to hear it", false)
+        case .part:  return (buildProcessingNow ? "this cell — live" : "part — not this cell", buildProcessingNow)
+        case .none:  return ("press ▶ to hear it", false)
         }
     }
     @ViewBuilder private func buildTruthStrips() -> some View {
@@ -5416,7 +5425,7 @@ extension DiagView {
             VStack(alignment: .leading, spacing: 4) {
                 buildStripLabel("IN")
                 if !held.isEmpty {
-                    buildInKeyboard(held, hue: hue)                         // live input → lit
+                    buildInKeyboard(held, hue: hue).opacity(buildProcessingNow ? 1 : 0.4)   // BRIGHT when MIDI reaches this instance; GRAYED (notes still shown) when the playhead isn't on this row (Paul 2026-09-12)
                 } else if inGrace {
                     buildInKeyboard(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
                 } else {
