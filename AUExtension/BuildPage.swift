@@ -3811,52 +3811,37 @@ extension DiagView {
         }
         .contentShape(Rectangle())
         .onTapGesture { buildExitPlaceMode(); if populated { buildEditSlot = i } else { buildAddSlot = i } }   // quick TAP → open the editor (empty box → the ADD PROCESSOR picker)
-        // HOLD → DRAG → (Paul 2026-09-10): a populated box is HELD to enter drag mode — the red TRASH appears in the left
-        // flank. DRAG onto the trash (chainBlock x < 0) + drop = DELETE; drag onto another box = REORDER; LONG-PRESS then
-        // RELEASE IN PLACE (no move) = toggle BYPASS. highPriorityGesture so a quick tap falls through to the editor
-        // (onTapGesture) and a completed hold is not double-handled. Empty boxes are not sources.
-        // LEAVE A BEAT (Paul 2026-09-11): the trash + drop highlights used to fire at 0.28s — too eager on a casual hold.
-        // Now it waits buildGridSelStampDur (0.65s, the house hold beat), so a hold doesn't instantly apply the drag UI.
-        // EMPTY BOXES ARE NOT SOURCES (Paul 2026-09-11): disable this gesture for an unpopulated box (`including: .none`) so a
-        // tap falls straight through to the onTapGesture above → the ADD PROCESSOR card. (highPriorityGesture on every box
-        // was swallowing the empty-box tap.)
+        // IMMEDIATE DRAG (Paul 2026-09-12): a populated box enters drag mode as soon as the finger MOVES — NO long-press first.
+        // The red TRASH + the droppable destination rings appear at once (gated on chainDragActive && buildChainDragMoved,
+        // both set on the first move). minimumDistance 8 keeps a stationary TAP falling through to the editor (onTapGesture).
+        // Drop on the trash (chainBlock x < 0) = DELETE; drop on another box = REORDER. BYPASS moved to the hold below now
+        // that the drag no longer needs a hold. Empty boxes are not sources (`including: .none`) → their tap/hold reach ADD.
         .highPriorityGesture(
-            LongPressGesture(minimumDuration: buildGridSelStampDur)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("chainBlock")))
-                // AUTO-RESETTING "actively held" flag — true once the hold completes through the drag; SwiftUI resets it when
-                // the gesture ends OR is CANCELLED, so the highlights can never stick visible. Paul 2026-09-10.
-                .updating($chainDragActive) { value, state, _ in
-                    switch value { case .first(true), .second: if populated { state = true }; default: break }
-                }
-                .onChanged { value in
+            DragGesture(minimumDistance: 8, coordinateSpace: .named("chainBlock"))
+                // AUTO-RESETTING "actively dragging" flag — true while the drag is live; SwiftUI resets it when the gesture
+                // ends OR is CANCELLED, so the trash/targets/ghost can never stick visible. Paul 2026-09-10.
+                .updating($chainDragActive) { _, state, _ in if populated { state = true } }
+                .onChanged { drag in
                     guard populated else { return }
-                    switch value {
-                    case .first(true):                                    // held → enter drag mode; the ghost starts at this box's centre
-                        buildChainDragFrom = i
-                        buildChainDragLoc = CGPoint(x: CGFloat(i % 2) * (w + gap) + w / 2, y: CGFloat(i / 2) * (h + gap) + h / 2)
-                        buildChainDropTo = nil; buildChainOverTrash = false; buildChainDragMoved = false   // no movement yet → the trash stays hidden
-                    case .second(true, let drag?):                        // dragging
-                        if abs(drag.translation.width) + abs(drag.translation.height) > 8 { buildChainDragMoved = true }   // a REAL drag → reveal the trash (Paul 2026-09-11: drag only, not the hold)
-                        buildChainDragLoc = drag.location
-                        let overTrash = drag.location.x < -6              // the trash is the LEFT flank (negative x in the box-grid space)
-                        buildChainOverTrash = overTrash
-                        buildChainDropTo = overTrash ? nil : buildChainTargetIndex(drag.location, boxW: w, boxH: h, gap: gap, count: chain.count)
-                    default: break
-                    }
+                    if buildChainDragFrom == nil { buildChainDragFrom = i }   // drag just started → lift this box
+                    buildChainDragMoved = true                                // a real drag is underway → reveal the trash + targets
+                    buildChainDragLoc = drag.location
+                    let overTrash = drag.location.x < -6                      // the trash is the LEFT flank (negative x in the box-grid space)
+                    buildChainOverTrash = overTrash
+                    buildChainDropTo = overTrash ? nil : buildChainTargetIndex(drag.location, boxW: w, boxH: h, gap: gap, count: chain.count)
                 }
-                .onEnded { value in
+                .onEnded { _ in
                     defer { buildChainDragFrom = nil; buildChainDropTo = nil; buildChainOverTrash = false; buildChainDragMoved = false }
-                    guard populated, case .second = value else { return }
+                    guard populated else { return }
                     if buildChainOverTrash { buildChainRemoveSlot(i); if buildEditSlot == i { buildEditSlot = nil } }   // dropped on the trash → DELETE
                     else if let to = buildChainDropTo, to != i { buildChainMoveSlot(from: i, to: to) }                  // dropped on another box → REORDER
-                    else if !buildChainDragMoved { buildChainToggleBypass(i) }                                          // HELD + released IN PLACE (no drag) → BYPASS; a drag that returns to the same box is a no-op (Paul 2026-09-12)
                 },
             including: populated ? .all : .none)
-        // EMPTY box: a LONG PRESS also opens the ADD PROCESSOR card (Paul 2026-09-12) — the drag gesture above is disabled
-        // for empty boxes (`including: .none`) and a hold isn't a tap, so without this a long press did nothing. Guarded to
-        // the empty case; a populated box's hold is owned by the highPriorityGesture (drag) above, which wins.
+        // HOLD in place (Paul 2026-09-12): empty box → ADD PROCESSOR card; populated box → toggle BYPASS (moved off the drag,
+        // which is now immediate). Guarded `!buildChainDragMoved` so a hold can never fire BYPASS mid-drag.
         .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44) {
             if !populated { buildExitPlaceMode(); buildAddSlot = i }
+            else if !buildChainDragMoved { buildChainToggleBypass(i) }
         }
     }
 
