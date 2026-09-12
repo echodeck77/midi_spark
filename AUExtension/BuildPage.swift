@@ -2108,7 +2108,7 @@ extension DiagView {
     // ACTIVE (on-bench) ferry, its live edits are captured first so what plays matches what you're editing.
     func buildFlattenFerry(_ t: Int) {
         guard t >= 0, t < 8 else { return }
-        if buildActiveFerry == t { buildFerryParts[t] = buildCaptureBenchPart() }
+        if buildActiveFerry == t, buildFerryParts[t] != nil { buildFerryParts[t] = buildCaptureBenchPart() }   // capture live edits only for a POPULATED active ferry — never populate an empty one (Paul 2026-09-12)
         guard let p = buildFerryParts[t] else {
             if t < buildPlayColSteps.count { buildPlayColSteps[t] = [] }
             if t < buildPlayColLen.count { buildPlayColLen[t] = 1 }
@@ -2139,7 +2139,7 @@ extension DiagView {
     func buildActivateFerry(_ t: Int) {
         guard t >= 0, t < 8 else { return }
         if let a = buildActiveFerry, a >= 0, a < 8, a != t {                  // the OUTGOING active ferry
-            buildFerryParts[a] = buildCaptureBenchPart()                      // write back its bench edits
+            if buildFerryParts[a] != nil { buildFerryParts[a] = buildCaptureBenchPart() }   // write back ONLY a POPULATED ferry's bench edits — an EMPTY selector must NOT be captured into a part (Paul 2026-09-12: navigating away from an empty selector was populating it)
             if buildVoiceOwner == .part { buildVoiceOwner = .none }           // release the single STAGING voice (the incoming ferry reclaims it if on)
             if a < buildPlayColOn.count, buildPlayColOn[a] { buildFlattenFerry(a) } else { buildClearFerryPlayback(a) }   // if it's still ON it keeps sounding in the BACKGROUND (the play layer)
         }
@@ -4618,7 +4618,7 @@ extension DiagView {
     // they reference, so a reload restores the whole play grid. Only when there's content (a populated/multi-step column).
     func buildCapturePlayGrid() -> BuildPlayGridData? {
         var parts = buildFerryParts                                          // THE PLAY FERRIES ARE PARTS — the source of truth
-        if let a = buildActiveFerry, a >= 0, a < 8 { parts[a] = buildCaptureBenchPart() }   // fold in the active ferry's live bench edits (read-only capture)
+        if let a = buildActiveFerry, a >= 0, a < 8, buildFerryParts[a] != nil { parts[a] = buildCaptureBenchPart() }   // fold in a POPULATED active ferry's live bench edits — never persist an empty selector as a part (Paul 2026-09-12)
         let anyPart = parts.contains { $0 != nil }
         let hasContent = anyPart || (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }
         guard hasContent else { return nil }
