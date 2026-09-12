@@ -1753,6 +1753,7 @@ extension DiagView {
                 if roomsRoom == .part {
                     ForEach(0..<DiagView.roomsGridRows, id: \.self) { n in
                         roomsSideButton(n, part: true).frame(width: 26, height: 26)
+                            .overlay { roomsCardRowPlayhead(n, w: 26, h: 26).clipShape(RoundedRectangle(cornerRadius: 5)) }   // a 1-step sweep while THIS row plays (Paul 2026-09-12)
                     }
                 }
                 ForEach(0..<chain.count, id: \.self) { s in
@@ -3014,6 +3015,29 @@ extension DiagView {
                     let cellY = CGFloat(r) * (rowH + gap)
                     Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: rowH)
                         .offset(x: sweepX, y: cellY).allowsHitTesting(false)
+                }
+            }
+        }
+    }
+    // THE CARD-HEADER ROW PLAYHEAD (Paul 2026-09-12): a 1-step left→right sweep over the row-`n` selector box in the
+    // processor-card header — shown ONLY while THAT row is the active rung of the current column (i.e. that row of THIS part
+    // is playing). Same clock/column math as roomsPartPlayhead; `fract` is the progress along the current column = one step.
+    @ViewBuilder private func roomsCardRowPlayhead(_ n: Int, w: CGFloat, h: CGFloat) -> some View {
+        if d.playing && (buildStagingPlaying || buildActiveFerryPlaying) {
+            let sb = buildPartRate?.beats ?? stepBeats
+            let cols = buildPartCols
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
+                let colF = sb > 0 ? musical / sb : 0
+                let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
+                let pcol = wrapped < 0 ? wrapped + Double(cols) : wrapped
+                let c = min(cols - 1, max(0, Int(pcol)))
+                let fract = min(1.0, max(0.0, pcol - Double(c)))
+                let r = c < buildStagingSel.count ? buildStagingSel[c] : -1   // the current column's ACTIVE rung
+                if r == n {
+                    Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: h)
+                        .offset(x: -w / 2 + w * CGFloat(fract)).allowsHitTesting(false)   // sweeps left→right across the box over one step
                 }
             }
         }
