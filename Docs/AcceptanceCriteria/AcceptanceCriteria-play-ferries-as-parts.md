@@ -40,9 +40,11 @@ should play — it must sequence like a step sequencer (visible sweep, per-colum
 - **G** a ferry holds a part · **W** the user taps ferry `t` · **T** the bench shows `parts[t]`'s grid (view/edit); the
   part plays via the flatten path if it is "on"; the ferry reads **selected**.
 - **G** an **empty** ferry · **W** the user taps it · **T** the bench shows the **SELECT grid** (browse/build a chain).
-- **G** the SELECT grid with a machine/MIDI **chain** selected · **W** the user **long-presses an empty ferry** · **T**
-  a **new part** is created in that ferry, seeded with the selected chain in **row 0**; the ferry becomes selected and
-  its (new) part grid opens. (A ferry always holds a part, even when seeded from a single chain.)
+- **G** the SELECT grid · **W** the user **drags a SELECT cell onto a ferry** (the long-press seed is RETIRED 2026-09-12)
+  · **T** a **new part** is created in that ferry, carrying the cell's chain in **row 0**, and INHERITING the cell's
+  **name** + **colour**; it overwrites a populated ferry. The ferry becomes selected and its (new) part grid opens. (A
+  ferry always holds a part, even when populated from a single cell.) A **ferry→ferry** drag MOVES the part (overwrites
+  the target, vacates the source); a **ferry→machine-box-trash** drag DELETES it.
 - **G** several ferries "on" · **W** playing · **T** all their parts sound simultaneously (up to 8 lines).
 - **G** the user edits the bench while ferry `t` is active · **T** the edit writes back to `parts[t]` (live view).
 - **"Both ferry buttons show as selected"** (Paul's phrase) resolves to: the active ferry reads selected on the ferry
@@ -50,10 +52,12 @@ should play — it must sequence like a step sequencer (visible sweep, per-colum
   exact two lit elements on device; it's a display detail, not a model fork.)
 
 ## What RETIRES
-- **SELECT-backed play cells** — a ferry is always a part now (`roomsAssignPlayColumn`'s single-cell path folds into
-  "seed a new part from the chain").
+- **SELECT-backed play cells** — a ferry is always a part now. *(`roomsAssignPlayColumn` REMOVED 2026-09-12; a ferry is
+  populated by DRAGGING a SELECT cell onto it — `buildPopulateFerry`.)*
+- **The long-press seed/copy gesture** (and its rising-fill/commit-bloom animation) on the ferries + the right side-rail —
+  RETIRED 2026-09-12, replaced by ferry drag-and-drop (`buildFerryDragGesture` / `buildFerryDrop`).
 - **Hand-authored multi-step passes** — passes stay as internal flatten output, not a user-facing authoring step
-  (`roomsFlattenPartToPlay` becomes an internal "flatten `parts[t]` for playback" helper).
+  (the ferry-parts flatten is `buildFlattenFerry`; `roomsFlattenPartToPlay` REMOVED 2026-09-12).
 - **The part/select toggle** — replaced by ferry selection (empty → select, populated → that part). *(Phase 3.)*
 - The per-cell `buildPlayCellPart` 8×8 store + the per-row play cells (`buildPlayCells`) collapse to the 8-slot `parts`.
 
@@ -75,9 +79,10 @@ should play — it must sequence like a step sequencer (visible sweep, per-colum
 
 **Phase 2 — ferry nav + seed-from-select + live edit-write-back.**
 - Tapping ferry `t`: populated → load `parts[t]` onto the bench (`buildLoadPart`-style) and mark it active; empty →
-  show the SELECT grid. Long-press an empty ferry on SELECT → `buildSeedPartFromChain(t)` (new part, chain in row 0),
-  activate it. Bench edits write back to `parts[buildActiveFerry]`. Selecting reads "on" ferries and flattens each for
-  simultaneous playback (reuse the existing flatten). Device-verify: seed, switch, simultaneous play, edit persists.
+  show the SELECT grid. **Populate by DRAGGING a SELECT cell onto the ferry → `buildPopulateFerry(t, …)`** (new part,
+  chain in row 0, inheriting the cell's name + colour; overwrites a populated ferry) — the long-press seed is RETIRED
+  (2026-09-12). Bench edits write back to `parts[buildActiveFerry]`. Selecting reads "on" ferries and flattens each for
+  simultaneous playback (reuse the existing flatten). Device-verify: drag-populate, switch, simultaneous play, edit persists.
 
 **Phase 3 — retire the toggle + dead state. ✅ DONE (Paul 2026-09-08).**
 - (1/3) CLEAR removes a colour's part-grid presence; an emptied part clears its ferry → the SELECT browser (the

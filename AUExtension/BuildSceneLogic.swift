@@ -486,3 +486,26 @@ enum BuildSceneLogic {
         return part
     }
 }
+
+// ── FERRY DRAG-AND-DROP (Paul 2026-09-12) — the drag carries a SELECT cell or a play ferry; it drops on a ferry (populate
+//    / move-overwrite) or the machine-box trash (delete). The enums live here (not in the SwiftUI BuildPage) so the pure
+//    decision cores below reach the unit-test target; BuildPage's gesture + FerryZoneKey reference them from the same module.
+enum FerryDragSource: Equatable { case selectCell(Int), ferry(Int) }
+enum FerryDropZone: Hashable { case ferry(Int), trash }
+extension BuildSceneLogic {
+    /// Which drop zone (if any) contains point `p`, in the shared drag space. The trash wins ties; then ferries 0…<ferries>. Pure.
+    static func ferryZoneAt(_ p: CGPoint, zones: [FerryDropZone: CGRect], ferries: Int = 8) -> FerryDropZone? {
+        if let r = zones[.trash], r.contains(p) { return .trash }
+        for t in 0..<ferries { if let r = zones[.ferry(t)], r.contains(p) { return .ferry(t) } }
+        return nil
+    }
+    /// EMPTY-FERRY COLOUR REALLOCATION (Paul 2026-09-12): a SELECT cell of colour `cellHex` is overwriting populated ferry
+    /// `target` (current colour `oldHex`). If the incoming colour is the current colour of some EMPTY ferry, that empty
+    /// ferry should be re-allocated the DISPLACED colour `oldHex` (so the 8-slot palette never doubles up). Returns the
+    /// empty-ferry index to reassign (the first match, ≠ target), or nil when no reassignment is needed. Pure.
+    static func ferryColourDisplacement(target: Int, cellHex: UInt32, oldHex: UInt32, empty: [Bool], hex: [UInt32]) -> Int? {
+        guard oldHex != cellHex else { return nil }
+        let n = min(empty.count, hex.count)
+        return (0..<n).first { u in u != target && empty[u] && hex[u] == cellHex }
+    }
+}

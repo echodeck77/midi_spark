@@ -199,6 +199,29 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FERRY DRAG-AND-DROP — long-press copy/seed RETIRED; SELECT-cell-is-a-part; colour inherit + reallocation; housekeeping
+  (2026-09-12, on `main`, `7f1bd88`…`6852381` + the housekeeping commit; iOS builds, macOS 1086→1090 green; DEVICE eye owed).
+  Paul reworked how a SELECT cell reaches a play ferry. **COPY GESTURE RETIRED:** the play-ferry + right side-rail LONG-PRESS
+  copy/seed (and the rising-fill/commit-bloom animation) are GONE. **DRAG-AND-DROP (`947d866`)** in a shared `"rooms"`
+  coordinate space (custom finger-track + FerryZoneKey drop-zone frames + floating ghost — `.onDrag` doesn't survive the AU
+  host): a **SELECT cell → play ferry** populates it; a **ferry → ferry** MOVES (overwrites target, vacates source, carries
+  play/mute/solo); a **ferry → the machine-box trash** deletes it (the trash now reveals on a ferry drag too). Ferry
+  spring-momentary play is kept; the side-rail is tap-to-select only. **SELECT-CELL = A PART WITH ONE ROW + INHERIT
+  (`6852381`):** dragging a SELECT cell makes the ferry INHERIT the cell's **name** (committed hash, else a short chain
+  hash), **colour** (`ferryHue`), and **settings** (chain) — not a fresh positional part hue. **COLOUR REALLOCATION:** a cell
+  dropped on a populated ferry of a DIFFERENT colour whose incoming colour is currently allocated to an EMPTY ferry → that
+  empty ferry is re-allocated the DISPLACED colour (`buildFerryHueAlloc`, consulted by `buildFerryHex` for empty slots,
+  persisted in `BuildPlayGridData.ferryHueAlloc`, additive-Optional). **SELECT-CELL FACE (`7f1bd88`/`d186888`):** the SELECT
+  cell keeps its piano-roll face UNTIL it's committed (named), then the name replaces the roll; committed cells persist with
+  the session (`gridSelChains`/`Hues`/`Names`) + no auto-revert; the ferry settings tab takes the cell's name.
+  **HOUSEKEEPING (this pass):** extracted the pure ferry-drop cores to `BuildSceneLogic` (`FerryDragSource`/`FerryDropZone`
+  enums + `ferryZoneAt` + `ferryColourDisplacement`) so they reach the test target (+4 BuildSceneLogicTests: ferryHueAlloc &
+  gridSel* round-trips, zone hit-test, reallocation); DRY'd the ferry activate path (`buildReactivateFerry`); removed the
+  now-dead copy/stamp cluster (`buildGridSelStampSweep`/`Pressing`/`Fire`/`Commit`/`CanStamp`, `roomsStampFire`, +
+  `roomsAssignPlayColumn`/`roomsFlattenPartToPlay`/`roomsStampSourceIO` — the retired play-column ferry — + 5 dead @State).
+  **FLAGGED:** `buildArchivePartToPlay`/`buildSelectPlayColumn`/`buildPlayFerryRow` are now orphaned too (a deeper retired
+  play-column cluster — left for a dedicated dead-code pass, they touch part-grid persistence). DEVICE-owed: the whole drag
+  feel (ghost, hovered-ferry cyan ring, trash reveal), the inherited name/colour read, the reallocation on a real palette.**
 - **▶ COLOUR → MACHINE — the concept renamed (2026-09-09, on branch `feature/machine-rename`; macOS 1085 green, iOS builds;
   awaiting merge). Paul: the `Colour` object no longer means "a sound colour the user picks" — it is a MIDI treatment/machine
   (a processor `type` + `MachineParams`/`templateChain` + identity), carrying zero routing (that's on `Cell`) and zero stored
@@ -284,7 +307,8 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   `b4f18d3`) — each of the 8 play ferries IS a full `BuildPart` (`buildFerryParts`/`buildActiveFerry`, persisted via
   `BuildPlayGridData.parts` + `partsResolved` migration). The ferry row is the SOLE navigation (SELECT|PART toggle
   retired): a populated ferry's SELECTOR opens its part on the bench, an empty ferry → the SELECT browser; long-press an
-  empty ferry on SELECT seeds a part from the selected chain; CLEAR frees a ferry (empties the part → the ferry clears →
+  empty ferry on SELECT seeds a part from the selected chain **[SUPERSEDED 2026-09-12 — the long-press seed/copy is RETIRED;
+  populate a ferry by DRAGGING a SELECT cell onto it (see the top FERRY DRAG-AND-DROP entry)]**; CLEAR frees a ferry (empties the part → the ferry clears →
   SELECT). Playback: the ACTIVE (on-bench) ferry plays via the STAGING step-sequencer (visible sweep, per-column selected
   rung, live edits); BACKGROUND on-ferries via the play-layer flatten — up to 8 at once. Seed fills the whole first row;
   extending a part to 16 tiles the pattern. Retired the SELECT-backed play cells / hand-authored passes / cursor. STILL

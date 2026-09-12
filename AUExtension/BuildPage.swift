@@ -8,9 +8,8 @@ enum BuildWorkshopVoice { case none, chain, part }
 
 // FERRY DRAG-AND-DROP (Paul 2026-09-12, supersedes the long-press copy/seed). A drag carries a SELECT grid cell or a play
 // ferry; it drops onto a ferry (populate / move-overwrite) or the machine-box trash (delete a ferry). Drop-zone frames are
-// collected in the shared "rooms" coordinate space via FerryZoneKey (reported by each ferry + the trash).
-enum FerryDragSource: Equatable { case selectCell(Int), ferry(Int) }
-enum FerryDropZone: Hashable { case ferry(Int), trash }
+// collected in the shared "rooms" coordinate space via FerryZoneKey (reported by each ferry + the trash). The FerryDragSource
+// / FerryDropZone enums + the pure hit-test/reallocation cores live in BuildSceneLogic.swift (so they reach the test target).
 struct FerryZoneKey: PreferenceKey {
     static let defaultValue: [FerryDropZone: CGRect] = [:]
     static func reduce(value: inout [FerryDropZone: CGRect], nextValue: () -> [FerryDropZone: CGRect]) {
@@ -2264,12 +2263,8 @@ extension DiagView {
                 if let s = s { buildFerryDrop(source: s, zone: zone) }
             }
     }
-    // Which drop zone (if any) contains point `p` (in the "rooms" space). Trash wins if they ever overlap.
-    func buildFerryZoneAt(_ p: CGPoint) -> FerryDropZone? {
-        if let r = buildFerryZones[.trash], r.contains(p) { return .trash }
-        for t in 0..<8 { if let r = buildFerryZones[.ferry(t)], r.contains(p) { return .ferry(t) } }
-        return nil
-    }
+    // Which drop zone (if any) contains point `p` (in the "rooms" space) — the pure core lives in BuildSceneLogic.
+    func buildFerryZoneAt(_ p: CGPoint) -> FerryDropZone? { BuildSceneLogic.ferryZoneAt(p, zones: buildFerryZones) }
     // Resolve a completed drag: SELECT cell → ferry = populate (overwrite); ferry → ferry = move (overwrite); ferry →
     // trash = delete. A SELECT cell on the trash is a no-op (library entries aren't deleted this way — Paul 2026-09-12).
     func buildFerryDrop(source: FerryDragSource, zone: FerryDropZone?) {
@@ -2296,7 +2291,9 @@ extension DiagView {
         buildRecordUndo()
         if let cellHex = hue, t < buildFerryParts.count, buildFerryParts[t] != nil {   // overwriting a populated ferry
             let oldHex = buildFerryHex(t)
-            if oldHex != cellHex, let u = (0..<8).first(where: { $0 != t && buildFerryParts[$0] == nil && buildFerryHex($0) == cellHex }) {
+            let empty = (0..<8).map { buildFerryParts[$0] == nil }
+            let hex = (0..<8).map { buildFerryHex($0) }
+            if let u = BuildSceneLogic.ferryColourDisplacement(target: t, cellHex: cellHex, oldHex: oldHex, empty: empty, hex: hex) {
                 buildFerryHueAlloc[u] = oldHex                                        // the displaced colour moves to the empty ferry that held the incoming colour
             }
         }
@@ -2312,8 +2309,7 @@ extension DiagView {
         buildFerryHueAlloc[t] = nil                                                   // a populated ferry's colour comes from its part now, not the empty-slot alloc
         buildSyncMachines()
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }                      // a populated ferry starts playing at once (via the staging sequencer once activated)
-        if buildActiveFerry == t { buildActiveFerry = nil }                           // force a fresh load of the NEW part (skip the stale-bench writeback)
-        buildActivateFerry(t)
+        buildReactivateFerry(t)                                                       // fresh load of the NEW part (skip the stale-bench writeback)
     }
     // MOVE ferry `from` → `to` (overwrites the target; vacates the source), carrying play/mute/solo state. (Paul 2026-09-12)
     func buildMoveFerry(_ from: Int, to: Int) {
@@ -2330,8 +2326,7 @@ extension DiagView {
         if to < buildPlayColMute.count { buildPlayColMute[to] = mute }
         if to < buildPlayColSolo.count { buildPlayColSolo[to] = solo }
         buildSyncMachines()
-        buildActiveFerry = nil                                                        // fresh activate (the source is now empty → no writeback)
-        buildActivateFerry(to)
+        buildReactivateFerry(to)                                                      // fresh activate the moved part (the source is now empty → no stale writeback)
     }
     // DELETE ferry `t` (drag it to the machine-box trash). Clears the slot; if it was on the bench, falls back to the
     // SELECT browser (the empty-ferry behaviour), keeping it selected. (Paul 2026-09-12)
@@ -2341,7 +2336,7 @@ extension DiagView {
         let wasActive = buildActiveFerry == t
         buildResetFerrySlot(t)
         buildSyncMachines()
-        if wasActive { buildActiveFerry = nil; buildActivateFerry(t) }                // t is now empty → opens the browser, stays selected
+        if wasActive { buildReactivateFerry(t) }                                      // t is now empty → opens the browser, stays selected
         else { buildPublishScene() }
     }
     // Clear ferry slot `t` FULLY — part + on/mute/solo + launch anchors + play-layer playback. No undo (callers record).
@@ -2355,6 +2350,12 @@ extension DiagView {
         if t < launchBeat.count       { launchBeat[t] = 0 }
         buildFerryHueAlloc[t] = nil                                                   // a freshly-emptied slot returns to its positional base colour
         buildClearFerryPlayback(t)                                                    // steps/len/recv/emit/playCells
+    }
+    // Activate ferry `t` with a FRESH load — clear any stale active-ferry pointer first so buildActivateFerry doesn't write
+    // the OLD bench back over the new/moved part (the source slot is already emptied by the caller). (Paul 2026-09-12)
+    func buildReactivateFerry(_ t: Int) {
+        if buildActiveFerry == t { buildActiveFerry = nil }
+        buildActivateFerry(t)
     }
     // The FLOATING GHOST that follows the finger during a ferry drag (drawn in the "rooms" space, hit-transparent).
     @ViewBuilder func buildFerryDragGhost() -> some View {
@@ -2373,87 +2374,9 @@ extension DiagView {
                 .allowsHitTesting(false)
         }
     }
-    // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
-    // (default row 1). Writes ONLY the play grid's OWN store (buildPlayCells) — NOT the shared buildStagingCells — so it
-    // appears at the play grid's selected position + column t's bottom readout, and NEVER touches the part-grid side
-    // buttons (the bug this fixes). Mints a machine carrying the source chain + register home; a confirm flash.
-    private func roomsAssignPlayColumn(_ t: Int) {
-        guard t >= 0 && t < 8 else { return }
-        if roomsRoom == .part { roomsFlattenPartToPlay(t); return }           // PART page → FLATTEN the part into a multi-step pass (Paul 2026-08-30)
-        guard let hit = buildGridSelStampSource() else { return }
-        let srcRow = buildGridSelStampSourceRow                              // Paul 2026-09-05: the part row this cell was promoted FROM (nil ⇒ a library/audition source, nothing to remove)
-        buildRecordUndo()                                                    // the play grid is now in the undo snapshot → ferrying is undoable (2026-08-31)
-        buildGridSelStampRow = nil; buildGridSelStampAt = nil                 // hand the rising fill over to the confirm flash
-        buildPlayColLen[t] = 1; buildPlayColSteps[t] = []; buildPlayColRate[t] = nil   // a SELECT single-cell ferry clears any prior multi-step pass on this column
-        buildPlayColStepRecv[t] = []; buildPlayColStepEmit[t] = []
-        let r = max(0, min(7, buildPlayFerryRow))   // the FERRY CURSOR row (▲▼-chosen) — Paul 2026-08-31
-        let y = buildNewTabMachine(t, machine: hit.chain, transpose: hit.transpose, hex: playHexes[t % playHexes.count])   // a machine carrying the chain + register home, in the PLAY grid's DUSK hue per column (Paul 2026-08-30)
-        buildPlayCells[t][r] = y
-        let io = roomsStampSourceIO()                                        // COPY the source's I/O (Paul 2026-08-29: "play will have the copied settings")
-        if t < buildPlayColRecv.count { buildPlayColRecv[t] = io.recv }
-        if t < buildPlayColEmit.count { buildPlayColEmit[t] = io.emit }
-        if t < buildPlaySel.count { buildPlaySel[t] = r }                    // make the assigned rung the selected one (so it shows on play)
-        // FERRYING TO PLAY STARTS IT (Paul 2026-08-30): start this play column, and STOP the select grid's audition (its
-        // extra voice) — parallel to the select→part ferry, which switches playback to the held target. The play layer
-        // then sounds via its persistent voice; the previously-auditioning library cell goes quiet.
-        if t < buildPlayColOn.count { buildPlayColOn[t] = true }
-        buildVoiceOwner = .none; au?.clearMachineSolo()                       // the SELECT/PART shared audition stops — the play layer is the voice now
-        buildSelectPlayColumn(t)                                             // the FERRIED play cell becomes THE selection (deselects the source; machine strip + I/O toggles reflect it — Paul 2026-08-30)
-        if srcRow != nil { buildArchivePartToPlay(t, r) }                    // Paul 2026-09-05: promoted FROM the part grid → archive the whole part onto this play CELL (for lossless unpack) + clear the bench
-        buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()   // the white→fade confirm (offset space, so no side-button collision)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
-        buildPublishScene()                                                  // republish: the started column plays, the audition is off
-    }
-    // FLATTEN THE PART → a multi-step play pass (Paul 2026-08-30). Long-pressing a play ferry on the PART page captures the
-    // current part's SEQUENCE — its per-column selected-rung machines across the loop length — onto play column t as an N-step
-    // pass (playColSteps/Len/Rate). The play layer then sweeps + loops that pass at the part's tempo, disjoint from the part
-    // rows. v1: one output (the part's default door + emitters) for the whole pass; per-step I/O is a follow-up.
-    private func roomsFlattenPartToPlay(_ t: Int) {
-        let len = max(1, min(Snap.maxCols, buildPartLen ?? Snap.cols))   // §E: flatten up to 16 steps
-        let steps: [String?] = (0..<len).map { c in
-            let rr = c < buildStagingSel.count ? buildStagingSel[c] : -1
-            return (rr >= 0 && c < buildStagingCells.count && rr < buildStagingCells[c].count) ? buildStagingCells[c][rr] : nil
-        }
-        guard let rep = steps.compactMap({ $0 }).first else { return }       // nothing selected in the part → nothing to flatten
-        buildRecordUndo()                                                    // flattening a part onto a play column is undoable (2026-08-31)
-        buildGridSelStampRow = nil; buildGridSelStampAt = nil
-        let r = max(0, min(7, buildPlayFerryRow))   // the FERRY CURSOR row (▲▼-chosen) — Paul 2026-08-31
-        buildPlayColSteps[t] = steps
-        buildPlayColLen[t] = len
-        buildPlayColRate[t] = buildPartRate                                  // the pass plays at the part's own tempo
-        // PER-STEP I/O (Paul 2026-08-30): each step keeps the door + emitters of the part ROW (rung) it flattened from, so a
-        // part whose columns route to different doors/emitters keeps that routing on the play pass.
-        buildPlayColStepRecv[t] = (0..<len).map { c in
-            let rung = c < buildStagingSel.count ? buildStagingSel[c] : -1
-            return rung >= 0 ? buildRowReceiverResolved(rung) : buildSelReceiver
-        }
-        buildPlayColStepEmit[t] = (0..<len).map { c in
-            let rung = c < buildStagingSel.count ? buildStagingSel[c] : -1
-            return rung >= 0 ? buildRowEmittersResolved(rung) : (buildDefaultEmitters)
-        }
-        buildPlayCells[t][r] = buildNewTabMachine(t, machine: buildMachineChain(rep), hex: playHexes[t % playHexes.count])   // a DUSK representative (carries the first step's chain) so the play column reads dusk, not the part's vivid hue (Paul 2026-08-30)
-        buildPlaySel[t] = r
-        buildPlayColRecv[t] = buildSelReceiver                               // the column DEFAULT (the ferry dot/drift tint + any rest-step fallback)
-        buildPlayColEmit[t] = buildDefaultEmitters
-        buildPlayColOn[t] = true                                            // start it
-        // Paul 2026-09-05: promoting the PART ARCHIVES the whole part-grid state onto this play cell (for a future restore),
-        // then CLEARS the grid; and ARMS the fresh-I/O pulse so the NEXT new select-grid cell starts null + inviting.
-        buildArchivePartToPlay(t, r)
-        buildPartJustPromoted = true
-        buildVoiceOwner = .none; au?.clearMachineSolo()                      // the part/chain shared audition stops — the play column now carries the sequence (no doubling)
-        buildSelectPlayColumn(t)
-        buildGridSelStampFlashRow = t + 8; buildGridSelStampFlashAt = Date()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == t + 8 { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
-        buildPublishScene()
-    }
-    // The I/O the ferry SOURCE is currently playing through (Paul 2026-08-29: the play cell copies the settings). An aimed
-    // side-row source uses that row's resolved door/emitters; otherwise the SELECT audition's door + emitters.
-    private func roomsStampSourceIO() -> (recv: Int, emit: Set<Bus>) {
-        if let s = buildGridSelStampSourceRow, buildRowMachine(s) != nil {
-            return (buildRowReceiverResolved(s), buildRowEmittersResolved(s))
-        }
-        return (buildSelReceiver, buildDefaultEmitters)
-    }
+    // roomsAssignPlayColumn / roomsFlattenPartToPlay / roomsStampSourceIO (the old SELECT-top-button + part-flatten play-column
+    // ferry, long-press-driven) are RETIRED (Paul 2026-09-12) — the ferry-is-a-part model + drag-and-drop (buildPopulateFerry /
+    // buildMoveFerry / buildFlattenFerry) replaced them; they had no call site left.
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
     // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)
     // §MERGE (Paul 2026-09-08): the SELECT browser is now FOUR rows (was 8) — the left rail's 4 categories (ARP·RIFF·
@@ -2652,20 +2575,10 @@ extension DiagView {
             }
             // The long-press COPY (roomsStampFire) is RETIRED (Paul 2026-09-12) — the rail is tap-to-select only now.
     }
-    // ROOMS long-press stamp: copy the active source onto side button n, then make the TARGET the active selection
-    // (Paul 2026-08-28) — the copied slot becomes the currently-selected cell + reflects its chain. (Old BUILD's row
-    // chips keep buildGridSelStampFire directly, so their multi-stamp source is untouched.)
-    private func roomsStampFire(_ n: Int, part: Bool) {
-        let did = buildGridSelCanStamp
-        buildGridSelStampFire(n)
-        guard did else { return }
-        buildRoomsSetActiveSide(n)                                       // the TARGET side button is now the active selection
-        if buildRowMachine(n) != nil { if !part { buildGridSelAimRow(n) }; buildTapMachineTab(n) }   // reflect its chain — PART: FOCUS only, never selects a grid rung (Paul 2026-09-02)
-    }
+    // roomsStampFire (the side-rail long-press copy) is RETIRED (Paul 2026-09-12 — ferry drag-and-drop; rail is tap-only).
     // TAP a SELECT side button — a POPULATED one becomes the active selection + stamp source (and auditions its chain); an
     // EMPTY one only AIMS (targets a future stamp) — it must not read as selected when the user hasn't committed. (Paul 2026-08-29)
     private func roomsTapSide(_ n: Int) {
-        if buildFerryHeld { buildFerryHeld = false; return }            // released-early hold → don't steal focus / re-audition the playing cell
         buildGridSelAimRow(n)                                            // aim this row as the stamp/commit target (+ audition if populated)
         if buildRowMachine(n) != nil { buildRoomsSetActiveSide(n) }      // only a POPULATED button becomes THE active selection + copy source
     }
@@ -3208,7 +3121,6 @@ extension DiagView {
     // selection, shared with SELECT) + the copy source, and reflects its chain in the panel. It does NOT select a grid
     // row — the CHEVRON rail (now on the LEFT, roomsPartRightRail) does that. (Paul 2026-08-28)
     private func roomsTapPartSide(_ n: Int) {
-        if buildFerryHeld { buildFerryHeld = false; return }            // released-early hold → don't steal focus / re-audition the playing cell
         buildRoomsSetActiveSide(n)                                      // this left button is THE selected slot (+ copy source); clears any library-cell source
         if buildRowMachine(n) != nil { buildTapMachineTab(n) }           // reflect its chain in the MIDI CHAIN panel (does NOT touch the grid rung selection)
     }
@@ -6437,8 +6349,6 @@ extension DiagView {
     // HOLD-TO-STAMP (Paul 2026-08-26): while a browse CELL auditions, HOLDING a part-row stamps the auditioning chain onto
     // that row — KEEPING the row's own machine — WITHOUT closing the browser (so you can stamp one machine onto several
     // parts). A populated row keeps its hue + register (chain overwritten); an empty row mints a machine carrying the chain.
-    // Fires a white→fade FLASH on the row. Requires a browse cell to be the source (buildGridSelSel != nil).
-    private var buildGridSelCanStamp: Bool { buildGridSelStampSource() != nil }
     // The active STAMP SOURCE — one of two (mutually exclusive, "one thing is active"): a browse CELL
     // (buildGridSelSel, SELECT library) or an active SIDE BUTTON's populated part row (buildGridSelStampSourceRow).
     // This is what a long-press copy stamps. (Paul 2026-08-28)
@@ -6458,22 +6368,7 @@ extension DiagView {
         if n != buildRowGenConfirm?.row { buildRowGenConfirm = nil }   // focusing a DIFFERENT row drops any pending KEEP|TRY-AGAIN (never sticks) — Paul 2026-09-11
         buildGridSelStampSourceRow = n; buildGridSelSel = nil
     }
-    private func buildGridSelStampCommit(_ row: Int) {
-        guard let hit = buildGridSelStampSource() else { return }
-        buildRecordUndo()   // BUILD UNDO: capture the auditioning chain onto a part row
-        // CAPTURE-INTO-MIRROR (Paul 2026-08-29): every long-press makes a FRESH cell in the row's PREDETERMINED machine
-        // (machineHexes[row]) carrying whatever's CURRENTLY PLAYING (hit = the audition's chain + its register home), written
-        // to the part ROW — so the ferry button and that part row are ONE cell thereafter (edits mirror). An INDEPENDENT
-        // copy: not linked to the source. (Was: keep an existing row's machine + overwrite only the chain.)
-        if row < buildRowUnder.count { buildRowUnder[row] = buildRowMachine(row) }
-        let y = buildNewTabMachine(row, machine: hit.chain, transpose: hit.transpose)
-        if !buildPartCast.contains(y) { buildPartCast.append(y) }
-        buildSetRow(row, to: y)
-        if row < buildRowReceiver.count { buildRowReceiver[row] = ddStickyReceiver; buildRowEmitters[row] = ddStickyBuses }
-        buildStagingSyncIfPlaying()
-        buildGridSelStampFlashRow = row; buildGridSelStampFlashAt = Date()   // the white→fade confirm
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { if buildGridSelStampFlashRow == row { buildGridSelStampFlashRow = nil; buildGridSelStampFlashAt = nil } }
-    }
+    // buildGridSelStampCommit (the ferry/rail long-press capture-into-mirror) is RETIRED (Paul 2026-09-12 — ferry drag-and-drop).
 
     @ViewBuilder private func buildGridSelCell(_ i: Int, w: CGFloat, h: CGFloat, greyUnlessSel: Bool = false, vPad: CGFloat = 3) -> some View {
         let present = buildGridSelPresent(i)
@@ -6545,41 +6440,9 @@ extension DiagView {
             DispatchQueue.main.async { if self.buildGridSelRollGen == gen { self.buildGridSelCellRoll = out } }
         }
     }
-    private var buildGridSelStampDur: Double { 0.65 }
-    private func buildGridSelStampPressing(_ n: Int, _ pressing: Bool) {
-        if pressing {
-            buildFerryHeld = false                                       // fresh gesture
-            if buildGridSelCanStamp { buildGridSelStampRow = n; buildGridSelStampAt = Date() }
-        } else if buildGridSelStampRow == n {                            // released before completion → cancel the rising fill
-            // A DELIBERATE hold (fill was running > ~0.2s) released before the copy committed → suppress the follow-up TAP
-            // so it doesn't steal focus / re-audition the playing cell. A quick tap (< 0.2s) still selects normally. (Paul 2026-08-29)
-            if let at = buildGridSelStampAt, Date().timeIntervalSince(at) > 0.2 { buildFerryHeld = true }
-            buildGridSelStampRow = nil; buildGridSelStampAt = nil
-        }
-    }
-    private func buildGridSelStampFire(_ n: Int) {
-        guard buildGridSelCanStamp else { return }
-        buildGridSelStampRow = nil; buildGridSelStampAt = nil            // hand the rising fill over to the confirm flash
-        buildGridSelStampCommit(n)
-    }
-    // The rising WHITE fill while a row is held (fraction = elapsed / stampDur), then a full-white → fade CONFIRM once stamped.
-    @ViewBuilder private func buildGridSelStampSweep(_ n: Int, height: CGFloat, hue: Color = .white) -> some View {
-        if buildGridSelStampRow == n, let start = buildGridSelStampAt {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let f = min(1.0, max(0.0, tl.date.timeIntervalSince(start) / buildGridSelStampDur))
-                Rectangle().fill(Color.white.opacity(0.9)).frame(height: max(0, height * CGFloat(f)))   // rising WHITE progress while held
-            }
-        } else if buildGridSelStampFlashRow == n, let fs = buildGridSelStampFlashAt {
-            // THE REVEAL (Paul 2026-09-01): on COMMIT the cell BLOOMS its real machine MACHINE — a saturated wash of `hue`
-            // eases out over ~0.6s, settling to the now-populated cell. The disposable grey draft "becomes real" in its own
-            // machine (machine = kept). Was a plain white flash — invisible as a machine payoff on these mostly-dark cells.
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let raw = min(1.0, tl.date.timeIntervalSince(fs) / 0.6)
-                let e = 1 - (1 - raw) * (1 - raw)                                   // ease-out
-                Rectangle().fill(hue.opacity(0.9 * (1 - e)))                        // full machine → clear (the bloom)
-            }
-        }
-    }
+    private var buildGridSelStampDur: Double { 0.65 }   // still LIVE: the SELECT cell→cell long-press copy (roomsCopyToSelectCell)
+    // buildGridSelStampPressing / buildGridSelStampFire / buildGridSelStampSweep (the ferry+rail long-press copy gesture,
+    // its rising-fill + commit-bloom animation) are RETIRED (Paul 2026-09-12) — superseded by ferry drag-and-drop.
     private func buildGridSelAimRow(_ n: Int) {
         buildGridSelArrivalRow = n
         buildSelReceiver = buildRowReceiverResolved(n)                    // the audition plays through the AIMED part's door + emitters (so the MIDI-IN/OUT chips reflect it)

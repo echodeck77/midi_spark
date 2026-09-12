@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 
 // Tests for the pure BUILD decision cores extracted from BuildPage (Paul 2026-08-16): scene composition and the
 // staging-selection reconcile. BuildPage itself is a SwiftUI extension outside the test target; these functions are
@@ -840,6 +841,59 @@ final class BuildSceneLogicTests: XCTestCase {
         let blank = BuildPlayGridData()
         XCTAssertEqual(blank.partsResolved.count, 8)
         XCTAssertTrue(blank.partsResolved.allSatisfy { $0 == nil })
+    }
+    /// EMPTY-FERRY COLOUR ALLOCATION (Paul 2026-09-12): the per-slot displaced-colour map round-trips; an old doc (no key) → nil.
+    func testFerryHueAllocRoundTrips() throws {
+        var g = BuildPlayGridData()
+        g.ferryHueAlloc = [2: 0x112233, 5: 0x445566]
+        let data = try JSONEncoder().encode(g)
+        let back = try JSONDecoder().decode(BuildPlayGridData.self, from: data)
+        XCTAssertEqual(back.ferryHueAlloc?[2], 0x112233)
+        XCTAssertEqual(back.ferryHueAlloc?[5], 0x445566)
+        var obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        obj.removeValue(forKey: "ferryHueAlloc")
+        let old = try JSONDecoder().decode(BuildPlayGridData.self, from: try JSONSerialization.data(withJSONObject: obj))
+        XCTAssertNil(old.ferryHueAlloc, "an old doc with no ferryHueAlloc decodes to nil, no throw")
+    }
+    /// COMMITTED SELECT CELLS (Paul 2026-09-12): the pinned chain + hue + name maps round-trip; an old doc (no keys) → nil.
+    func testGridSelOverridesRoundTrip() throws {
+        var g = BuildPlayGridData()
+        g.gridSelChains = [3: [ProcessorSlot(type: .arp)]]
+        g.gridSelHues = [3: 0xAB12CD]
+        g.gridSelNames = [3: "wubz"]
+        let data = try JSONEncoder().encode(g)
+        let back = try JSONDecoder().decode(BuildPlayGridData.self, from: data)
+        XCTAssertEqual(back.gridSelChains?[3]?.first?.type, .arp)
+        XCTAssertEqual(back.gridSelHues?[3], 0xAB12CD)
+        XCTAssertEqual(back.gridSelNames?[3], "wubz")
+        var obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        for k in ["gridSelChains", "gridSelHues", "gridSelNames"] { obj.removeValue(forKey: k) }
+        let old = try JSONDecoder().decode(BuildPlayGridData.self, from: try JSONSerialization.data(withJSONObject: obj))
+        XCTAssertNil(old.gridSelChains); XCTAssertNil(old.gridSelHues); XCTAssertNil(old.gridSelNames)
+    }
+    /// FERRY DROP HIT-TEST (Paul 2026-09-12): trash wins ties; else the containing ferry; else nil.
+    func testFerryZoneAtTrashWinsThenFerries() {
+        let zones: [FerryDropZone: CGRect] = [
+            .ferry(0): CGRect(x: 0, y: 0, width: 50, height: 50),
+            .ferry(1): CGRect(x: 50, y: 0, width: 50, height: 50),
+            .trash:    CGRect(x: 40, y: 0, width: 50, height: 50),   // overlaps both ferries
+        ]
+        XCTAssertEqual(BuildSceneLogic.ferryZoneAt(CGPoint(x: 10, y: 10), zones: zones), .ferry(0))
+        XCTAssertEqual(BuildSceneLogic.ferryZoneAt(CGPoint(x: 70, y: 10), zones: zones), .trash, "trash wins the overlap")
+        XCTAssertNil(BuildSceneLogic.ferryZoneAt(CGPoint(x: 200, y: 200), zones: zones), "a miss → nil")
+    }
+    /// EMPTY-FERRY COLOUR REALLOCATION (Paul 2026-09-12): overwriting populated ferry `target` (oldHex) with a cell whose
+    /// colour is held by an EMPTY ferry → that empty ferry index is returned (to receive oldHex). nil when not applicable.
+    func testFerryColourDisplacement() {
+        let old: UInt32 = 0xAAAAAA, cell: UInt32 = 0xBBBBBB
+        var empty = [false, true, true, true, true, true, true, true]   // slot 0 = the populated target
+        var hex: [UInt32] = [old, 0x111111, 0x222222, cell, 0x444444, 0x555555, 0x666666, 0x777777]   // slot 3 (empty) holds the incoming colour
+        XCTAssertEqual(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, empty: empty, hex: hex), 3)
+        XCTAssertNil(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: old, oldHex: old, empty: empty, hex: hex), "no move when the displaced colour == the incoming colour")
+        hex[3] = 0x333333
+        XCTAssertNil(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, empty: empty, hex: hex), "no empty ferry holds the incoming colour → nil")
+        hex[3] = cell; empty[3] = false
+        XCTAssertNil(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, empty: empty, hex: hex), "a POPULATED ferry holding the colour is not chosen")
     }
 
     // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): the per-ferry name/hue/launch fields round-trip through the document,

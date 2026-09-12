@@ -347,13 +347,10 @@ struct DiagView: View {
     @State var buildGridSelActiveRoll: [GridSelBar] = []  // the auditioning chain's piano-roll (offline render, shown on the active cell + right column)
     @State var buildGridSelCellRoll: [Int: [GridSelBar]] = [:]   // per-CELL piano-roll fingerprints (bg-computed per deal/tab) — the drifting note face on every present cell (Paul 2026-08-26)
     @State var buildGridSelRollGen = 0                   // generation token so a stale bg roll batch (deal/tab changed under it) is discarded
-    @State var buildGridSelStampRow: Int? = nil          // HOLD-TO-STAMP (Paul 2026-08-26): the row being held — a white sweep fills it while held; at completion the auditioning chain stamps onto it (keeping its machine)
-    @State var buildGridSelStampAt: Date? = nil          // when the hold began (drives the rising white-fill fraction)
-    @State var buildGridSelStampFlashRow: Int? = nil     // a just-stamped row — flashes fully white then fades to its machine
-    @State var buildGridSelStampFlashAt: Date? = nil
+    // buildGridSelStampRow/At/FlashRow/FlashAt (+ buildFerryHeld below) are RETIRED (Paul 2026-09-12): the ferry/rail
+    // long-press copy + its rising-fill/commit-flash animation are gone — replaced by ferry drag-and-drop.
     @State var buildPartJustPromoted = false             // Paul 2026-09-05: a part was flattened to a play ferry → the NEXT new select-grid cell starts with null I/O + pulsing toggles.
     @State var buildIONullPending = false                // Paul 2026-09-05: the 8 I/O toggles show null + pulse invitingly (the cell is silent until wired); cleared on the first I/O edit.
-    @State var buildFerryHeld = false                    // a ferry button was HELD (deliberate copy hold) then released BEFORE committing → suppress the follow-up tap so it doesn't steal focus / re-audition the playing cell (Paul 2026-08-29)
     @State var buildGridSelOverride: [Int: (chain: [ProcessorSlot], hex: UInt32)] = [:]   // NEW INTERFACE (Paul 2026-08-28): SELECT cell-to-cell copies land here as NEW in-memory INSTANCES (position → chain+hue) — the saved library on disk is never overwritten. Cleared on re-deal / tab switch.
     @State var buildGridSelName: [Int: String] = [:]   // a short lowercase hash NAME assigned to a SELECT cell on its FIRST edit (Paul 2026-09-12): the cell then shows the selector's colour + this name. Cleared on re-deal.
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)

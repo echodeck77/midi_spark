@@ -3,17 +3,24 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-08._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-12._
 
 ## ★ PLAY-FERRIES-ARE-PARTS — follow-ups (2026-09-08; feature DONE Phases 1–3, on `main`)
 The 8 play ferries are now full `BuildPart` slots + the sole navigation (spec `AcceptanceCriteria-play-ferries-as-parts.md`).
 OPEN:
-- **DEVICE-OWED (the whole ferry UX):** seed-from-select, ferry switch, up-to-8 simultaneous play (active via staging /
-  background via flatten), edit-write-back, CLEAR-empties-ferry → SELECT, 16-step tiling, and the ADD-A-ROW menu
+- **DEVICE-OWED (the whole ferry UX):** ferry switch, up-to-8 simultaneous play (active via staging / background via
+  flatten), edit-write-back, CLEAR-empties-ferry → SELECT, 16-step tiling, and the ADD-A-ROW menu
   (Duplicate/Mutate/Randomize/Create-new/Pick-from-Library on an empty part row).
+- **DEVICE-OWED — FERRY DRAG-AND-DROP (2026-09-12, on `main`):** the whole drag feel — SELECT cell→ferry populate (name +
+  colour inherited), ferry→ferry move/overwrite, ferry→machine-box trash delete; the floating ghost, the hovered-ferry cyan
+  ring, the trash reveal on a ferry drag; the empty-slot colour REALLOCATION on a real 8-ferry palette. Spring-momentary
+  play coexists with the drag (a SPRING ferry could briefly play as a drag starts — verify). (Replaces the retired
+  long-press seed/copy.)
 - **DEAD-CODE PASS (grep-verified, needs a dedicated device-verified sweep):** the entangled legacy play-grid cluster —
   `buildPlayCells`/`buildPlaySel`/`buildSelectMode`, the SELECT-ferry cluster (`roomsAssignPlayColumn`→`roomsFlattenPartToPlay`
-  →`buildSelectPlayColumn`→`buildArchivePartToPlay`→`buildPlayCellPart` (write-only)→`buildPlayFerryRow`), and the vestigial
+  →`buildSelectPlayColumn`→`buildArchivePartToPlay`→`buildPlayCellPart` (write-only)→`buildPlayFerryRow` — **NOTE 2026-09-12:
+  `roomsAssignPlayColumn`/`roomsFlattenPartToPlay`/`roomsStampSourceIO` are now REMOVED; `buildSelectPlayColumn`/
+  `buildArchivePartToPlay`/`buildPlayFerryRow` are the newly-exposed orphans remaining**), and the vestigial
   `.play`/`.reel` room subtree (`roomsPlay`/`roomsPlayGrid`/`roomsPlayStartStop`/`roomsReel`/`roomsPlayNavSliver` — confirm no
   reel entry outside the room system before removing the enum cases + their switch arms). Plus standalone orphans a survey
   flagged: `buildSetPartRate`/`roomsGridCellW`/`roomsPartPianoRoll`/`roomsPartMacroSection`/`buildAddCastColour`/`buildStagingTap`/
