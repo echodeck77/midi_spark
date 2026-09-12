@@ -289,7 +289,7 @@ struct DiagView: View {
     // derived PLAYBACK representation (flattened from a part when it plays). buildActiveFerry = the ferry whose part is
     // loaded on the bench (nil = browsing the SELECT grid, no part active).
     @State var buildFerryParts: [BuildPart?] = Array(repeating: nil, count: 8)
-    @State var buildActiveFerry: Int? = nil
+    @State var buildActiveFerry: Int? = 0   // a selector is ALWAYS selected (Paul 2026-09-12): defaults to 0 so its pre-allocated colour is the "selected colour" from launch
     // ROW-CREATOR CONFIRM (Paul 2026-09-11): after MUTATE/RANDOM generates a row's machine, that row shows KEEP | TRY AGAIN
     // in place of the creator buttons until the user picks one (KEEP dismisses; TRY AGAIN regenerates + re-offers). nil = none.
     @State var buildRowGenConfirm: RowGenConfirm? = nil
@@ -346,6 +346,7 @@ struct DiagView: View {
     @State var buildIONullPending = false                // Paul 2026-09-05: the 8 I/O toggles show null + pulse invitingly (the cell is silent until wired); cleared on the first I/O edit.
     @State var buildFerryHeld = false                    // a ferry button was HELD (deliberate copy hold) then released BEFORE committing → suppress the follow-up tap so it doesn't steal focus / re-audition the playing cell (Paul 2026-08-29)
     @State var buildGridSelOverride: [Int: (chain: [ProcessorSlot], hex: UInt32)] = [:]   // NEW INTERFACE (Paul 2026-08-28): SELECT cell-to-cell copies land here as NEW in-memory INSTANCES (position → chain+hue) — the saved library on disk is never overwritten. Cleared on re-deal / tab switch.
+    @State var buildGridSelName: [Int: String] = [:]   // a short lowercase hash NAME assigned to a SELECT cell on its FIRST edit (Paul 2026-09-12): the cell then shows the selector's colour + this name. Cleared on re-deal.
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
     @State var buildGridSelPriorSel: String? = nil
     @State var buildGridSelLastSlot: [Int: Int] = [:]     // per SELECT-grid cell index → the last processor slot VIEWED there; leaving remembers it, returning re-opens it (Paul 2026-09-10)

@@ -1512,8 +1512,11 @@ extension DiagView {
                                        selectedPlayCol: room == .select ? buildSelectedPlayCol : nil, playColOn: buildPlayColOn,
                                        source: buildSelectSource)   // grey ⇔ .browseCell; a .ferryRow keeps its machine (Paul 2026-09-06)
     }
+    // A SELECT audition is COMMITTED once it's been edited (named) — buildGridSelName holds its hash (Paul 2026-09-12).
+    var buildAuditionCommitted: Bool { buildSelID == buildGridSelAudID && (buildGridSelSel.flatMap { buildGridSelName[$0] } != nil) }
     func buildMachineHue(_ room: Room) -> Color {
-        buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else buildSelHue (now positional for a bench focus, dusk for a play cell)
+        if buildAuditionCommitted { return buildSelHue }   // a COMMITTED (edited + named) audition wears the SELECTED colour, not grey (Paul 2026-09-12)
+        return buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else buildSelHue (positional for a bench focus, dusk for a play cell)
     }
     // THE ONE HUE for every machine/card/editor surface (Paul 2026-08-31: the processor card was a DIFFERENT machine to the
     // machine box — a throwback to the multi-machine select grid, because the card read raw buildSelHue while the box read
@@ -2392,6 +2395,7 @@ extension DiagView {
     private func buildGridSelSetPage(_ c: Int) {
         buildGridSelStopAudition()
         buildGridSelOverride = [:]; buildGridSelSel = nil
+        buildGridSelName.removeAll()                                    // committed names are index-keyed → stale after a page remap (Paul 2026-09-12)
         buildGridSelLastSlot.removeAll()                                // page remaps index→chain → the last-viewed-slot memory is stale (Paul 2026-09-10)
         buildGridSelPage = c
         buildGridSelRecomputeCategory()
@@ -5828,7 +5832,14 @@ extension DiagView {
         // the override BEFORE the dealt/library source (which would otherwise reload the ORIGINAL, dropping the edits). Only a
         // real cell selection (buildGridSelSel != nil); a ferry aim (sel == nil) mirrors to its part row below instead.
         if cid == buildGridSelAudID, let sel = buildGridSelSel, sel >= 0, sel < 64 {
-            buildGridSelOverride[sel] = (chain, machineHueOverride[buildGridSelAudID] ?? buildGridSelCellHex(sel))
+            // EDIT = COMMIT (Paul 2026-09-12): the FIRST control change NAMES the cell (a short lowercase hash of the chain)
+            // and recolours it to the SELECTED selector's pre-allocated colour; the machine box + card follow (buildMachineHue
+            // reads machineHueOverride[gsAud] once committed). Once named it keeps that name; later edits only update the chain.
+            // A tap-select alone never commits (that loads via buildGridSelLoadChain, not here).
+            let selColour = buildFerryHex(buildActiveFerry ?? 0)
+            if buildGridSelName[sel] == nil { buildGridSelName[sel] = buildChainShortHash(chain) }
+            machineHueOverride[buildGridSelAudID] = selColour
+            buildGridSelOverride[sel] = (chain, selColour)
         }
         // FERRY MIRROR (Paul 2026-08-30): a SELECT-grid ferry aim edits the transient gsAud (so the audition stays quantized-
         // swappable). Card edits were auditioned but never written back — an ARP change was HEARD in the audition so it read
@@ -5850,6 +5861,18 @@ extension DiagView {
         guard transpose != 0, let first = chain.first, first.type == .transpose,
               (first.params.utilTranspose ?? 0) == max(-24, min(24, transpose)) else { return chain }
         return Array(chain.dropFirst())
+    }
+    // A SHORT lowercase hash NAME for a chain (Paul 2026-09-12) — a deterministic 4-char base-36 FNV-1a over the chain's
+    // sorted-key JSON, so the name is derived from the machine's content. Assigned once on a cell's first edit.
+    private func buildChainShortHash(_ chain: [ProcessorSlot]) -> String {
+        let enc = JSONEncoder(); enc.outputFormatting = .sortedKeys
+        let data = (try? enc.encode(chain)) ?? Data()
+        var h: UInt64 = 1469598103934665603
+        for b in data { h = (h ^ UInt64(b)) &* 1099511628211 }
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
+        var s = "", v = h
+        for _ in 0..<4 { s.append(alphabet[Int(v % 36)]); v /= 36 }
+        return s
     }
     private func buildChainEditSlot(_ i: Int, _ mutate: (inout ProcessorSlot) -> Void) {
         var c = selectedMachineChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c)
@@ -6109,6 +6132,7 @@ extension DiagView {
         // §3.1 THE PREGEN CORPUS: once the pool exists, DEAL is INSTANT — a seeded shuffle drawing 64 (RE-DEAL bumps the
         // seed → a fresh 64). While the corpus is still building, fall back to a fresh 64-roll so the first open isn't empty.
         buildGridSelLastSlot.removeAll()                                // a re-deal remaps index→chain → drop the last-viewed-slot memory (Paul 2026-09-10)
+        buildGridSelName.removeAll()                                    // …and the committed hash names (index-keyed → stale after a re-deal) — Paul 2026-09-12
         if !buildGridSelCorpus.isEmpty {
             var rng = DiceRNG(seed: buildGridSelDealSeed)
             buildGridSelDealt = Array(buildGridSelCorpus.shuffled(using: &rng).prefix(64))
@@ -6308,18 +6332,21 @@ extension DiagView {
         let present = buildGridSelPresent(i)
         let hue = Color(hex: buildGridSelCellHex(i))
         let sel = buildGridSelSel == i
+        // COMMITTED (Paul 2026-09-12): a cell that's been edited + named wears the SELECTED colour (not grey) + shows its hash
+        // name — even when not the current audition. It overrides the grey-unless-selected treatment below.
+        let committed = greyUnlessSel && buildGridSelName[i] != nil
         // greyUnlessSel (SELECT grid, Paul 2026-08-29): an unselected present cell is a DARK-GREY button with a LIGHT-GREY
         // piano roll; only the SELECTED cell wears its chain's machine + white roll. Else (old grid selector) = coloured.
-        let unselGrey = greyUnlessSel && !sel
+        let unselGrey = greyUnlessSel && !sel && !committed
         // SELECT grid (greyUnlessSel): the PLAYING (selected) cell is ONE machine — the INVERSE of the unselected dark-grey
         // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
-        let selGrey = greyUnlessSel && sel
+        let selGrey = greyUnlessSel && sel && !committed
         let fill = present ? (sel ? (selGrey ? buildSelectGrey : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)   // selGrey ALTERNATES two bright shades per selection (matches the machine box; Paul 2026-09-01)
         let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
         // TASTEFUL CHEQUER (Paul 2026-08-31): the SELECT grid reads as a BOARD — a faint two-tone parity wash on every
         // non-selected cell (the classic chessboard), subtle enough not to fight the roll. SELECT grid only (greyUnlessSel);
         // the bright selected/focus cell stays clean.
-        let chequer = greyUnlessSel && !sel && ((i / 8 + i % 8) % 2 == 0)
+        let chequer = greyUnlessSel && !sel && !committed && ((i / 8 + i % 8) % 2 == 0)
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(fill)
             if chequer { RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)) }   // the lighter square of the board
@@ -6328,6 +6355,11 @@ extension DiagView {
                 // the fingerprint looping after STOP on "play this midi chain" (MIDI stopped, animation didn't) — reads as still running.
                 buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint, strikeIdx: sel ? (buildChainAuditionRow.map { [$0] } ?? []) : [])   // Paul 2026-09-05: SELECTED cell scrolls (only when playing) + its stars blink on live strikes
                     .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
+            }
+            if committed, let nm = buildGridSelName[i] {   // the generated hash name, on the selected-colour cell (Paul 2026-09-12)
+                Text(nm).font(.system(size: min(11, h * 0.4), weight: .heavy, design: .monospaced)).tracking(0.5)
+                    .foregroundColor(.black.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
+                    .shadow(color: .white.opacity(0.25), radius: 1)
             }
             if sel {       // THE ACTIVE CELL — a STATIC strong frame (Paul 2026-09-08: was a breathing strobe)
                 RoundedRectangle(cornerRadius: 6).stroke(selGrey ? Color.black : Color.white, lineWidth: 3)
