@@ -1512,11 +1512,11 @@ extension DiagView {
                                        selectedPlayCol: room == .select ? buildSelectedPlayCol : nil, playColOn: buildPlayColOn,
                                        source: buildSelectSource)   // grey ⇔ .browseCell; a .ferryRow keeps its machine (Paul 2026-09-06)
     }
-    // A SELECT audition is COMMITTED once it's been edited (named) — buildGridSelName holds its hash (Paul 2026-09-12).
-    var buildAuditionCommitted: Bool { buildSelID == buildGridSelAudID && (buildGridSelSel.flatMap { buildGridSelName[$0] } != nil) }
     func buildMachineHue(_ room: Room) -> Color {
-        if buildAuditionCommitted { return buildSelHue }   // a COMMITTED (edited + named) audition wears the SELECTED colour, not grey (Paul 2026-09-12)
-        return buildMachineBinding(room).isGrey ? buildSelectGrey : buildSelHue   // grey = the colourless SELECT audition; else buildSelHue (positional for a bench focus, dusk for a play cell)
+        // SELECT (Paul 2026-09-12): everything (machine box · chain · processor boxes · card · play button) wears the
+        // SELECTED selector's PRE-ALLOCATED colour — clicking between selectors changes it live; never the old grey audition.
+        if room == .select { return Color(hex: buildFerryHex(buildActiveFerry ?? 0)) }
+        return buildSelHue   // PART/PLAY: the focused machine (positional for a bench focus, dusk for a play cell)
     }
     // THE ONE HUE for every machine/card/editor surface (Paul 2026-08-31: the processor card was a DIFFERENT machine to the
     // machine box — a throwback to the multi-machine select grid, because the card read raw buildSelHue while the box read
@@ -1635,7 +1635,7 @@ extension DiagView {
         let isFerry: Bool = { if case .playFerry = bind.kind { return true } else { return false } }()
         let active = isFerry ? bind.playing : (bind.playing && d.playing)
         let sweeping = active && d.playing                             // the playhead moves ONLY while the host transport runs
-        let hue: Color = bind.isGrey ? buildSelectGrey : buildSelHue   // SAME hue as the machine box + chain (grey on SELECT audition, the machine/ferry machine otherwise)
+        let hue: Color = buildMachineHue(room)   // SAME hue as the machine box + chain — the SELECTED selector's colour on SELECT (Paul 2026-09-12), the machine/ferry machine otherwise
         // THE FOCUSED CELL'S velocity feed (Paul 2026-09-11): a ferry bind → its play column's steps; else the chain/part
         // AUDITION row (the focused machine parks there). Drives the play-button icon flash below.
         let focusIdx: [Int] = { if case let .playFerry(pc) = bind.kind { return buildPlayColSweepIndices(pc) }; return buildChainAuditionRow.map { [$0] } ?? [] }()
@@ -2149,7 +2149,7 @@ extension DiagView {
             else { buildVoiceOwner = .none }
             roomsPartSetup()                                                  // same per-grid setup the retired toggle ran (rolls + focus default)
         } else {
-            buildActiveFerry = nil; roomsRoom = .select; buildVoiceOwner = .none   // an empty ferry opens the browser
+            buildActiveFerry = t; roomsRoom = .select; buildVoiceOwner = .none   // an empty ferry opens the browser but STAYS SELECTED — its pre-allocated colour becomes the selected colour (Paul 2026-09-12: always one selected, never back to grey)
             roomsSelectSetup()                                                // opens the library browser (buildEnsureGridSelOpen), like the retired toggle
         }
         buildPublishScene()
@@ -4460,7 +4460,7 @@ extension DiagView {
                 buildFerryParts[a] = nil
                 if a < buildPlayColOn.count { buildPlayColOn[a] = false }
                 buildClearFerryPlayback(a)
-                buildActiveFerry = nil; buildVoiceOwner = .none; roomsRoom = .select              // → an empty ferry / the SELECT browser
+                buildVoiceOwner = .none; roomsRoom = .select              // → the SELECT browser; ferry `a` STAYS SELECTED (now empty) so a selector is always selected (Paul 2026-09-12)
                 roomsSelectSetup()                                                                // open the library browser (like the retired toggle)
             }
             buildPublishScene()
