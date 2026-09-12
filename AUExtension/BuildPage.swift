@@ -1664,7 +1664,7 @@ extension DiagView {
     // tab; each interior cell reuses buildGridSelCell (the drifting-note fingerprint face + tap-to-audition), verbatim.
     // Idempotent — safe to call on every SELECT-room appear. (Paul 2026-08-28)
     func roomsSelectSetup() {
-        let carryFromPart = buildVoiceOwner == .part                         // the PART was AUDITIONING → carry the playing cell onto SELECT
+        let carryFromPart = buildStagingPlaying                              // the PART was playing (active ferry ON) → carry the playing cell onto SELECT (Option A: derived, Paul 2026-09-13)
         buildEnsureGridSelOpen()                                              // opens the selector (loads library summaries + deals), guarded — no-op if already open
         // SELECT shows MY LIBRARY — but ONLY once it's LOADED (the summaries build async off-main, Paul 2026-09-11). Forcing
         // tab 1 before the load left the grid EMPTY at startup; stay on the DEALT bank until the library arrives (the async
@@ -2103,13 +2103,12 @@ extension DiagView {
             if buildFerryParts[t] != nil { buildFerryParts[t] = buildCaptureBenchPart() }
         } else if let a = buildActiveFerry, a >= 0, a < 8 {                    // the OUTGOING active ferry
             if buildFerryParts[a] != nil { buildFerryParts[a] = buildCaptureBenchPart() }   // write back ONLY a POPULATED ferry's bench edits — an EMPTY selector must NOT be captured into a part (Paul 2026-09-12: navigating away from an empty selector was populating it)
-            if buildVoiceOwner == .part { buildVoiceOwner = .none }           // release the single STAGING voice (the incoming ferry reclaims it if on)
-            if a < buildPlayColOn.count, buildPlayColOn[a] { buildFlattenFerry(a) } else { buildClearFerryPlayback(a) }   // if it's still ON it keeps sounding in the BACKGROUND (the play layer)
+            if a < buildPlayColOn.count, buildPlayColOn[a] { buildFlattenFerry(a) } else { buildClearFerryPlayback(a) }   // if it's still ON it keeps sounding in the BACKGROUND (the play layer); its STAGING voice ends because it stops being the active ferry (derived — Option A)
         }
         if let p = buildFerryParts[t] {
             buildLoadBenchPart(p); buildActiveFerry = t; roomsRoom = .part
-            if t < buildPlayColOn.count, buildPlayColOn[t] { buildClearFerryPlayback(t); buildVoiceOwner = .part }   // the ACTIVE ferry plays via the STAGING step-sequencer (visible sweep + live selection), NOT the play-layer flatten
-            else { buildVoiceOwner = .none }
+            if buildVoiceOwner == .chain { buildVoiceOwner = .none }          // leaving the chain audition; the part plays iff its ferry is ON (Option A — never auto-play on open)
+            if t < buildPlayColOn.count, buildPlayColOn[t] { buildClearFerryPlayback(t) }   // active + ON → the STAGING sequencer (derived from buildPlayColOn[t]); never ALSO on the play layer
             roomsPartSetup()                                                  // same per-grid setup the retired toggle ran (rolls + focus default)
         } else {
             buildActiveFerry = t; roomsRoom = .select; buildVoiceOwner = .none   // an empty ferry opens the browser but STAYS SELECTED — its pre-allocated colour becomes the selected colour (Paul 2026-09-12: always one selected, never back to grey)
@@ -2126,15 +2125,14 @@ extension DiagView {
     }
     // FORCE a ferry on/off (the toggle, spring press/release, one-shot expiry, and bulk play-all all route through this so the
     // launch anchor is stamped/cleared consistently). PLAY-FERRY LAUNCH (Paul 2026-09-09).
-    func buildSetFerryPlay(_ t: Int, on willOn: Bool) {
+    func buildSetFerryPlay(_ t: Int, on willOn: Bool, choke: Bool = true) {
         guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
         if t < buildPlayColOn.count, buildPlayColOn[t] == willOn { return }   // no-op if already in that state (spring onChanged fires repeatedly)
-        if willOn { buildChokeGroup(t) }   // PLAY-FERRY LAUNCH (Phase 3): launching one ferry stops the others in its choke group
+        if willOn && choke { buildChokeGroup(t) }   // PLAY-FERRY LAUNCH (Phase 3): launching one ferry stops the others in its choke group (a bulk START-ALL passes choke:false so members don't choke each other)
         if t < buildPlayColOn.count { buildPlayColOn[t] = willOn }
         buildStampFerryLaunch(t, on: willOn)                                  // PLAY-FERRY LAUNCH: anchor (from-top/quantized) on start, clear on stop
         if t == buildActiveFerry {
-            buildVoiceOwner = willOn ? .part : .none                          // active → the STAGING sequencer (the visible part grid)
-            buildClearFerryPlayback(t)                                        // …never also on the play layer (no double-audition)
+            buildClearFerryPlayback(t)                                        // active → the STAGING sequencer (derived from buildPlayColOn[t]); never ALSO on the play layer (no double-audition)
         } else {
             if willOn { buildFlattenFerry(t) } else { buildClearFerryPlayback(t) }   // background → the play layer
         }
@@ -3135,10 +3133,9 @@ extension DiagView {
         }
     }
     // ANY play column is running (the free-run gate + "is the play grid a voice"). Each column is independent (buildPlayColOn).
-    // "The play surface is producing sound" — a play-layer ferry is ON, OR the ACTIVE on-bench ferry is sounding via the
-    // STAGING voice (buildVoiceOwner == .part). The staging case was omitted, so the header transport couldn't see (or
-    // stop) the active ferry — the STOP-won't-stop / PLAY-silences desync (Paul 2026-09-12).
-    var buildPlayPlaying: Bool { buildPlayColOn.contains(true) || buildStagingPlaying }
+    // Option A: buildStagingPlaying is now DERIVED from buildPlayColOn[active], so "the play surface is sounding" is
+    // simply any column ON — no separate staging term needed (Paul 2026-09-13).
+    var buildPlayPlaying: Bool { buildPlayColOn.contains(true) }
     // Toggle ONE play column's independent playback + republish. (Paul 2026-08-29 — each play cell starts/stops on its own.)
     func buildTogglePlayColumn(_ c: Int) {
         guard c >= 0, c < buildPlayColOn.count, buildPlayColHasContent(c) else { return }
@@ -3161,18 +3158,15 @@ extension DiagView {
     }
     // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
     func buildTogglePlayGrid() {
-        let anyOn = buildPlayPlaying   // counts play-layer ferries AND the active-ferry staging voice, so STOP stops what's ACTUALLY sounding (Paul 2026-09-12)
-        for c in 0..<8 {
-            let willOn = anyOn ? false : buildPlayColHasContent(c)
-            buildPlayColOn[c] = willOn
-            if c < buildFerryParts.count, buildFerryParts[c] != nil { buildStampFerryLaunch(c, on: willOn) }   // PLAY-FERRY LAUNCH: stamp/clear each ferry's anchor on bulk play-all so an INSTANT/quantized ferry launches from its top too
-        }
-        if anyOn {
-            if buildVoiceOwner == .part { buildVoiceOwner = .none }   // STOP: also silence the ACTIVE-ferry staging voice — it sounds via buildVoiceOwner, not buildPlayColOn, so clearing the columns alone left it ringing (the STOP-won't-stop bug, Paul 2026-09-12)
+        // ONE PATH (Paul 2026-09-13, Option A): route every ferry through buildSetFerryPlay so START-ALL actually flattens
+        // background ferries (the old direct buildPlayColOn write never did → START started nothing) and STOP stops the
+        // active-ferry STAGING voice too (it's derived from buildPlayColOn now, so clearing the columns clears it).
+        if buildPlayColOn.contains(true) {
+            for c in 0..<8 where c < buildPlayColOn.count && buildPlayColOn[c] { buildSetFerryPlay(c, on: false) }
         } else {
-            buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false   // STARTING the grid stops the shared audition (symmetric with buildTogglePlayColumn — Paul 2026-09-02) + re-enables free-run after a host halt
+            for c in 0..<8 where c < buildFerryParts.count && buildFerryParts[c] != nil { buildSetFerryPlay(c, on: true, choke: false) }   // choke:false — a master start must not have group members choke each other
+            au?.clearMachineSolo(); buildHostHalted = false                  // re-enable free-run after a host halt
         }
-        buildPublishScene()
     }
     // Column c has a populated selected rung (something to sound).
     func buildPlayColPopulated(_ c: Int) -> Bool {
@@ -3196,7 +3190,7 @@ extension DiagView {
     // MASTER START/STOP — starts EVERY populated column at once (or stops all). Per-column control lives on the bottom
     // readout buttons (roomsPlayBottom) + the SELECT play-ferry buttons. Disabled until the grid has a populated rung.
     @ViewBuilder func roomsPlayStartStop() -> some View {
-        buildColumnButton(buildPlayPlaying ? "STOP ALL" : "START ALL", active: buildPlayPlaying, fill: .grid, enabled: buildPlayPopulated || buildPlayPlaying, fillHeight: true,   // keep STOP tappable even when nothing counts as "populated" but the staging voice is sounding (Paul 2026-09-12)
+        buildColumnButton(buildPlayPlaying ? "STOP ALL" : "START ALL", active: buildPlayPlaying, fill: .grid, enabled: buildPlayPopulated || buildPlayPlaying || buildFerryParts.contains { $0 != nil }, fillHeight: true,   // enabled if any ferry exists (START ALL now starts ferries) or anything's playing (Paul 2026-09-13)
                           action: { buildTogglePlayGrid() })
     }
     @ViewBuilder func roomsPlayGrid() -> some View {
@@ -3954,17 +3948,28 @@ extension DiagView {
     }
     private func buildSelectStagingVoice() {
         au?.clearMachineSolo()                                    // CHAIN ⟂ PART: leaving the chain audition
-        buildVoiceOwner = .part                                 // the PART is the voice (the PIECE keeps sounding ALONGSIDE)
+        if buildVoiceOwner == .chain { buildVoiceOwner = .none }   // Option A: entering the bench only STOPS the chain audition — the part plays iff its ferry is ON (buildPlayColOn), never auto-started on open (Paul 2026-09-13)
         buildPublishScene()
     }
 
     // The LIVE workshop voice IS the single-source-of-truth owner (Paul 2026-08-31 — was derived from two booleans that
     // could drift; now the owner is authoritative and ddSolo/buildStagingPlaying are read-only mirrors of it).
-    var buildWorkshopVoice: BuildWorkshopVoice { buildVoiceOwner }
+    // The live workshop voice, COMPOSED from the two truths (Paul 2026-09-13, Option A): the SELECT chain audition
+    // (buildVoiceOwner == .chain) OR the PART = the active ferry playing (derived). So the truth strips / headers still
+    // read `.part` while a ferry plays, without buildVoiceOwner ever holding .part.
+    var buildWorkshopVoice: BuildWorkshopVoice {
+        if buildVoiceOwner == .chain { return .chain }
+        if buildStagingPlaying { return .part }
+        return .none
+    }
     // Read-only mirrors so the ~40 existing reads (composeScene inputs, `if ddSolo`, UI gates) are untouched — only the
     // ~11 WRITE sites route through buildVoiceOwner now, so "who is the voice" lives in ONE place.
     var ddSolo: Bool { buildVoiceOwner == .chain }               // the SELECT chain audition
-    var buildStagingPlaying: Bool { buildVoiceOwner == .part }   // the PART sequencer audition
+    // PLAYBACK IS ONE TRUTH (Paul 2026-09-13, "collapse" — Option A): the PART staging voice IS simply "the active ferry
+    // is ON" (buildPlayColOn[active]). buildVoiceOwner no longer holds .part, so the header/ferry buttons + the free-run
+    // gate can't desync from what's actually sounding, and opening a ferry no longer auto-plays it (was the two-tap-to-stop
+    // + STOP-won't-stop cluster). buildStagingPlaying is now DERIVED from the play state.
+    var buildStagingPlaying: Bool { buildActiveFerryPlaying }
     // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the bench shows the ACTIVE ferry's part; playback happens on the play
     // layer, so the part-grid playhead follows the active ferry's own on/off (not the old staging voice).
     var buildActiveFerryPlaying: Bool { if let a = buildActiveFerry, a >= 0, a < buildPlayColOn.count { return buildPlayColOn[a] }; return false }

@@ -1,6 +1,11 @@
-# DRAFT — Ferry playback + colour unification (awaiting Paul's steer)
+# Ferry playback + colour unification
 
-Status: **DRAFT proposal**, not started. Written 2026-09-12 off the four-agent adversarial review.
+**Decisions (Paul 2026-09-13):** Refactor 1 = **Option A (collapse)**. Refactor 2 = **by POSITION**.
+**Refactor 1 is BUILT** (see below). **Refactor 2 is NOT built** — it is fundamentally a *visual*
+consistency change (which palette each surface shows), and cannot be verified off-device, so it is
+handed to Paul's eye with the exact changes rather than recoloured blind.
+
+Status: written 2026-09-12 off the four-agent adversarial review; updated 2026-09-13.
 The three quick bugs (stuck-solo, re-tap-discards-edits, header-STOP-desync) are already fixed
 separately — this doc is the two deeper *unification* refactors that remove the root causes of the
 confusion, and the **decisions only Paul can make** before either is built.
@@ -40,7 +45,17 @@ separate states** (an *audition* of the bench part vs a *committed* play-grid on
   both consult it. More states to explain to the user, but preserves silent-preview-on-open if that's
   wanted.
 
-### Build plan (assuming Option A)
+### BUILT (2026-09-13, Option A)
+`buildVoiceOwner` now holds only `.none`/`.chain`; `buildStagingPlaying` is DERIVED
+(`= buildActiveFerryPlaying = buildPlayColOn[active]`); `buildWorkshopVoice` composes the two so the
+truth strips still read `.part`. Removed every independent `.part` write (buildActivateFerry,
+buildSetFerryPlay, buildSelectStagingVoice). `buildTogglePlayGrid` routes through the one
+`buildSetFerryPlay` path (choke:false for the bulk start) so START-ALL flattens ferries and STOP stops
+the derived staging voice too. Opening a ferry no longer auto-plays. iOS builds; macOS suite green.
+DEVICE-owed: the STOP/START/open feel. Deferred nuance: `buildTogglePlayColumn` (the retired play-cell
+tap at 3256) still uses the old `buildPlayColHasContent` gate — inert for ferries, left alone.
+
+### Original build plan (assuming Option A) — for reference
 1. Make `buildVoiceOwner == .part` a **derived** view of `buildPlayColOn[activeFerry]`, not an
    independently-set flag. Remove the direct `buildVoiceOwner = .part` writes in `buildActivateFerry`
    (2098) and `buildSelectStagingVoice` (3907); opening a ferry no longer auto-sounds it. (`.chain`
@@ -82,7 +97,29 @@ Two lifecycle defects sit under the same theme:
 - **Global hue table** — `machineHueOverride` is a process-global `var` while the registry is
   per-instance `@State`; two plugin instances collide and an undo in one wipes the other's colours (#13).
 
-### THE DECISION Paul must make
+### DECISION (Paul 2026-09-13): **by POSITION** — the ferry/row slot defines the colour.
+So the ferry-position palette (`buildFerryHex`/`ferryShadeHex`, shaded by row) is the ONE truth, and
+every "this machine/part" surface must resolve through it. The remaining work is VISUAL (which shade
+lands where) — hence device-owed. Concrete changes, each a small edit Paul can eyeball + tune:
+
+1. **Row-selector split (#8) — `roomsSideChip` (BuildPage.swift ~2461).** Today the SELECT rail
+   (`part:false`) uses `partPosHue`/`partPosFill`/`partPosFrame` (fixed row-position rainbow) while the
+   PART rail (`part:true`) uses `partFerryHue`/`partFerryFill` (active-ferry, row-shaded). By-position ⇒
+   make BOTH use the ferry-based recipe (drop the `part ? … : partPos…` ternaries). ⚠ CHECK ON DEVICE:
+   the code comment calls the split deliberate — confirm the SELECT rail *should* wear the active ferry's
+   colour (semantically it's the ferry you'd build into), or that the two rails genuinely mean the same
+   rows. If they mean different things, keep them distinct and this isn't a bug.
+2. **SELECT box wears ferry colour while the audition greys (#9) — `buildMachineHue`/`buildSelectGrey`.**
+   Under by-position this is arguably CORRECT (the box wears the active ferry's slot colour; the browse
+   cell greys because it isn't yet placed). Decide: keep as-is (position-consistent) OR make the box wear
+   the auditioned cell's colour until commit. Device call.
+3. **One accessor.** Route every "this machine" hue read (machine box, chain boxes, play button, part
+   cell, ferry, both row selectors) through a single `buildResolvedHue` (or revive `MachineBinding` —
+   which is already unit-tested — as that accessor), resolving by ferry-position. Then the card/box/play
+   button can't diverge again. Delete the direct `machineHue`/`buildFerryHex`/`partPosHue` calls at those
+   sites.
+
+### (superseded) THE earlier decision framing
 Is a machine's colour **by identity** or **by position**?
 - **By IDENTITY** — a machine keeps its own hue everywhere it appears (box, chain, cell, ferry, both
   room selectors). "This blue arp is blue wherever I see it."
