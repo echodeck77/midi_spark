@@ -3035,10 +3035,17 @@ extension DiagView {
                 let c = min(cols - 1, max(0, Int(pcol)))
                 let fract = min(1.0, max(0.0, pcol - Double(c)))
                 let r = c < buildStagingSel.count ? buildStagingSel[c] : -1   // the current column's ACTIVE rung
-                if r == n {
-                    Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: h)
-                        .offset(x: -w / 2 + w * CGFloat(fract)).allowsHitTesting(false)   // sweeps left→right across the box over one step
+                // LEADING-anchored in a FULL box-sized frame so the bar actually sweeps edge→edge (an offset inside a
+                // content-sized view collapses the layout → the old version got clipped to a mid-box flash). Paul 2026-09-12.
+                ZStack(alignment: .leading) {
+                    Color.clear
+                    if r == n {
+                        Rectangle().fill(Color.white.opacity(0.9)).frame(width: 2, height: h)
+                            .offset(x: max(0, min(w - 2, w * CGFloat(fract))))   // leading edge → x = w·fract, over one step
+                    }
                 }
+                .frame(width: w, height: h, alignment: .leading)
+                .allowsHitTesting(false)
             }
         }
     }
