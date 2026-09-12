@@ -177,6 +177,14 @@ struct DiagView: View {
     @State var buildChainDragMoved: Bool = false  // the held box has actually MOVED (a real drag) — gates the DELETE trash so it shows on DRAG only, not on the hold (Paul 2026-09-11)
     @GestureState var chainDragActive: Bool = false   // TRUE only while a chain box is actively HELD/dragged — AUTO-RESETS when the gesture ends OR is cancelled (so the trash + destination highlights never stick visible). Paul 2026-09-10
     @State var buildChainClipboard: [ProcessorSlot]? = nil   // COPY/PASTE buffer: a copied chain, pasted into a new row position
+    // FERRY DRAG-AND-DROP (Paul 2026-09-12): drag a SELECT cell / play ferry onto a ferry (populate / move) or the machine-box
+    // trash (delete). Tracked in the shared "rooms" coordinate space; mirrors the chain-drag pattern (auto-resetting gesture state).
+    @State var buildFerryDrag: FerryDragSource? = nil            // what's being dragged (nil = no drag)
+    @State var buildFerryDragLoc: CGPoint = .zero                // finger location in the "rooms" space
+    @State var buildFerryDragMoved: Bool = false                 // a real drag is underway (gates the ghost + trash + hover ring)
+    @State var buildFerryHover: FerryDropZone? = nil             // the drop zone under the finger
+    @State var buildFerryZones: [FerryDropZone: CGRect] = [:]    // drop-zone frames (8 ferries + trash) in the "rooms" space
+    @GestureState var ferryDragActive: Bool = false              // TRUE only while a ferry drag is live — AUTO-RESETS on end/cancel so nothing sticks
     // PROCESSOR EDITOR transaction (Paul 2026-08-19): the machine's chain as it was when the editor OPENED, so CANCEL can
     // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.
     // I/O toggle LONG-PRESS → apply to EVERY row (Paul 2026-08-19): a "Hold to apply to all" hint shows a moment into the hold.

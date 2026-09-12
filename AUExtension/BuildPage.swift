@@ -6,6 +6,18 @@ import UniformTypeIdentifiers   // FILE import: the .mid content type for the do
 // toggles its own section (play ⇄ stop) so both can be off; picking one stops the other (they never sound together).
 enum BuildWorkshopVoice { case none, chain, part }
 
+// FERRY DRAG-AND-DROP (Paul 2026-09-12, supersedes the long-press copy/seed). A drag carries a SELECT grid cell or a play
+// ferry; it drops onto a ferry (populate / move-overwrite) or the machine-box trash (delete a ferry). Drop-zone frames are
+// collected in the shared "rooms" coordinate space via FerryZoneKey (reported by each ferry + the trash).
+enum FerryDragSource: Equatable { case selectCell(Int), ferry(Int) }
+enum FerryDropZone: Hashable { case ferry(Int), trash }
+struct FerryZoneKey: PreferenceKey {
+    static let defaultValue: [FerryDropZone: CGRect] = [:]
+    static func reduce(value: inout [FerryDropZone: CGRect], nextValue: () -> [FerryDropZone: CGRect]) {
+        value.merge(nextValue()) { _, b in b }
+    }
+}
+
 // After MUTATE/RANDOM on the part-grid row creator, the generated row offers KEEP | TRY AGAIN (Paul 2026-09-11).
 // `random` remembers which mode to re-run on TRY AGAIN. Cleared on KEEP or when focus leaves the row.
 struct RowGenConfirm: Equatable { let row: Int; let random: Bool }
@@ -1690,8 +1702,11 @@ extension DiagView {
     // red garbage-can box appears here; dragging the box over it (detected via the chainBlock x — the trash is the left
     // flank, at x < 0) turns it EVEN REDDER, and dropping there deletes the processor from the chain (handled in buildProcBox).
     @ViewBuilder func roomsChainTrash(width: CGFloat, height: CGFloat) -> some View {
-        let dragging = chainDragActive && buildChainDragMoved   // DRAG ONLY (Paul 2026-09-11): shown once the held box actually MOVES, not on the hold itself (chainDragActive auto-resets so it never sticks)
-        let over = dragging && buildChainOverTrash
+        // Appears during EITHER a chain-box drag (delete a processor) OR a ferry drag (delete a ferry — Paul 2026-09-12).
+        let chainDrag = chainDragActive && buildChainDragMoved   // DRAG ONLY (Paul 2026-09-11): shown once the held box actually MOVES, not on the hold itself (chainDragActive auto-resets so it never sticks)
+        let ferryDrag = ferryDragActive && buildFerryDragMoved && buildFerryDrag.map { if case .ferry = $0 { return true } else { return false } } == true   // a FERRY (not a select cell) can land here
+        let dragging = chainDrag || ferryDrag
+        let over = (chainDrag && buildChainOverTrash) || (ferryDrag && buildFerryHover == .trash)
         let boxH = 3 * 26 + 2 * BuildGeom.castGap   // SMALLER: the footprint of the LIBRARY/MUTATE/CLEAR stack (3 × 26 + 2 gaps) — Paul 2026-09-10
         ZStack {
             if dragging {
@@ -1704,7 +1719,10 @@ extension DiagView {
             }
         }
         .frame(width: width, height: height)
-        .allowsHitTesting(false)   // never responds to touch (the drag hit-tests via chainBlock coords, not this view) — Paul 2026-09-10
+        // Register the trash frame in the shared "rooms" space so a ferry drag can hit-test it (the chain drag keeps using
+        // the chainBlock-x trick). The whole flank is the drop target — forgiving. (Paul 2026-09-12)
+        .background(GeometryReader { geo in Color.clear.preference(key: FerryZoneKey.self, value: [.trash: geo.frame(in: .named("rooms"))]) })
+        .allowsHitTesting(false)   // never responds to touch (drags hit-test via coords, not this view) — Paul 2026-09-10
     }
     // (The wide RECORD row was RETIRED 2026-08-29 — the PLAY button took its band. The reel is still reached via the
     // REEL room. buildReelButton remains for that room / a future RECORD home.)
@@ -2051,7 +2069,6 @@ extension DiagView {
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
                     .overlay { if set { roomsCellPlayhead(active: on && !(focused && roomsRoom == .part)).padding(2) } }   // PER-CELL PLAYHEAD — but the SELECTED ferry playing on the part grid already shows playheads on its part cells, so don't double the sweep here (Paul 2026-09-10)
-                    .overlay(alignment: .bottom) { buildGridSelStampSweep(t + 8, height: playH, hue: mHue) }   // rising fill + the seed machine-bloom in this ferry's hue
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
                     .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
@@ -2073,16 +2090,12 @@ extension DiagView {
                     }
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onTapGesture { if set { if !spring { buildToggleFerryPlay(t) } } else { buildActivateFerry(t) } }   // LATCH toggles on tap; SPRING is momentary (handled by the press below); empty PLAY tap → open the browser
-                    // ONE press gesture handles both: EMPTY → the seed HOLD (animation + seed on complete); populated SPRING →
-                    // MOMENTARY (press starts, release stops; minDuration ∞ so perform never fires). (Paul 2026-09-09 — folded the
-                    // separate spring DragGesture into pressing so it can't interfere with the empty-ferry seed long-press.)
-                    .onLongPressGesture(minimumDuration: (set && spring) ? .infinity : buildGridSelStampDur, maximumDistance: 44,
-                                        pressing: { p in
-                                            if !set { buildGridSelStampPressing(t + 8, p) }              // EMPTY → the seed-hold rising fill
-                                            else if spring { buildSetFerryPlay(t, on: p) }               // SPRING populated → momentary: press on, release off
-                                        },
-                                        perform: { if !set && (roomsRoom == .select || roomsRoom == .part) { buildSeedFerry(t) } })   // HOLD an empty ferry on SELECT or PART → seed a part from the selected chain (was SELECT-only → the part-grid animation played but never populated, Paul 2026-09-09)
+                    .onTapGesture { if set { if !spring { buildToggleFerryPlay(t) } } else { buildActivateFerry(t) } }   // LATCH toggles on tap; SPRING is momentary (the press below); empty PLAY tap → open the browser
+                    // SPRING populated → MOMENTARY play (press on, release off; minDuration ∞ so perform never fires). The
+                    // empty-ferry SEED long-press is RETIRED (Paul 2026-09-12) — populate a ferry by DRAGGING a SELECT cell
+                    // onto it instead (the whole-ferry drag registered on the VStack below).
+                    .onLongPressGesture(minimumDuration: .infinity, maximumDistance: 44,
+                                        pressing: { p in if set && spring { buildSetFerryPlay(t, on: p) } }, perform: {})
                 // ── M / S (Paul 2026-09-09): mute · solo THIS ferry's part, below the play cell, equal height to the selector ──
                 let muted = t < buildPlayColMute.count && buildPlayColMute[t]
                 let soloed = t < buildPlayColSolo.count && buildPlayColSolo[t]
@@ -2100,6 +2113,12 @@ extension DiagView {
                 }
                 .frame(height: selH)
             }
+            // DRAG-AND-DROP (Paul 2026-09-12): register this ferry's frame in the shared "rooms" space (a drop target), and
+            // make a POPULATED ferry a drag SOURCE (move it to another ferry, or to the machine-box trash to delete it). The
+            // hovered drop target rings cyan. An EMPTY ferry isn't a source (`including: .subviews` disables its drag).
+            .background(GeometryReader { geo in Color.clear.preference(key: FerryZoneKey.self, value: [.ferry(t): geo.frame(in: .named("rooms"))]) })
+            .overlay { if ferryDragActive && buildFerryDragMoved && buildFerryHover == .ferry(t) && buildFerryDrag != .ferry(t) { RoundedRectangle(cornerRadius: 6).stroke(Color.cyan, lineWidth: 3).padding(-1) } }
+            .simultaneousGesture(buildFerryDragGesture(.ferry(t)), including: set ? .all : .subviews)
             // FOCUS is now shown by the SELECTOR (its own full colour) against the header's lighter-shade gradient —
             // the whole-ferry cyan ring is retired (Paul 2026-09-09: no cyan; highlight the small selector, not the ferry).
         }
@@ -2227,21 +2246,117 @@ extension DiagView {
         if t < buildPlayColStepEmit.count { buildPlayColStepEmit[t] = [] }
         if t < buildPlayCells.count { for r in 0..<buildPlayCells[t].count { buildPlayCells[t][r] = nil } }   // no legacy single-cell either
     }
-    // LONG-PRESS an EMPTY ferry on the SELECT grid: create a NEW part seeded with the selected chain in row 0, store it in
-    // the ferry, and open it on the bench. A ferry always holds a part; the select grid only supplies the seed chain.
-    func buildSeedFerry(_ t: Int) {
-        guard t >= 0, t < 8, buildFerryParts[t] == nil, let hit = buildGridSelStampSource() else { return }
+    // ── FERRY DRAG-AND-DROP (Paul 2026-09-12) — supersedes the long-press seed/copy. ──────────────────────────────────
+    // The drag gesture: a SELECT cell or a populated ferry, tracked in the shared "rooms" space. Mirrors the chain-reorder
+    // pattern — `ferryDragActive` is a @GestureState that AUTO-RESETS on end/cancel, so the ghost + highlights never stick.
+    func buildFerryDragGesture(_ src: FerryDragSource) -> some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .named("rooms"))
+            .updating($ferryDragActive) { _, state, _ in state = true }
+            .onChanged { g in
+                buildFerryDrag = src
+                buildFerryDragMoved = true
+                buildFerryDragLoc = g.location
+                buildFerryHover = buildFerryZoneAt(g.location)
+            }
+            .onEnded { g in
+                let s = buildFerryDrag; let zone = buildFerryZoneAt(g.location)
+                buildFerryDrag = nil; buildFerryDragMoved = false; buildFerryHover = nil
+                if let s = s { buildFerryDrop(source: s, zone: zone) }
+            }
+    }
+    // Which drop zone (if any) contains point `p` (in the "rooms" space). Trash wins if they ever overlap.
+    func buildFerryZoneAt(_ p: CGPoint) -> FerryDropZone? {
+        if let r = buildFerryZones[.trash], r.contains(p) { return .trash }
+        for t in 0..<8 { if let r = buildFerryZones[.ferry(t)], r.contains(p) { return .ferry(t) } }
+        return nil
+    }
+    // Resolve a completed drag: SELECT cell → ferry = populate (overwrite); ferry → ferry = move (overwrite); ferry →
+    // trash = delete. A SELECT cell on the trash is a no-op (library entries aren't deleted this way — Paul 2026-09-12).
+    func buildFerryDrop(source: FerryDragSource, zone: FerryDropZone?) {
+        switch (source, zone) {
+        case let (.selectCell(i), .ferry(t)):            buildPopulateFerryFromSelect(i, into: t)
+        case let (.ferry(f), .ferry(t)) where f != t:    buildMoveFerry(f, to: t)
+        case let (.ferry(f), .trash):                    buildDeleteFerry(f)
+        default: break
+        }
+    }
+    // Populate ferry `t` with SELECT grid cell `i`'s chain (overwrites a populated ferry — Paul 2026-09-12).
+    func buildPopulateFerryFromSelect(_ i: Int, into t: Int) {
+        guard let hit = buildGridSelChainAt(i) else { return }
+        buildPopulateFerry(t, chain: hit.chain, transpose: hit.transpose)
+    }
+    // The shared populate core: mint a part carrying `chain` across a full 16-step row, store it in ferry `t`, open it.
+    func buildPopulateFerry(_ t: Int, chain: [ProcessorSlot], transpose: Int) {
+        guard t >= 0, t < 8 else { return }
         buildRecordUndo()
-        let y = buildNewTabMachine(t, machine: hit.chain, transpose: hit.transpose)   // a fresh part machine carrying the selected chain (vivid part hue)
+        let y = buildNewTabMachine(t, machine: chain, transpose: transpose)          // a fresh part machine carrying the chain (vivid part hue)
         var p = BuildPart()
-        p.length = Snap.maxCols                                                       // seed a full 16-step part (Paul 2026-09-09: the grid defaults to 16)
-        for c in 0..<Snap.maxCols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }   // seed the chain across the WHOLE first row (a 16-step loop), all columns' rung selected → the part plays a full sequence, not one cell (Paul 2026-09-08/09)
+        p.length = Snap.maxCols                                                       // a full 16-step part (the grid defaults to 16)
+        for c in 0..<Snap.maxCols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }   // the chain across the WHOLE first row → a full sequence, not one cell
         p.selID = y; p.cast = [y]
-        let io = roomsStampSourceIO(); p.receiver = io.recv; p.emitters = io.emit
+        p.receiver = buildSelReceiver; p.emitters = buildDefaultEmitters
         buildFerryParts[t] = p
         buildSyncMachines()
-        if t < buildPlayColOn.count { buildPlayColOn[t] = true }              // a seeded ferry starts playing at once (via the staging sequencer once activated)
+        if t < buildPlayColOn.count { buildPlayColOn[t] = true }                      // a populated ferry starts playing at once (via the staging sequencer once activated)
+        if buildActiveFerry == t { buildActiveFerry = nil }                           // force a fresh load of the NEW part (skip the stale-bench writeback)
         buildActivateFerry(t)
+    }
+    // MOVE ferry `from` → `to` (overwrites the target; vacates the source), carrying play/mute/solo state. (Paul 2026-09-12)
+    func buildMoveFerry(_ from: Int, to: Int) {
+        guard from >= 0, from < 8, to >= 0, to < 8, from != to, buildFerryParts[from] != nil else { return }
+        buildRecordUndo()
+        if buildActiveFerry == from { buildFerryParts[from] = buildCaptureBenchPart() }   // capture the source's live bench edits first
+        let part = buildFerryParts[from]
+        let on   = from < buildPlayColOn.count   ? buildPlayColOn[from]   : false
+        let mute = from < buildPlayColMute.count ? buildPlayColMute[from] : false
+        let solo = from < buildPlayColSolo.count ? buildPlayColSolo[from] : false
+        buildResetFerrySlot(from); buildResetFerrySlot(to)                            // clear both (stale playback), then set the target
+        buildFerryParts[to] = part
+        if to < buildPlayColOn.count   { buildPlayColOn[to]   = on }
+        if to < buildPlayColMute.count { buildPlayColMute[to] = mute }
+        if to < buildPlayColSolo.count { buildPlayColSolo[to] = solo }
+        buildSyncMachines()
+        buildActiveFerry = nil                                                        // fresh activate (the source is now empty → no writeback)
+        buildActivateFerry(to)
+    }
+    // DELETE ferry `t` (drag it to the machine-box trash). Clears the slot; if it was on the bench, falls back to the
+    // SELECT browser (the empty-ferry behaviour), keeping it selected. (Paul 2026-09-12)
+    func buildDeleteFerry(_ t: Int) {
+        guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
+        buildRecordUndo()
+        let wasActive = buildActiveFerry == t
+        buildResetFerrySlot(t)
+        buildSyncMachines()
+        if wasActive { buildActiveFerry = nil; buildActivateFerry(t) }                // t is now empty → opens the browser, stays selected
+        else { buildPublishScene() }
+    }
+    // Clear ferry slot `t` FULLY — part + on/mute/solo + launch anchors + play-layer playback. No undo (callers record).
+    func buildResetFerrySlot(_ t: Int) {
+        guard t >= 0, t < 8 else { return }
+        buildFerryParts[t] = nil
+        if t < buildPlayColOn.count   { buildPlayColOn[t]   = false }
+        if t < buildPlayColMute.count { buildPlayColMute[t] = false }
+        if t < buildPlayColSolo.count { buildPlayColSolo[t] = false }
+        if t < launchAnchor.count     { launchAnchor[t] = 0 }
+        if t < launchBeat.count       { launchBeat[t] = 0 }
+        buildClearFerryPlayback(t)                                                    // steps/len/recv/emit/playCells
+    }
+    // The FLOATING GHOST that follows the finger during a ferry drag (drawn in the "rooms" space, hit-transparent).
+    @ViewBuilder func buildFerryDragGhost() -> some View {
+        if ferryDragActive, buildFerryDragMoved, let src = buildFerryDrag {
+            let hex: UInt32 = {
+                switch src {
+                case let .selectCell(i): return buildGridSelCellHex(i)
+                case let .ferry(t):      return buildFerryHex(t)
+                }
+            }()
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: hex).opacity(0.9))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.85), lineWidth: 2))
+                .frame(width: 40, height: 30)
+                .shadow(color: .black.opacity(0.4), radius: 6)
+                .position(buildFerryDragLoc)
+                .allowsHitTesting(false)
+        }
     }
     // LONG-PRESS a SELECT top button → copy the currently-selected cell onto the PLAY grid at column t's SELECTED RUNG
     // (default row 1). Writes ONLY the play grid's OWN store (buildPlayCells) — NOT the shared buildStagingCells — so it
@@ -2444,8 +2559,12 @@ extension DiagView {
     // source onto it as a new instance (cell-to-cell). buildGridSelCell itself is untouched (old BUILD unaffected). (Paul 2026-08-28)
     @ViewBuilder func roomsSelectGridCell(_ i: Int) -> some View {
         GeometryReader { cg in
+            let present = buildGridSelPresent(i)
             buildGridSelCell(i, w: cg.size.width, h: cg.size.height, greyUnlessSel: true, vPad: cg.size.height * 0.15)   // SELECT grid: grey-unless-selected + 15% roll padding (Paul 2026-08-29)
                 .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44, perform: { roomsCopyToSelectCell(i) })
+                // DRAG a populated SELECT cell onto a play ferry to populate it (Paul 2026-09-12). `including: .subviews`
+                // disables the drag on an empty cell; a plain tap (<12pt) still auditions, a stationary hold still copies.
+                .simultaneousGesture(buildFerryDragGesture(.selectCell(i)), including: present ? .all : .subviews)
         }
     }
     // A SELECT-grid SIDE BUTTON (the row-select column) = a PART slot that holds a chain (the §4 shared exclusive column).
@@ -2482,8 +2601,8 @@ extension DiagView {
             // dark position hue, no wash. (Was: part rail = a faint machine wash; ferry = a machine-hued partCellFill.)
             // BACKGROUND COLOUR only when SELECTED (Paul 2026-09-09): every other rail cell stays the plain dark stage.
             .overlay(RoundedRectangle(cornerRadius: 5).fill(selectedVis ? (part ? partFerryFill(n) : partPosFill(n)) : Color.clear))
-            // (No piano-roll note face on the rail — Paul 2026-09-09: lose the old drifting-notes look here too.)
-            .overlay(alignment: .bottom) { buildGridSelStampSweep(n, height: height, hue: mHue) }   // rising fill + the COMMIT machine-bloom (reveal) in this row's hue
+            // (No piano-roll note face on the rail — Paul 2026-09-09: lose the old drifting-notes look here too. The
+            //  long-press COPY/stamp + its rising-fill animation are RETIRED here — Paul 2026-09-12.)
             .clipShape(RoundedRectangle(cornerRadius: 5))
             // INVERTED when this row is the FOCUSED machine (shown in the machine view): the WHOLE chip becomes the
             // row-position machine and the number goes to an alpha knockout (Paul 2026-09-04, kept as the part-rail focus
@@ -2516,8 +2635,7 @@ extension DiagView {
                 if buildSelectMode { if let cid = buildRowMachine(n) { buildSelectID(cid) }; buildSelectMode = false }   // SELECT MODE: focus this row's machine, then end SELECT (Paul 2026-08-31)
                 else { part ? roomsTapPartSide(n) : roomsTapSide(n) }
             }
-            .onLongPressGesture(minimumDuration: buildGridSelStampDur, maximumDistance: 44,
-                                pressing: { p in buildGridSelStampPressing(n, p) }, perform: { roomsStampFire(n, part: part) })
+            // The long-press COPY (roomsStampFire) is RETIRED (Paul 2026-09-12) — the rail is tap-to-select only now.
     }
     // ROOMS long-press stamp: copy the active source onto side button n, then make the TARGET the active selection
     // (Paul 2026-08-28) — the copied slot becomes the currently-selected cell + reflects its chain. (Old BUILD's row

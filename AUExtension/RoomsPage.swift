@@ -177,6 +177,12 @@ extension DiagView {
                 }.frame(width: gridW, height: bodyH)                      // the active GRID (2/3, LEFT — same side for both)
                 chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box (1/3, RIGHT — fixed)
             }.padding(8)
+            // FERRY DRAG-AND-DROP (Paul 2026-09-12): ONE shared coordinate space spanning the grid + the machine box, so a
+            // SELECT cell / ferry drag can hit-test the ferries AND the machine-box trash. Drop-zone frames flow up via
+            // FerryZoneKey; the floating ghost rides on top.
+            .coordinateSpace(name: "rooms")
+            .onPreferenceChange(FerryZoneKey.self) { buildFerryZones = $0 }
+            .overlay { buildFerryDragGhost() }
         }
         .onAppear { if roomsRoom == .part { roomsPartSetup() } else { roomsSelectSetup() } }
     }
