@@ -2018,13 +2018,9 @@ extension DiagView {
                     .overlay { RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [sliceLo, sliceHi], startPoint: .leading, endPoint: .trailing)) }   // the CONTINUOUS emanation (this ferry's slice)
                     .overlay { if focused { RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(0.95)) } }              // FOCUSED = the light source: its OWN full colour
                     .overlay {
-                        if set {
-                            // The selector's identity dots are STATIC (Paul 2026-09-13: the velocity flash lives on the PLAY
-                            // button only; the earlier focused-selector pulse was removed at the user's request).
-                            HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
-                        } else {
-                            Image(systemName: "plus").font(.system(size: min(10, selH * 0.5), weight: .bold)).foregroundColor(buildDim)
-                        }
+                        // ALWAYS the four identity dots in the ferry's pre-allocated colour — empty AND populated (Paul 2026-09-13:
+                        // the "+" for an empty ferry is retired). STATIC (the velocity flash lives on the PLAY button only).
+                        HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
                     }
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? Color.white.opacity(0.9) : Color.white.opacity(0.10), lineWidth: focused ? 2 : 1))
                     .frame(height: selH)
