@@ -1732,8 +1732,9 @@ struct ProcessorBox: View {
     ]
     private func arpPatternRow(pattern: ArpPattern, anchor: Int, _ pick: @escaping (ArpPattern, Int) -> Void) -> some View {
         let opts = ProcessorBox.arpPatternOptions
-        let sel: Int = pattern == .random ? (anchor == 2 ? 5 : (anchor == 1 ? 6 : 4))
-                                           : (opts.firstIndex { $0.pattern == pattern && $0.anchor == 0 } ?? 0)
+        // Derive the lit index FROM the table (never hardcode positions — inserting a pattern shifts them). RANDOM has
+        // three rows split by anchor, so match anchor there; every other pattern is a single row (anchor 0).
+        let sel: Int = opts.firstIndex { $0.pattern == pattern && (pattern == .random ? $0.anchor == anchor : true) } ?? 0
         return HStack(spacing: 4) {
             ForEach(Array(opts.enumerated()), id: \.offset) { idx, o in
                 let on = idx == sel
