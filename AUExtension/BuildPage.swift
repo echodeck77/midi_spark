@@ -5773,6 +5773,10 @@ extension DiagView {
         case .down:          return (cyc - 1) - (i % cyc)
         case .upDown:        let period = 2 * (cyc - 1); let j = i % period; return j < cyc ? j : period - j
         case .random:        return Int(splitmix64Mix(UInt64(i) &+ 0x9E3779B9) % UInt64(cyc))
+        case .altLo, .altHi:                                          // low/high pedal alternating with each other rank
+            let period = 2 * (cyc - 1); let s = i % period
+            let loPos = (s % 2 == 0) ? 0 : (s + 1) / 2
+            return pattern == .altLo ? loPos : (cyc - 1 - loPos)
         }
     }
     // The IN silhouette: a compact C1–C7 piano (proper white/black keys), held notes filled the machine hue.

@@ -1723,10 +1723,12 @@ struct ProcessorBox: View {
         (.up,       0, "UP",         "arrow.up"),
         (.down,     0, "DOWN",       "arrow.down"),
         (.upDown,   0, "UP/DOWN",    "arrow.up.arrow.down"),
+        (.altLo,    0, "ALT LO",     "arrow.up.to.line"),
+        (.altHi,    0, "ALT HI",     "arrow.down.to.line"),
         (.asPlayed, 0, "AS PLAYED",  "hand.point.up.left"),
         (.random,   0, "RANDOM",     "shuffle"),
-        (.random,   2, "RND HI FIRST", "arrow.up.to.line"),
-        (.random,   1, "RAND LO FIRST", "arrow.down.to.line"),
+        (.random,   2, "RND HI FIRST", "shuffle"),
+        (.random,   1, "RAND LO FIRST", "shuffle"),
     ]
     private func arpPatternRow(pattern: ArpPattern, anchor: Int, _ pick: @escaping (ArpPattern, Int) -> Void) -> some View {
         let opts = ProcessorBox.arpPatternOptions

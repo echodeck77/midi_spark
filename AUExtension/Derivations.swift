@@ -1316,10 +1316,27 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
             pos = randomAnchor == 1 ? 0 : span - 1
         } else {
             let h = splitmix64Mix(UInt64(bitPattern: phaseIndex) &+ 0x9E3779B97F4A7C15)   // deterministic hash of the tick → position (loop-consistent, not accumulated)
-            pos = Int(h % UInt64(span))
+            if randomAnchor != 0 && span > 1 {
+                // ANCHOR EXCLUDED (Paul 2026-09-13): the anchor note sounds once (at the cycle wrap); the rest of the cycle
+                // shuffles only the OTHER span−1 positions, so the anchor never repeats inside the random pool. LO skips
+                // pos 0 (→ 1…span−1) · HI skips pos span−1 (→ 0…span−2). Octave copies of the anchor pitch stay in the pool
+                // (they're different notes), only the exact anchored note is held out.
+                let r = Int(h % UInt64(span - 1))
+                pos = randomAnchor == 1 ? (1 + r) : r
+            } else {
+                pos = Int(h % UInt64(span))
+            }
         }
     case .asPlayed:
         pos = asc   // ascending through the press sequence (below), not the sorted set
+    case .altLo, .altHi:
+        // ALT (Paul 2026-09-13): a pedal note alternates with each OTHER position. ALT LO pedals the lowest and walks the
+        // others ascending → 1,2,1,3,1,4… ; ALT HI mirrors it — pedals the highest and walks the others descending. The
+        // "others" span the octaves too (they're just the higher/lower span positions). Cycle length = 2·(span−1).
+        let L = max(1, 2 * (span - 1))
+        let s = Int(((phaseIndex % Int64(L)) + Int64(L)) % Int64(L))
+        let loPos = (s % 2 == 0) ? 0 : (s + 1) / 2      // 0,1,0,2,0,3,… — low pedal + ascending others
+        pos = (pat == .altLo) ? loPos : (span - 1 - loPos)   // ALT HI = the mirror (high pedal + descending others)
     }
 
     // AS-PLAYED reads the press-order list; every other pattern reads the sorted list. Both filtered (+ RANGE window).

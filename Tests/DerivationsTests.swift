@@ -112,6 +112,32 @@ final class DerivationsTests: XCTestCase {
                        [60, 64, 67])
     }
 
+    func testPatternAltLo() {
+        // ALT LO (Paul 2026-09-13): the lowest note pedals, alternating with each higher note ascending — 1,2,1,3,1,4…
+        XCTAssertEqual(sequence(pattern: .altLo, octaves: 1, notes: [60, 64, 67, 71], length: 8),
+                       [60, 64, 60, 67, 60, 71, 60, 64])
+    }
+
+    func testPatternAltHi() {
+        // ALT HI: the mirror — the highest note pedals, alternating with each lower note descending.
+        XCTAssertEqual(sequence(pattern: .altHi, octaves: 1, notes: [60, 64, 67, 71], length: 8),
+                       [71, 67, 71, 64, 71, 60, 71, 67])
+    }
+
+    func testRandomAnchorExcludesTheAnchorFromThePool() {
+        // Paul 2026-09-13: the anchored note sounds only at the cycle wrap (asc==0); the shuffle never repeats it.
+        let p = pool([60, 64, 67, 71])   // span 4, octaves 1
+        let rnd = UInt8(ArpPattern.allCases.firstIndex(of: .random)!)
+        for pi in 0..<40 {
+            let lo = arpPick(phaseIndex: Int64(pi), octaves: 1, pattern: rnd, pool: p, randomAnchor: 1).note
+            if pi % 4 == 0 { XCTAssertEqual(lo, 60, "LO opens each cycle on the low anchor") }
+            else { XCTAssertNotEqual(lo, 60, "the low anchor never repeats inside the shuffled pool") }
+            let hi = arpPick(phaseIndex: Int64(pi), octaves: 1, pattern: rnd, pool: p, randomAnchor: 2).note
+            if pi % 4 == 0 { XCTAssertEqual(hi, 71, "HI opens each cycle on the high anchor") }
+            else { XCTAssertNotEqual(hi, 71, "the high anchor never repeats inside the shuffled pool") }
+        }
+    }
+
     func testRandomIsLoopConsistent() {
         // Same tick → same note every pass. Compare pass 0 with pass 1 (span apart).
         let p = pool([60, 62, 64, 65, 67])

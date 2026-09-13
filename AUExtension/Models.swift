@@ -74,7 +74,9 @@ enum GlidePriority: String, Codable, CaseIterable { case last = "LAST", low = "L
 // GLIDE MODE (Paul 2026-08-22): how the slide happens. BEND = pitch-bend one voice (today) · SYNTH = drive the
 // synth's own portamento (CC65 on + CC5 time, notes legato) · STEP = a fast chromatic run source→target. (MPE = v2.)
 enum GlideMode: String, Codable, CaseIterable { case bend = "BEND", synth = "SYNTH", step = "STEP" }
-enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED" }
+// APPEND-ONLY (Paul 2026-09-13): new cases go at the END — patternIndex = firstIndex(of:) in allCases, so appending
+// keeps every stored index stable. altLo/altHi = the low/high note pedals, alternating with each other note (1,2,1,3,1,4…).
+enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED", altLo = "ALT LO", altHi = "ALT HI" }
 // RIFF (SPEC-riff-processor §1): when a stencil RANK exceeds the held-note count (a 5 against a 3-note chord) —
 // FOLD (wrap + octave up, default/musical) · CLAMP (the top note) · WRAP (wrap in the same octave).
 enum RiffWrap: String, Codable, CaseIterable { case fold = "FOLD", clamp = "CLAMP", wrap = "WRAP" }
