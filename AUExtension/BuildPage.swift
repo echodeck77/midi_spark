@@ -5420,25 +5420,34 @@ extension DiagView {
     // the four header boxes reflect, set per rung tap), else the machine-derived row. Using the explicit row is what lets
     // the IN/OUT distinguish DIFFERENT RUNGS of one part (buildSelectedRow alone resolves to the first row with the machine).
     var buildFocusedPartRow: Int? { buildGridSelStampSourceRow ?? buildSelectedRow }
-    // Is MIDI actually reaching THIS focused processor instance right now? (Paul 2026-09-12) — the ONE gate the IN piano +
-    // the OUT roll share: a chain audition IS this processor; a PART cell only while its FOCUSED RUNG is the active rung
-    // under the playhead (the playhead on a column where this rung isn't selected ⇒ NOT processing); nothing when stopped.
-    var buildProcessingNow: Bool {
+    // The part's CURRENT playhead column at time `now`, DERIVED FROM THE BEAT (Paul 2026-09-13) — the SAME clock the visible
+    // part playhead (roomsPartPlayhead) uses. NOT `d.effColumn`: that's the SCENE column, which sits stuck for a ferry-played
+    // part (the part advances on its own rate/width on the play layer), so the old gate froze on one rung. -1 when not playing.
+    func buildPartColumnNow(at now: Date) -> Int {
+        guard d.playing && (buildStagingPlaying || buildActiveFerryPlaying) else { return -1 }
+        let sb = buildPartRate?.beats ?? stepBeats
+        let cols = buildPartCols
+        guard sb > 0, cols > 0 else { return -1 }
+        let live = meters.beatAnchor + now.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+        let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
+        let wrapped = (musical / sb).truncatingRemainder(dividingBy: Double(cols))
+        let pcol = wrapped < 0 ? wrapped + Double(cols) : wrapped
+        return min(cols - 1, max(0, Int(pcol)))
+    }
+    // Is MIDI actually reaching THIS focused processor instance at time `now`? — the ONE gate the IN piano + the OUT roll
+    // share: a chain audition IS this processor; a PART cell only while its FOCUSED RUNG is the active rung under the part's
+    // OWN playhead column (playhead on a column where this rung isn't selected ⇒ NOT processing); nothing when stopped.
+    func buildProcessing(at now: Date) -> Bool {
         switch buildDisplayVoice {
         case .chain: return true
         case .part:
-            guard d.playing, let r = buildFocusedPartRow else { return false }
-            return d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == r
+            guard let r = buildFocusedPartRow else { return false }
+            let c = buildPartColumnNow(at: now)
+            return c >= 0 && c < buildStagingSel.count && buildStagingSel[c] == r
         case .none: return false
         }
     }
-    private var buildTruthOutContext: (label: String, live: Bool) {
-        switch buildDisplayVoice {
-        case .chain: return ("this chain", true)
-        case .part:  return (buildProcessingNow ? "this cell — live" : "part — not this cell", buildProcessingNow)
-        case .none:  return ("press ▶ to hear it", false)
-        }
-    }
+    var buildProcessingNow: Bool { buildProcessing(at: Date()) }
     @ViewBuilder private func buildTruthStrips() -> some View {
         let door = buildFocusedPartRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver   // the FOCUSED rung's input door (Paul 2026-09-13)
         let held = (door >= 0 && door < recvHeldNotes.count) ? recvHeldNotes[door].map { Int($0) } : []
@@ -5446,30 +5455,36 @@ extension DiagView {
         let sticky = (door >= 0 && door < buildInSticky.count) ? buildInSticky[door] : []
         let letter = (door >= 0 && door < 4) ? ["A", "B", "C", "D"][door] : "A"
         let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
-        let out = buildTruthOutContext
-        HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                buildStripLabel("IN")
-                if !held.isEmpty {
-                    buildInKeyboard(held, hue: hue).opacity(buildProcessingNow ? 1 : 0.4)   // BRIGHT when MIDI reaches this instance; GRAYED (notes still shown) when the playhead isn't on this row (Paul 2026-09-12)
-                } else if inGrace {
-                    buildInKeyboard(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
-                } else {
-                    Text("nothing held — LATCH or play at INPUT \(letter)")  // truly empty for a whole pass
-                        .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85))
-                        .lineLimit(2).minimumScaleFactor(0.8).frame(height: 30, alignment: .leading)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }   // tap → the STAGE EYE (§4)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    buildStripLabel("OUT")
-                    Text(out.label).font(.system(size: 9, weight: .heavy, design: .monospaced))   // §2: what's driving OUT right now
-                        .foregroundColor(out.live ? hue.opacity(0.9) : buildDim).lineLimit(1)
-                }
-                buildOutStrip(hue: hue).opacity(out.live ? 1 : 0.4)        // §2: dim when the OUT isn't this cell
-            }.frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }
+        // `proc` (is MIDI reaching THIS instance) varies PER COLUMN while a part plays, so drive it off a TimelineView on the
+        // part's own beat clock (buildProcessing(at:)) — the 4 Hz poll alone lagged/aliased at speed (Paul 2026-09-13).
+        let dynamic = buildDisplayVoice == .part && d.playing && (buildStagingPlaying || buildActiveFerryPlaying)
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !dynamic)) { tl in
+            let proc = buildProcessing(at: tl.date)
+            let outLabel = buildDisplayVoice == .chain ? "this chain" : (buildDisplayVoice == .none ? "press ▶ to hear it" : (proc ? "this cell — live" : "part — not this cell"))
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    buildStripLabel("IN")
+                    if !held.isEmpty {
+                        buildInKeyboard(held, hue: hue).opacity(proc ? 1 : 0.4)   // BRIGHT when MIDI reaches this instance; GRAYED (notes still shown) when the playhead isn't on this rung's column (Paul 2026-09-12)
+                    } else if inGrace {
+                        buildInKeyboard(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
+                    } else {
+                        Text("nothing held — LATCH or play at INPUT \(letter)")  // truly empty for a whole pass
+                            .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85))
+                            .lineLimit(2).minimumScaleFactor(0.8).frame(height: 30, alignment: .leading)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }   // tap → the STAGE EYE (§4)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        buildStripLabel("OUT")
+                        Text(outLabel).font(.system(size: 9, weight: .heavy, design: .monospaced))   // §2: what's driving OUT right now
+                            .foregroundColor(proc ? hue.opacity(0.9) : buildDim).lineLimit(1)
+                    }
+                    buildOutStrip(hue: hue).opacity(proc ? 1 : 0.4)        // §2: dim when the OUT isn't this rung
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }
+            }
         }
     }
     private func buildStripLabel(_ t: String) -> some View {
