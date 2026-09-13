@@ -4235,12 +4235,16 @@ extension DiagView {
         input.playColLen = buildPlayColLen
         input.playColSteps = buildPlayColSteps
         input.playColRate = buildPlayColRate
-        // PLAY-FERRY LAUNCH (Paul 2026-09-09): map each ON ferry's per-ferry anchor to its ENGINE row(s) — the active ferry
-        // plays via staging (rows 0–7), a background ferry t via the play layer (row 8+t) — so the anchor follows the ferry.
+        // PLAY-FERRY LAUNCH (Paul 2026-09-09): map each ON background ferry's per-ferry anchor to its play-layer row (8+t) —
+        // the anchor phases that row so it plays FROM COLUMN 0 at the launch beat.
+        // The ACTIVE ferry is EXCLUDED (Paul 2026-09-13): it plays via the STAGING sequencer, whose VISIBLE sweep
+        // (roomsPartPlayhead / roomsCardRowPlayhead) + buildProcessing are all TRANSPORT-LOCKED (raw beat, no anchor).
+        // Anchoring only the AUDIO there phase-shifts the sound off the visible sweep + the column selection — the bug where
+        // a non-SYNC start made the wrong row play per column. "Start from column 0" is a background-ferry-only nicety; the
+        // on-bench ferry must stay transport-locked so what you SEE sweeping is what you HEAR.
         var launchRows = [Double](repeating: 0, count: Snap.rows)
-        for t in 0..<8 where t < buildPlayColOn.count && buildPlayColOn[t] && t < launchAnchor.count && launchAnchor[t] != 0 {
-            if t == buildActiveFerry { for r in 0..<8 { launchRows[r] = launchAnchor[t] } }
-            else { launchRows[Snap.playLayerRowBase + t] = launchAnchor[t] }
+        for t in 0..<8 where t != buildActiveFerry && t < buildPlayColOn.count && buildPlayColOn[t] && t < launchAnchor.count && launchAnchor[t] != 0 {
+            launchRows[Snap.playLayerRowBase + t] = launchAnchor[t]
         }
         input.rowLaunchAnchor = launchRows
         input.playColStepRecv = buildPlayColStepRecv
