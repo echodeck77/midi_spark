@@ -1738,12 +1738,9 @@ struct ProcessorBox: View {
         return HStack(spacing: 4) {
             ForEach(Array(opts.enumerated()), id: \.offset) { idx, o in
                 let on = idx == sel
-                VStack(spacing: 3) {
-                    Image(systemName: o.glyph).font(.system(size: 11, weight: .heavy)).foregroundColor(on ? .black : accent).frame(height: 13)
-                    Text(o.label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : accent)
-                        .lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.7)
-                }
-                .frame(maxWidth: .infinity, minHeight: 48).padding(.horizontal, 3)
+                Text(o.label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : accent)
+                    .lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.6)
+                    .frame(maxWidth: .infinity, minHeight: 48).padding(.horizontal, 3)
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? accent : Color.white.opacity(0.09)))
                 .contentShape(Rectangle()).onTapGesture { pick(o.pattern, o.anchor) }
             }
