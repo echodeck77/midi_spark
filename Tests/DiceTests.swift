@@ -17,6 +17,20 @@ final class DiceTests: XCTestCase {
         }
     }
 
+    // MUSICALITY score (Paul 2026-09-13): bounded 0…1, non-zero for a plain arp, and ZERO for a chain that's silent on a
+    // probe chord (the `return 0` branch — a chain that doesn't sound is unmusical regardless).
+    func testMusicalityRewardsAMusicalChainAndRejectsSilence() {
+        let band = (lo: 0.5, hi: 9.0)
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8; arp.params.octaves = 1; arp.params.pattern = .up
+        let arpScore = Dice.musicality([arp], band: band)
+        XCTAssertGreaterThan(arpScore, 0, "a plain arp is musical (non-zero)")
+        XCTAssertLessThanOrEqual(arpScore, 1, "score is bounded ≤ 1")
+        // CHANCE at probability 0 drops every note → silent → score 0
+        var silent = ProcessorSlot(type: .chance); silent.params.probability = 0
+        XCTAssertEqual(Dice.musicality([silent], band: band), 0, accuracy: 1e-9, "a silent chain scores 0")
+        XCTAssertGreaterThan(arpScore, Dice.musicality([silent], band: band), "musical beats silent")
+    }
+
     // Every generated SLIDER and BUTTON macro has a tangible effect (the output differs from the base).
     // Every KEPT macro must change the output (rollSliders/rollButtons drop no-ops). NOTE: a roll can legitimately yield
     // ZERO macros now — the pool includes RIFF/WEAVE/LENGTH, whose params the DParam sliders don't reach — so we assert the

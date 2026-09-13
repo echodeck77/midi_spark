@@ -297,8 +297,8 @@ enum Dice {
     /// full `roll(target:)` — with evaluated slider/button macros — is kept for elsewhere, e.g. the DRAG&DROP page.)
     static func rollSimple(using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
         let want = Int.random(in: 1...3, using: &rng)
-        var best: [ProcessorSlot] = []
-        for _ in 0..<6 {                                         // a few attempts; keep the longest all-contributing ≤ want
+        var candidates: [[ProcessorSlot]] = []                   // BEST-OF-N by musicality (Paul 2026-09-13), was best-by-length
+        for _ in 0..<4 {                                         // a few all-contributing candidates ≤ want
             var chain: [ProcessorSlot] = []; var sig = signature(chain); var budget = 12
             while chain.count < want && budget > 0 {
                 budget -= 1
@@ -307,14 +307,15 @@ enum Dice {
                 guard tsig != sig, !tsig.isEmpty, tpeak <= maxConcurrency else { continue }
                 if allContribute(trial) { chain = trial; sig = tsig }
             }
-            if chain.count > best.count { best = chain }
-            if best.count >= want { break }
+            if !chain.isEmpty { candidates.append(chain) }
         }
-        if best.isEmpty {                                        // guarantee ≥1 audible slot — never a silent chain
+        if candidates.isEmpty {                                  // guarantee ≥1 audible slot — never a silent chain
             var budget = 24
-            while budget > 0 { budget -= 1; let one = [randomSlot(using: &rng)]; if !signature(one).isEmpty { best = one; break } }
+            while budget > 0 { budget -= 1; let one = [randomSlot(using: &rng)]; if !signature(one).isEmpty { return one } }
+            return []
         }
-        return best
+        // keep the most musical (rollSimple has no archetype → a wide density band)
+        return candidates.map { ($0, musicality($0, band: (0.5, 9.0))) }.max { $0.1 < $1.1 }!.0
     }
 
     // MARK: - THE ENSEMBLE ROLL (design-ratified 2026-08-19)
@@ -349,6 +350,50 @@ enum Dice {
         case .texture: return (3.5, 14.0)   // the ONE dense row
         case .wild:    return (0.3, 10.0)   // surprise — a wide band
         }
+    }
+
+    // MARK: - MUSICALITY SCORE + multi-chord probe (Paul 2026-09-13)
+    // "All-contributing + non-flooding" only weeds out no-ops; it doesn't select for MUSIC. This scores a chain 0…1 on
+    // density (near a target band), REST ratio (space is musical), pitch VARIETY, and PEAK polyphony — and probes it against
+    // TWO chords (a major triad + a minor-7th) so we reward chains that stay musical across what the user might actually play,
+    // and penalise fragile ones (silent on one chord, a flood on the other). The generators keep the BEST-scored of N rolls.
+
+    /// The probe chords the score judges across — a 3-note major triad and a 4-note minor-7th (density- + quality-sensitive).
+    static let probeChords: [[UInt8]] = [[60, 64, 67], [60, 63, 67, 70]]
+
+    /// One chord's metrics from the offline probe: onsets/beat, REST ratio (empty 1/16 slots over the 3-beat probe), pitch
+    /// VARIETY (distinct classes per onset), and peak concurrency.
+    private static func chordMetrics(_ chain: [ProcessorSlot], chord: [UInt8]) -> (density: Double, rest: Double, variety: Double, peak: Int) {
+        let e = runRecorder(chain, chord: chord)
+        let ons = e.ons.filter { $0.cable == 1 }
+        let pb = evalPerBucket
+        var slots = Set<Int>()
+        for on in ons { slots.insert(Int((Double(on.sample) / pb).rounded())) }
+        let rest = 1.0 - Swift.min(1.0, Double(slots.count) / 48.0)             // 48 = 3 beats × 16
+        let pcs = Set(ons.map { Int($0.note) % 12 })
+        let variety = ons.isEmpty ? 0 : Double(pcs.count) / Double(Swift.min(ons.count, 12))
+        return (Double(ons.count) / 3.0, rest, variety, e.peakConcurrency)
+    }
+
+    /// A chain's MUSICALITY, 0…1, averaged over `probeChords` (× a cross-chord CONSISTENCY factor). 0 if it's silent or a
+    /// flood on ANY probe chord — those are unmusical regardless. `band` biases the density term toward the archetype's target.
+    static func musicality(_ chain: [ProcessorSlot], band: (lo: Double, hi: Double)) -> Double {
+        var densities: [Double] = []; var terms: [Double] = []
+        let center = (band.lo + band.hi) / 2, half = Swift.max(0.75, (band.hi - band.lo) / 2)
+        for chord in probeChords {
+            let m = chordMetrics(chain, chord: chord)
+            if m.density <= 0 || m.peak > maxConcurrency { return 0 }           // silent / flood on this chord → unmusical
+            densities.append(m.density)
+            let dScore = Swift.max(0, 1 - abs(m.density - center) / (half * 2))  // density near the band centre
+            let rScore = m.rest < 0.15 ? m.rest / 0.15 : (m.rest > 0.85 ? Swift.max(0, (1 - m.rest) / 0.15) : 1)   // some space, not empty, not a wall
+            let vScore = Swift.min(1, m.variety * 1.5)                           // reward pitch-class variety
+            let pScore = m.peak <= 6 ? 1 : Swift.max(0, Double(maxConcurrency - m.peak) / Double(maxConcurrency - 6))
+            terms.append(0.40 * dScore + 0.25 * rScore + 0.20 * vScore + 0.15 * pScore)
+        }
+        let base = terms.reduce(0, +) / Double(terms.count)
+        let mean = densities.reduce(0, +) / Double(densities.count)             // consistency: same character across chords
+        let cv = mean > 0 ? densities.map { abs($0 - mean) }.reduce(0, +) / Double(densities.count) / mean : 1
+        return base * (0.7 + 0.3 * Swift.max(0, 1 - cv))
     }
 
     static func rollEnsemble(using rng: inout some RandomNumberGenerator) -> [EnsembleRow] {
@@ -406,16 +451,18 @@ enum Dice {
                 return rollSimple(using: &rng)
             }
         }
-        // Keep a candidate that is AUDIBLE, under the flood cap, AND inside this archetype's DENSITY BUDGET BAND — so
-        // the pyramid is true by construction (Paul 2026-08-21). Best-effort: if none fits the band in `tries`, keep the
-        // last audible non-flooding one (the band biases, it isn't a hard gate); a silent/flooding result → the fallback.
+        // BEST-OF-N by MUSICALITY (Paul 2026-09-13): roll N candidates and keep the highest-scored (density near this
+        // archetype's band + rest/variety/consistency across the two probe chords). The band now BIASES the score rather
+        // than hard-gating, so a slightly-off-band-but-otherwise-great roll can win. `.texture` uses buildByRole, which is
+        // expensive + already quality-gated, so it rolls once; the cheap archetypes roll 3. A silent/flooding winner → the
+        // guaranteed-audible arp fallback.
         let band = archetypeBand(a)
-        func fits(_ c: [ProcessorSlot]) -> Bool {
-            let d = densityPerBeat(c)
-            return d > 0 && d >= band.lo && d <= band.hi && peakAt6(c) <= maxConcurrency
+        let n = (a == .texture || a == .wild) ? 1 : 3   // texture = buildByRole (expensive), wild = rollSimple (already best-of-N) → roll once
+        var chain = attempt(); var bestScore = musicality(chain, band: band)
+        for _ in 1..<n {
+            let c = attempt(); let s = musicality(c, band: band)
+            if s > bestScore { chain = c; bestScore = s }
         }
-        var chain = attempt(); var tries = 6
-        while !fits(chain) && tries > 0 { tries -= 1; chain = attempt() }
         if densityPerBeat(chain) == 0 || peakAt6(chain) > maxConcurrency {   // guaranteed-audible, non-flooding fallback
             var s = randomSlot(using: &rng); s.type = .arp; s.params.octaves = 1; s.params.rate = .r1_8; chain = [s]
         }
