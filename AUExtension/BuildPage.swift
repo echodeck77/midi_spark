@@ -5416,14 +5416,18 @@ extension DiagView {
     // Is the EDITED cell the one actually sounding right now? In "PLAY THIS MIDI CHAIN" the OUT IS this chain (true). In
     // "PLAY THIS PART" it's only this cell when the edited machine's rung is the active one under the playhead — otherwise
     // the OUT strip is showing OTHER cells of the part, so we say so + dim it (idea 24 follow-up, Paul 2026-08-25).
+    // The FOCUSED part RUNG (Paul 2026-09-13): the row the card is actually about — the explicitly-selected side row (what
+    // the four header boxes reflect, set per rung tap), else the machine-derived row. Using the explicit row is what lets
+    // the IN/OUT distinguish DIFFERENT RUNGS of one part (buildSelectedRow alone resolves to the first row with the machine).
+    var buildFocusedPartRow: Int? { buildGridSelStampSourceRow ?? buildSelectedRow }
     // Is MIDI actually reaching THIS focused processor instance right now? (Paul 2026-09-12) — the ONE gate the IN piano +
-    // the OUT roll share: a chain audition IS this processor; a PART cell only while its row is the active rung under the
-    // playhead (the playhead on a column where this row isn't selected ⇒ NOT processing); nothing when stopped/no voice.
+    // the OUT roll share: a chain audition IS this processor; a PART cell only while its FOCUSED RUNG is the active rung
+    // under the playhead (the playhead on a column where this rung isn't selected ⇒ NOT processing); nothing when stopped.
     var buildProcessingNow: Bool {
         switch buildDisplayVoice {
         case .chain: return true
         case .part:
-            guard d.playing, let r = buildSelectedRow else { return false }
+            guard d.playing, let r = buildFocusedPartRow else { return false }
             return d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == r
         case .none: return false
         }
@@ -5436,7 +5440,7 @@ extension DiagView {
         }
     }
     @ViewBuilder private func buildTruthStrips() -> some View {
-        let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        let door = buildFocusedPartRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver   // the FOCUSED rung's input door (Paul 2026-09-13)
         let held = (door >= 0 && door < recvHeldNotes.count) ? recvHeldNotes[door].map { Int($0) } : []
         let inGrace = door >= 0 && door < buildInGrace.count && buildInGrace[door]
         let sticky = (door >= 0 && door < buildInSticky.count) ? buildInSticky[door] : []
@@ -5475,7 +5479,7 @@ extension DiagView {
         }
     }
     private func buildOpenStageEye() {
-        buildStageEyeDoor = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        buildStageEyeDoor = buildFocusedPartRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         buildEyeInRoll = []; buildEyeInPrev = []
         buildStageEye = true
     }
