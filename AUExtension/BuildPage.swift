@@ -4459,7 +4459,7 @@ extension DiagView {
         buildMachineGenerating = true
         runOnLargeStack {
             var rng = SystemRandomNumberGenerator()
-            let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng)
+            let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng, scored: true)   // backgrounded → afford the most-musical pick
             DispatchQueue.main.async {
                 if let mutated { self.buildRecordUndo("mutate"); self.buildWriteMachineSlots(cid, self.buildScaleLocked(mutated)) }   // undo only on a real change (mutate can find no distinct variant)
                 self.buildMachineGenerating = false
@@ -4509,9 +4509,11 @@ extension DiagView {
         if random {
             buildCreateRowMachine(row, chain: buildScaleLocked(Dice.rollSimple(using: &rng)))
         } else {
-            let ref = (0..<8).first { $0 != row && buildRowMachine($0) != nil }
-            let refChain = ref.flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
-            buildCreateRowMachine(row, chain: buildScaleLocked(BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain))
+            // WALK (Paul 2026-09-13): mutate the row's CURRENT chain (the last result) so repeated TRY AGAIN explores
+            // ONWARD, instead of re-sampling the original source each time. Fall back to another populated row if empty.
+            let cur = buildRowMachine(row).map { buildMachineChain($0) }
+                ?? (0..<8).first(where: { $0 != row && buildRowMachine($0) != nil }).flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
+            buildCreateRowMachine(row, chain: buildScaleLocked(BuildSceneLogic.mutateChain(cur, avoid: [Dice.fingerprint(cur)], &rng) ?? cur))
         }
         buildRowGenConfirm = RowGenConfirm(row: row, random: random)   // re-assert: TRY AGAIN keeps offering KEEP | TRY AGAIN for the new result
     }

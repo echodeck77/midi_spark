@@ -77,6 +77,20 @@ final class BuildSceneLogicTests: XCTestCase {
     func testMutateReturnsNilForAnEmptyChain() {
         var rng = DiceRNG(seed: 1)
         XCTAssertNil(BuildSceneLogic.mutateChain([], avoid: [], &rng), "no slots → nothing to tweak")
+        XCTAssertNil(BuildSceneLogic.mutateChain([], avoid: [], &rng, scored: true), "scored: still nil for an empty chain")
+    }
+
+    // scored: picks the most-musical of a few distinct variants — still value-only, distinct, and audible.
+    func testMutateScoredReturnsADistinctAudibleValueVariant() {
+        let base = [ProcessorSlot(type: .arp)]
+        var rng = DiceRNG(seed: 11)
+        guard let m = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng, scored: true) else {
+            return XCTFail("scored mutate should find a distinct, musical variant of an arp")
+        }
+        XCTAssertEqual(m.map(\.type), base.map(\.type), "value-only: types unchanged")
+        let fp = Dice.fingerprint(m)
+        XCTAssertFalse(fp.isEmpty, "not silent")
+        XCTAssertNotEqual(fp, Dice.fingerprint(base), "distinct from the source")
     }
 
     // MARK: scale lock (RANDOMIZE/MUTATE keep generated chains in key when a scale door is set)

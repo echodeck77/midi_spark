@@ -346,13 +346,17 @@ enum BuildSceneLogic {
     // in `avoid` (the source AND every other row already on the grid — else subsequent hits converge). The fingerprint
     // includes VELOCITY + GATE, so a subtle value tweak counts as distinct (not just note-pattern changes). As the loop
     // struggles it escalates (more params, more discrete flips) to reach further. nil if no distinct+audible variant.
-    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], avoid: [[Int]], _ rng: inout R) -> [ProcessorSlot]? {
+    // `scored` (Paul 2026-09-13): when true, collect a few distinct+audible variants and return the MOST MUSICAL
+    // (Dice.musicality) instead of the FIRST — so a MUTATE lands a good-sounding variation, not just a different one.
+    // Off (default) keeps the cheap first-distinct behaviour for the synchronous row-creator path.
+    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], avoid: [[Int]], _ rng: inout R, scored: Bool = false) -> [ProcessorSlot]? {
         var all: [(slot: Int, param: MacroControlParam)] = []
         for (i, slot) in base.enumerated() where !slot.bypassed {
             for p in macroParamsForProcessor(slot.type) { all.append((i, p)) }
         }
         guard !all.isEmpty else { return nil }
         let cont = all.filter { !$0.param.kind.isDiscrete }, disc = all.filter { $0.param.kind.isDiscrete }
+        var candidates: [[ProcessorSlot]] = []
         for attempt in 0..<24 {                                // retry until distinct + audible (escalating with each miss)
             var chain = base
             var contPool = cont.shuffled(using: &rng), discPool = disc.shuffled(using: &rng)
@@ -366,9 +370,15 @@ enum BuildSceneLogic {
                 chain[tw.slot] = applyProcessorValues(vals, to: chain[tw.slot])
             }
             let fp = Dice.fingerprint(chain)
-            if !fp.isEmpty && !avoid.contains(fp) { return chain }   // NOT silent + unlike everything already present
+            if !fp.isEmpty && !avoid.contains(fp) {            // NOT silent + unlike everything already present
+                if !scored { return chain }                    // fast path: the first distinct variant
+                candidates.append(chain)
+                if candidates.count >= 3 { break }             // enough to choose the most musical from
+            }
         }
-        return nil
+        guard scored else { return nil }
+        guard !candidates.isEmpty else { return nil }
+        return candidates.map { ($0, Dice.musicality($0, band: (0.5, 9.0))) }.max { $0.1 < $1.1 }!.0   // the most musical variation
     }
     static func mutateCount<R: RandomNumberGenerator>(_ rng: inout R) -> Int {
         let r = Double.random(in: 0..<1, using: &rng); return r < 0.65 ? 1 : (r < 0.90 ? 2 : 3)   // ≈65/25/10% one/two/three
