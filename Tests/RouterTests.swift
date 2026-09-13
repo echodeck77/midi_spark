@@ -1520,12 +1520,25 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(passRate(4, 5, 0.8), passRate(0, 5, 0.8) + 0.2, "+tilt: the TOP note survives more than the bottom")
         XCTAssertLessThan(passRate(4, 5, -0.8), passRate(0, 5, -0.8) - 0.2, "−tilt: the reverse")
     }
-    // ARP → FIT (user 2026-08-11): cycle = one beat, so a bigger chord ticks FASTER (more note-ons in the same time).
-    func testArpFitScalesRateWithChordSize() {
-        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].paramsA.arpFit = true
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        func ons(_ notes: [UInt8]) -> Int { let e = RecordingEmitter(); run(b, chord(notes), beats: 8, into: e); return e.ons.filter { $0.cable == 1 }.count }
-        XCTAssertGreaterThan(ons([60, 64, 67, 71, 74, 77]), ons([60, 64]), "a 6-note chord fits faster → more ticks than a 2-note")
+    // ARP → SPAN (Paul 2026-09-13, replaces FIT — the universal span-ladder, same as riff/euclid): SPAN re-anchors the
+    // pattern to index 0 every N columns. A FREE UP arp of [60,64,67] at ONE tick per column (rate == stepRate == 1/8)
+    // climbs 60·64·67·60… across the row → note 67 (index 2) sounds. SPAN=2 re-anchors every 2 columns, so the index
+    // only ever reaches 1 within a window → 67 NEVER sounds. Proves the engine reads arpSpanN + re-syncs (not scales speed).
+    func testArpSpanReAnchorsThePattern() {
+        func has67(spanN: Int?) -> Bool {
+            var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
+            cs[gi].paramsA.pattern = .up; cs[gi].paramsA.phase = .free; cs[gi].paramsA.octaves = 1
+            cs[gi].paramsA.rate = .r1_8; cs[gi].paramsA.arpSpanN = spanN
+            let b = box(machines: cs) { s in
+                s.stepRate = .r1_8                                        // 0.5-beat columns == the arp rate → one note per column
+                for col in 0..<8 { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
+            }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e)   // exactly 8 columns
+            assertNothingLeftSounding(e)
+            return e.ons.contains { $0.cable == 1 && $0.note == 67 }
+        }
+        XCTAssertTrue(has67(spanN: nil), "FREE: the UP arp climbs to index 2 → 67 sounds")
+        XCTAssertFalse(has67(spanN: 2), "SPAN=2: the pattern re-anchors before reaching index 2 → 67 never sounds")
     }
     // CHANCE → WEIGHT/tilt RENDERED (not just the pure fn): with prob 0.5, +tilt drives the TOP note's p→1 (always
     // sounds) and the BOTTOM's p→0 (dropped); −tilt reverses. Proves the router READS chanceTilt at the hold path.

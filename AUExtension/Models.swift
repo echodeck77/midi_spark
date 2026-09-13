@@ -186,7 +186,7 @@ struct MachineParams: Codable, Equatable {
     var chanceMode: ChanceMode? = nil   // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE (one probability, default) | PATTERN (8 per-step odds). nil ⇒ SINGLE
     var chanceSlices: [Int]? = nil      // PATTERN: 8 per-step odds 0…100% (the Elektron trig-condition, drawn). nil ⇒ the default figure
     var chanceRotate: Int? = 0          // PATTERN: rotate the odds figure (0…7)
-    var arpFit: Bool? = false      // arp FIT (user 2026-08-11): rate derives so ONE pool traversal = one beat (constant cycle)
+    var arpSpanN: Int? = nil       // arp SPAN (Paul 2026-09-13, replaces FIT): nil/0 ⇒ FREE (phase forever, byte-identical) · 1·2·3·4·6·8·16(×2)·32(×4) ⇒ re-anchor the pattern to index 0 every N columns (polymeter) — the universal span-ladder model, same as riff/euclid.
     var arpOctDown: Bool? = false  // OCT DIRECTION (Paul 2026-08-22): laps descend the octaves (top octave first) — "up the chord, down the octaves". Orthogonal to PATTERN (which orders WITHIN a lap).
     var arpRandomAnchor: Int? = 0  // RANDOM ANCHOR (Paul 2026-08-22): 0 OFF · 1 LOW-first · 2 HIGH-first — when PATTERN=RANDOM, each cycle (a full pool×oct traversal) OPENS on the lowest/highest note, the rest shuffle (seeded).
     // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): ONE Bjorklund K-of-N mask on the arp. K = N ⇒ OFF (today's

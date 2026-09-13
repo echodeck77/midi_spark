@@ -100,7 +100,7 @@ struct SnapParams {
     var chanceMode: ChanceMode = .single   // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = 8 per-step odds
     var chanceSlices: [Int] = [100, 40, 70, 40, 100, 40, 70, 40]   // PATTERN: per-step odds 0…100%
     var chanceRotate: Int = 0        // PATTERN: rotate the odds figure
-    var arpFit: Bool = false         // arp FIT: one pool traversal = one beat (constant cycle)
+    var arpSpanN: Int = 0            // arp SPAN re-anchor: 0 = FREE (free-run) · >0 = re-sync the pattern to index 0 every N columns
     var arpOctDown: Bool = false     // OCT DIRECTION: laps descend the octaves (top octave first)
     var arpRandomAnchor: Int = 0     // RANDOM ANCHOR: 0 off · 1 low-first · 2 high-first (RANDOM pattern)
     // EUCLID MASK (SPEC-arp-euclid-mask): resolved. maskK == maskN ⇒ OFF (untouched arp).

@@ -4267,11 +4267,12 @@ final class Router {
         var arpBeats = effectiveRateBeats(machine)
         let gate = effectiveGate(machine)
         let octaves = effectiveOctaves(machine)
-        if machine.a.arpFit {   // FIT (user 2026-08-11): one full pool traversal = one beat, so the cycle stays constant as the chord grows
-            let n = max(1, pool.srcCount(for: cell))
-            arpBeats = max(0.03125, 1.0 / Double(n * octaves))
-        }
         if arpBeats <= 0 { arpBeats = 0.25 }
+        // SPAN (Paul 2026-09-13, the universal re-anchor model — replaces FIT): FREE (spanN 0) runs the global grid
+        // (byte-identical to before); spanN > 0 re-syncs the pattern to index 0 every N columns. Pure (derived from the
+        // absolute beat + the span constant, no accumulated phase → replay-exact). Subtracting the span origin from the
+        // tick/beat leaves RETRIG unchanged (it already resets per column) and re-anchors FREE per span window.
+        let arpSpanBeats = machine.a.arpSpanN > 0 ? spanLadderBeats(machine.a.arpSpanN, S: S, row: cycleBeats) : 0
         if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = arpBeats }
         // EUCLID MASK (SPEC-arp-euclid-mask): K == N ⇒ OFF (byte-identical). K < N gates the walk per the Bjorklund
         // mask — REST/TIE on non-hits, MARCH (walk through rests) / WAIT (advance on hits), ROTATE. Resolved once.
@@ -4296,7 +4297,16 @@ final class Router {
                     offT = onTime + Int64((Double(ties + 1) * arpBeats * gate / beatsPerSample).rounded())
                 }
             }
-            let pIdx = maskWalk ?? (arpIsRandom ? tick : phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
+            // SPAN re-anchor: shift the tick + beat back to the span-window origin so the pattern re-syncs to index 0
+            // every N columns (spanN 0 ⇒ no shift ⇒ byte-identical). RETRIG cancels out (its per-column reset is
+            // preserved); FREE counts from the span origin; RANDOM re-shuffles from the span origin.
+            var pTick = tick, pBeat = mTickBeat
+            if arpSpanBeats > 0 {
+                let origin = columnStart(mTickBeat, arpSpanBeats)
+                pTick = tick - Int64((origin / arpBeats).rounded())
+                pBeat = mTickBeat - origin
+            }
+            let pIdx = maskWalk ?? (arpIsRandom ? pTick : phaseIndex(tick: pTick, mTickBeat: pBeat, arpBeats: arpBeats, S: S,
                                   cycleBeats: cycleBeats, phase: machine.a.phase,
                                   runStartColumn: cell.runStartColumn))
             let base: Int

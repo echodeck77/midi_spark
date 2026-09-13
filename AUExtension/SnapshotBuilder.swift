@@ -507,7 +507,7 @@ enum SnapshotBuilder {
         if let v = p.velRate { out.velRateBeats = max(0.03125, v.beats) }
         out.velSpanN = p.velSpanN ?? 0
         out.velClock = p.velClock ?? .time
-        if let v = p.arpFit { out.arpFit = v }
+        out.arpSpanN = max(0, min(32, p.arpSpanN ?? 0))   // SPAN re-anchor: nil ⇒ FREE (0), else re-sync every N columns
         if let v = p.arpOctDown { out.arpOctDown = v }
         if let v = p.arpRandomAnchor { out.arpRandomAnchor = max(0, min(2, v)) }
         // EUCLID MASK: N ∈ 1…64, K ∈ 1…N (nil K ⇒ = N ⇒ OFF). Rotate wrapped into 0…N−1.

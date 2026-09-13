@@ -583,18 +583,18 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(sc.transpose, 24)
     }
 
-    // The pool-aware append-only params flow MachineParams → SnapParams: chanceTilt clamps to −1…1; the booleans
-    // (chanceDensity / arpFit / strumSpreadNorm) copy through. A missing builder copy would slip past every render test.
+    // The pool-aware append-only params flow MachineParams → SnapParams: chanceTilt clamps to −1…1; chanceDensity /
+    // strumSpreadNorm copy through; arpSpanN clamps to 0…32. A missing builder copy would slip past every render test.
     func testPoolAwareParamsResolveAndClamp() {
         let sc = box(machines(customizing: 0) {
             $0.paramsA.chanceTilt = 5.0            // illegal → clamps to +1
             $0.paramsA.chanceDensity = true
-            $0.paramsA.arpFit = true
+            $0.paramsA.arpSpanN = 99               // illegal → clamps to 32
             $0.paramsA.strumSpreadNorm = false
         }) { _ in }.machines[0]
         XCTAssertEqual(sc.a.chanceTilt, 1.0, "chanceTilt clamps to +1")
         XCTAssertTrue(sc.a.chanceDensity, "chanceDensity copies through")
-        XCTAssertTrue(sc.a.arpFit, "arpFit copies through")
+        XCTAssertEqual(sc.a.arpSpanN, 32, "arpSpanN clamps to 32")
         XCTAssertFalse(sc.a.strumSpreadNorm, "strumSpreadNorm copies through")
         let neg = box(machines(customizing: 0) { $0.paramsA.chanceTilt = -5.0 }) { _ in }.machines[0]
         XCTAssertEqual(neg.a.chanceTilt, -1.0, "chanceTilt clamps to −1")

@@ -602,7 +602,7 @@ extension Dice {
 
         // DRIVERS — one strikes/walks the held chord per chain (prominent 4 heavy; the rest light variety, all consonant).
         func arpSlot(_ rng: inout DiceRNG) -> ProcessorSlot {
-            fSlot(.arp) { $0.pattern = pick([ArpPattern.up, .up, .upDown, .upDown, .down, .random], &rng); $0.rate = pick(rateFast, &rng); $0.octaves = pick([1, 1, 2, 2, 3], &rng); $0.arpFit = Int.random(in: 0...2, using: &rng) == 0 }
+            fSlot(.arp) { $0.pattern = pick([ArpPattern.up, .up, .upDown, .upDown, .down, .random], &rng); $0.rate = pick(rateFast, &rng); $0.octaves = pick([1, 1, 2, 2, 3], &rng); $0.arpSpanN = pick([0, 0, 0, 0, 2, 3, 4], &rng) }
         }
         func euclidSlot(_ rng: inout DiceRNG) -> ProcessorSlot {
             fSlot(.euclid) {

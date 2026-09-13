@@ -391,14 +391,11 @@ struct ProcessorBox: View {
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
         switch ft {
         case .arp: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
-            heroField("PATTERN") { iconSeg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP", glyph: { i, t in arpGlyph(i, t) }) { i in
-                setParam { $0.pattern = ArpPattern.allCases[i] } } }
-            // RANDOM ANCHOR (Paul 2026-08-22): only meaningful for RANDOM — pins the first note of each cycle low/high.
-            // Sits DIRECTLY under PATTERN so the conditional chip reads with it (Paul 2026-08-25).
-            if (p.pattern ?? .up) == .random {
-                field("RANDOM ANCHOR", \.arpRandomAnchor) { seg(["OFF", "LOW", "HIGH"], sel: ["OFF", "LOW", "HIGH"][max(0, min(2, p.arpRandomAnchor ?? 0))]) { i in
-                    setParam { $0.arpRandomAnchor = i } } }
-            }
+            // PATTERN (Paul 2026-09-13): ALL options on ONE line, no highlight bar. The last two (RND HI / RND LO FIRST)
+            // are the RANDOM anchor — which note each cycle opens on — folded in from the retired RANDOM ANCHOR control.
+            field("PATTERN") {
+                arpPatternRow(pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0) { pat, anc in
+                    setParam { $0.pattern = pat; $0.arpRandomAnchor = anc } } }
             field("SPEED", \.rate) { seg(ArpRate.allCases.map(\.rawValue), sel: p.rate?.rawValue ?? "1/16") { i in
                 setParam { $0.rate = ArpRate.allCases[i] } } }
             HStack(spacing: 8) {
@@ -412,7 +409,9 @@ struct ProcessorBox: View {
             field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
                 slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
             }
-            optionsCluster([("FIT 1 BEAT", p.arpFit ?? false, { setParam { $0.arpFit = !($0.arpFit ?? false) } })])
+            // SPAN (Paul 2026-09-13, replaces FIT): the universal span-ladder — FREE runs the global grid, N re-anchors
+            // the pattern to index 0 every N columns (polymeter), same behaviour as riff/euclid/etc.
+            frameSpan(p.arpSpanN ?? 0, free: true) { v in setParam { $0.arpSpanN = v } }
             // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): HITS ◀K▶ of ◀N▶. K = N ⇒ OFF (dimmed, defaults-recede);
             // turn K down and the kit ANIMATES IN — GAPS (rest/tie) · WALK (march/wait) · ROTATE.
             let mN = max(2, min(16, p.arpMaskN ?? 8))
@@ -1717,10 +1716,35 @@ struct ProcessorBox: View {
             ctx.stroke(p, with: .color(tint), lineWidth: 1.5)
         }
     }
-    // ARP PATTERN chip arrows (idea 8): up · down · up-down · random · as-played.
-    private func arpGlyph(_ i: Int, _ tint: Color) -> some View {
-        let names = ["arrow.up", "arrow.down", "arrow.up.arrow.down", "shuffle", "hand.point.up.left"]
-        return Image(systemName: i >= 0 && i < names.count ? names[i] : "arrow.up").font(.system(size: 11, weight: .heavy)).foregroundColor(tint)
+    // THE ARP PATTERN ROW (Paul 2026-09-13): every pattern on ONE line, no wrap, no highlight bar. Each option maps to a
+    // (pattern, RANDOM-anchor) pair — the last two are the retired RANDOM ANCHOR control (open each cycle HIGH / LOW),
+    // now first-class buttons beside RANDOM. Ordered for future patterns to append to.
+    static let arpPatternOptions: [(pattern: ArpPattern, anchor: Int, label: String, glyph: String)] = [
+        (.up,       0, "UP",         "arrow.up"),
+        (.down,     0, "DOWN",       "arrow.down"),
+        (.upDown,   0, "UP/DOWN",    "arrow.up.arrow.down"),
+        (.asPlayed, 0, "AS PLAYED",  "hand.point.up.left"),
+        (.random,   0, "RANDOM",     "shuffle"),
+        (.random,   2, "RND HI FIRST", "arrow.up.to.line"),
+        (.random,   1, "RAND LO FIRST", "arrow.down.to.line"),
+    ]
+    private func arpPatternRow(pattern: ArpPattern, anchor: Int, _ pick: @escaping (ArpPattern, Int) -> Void) -> some View {
+        let opts = ProcessorBox.arpPatternOptions
+        let sel: Int = pattern == .random ? (anchor == 2 ? 5 : (anchor == 1 ? 6 : 4))
+                                           : (opts.firstIndex { $0.pattern == pattern && $0.anchor == 0 } ?? 0)
+        return HStack(spacing: 4) {
+            ForEach(Array(opts.enumerated()), id: \.offset) { idx, o in
+                let on = idx == sel
+                VStack(spacing: 3) {
+                    Image(systemName: o.glyph).font(.system(size: 11, weight: .heavy)).foregroundColor(on ? .black : accent).frame(height: 13)
+                    Text(o.label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : accent)
+                        .lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.7)
+                }
+                .frame(maxWidth: .infinity, minHeight: 48).padding(.horizontal, 3)
+                .background(RoundedRectangle(cornerRadius: 7).fill(on ? accent : Color.white.opacity(0.09)))
+                .contentShape(Rectangle()).onTapGesture { pick(o.pattern, o.anchor) }
+            }
+        }
     }
     // Split N options into rows of at most 4 (keeps each segment finger-sized on a full-width box).
     private func radioRows(_ n: Int) -> [[Int]] {
