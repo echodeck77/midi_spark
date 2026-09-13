@@ -5547,7 +5547,6 @@ extension DiagView {
         let held = (door >= 0 && door < recvHeldNotes.count) ? recvHeldNotes[door].map { Int($0) } : []
         let inGrace = door >= 0 && door < buildInGrace.count && buildInGrace[door]
         let sticky = (door >= 0 && door < buildInSticky.count) ? buildInSticky[door] : []
-        let letter = (door >= 0 && door < 4) ? ["A", "B", "C", "D"][door] : "A"
         let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
         // `proc` (is MIDI reaching THIS instance) varies PER COLUMN while a part plays, so drive it off a TimelineView on the
         // part's own beat clock (buildProcessing(at:)) — the 4 Hz poll alone lagged/aliased at speed (Paul 2026-09-13).
@@ -5563,9 +5562,7 @@ extension DiagView {
                     } else if inGrace {
                         buildInKeyboard(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
                     } else {
-                        Text("nothing held — LATCH or play at INPUT \(letter)")  // truly empty for a whole pass
-                            .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan.opacity(0.85))
-                            .lineLimit(2).minimumScaleFactor(0.8).frame(height: 30, alignment: .leading)
+                        buildInKeyboard([], hue: hue).opacity(0.25)             // truly empty — a blank keyboard, no teach text (Paul 2026-09-13)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }   // tap → the STAGE EYE (§4)

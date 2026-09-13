@@ -990,7 +990,7 @@ struct ProcessorBox: View {
             let dr = [1, 2, 3, 0, 2, 3, 4, 0, 1, 2, 3, 0, 5, 4, 3, 0]   // the default figure (matches SnapParams)
             let ranks = p.riffRanks ?? dr
             let mask = p.riffMask ?? []
-            heroField(poly ? "THE STENCIL — POLY: tap ranks per step (a chord that follows the held chord)" : "THE STENCIL — tap a rank per step (empty column = rest); the held chord fills it") {
+            heroField("") {   // label removed (Paul 2026-09-13)
                 VStack(spacing: 2) {
                     ForEach(Array((1...8).reversed()), id: \.self) { rank in
                         let bit = 1 << (rank - 1)
@@ -1511,7 +1511,7 @@ struct ProcessorBox: View {
     // wears one) + breathing room. Everything else is a plain `field`. A hero opens the card and never shares a row.
     private func heroField<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            if !label.isEmpty { Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85)) }
             content()
         }
         .padding(.leading, 10).padding(.vertical, 7)
