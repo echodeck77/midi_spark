@@ -1996,7 +1996,7 @@ extension DiagView {
                 // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
-                    .overlay { if set { roomsCellPlayhead(active: on && !(focused && roomsRoom == .part)).padding(2) } }   // PER-CELL PLAYHEAD — but the SELECTED ferry playing on the part grid already shows playheads on its part cells, so don't double the sweep here (Paul 2026-09-10)
+                    .overlay { if set { roomsCellPlayhead(active: on, dim: focused).padding(2) } }   // PER-CELL PLAYHEAD — the SELECTED/open ferry sweeps too (so it reads as playing) but DIMMED, to set it apart from the other, un-opened ferries at full brightness (Paul 2026-09-13)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
                     .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
@@ -3255,7 +3255,7 @@ extension DiagView {
     // cell + play ferry. It makes a looping pass legible: independent per cell, cycling with the beat. Works under free-run
     // too (diag.beat is now the EFFECTIVE beat). One bar per loop today (a 1-step continuous pass); when N-step passes land
     // (part loop-length / reel) the loop maps to the pass's real length.
-    @ViewBuilder private func roomsCellPlayhead(active: Bool) -> some View {
+    @ViewBuilder private func roomsCellPlayhead(active: Bool, dim: Bool = false) -> some View {
         // PERFECTLY STILL WHENEVER THE HOST TRANSPORT IS STOPPED (Paul 2026-09-04). Gated on d.playing (the HOST), NOT
         // free-run: when the host stops but the ferry keeps sounding a held/latched chord, free-run takes over and its
         // beat jumps to 0 then advances in blocks — which is exactly the "jump to the wrong spot, jump back, jiggle" on
@@ -3272,11 +3272,15 @@ extension DiagView {
                     let x = CGFloat(p) * g.size.width
                     // P3 THE BEAT-SWEEP (Paul 2026-09-09): a bright head with a trailing glow, swept in beat-time — the
                     // ferry's playing motion (the ratified "bright line swept in time"). White so it reads on any hue.
+                    // DIM (Paul 2026-09-13): the SELECTED/open ferry shows its playhead too (so you see it's playing), but
+                    // dimmed to set it apart from the other, un-opened ferries that sweep at full brightness.
+                    let trailA = dim ? 0.12 : 0.28
+                    let headA  = dim ? 0.40 : 0.95
                     ZStack(alignment: .leading) {
-                        LinearGradient(colors: [.white.opacity(0), .white.opacity(0.28)], startPoint: .leading, endPoint: .trailing)
+                        LinearGradient(colors: [.white.opacity(0), .white.opacity(trailA)], startPoint: .leading, endPoint: .trailing)
                             .frame(width: 20, height: g.size.height)
                             .position(x: x - 10, y: g.size.height / 2)          // the trail, behind the head
-                        Rectangle().fill(Color.white.opacity(0.95)).frame(width: 2, height: g.size.height)
+                        Rectangle().fill(Color.white.opacity(headA)).frame(width: 2, height: g.size.height)
                             .position(x: x, y: g.size.height / 2)               // the bright leading edge
                     }
                     .allowsHitTesting(false)
