@@ -2908,9 +2908,10 @@ extension DiagView {
         // When an AUTO tab is selected, every cell that ISN'T the selected rung loses its face machine (drops to the
         // background) but keeps its border — so the sweep's target rung stands out. (Paul 2026-09-04)
         let hollow = buildAutoActive() >= 0 && !selected
-        let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,   // PART grid: NOTHING dimmed — every cell at full brightness (Paul 2026-09-03)
+        let cellBody = roomsGridCellBody(id: id, selected: selected, fade: false, hollow: hollow,
                           flatFill: partFerryFill(r), flatFrame: partFerryFrame(r),   // P2b (Paul 2026-09-09): the 4 rows are the ACTIVE ferry's colour in darkening SHADES (was fixed-by-position)
                           sweep: { EmptyView() })   // NO piano-roll notes on the part cells (Paul 2026-09-09: lose them altogether) — the cell is its ferry-shade tile + state rings
+                          .opacity(selected ? 1.0 : 0.4)   // DIM the non-selected rungs so the selected sequence stands out (Paul 2026-09-13); the selected-rung white outline is drawn on top at full brightness
         // THE SELECTED RUNG IS ALWAYS A WHITE OUTLINE (Paul 2026-09-04): drawn LAST, on top of everything (incl. the amber
         // punch look), so it is always clear + legible and NEVER becomes another machine. It fades only VERY slightly while
         // an AUTO tab is armed, so the amber extent editing can still read underneath.
