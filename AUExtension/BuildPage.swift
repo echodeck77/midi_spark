@@ -2236,13 +2236,21 @@ extension DiagView {
                 buildFerryHueAlloc[u] = oldHex                                        // the displaced colour moves to the empty ferry that held the incoming colour
             }
         }
-        let y = buildNewTabMachine(t, machine: chain, transpose: transpose, hex: hue)   // a fresh part machine carrying the chain, in the CELL's hue (nil ⇒ the vivid part hue)
+        // FERRY HUE UNIQUENESS (Paul 2026-09-13): a machine's colour STICKS to it, seeded from where it's placed — but two
+        // populated ferries must never wear the SAME colour (a real "which is which" confusion). Only reassign on an ACTUAL
+        // clash with another populated ferry (so a clean inherited palette colour is kept when it's already distinct);
+        // buildDistinctHue avoids every live hue, so it can't re-collide.
+        var effHue = hue
+        if let h = hue, (0..<8).contains(where: { $0 != t && buildFerryParts[$0] != nil && buildFerryHex($0) == h }) {
+            effHue = buildDistinctHue()
+        }
+        let y = buildNewTabMachine(t, machine: chain, transpose: transpose, hex: effHue)   // a fresh part machine carrying the chain, in the CELL's (distinct) hue (nil ⇒ the vivid part hue)
         var p = BuildPart()
         p.length = Snap.maxCols                                                       // a full 16-step part (the grid defaults to 16)
         for c in 0..<Snap.maxCols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }   // the chain across the WHOLE first row → a full sequence, not one cell
         p.selID = y; p.cast = [y]
         p.receiver = buildSelReceiver; p.emitters = buildDefaultEmitters
-        p.ferryHue = hue                                                              // the ferry INHERITS the cell's colour (Paul 2026-09-12)
+        p.ferryHue = effHue                                                           // the ferry inherits the cell's colour, made distinct from other ferries (Paul 2026-09-13)
         p.ferryName = name                                                            // …and its name
         buildFerryParts[t] = p
         buildFerryHueAlloc[t] = nil                                                   // a populated ferry's colour comes from its part now, not the empty-slot alloc
