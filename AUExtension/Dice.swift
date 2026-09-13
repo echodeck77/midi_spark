@@ -53,7 +53,9 @@ enum Dice {
         Array(repeating: .humanize, count: 2) + Array(repeating: .shift,   count: 2) +
         Array(repeating: .strum,    count: 2) + Array(repeating: .chance,  count: 4) +   // CHANCE up (Paul's favourite, 2026-08-19)
         Array(repeating: .tutti,    count: 4) +                                           // TUTTI added — was ABSENT (Paul's favourite, esp. PATTERN)
-        Array(repeating: .echo,     count: 2) + Array(repeating: .harmonize, count: 1)   // MUCH LESS harmonizer
+        Array(repeating: .echo,     count: 2) + Array(repeating: .harmonize, count: 2) +  // harmonize UP a touch — scale-lock (2026-09-13) makes it safe (out-of-key snaps to scale)
+        Array(repeating: .riff,     count: 3) + Array(repeating: .weave,    count: 2) +   // POOL BROADENED (Paul 2026-09-13): RIFF = a chord-following melodic line (highest musicality/slot); WEAVE = rank-clocked polymeter
+        Array(repeating: .length,   count: 2)                                             // LENGTH = a per-slice GATE of the held chord (randomSlot now seeds non-PASS slices, so it contributes)
 
     // ROLE-BASED COMPOSITION (user 2026-08-11): the engine's LAST tick-generator is the DRIVER; slots BEFORE it shape
     // the source chord, non-driver HOLDS after it fold onto each tick, echo is a TAIL. So compose to a plan —
@@ -61,11 +63,14 @@ enum Dice {
     // SLOWER than the driver (a moving root under a faster figure — Paul's slow→fast insight).
     static let driverTypes: [ProcessorType] =                       // the rhythm engine (fast)
         Array(repeating: .arp, count: 3) + Array(repeating: .ratchet, count: 3) + Array(repeating: .euclid, count: 3) +
-        Array(repeating: .burst, count: 2) + Array(repeating: .cascade, count: 2) + Array(repeating: .strum, count: 1) + [.drone]
+        Array(repeating: .burst, count: 2) + Array(repeating: .cascade, count: 2) + Array(repeating: .strum, count: 1) + [.drone] +
+        Array(repeating: .riff, count: 2) + Array(repeating: .weave, count: 2)      // RIFF/WEAVE are drivers too (Paul 2026-09-13) — a melodic line / a polymeter figure
     static let shaperTypes: [ProcessorType] =                       // upstream: a MOVING root / voicing (slow) — must
         Array(repeating: .arp, count: 3) + Array(repeating: .euclid, count: 2) +   // change the source, so NO drone (it just
         Array(repeating: .chance, count: 2) + [.harmonize, .tutti]                   // re-sustains the held chord → doesn't contribute upstream)
-    static let postFoldTypes: [ProcessorType] = [.chance, .chance, .harmonize, .tutti]   // per-tick/step HOLD transforms (a driver here would BECOME the driver). NOT length: the dice only rolls DParam values, so a rolled LENGTH = default all-PASS = a no-op
+    // per-tick/step HOLD transforms folded onto each driven note (a driver here would BECOME the driver). LENGTH joins now
+    // (Paul 2026-09-13): randomSlot seeds a non-PASS slice pattern, so a rolled LENGTH gates each tick instead of no-op'ing.
+    static let postFoldTypes: [ProcessorType] = [.chance, .chance, .harmonize, .tutti, .length]
     static let slowRates: [ArpRate] = [.r1_4, .r1_8, .r1_8t]
     static let fastRates: [ArpRate] = [.r1_16, .r1_16t, .r1_32]
 
@@ -211,6 +216,19 @@ enum Dice {
         s.params.tuttiRotate = Int.random(in: 0...7, using: &rng)
         s.params.tuttiBalance = Double.random(in: 0.3...0.8, using: &rng)
         s.params.tuttiPick = TuttiPick.allCases.randomElement(using: &rng)
+        // POOL BROADENED (Paul 2026-09-13) — RIFF/WEAVE/LENGTH seeds. All three follow the HELD chord (RIFF ranks index the
+        // played notes, WEAVE clocks them, LENGTH gates them), so they introduce NO out-of-key pitches → safe with or without
+        // a scale door. Read only when the slot's type is riff/weave/length.
+        let rSteps = [8, 16].randomElement(using: &rng)!                          // RIFF — a chord-following melodic line
+        s.params.riffSteps = rSteps
+        s.params.riffRate = [.r1_16, .r1_8, .r1_16t].randomElement(using: &rng)
+        s.params.riffRanks = (0..<rSteps).map { _ in Int.random(in: 0...4, using: &rng) }   // 0 = rest · 1–4 = pool rank (FOLD wraps past the held count)
+        s.params.weaveMode = WeaveMode.allCases.randomElement(using: &rng)        // WEAVE — rank-clocked polymeter over the held chord
+        s.params.weaveBaseStep = [.r1_2, .r1_4, .r1_8].randomElement(using: &rng)
+        s.params.weaveSpan = Int.random(in: 2...6, using: &rng)
+        var lslices: [LenState] = (0..<8).map { _ in [.pass, .pass, .pass, .mute, .short, .long].randomElement(using: &rng)! }   // LENGTH — a per-slice gate; bias to PASS with some rests/staccato
+        if lslices.allSatisfy({ $0 == .pass }) { lslices[Int.random(in: 0..<8, using: &rng)] = .mute }   // never all-PASS (that's a no-op → fails all-contributing)
+        s.params.lenSlices = lslices
         return s
     }
 

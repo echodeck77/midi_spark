@@ -18,23 +18,32 @@ final class DiceTests: XCTestCase {
     }
 
     // Every generated SLIDER and BUTTON macro has a tangible effect (the output differs from the base).
+    // Every KEPT macro must change the output (rollSliders/rollButtons drop no-ops). NOTE: a roll can legitimately yield
+    // ZERO macros now — the pool includes RIFF/WEAVE/LENGTH, whose params the DParam sliders don't reach — so we assert the
+    // invariant across seeds AND that the macro feature still fires for at least one (Paul 2026-09-13, pool broadened).
     func testRolledMacrosEachChangeTheOutput() {
-        var rng = DiceRNG(seed: 0x5A3F)
-        let r = Dice.roll(target: 5, using: &rng)
-        let sigBase = Dice.signature(r.base)
-        XCTAssertFalse(r.sliders.isEmpty || r.buttons.isEmpty, "a roll yields slider + button macros")
-        for m in r.sliders {
-            var alt = r.base; Dice.setD(&alt[m.slot], m.param, m.alt)
-            XCTAssertNotEqual(Dice.signature(alt), sigBase, "slider on slot \(m.slot)/\(m.param) must change the output")
-        }
-        for b in r.buttons {
-            var alt = r.base
-            switch b.op {
-            case .bypass(let k):           alt[k].bypassed.toggle()
-            case .switchType(let k, let t): alt[k].type = t
+        var sawSlider = false, sawButton = false
+        for seed: UInt64 in [0x5A3F, 7, 42, 0xD1CE, 99, 0xBEEF, 123, 0x0B77] {
+            var rng = DiceRNG(seed: seed)
+            let r = Dice.roll(target: 5, using: &rng)
+            let sigBase = Dice.signature(r.base)
+            for m in r.sliders {
+                var alt = r.base; Dice.setD(&alt[m.slot], m.param, m.alt)
+                XCTAssertNotEqual(Dice.signature(alt), sigBase, "seed \(seed): slider on slot \(m.slot)/\(m.param) must change the output")
+                sawSlider = true
             }
-            XCTAssertNotEqual(Dice.signature(alt), sigBase, "button \(b.label) must change the output")
+            for b in r.buttons {
+                var alt = r.base
+                switch b.op {
+                case .bypass(let k):           alt[k].bypassed.toggle()
+                case .switchType(let k, let t): alt[k].type = t
+                }
+                XCTAssertNotEqual(Dice.signature(alt), sigBase, "seed \(seed): button \(b.label) must change the output")
+                sawButton = true
+            }
         }
+        XCTAssertTrue(sawSlider, "at least one seed yields slider macros")
+        XCTAssertTrue(sawButton, "at least one seed yields button macros")
     }
 
     // Rolls are DENSITY-CAPPED (user 2026-08-10: "70 voices from two rows") — the chain, and each slider at full,
@@ -101,21 +110,26 @@ final class DiceTests: XCTestCase {
     // only drive sliders through chain(), or apply buttons MANUALLY). Composing all buttons ON must equal applying each
     // op to the base, and a switchType button must set its slot's type.
     func testEffectiveChainAppliesButtons() {
-        var rng = DiceRNG(seed: 0x0B77)
-        let r = Dice.roll(target: 5, using: &rng)
-        guard !r.buttons.isEmpty else { return XCTFail("a roll yields button macros") }
-        let composed = r.chain(sliderVals: [0, 0, 0, 0], buttonOn: Array(repeating: true, count: r.buttons.count))
-        var expected = r.base
-        for b in r.buttons {
-            switch b.op {
-            case .bypass(let k):            if k < expected.count { expected[k].bypassed.toggle() }
-            case .switchType(let k, let t): if k < expected.count { expected[k].type = t }
+        // Find a seed whose roll yields buttons (a broadened-pool base may have none — see the note above).
+        for seed: UInt64 in [0x0B77, 7, 42, 123, 0x5A3F, 99, 0xD1CE, 0xBEEF] {
+            var rng = DiceRNG(seed: seed)
+            let r = Dice.roll(target: 5, using: &rng)
+            guard !r.buttons.isEmpty else { continue }
+            let composed = r.chain(sliderVals: [0, 0, 0, 0], buttonOn: Array(repeating: true, count: r.buttons.count))
+            var expected = r.base
+            for b in r.buttons {
+                switch b.op {
+                case .bypass(let k):            if k < expected.count { expected[k].bypassed.toggle() }
+                case .switchType(let k, let t): if k < expected.count { expected[k].type = t }
+                }
             }
+            XCTAssertEqual(composed, expected, "chain(buttonOn:) applies each button's op through the composition path")
+            for b in r.buttons { if case .switchType(let k, let t) = b.op, k < composed.count {
+                XCTAssertEqual(composed[k].type, t, "switchType button sets slot \(k)'s type")
+            } }
+            return
         }
-        XCTAssertEqual(composed, expected, "chain(buttonOn:) applies each button's op through the composition path")
-        for b in r.buttons { if case .switchType(let k, let t) = b.op, k < composed.count {
-            XCTAssertEqual(composed[k].type, t, "switchType button sets slot \(k)'s type")
-        } }
+        XCTFail("no seed yielded button macros")
     }
 
     // getD/setD are two independent switches; a SYMMETRIC mis-mapping (both swap spread↔curve) round-trips and would

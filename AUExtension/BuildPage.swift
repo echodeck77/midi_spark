@@ -4421,8 +4421,11 @@ extension DiagView {
     }
     // Wrap a freshly-generated chain in the scale lock IF a scale door is set (else unchanged). Call on the MAIN thread
     // (it reads the receivers). Used by RANDOMIZE, MUTATE, and the row creator so all generated chains stay in key.
+    // With a scale door we ALSO enrich octave-only harmonize to diatonic intervals (the lock snaps them in key); without
+    // one, the chain is left exactly as generated (octave harmony stays safe).
     private func buildScaleLocked(_ chain: [ProcessorSlot]) -> [ProcessorSlot] {
-        BuildSceneLogic.scaleLocked(chain, door: buildScaleLockDoor())
+        guard let door = buildScaleLockDoor() else { return chain }
+        return BuildSceneLogic.scaleLocked(BuildSceneLogic.scaleEnrichHarmony(chain), door: door)
     }
     // BUILD RANDOMIZE (Paul 2026-09-13, quality+speed rework): DRAW-AND-ADAPT from the background PREGEN CORPUS
     // (buildGridSelCorpus — the same role-graded archetype pool the grid selector builds), so a roll is (a) INSTANT and

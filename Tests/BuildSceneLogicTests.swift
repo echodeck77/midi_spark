@@ -115,6 +115,21 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(BuildSceneLogic.scaleLocked(full, door: 1), full, "no room for the lock → unchanged")
     }
 
+    func testScaleEnrichHarmonyReplacesOctavesWithMusicalIntervalsPreservingCount() {
+        var h = ProcessorSlot(type: .harmonize)
+        h.params.harmIntervals = [12, -12, 0]                        // octave-only + a unison
+        let out = BuildSceneLogic.scaleEnrichHarmony([h])
+        let iv = out[0].params.harmIntervals!
+        XCTAssertEqual(iv.count, 3, "note COUNT preserved (replace, not add) → no density/flood change")
+        XCTAssertEqual(iv[2], 0, "unison is left alone")
+        XCTAssertFalse(iv[0] % 12 == 0, "the +12 octave became a musical interval")
+        XCTAssertFalse(iv[1] % 12 == 0, "the -12 octave became a musical interval")
+        // a non-harmonize slot, and an already-musical harmonize, are untouched
+        XCTAssertEqual(BuildSceneLogic.scaleEnrichHarmony([ProcessorSlot(type: .arp)]), [ProcessorSlot(type: .arp)])
+        var m = ProcessorSlot(type: .harmonize); m.params.harmIntervals = [4, 7, 0]
+        XCTAssertEqual(BuildSceneLogic.scaleEnrichHarmony([m]), [m], "already diatonic → unchanged")
+    }
+
     // passLen clamps a play-column pass length into [1, Snap.maxCols]; out-of-range column / short array → a single cell.
     // (Housekeeping 2026-09-07: this gates multi-step play-pass composition and had zero coverage.)
     func testPassLenClampsToMaxColsAndHandlesOutOfRange() {

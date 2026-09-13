@@ -415,6 +415,24 @@ enum BuildSceneLogic {
         return stripped + [lock]
     }
 
+    /// DIATONIC HARMONIZE (Paul 2026-09-13): only safe WITH a scale lock (a fixed interval drifts out of key over an
+    /// arbitrary held chord). So when we're about to scale-lock, upgrade any OCTAVE-ONLY harmonize to MUSICAL intervals
+    /// (thirds/fourths/fifths/sixths) — the lock then snaps them onto the scale, giving in-key harmony. Note COUNT is
+    /// preserved (each octave interval is REPLACED, not added), so density/flood is unchanged. Pure → unit-tested.
+    /// Call ONLY when a scale door exists (the caller gates it); with no lock these intervals would drift.
+    static func scaleEnrichHarmony(_ chain: [ProcessorSlot]) -> [ProcessorSlot] {
+        let musical = [4, 7, 3, 5, -5, 9]   // major/minor third, fifth, fourth-down, sixth — snapped to scale by the lock
+        return chain.map { slot in
+            guard slot.type == .harmonize, let iv = slot.params.harmIntervals else { return slot }
+            var out = iv; var k = 0
+            for i in out.indices where out[i] != 0 && out[i] % 12 == 0 {   // an octave-only interval → a musical one
+                out[i] = musical[k % musical.count]; k += 1
+            }
+            guard out != iv else { return slot }
+            var s = slot; s.params.harmIntervals = out; return s
+        }
+    }
+
     static func reconcileStagingSel(_ sel: [Int], cells: [[String?]]) -> [Int] {
         (0..<Snap.maxCols).map { c in   // §E: 16-wide part
 
