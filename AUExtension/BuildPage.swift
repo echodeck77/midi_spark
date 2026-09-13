@@ -5264,7 +5264,9 @@ extension DiagView {
         let activeOn = buildActiveFerry.map { $0 >= 0 && $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? false
         if buildStagingPlaying || activeOn {                                                         // PART: the selected rungs that emit on e
             for c in 0..<Snap.maxCols { let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
-                if r >= 0, buildRowMachine(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowMachine(r), idx: c * Snap.rows + r) } }
+                // Tint by the CELL's OWN displayed colour (partFerryHue(r) — the row shade you SEE), not machineHue(cid) (the
+                // machine's stored palette hue, the OLD pre-P2b row colour). "ask the playing cell what colour it is." (Paul 2026-09-13)
+                if r >= 0, buildRowMachine(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowMachine(r), color: Color(hex: partFerryHue(r)), idx: c * Snap.rows + r) } }
         }
         // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette machine. (Paul 2026-08-31)
         if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedMachineID, color: buildMachineHue(roomsRoom), idx: buildChainAuditionRow) }
@@ -5277,7 +5279,7 @@ extension DiagView {
             for s in 0..<steps.count {
                 guard let cid = steps[s] else { continue }
                 let em = s < stepEmit.count ? stepEmit[s] : (c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])
-                if em.contains(e) { add(cid, idx: s * Snap.rows + (Snap.playLayerRowBase + c)) }
+                if em.contains(e) { add(cid, color: Color(hex: buildFerryHex(c)), idx: s * Snap.rows + (Snap.playLayerRowBase + c)) }   // the background ferry's OWN colour (Paul 2026-09-13)
             }
         }
         return order.map { MeterBand(color: byCid[$0]!.color, energy: false, cellIdxs: byCid[$0]!.idxs) }
