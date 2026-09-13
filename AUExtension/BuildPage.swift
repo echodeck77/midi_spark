@@ -1553,10 +1553,11 @@ extension DiagView {
                     buildChainBtn("COPY", fill: true) { buildCopyChain() }
                     buildChainBtn("PASTE", enabled: !(buildChainClipboard ?? []).isEmpty, fill: true) { buildPasteChain() }
                 }
-            } else {                                                         // ROOMS machine section — SMALLER buttons (text unchanged); RANDOMIZE + COPY/PASTE dropped (Paul 2026-08-29)
-                buildChainBtn("LIBRARY", h: 26) { buildOpenLibrary() }
-                buildChainBtn("MUTATE", h: 26)  { buildMutateChain() }
-                buildChainBtn("CLEAR", h: 26)   { buildClearChain() }
+            } else {                                                         // ROOMS machine section — SMALLER buttons (text unchanged); COPY/PASTE dropped (Paul 2026-08-29); RANDOMIZE restored between MUTATE and CLEAR (Paul 2026-09-13)
+                buildChainBtn("LIBRARY", h: 26)   { buildOpenLibrary() }
+                buildChainBtn("MUTATE", h: 26)    { buildMutateChain() }
+                buildChainBtn("RANDOMIZE", h: 26) { buildRandomizeSimple() }  // reroll the chain
+                buildChainBtn("CLEAR", h: 26)     { buildClearChain() }
             }
         }
         .frame(width: width)
