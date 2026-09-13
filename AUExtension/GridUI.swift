@@ -396,8 +396,7 @@ struct ProcessorBox: View {
             field("PATTERN") {
                 arpPatternRow(pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0) { pat, anc in
                     setParam { $0.pattern = pat; $0.arpRandomAnchor = anc } } }
-            field("SPEED", \.rate) { seg(ArpRate.allCases.map(\.rawValue), sel: p.rate?.rawValue ?? "1/16") { i in
-                setParam { $0.rate = ArpRate.allCases[i] } } }
+            field("SPEED", \.rate) { arpSpeedRow(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
             HStack(spacing: 8) {
                 field("OCTAVES", \.octaves) { numPair(p.octaves ?? 1, 1...4) { v in setParam { $0.octaves = v } } }
                 // OCT DIRECTION (Paul 2026-08-22): the laps ascend the octaves (UP) or descend them (DOWN).
@@ -1743,6 +1742,20 @@ struct ProcessorBox: View {
                     .frame(maxWidth: .infinity, minHeight: 48).padding(.horizontal, 3)
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? accent : Color.white.opacity(0.09)))
                 .contentShape(Rectangle()).onTapGesture { pick(o.pattern, o.anchor) }
+            }
+        }
+    }
+    // THE ARP SPEED ROW (Paul 2026-09-14): every ArpRate on ONE line, no wrap — straights · dotted (D) · triplets (T).
+    // 18 chips share the width equally + shrink-to-fit, so they stay on a single row.
+    private func arpSpeedRow(sel: ArpRate, _ pick: @escaping (ArpRate) -> Void) -> some View {
+        HStack(spacing: 3) {
+            ForEach(ArpRate.allCases, id: \.self) { r in
+                let on = r == sel
+                Text(r.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, minHeight: 40).padding(.horizontal, 1)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.09)))
+                    .contentShape(Rectangle()).onTapGesture { pick(r) }
             }
         }
     }

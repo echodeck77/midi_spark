@@ -116,9 +116,18 @@ enum StepRate: String, Codable, CaseIterable {
     }
 }
 enum ArpRate: String, Codable, CaseIterable {
-    case r1_4 = "1/4", r1_8 = "1/8", r1_8t = "1/8T", r1_16 = "1/16", r1_16t = "1/16T", r1_32 = "1/32"
+    // Straights, then dotted (D = 1.5×), then triplets (T = 2/3×) — 1/1…1/32 each (Paul 2026-09-14). Rate persists by
+    // rawValue, so keeping the existing rawValues/case names (r1_4/r1_8/r1_8t/r1_16/r1_16t/r1_32) keeps saved sessions
+    // + every `.r1_8`-style reference resolving; only allCases grew + reordered (rate re-indexes at build via firstIndex).
+    case r1_1 = "1/1",  r1_2 = "1/2",  r1_4 = "1/4",   r1_8 = "1/8",   r1_16 = "1/16",   r1_32 = "1/32"
+    case r1_1d = "1/1D", r1_2d = "1/2D", r1_4d = "1/4D", r1_8d = "1/8D", r1_16d = "1/16D", r1_32d = "1/32D"
+    case r1_1t = "1/1T", r1_2t = "1/2T", r1_4t = "1/4T", r1_8t = "1/8T", r1_16t = "1/16T", r1_32t = "1/32T"
     var beats: Double {
-        switch self { case .r1_4: 1; case .r1_8: 0.5; case .r1_8t: 1.0/3.0; case .r1_16: 0.25; case .r1_16t: 1.0/6.0; case .r1_32: 0.125 }
+        switch self {
+        case .r1_1: 4;      case .r1_2: 2;      case .r1_4: 1;        case .r1_8: 0.5;    case .r1_16: 0.25;      case .r1_32: 0.125
+        case .r1_1d: 6;     case .r1_2d: 3;     case .r1_4d: 1.5;     case .r1_8d: 0.75;  case .r1_16d: 0.375;    case .r1_32d: 0.1875
+        case .r1_1t: 8.0/3.0; case .r1_2t: 4.0/3.0; case .r1_4t: 2.0/3.0; case .r1_8t: 1.0/3.0; case .r1_16t: 1.0/6.0; case .r1_32t: 1.0/12.0
+        }
     }
 }
 enum Bus: String, Codable, CaseIterable { case a = "A", b = "B", c = "C", d = "D"
