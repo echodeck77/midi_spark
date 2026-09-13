@@ -1603,8 +1603,11 @@ extension DiagView {
                     .opacity(0.35)
                     .allowsHitTesting(false))
                 } else {
-                    AnyView(HStack(alignment: .center, spacing: 0) {           // TRASH flank LEFT · MIDI CHAIN centred · verb buttons (LIBRARY/MUTATE/CLEAR) RIGHT — same sides in BOTH rooms (Paul 2026-09-10)
-                        AnyView(roomsChainTrash(width: sideW, height: blockH))   // LEFT — the DELETE trash (invisible until a chain box is held; PLAY + SELECT removed, Paul 2026-09-10)
+                    AnyView(HStack(alignment: .center, spacing: 0) {           // LEFT flank: ROW RAIL (part room) ↔ trash · MIDI CHAIN centred · verb buttons (LIBRARY/MUTATE/CLEAR) RIGHT (Paul 2026-09-10)
+                        AnyView(ZStack {                                        // LEFT — the 4 part-row selectors (another view of the selected/playing row), swapped for the trash while dragging (Paul 2026-09-13)
+                            if roomsRoom == .part && !buildTrashVisible { AnyView(roomsMachineRowRail(width: sideW, height: blockH)) }
+                            AnyView(roomsChainTrash(width: sideW, height: blockH))   // the DELETE trash (drawn only mid-drag; keeps registering its drop zone)
+                        }.frame(width: sideW, height: blockH))
                         AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // RIGHT — LIBRARY / MUTATE / CLEAR (always the right, both rooms)
                     }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedMachineChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
@@ -1634,11 +1637,34 @@ extension DiagView {
     // renders nothing and never intercepts touch). While a MIDI-chain processor box is HELD (buildChainDragFrom set) a big
     // red garbage-can box appears here; dragging the box over it (detected via the chainBlock x — the trash is the left
     // flank, at x < 0) turns it EVEN REDDER, and dropping there deletes the processor from the chain (handled in buildProcBox).
+    // Is the DELETE trash currently on screen? (a chain-box drag that has MOVED, or a ferry drag). When it's NOT, the
+    // machine box's left flank shows the 4 row selectors instead (Paul 2026-09-13). One source of truth for both.
+    var buildTrashVisible: Bool {
+        let chainDrag = chainDragActive && buildChainDragMoved
+        let ferryDrag = ferryDragActive && buildFerryDragMoved && (buildFerryDrag.map { if case .ferry = $0 { return true } else { return false } } ?? false)
+        return chainDrag || ferryDrag
+    }
+    // THE MACHINE-BOX ROW RAIL (Paul 2026-09-13): the four part-row selectors — the SAME component + styling as the part
+    // grid's RIGHT rail (roomsSideButton part:true) — stacked in the trash's flank slot, shown whenever the trash isn't.
+    // It's another view of the currently-selected row, each carrying the 1-step sweeping playhead (roomsCardRowPlayhead)
+    // so the machine box also shows which row is playing. PART room only (rows are a part concept — the caller gates it).
+    @ViewBuilder func roomsMachineRowRail(width: CGFloat, height: CGFloat) -> some View {
+        let gap = BuildGeom.castGap
+        let rows = DiagView.roomsGridRows
+        let rowH = max(1, (height - gap * CGFloat(rows - 1)) / CGFloat(rows))
+        VStack(spacing: gap) {
+            ForEach(0..<rows, id: \.self) { n in
+                roomsSideButton(n, part: true).frame(width: width, height: rowH)
+                    .overlay { roomsCardRowPlayhead(n, w: width, h: rowH).clipShape(RoundedRectangle(cornerRadius: 5)) }   // the 1-step sweep while THIS row plays (Paul 2026-09-13)
+            }
+        }
+        .frame(width: width, height: height, alignment: .center)
+    }
     @ViewBuilder func roomsChainTrash(width: CGFloat, height: CGFloat) -> some View {
         // Appears during EITHER a chain-box drag (delete a processor) OR a ferry drag (delete a ferry — Paul 2026-09-12).
         let chainDrag = chainDragActive && buildChainDragMoved   // DRAG ONLY (Paul 2026-09-11): shown once the held box actually MOVES, not on the hold itself (chainDragActive auto-resets so it never sticks)
         let ferryDrag = ferryDragActive && buildFerryDragMoved && buildFerryDrag.map { if case .ferry = $0 { return true } else { return false } } == true   // a FERRY (not a select cell) can land here
-        let dragging = chainDrag || ferryDrag
+        let dragging = buildTrashVisible   // == chainDrag || ferryDrag (shared with the row-rail swap)
         let over = (chainDrag && buildChainOverTrash) || (ferryDrag && buildFerryHover == .trash)
         let boxH = 3 * 26 + 2 * BuildGeom.castGap   // SMALLER: the footprint of the LIBRARY/MUTATE/CLEAR stack (3 × 26 + 2 gaps) — Paul 2026-09-10
         ZStack {
@@ -2584,7 +2610,8 @@ extension DiagView {
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
                                 .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: rowH, gap: gap, cols: cols) }
                                 .onEnded { _ in buildPartDragLast = nil; buildPartDragAnchor = nil })
-                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH) } }   // RIGHT = numbered (the part-position selector / copy source)
+                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH)
+                                .overlay { roomsCardRowPlayhead(n, w: railW, h: rowH).clipShape(RoundedRectangle(cornerRadius: 5)) } } }   // RIGHT = numbered (part-position selector / copy source) + the 1-step sweep on the playing row (Paul 2026-09-13)
                         }
                     }
                     // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
