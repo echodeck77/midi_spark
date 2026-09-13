@@ -5409,7 +5409,7 @@ extension DiagView {
             // (ROW SELECTOR — the "Long press to copy" 1–8 tabs — removed, no longer required. Paul 2026-08-30)
             buildTruthStrips().padding(.horizontal, 16).padding(.vertical, 8)   // §1 IN | OUT truths — silence explains itself
             Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
-            buildSlotBox(slot, proc, cid: cid).padding(16)   // CONTROLS — reuse ProcessorBox (our chrome hidden)
+            buildSlotBox(slot, proc, cid: cid).padding(.horizontal, 16).padding(.vertical, 12)   // CONTROLS — sit directly in the main card (ProcessorBox's own box removed via embedInParent). Paul 2026-09-13
               }
             }
         }
@@ -5778,7 +5778,7 @@ extension DiagView {
 
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
-            onMacro: nil, plainTitle: true, showSlotChrome: false,
+            onMacro: nil, plainTitle: true, showSlotChrome: false, embedInParent: true,   // controls sit in the main card, no box-within-a-box (Paul 2026-09-13)
             avoidInputNotes: recvHeldNotes.map { $0.map(Int.init) },   // AVOID piano: per-input held notes (armed/scale doors report their pool) — live while the editor is open
             avoidChainInputDoor: buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver)   // the door feeding THIS chain → the OUTPUT piano predicts from its notes
     }
