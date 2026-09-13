@@ -1981,18 +1981,9 @@ extension DiagView {
                     .overlay { if focused { RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(0.95)) } }              // FOCUSED = the light source: its OWN full colour
                     .overlay {
                         if set {
-                            // THE SELECTED selector PULSES with the part's MIDI output (Paul 2026-09-12): the focused ferry is
-                            // the part on the bench, so its identity dots flash the same velocity feed as its play button —
-                            // matching the play-ferry pulse. Non-focused selectors stay static (only the selected one animates).
-                            if focused {
-                                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                                    let lvl = buildFlashLevel(buildFerryFlashIndices(t), now: tl.date)
-                                    HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
-                                        .brightness(lvl * 0.6).scaleEffect(1.0 + lvl * 0.22)
-                                }
-                            } else {
-                                HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
-                            }
+                            // The selector's identity dots are STATIC (Paul 2026-09-13: the velocity flash lives on the PLAY
+                            // button only; the earlier focused-selector pulse was removed at the user's request).
+                            HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
                         } else {
                             Image(systemName: "plus").font(.system(size: min(10, selH * 0.5), weight: .bold)).foregroundColor(buildDim)
                         }
