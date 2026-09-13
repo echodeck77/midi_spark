@@ -387,6 +387,34 @@ enum BuildSceneLogic {
         }
     }
 
+    // ── SCALE LOCK for generated chains (Paul 2026-09-13) ─────────────────────────────────────────────────────────────
+    // When a receiver door is set to SCALE, a RANDOMIZE/MUTATE result can be kept IN KEY by appending a LOCK-to-key AVOID
+    // tail that REFERENCES that door — so out-of-key notes snap into the scale (MOVE), and the lock FOLLOWS the door (change
+    // the scale → the lock updates). This is the lever that lets generation use richer harmony safely. Pure → unit-tested.
+
+    /// Which door to lock into: the machine's OWN receiver if it's a scale door, else the first scale door among the four.
+    /// `isScale[i]` = receiver i is in SCALE mode. nil = no scale set anywhere → don't lock.
+    static func scaleLockDoor(isScale: [Bool], preferred: Int?) -> Int? {
+        if let p = preferred, p >= 0, p < isScale.count, isScale[p] { return p }
+        return isScale.firstIndex(of: true)
+    }
+
+    /// Re-assert a LOCK-to-key AVOID tail referencing `door` (snap out-of-key notes into that door's scale). No-op when
+    /// there's no scale door (door == nil). IDEMPOTENT: any prior door-referenced LOCK is stripped first (so a re-MUTATE
+    /// that bypassed/edited it can't accumulate a second, and the tail stays exactly one active lock). If stripping still
+    /// leaves the chain full, it's returned unchanged (can't fit the lock).
+    static func scaleLocked(_ chain: [ProcessorSlot], door: Int?, maxSlots: Int = 8) -> [ProcessorSlot] {
+        guard let door else { return chain }
+        let stripped = chain.filter { !($0.type == .avoid && ($0.params.avoidMode ?? .avoid) == .lock && $0.params.avoidRefKind == .door) }
+        guard stripped.count < maxSlots else { return chain }
+        var lock = ProcessorSlot(type: .avoid)
+        lock.params.avoidRefKind = .door       // reference the scale door's pool → lock to its key, and follow it live
+        lock.params.avoidRefIndex = door
+        lock.params.avoidMode = .lock          // keep only in-key notes …
+        lock.params.avoidAction = .move        // … by SNAPPING out-of-key notes to the nearest scale note (never dropped)
+        return stripped + [lock]
+    }
+
     static func reconcileStagingSel(_ sel: [Int], cells: [[String?]]) -> [Int] {
         (0..<Snap.maxCols).map { c in   // §E: 16-wide part
 

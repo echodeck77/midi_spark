@@ -79,6 +79,42 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(BuildSceneLogic.mutateChain([], avoid: [], &rng), "no slots → nothing to tweak")
     }
 
+    // MARK: scale lock (RANDOMIZE/MUTATE keep generated chains in key when a scale door is set)
+
+    func testScaleLockDoorPrefersOwnReceiverThenAnyScaleDoor() {
+        // preferred is a scale door → use it
+        XCTAssertEqual(BuildSceneLogic.scaleLockDoor(isScale: [false, true, false, false], preferred: 1), 1)
+        // preferred is NOT a scale door → fall back to the first scale door
+        XCTAssertEqual(BuildSceneLogic.scaleLockDoor(isScale: [false, false, true, false], preferred: 0), 2)
+        // no preferred → the first scale door
+        XCTAssertEqual(BuildSceneLogic.scaleLockDoor(isScale: [false, false, false, true], preferred: nil), 3)
+        // no scale door anywhere → nil (don't lock)
+        XCTAssertNil(BuildSceneLogic.scaleLockDoor(isScale: [false, false, false, false], preferred: 1))
+    }
+
+    func testScaleLockedAppendsAMoveLockAndIsIdempotent() {
+        let base = [ProcessorSlot(type: .arp)]
+        // no scale door → unchanged
+        XCTAssertEqual(BuildSceneLogic.scaleLocked(base, door: nil), base)
+        // a scale door → append a LOCK/MOVE avoid tail referencing that door
+        let locked = BuildSceneLogic.scaleLocked(base, door: 2)
+        XCTAssertEqual(locked.count, 2)
+        XCTAssertEqual(locked.last?.type, .avoid)
+        XCTAssertEqual(locked.last?.params.avoidRefKind, .door)
+        XCTAssertEqual(locked.last?.params.avoidRefIndex, 2)
+        XCTAssertEqual(locked.last?.params.avoidMode, .lock)
+        XCTAssertEqual(locked.last?.params.avoidAction, .move)
+        // idempotent: re-locking (even after the door changes) leaves exactly ONE lock, pointed at the new door
+        let reLocked = BuildSceneLogic.scaleLocked(locked, door: 0)
+        XCTAssertEqual(reLocked.filter { $0.type == .avoid }.count, 1, "no accumulation")
+        XCTAssertEqual(reLocked.last?.params.avoidRefIndex, 0, "re-points at the current scale door")
+    }
+
+    func testScaleLockedLeavesAFullChainUnchanged() {
+        let full = (0..<8).map { _ in ProcessorSlot(type: .arp) }   // 8 = maxSlots
+        XCTAssertEqual(BuildSceneLogic.scaleLocked(full, door: 1), full, "no room for the lock → unchanged")
+    }
+
     // passLen clamps a play-column pass length into [1, Snap.maxCols]; out-of-range column / short array → a single cell.
     // (Housekeeping 2026-09-07: this gates multi-step play-pass composition and had zero coverage.)
     func testPassLenClampsToMaxColsAndHandlesOutOfRange() {

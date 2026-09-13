@@ -4411,6 +4411,19 @@ extension DiagView {
     // Push the current staging grid to the engine IF the staging voice is live (call after any staging-grid edit).
     private func buildStagingSyncIfPlaying() { buildPublishScene() }   // re-publish the combined (part + piece) scene after an edit
 
+    // SCALE LOCK (Paul 2026-09-13): the machine's own input door, and the scale door to lock a generated chain into.
+    // `buildScaleLockDoor` prefers the machine's own receiver when it's a scale door, else any scale door among the four.
+    private var buildMachineReceiver: Int { buildFocusedPartRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver }
+    private func buildScaleLockDoor() -> Int? {
+        let recvs = au?.uiReceivers() ?? []
+        let isScale = (0..<4).map { $0 < recvs.count && recvs[$0].doorModeResolved == .scale }
+        return BuildSceneLogic.scaleLockDoor(isScale: isScale, preferred: buildMachineReceiver)
+    }
+    // Wrap a freshly-generated chain in the scale lock IF a scale door is set (else unchanged). Call on the MAIN thread
+    // (it reads the receivers). Used by RANDOMIZE, MUTATE, and the row creator so all generated chains stay in key.
+    private func buildScaleLocked(_ chain: [ProcessorSlot]) -> [ProcessorSlot] {
+        BuildSceneLogic.scaleLocked(chain, door: buildScaleLockDoor())
+    }
     // BUILD RANDOMIZE (Paul 2026-09-13, quality+speed rework): DRAW-AND-ADAPT from the background PREGEN CORPUS
     // (buildGridSelCorpus — the same role-graded archetype pool the grid selector builds), so a roll is (a) INSTANT and
     // (b) as musical as the archetype engine, not the old flat rollSimple. Non-destructive random draw. If the corpus is
@@ -4422,7 +4435,7 @@ extension DiagView {
         buildRecordUndo("randomize")
         buildGridSelBuildCorpus()                                    // keep the pool warm/growing (no-op if already at target/building)
         if let entry = buildGridSelCorpus.randomElement() {          // WARM → instant, role-graded draw
-            buildWriteMachineSlots(cid, entry.chain)
+            buildWriteMachineSlots(cid, buildScaleLocked(entry.chain))   // keep it in key if a scale door is set
             return
         }
         buildMachineGenerating = true                               // COLD → generate one archetype off-main with a spinner
@@ -4430,7 +4443,7 @@ extension DiagView {
             var rng = SystemRandomNumberGenerator()
             let chain = Dice.rollArchetype(Dice.Archetype.allCases.randomElement(using: &rng)!, using: &rng).chain
             DispatchQueue.main.async {
-                self.buildWriteMachineSlots(cid, chain)
+                self.buildWriteMachineSlots(cid, self.buildScaleLocked(chain))   // scale lock resolved on the main thread
                 self.buildMachineGenerating = false
             }
         }
@@ -4445,7 +4458,7 @@ extension DiagView {
             var rng = SystemRandomNumberGenerator()
             let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng)
             DispatchQueue.main.async {
-                if let mutated { self.buildRecordUndo("mutate"); self.buildWriteMachineSlots(cid, mutated) }   // undo only on a real change (mutate can find no distinct variant)
+                if let mutated { self.buildRecordUndo("mutate"); self.buildWriteMachineSlots(cid, self.buildScaleLocked(mutated)) }   // undo only on a real change (mutate can find no distinct variant)
                 self.buildMachineGenerating = false
             }
         }
@@ -4471,8 +4484,8 @@ extension DiagView {
         let refChain = ref.flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
         HStack(spacing: gap) {
             // MUTATE/RANDOM generate, then OFFER KEEP | TRY AGAIN (Paul 2026-09-11); CREATE/CLONE commit directly (no confirm).
-            roomsRowCreatorSeg("MUTATE") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain); buildRowGenConfirm = RowGenConfirm(row: row, random: false) }
-            roomsRowCreatorSeg("RANDOM") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng)); buildRowGenConfirm = RowGenConfirm(row: row, random: true) }
+            roomsRowCreatorSeg("MUTATE") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: buildScaleLocked(BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain)); buildRowGenConfirm = RowGenConfirm(row: row, random: false) }
+            roomsRowCreatorSeg("RANDOM") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: buildScaleLocked(Dice.rollSimple(using: &rng))); buildRowGenConfirm = RowGenConfirm(row: row, random: true) }
             roomsRowCreatorSeg("CREATE") { buildCreateRowMachine(row, chain: []); buildAddSlot = 0 }   // mint an empty machine + open the ADD PROCESSOR card (Paul 2026-09-10)
             roomsRowCreatorSeg("CLONE")  { buildCreateRowMachine(row, chain: refChain) }
         }.frame(width: rowW, height: rowH)
@@ -4491,11 +4504,11 @@ extension DiagView {
     private func buildRegenRow(_ row: Int, random: Bool) {
         var rng = SystemRandomNumberGenerator()
         if random {
-            buildCreateRowMachine(row, chain: Dice.rollSimple(using: &rng))
+            buildCreateRowMachine(row, chain: buildScaleLocked(Dice.rollSimple(using: &rng)))
         } else {
             let ref = (0..<8).first { $0 != row && buildRowMachine($0) != nil }
             let refChain = ref.flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
-            buildCreateRowMachine(row, chain: BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain)
+            buildCreateRowMachine(row, chain: buildScaleLocked(BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain))
         }
         buildRowGenConfirm = RowGenConfirm(row: row, random: random)   // re-assert: TRY AGAIN keeps offering KEEP | TRY AGAIN for the new result
     }
