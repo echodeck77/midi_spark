@@ -346,6 +346,7 @@ struct DiagView: View {
     @State var buildSelectSource: BuildSceneLogic.SelectSource = .none
     @State var buildSelectGreyAlt: Bool = false          // SELECT machine grey ALTERNATES between two bright shades on each new selection, so a new pick visibly shifts even though the audition stays "gsAud" (Paul 2026-09-01)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
+    @State var buildMachineGenerating = false            // the machine-box RANDOMIZE/MUTATE is generating off-main (spinner + disable) — Paul 2026-09-13
     @State var buildGridSelQuantStep = false             // §2 QUANTIZE: INSTANT (default — snappy switching) | STEP
     @State var buildGridSelActiveRoll: [GridSelBar] = []  // the auditioning chain's piano-roll (offline render, shown on the active cell + right column)
     @State var buildGridSelCellRoll: [Int: [GridSelBar]] = [:]   // per-CELL piano-roll fingerprints (bg-computed per deal/tab) — the drifting note face on every present cell (Paul 2026-08-26)

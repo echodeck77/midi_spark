@@ -1546,8 +1546,8 @@ extension DiagView {
             if showGrid {                                                     // OLD build page — the full verb set, filling the stack (unchanged)
                 buildChainBtn("LIBRARY", fill: true)   { buildOpenLibrary() }
                 buildChainBtn("GRID", fill: true)      { buildOpenGridSel() }
-                buildChainBtn("RANDOMIZE", fill: true) { buildRandomizeSimple() } // reroll the chain
-                buildChainBtn("MUTATE", fill: true)    { buildMutateChain() }     // nudge the chain
+                buildChainBtn("RANDOMIZE", enabled: !buildMachineGenerating, fill: true) { buildRandomizeSimple() } // reroll the chain
+                buildChainBtn("MUTATE", enabled: !buildMachineGenerating, fill: true)    { buildMutateChain() }     // nudge the chain
                 buildChainBtn("CLEAR", fill: true)     { buildClearChain() }      // empty the chain
                 HStack(spacing: BuildGeom.castGap) {                              // COPY | PASTE — copy this chain into a new row position
                     buildChainBtn("COPY", fill: true) { buildCopyChain() }
@@ -1555,8 +1555,8 @@ extension DiagView {
                 }
             } else {                                                         // ROOMS machine section — SMALLER buttons (text unchanged); COPY/PASTE dropped (Paul 2026-08-29); RANDOMIZE restored between MUTATE and CLEAR (Paul 2026-09-13)
                 buildChainBtn("LIBRARY", h: 26)   { buildOpenLibrary() }
-                buildChainBtn("MUTATE", h: 26)    { buildMutateChain() }
-                buildChainBtn("RANDOMIZE", h: 26) { buildRandomizeSimple() }  // reroll the chain
+                buildChainBtn("MUTATE", enabled: !buildMachineGenerating, h: 26)    { buildMutateChain() }
+                buildChainBtn("RANDOMIZE", enabled: !buildMachineGenerating, h: 26) { buildRandomizeSimple() }  // reroll the chain (draws from the warm corpus)
                 buildChainBtn("CLEAR", h: 26)     { buildClearChain() }
             }
         }
@@ -1629,6 +1629,17 @@ extension DiagView {
                 .contentShape(Rectangle())
                 .onTapGesture { buildEditSlot = nil; buildAddSlot = nil; buildStageEye = false }
         )
+        .overlay {   // GENERATING spinner (Paul 2026-09-13): shown only on a COLD live RANDOMIZE/MUTATE roll (a warm corpus draw is instant → no spinner). Swallows taps while busy.
+            if buildMachineGenerating {
+                ZStack {
+                    Rectangle().fill(Color.black.opacity(0.35))
+                    VStack(spacing: 6) {
+                        ProgressView().tint(.white)
+                        Text("GENERATING…").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.85))
+                    }
+                }.contentShape(Rectangle()).onTapGesture {}   // block interaction during the roll
+            }
+        }
     }
     // roomsVerticalPlay + roomsSelectButton RETIRED (Paul 2026-09-12 dead-code sweep — neither view is mounted. NOTE:
     // roomsSelectButton was the only thing that toggled buildSelectMode true, so SELECT-mode is already inaccessible; its
@@ -4400,20 +4411,44 @@ extension DiagView {
     // Push the current staging grid to the engine IF the staging voice is live (call after any staging-grid edit).
     private func buildStagingSyncIfPlaying() { buildPublishScene() }   // re-publish the combined (part + piece) scene after an edit
 
-    // BUILD RANDOMIZE — the SIMPLER roll (a short 1–3-slot all-contributing chain, no macros); writes it machine-wide.
+    // BUILD RANDOMIZE (Paul 2026-09-13, quality+speed rework): DRAW-AND-ADAPT from the background PREGEN CORPUS
+    // (buildGridSelCorpus — the same role-graded archetype pool the grid selector builds), so a roll is (a) INSTANT and
+    // (b) as musical as the archetype engine, not the old flat rollSimple. Non-destructive random draw. If the corpus is
+    // still cold, generate ONE random archetype OFF the main thread (spinner) so the UI never freezes; either way we warm
+    // the corpus for next time. Undoable now (was not). NOTE: the entry's register (transpose) isn't applied — the machine
+    // keeps its own register; re-homing is a flagged follow-up.
     private func buildRandomizeSimple() {
-        guard let cid = ddSelectedMachineID else { return }
-        var rng = SystemRandomNumberGenerator()
-        au?.withChainMachine(cid) { $0 = Dice.rollSimple(using: &rng) }
-        refreshFromDocument()
+        guard let cid = ddSelectedMachineID, !buildMachineGenerating else { return }
+        buildRecordUndo("randomize")
+        buildGridSelBuildCorpus()                                    // keep the pool warm/growing (no-op if already at target/building)
+        if let entry = buildGridSelCorpus.randomElement() {          // WARM → instant, role-graded draw
+            buildWriteMachineSlots(cid, entry.chain)
+            return
+        }
+        buildMachineGenerating = true                               // COLD → generate one archetype off-main with a spinner
+        runOnLargeStack {
+            var rng = SystemRandomNumberGenerator()
+            let chain = Dice.rollArchetype(Dice.Archetype.allCases.randomElement(using: &rng)!, using: &rng).chain
+            DispatchQueue.main.async {
+                self.buildWriteMachineSlots(cid, chain)
+                self.buildMachineGenerating = false
+            }
+        }
     }
     // <<< MUTATE — nudge the SELECTED machine's midi chain in place (a value-tweaked variant of its OWN machine). (Paul 2026-08-18)
+    // Now undoable + OFF the main thread (mutateChain runs the offline Router up to 24×) with a spinner (Paul 2026-09-13).
     private func buildMutateChain() {
-        guard let cid = ddSelectedMachineID else { return }
-        let base = buildMachineChain(cid)
-        var rng = SystemRandomNumberGenerator()
-        if let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) { buildWriteMachineSlots(cid, mutated) }
-        refreshFromDocument()
+        guard let cid = ddSelectedMachineID, !buildMachineGenerating else { return }
+        let base = buildMachineChain(cid)                            // read state on the main thread, before dispatching
+        buildMachineGenerating = true
+        runOnLargeStack {
+            var rng = SystemRandomNumberGenerator()
+            let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng)
+            DispatchQueue.main.async {
+                if let mutated { self.buildRecordUndo("mutate"); self.buildWriteMachineSlots(cid, mutated) }   // undo only on a real change (mutate can find no distinct variant)
+                self.buildMachineGenerating = false
+            }
+        }
     }
     // ── ADD A ROW (Paul 2026-09-08): when an EMPTY part row is selected on the right rail, the machine box's interior
     // (the chain + verb/play buttons — everything between the two toggle sets) is REPLACED by these big creation buttons,
