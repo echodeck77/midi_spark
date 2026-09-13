@@ -85,7 +85,7 @@ struct SnapParams {
     var rateIndex: Int8 = 3          // index into Snap.arpRateBeats
     var octaves: UInt8 = 1
     var gate: Double = 0.6
-    var phase: ArpPhase = .retrig
+    var phase: ArpPhase = .legato   // arp NEW CHORD default (Paul 2026-09-14): LEGATO (was RETRIG) — matches MachineParams so a nil-phase arp reads + plays legato
     var count: UInt8 = 3             // ratchet
     var ramp: Double = 0.5
     var passMask: UInt8 = 0b1111     // passgate

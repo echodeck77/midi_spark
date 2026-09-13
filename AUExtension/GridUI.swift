@@ -396,17 +396,21 @@ struct ProcessorBox: View {
             field("PATTERN") {
                 arpPatternRow(pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0) { pat, anc in
                     setParam { $0.pattern = pat; $0.arpRandomAnchor = anc } } }
-            field("SPEED", \.rate) { arpSpeedRow(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
+            // SPEED (3 rows: standard · dotted · triplet) | NEW CHORD (LEGATO default, first) | LENGTH — left to right (Paul 2026-09-14).
+            HStack(alignment: .top, spacing: 12) {
+                field("SPEED", \.rate) { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                field("NEW CHORD", \.phase) { seg(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
+                    setParam { $0.phase = [ArpPhase.legato, .retrig, .free][i] } } }
+                field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
+                    slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack(spacing: 8) {
                 field("OCTAVES", \.octaves) { numPair(p.octaves ?? 1, 1...4) { v in setParam { $0.octaves = v } } }
                 // OCT DIRECTION (Paul 2026-08-22): the laps ascend the octaves (UP) or descend them (DOWN).
                 field("OCT DIR", \.arpOctDown) { seg(["UP", "DOWN"], sel: (p.arpOctDown ?? false) ? "DOWN" : "UP") { i in
                     setParam { $0.arpOctDown = (i == 1) } } }
-            }
-            field("NEW CHORD", \.phase) { seg(ArpPhase.allCases.map(\.rawValue), sel: p.phase?.rawValue ?? "RETRIG") { i in
-                setParam { $0.phase = ArpPhase.allCases[i] } } }
-            field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
-                slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
             }
             // SPAN (Paul 2026-09-13, replaces FIT): the universal span-ladder — FREE runs the global grid, N re-anchors
             // the pattern to index 0 every N columns (polymeter), same behaviour as riff/euclid/etc.
@@ -1745,17 +1749,23 @@ struct ProcessorBox: View {
             }
         }
     }
-    // THE ARP SPEED ROW (Paul 2026-09-14): every ArpRate on ONE line, no wrap — straights · dotted (D) · triplets (T).
-    // 18 chips share the width equally + shrink-to-fit, so they stay on a single row.
-    private func arpSpeedRow(sel: ArpRate, _ pick: @escaping (ArpRate) -> Void) -> some View {
-        HStack(spacing: 3) {
-            ForEach(ArpRate.allCases, id: \.self) { r in
-                let on = r == sel
-                Text(r.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.5)
-                    .frame(maxWidth: .infinity, minHeight: 40).padding(.horizontal, 1)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.09)))
-                    .contentShape(Rectangle()).onTapGesture { pick(r) }
+    // THE ARP SPEED GRID (Paul 2026-09-14): 3 rows of 6 — top standard, middle dotted, bottom triplet. Relies on
+    // ArpRate.allCases being ordered [6 straight · 6 dotted · 6 triplet]. Chips share width + shrink-to-fit.
+    private func arpSpeedGrid(sel: ArpRate, _ pick: @escaping (ArpRate) -> Void) -> some View {
+        let all = ArpRate.allCases
+        return VStack(alignment: .leading, spacing: 3) {
+            ForEach(0..<3, id: \.self) { row in
+                HStack(spacing: 3) {
+                    ForEach(0..<6, id: \.self) { col in
+                        let r = all[row * 6 + col]
+                        let on = r == sel
+                        Text(r.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                            .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.5)
+                            .frame(maxWidth: .infinity, minHeight: 32).padding(.horizontal, 1)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.09)))
+                            .contentShape(Rectangle()).onTapGesture { pick(r) }
+                    }
+                }
             }
         }
     }
