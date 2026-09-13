@@ -1986,7 +1986,7 @@ extension DiagView {
                             // matching the play-ferry pulse. Non-focused selectors stay static (only the selected one animates).
                             if focused {
                                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                                    let lvl = buildFlashLevel(buildPlayColSweepIndices(t), now: tl.date)
+                                    let lvl = buildFlashLevel(buildFerryFlashIndices(t), now: tl.date)
                                     HStack(spacing: max(1.5, selH * 0.09)) { ForEach(0..<4, id: \.self) { _ in Circle().fill(dotHue).frame(width: dotD, height: dotD) } }
                                         .brightness(lvl * 0.6).scaleEffect(1.0 + lvl * 0.22)
                                 }
@@ -2012,8 +2012,8 @@ extension DiagView {
                     // icon (a trailing Spacer keeps the icon+name group hugging the left). Paul 2026-09-10.
                     .overlay {
                         HStack(spacing: 6) {
-                            if set && on {   // RUNNING → the PLAY icon FLASHES the play column's velocity (Paul 2026-09-12: always a PLAY icon, never STOP — keep the velocity flash)
-                                flashingIcon("play.fill", size: min(12, playH * 0.5), tint: mHue, baseOpacity: 0.85, indices: buildPlayColSweepIndices(t))
+                            if set && on {   // RUNNING → the PLAY icon FLASHES the velocity (Paul 2026-09-12; active ferry plays via the STAGING grid → flash from its rungs too, Paul 2026-09-13)
+                                flashingIcon("play.fill", size: min(12, playH * 0.5), tint: mHue, baseOpacity: 0.85, indices: buildFerryFlashIndices(t))
                             } else {
                                 Image(systemName: set ? "play.fill" : "plus").font(.system(size: min(12, playH * 0.5), weight: .black)).foregroundColor(set ? mHue : buildDim)
                             }
@@ -4923,6 +4923,21 @@ extension DiagView {
         let base = Snap.playLayerRowBase + t
         let len = BuildSceneLogic.passLen(buildPlayColLen, t)   // shared clamp (refactor 2026-08-30)
         return len <= 1 ? [base] : (0..<len).map { $0 * Snap.rows + base }
+    }
+    // The engine cell indices whose strike velocity drives ferry `t`'s play-button (+ selector) flash. The ACTIVE (bench)
+    // ferry plays via the STAGING sequencer (rows 0–7), so its strikes land on the selected-rung cells (col·rows + rung),
+    // NOT the play-layer flatten — feed the flash from those so it still flashes velocity when playing from the grid. A
+    // BACKGROUND ferry plays via the play-layer flatten → its own sweep indices. (Paul 2026-09-13)
+    private func buildFerryFlashIndices(_ t: Int) -> [Int] {
+        if buildActiveFerry == t && (buildStagingPlaying || (t < buildPlayColOn.count && buildPlayColOn[t])) {
+            var idxs: [Int] = []
+            for c in 0..<buildPartCols {
+                let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
+                if r >= 0 { idxs.append(c * Snap.rows + r) }
+            }
+            return idxs
+        }
+        return buildPlayColSweepIndices(t)
     }
 
 
