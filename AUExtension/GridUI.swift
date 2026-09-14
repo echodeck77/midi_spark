@@ -396,21 +396,22 @@ struct ProcessorBox: View {
             field("PATTERN") {
                 arpPatternRow(pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0) { pat, anc in
                     setParam { $0.pattern = pat; $0.arpRandomAnchor = anc } } }
-            // SPEED (3 rows: standard · dotted · triplet) | NEW CHORD (LEGATO default, first) | LENGTH — left to right (Paul 2026-09-14).
+            // NEW CHORD (LEGATO default, first) | OCTAVES | OCT DIR — their own row, below PATTERN and above SPEED (Paul 2026-09-14).
             HStack(alignment: .top, spacing: 12) {
-                field("SPEED", \.rate) { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 field("NEW CHORD", \.phase) { seg(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
                     setParam { $0.phase = [ArpPhase.legato, .retrig, .free][i] } } }
-                field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
-                    slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            HStack(spacing: 8) {
                 field("OCTAVES", \.octaves) { numPair(p.octaves ?? 1, 1...4) { v in setParam { $0.octaves = v } } }
                 // OCT DIRECTION (Paul 2026-08-22): the laps ascend the octaves (UP) or descend them (DOWN).
                 field("OCT DIR", \.arpOctDown) { seg(["UP", "DOWN"], sel: (p.arpOctDown ?? false) ? "DOWN" : "UP") { i in
                     setParam { $0.arpOctDown = (i == 1) } } }
+            }
+            // SPEED (3 rows: standard · dotted · triplet) | LENGTH — left to right.
+            HStack(alignment: .top, spacing: 12) {
+                field("SPEED", \.rate) { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
+                    slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
             // SPAN (Paul 2026-09-13, replaces FIT): the universal span-ladder — FREE runs the global grid, N re-anchors
             // the pattern to index 0 every N columns (polymeter), same behaviour as riff/euclid/etc.
