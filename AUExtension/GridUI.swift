@@ -428,7 +428,7 @@ struct ProcessorBox: View {
             }
             .opacity(mK < mN ? 1 : 0.45)                                    // defaults-recede when OFF (K = N)
             if mK < mN {                                                    // the kit animates in only when the mask bites
-                row2({ field("GAPS", \.arpMaskGap) { seg(["REST", "TIE"], sel: (p.arpMaskGap ?? .rest) == .tie ? "TIE" : "REST") { i in setParam { $0.arpMaskGap = (i == 1 ? .tie : .rest) } } } },
+                row2({ field("GAPS", \.arpMaskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.arpMaskGap ?? .rest).rawValue) { i in setParam { $0.arpMaskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
                      { field("WALK", \.arpMaskWalk) { seg(["MARCH", "WAIT"], sel: (p.arpMaskWalk ?? .march) == .wait ? "WAIT" : "MARCH") { i in setParam { $0.arpMaskWalk = (i == 1 ? .wait : .march) } } } })
                 field("ROTATE", \.arpMaskRotate) { numPair(p.arpMaskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.arpMaskRotate = v } } }
             }

@@ -1540,6 +1540,25 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(has67(spanN: nil), "FREE: the UP arp climbs to index 2 → 67 sounds")
         XCTAssertFalse(has67(spanN: 2), "SPAN=2: the pattern re-anchors before reaching index 2 → 67 never sounds")
     }
+    // ARP EUCLID MASK — GAPS = CHORD (Paul 2026-09-14): a non-hit (gap) step strikes the FULL held chord instead of
+    // resting. A 1-of-2 mask (4 hits, 4 gaps over 8 columns) at one tick/column: REST plays 4 single arp notes; CHORD
+    // adds a 3-note chord on each of the 4 gaps → 4 + 4×3 = 16 ons.
+    func testArpEuclidGapChordStrikesTheHeldChord() {
+        func ons(_ gap: ArpMaskGap) -> Int {
+            var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
+            cs[gi].paramsA.pattern = .up; cs[gi].paramsA.phase = .free; cs[gi].paramsA.rate = .r1_8
+            cs[gi].paramsA.arpMaskK = 1; cs[gi].paramsA.arpMaskN = 2; cs[gi].paramsA.arpMaskGap = gap
+            let b = box(machines: cs) { s in
+                s.stepRate = .r1_8                                       // one tick per column
+                for col in 0..<8 { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
+            }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e)   // exactly 8 columns
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertEqual(ons(.rest), 4, "REST: only the 4 euclid hits play a single arp note")
+        XCTAssertEqual(ons(.chord), 16, "CHORD: the 4 hits (1 note) + 4 gaps (3-note chord) = 4 + 12")
+    }
     // CHANCE → WEIGHT/tilt RENDERED (not just the pure fn): with prob 0.5, +tilt drives the TOP note's p→1 (always
     // sounds) and the BOTTOM's p→0 (dropped); −tilt reverses. Proves the router READS chanceTilt at the hold path.
     func testChanceWeightBiasesEmittedNotes() {

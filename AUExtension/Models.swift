@@ -82,7 +82,7 @@ enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", 
 enum RiffWrap: String, Codable, CaseIterable { case fold = "FOLD", clamp = "CLAMP", wrap = "WRAP" }
 // ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): non-hit steps are silence (REST) or sustain the previous
 // note (TIE); the walk marches through rests (MARCH — holes) or steps only on hits (WAIT — the sequence re-spaced).
-enum ArpMaskGap: String, Codable, CaseIterable { case rest = "REST", tie = "TIE" }
+enum ArpMaskGap: String, Codable, CaseIterable { case rest = "REST", tie = "TIE", chord = "CHORD" }   // non-hit steps: rest (silence) · tie (sustain the prior note) · chord (strike the full held chord) — Paul 2026-09-14
 enum ArpMaskWalk: String, Codable, CaseIterable { case march = "MARCH", wait = "WAIT" }
 // EUCLID LINES (SPEC-euclid-variations §10, ratified): EUCLID = up to 8 lines in one card — each a euclid pattern
 // (K-of-N · ROTATE · INVERT) striking a TARGET (0 = ALL the chord, honouring the card's PICK · 1–8 = a specific pool
@@ -204,7 +204,7 @@ struct MachineParams: Codable, Equatable {
     // arp byte-identical). K < N gates the line — GAPS · WALK · ROTATE. All Optional/additive; nil ⇒ untouched.
     var arpMaskN: Int? = nil          // the mask window (steps). nil ⇒ 8
     var arpMaskK: Int? = nil          // hits (K of N). nil ⇒ = N (OFF). K < N animates the kit in.
-    var arpMaskGap: ArpMaskGap? = nil    // non-hit steps: REST (silence) | TIE (sustain the previous note). nil ⇒ REST
+    var arpMaskGap: ArpMaskGap? = nil    // non-hit steps: REST (silence) | TIE (sustain the previous note) | CHORD (strike the full held chord). nil ⇒ REST
     var arpMaskWalk: ArpMaskWalk? = nil  // MARCH (walk advances through rests) | WAIT (walk advances only on hits). nil ⇒ MARCH
     var arpMaskRotate: Int? = 0       // rotate the Bjorklund figure (0…N−1)
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a

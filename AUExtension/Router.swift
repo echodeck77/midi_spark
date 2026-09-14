@@ -4278,6 +4278,7 @@ final class Router {
         // mask — REST/TIE on non-hits, MARCH (walk through rests) / WAIT (advance on hits), ROTATE. Resolved once.
         let mN = machine.a.arpMaskN, mK = machine.a.arpMaskK, mRot = machine.a.arpMaskRotate
         let mActive = mK < mN, mTie = machine.a.arpMaskGap == .tie, mWait = machine.a.arpMaskWalk == .wait
+        let mChordGap = machine.a.arpMaskGap == .chord   // GAPS = CHORD (Paul 2026-09-14): a non-hit step strikes the full held/composed chord instead of resting
         // RANDOM is FREE-running (Paul 2026-08-25 fix): a random walk gains nothing from RETRIG's per-column reset — it just
         // re-anchors + repeats the same shuffle every column (so RANDOM ANCHOR pedalled the low note instead of "anchor then
         // shuffle until the next pool cycle"). Using the free `tick` makes the anchor fire once per pool traversal + the
@@ -4290,7 +4291,30 @@ final class Router {
             let onT = onTime; var offT = offTime; var maskWalk: Int64? = nil
             if mActive {
                 let g = Int((mTickBeat / arpBeats).rounded(.down))          // global tick index (replay-exact)
-                if !euclidMaskHit(g, k: mK, n: mN, rotate: mRot) { return }  // non-hit ⇒ REST (TIE: the prior hit already extends over it)
+                if !euclidMaskHit(g, k: mK, n: mN, rotate: mRot) {           // GAP step
+                    if mChordGap {                                          // GAPS = CHORD: strike the WHOLE held/composed chord in the gap
+                        func striker(_ base: Int, _ vel: UInt8) {
+                            let nv = base + transpose
+                            guard nv >= 0 && nv <= 127 else { return }
+                            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(nv), beat: mTickBeat)
+                            guard emits else { return }
+                            if chainDriver >= 0 {
+                                emitDriverNote(nv, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
+                                               windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
+                            } else {
+                                emitChop(nv, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
+                                         velocity: vel, m: mTickBeat, S: S, out: out, diag: &diag)
+                            }
+                        }
+                        if chainDriver >= 0 {   // [X → ARP]: the composed upstream set (OMNI), same source the arp walk reads
+                            composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
+                            for k in 0..<chainScratch.srcCount(filter: 0) { let b = Int(chainScratch.srcAscending(k, filter: 0)); striker(b, max(1, chainScratch.velocity(UInt8(b)))) }
+                        } else {
+                            for k in 0..<pool.srcCount(for: cell) { let b = Int(pool.srcAscending(k, for: cell)); striker(b, max(1, pool.velocity(UInt8(b)))) }
+                        }
+                    }
+                    return                                                  // REST/TIE ⇒ silent here (TIE sustains via the prior hit's extended off); CHORD already struck
+                }
                 if mWait { maskWalk = Int64(euclidMaskHitsBefore(g, k: mK, n: mN, rotate: mRot)) }   // WAIT: the walk advances only on hits
                 if mTie {                                                    // TIE: hold this hit through the following non-hit steps (gated)
                     let ties = euclidMaskTieRun(g, k: mK, n: mN, rotate: mRot)
