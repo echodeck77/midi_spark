@@ -400,8 +400,9 @@ struct ProcessorBox: View {
             HStack(alignment: .top, spacing: 12) {
                 field("SPEED", \.rate) { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                field("NEW CHORD", \.phase) { seg(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
+                field("NEW CHORD", \.phase) { segV(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
                     setParam { $0.phase = [ArpPhase.legato, .retrig, .free][i] } } }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
                     slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
@@ -1665,6 +1666,20 @@ struct ProcessorBox: View {
                     }
                     Spacer(minLength: 0)
                 }
+            }
+        }
+    }
+    // VERTICAL seg (Paul 2026-09-14): one option per row, stacked. Chips fill the column width so the box reads as a
+    // tidy vertical group that LINES UP alongside a tall neighbour (the ARP NEW CHORD box beside the 3-row SPEED grid).
+    private func segV(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Array(options.enumerated()), id: \.offset) { i, opt in
+                let on = opt == sel
+                Text(opt).font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : accent).lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: 32).padding(.horizontal, 10)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.09)))
+                    .contentShape(Rectangle()).onTapGesture { onPick(i) }
             }
         }
     }
