@@ -263,12 +263,15 @@ final class Kernel {
     // TWO LATCH MODES: per-receiver ADD flag (from the box) + preallocated rising-edge state (ADD only).
     private var latchAddMask: UInt8 = 0
     private var latchPrevHeld = [[Bool]](repeating: [Bool](repeating: false, count: 128), count: 4)
-    // HOLD (chord) mode (Paul 2026-08-31, rewrite): a NEW chord REPLACES the frozen pool, a still-forming chord UNIONS. The
-    // "new chord" signal is NOT silence (which a sustained note / restrike breaks) but the held set GROWING right after a
-    // RELEASE: notes-released → arm a replace · next growth → replace with the current live set · further growth in the same
-    // gesture → union (staggered onset). A whole-chord restrike (release→regrow) replaces with the SAME chord = no drop.
-    private var holdLiveLo = [UInt64](repeating: 0, count: 4)          // previous live NOTE SET per door (lo = notes 0…63)
-    private var holdLiveHi = [UInt64](repeating: 0, count: 4)          // (hi = notes 64…127) — compared by IDENTITY so a same-size swap is caught
+    // HOLD (chord) mode — GESTURE CAPTURE (Paul 2026-09-14 rewrite): the frozen chord = the notes STRUCK within the
+    // current gesture. A note-on after a GAP (> the attack window since the last strike) starts a NEW gesture and RESETS
+    // the frozen chord; strikes within the window UNION (a staggered chord). RELEASES are ignored (HOLD keeps sounding
+    // after you lift). Accumulating STRUCK notes — never the currently-HELD set — is what fixes BOTH old bugs: (1) a NEW
+    // chord played while the OLD notes are still physically down (change-over overlap) no longer merges the old notes in
+    // (they weren't struck in the new gesture); (2) a chord released note-by-note no longer shrinks the frozen pool. The
+    // attack window keys on a TRANSPORT-INDEPENDENT sample clock (holdSampleClock) so HOLD works while the host is stopped.
+    private var holdLastStrike = [Int64](repeating: Int64.min / 4, count: 4)   // per door: holdSampleClock at the most recent admitted strike (sentinel ⇒ the first strike always begins a fresh gesture)
+    private var holdSampleClock: Int64 = 0                            // monotonic render-frame counter (advances every block regardless of transport)
     private var holdDiagLive = [Int](repeating: 0, count: 4)           // HOLD bisect: live admitted note count per door
     private var holdDiagFrozen = [Int](repeating: 0, count: 4)         // HOLD bisect: frozen (held) note count per door
     private var holdDiagStruck = [Int](repeating: 0, count: 4)         // HOLD bisect (2026-09-07): notes STRUCK this block admitted by the door — did the staccato capture see the strike?
@@ -283,7 +286,7 @@ final class Kernel {
             if isArmed && !wasArmed {
                 latchedPools[i].reset()                                   // fresh arm → start empty (no stale chord)
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
-                holdLiveLo[i] = 0; holdLiveHi[i] = 0   // ...and the HOLD gesture edge: reset the mirror-and-freeze tracking so the first live chord after arm is captured
+                holdLastStrike[i] = Int64.min / 4   // ...and the HOLD gesture edge: the first strike after arm begins a fresh gesture (a chord already HELD through arm is seeded below)
             }
             guard isArmed else { continue }
             if (replayMask & bit != 0 && replayEngagedMask & bit != 0) || (fileMask & bit != 0) {
@@ -342,31 +345,25 @@ final class Kernel {
                 latchedPools[i].latchAddStep(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                              noteLo: rLo, noteHi: rHi, prevHeld: &latchPrevHeld[i])
             } else {
-                // HOLD (CHORD) — MIRROR-AND-FREEZE, STACCATO-SAFE (Paul 2026-09-06/07: "HOLD should NEVER go silent once notes
-                // have been fed"). The effective live chord = notes CURRENTLY held (`pool`) UNION notes STRUCK this block
-                // (`blockStruckPool`, which a same-block note-off can't erase). The frozen pool TRACKS that set whenever it's
-                // non-empty, and FREEZES the last chord when it goes silent. So a SUSTAINED source plays its held chord every
-                // pass AND a STACCATO source (a chord struck+released within one render block — the device MIDI monitor showed
-                // exactly this: on…off per pass) is still captured, where sampling only the end-of-block `pool` saw it already
-                // emptied → the frozen pool never filled → HOLD silent (the reported bug).
-                //
-                // Replaces the old detect-and-replace (holdCaptureDecision). Capture ONLY on a CHANGE to a NON-EMPTY set (no
-                // churn while steady); an EMPTY set KEEPS the frozen chord. Invariant: the frozen pool is never empty while a
-                // chord has been struck, so HOLD can't go silent.
-                let (plo, phi) = pool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                // HOLD (CHORD) — GESTURE CAPTURE (Paul 2026-09-14). The frozen chord = the notes STRUCK within the current
+                // gesture (never the currently-HELD set). A strike after a GAP (> the attack window since the last strike)
+                // begins a NEW gesture and RESETS the frozen chord; strikes within the window UNION (a staggered chord).
+                // Releases are ignored. This fixes the change-over OVERLAP bug — a new chord struck while the old notes are
+                // still physically down no longer keeps the old notes (they aren't part of the new gesture's strikes) — and
+                // keeps a note-by-note release from shrinking the chord. A chord already HELD through the arm edge (no fresh
+                // strike) is seeded from the live pool once, so arming over a sustained chord still captures it.
+                let win = Int64(sampleRate * 0.09)   // ~90 ms attack window — DEVICE-TUNABLE (see note). Shorter than an intentional chord-change interval, longer than the release-lag during a change-over.
                 let (slo, shi) = blockStruckPool.admittedMask(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
-                let (clo, chi) = (plo | slo, phi | shi)   // currently-held ∪ struck-this-block
-                // CAPTURE ON A STRIKE, KEEP ON A RELEASE (Paul 2026-09-07: "every now and then it drops to one note — why does
-                // HOLD process note-off?"). `struck` = a note is PRESENT now that wasn't last render → a real strike/new chord.
-                // A pure RELEASE adds no new note → `struck` false → KEEP the frozen chord. The old "capture on any change to
-                // non-empty" re-captured the SHRINKING set as a chord released note-by-note across blocks → the frozen pool
-                // followed it down to one note. Now note-offs never shrink the held chord: HOLD truly ignores them.
-                let struck = (clo & ~holdLiveLo[i]) != 0 || (chi & ~holdLiveHi[i]) != 0
+                let struck = slo != 0 || shi != 0
                 if struck {
-                    latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)   // currently-held notes (with their live velocities)
-                    latchedPools[i].mergeFiltered(from: blockStruckPool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)   // + a chord already released within this block
+                    if holdSampleClock &- holdLastStrike[i] > win { latchedPools[i].reset() }   // GAP → new chord: drop the old gesture entirely
+                    latchedPools[i].mergeFiltered(from: blockStruckPool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)   // accumulate this block's struck notes (with their velocities)
+                    holdLastStrike[i] = holdSampleClock
+                } else if isArmed && !wasArmed {   // armed WHILE a chord was already held (no fresh strike) → seed from the currently-held pool once
+                    latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), noteLo: rLo, noteHi: rHi)
+                    if latchedPools[i].count > 0 { holdLastStrike[i] = holdSampleClock }
                 }
-                holdLiveLo[i] = clo; holdLiveHi[i] = chi
+                // (a pure RELEASE strikes nothing → no capture → HOLD keeps the chord)
             }
             // HOLD BISECT diagnostic (Paul 2026-08-31): live admitted vs frozen note counts, per armed door.
             holdDiagLive[i] = pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]), velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi)
@@ -919,6 +916,7 @@ final class Kernel {
         // REPLAY manual catch: consume any "LAST N" toggle (capture+engage / release) BEFORE the latch fill reads the loop.
         processReplayCatch(cycleBeats: Double(Snap.cols) * box.stepBeats, beatPos: renderBeatPos)
         // receiver strip LATCH: refresh the frozen chords from the (now up-to-date) live pool before render.
+        holdSampleClock &+= Int64(frameCount)   // transport-independent frame clock for HOLD's gesture attack window (advances even while stopped)
         updateLatchedPools()
         updateReceiverSounding()        // duration feed: snapshot the currently-held input notes per receiver
         // DOOR REPLAY diagnostic (2026-08-22): engaged mask + the engaged door's captured-loop + frozen-pool sizes —
