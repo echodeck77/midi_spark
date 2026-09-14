@@ -2101,7 +2101,7 @@ extension DiagView {
             return
         }
         let len = max(1, min(Snap.maxCols, p.length ?? Snap.cols))
-        let rungAt: (Int) -> Int = { c in c < p.stagingSel.count ? p.stagingSel[c] : -1 }
+        let rungAt: (Int) -> Int = { c in BuildSceneLogic.selectedRung(p.stagingSel, c) }
         buildPlayColSteps[t]     = (0..<len).map { c in let r = rungAt(c); return (r >= 0 && c < p.stagingCells.count && r < p.stagingCells[c].count) ? p.stagingCells[c][r] : nil }
         buildPlayColLen[t]       = len
         buildPlayColRate[t]      = p.rate
@@ -4808,7 +4808,7 @@ extension DiagView {
         let part = buildPerformPart[r]
         guard part >= 0, buildPerformPartRows(part) > 1 else { return true }   // single-rung / empty band → always
         let sr = buildPerformStagingRow[r]
-        return sr >= 0 && part < buildParts.count && c < buildParts[part].stagingSel.count && buildParts[part].stagingSel[c] == sr
+        return sr >= 0 && part < buildParts.count && BuildSceneLogic.selectedRung(buildParts[part].stagingSel, c) == sr
     }
 
 

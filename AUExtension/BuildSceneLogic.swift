@@ -76,6 +76,14 @@ enum BuildSceneLogic {
     /// A play column's pass length, clamped to [1, Snap.cols] (out-of-range / short array → a single cell). Shared by
     /// the composer + BuildPage's sweep-index helper so the clamp lives in ONE place. (refactor 2026-08-30)
     static func passLen(_ arr: [Int], _ c: Int) -> Int { c < arr.count ? max(1, min(Snap.maxCols, arr[c])) : 1 }   // §E: a play pass can be up to 16 steps
+    // POLY-PREP (Paul 2026-09-14): the ONE place that reads "which rung(s) speak in column `c`" of a per-column
+    // selection array. Mono today (`stagingSel`/`playSel` are a single Int per column, -1 = silent). When a column
+    // can hold a SET of rungs (poly selections), only these two bodies change — every caller already asks here.
+    /// The primary selected rung for column `c` (-1 = the column is silent / out of range). Poly's "lead" rung.
+    static func selectedRung(_ sel: [Int], _ c: Int) -> Int { (c >= 0 && c < sel.count) ? sel[c] : -1 }
+    /// The selected rungs for column `c` as a list — mono today (`[r]` or empty); the poly-ready read (callers that
+    /// iterate the sounding rungs use this, so the loop is already in place when a column becomes a set).
+    static func selectedRungs(_ sel: [Int], _ c: Int) -> [Int] { let r = selectedRung(sel, c); return r >= 0 ? [r] : [] }
     // PLAY-FERRY LAUNCH (Paul 2026-09-09, Phase 3): the ferries a NEW launch chokes — every OTHER currently-ON ferry sharing
     // the launching ferry's non-OFF choke group. Pure so the choke rule is unit-tested. group ≤ 0 (OFF) ⇒ no victims.
     static func chokeVictims(launching t: Int, group g: Int, parts: [BuildPart?], on: [Bool]) -> [Int] {
@@ -192,7 +200,7 @@ enum BuildSceneLogic {
                 let recv = max(0, min(3, c < i.playColRecv.count ? i.playColRecv[c] : 0))   // per-column door, derived from the ferry source
                 let len = passLen(i.playColLen, c)
                 if len <= 1 {                                                   // SINGLE CELL (today, byte-identical): pinned continuous at (col 0, row 8+c)
-                    let r = c < i.playSel.count ? i.playSel[c] : -1
+                    let r = selectedRung(i.playSel, c)
                     guard r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, let cid = i.playCells[c][r] else { continue }
                     var cell = Cell(machineID: cid, buses: buses)
                     cell.inputReceiver = recv
@@ -231,7 +239,7 @@ enum BuildSceneLogic {
         if i.stagingPlaying {                                       // THE PART — the staging selection, ALONGSIDE the piece; each ROW carries its OWN I/O (Paul 2026-08-18)
             let dfltBuses: Set<Bus> = i.partEmitters.isEmpty ? [.a] : i.partEmitters
             for c in 0..<Snap.maxCols {   // §E: 16-wide part
-                let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
+                let r = selectedRung(i.stagingSel, c)
                 guard r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, let cid = i.stagingCells[c][r] else { continue }
                 let chain = r < i.rowChain.count ? i.rowChain[r] : []
                 // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only SELECTED it, they haven't
@@ -271,7 +279,7 @@ enum BuildSceneLogic {
         var clockClaimed = [Bool](repeating: false, count: 8)   // rows the STAGING (front) voice owns — the piece never overrides these
         if i.stagingPlaying {
             for c in 0..<Snap.maxCols {   // §E: 16-wide part
-                let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
+                let r = selectedRung(i.stagingSel, c)
                 if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
                     rowStepRate[r] = i.stagingRate; rowLen[r] = i.stagingLen; clockClaimed[r] = true
                 }
@@ -319,13 +327,13 @@ enum BuildSceneLogic {
                     guard c < i.playColOn.count, i.playColOn[c] else { continue }
                     let len = passLen(i.playColLen, c)
                     if len > 1 { continue }                 // multi-step sweeps 0..len-1 → leave rowLane 0 (no pin)
-                    let r = c < i.playSel.count ? i.playSel[c] : -1
+                    let r = selectedRung(i.playSel, c)
                     if r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, i.playCells[c][r] != nil { rowLane[Snap.playLayerRowBase + c] = 0b0000_0001 }
                 }
             }
             if i.stagingPlaying {
                 for c in 0..<Snap.maxCols {   // §E: 16-wide part
-                    let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
+                    let r = selectedRung(i.stagingSel, c)
                     if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
                         rowLane[r] = i.stagingLane                  // staging is in front → its loop wins the row
                     }

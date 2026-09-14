@@ -48,6 +48,20 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(out[4], -1, "col 4 (empty) pick falls back to silent, no trap")
     }
 
+    // MARK: selectedRung / selectedRungs (poly-prep — the one place that reads "which rung(s) speak in a column")
+    func testSelectedRungReadsThePerColumnSelection() {
+        let sel = [0, 3, -1, 7]
+        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, 0), 0)
+        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, 1), 3)
+        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, 2), -1, "an explicit deselect")
+        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, 9), -1, "out of range → silent, no trap")
+        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, -1), -1, "negative column → silent, no trap")
+        // selectedRungs is the poly-ready read: mono today ⇒ [r] or empty.
+        XCTAssertEqual(BuildSceneLogic.selectedRungs(sel, 1), [3])
+        XCTAssertEqual(BuildSceneLogic.selectedRungs(sel, 2), [], "a silent column yields no rungs")
+        XCTAssertEqual(BuildSceneLogic.selectedRungs(sel, 9), [], "out of range yields no rungs")
+    }
+
     // MARK: mutateChain (the MUTATE row action — value-only, guaranteed distinct + audible)
 
     func testMutateProducesADistinctAudibleValueVariant() {
