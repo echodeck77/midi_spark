@@ -400,8 +400,11 @@ struct ProcessorBox: View {
                     setParam { $0.pattern = pat; $0.arpRandomAnchor = anc } } }
             // NEW CHORD (LEGATO default, first) | OCTAVES | OCT DIR — their own row, below PATTERN and above SPEED (Paul 2026-09-14).
             HStack(alignment: .top, spacing: 12) {
-                field("NEW CHORD", \.phase) { seg(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
+                // NEW CHORD stacked VERTICALLY (Paul 2026-09-14): legato/retrig/free on top of each other. (Main since moved
+                // this to its own row with OCTAVES/OCT DIR, so the earlier "line up with SPEED" framing no longer applies.)
+                field("NEW CHORD", \.phase) { segV(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
                     setParam { $0.phase = [ArpPhase.legato, .retrig, .free][i] } } }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 field("OCTAVES", \.octaves) { numPair(p.octaves ?? 1, 1...4) { v in setParam { $0.octaves = v } } }
                 // OCT DIRECTION (Paul 2026-08-22): the laps ascend the octaves (UP) or descend them (DOWN).
                 field("OCT DIR", \.arpOctDown) { seg(["UP", "DOWN"], sel: (p.arpOctDown ?? false) ? "DOWN" : "UP") { i in
@@ -1667,6 +1670,20 @@ struct ProcessorBox: View {
                     }
                     Spacer(minLength: 0)
                 }
+            }
+        }
+    }
+    // VERTICAL seg (Paul 2026-09-14): one option per row, stacked. Chips fill the column width so the box reads as a
+    // tidy vertical group that LINES UP alongside a tall neighbour (the ARP NEW CHORD box beside the 3-row SPEED grid).
+    private func segV(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Array(options.enumerated()), id: \.offset) { i, opt in
+                let on = opt == sel
+                Text(opt).font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : accent).lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: 32).padding(.horizontal, 10)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.09)))
+                    .contentShape(Rectangle()).onTapGesture { onPick(i) }
             }
         }
     }
