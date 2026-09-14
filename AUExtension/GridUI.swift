@@ -396,11 +396,11 @@ struct ProcessorBox: View {
             field("PATTERN") {
                 arpPatternRow(pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0) { pat, anc in
                     setParam { $0.pattern = pat; $0.arpRandomAnchor = anc } } }
-            // SPEED (3 rows: standard · dotted · triplet) | NEW CHORD (LEGATO default, first) | LENGTH — left to right (Paul 2026-09-14).
+            // SPEED (3 rows: standard · dotted · triplet) | FLOW (phase; LEGATO default, first) | LENGTH — left to right (Paul 2026-09-14; label was "NEW CHORD").
             HStack(alignment: .top, spacing: 12) {
                 field("SPEED", \.rate) { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                field("NEW CHORD", \.phase) { segV(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
+                field("FLOW", \.phase) { segV(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
                     setParam { $0.phase = [ArpPhase.legato, .retrig, .free][i] } } }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
@@ -874,7 +874,7 @@ struct ProcessorBox: View {
                 field("STEPS  \(p.weaveEuclidSteps ?? 8)  (bass fills 1, each rank up fills 2 more)", \.weaveEuclidSteps) {
                     slider(bind(Double(p.weaveEuclidSteps ?? 8)) { v in setParam { $0.weaveEuclidSteps = Int(v.rounded()) } }, in: 2...16) }
             }
-            field("NEW CHORD — RETRIG restarts each step · FREE runs the grid · LEGATO flows from the hold", \.weavePhase) { seg(ArpPhase.allCases.map(\.rawValue), sel: (p.weavePhase ?? .retrig).rawValue) { i in
+            field("FLOW — RETRIG restarts each step · FREE runs the grid · LEGATO flows from the hold", \.weavePhase) { seg(ArpPhase.allCases.map(\.rawValue), sel: (p.weavePhase ?? .retrig).rawValue) { i in
                 setParam { $0.weavePhase = ArpPhase.allCases[i] } } }
             row2({ field("VOICES — how many weave", \.weaveSpan) { numPair(p.weaveSpan ?? 4, 1...8) { v in setParam { $0.weaveSpan = v } } } },
                  { field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
@@ -1670,7 +1670,7 @@ struct ProcessorBox: View {
         }
     }
     // VERTICAL seg (Paul 2026-09-14): one option per row, stacked. Chips fill the column width so the box reads as a
-    // tidy vertical group that LINES UP alongside a tall neighbour (the ARP NEW CHORD box beside the 3-row SPEED grid).
+    // tidy vertical group that LINES UP alongside a tall neighbour (the ARP FLOW box beside the 3-row SPEED grid).
     private func segV(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(Array(options.enumerated()), id: \.offset) { i, opt in
