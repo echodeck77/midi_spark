@@ -5340,6 +5340,30 @@ extension DiagView {
     //  longer tints by the machines it feeds. The emitter side keeps its own buildEmitterPlayingHues below.)
     // The machines of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
     // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
+    // PLAY-STATE GREY (Paul 2026-09-14): is the SELECTED machine's currently-ACTIVE cell sounding right now? Enumerates the
+    // EXACT engine cells this machine occupies — the chain audition (SELECT, col-0 row), the active ferry's selected rungs
+    // (PART staging, rows 0–7), and any background ferry's flatten steps (play layer, rows 8–15) — and asks the live per-cell
+    // sounding feed (meters.cellSoundVel > 0). So the processor editor greys unless the specific cell/row that is active AT
+    // THIS INSTANT is producing output. Mirrors buildEmitterPlayingHues' cell enumeration, minus the per-emitter filter.
+    func buildSelectedMachineProcessing() -> Bool {
+        guard let cid = ddSelectedMachineID else { return false }
+        func sounding(_ idx: Int) -> Bool { idx >= 0 && idx < meters.cellSoundVel.count && meters.cellSoundVel[idx] > 0 }
+        if ddSolo, let ar = buildChainAuditionRow, ar >= 0, sounding(ar) { return true }   // chain audition (SELECT)
+        let activeOn = buildActiveFerry.map { $0 >= 0 && $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? false
+        if buildStagingPlaying || activeOn {                                                     // active ferry → STAGING rows 0–7
+            for c in 0..<Snap.maxCols {
+                let r = BuildSceneLogic.selectedRung(buildStagingSel, c)
+                if r >= 0, buildRowMachine(r) == cid, sounding(c * Snap.rows + r) { return true }
+            }
+        }
+        for c in 0..<8 where c != buildActiveFerry && c < buildPlayColOn.count && buildPlayColOn[c] {   // background ferries → play layer
+            let steps = c < buildPlayColSteps.count ? buildPlayColSteps[c] : []
+            for s in 0..<steps.count where steps[s] == cid {
+                if sounding(s * Snap.rows + (Snap.playLayerRowBase + c)) { return true }
+            }
+        }
+        return false
+    }
     private func buildEmitterPlayingHues(_ e: Bus) -> [MeterBand] {
         // One band per MACHINE feeding e, in first-seen order; each band ACCUMULATES the grid cells that machine occupies so
         // the fader can rise each strip to that machine's OWN velocity (max decayed cellHitVel across its cells). (Paul 2026-09-07)
@@ -5864,6 +5888,8 @@ extension DiagView {
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
             onMacro: nil, plainTitle: true, showSlotChrome: false, embedInParent: true,   // controls sit in the main card, no box-within-a-box (Paul 2026-09-13)
+            processing: buildSelectedProcessing,   // PLAY-STATE GREY (Paul 2026-09-14): dim the controls unless this machine's active cell is sounding now
+
             avoidInputNotes: recvHeldNotes.map { $0.map(Int.init) },   // AVOID piano: per-input held notes (armed/scale doors report their pool) — live while the editor is open
             avoidChainInputDoor: buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver)   // the door feeding THIS chain → the OUTPUT piano predicts from its notes
     }

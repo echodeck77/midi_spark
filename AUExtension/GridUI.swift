@@ -194,6 +194,7 @@ struct ProcessorBox: View {
     var plainTitle: Bool = false                        // pop-up: show the type as a plain TITLE (no type-picker button)
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
     var embedInParent: Bool = false                     // slotMode: the controls sit DIRECTLY in the parent card — drop this box's own panel background + outer padding (no box-within-a-box). Paul 2026-09-13.
+    var processing: Bool = true                          // PLAY-STATE GREY (Paul 2026-09-14): false ⇒ this machine's active cell isn't sounding right now → the controls DIM (still fully usable, no disable). Default true = no greying (unaffected call sites).
     var avoidInputNotes: [[Int]] = [[], [], [], []]     // AVOID editor: per-input held PITCHES (recvHeldNotes; armed/scale doors report their pool) — feeds both illustration pianos
     var avoidChainInputDoor: Int = -1                   // AVOID editor: the door feeding THIS chain (its receiver) — the notes the filter acts on; -1 = unknown
     @State private var showTypePicker = false           // B1: the title-as-picker popover
@@ -265,8 +266,9 @@ struct ProcessorBox: View {
         .padding(embedInParent ? 0 : (slotMode ? 14 : 8))   // embedInParent: no inner box → no self-padding (the parent card pads); Paul 2026-09-13
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(FixedHeightIf(height: slotMode ? nil : height))
-        .opacity(slotBypassed ? 0.45 : (mixed ? 0.55 : 1))   // CELL MACHINE: a bypassed slot dims; MIXED-SET dims too
-        .disabled(mixed)                                  // …and block any stray hit (controls aren't rendered anyway)
+        .opacity(slotBypassed ? 0.45 : (mixed ? 0.55 : (processing ? 1 : 0.4)))   // bypassed/MIXED dim; PLAY-STATE GREY dims when NOT processing (still usable)
+        .animation(.easeInOut(duration: 0.18), value: processing)   // smooth grey↔bright as the machine starts/stops sounding
+        .disabled(mixed)                                  // MIXED blocks hits (controls aren't rendered); the play-state grey stays USABLE (not disabled)
         .background {   // embedInParent drops the box-within-a-box; controls sit in the parent card. Paul 2026-09-13
             if !embedInParent { RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)) }
         }

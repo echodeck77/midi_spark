@@ -162,6 +162,7 @@ struct DiagView: View {
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
     @State var buildPlaceArmed: Bool = false         // PLAY-grid PLACE mode — a standalone toggle (NOT the staging radio); armed from the left PLACE button
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
+    @State var buildSelectedProcessing = false  // PLAY-STATE GREY (Paul 2026-09-14): is the SELECTED machine's active cell sounding NOW? Updated (deduped) in the 4 Hz poll; feeds the processor editor's grey-when-idle. false = grey the controls (still usable).
     // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
     // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-machine.
     // PART AUTOMATION (Paul 2026-09-02): per machineID → its automation (which lane is active + its 5 lanes). The ACTIVE
@@ -1112,6 +1113,12 @@ struct DiagView: View {
                     if !on { meters.cellReleasedAt[i] = nowG }   // falling edge → stamp the release (the spark fades from here)
                     meters.cellSounding[i] = on
                 }
+            }
+            // PLAY-STATE GREY (Paul 2026-09-14): grey the processor editor unless the SELECTED machine's active cell is
+            // sounding right now. Deduped @State (only re-renders the editor when the grey state flips). BUILD-tab only.
+            if activeTab == .build {
+                let proc = buildSelectedMachineProcessing()
+                if proc != buildSelectedProcessing { buildSelectedProcessing = proc }
             }
         }
         // §4c INVISIBLE = FROZEN: freeze every animated TimelineView (sweeps · marks · flow · emblems · dots)
