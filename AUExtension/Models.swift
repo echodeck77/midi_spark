@@ -176,6 +176,20 @@ let machineIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush"
 
 // MARK: - Machine (the treatment) — §1/§9
 
+// PER-PARAM LFO (Docs/PLAN-param-lfo.md, ratified 2026-09-15): the "LFO" button (∿) beside a param label — a waveform +
+// period + depth wired inline to a setting, oscillating it over time. Reuses the MOD oscillator (`modUnipolar`) and the
+// span-automation render write (`settingAuto`). `target` = an AutoParamField key (e.g. "gate"); the LFO adds a BIPOLAR
+// swing AROUND the param's own (base) value, so depth 0 == byte-identical. Stage 1 targets ARP LENGTH (gate). Append-only.
+struct ParamLFO: Codable, Equatable {
+    var target: String = "gate"      // the AutoParamField key it modulates (resolved at build; unknown ⇒ dropped)
+    var shape: ModShape = .sine      // WAVE — SINE · TRI · SQR · RAMP · S&H
+    var period: ModRate = .r2        // DURATION — one cycle in beats
+    var free: Bool = false           // FREE = ride the global grid clock (seamless loop) instead of the fixed period
+    var depth: Double = 0            // 0…1 — the bipolar swing amount as a fraction of the param's range (0 = off)
+    var phase: Double = 0            // 0…1 = 0–360° phase offset
+    var quantize: Int = 0            // snap the shape to N levels (0/1 = smooth · 2… = stepped)
+}
+
 struct MachineParams: Codable, Equatable {
     // Superset of per-type params; only the active type's fields are meaningful. §12.0: append-only.
     var pattern: ArpPattern? = .up
@@ -278,6 +292,8 @@ struct MachineParams: Codable, Equatable {
     var modPhase: Double? = nil         // SHAPE PHASE offset 0…1 = 0–360° (§14②) — two cells' sines in quadrature. nil = 0.
     var modQuantize: Int? = nil         // QUANTIZE (§14①): snap the output to N levels (0/1 = off · 2…32 = stepped control). nil = off.
     var modExternMode: ModExternMode? = nil   // EXTERN (§6): RE-EMIT (re-range the incoming CC, today) | SCALE (the incoming CC scales the SHAPE's depth). nil = RE-EMIT.
+    // PER-PARAM LFOs (Docs/PLAN-param-lfo.md): the ∿ LFO button per param — one entry per modulated setting. nil/[] ⇒ none, byte-identical.
+    var paramLFOs: [ParamLFO]? = nil
     // GLIDE (notes→pitch-bend translator). Append-only Optional.
     var glideTime: Double? = 0.25       // slide duration per transition, beats (0 = instant pitch-jump)
     var glideRange: Int? = 2            // ± bend range in semitones (1…48) — must match the synth

@@ -4273,6 +4273,35 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(tie.span, rest.span, "a TIE note is LONGER than a rest-gated one (it holds through the gap)")
         XCTAssertNotEqual(wait.notes, rest.notes, "WAIT re-spaces the walk (advances only on hits) vs MARCH (holes punched)")
     }
+    // PER-PARAM LFO (Docs/PLAN-param-lfo.md, Stage 1): a gate LFO oscillates ARP note LENGTH over time; a depth-0 LFO
+    // resolves away (byte-identical); the stream is replay-exact (beat-derived); nothing is left stuck across the stop.
+    func testGateLFOSwingsNoteLengthAndIsByteIdenticalAtZeroDepth() {
+        func runLFO(_ lfos: [ParamLFO]) -> RecordingEmitter {
+            var c = Machine(machineID: "gold", type: .arp)
+            c.paramsA.pattern = .up; c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.gate = 0.5; c.paramsA.phase = .free
+            c.paramsA.paramLFOs = lfos
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e); assertNothingLeftSounding(e)
+            return e
+        }
+        func durs(_ e: RecordingEmitter) -> [Int] {
+            var out: [Int] = []
+            for on in e.ons where on.cable == 1 {
+                if let off = e.offs.first(where: { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }) { out.append(Int(off.sample - on.sample)) }
+            }
+            return out
+        }
+        let none = runLFO([])
+        let zero = runLFO([ParamLFO(target: "gate", shape: .square, depth: 0)])                     // depth 0 → filtered out
+        let lfo  = runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, depth: 1.0)])      // full swing, 1-beat square
+        XCTAssertEqual(none.events, zero.events, "a depth-0 LFO resolves away → byte-identical event stream")
+        let dNone = durs(none), dLFO = durs(lfo)
+        XCTAssertLessThanOrEqual(Set(dNone).count, 2, "constant gate ⇒ uniform ARP note lengths")
+        XCTAssertGreaterThan(Set(dLFO).count, 1, "a gate LFO makes note LENGTH vary over time")
+        XCTAssertGreaterThan((dLFO.max() ?? 0) - (dLFO.min() ?? 0), (dNone.first ?? 0) / 2, "the LFO swing is substantial")
+        XCTAssertEqual(lfo.events, runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, depth: 1.0)]).events, "the LFO stream is replay-exact (beat-derived)")
+    }
     // RANDOM ANCHOR (Paul 2026-08-25 fix): on a FREE index, RANDOM ANCHOR LOW opens each pool cycle (span ticks) on the
     // LOWEST held note, then the rest shuffle — NOT a stream of the low note (the RETRIG per-column reset used to pedal it).
     func testRandomAnchorOpensEachPoolCycleThenShuffles() {

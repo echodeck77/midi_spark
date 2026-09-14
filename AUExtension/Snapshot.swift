@@ -276,6 +276,7 @@ struct SnapParams {
     var chordsScaleRef: Int = -1                          // SCALE FROM: 0…3 = the door supplying the key; −1 = none → C-major fallback
     var chordsRateBeats: Double = 4                       // the progression clock in beats (default 1/1 = 4 = one chord per bar)
     var chordsSteps: Int = 8                              // the PATTERN matrix length (1…16); the progression loops every N
+    var paramLFOs: [ParamLFO] = []                        // PER-PARAM LFOs (Docs/PLAN-param-lfo.md): resolved, render-time. Empty ⇒ byte-identical.
 }
 
 // PART AUTOMATION render-time override (Paul 2026-09-04, Phase 2). The SCALAR params an AUTO lane may ramp at RENDER
@@ -336,6 +337,36 @@ extension SnapParams {
         }
         return s
     }
+    /// The current value of an automatable field, as a Double (for a PER-PARAM LFO to swing around). Mirrors the fields
+    /// `settingAuto` writes. (Docs/PLAN-param-lfo.md, Paul 2026-09-15.)
+    func autoValue(_ f: AutoParamField) -> Double {
+        switch f {
+        case .gate: return gate;              case .ramp: return ramp;                case .spread: return spread
+        case .curve: return curve;            case .velTilt: return velTilt;          case .probability: return probability
+        case .harmVelScale: return harmVelScale; case .octaves: return Double(octaves); case .count: return Double(count)
+        case .rtcChance: return rtcChance;    case .rtcCountLo: return Double(rtcCountLo); case .rtcCountHi: return Double(rtcCountHi)
+        case .rtcRotate: return Double(rtcRotate); case .euclidPulses: return Double(euclidPulses); case .euclidSteps: return Double(euclidSteps)
+        case .euclidRot: return Double(euclidRot); case .glideRange: return Double(glideRange); case .modMin: return Double(modMin)
+        case .modMax: return Double(modMax);  case .lenShort: return lenShort;        case .lenLong: return lenLong
+        case .lenRotate: return Double(lenRotate); case .weaveSpan: return Double(weaveSpan); case .weaveEuclidSteps: return Double(weaveEuclidSteps)
+        }
+    }
+}
+extension AutoParamField {
+    /// The param's full [lo, hi] range — the SAME numbers `settingAuto` clamps to. A PER-PARAM LFO's DEPTH swings a
+    /// fraction of `(hi − lo)` around the base. (Docs/PLAN-param-lfo.md.)
+    var unitRange: (Double, Double) {
+        switch self {
+        case .gate: return (0.05, 1);   case .ramp: return (0, 1);      case .spread: return (0, 1)
+        case .curve: return (-1, 1);    case .velTilt: return (-1, 1);  case .probability: return (0, 1)
+        case .harmVelScale: return (0.1, 1); case .octaves: return (1, 4); case .count: return (2, 8)
+        case .rtcChance: return (0, 1); case .rtcCountLo: return (1, 8); case .rtcCountHi: return (1, 8)
+        case .rtcRotate: return (0, 7); case .euclidPulses: return (1, 16); case .euclidSteps: return (2, 16)
+        case .euclidRot: return (0, 15); case .glideRange: return (1, 48); case .modMin: return (0, 127)
+        case .modMax: return (0, 127);  case .lenShort: return (0.05, 0.95); case .lenLong: return (0, 1)
+        case .lenRotate: return (0, 7); case .weaveSpan: return (1, 8);   case .weaveEuclidSteps: return (2, 16)
+        }
+    }
 }
 
 struct SnapMachine {
@@ -378,6 +409,7 @@ final class SnapshotBox {
     let morphMaster: Double          // §13.5, parameter #35
     let machines: [SnapMachine]        // ≥16 — sized to the document (BUILD ephemeral machines append beyond the 16)
     var renderAuto: [MachineAuto?] = []   // PHASE 2: per machine index; nil = none. Set by the builder BEFORE publish (immutable after). Empty ⇒ byte-identical.
+    var hasParamLFO: Bool = false         // PER-PARAM LFO (Docs/PLAN-param-lfo.md): true iff any resolved cell proc carries a paramLFO. false ⇒ the render pass is skipped, byte-identical.
     let cells: [SnapCell]            // Snap.cells (256 = maxCols·rows), index = column * Snap.rows + row
     let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
     let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output

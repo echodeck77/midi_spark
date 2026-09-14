@@ -1512,6 +1512,29 @@ final class Router {
         else { let rank = Int(posCols) % period; frac = period > 1 ? Double(rank) / Double(period - 1) : 1 }   // stepped, endpoint-inclusive
         cell.procs[ra.slot] = cell.procs[ra.slot].settingAuto(ra.field, ra.lo + frac * (ra.hi - ra.lo))
     }
+    /// PER-PARAM LFO (Docs/PLAN-param-lfo.md): oscillate scalar params around their base value. Beat-derived → replay-safe
+    /// (invariant 2); value-copied via settingAuto → no alloc (invariant 3); reshapes a scalar only, opens/closes no voices
+    /// (invariant 4). Sampled at the window beat, like SMOOTH renderAuto / applyInternalMods (block-start, deterministic per
+    /// schedule). Runs AFTER renderAuto + internal MOD, so it swings around a base that already includes those (the ratified
+    /// "sum" behaviour). Called only when box.hasParamLFO (else byte-identical). (Paul 2026-09-15.)
+    private func applyParamLFO(_ cell: inout SnapCell, box: SnapshotBox, r: Int, beat mb: Double, S: Double, column: Int) {
+        guard S > 0 else { return }
+        let W = max(1, box.rowLength.indices.contains(r) ? box.rowLength[r] : Snap.cols)
+        let gridBeats = Double(W) * S
+        for si in cell.procs.indices where !cell.procs[si].paramLFOs.isEmpty {
+            for lfo in cell.procs[si].paramLFOs {
+                guard lfo.depth > 0, let field = AutoParamField(key: lfo.target) else { continue }
+                let periodBeats = lfo.free ? gridBeats : lfo.period.periodBeats
+                guard periodBeats > 0 else { continue }
+                let cyc = Int((mb / periodBeats).rounded(.down))
+                let (lo, hi) = field.unitRange
+                let v = paramLFOValue(base: cell.procs[si].autoValue(field), shape: lfo.shape,
+                                      phase: mb / periodBeats + lfo.phase, depth: lfo.depth, span: hi - lo,
+                                      quantizeLevels: lfo.quantize, column: column, cycleIndex: cyc)
+                cell.procs[si] = cell.procs[si].settingAuto(field, v)
+            }
+        }
+    }
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, heldCell: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
@@ -1519,6 +1542,7 @@ final class Router {
             if cell.machineIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { return }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
             if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: musicalOf(beatPos, stepBeats: S, a: a), S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp
+            if box.hasParamLFO { applyParamLFO(&cell, box: box, r: r, beat: musicalOf(beatPos, stepBeats: S, a: a), S: S, column: effColumn) }   // PER-PARAM LFO (Docs/PLAN-param-lfo.md): swing scalar params around their base
             if soloSilenced(cell) { return }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentMachineIndex = cell.machineIndex      // item 4 marks: this cell's Machine, for the source tint
@@ -1701,6 +1725,7 @@ final class Router {
             if cell.passthrough && cell.resolvedReceiver >= 0 { continue }   // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected passthrough passes its input straight through in REALTIME (reconcileBypass), NOT on the grid's step clock. (A door-less passthrough — no receiver to source from in the per-door bypass pass — stays a gridded hold.)
             if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: mNow, S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp (a hold samples the value at the column-entry beat)
             applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
+            if box.hasParamLFO { applyParamLFO(&cell, box: box, r: r, beat: mNow, S: S, column: column) }   // PER-PARAM LFO (Docs/PLAN-param-lfo.md): swing scalar params around their base
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if composableLengthTailIndex(cell) != nil { continue }   // [→ LENGTH] re-articulates the composed set in the tick loop (emitLengthComposedRow), never a plain hold here
             if isEchoTail(cell) { continue }       // ECHO: an echo-tail cell fires its dry + tail in emitEchoColumn, never a hold here

@@ -1753,6 +1753,19 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modUnipolar(.square, phase: 0.1, column: 0, cc: 1, cycleIndex: 0), 1, "first half HIGH")
         XCTAssertEqual(modUnipolar(.square, phase: 0.9, column: 0, cc: 1, cycleIndex: 0), 0, "second half LOW")
     }
+    // PER-PARAM LFO (Docs/PLAN-param-lfo.md): base + a BIPOLAR ±(depth·span) swing shaped by the waveform; depth 0 = base.
+    func testParamLFOValueBipolarSwing() {
+        func v(_ shape: ModShape, _ phase: Double, depth: Double = 1, span: Double = 1, q: Int = 0) -> Double {
+            paramLFOValue(base: 0.5, shape: shape, phase: phase, depth: depth, span: span, quantizeLevels: q, column: 0, cycleIndex: 0)
+        }
+        XCTAssertEqual(v(.sine, 0.25, depth: 0), 0.5, accuracy: 1e-9, "depth 0 ⇒ base unchanged")
+        XCTAssertEqual(v(.sine, 0),    0.5, accuracy: 1e-9, "sine at 0 (u=0.5) ⇒ no offset")
+        XCTAssertEqual(v(.sine, 0.25), 1.5, accuracy: 1e-9, "sine peak (u=1) ⇒ +span·depth")
+        XCTAssertEqual(v(.sine, 0.75), -0.5, accuracy: 1e-9, "sine trough (u=0) ⇒ −span·depth")
+        XCTAssertEqual(v(.sine, 0.25, span: 0.5), 1.0, accuracy: 1e-9, "span scales the swing")
+        XCTAssertGreaterThan(v(.square, 0.1), v(.square, 0.6), "square: first half swings up, second half down")
+        XCTAssertEqual(v(.sine, 0.20, q: 2), 1.5, accuracy: 1e-9, "QUANTIZE 2 snaps the shape to its extreme (peak)")
+    }
     func testModRampAndInversion() {
         XCTAssertEqual(modUnipolar(.ramp, phase: 0,   column: 0, cc: 1, cycleIndex: 0), 0,   accuracy: 1e-9)
         XCTAssertEqual(modUnipolar(.ramp, phase: 0.5, column: 0, cc: 1, cycleIndex: 0), 0.5, accuracy: 1e-9)

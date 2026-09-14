@@ -110,6 +110,21 @@ func modQuantizeValue(_ value: Int, levels: Int) -> Int {
     let idx = (Double(value) / 127.0 * n).rounded()           // nearest level index
     return max(0, min(127, Int((idx / n * 127.0).rounded())))
 }
+/// PER-PARAM LFO (Docs/PLAN-param-lfo.md): the modulated param value = `base` + a BIPOLAR swing of ±(depth·span) shaped
+/// by `shape` at `phase`, optionally quantized to N levels. `span` = the param's full range (hi−lo); the caller clamps
+/// to the param's range via `settingAuto`. Pure + replay-safe (the caller derives `phase` from the beat). depth 0 ⇒
+/// returns `base` unchanged (the byte-identical guarantee). (Paul 2026-09-15.)
+@inline(__always)
+func paramLFOValue(base: Double, shape: ModShape, phase: Double, depth: Double, span: Double,
+                   quantizeLevels: Int, column: Int, cycleIndex: Int) -> Double {
+    guard depth > 0 else { return base }
+    var u = modUnipolar(shape, phase: phase, column: column, cc: 0, cycleIndex: cycleIndex)   // 0…1
+    if quantizeLevels >= 2 {                                   // bit-crush the SHAPE (stepped LFO)
+        let n = Double(min(64, quantizeLevels) - 1)
+        u = (u * n).rounded() / n
+    }
+    return base + (u - 0.5) * 2 * depth * span                // (u−0.5)·2 ∈ −1…1 → ±(depth·span) around base
+}
 
 /// FOLLOW (CC-stage §1) — the unipolar [0,1] the CC tracks from the sounding material. COUNT = held-note count /8 ·
 /// REGISTER = mean pitch mapped C1…C7 · VEL = mean velocity /127 · DENSITY = a busyness proxy (pool fullness, v1). Pure.
