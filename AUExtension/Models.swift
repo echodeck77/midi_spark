@@ -196,7 +196,7 @@ struct MachineParams: Codable, Equatable {
     var rate: ArpRate? = .r1_16
     var octaves: Int? = 1
     var gate: Double? = 0.6
-    var phase: ArpPhase? = .legato   // NEW CHORD default (Paul 2026-09-14): LEGATO (was RETRIG) — arps sit connected by default
+    var phase: ArpPhase? = .legato   // FLOW default (Paul 2026-09-14): LEGATO (was RETRIG) — arps sit connected by default
     var count: Int? = 3            // ratchet
     var ramp: Double? = 0.5        // ratchet
     var passes: [Bool]? = [true, true, true, true]  // passgate
