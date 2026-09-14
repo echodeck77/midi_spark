@@ -416,8 +416,8 @@ struct ProcessorBox: View {
             // SPAN (Paul 2026-09-13, replaces FIT): the universal span-ladder — FREE runs the global grid, N re-anchors
             // the pattern to index 0 every N columns (polymeter), same behaviour as riff/euclid/etc.
             frameSpan(p.arpSpanN ?? 0, free: true) { v in setParam { $0.arpSpanN = v } }
-            // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): HITS ◀K▶ of ◀N▶. K = N ⇒ OFF (dimmed, defaults-recede);
-            // turn K down and the kit ANIMATES IN — GAPS (rest/tie) · WALK (march/wait) · ROTATE.
+            // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): HITS ◀K▶ of ◀N▶. K < N gates the line and reveals the
+            // kit — GAPS (rest/tie/chord) · WALK (march/wait) · ROTATE. (Defaults-recede dimming removed — Paul 2026-09-14.)
             let mN = max(2, min(16, p.arpMaskN ?? 8))
             let mK = max(1, min(mN, p.arpMaskK ?? mN))
             field("EUCLID MASK — HITS  ◀K▶ of ◀N▶  (K < N gates the line)") {
@@ -427,7 +427,6 @@ struct ProcessorBox: View {
                     numPair(mN, 2...16) { v in setParam { $0.arpMaskN = v; if let k = $0.arpMaskK, k > v { $0.arpMaskK = v } } }
                 }
             }
-            .opacity(mK < mN ? 1 : 0.45)                                    // defaults-recede when OFF (K = N)
             if mK < mN {                                                    // the kit animates in only when the mask bites
                 row2({ field("GAPS", \.arpMaskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.arpMaskGap ?? .rest).rawValue) { i in setParam { $0.arpMaskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
                      { field("WALK", \.arpMaskWalk) { seg(["MARCH", "WAIT"], sel: (p.arpMaskWalk ?? .march) == .wait ? "WAIT" : "MARCH") { i in setParam { $0.arpMaskWalk = (i == 1 ? .wait : .march) } } } })
@@ -1481,16 +1480,16 @@ struct ProcessorBox: View {
             content()
         }
     }
-    // DEFAULTS RECEDE (§presentation idea 21): a field whose param is still at its DEFAULT dims; a deviation brightens —
-    // so a card reads as "hero + what you changed". The default is one shared snapshot (`paramDefaults`, built once →
-    // no per-render cost), compared to the field's own keypath. Non-annotated fields (heroes, multi-param) stay normal.
-    static let paramDefaults = MachineParams()
+    // DEFAULTS-RECEDE greying REMOVED (Paul 2026-09-14): controls no longer dim when their param is at its default. This
+    // keypath overload now renders identically to the plain `field(_:)` — the `kp` argument is kept so every call site
+    // compiles unchanged, and a future "grey while the processor isn't PLAYING" treatment can hang here instead.
+    static let paramDefaults = MachineParams()   // kept (harmless) in case a future play-state treatment wants a default reference
     private func field<C: View, V: Equatable>(_ label: String, _ kp: KeyPath<MachineParams, V>, @ViewBuilder _ content: () -> C) -> some View {
-        let atDefault = p[keyPath: kp] == ProcessorBox.paramDefaults[keyPath: kp]
+        _ = kp
         return VStack(alignment: .leading, spacing: 5) {
-            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(atDefault ? 0.32 : 0.72))
+            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
             content()
-        }.opacity(atDefault ? 0.62 : 1)
+        }
     }
     // A BIPOLAR slider (§presentation idea 4/22): centred on 0; DOUBLE-TAP the label = reset to centre. `v`/`set` are in
     // the natural range; the track maps it to 0…1.
