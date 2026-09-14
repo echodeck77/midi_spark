@@ -5,6 +5,9 @@ sequences MIDI *processors* (arps, ratchets, gates) over time; held chords go
 in, five MIDI outputs come out — ALL + A–D (delta §7b cables). Primary host: AUM.
 Public name **"8x8 State"** (display-only; the code/bundle identity stays MidiSpark).
 
+**What it is (conceptual):** `Docs/what-is-8x8-state.md` — the several things this project
+genuinely is (treatment sequencer · effects rack · deterministic generator · chord-follower ·
+routing matrix · state machine for live MIDI).
 **Spec:** `Docs/midispark-spec-v2.8.md` read together with
 `Docs/midispark-spec-v3.0-delta.md` (the delta wins conflicts).
 **Live status and the current plan:** `CLAUDE.md`.
