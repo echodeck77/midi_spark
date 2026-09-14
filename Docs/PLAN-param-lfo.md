@@ -27,8 +27,8 @@ The Param LFO is the **inline, per-param, no-extra-cell** temporal modulator. It
 *oscillator* (`modUnipolar`) and *glyphs* (`waveGlyph`/`iconSeg`). It differs from a MOD cell only in that it needs no
 slot in the chain and reads as an attribute of the control.
 
-**Coexistence:** AUTO ramp (position) + Param LFO (time) can both target the same param — sum the offsets, clamp once
-(the same way macros + AUTO already compose). Flag for Paul: allow both, or make them mutually exclusive per param? (Rec: allow; sum.)
+**Coexistence (ratified 2026-09-15):** AUTO ramp (position) + Param LFO (time) may both target the same param — **sum
+the offsets, clamp once** (the same way macros + AUTO already compose).
 
 ---
 
@@ -86,18 +86,20 @@ for lfo in cell.procs[slot].paramLFOs:
   block-size-invariant (the established, accepted convention for continuous modulation here). Smooth enough for gate at
   audio-block rate. *Per-note* evaluation (each arp note its own gate) is a flagged refinement, not v1.
 
-## 4. The UI — the ∿ button + its editor
+## 4. The UI — the LFO button + its editor
+
+On-screen name: **LFO** (ratified 2026-09-15); the glyph is a small waveform ∿.
 
 **The affordance (hooks into the existing label row).** `field(label, keypath)` (GridUI.swift:1488) and `heroField`
-(GridUI.swift:1515) render the param label above its control. Add a variant that appends a small ∿ button to the label
-row for **modulatable** params:
+(GridUI.swift:1515) render the param label above its control. Add a variant that appends a small **LFO** button (∿ glyph)
+to the label row for **modulatable** params:
 
 ```
-LENGTH 60%   ∿          ← ∿ sits right after the label; idle = dim hollow waveform; active = accent-filled + live shape
+LENGTH 60%   ∿ LFO      ← sits right after the label; idle = dim hollow waveform; active = accent-filled + live shape
 [========slider========]  ← a faint DEPTH band shades the swept travel on the param's own track
 ```
 
-- **Idle:** a dim hollow `waveGlyph`-style ∿ — an invitation, receding like other defaults.
+- **Idle:** a dim hollow `waveGlyph`-style ∿ + "LFO" — an invitation, receding like other defaults.
 - **Active:** fills accent + shows the chosen waveform, with a faint moving phase dot so the label *visibly breathes*
   even before opening (reuse the `waveGlyph` Canvas at GridUI.swift:1709).
 - **Tap → editor; long-press → clear the LFO** (spring-off), matching the house gesture grammar.
@@ -133,9 +135,9 @@ param that's ⟲-armable is also ∿-moddable:
   it first with zero new target plumbing.
 - **SPEED (rate)** needs: (a) a new `AutoParamField.rate` case; (b) `settingAuto` teaching to map a ramped `Double` →
   nearest `ArpRate` index (the same cast pattern `octaves`/`count` use); (c) a **DEPTH-as-a-band-of-rate-steps** model
-  (the LFO sweeps between a lo and hi rate). **Caveat (flag):** modulating the arp's own clock changes its tick period
-  mid-phrase — phase continuity across a rate change is a real feel question (accel/decel vs sudden flip). Keep SPEED as
-  **stage 2**, LENGTH proves the mechanism first.
+  (the LFO sweeps between a lo and hi rate). **Rate jumping at block boundaries is acceptable** (ratified 2026-09-15 —
+  no smooth-ramp/phase-continuity constraint), which removes the only feel blocker; SPEED stays **stage 2** purely for
+  the enum-index plumbing, LENGTH proves the mechanism first.
 
 ## 7. Build sequence (each stage device-verifiable)
 
@@ -150,16 +152,16 @@ param that's ⟲-armable is also ∿-moddable:
    continuity feel on device.
 4. **Roll out to the rest of the ⟲ set** (OCTAVES, then other processors' continuous params) — one flag per `field`.
 
-## 8. Open decisions (Paul)
+## 8. Decisions (ratified 2026-09-15 unless noted)
 
-1. **AUTO + LFO on the same param** — allow both (sum offsets, clamp once) or mutually exclusive? *(Rec: allow, sum.)*
-2. **DEPTH semantics** — bipolar swing around the slider's base (this plan) vs. an absolute MIN↔MAX window (reuse
-   `modMap`). *(Rec: bipolar-around-base — keeps the param usable unchanged when depth 0.)*
-3. **Host automation** — expose LFO params on AU addresses (free range ≥ 500) for host recording, or editor-only for v1?
-   *(Rec: editor-only v1; addresses are cheap to add later.)*
-4. **SPEED phase continuity** — accept a rate that jumps at block boundaries, or constrain to smooth ramps only? (stage 2.)
-5. **Per-note vs block-granular** — v1 samples per render block (matches every existing modulator). Ever want per-arp-
-   note gate variation? (refinement, not v1.)
+1. **AUTO + LFO on the same param** — ✅ **allow both, sum offsets, clamp once.**
+2. **DEPTH semantics** — ✅ **bipolar swing around the slider's base** (param stays usable unchanged when depth 0).
+3. **On-screen name** — ✅ **"LFO"** (glyph ∿).
+4. **SPEED rate motion** — ✅ **jumping at block boundaries is fine** (no smooth-ramp constraint).
+5. **Host automation** — *still open, low stakes:* expose LFO params on AU addresses (≥ 500) for host recording, or
+   editor-only for v1? *(Rec + default: editor-only v1; addresses are cheap to add later.)*
+6. **Per-note vs block-granular** — *deferred refinement:* v1 samples per render block (matches every existing
+   modulator); per-arp-note gate variation is a later option, not v1.
 
 ## 9. Risks / flags
 
@@ -167,4 +169,4 @@ param that's ⟲-armable is also ∿-moddable:
   rebase before building so the `field`/MOD/span-auto line numbers above are current.
 - **Not block-size-invariant** by design (block-start sampling) — the accepted convention, but note it in the spec so it
   isn't later mistaken for a bug.
-- **Naming:** "mod button" is the working name; the glyph is ∿. Confirm the on-screen label/word (MOD? LFO? MOVE?).
+- **Naming:** resolved — on-screen word is **LFO**, glyph ∿.
