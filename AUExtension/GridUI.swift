@@ -267,7 +267,7 @@ struct ProcessorBox: View {
         .padding(embedInParent ? 0 : (slotMode ? 14 : 8))   // embedInParent: no inner box → no self-padding (the parent card pads); Paul 2026-09-13
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(FixedHeightIf(height: slotMode ? nil : height))
-        .opacity(slotBypassed ? 0.45 : (mixed ? 0.55 : (processing ? 1 : 0.4)))   // bypassed/MIXED dim; PLAY-STATE GREY dims when NOT processing (still usable)
+        .opacity(slotBypassed ? 0.45 : (mixed ? 0.55 : (processing ? 1 : 0.68)))   // bypassed/MIXED dim; PLAY-STATE GREY dims when NOT processing — 0.4→0.68, was too dim (Paul 2026-09-16)
         .animation(.easeInOut(duration: 0.18), value: processing)   // smooth grey↔bright as the machine starts/stops sounding
         .disabled(mixed)                                  // MIXED blocks hits (controls aren't rendered); the play-state grey stays USABLE (not disabled)
         .background {   // embedInParent drops the box-within-a-box; controls sit in the parent card. Paul 2026-09-13
