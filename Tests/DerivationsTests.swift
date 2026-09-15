@@ -2219,9 +2219,14 @@ final class DerivationsTests: XCTestCase {
         func seq(_ octaves: Int, _ n: Int, octDown: Bool = false, pattern: UInt8 = 0) -> [Int] {
             (0..<n).map { arpPick(phaseIndex: Int64($0), octaves: octaves, pattern: pattern, pool: p, octDown: octDown).note }
         }
-        XCTAssertEqual(seq(1, 3), [60, 64, 67], "OCTAVES 1 = the chord, no octave copies")
-        XCTAssertEqual(seq(2, 6), [60, 64, 67, 72, 76, 79], "OCTAVES 2 UP = the chord, then the same chord +12")
-        XCTAssertEqual(seq(3, 9), [60, 64, 67, 72, 76, 79, 84, 88, 91], "OCTAVES 3 spans three octaves (+0, +12, +24)")
+        // OCTAVES = N raises the chord to exactly N octave levels (+0, +12, … +12·(N−1)) — one lap per octave, N−1 raises.
+        XCTAssertEqual(seq(1, 3), [60, 64, 67], "OCTAVES 1 = the chord, 0 raises (1 octave level)")
+        XCTAssertEqual(seq(2, 6), [60, 64, 67, 72, 76, 79], "OCTAVES 2 = 1 raise (levels +0, +12)")
+        XCTAssertEqual(seq(3, 9), [60, 64, 67, 72, 76, 79, 84, 88, 91], "OCTAVES 3 = 2 raises (+0, +12, +24)")
+        XCTAssertEqual(seq(4, 12), [60, 64, 67, 72, 76, 79, 84, 88, 91, 96, 100, 103], "OCTAVES 4 = 3 raises (+0, +12, +24, +36) — the control's max")
+        // exactly N distinct octave levels — never N+1 or N−1
+        XCTAssertEqual(Set(seq(4, 12).map { ($0 - 60) / 12 }).count, 4, "OCTAVES 4 produces exactly 4 octave levels, no more")
+        XCTAssertEqual(Set(seq(3, 9).map { ($0 - 60) / 12 }).count, 3, "OCTAVES 3 produces exactly 3 octave levels")
         XCTAssertEqual(seq(2, 6, octDown: true), [72, 76, 79, 60, 64, 67], "OCT DIR DOWN plays the TOP octave lap first")
         XCTAssertEqual(seq(2, 6, pattern: 1), [79, 76, 72, 67, 64, 60], "DOWN pattern descends the whole 2-octave span")
         XCTAssertEqual(seq(2, 12), seq(2, 6) + seq(2, 6), "the span loops cleanly (phase 6 == phase 0)")
