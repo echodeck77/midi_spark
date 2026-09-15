@@ -592,8 +592,9 @@ final class EffectiveParamsTests: XCTestCase {
             (.rtcChance, 0, 1), (.rtcCountLo, 1, 8), (.rtcCountHi, 1, 8), (.rtcRotate, 0, 7),
             (.euclidPulses, 1, 16), (.euclidSteps, 2, 16), (.euclidRot, 0, 15), (.glideRange, 1, 48),
             (.modMin, 0, 127), (.modMax, 0, 127), (.lenShort, 0.05, 0.95), (.lenLong, 0, 1),
-            (.lenRotate, 0, 7), (.weaveSpan, 1, 8), (.weaveEuclidSteps, 2, 16)]
-        XCTAssertEqual(table.count, 24, "every AutoParamField case is covered")
+            (.lenRotate, 0, 7), (.weaveSpan, 1, 8), (.weaveEuclidSteps, 2, 16),
+            (.arpMaskK, 1, 16), (.arpMaskRot, 0, 15)]
+        XCTAssertEqual(table.count, 26, "every AutoParamField case is covered")
         for (f, lo, hi) in table {
             XCTAssertEqual(readAuto(SnapParams().settingAuto(f, -9_999), f), lo, accuracy: 1e-9, "\(f) clamps below to \(lo)")
             XCTAssertEqual(readAuto(SnapParams().settingAuto(f, 9_999), f), hi, accuracy: 1e-9, "\(f) clamps above to \(hi)")
@@ -610,6 +611,7 @@ final class EffectiveParamsTests: XCTestCase {
         case .euclidRot: return Double(s.euclidRot); case .glideRange: return Double(s.glideRange); case .modMin: return Double(s.modMin)
         case .modMax: return Double(s.modMax);     case .lenShort: return s.lenShort;         case .lenLong: return s.lenLong
         case .lenRotate: return Double(s.lenRotate); case .weaveSpan: return Double(s.weaveSpan); case .weaveEuclidSteps: return Double(s.weaveEuclidSteps)
+        case .arpMaskK: return Double(s.arpMaskK); case .arpMaskRot: return Double(s.arpMaskRotate)
         }
     }
 }

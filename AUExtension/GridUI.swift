@@ -426,7 +426,7 @@ struct ProcessorBox: View {
             // kit — GAPS (rest/tie/chord) · WALK (march/wait) · ROTATE. (Defaults-recede dimming removed — Paul 2026-09-14.)
             let mN = max(2, min(16, p.arpMaskN ?? 8))
             let mK = max(1, min(mN, p.arpMaskK ?? mN))
-            field("EUCLID MASK — HITS  ◀K▶ of ◀N▶  (K < N gates the line)") {
+            field("EUCLID MASK — HITS  ◀K▶ of ◀N▶  (K < N gates the line)", lfo: "arpMaskK") {   // ∿ LFO modulates the HIT COUNT K (density)
                 HStack(spacing: 10) {
                     numPair(mK, 1...mN) { v in setParam { $0.arpMaskK = v; if $0.arpMaskN == nil { $0.arpMaskN = mN } } }
                     Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
@@ -436,7 +436,7 @@ struct ProcessorBox: View {
             if mK < mN {                                                    // the kit animates in only when the mask bites
                 row2({ field("GAPS", \.arpMaskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.arpMaskGap ?? .rest).rawValue) { i in setParam { $0.arpMaskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
                      { field("WALK", \.arpMaskWalk) { seg(["MARCH", "WAIT"], sel: (p.arpMaskWalk ?? .march) == .wait ? "WAIT" : "MARCH") { i in setParam { $0.arpMaskWalk = (i == 1 ? .wait : .march) } } } })
-                field("ROTATE", \.arpMaskRotate) { numPair(p.arpMaskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.arpMaskRotate = v } } }
+                field("ROTATE", \.arpMaskRotate, lfo: "arpMaskRotate") { numPair(p.arpMaskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.arpMaskRotate = v } } }
             }
         })
         case .ratchet: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
@@ -445,7 +445,7 @@ struct ProcessorBox: View {
                 heroField("REPEATS") { numPair(p.count ?? 3, 2...8) { v in setParam { $0.count = v } } }
             } else if rmode == .coin {
                 Text("each step rolls: ratchet (a burst) or plain (one hit)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
-                heroField("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%") {
+                heroField("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%", lfo: "rtcChance") {
                     slider(bind(p.rtcChance ?? 0.5) { v in setParam { $0.rtcChance = v } }, in: 0...1) }
                 // ① SIZE WEIGHTS (Paul 2026-08-26) — the drawn distribution over roll sizes 2·3·4·6·8 (replaces SIZE MIN/MAX).
                 let defW: [Int] = rtcCoinSizes.map { ((p.rtcCountLo ?? 2)...(p.rtcCountHi ?? 4)).contains($0) ? 4 : 0 }
@@ -1480,9 +1480,22 @@ struct ProcessorBox: View {
             }
         }
     }
-    private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+    // The label row shared by field/heroField: just the label, OR (when `lfo` is set) the label + a right-aligned ∿ LFO
+    // button that takes NO extra vertical space (Docs/PLAN-param-lfo.md, Paul 2026-09-15).
+    @ViewBuilder private func lfoLabelRow(_ label: String, opacity: Double, _ lfo: String?) -> some View {
+        if let t = lfo {
+            HStack(spacing: 6) {
+                Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(opacity))
+                Spacer(minLength: 8)
+                lfoButton(t)
+            }
+        } else {
+            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(opacity))
+        }
+    }
+    private func field<C: View>(_ label: String, lfo: String? = nil, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            lfoLabelRow(label, opacity: 0.55, lfo)
             content()
         }
     }
@@ -1493,15 +1506,7 @@ struct ProcessorBox: View {
     private func field<C: View, V: Equatable>(_ label: String, _ kp: KeyPath<MachineParams, V>, lfo: String? = nil, @ViewBuilder _ content: () -> C) -> some View {
         _ = kp
         return VStack(alignment: .leading, spacing: 5) {
-            if let t = lfo {   // PER-PARAM LFO: the ∿ button rides the LABEL ROW, right-aligned — no extra vertical space (Paul 2026-09-15)
-                HStack(spacing: 6) {
-                    Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-                    Spacer(minLength: 8)
-                    lfoButton(t)
-                }
-            } else {
-                Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-            }
+            lfoLabelRow(label, opacity: 0.55, lfo)
             content()
         }
     }
@@ -1515,7 +1520,13 @@ struct ProcessorBox: View {
     private func clearLFO(_ target: String) {
         setParam { let a = ($0.paramLFOs ?? []).filter { $0.target != target }; $0.paramLFOs = a.isEmpty ? nil : a }
     }
-    private func lfoLabelText(_ target: String) -> String { target == "gate" ? "LENGTH" : target.uppercased() }
+    private func lfoLabelText(_ target: String) -> String {
+        switch target {
+        case "gate": return "LENGTH"; case "rtcChance": return "CHANCE"
+        case "arpMaskK": return "HITS"; case "arpMaskRotate": return "ROTATE"
+        default: return target.uppercased()
+        }
+    }
     // The ∿ LFO button — idle = dim; ACTIVE (an LFO with depth > 0) = accent-filled + the chosen waveform. Tap opens the
     // editor popover (which seeds a default LFO on first open); REMOVE inside clears it.
     private func lfoButton(_ target: String) -> some View {
@@ -1529,7 +1540,9 @@ struct ProcessorBox: View {
         .background(RoundedRectangle(cornerRadius: 4).fill(active ? accent : accent.opacity(0.14)))
         .contentShape(Rectangle())
         .onTapGesture { lfoEditTarget = target }
-        .popover(isPresented: Binding(get: { lfoEditTarget == target }, set: { if !$0 { lfoEditTarget = nil } })) { lfoEditor(target) }
+        // AnyView breaks the opaque-type CYCLE (lfoButton → popover → lfoEditor → field → lfoLabelRow → lfoButton): the
+        // editor's concrete type is erased here so lfoButton's `some View` no longer depends on itself.
+        .popover(isPresented: Binding(get: { lfoEditTarget == target }, set: { if !$0 { lfoEditTarget = nil } })) { AnyView(lfoEditor(target)) }
     }
     // The LFO editor (a popover, mirroring the MOD editor's controls): DEPTH · WAVE · DURATION · PHASE · QUANTIZE, bound to
     // the param's ParamLFO. Opening it seeds a musical default (depth 0.35) so the LFO is immediately audible; REMOVE / DEPTH 0 = off.
@@ -1579,9 +1592,9 @@ struct ProcessorBox: View {
     }
     // THE HERO (§presentation rule 1): the card's ★★★ control — a 2pt accent bar on the left edge (the only control that
     // wears one) + breathing room. Everything else is a plain `field`. A hero opens the card and never shares a row.
-    private func heroField<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+    private func heroField<C: View>(_ label: String, lfo: String? = nil, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !label.isEmpty { Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85)) }
+            if !label.isEmpty { lfoLabelRow(label, opacity: 0.85, lfo) }
             content()
         }
         .padding(.leading, 10).padding(.vertical, 7)

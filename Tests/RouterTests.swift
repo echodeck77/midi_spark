@@ -4302,6 +4302,25 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan((dLFO.max() ?? 0) - (dLFO.min() ?? 0), (dNone.first ?? 0) / 2, "the LFO swing is substantial")
         XCTAssertEqual(lfo.events, runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, depth: 1.0)]).events, "the LFO stream is replay-exact (beat-derived)")
     }
+    // PER-PARAM LFO (Docs/PLAN-param-lfo.md): the new ARP EUCLID-MASK targets. An arpMaskK LFO modulates the HIT COUNT (K)
+    // → the euclidean density breathes over time; depth 0 resolves away (byte-identical); nothing left stuck.
+    func testArpMaskKLFOModulatesEuclidDensity() {
+        func runLFO(_ lfos: [ParamLFO]) -> RecordingEmitter {
+            var c = Machine(machineID: "gold", type: .arp)
+            c.paramsA.pattern = .up; c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.gate = 0.5; c.paramsA.phase = .free
+            c.paramsA.arpMaskN = 8; c.paramsA.arpMaskK = 2                 // a BITING euclid mask (2 of 8)
+            c.paramsA.paramLFOs = lfos
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e); assertNothingLeftSounding(e)
+            return e
+        }
+        let none = runLFO([])
+        let zero = runLFO([ParamLFO(target: "arpMaskK", shape: .square, depth: 0)])
+        let lfo  = runLFO([ParamLFO(target: "arpMaskK", shape: .square, period: .r1, depth: 0.6)])   // wide swing: sparse ↔ full
+        XCTAssertEqual(none.events, zero.events, "a depth-0 arpMaskK LFO resolves away → byte-identical")
+        XCTAssertGreaterThan(lfo.ons.count, none.ons.count, "an arpMaskK LFO opens the euclid density (more hits when K swings up)")
+    }
     // RANDOM ANCHOR (Paul 2026-08-25 fix): on a FREE index, RANDOM ANCHOR LOW opens each pool cycle (span ticks) on the
     // LOWEST held note, then the rest shuffle — NOT a stream of the low note (the RETRIG per-column reset used to pedal it).
     func testRandomAnchorOpensEachPoolCycleThenShuffles() {

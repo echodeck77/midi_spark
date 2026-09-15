@@ -287,6 +287,7 @@ enum AutoParamField: Equatable {
     case octaves, count, rtcChance, rtcCountLo, rtcCountHi, rtcRotate
     case euclidPulses, euclidSteps, euclidRot, glideRange, modMin, modMax
     case lenShort, lenLong, lenRotate, weaveSpan, weaveEuclidSteps
+    case arpMaskK, arpMaskRot                 // ARP EUCLID MASK: HITS (K) density · ROTATE — LFO targets (Docs/PLAN-param-lfo.md)
     /// nil ⇒ this param is NOT render-time automatable (nested/complex) → its lane stays step-bake only.
     init?(key: String) {
         switch key {
@@ -298,6 +299,7 @@ enum AutoParamField: Equatable {
         case "euclidRot": self = .euclidRot;  case "glideRange": self = .glideRange; case "modMin": self = .modMin
         case "modMax": self = .modMax;        case "lenShort": self = .lenShort;  case "lenLong": self = .lenLong
         case "lenRotate": self = .lenRotate;  case "weaveSpan": self = .weaveSpan; case "weaveEuclidSteps": self = .weaveEuclidSteps
+        case "arpMaskK": self = .arpMaskK;    case "arpMaskRotate": self = .arpMaskRot
         default: return nil
         }
     }
@@ -334,6 +336,8 @@ extension SnapParams {
         case .lenRotate:    s.lenRotate = ci(0, 7)
         case .weaveSpan:    s.weaveSpan = ci(1, 8)
         case .weaveEuclidSteps: s.weaveEuclidSteps = ci(2, 16)
+        case .arpMaskK:     s.arpMaskK = ci(1, 16)        // the engine reads min(K, N) — K ≥ N just = mask OFF for that window
+        case .arpMaskRot:   s.arpMaskRotate = ci(0, 15)
         }
         return s
     }
@@ -349,6 +353,7 @@ extension SnapParams {
         case .euclidRot: return Double(euclidRot); case .glideRange: return Double(glideRange); case .modMin: return Double(modMin)
         case .modMax: return Double(modMax);  case .lenShort: return lenShort;        case .lenLong: return lenLong
         case .lenRotate: return Double(lenRotate); case .weaveSpan: return Double(weaveSpan); case .weaveEuclidSteps: return Double(weaveEuclidSteps)
+        case .arpMaskK: return Double(arpMaskK); case .arpMaskRot: return Double(arpMaskRotate)
         }
     }
 }
@@ -365,6 +370,7 @@ extension AutoParamField {
         case .euclidRot: return (0, 15); case .glideRange: return (1, 48); case .modMin: return (0, 127)
         case .modMax: return (0, 127);  case .lenShort: return (0.05, 0.95); case .lenLong: return (0, 1)
         case .lenRotate: return (0, 7); case .weaveSpan: return (1, 8);   case .weaveEuclidSteps: return (2, 16)
+        case .arpMaskK: return (1, 16); case .arpMaskRot: return (0, 15)
         }
     }
 }
