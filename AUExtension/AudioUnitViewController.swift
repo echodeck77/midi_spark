@@ -198,6 +198,7 @@ struct DiagView: View {
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-machine-per-row: each row's revert-to machine when its machine relocates
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
     @State var buildStagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)   // §E: 16-wide; the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
+    @State var buildRowSelectRevert: (row: Int, prev: [Int])?   // left-rail row-select: the per-column selection BEFORE the last rail tap, so a 2nd tap on the same rail reverts an accidental whole-row select (Paul 2026-09-15)
     @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
     @State var buildRowShade: [Double] = Array(repeating: 0, count: 8)   // STAGE THE GRID: per-row shade of the selected machine (+lighter … −darker), by output complexity
     @State var buildParts: [BuildPart] = [BuildPart()]   // the PARTS (workshop lifecycle); the CURRENT part's fields live in the working @State below, synced on switch

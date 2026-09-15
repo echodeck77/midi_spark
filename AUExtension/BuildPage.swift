@@ -3036,7 +3036,7 @@ extension DiagView {
             // The chevron takes the ROW's colour when the row is selected at ANY column, else stays neutral (Paul 2026-09-10).
             .overlay(Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundColor(rowSelectedAny ? Color(hex: partFerryHue(n)) : Color.white.opacity(0.7)))   // same as the old gui's right rail
             .contentShape(Rectangle())
-            .onTapGesture { buildPartTouched = true; buildSelectRow(n) }  // select the WHOLE row for playback (user edit)
+            .onTapGesture { buildPartTouched = true; buildToggleSelectRow(n) }  // select the WHOLE row; a 2nd tap on the same rail reverts (Paul 2026-09-15)
     }
     // THE PART PLAYHEAD — a 2pt line sweeping the 8 interior columns, phase-locked to the beat (reuses the buildPlayhead
     // math: extrapolated beat → musical/swung column progress → x). Flexible-cell variant for the rooms grid.
@@ -4900,6 +4900,21 @@ extension DiagView {
         guard row >= 0, row < 8 else { return }
         for c in 0..<Snap.maxCols { buildStagingSel[c] = row }   // §E 16-col
         buildStagingSyncIfPlaying()
+    }
+    // THE LEFT RAIL TAP (Paul 2026-09-15): tapping a row rail selects the WHOLE row for playback; tapping the SAME rail a
+    // SECOND time (while its whole-row select is still in effect) REVERTS to the per-column selection that existed before —
+    // an undo for an accidental hit. Any intervening edit breaks the "still in effect" test, so a later tap re-selects afresh.
+    private func buildToggleSelectRow(_ row: Int) {
+        guard row >= 0, row < 8 else { return }
+        // Revert only if the last rail tap was THIS row AND its whole-row select is still standing untouched.
+        if let rv = buildRowSelectRevert, rv.row == row, buildStagingSel.allSatisfy({ $0 == row }) {
+            buildStagingSel = rv.prev
+            buildRowSelectRevert = nil
+            buildStagingSyncIfPlaying()
+            return
+        }
+        buildRowSelectRevert = (row: row, prev: buildStagingSel)   // snapshot BEFORE the select, so the 2nd tap can restore it
+        buildSelectRow(row)
     }
 
 
