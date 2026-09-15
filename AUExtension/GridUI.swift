@@ -2271,20 +2271,24 @@ private struct FineSlider: View {
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            let d: CGFloat = fine ? 22 : 16          // thumb diameter (grows in fine mode)
+            // CHUNKIER + more grabbable (Paul 2026-09-16): fat track, big thumb, taller touch row — "grabbable, not precise"
+            // (the pull-away FINE ×10 mode still covers precision). d = thumb diameter (grows further in fine mode).
+            let d: CGFloat = fine ? 34 : 28
+            let th: CGFloat = 9                       // track thickness
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.12)).frame(height: 5)
-                Capsule().fill(accent.opacity(0.85)).frame(width: max(5, frac * w), height: 5)
+                Capsule().fill(Color.white.opacity(0.14)).frame(height: th)
+                Capsule().fill(accent.opacity(0.9)).frame(width: max(th, frac * w), height: th)
                 // detent pips on the track (a faint tick where each snap value sits)
                 ForEach(detents.indices, id: \.self) { i in
-                    Circle().fill(Color.white.opacity(0.3)).frame(width: 3, height: 3)
-                        .offset(x: min(w - 3, max(0, CGFloat((detents[i] - lo) / span) * w - 1.5)))
+                    Circle().fill(Color.white.opacity(0.32)).frame(width: 4, height: 4)
+                        .offset(x: min(w - 4, max(0, CGFloat((detents[i] - lo) / span) * w - 2)))
                 }
                 Circle().fill(.white).frame(width: d, height: d)
-                    .overlay(Circle().stroke(accent, lineWidth: fine ? 3 : 0))
+                    .overlay(Circle().stroke(accent, lineWidth: fine ? 3 : 1.5))
+                    .shadow(color: .black.opacity(0.3), radius: 2.5, x: 0, y: 1)   // soft lift → reads as a grabbable knob
                     .offset(x: min(w - d, max(0, frac * w - d / 2)))
             }
-            .frame(height: 30, alignment: .center)
+            .frame(height: 40, alignment: .center)
             .contentShape(Rectangle())
             .overlay(alignment: .topTrailing) {
                 if fine {
