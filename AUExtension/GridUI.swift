@@ -1571,32 +1571,56 @@ struct ProcessorBox: View {
     // value, TO=a contrasting endpoint so the sweep is immediately audible; REMOVE (or FROM==TO) = off.
     private func lfoEditor(_ target: String) -> some View {
         let lfo = lfoFor(target) ?? ParamLFO(target: target)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                HStack(spacing: 6) {
-                    waveGlyph(lfo.shape, accent).frame(width: 20, height: 11)
-                    Text("\(lfoLabelText(target)) LFO").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+        let shapes = ModShape.allCases
+        // SCROLLABLE (Paul 2026-09-16): the popover clips in a short AUv3 host — wrap so the bottom is always reachable.
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    HStack(spacing: 6) {
+                        waveGlyph(lfo.shape, accent).frame(width: 20, height: 11)
+                        Text("\(lfoLabelText(target)) LFO").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                    }
+                    Spacer()
+                    Text("REMOVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.red.opacity(0.85))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.red.opacity(0.16)))
+                        .contentShape(Rectangle()).onTapGesture { clearLFO(target); lfoEditTarget = nil }
                 }
-                Spacer()
-                Text("REMOVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.red.opacity(0.85))
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.red.opacity(0.16)))
-                    .contentShape(Rectangle()).onTapGesture { clearLFO(target); lfoEditTarget = nil }
-            }
-            Text("Sweeps FROM → TO and back over the DURATION. The dim mark tracks where it is now.")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.4)).fixedSize(horizontal: false, vertical: true)
-            lfoEndpoint("FROM", target: target, value: lfo.from ?? lfoSeedFrom(target), lfo: lfo) { v in setLFO(target) { $0.from = v; if $0.to == nil { $0.to = lfoSeedTo(target) } } }
-            lfoEndpoint("TO",   target: target, value: lfo.to   ?? lfoSeedTo(target),   lfo: lfo) { v in setLFO(target) { $0.to = v; if $0.from == nil { $0.from = lfoSeedFrom(target) } } }
-            field("WAVE") { iconSeg(ModShape.allCases.map(\.rawValue), sel: lfo.shape.rawValue, glyph: { i, t in waveGlyph(ModShape.allCases[i], t) }) { i in setLFO(target) { $0.shape = ModShape.allCases[i] } } }
-            // DURATION — grid STEPS (1…8 · ×2/×4/×8, re-syncs to the grid) OR a fixed musical subdivision (beats/cycle).
-            field("DURATION — STEPS (grid-locked) · or a fixed subdivision") {
+                lfoEndpoint("FROM", target: target, value: lfo.from ?? lfoSeedFrom(target), lfo: lfo) { v in setLFO(target) { $0.from = v; if $0.to == nil { $0.to = lfoSeedTo(target) } } }
+                lfoEndpoint("TO",   target: target, value: lfo.to   ?? lfoSeedTo(target),   lfo: lfo) { v in setLFO(target) { $0.to = v; if $0.from == nil { $0.from = lfoSeedFrom(target) } } }
+                // WAVE — ONE row (Paul 2026-09-16), the 5 shapes equal-width across the full FROM/TO width (was iconSeg, which wrapped to 2 rows).
                 VStack(alignment: .leading, spacing: 5) {
-                    seg(lfoDurValues.map { lfoDurLabel($0) }, sel: lfo.stepSpan != nil ? lfoDurLabel(lfo.stepSpan!) : "—") { i in setLFO(target) { $0.stepSpan = lfoDurValues[i] } }
-                    seg(ModRate.allCases.map(\.rawValue), sel: lfo.stepSpan == nil ? lfo.period.rawValue : "—") { i in setLFO(target) { $0.stepSpan = nil; $0.period = ModRate.allCases[i] } }
+                    Text("WAVE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                    HStack(spacing: 6) {
+                        ForEach(Array(shapes.enumerated()), id: \.offset) { i, s in
+                            let on = s == lfo.shape
+                            VStack(spacing: 3) {
+                                waveGlyph(s, on ? .black : accent).frame(width: 22, height: 12)
+                                Text(s.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.6)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(on ? accent : Color.white.opacity(0.09)))
+                            .contentShape(Rectangle()).onTapGesture { setLFO(target) { $0.shape = s } }
+                        }
+                    }
+                }
+                // DURATION — two clearly-labelled groups (Paul 2026-09-16): pick a GRID-locked step span OR a fixed subdivision
+                // (they're mutually exclusive — choosing one clears the other, as the engine already resolves).
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("DURATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("GRID STEPS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                        seg(lfoDurValues.map { lfoDurLabel($0) }, sel: lfo.stepSpan != nil ? lfoDurLabel(lfo.stepSpan!) : "—") { i in setLFO(target) { $0.stepSpan = lfoDurValues[i] } }
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("FIXED SUBDIVISION").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                        seg(ModRate.allCases.map(\.rawValue), sel: lfo.stepSpan == nil ? lfo.period.rawValue : "—") { i in setLFO(target) { $0.stepSpan = nil; $0.period = ModRate.allCases[i] } }
+                    }
                 }
             }
+            .padding(16)
         }
-        .padding(16).frame(minWidth: 320, maxWidth: 380)
+        .frame(width: 360).frame(maxHeight: 480)   // fixed width; capped height → the popover clamps to a short host + scrolls
         .onAppear { if lfoFor(target) == nil { setLFO(target) { $0.from = lfoSeedFrom(target); $0.to = lfoSeedTo(target) } } }
     }
     // DURATION grid ladder (Paul 2026-09-15): 1…8 steps · ×2/×4/×8 bars (16/32/64), matching spanLadderBeats.
