@@ -41,6 +41,22 @@ func spanLadderLabel(_ n: Int) -> String { n == 16 ? "×2" : (n == 32 ? "×4" : 
 let arpPatternCases = ArpPattern.allCases
 /// The ArpPattern at a stored patternIndex, clamped to UP for an out-of-range index — the render-path reader.
 @inline(__always) func arpPatternAt(_ i: Int) -> ArpPattern { i >= 0 && i < arpPatternCases.count ? arpPatternCases[i] : .up }
+/// The ARP RATE ladder the LFO is allowed to sweep, given an IGNORE mask (bit0 normal · bit1 dotted · bit2 triplet).
+/// ArpRate.allCases is ordered [6 normal · 6 dotted · 6 triplet] → family = index / 6. Returns the kept indices in
+/// order; never empty (an all-ignore mask keeps normal). Paul 2026-09-16 (LFO rate-family ignore).
+func arpRateAllowedLadder(ignore mask: Int) -> [Int] {
+    let m = (mask & 0b111) == 0b111 ? 0b110 : (mask & 0b111)   // all-ignore → keep normal (mirrors rateIgnoreResolved)
+    let out = (0..<18).filter { (m & (1 << ($0 / 6))) == 0 }
+    return out.isEmpty ? Array(0..<6) : out
+}
+/// The POSITION in `ladder` of the rung nearest to `idx` (a raw 0…17 rate index) — snaps a FROM/TO endpoint onto the
+/// allowed ladder so an ignored-family endpoint maps to the closest kept rate. Paul 2026-09-16.
+func nearestLadderPos(_ ladder: [Int], _ idx: Int) -> Int {
+    guard !ladder.isEmpty else { return 0 }
+    var best = 0, bestD = Int.max
+    for (p, v) in ladder.enumerated() { let d = abs(v - idx); if d < bestD { bestD = d; best = p } }
+    return best
+}
 /// The span's WIDTH in beats: 1 = one column (S) · 8 = the whole row (`rowBeats`, byte-identical to the old ROW —
 /// honours a short loop) · ×2/×4 = 2/4 rows · 2·3·4·6 = N columns (the polymeter spans). Pure.
 @inline(__always) func spanLadderBeats(_ n: Int, S: Double, row rowBeats: Double) -> Double {

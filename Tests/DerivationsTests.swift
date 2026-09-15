@@ -2279,6 +2279,17 @@ final class DerivationsTests: XCTestCase {
         for n in s1 { XCTAssertTrue(valid.contains(n), "picked note \(n) is a real pool member") }
     }
 
+    // LFO RATE IGNORE (Paul 2026-09-16): the sweep only visits KEPT families; FROM/TO snap to the nearest kept rung.
+    func testArpRateIgnoreLadderAndSnap() {
+        XCTAssertEqual(arpRateAllowedLadder(ignore: 0), Array(0..<18), "ignore nothing → full ladder")
+        XCTAssertEqual(arpRateAllowedLadder(ignore: 0b110), Array(0..<6), "default (ignore dotted+trip) → normal only")
+        XCTAssertEqual(arpRateAllowedLadder(ignore: 0b010), Array(0..<6) + Array(12..<18), "ignore dotted → normal + triplet")
+        XCTAssertEqual(arpRateAllowedLadder(ignore: 0b111), Array(0..<6), "all-ignore → keep normal (never empty)")
+        let ladder = arpRateAllowedLadder(ignore: 0b110)   // [0…5]
+        XCTAssertEqual(nearestLadderPos(ladder, 2), 2, "kept index maps to its own position")
+        XCTAssertEqual(nearestLadderPos(ladder, 14), 5, "an ignored (triplet) endpoint snaps to the nearest kept rung")
+    }
+
     // KEYS EXCLUDE (Paul 2026-08-22): the complement door subtracts these pitch classes from its typed set.
     func testPitchClassMaskCollectsHeldPitchClassesUnderFilters() {
         let p = NotePool()

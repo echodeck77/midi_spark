@@ -418,10 +418,16 @@ struct ProcessorBox: View {
             }
             // SPEED (3 rows: standard · dotted · triplet) | LENGTH — left to right.
             HStack(alignment: .top, spacing: 12) {
-                field("SPEED", \.rate, lfo: "arpRate") { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }   // ∿ LFO sweeps the rate ladder (Docs/PLAN-param-lfo.md)
+                field("SPEED", \.rate, lfo: "arpRate") {   // ∿ LFO sweeps the rate ladder; the swept rate shows here as a dim ring (Paul 2026-09-16)
+                    TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !clockPlaying || lfoFor("arpRate") == nil)) { tl in
+                        arpSpeedGrid(sel: p.rate ?? .r1_16, live: lfoFor("arpRate").flatMap { lfoLiveRateIndex($0, date: tl.date) }) { r in setParam { $0.rate = r } }
+                    }
+                }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate, lfo: "gate") {   // ∿ LFO on the label row (Docs/PLAN-param-lfo.md)
-                    slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
+                    // Reflect a LENGTH LFO here too (Paul 2026-09-16): a dim live tick tracks the sweep on the MAIN slider.
+                    if let glfo = lfoFor("gate") { lfoSlider(p.gate ?? 0.6, 0.05...1, lfo: glfo) { v in setParam { $0.gate = v } } }
+                    else { slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             // SPAN (Paul 2026-09-13, replaces FIT): the universal span-ladder — FREE runs the global grid, N re-anchors
@@ -1586,6 +1592,23 @@ struct ProcessorBox: View {
                         .background(RoundedRectangle(cornerRadius: 5).fill(Color.red.opacity(0.16)))
                         .contentShape(Rectangle()).onTapGesture { clearLFO(target); lfoEditTarget = nil }
                 }
+                if target == "arpRate" {   // IGNORE rate families the sweep skips (Paul 2026-09-16) — grid unchanged, ignored rows just dim + aren't visited. Default: ignore DOTTED + TRIP.
+                    let ig = lfo.rateIgnoreResolved
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("IGNORE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                        HStack(spacing: 6) {
+                            ForEach(Array(["NORMAL", "DOTTED", "TRIP"].enumerated()), id: \.offset) { bit, name in
+                                let ignored = (ig & (1 << bit)) != 0
+                                Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(ignored ? .black : accent)
+                                    .lineLimit(1).minimumScaleFactor(0.6).frame(maxWidth: .infinity, minHeight: 40)
+                                    .background(RoundedRectangle(cornerRadius: 7).fill(ignored ? accent : Color.white.opacity(0.09)))
+                                    .contentShape(Rectangle()).onTapGesture {
+                                        setLFO(target) { let next = ig ^ (1 << bit); $0.rateIgnore = (next & 0b111) == 0b111 ? ig : next }   // can't ignore all three
+                                    }
+                            }
+                        }
+                    }
+                }
                 lfoEndpoint("FROM", target: target, value: lfo.from ?? lfoSeedFrom(target), lfo: lfo) { v in setLFO(target) { $0.from = v; if $0.to == nil { $0.to = lfoSeedTo(target) } } }
                 lfoEndpoint("TO",   target: target, value: lfo.to   ?? lfoSeedTo(target),   lfo: lfo) { v in setLFO(target) { $0.to = v; if $0.from == nil { $0.from = lfoSeedFrom(target) } } }
                 // WAVE — ONE row (Paul 2026-09-16), the 5 shapes equal-width across the full FROM/TO width (was iconSeg, which wrapped to 2 rows).
@@ -1646,7 +1669,9 @@ struct ProcessorBox: View {
     @ViewBuilder private func lfoEndpointControl(target: String, value: Double, lfo: ParamLFO, _ set: @escaping (Double) -> Void) -> some View {
         switch target {
         case "arpRate":
-            lfoRateGrid(sel: max(0, min(17, Int(value.rounded()))), set)
+            TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !clockPlaying)) { tl in   // the live swept rung, on BOTH FROM and TO
+                lfoRateGrid(sel: max(0, min(17, Int(value.rounded()))), ignore: lfo.rateIgnoreResolved, live: lfoLiveRateIndex(lfo, date: tl.date), set)
+            }
         case "arpMaskK":
             numPair(max(1, min(16, Int(value.rounded()))), 1...16) { set(Double($0)) }
         case "arpMaskRotate":
@@ -1673,22 +1698,41 @@ struct ProcessorBox: View {
         }
     }
     // The rate speed grid as a FROM/TO endpoint: `sel` (the endpoint rung) is solid; the live rung gets a dim ring.
-    private func lfoRateGrid(sel: Int, _ pick: @escaping (Double) -> Void) -> some View {
+    // The rate ladder as an LFO endpoint: `sel` (the endpoint rung) is SOLID; `live` (the swept rung right now) gets a
+    // DIM ring; families in `ignore` (bit0 normal · bit1 dotted · bit2 triplet) dim to show they're skipped. (Paul 2026-09-16)
+    private func lfoRateGrid(sel: Int, ignore: Int = 0, live: Int? = nil, _ pick: @escaping (Double) -> Void) -> some View {
         let all = ArpRate.allCases
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(0..<3, id: \.self) { row in
+                let famIgnored = (ignore & (1 << row)) != 0
                 HStack(spacing: 3) {
                     ForEach(0..<6, id: \.self) { col in
-                        let idx = row * 6 + col; let on = idx == sel
+                        let idx = row * 6 + col; let on = idx == sel; let isLive = live == idx
                         Text(all[idx].rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
                             .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.5)
                             .frame(maxWidth: .infinity, minHeight: 26).padding(.horizontal, 1)
                             .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.09)))
+                            .overlay { if isLive && !on { RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.5), lineWidth: 2) } }   // the live swept rate
+                            .opacity(famIgnored ? 0.32 : 1)                                                                                       // ignored family = dimmed (still the full grid)
                             .contentShape(Rectangle()).onTapGesture { pick(Double(idx)) }
                     }
                 }
             }
         }
+    }
+    // The current LFO output as a LADDER-SNAPPED rate index (mirrors the engine's ignore-aware sweep), for the dim live ring.
+    private func lfoLiveRateIndex(_ lfo: ParamLFO, date: Date) -> Int? {
+        guard clockPlaying, let from = lfo.from, let to = lfo.to, from != to else { return nil }
+        let S = Swift.max(0.0001, gridStepBeats)
+        let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: 8 * S) : lfo.period.periodBeats
+        guard periodBeats > 0 else { return nil }
+        let beat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+        let cyc = Int((beat / periodBeats).rounded(.down))
+        let u = modUnipolar(lfo.shape, phase: beat / periodBeats, column: 0, cc: 0, cycleIndex: cyc)
+        let ladder = arpRateAllowedLadder(ignore: lfo.rateIgnoreResolved)
+        let fp = nearestLadderPos(ladder, Int(from.rounded())), tp = nearestLadderPos(ladder, Int(to.rounded()))
+        let pos = Int((Double(fp) + u * Double(tp - fp)).rounded())
+        return ladder[max(0, min(ladder.count - 1, pos))]
     }
     // The current LFO output in the param's NATURAL space, for the dim live markers (nil when stopped/inactive). Uses the
     // scene clock (gridStepBeats) so the step-span duration matches the engine; the beat is extrapolated like the playheads.
@@ -2008,18 +2052,20 @@ struct ProcessorBox: View {
     }
     // THE ARP SPEED GRID (Paul 2026-09-14): 3 rows of 6 — top standard, middle dotted, bottom triplet. Relies on
     // ArpRate.allCases being ordered [6 straight · 6 dotted · 6 triplet]. Chips share width + shrink-to-fit.
-    private func arpSpeedGrid(sel: ArpRate, _ pick: @escaping (ArpRate) -> Void) -> some View {
+    // `live` = the LFO's current swept rate index (dim ring), so the main SPEED grid reflects the automation. (Paul 2026-09-16)
+    private func arpSpeedGrid(sel: ArpRate, live: Int? = nil, _ pick: @escaping (ArpRate) -> Void) -> some View {
         let all = ArpRate.allCases
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(0..<3, id: \.self) { row in
                 HStack(spacing: 3) {
                     ForEach(0..<6, id: \.self) { col in
-                        let r = all[row * 6 + col]
-                        let on = r == sel
+                        let idx = row * 6 + col; let r = all[idx]
+                        let on = r == sel; let isLive = live == idx
                         Text(r.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
                             .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.5)
                             .frame(maxWidth: .infinity, minHeight: 32).padding(.horizontal, 1)
                             .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.09)))
+                            .overlay { if isLive && !on { RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.5), lineWidth: 2) } }   // the live swept rate
                             .contentShape(Rectangle()).onTapGesture { pick(r) }
                     }
                 }
