@@ -5348,7 +5348,11 @@ extension DiagView {
     func buildSelectedMachineProcessing() -> Bool {
         guard let cid = ddSelectedMachineID else { return false }
         func sounding(_ idx: Int) -> Bool { idx >= 0 && idx < meters.cellSoundVel.count && meters.cellSoundVel[idx] > 0 }
-        if ddSolo, let ar = buildChainAuditionRow, ar >= 0, sounding(ar) { return true }   // chain audition (SELECT)
+        // SELECT chain audition (Paul 2026-09-16 fix): the machine is CONTINUOUSLY engaged to receive here, so it's ALWAYS
+        // "processing" — never grey. (Was gated on sounding(ar), the instantaneous OUTPUT, which flickered between notes / on
+        // gate gaps, so the editor greyed on/off while playing. The grey-when-idle treatment is for the PART/PLAY grid, where a
+        // cell genuinely idles when the playhead is off its column — the branches below still handle that.)
+        if ddSolo { return true }
         let activeOn = buildActiveFerry.map { $0 >= 0 && $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? false
         if buildStagingPlaying || activeOn {                                                     // active ferry → STAGING rows 0–7
             for c in 0..<Snap.maxCols {
