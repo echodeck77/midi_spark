@@ -2212,6 +2212,21 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(arpPick(phaseIndex: Int64(count), octaves: octaves, pattern: 0, pool: p, octDown: true).note, 60, "DOWN: descends to the bottom octave")
     }
 
+    // ARP OCTAVE CONTROL — the exact octave-spanning sequence (Paul 2026-09-15: "make sure the octave control is right").
+    // OCTAVES multiplies the pool by 12·lap; the pitch SET must be the chord repeated at each octave, ordered by PATTERN.
+    func testArpOctaveSpanFullSequence() {
+        let p = NotePool(); for n: UInt8 in [60, 64, 67] { p.noteOn(n, velocity: 100, channel: 0) }; p.rebuildSorted()
+        func seq(_ octaves: Int, _ n: Int, octDown: Bool = false, pattern: UInt8 = 0) -> [Int] {
+            (0..<n).map { arpPick(phaseIndex: Int64($0), octaves: octaves, pattern: pattern, pool: p, octDown: octDown).note }
+        }
+        XCTAssertEqual(seq(1, 3), [60, 64, 67], "OCTAVES 1 = the chord, no octave copies")
+        XCTAssertEqual(seq(2, 6), [60, 64, 67, 72, 76, 79], "OCTAVES 2 UP = the chord, then the same chord +12")
+        XCTAssertEqual(seq(3, 9), [60, 64, 67, 72, 76, 79, 84, 88, 91], "OCTAVES 3 spans three octaves (+0, +12, +24)")
+        XCTAssertEqual(seq(2, 6, octDown: true), [72, 76, 79, 60, 64, 67], "OCT DIR DOWN plays the TOP octave lap first")
+        XCTAssertEqual(seq(2, 6, pattern: 1), [79, 76, 72, 67, 64, 60], "DOWN pattern descends the whole 2-octave span")
+        XCTAssertEqual(seq(2, 12), seq(2, 6) + seq(2, 6), "the span loops cleanly (phase 6 == phase 0)")
+    }
+
     // ARP RANDOM ANCHOR (Paul 2026-08-22): PATTERN=RANDOM opens each cycle (a full pool×oct traversal) on the anchor note.
     func testArpRandomAnchorOpensOnLowOrHigh() {
         let p = NotePool(); for n: UInt8 in [60, 64, 67] { p.noteOn(n, velocity: 100, channel: 0) }; p.rebuildSorted()

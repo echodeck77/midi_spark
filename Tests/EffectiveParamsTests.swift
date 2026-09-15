@@ -593,8 +593,9 @@ final class EffectiveParamsTests: XCTestCase {
             (.euclidPulses, 1, 16), (.euclidSteps, 2, 16), (.euclidRot, 0, 15), (.glideRange, 1, 48),
             (.modMin, 0, 127), (.modMax, 0, 127), (.lenShort, 0.05, 0.95), (.lenLong, 0, 1),
             (.lenRotate, 0, 7), (.weaveSpan, 1, 8), (.weaveEuclidSteps, 2, 16),
-            (.arpMaskK, 1, 16), (.arpMaskRot, 0, 15)]
-        XCTAssertEqual(table.count, 26, "every AutoParamField case is covered")
+            (.arpMaskK, 1, 16), (.arpMaskRot, 0, 15),
+            (.arpMaskChordGate, 0.05, 1), (.arpMaskChordOct, -2, 2)]
+        XCTAssertEqual(table.count, 28, "every AutoParamField case is covered")
         for (f, lo, hi) in table {
             XCTAssertEqual(readAuto(SnapParams().settingAuto(f, -9_999), f), lo, accuracy: 1e-9, "\(f) clamps below to \(lo)")
             XCTAssertEqual(readAuto(SnapParams().settingAuto(f, 9_999), f), hi, accuracy: 1e-9, "\(f) clamps above to \(hi)")
@@ -612,6 +613,7 @@ final class EffectiveParamsTests: XCTestCase {
         case .modMax: return Double(s.modMax);     case .lenShort: return s.lenShort;         case .lenLong: return s.lenLong
         case .lenRotate: return Double(s.lenRotate); case .weaveSpan: return Double(s.weaveSpan); case .weaveEuclidSteps: return Double(s.weaveEuclidSteps)
         case .arpMaskK: return Double(s.arpMaskK); case .arpMaskRot: return Double(s.arpMaskRotate)
+        case .arpMaskChordGate: return s.arpMaskChordGate; case .arpMaskChordOct: return Double(s.arpMaskChordOct)
         }
     }
 }

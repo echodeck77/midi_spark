@@ -221,6 +221,10 @@ struct MachineParams: Codable, Equatable {
     var arpMaskGap: ArpMaskGap? = nil    // non-hit steps: REST (silence) | TIE (sustain the previous note) | CHORD (strike the full held chord). nil ⇒ REST
     var arpMaskWalk: ArpMaskWalk? = nil  // MARCH (walk advances through rests) | WAIT (walk advances only on hits). nil ⇒ MARCH
     var arpMaskRotate: Int? = 0       // rotate the Bjorklund figure (0…N−1)
+    // GAPS = CHORD gap-stab controls (Docs/PLAN-param-lfo.md, Paul 2026-09-15) — all additive-Optional (nil ⇒ identity):
+    var arpMaskChordGate: Double? = nil   // the gap stab's own LENGTH (fraction of step); nil ⇒ follow the arp gate (byte-identical)
+    var arpMaskChordOct: Int? = nil       // the gap stab's OCTAVE shift −2…+2; nil ⇒ 0
+    var arpMaskChordVel: Double? = nil     // the gap stab's VELOCITY scale 0…1; nil ⇒ 1
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]

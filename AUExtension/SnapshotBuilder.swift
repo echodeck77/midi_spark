@@ -518,6 +518,10 @@ enum SnapshotBuilder {
         if let v = p.arpMaskGap { out.arpMaskGap = v }
         if let v = p.arpMaskWalk { out.arpMaskWalk = v }
         out.arpMaskRotate = (((p.arpMaskRotate ?? 0) % out.arpMaskN) + out.arpMaskN) % out.arpMaskN
+        // GAPS = CHORD gap-stab: LENGTH falls back to the arp gate (byte-identical when unset); OCT 0 / VEL 1 = identity.
+        out.arpMaskChordGate = p.arpMaskChordGate.map { clamp($0, 0.05, 1) } ?? out.gate
+        out.arpMaskChordOct = clamp(p.arpMaskChordOct ?? 0, -2, 2)
+        out.arpMaskChordVel = clamp(p.arpMaskChordVel ?? 1, 0, 1)
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
             out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),

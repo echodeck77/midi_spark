@@ -4318,17 +4318,24 @@ final class Router {
                 let g = Int((mTickBeat / arpBeats).rounded(.down))          // global tick index (replay-exact)
                 if !euclidMaskHit(g, k: mK, n: mN, rotate: mRot) {           // GAP step
                     if mChordGap {                                          // GAPS = CHORD: strike the WHOLE held/composed chord in the gap
+                        // The gap stab's own LENGTH · OCTAVE · VELOCITY (Docs/PLAN-param-lfo.md). chordGate mirrors the arp's
+                        // off formula (min(m + sub·gate, colEnd)) → byte-identical when it equals the arp gate; oct 0 / vel 1 = identity.
+                        let cOct = machine.a.arpMaskChordOct * 12
+                        let cVelScale = machine.a.arpMaskChordVel
+                        let mOffChord = min(mTickBeat + arpBeats * machine.a.arpMaskChordGate, columnStart(mTickBeat, S) + S)
+                        let offC = sampleOf(musical: mOffChord, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                         func striker(_ base: Int, _ vel: UInt8) {
-                            let nv = base + transpose
+                            let nv = base + transpose + cOct
                             guard nv >= 0 && nv <= 127 else { return }
-                            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(nv), beat: mTickBeat)
+                            let cvel = UInt8(max(1, min(127, Int((Double(vel) * cVelScale).rounded()))))
+                            storeArtic(row: r, on: onTime, off: offC, note: UInt8(nv), beat: mTickBeat)
                             guard emits else { return }
                             if chainDriver >= 0 {
-                                emitDriverNote(nv, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
-                                               windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
+                                emitDriverNote(nv, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offC,
+                                               windowEnd: windowEnd, velocity: cvel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                             } else {
-                                emitChop(nv, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
-                                         velocity: vel, m: mTickBeat, S: S, out: out, diag: &diag)
+                                emitChop(nv, cell: cell, bm: bm, onSample: onTime, offSample: offC, windowEnd: windowEnd,
+                                         velocity: cvel, m: mTickBeat, S: S, out: out, diag: &diag)
                             }
                         }
                         if chainDriver >= 0 {   // [X → ARP]: the composed upstream set (OMNI), same source the arp walk reads

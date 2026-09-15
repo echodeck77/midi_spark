@@ -4321,6 +4321,27 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(none.events, zero.events, "a depth-0 arpMaskK LFO resolves away → byte-identical")
         XCTAssertGreaterThan(lfo.ons.count, none.ons.count, "an arpMaskK LFO opens the euclid density (more hits when K swings up)")
     }
+    // EUCLID MASK GAPS = CHORD gap-stab controls (Docs/PLAN-param-lfo.md): the gap chord strike gets its own OCTAVE + VELOCITY
+    // (LENGTH mirrors the arp off formula). OCT −2 drops the stab two octaves (a pitch the arp hits never produce); VEL scales it.
+    func testEuclidChordGapStabControls() {
+        func run4(_ setup: (inout MachineParams) -> Void) -> RecordingEmitter {
+            var c = Machine(machineID: "gold", type: .arp)
+            c.paramsA.pattern = .up; c.paramsA.rate = .r1_8; c.paramsA.octaves = 1; c.paramsA.gate = 0.5; c.paramsA.phase = .free
+            c.paramsA.arpMaskN = 8; c.paramsA.arpMaskK = 2; c.paramsA.arpMaskGap = .chord   // 6 of 8 steps strike the held chord
+            setup(&c.paramsA)
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
+            return e
+        }
+        let base = run4 { _ in }
+        XCTAssertTrue(Set(base.ons.map { Int($0.note) }).contains(60), "default CHORD gap strikes the held chord at pitch")
+        XCTAssertFalse(Set(base.ons.map { Int($0.note) }).contains(36), "no octave shift by default")
+        let shifted = run4 { $0.arpMaskChordOct = -2; $0.arpMaskChordVel = 0.4 }
+        let low = shifted.ons.filter { $0.note == 36 }    // 60 − 24 = the gap stab dropped two octaves (never an arp HIT here)
+        XCTAssertFalse(low.isEmpty, "CHORD OCT −2 drops the gap stab two octaves (60 → 36)")
+        XCTAssertTrue(low.allSatisfy { $0.vel == 40 }, "CHORD VEL 0.4 scales the gap stab velocity (100 → 40)")
+    }
     // RANDOM ANCHOR (Paul 2026-08-25 fix): on a FREE index, RANDOM ANCHOR LOW opens each pool cycle (span ticks) on the
     // LOWEST held note, then the rest shuffle — NOT a stream of the low note (the RETRIG per-column reset used to pedal it).
     func testRandomAnchorOpensEachPoolCycleThenShuffles() {

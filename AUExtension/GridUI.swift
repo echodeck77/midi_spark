@@ -437,6 +437,11 @@ struct ProcessorBox: View {
                 row2({ field("GAPS", \.arpMaskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.arpMaskGap ?? .rest).rawValue) { i in setParam { $0.arpMaskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
                      { field("WALK", \.arpMaskWalk) { seg(["MARCH", "WAIT"], sel: (p.arpMaskWalk ?? .march) == .wait ? "WAIT" : "MARCH") { i in setParam { $0.arpMaskWalk = (i == 1 ? .wait : .march) } } } })
                 field("ROTATE", \.arpMaskRotate, lfo: "arpMaskRotate") { numPair(p.arpMaskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.arpMaskRotate = v } } }
+                if (p.arpMaskGap ?? .rest) == .chord {   // GAPS = CHORD gap-stab controls: give the chord strike its own OCTAVE · LENGTH · VELOCITY (Docs/PLAN-param-lfo.md)
+                    row2({ field("CHORD OCT", \.arpMaskChordOct, lfo: "arpMaskChordOct") { numPair(p.arpMaskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.arpMaskChordOct = v } } } },
+                         { field("CHORD LEN  \(Int((p.arpMaskChordGate ?? (p.gate ?? 0.6)) * 100))%", \.arpMaskChordGate, lfo: "arpMaskChordGate") { slider(bind(p.arpMaskChordGate ?? (p.gate ?? 0.6)) { v in setParam { $0.arpMaskChordGate = v } }, in: 0.05...1) } })
+                    field("CHORD VEL  \(Int((p.arpMaskChordVel ?? 1) * 100))%", \.arpMaskChordVel) { slider(bind(p.arpMaskChordVel ?? 1) { v in setParam { $0.arpMaskChordVel = v } }, in: 0...1) }
+                }
             }
         })
         case .ratchet: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
@@ -1524,6 +1529,7 @@ struct ProcessorBox: View {
         switch target {
         case "gate": return "LENGTH"; case "rtcChance": return "CHANCE"
         case "arpMaskK": return "HITS"; case "arpMaskRotate": return "ROTATE"
+        case "arpMaskChordOct": return "CHORD OCT"; case "arpMaskChordGate": return "CHORD LEN"
         default: return target.uppercased()
         }
     }

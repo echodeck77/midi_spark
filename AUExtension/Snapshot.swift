@@ -109,6 +109,11 @@ struct SnapParams {
     var arpMaskGap: ArpMaskGap = .rest   // non-hit steps: rest | tie
     var arpMaskWalk: ArpMaskWalk = .march // march (through rests) | wait (advance on hits)
     var arpMaskRotate: Int = 0       // rotate the Bjorklund figure
+    // GAPS = CHORD gap-stab controls (Docs/PLAN-param-lfo.md, Paul 2026-09-15): a non-hit step's chord strike gets its own
+    // LENGTH · OCTAVE · VELOCITY. chordGate resolves to the arp's own gate when unset (byte-identical); oct 0 / vel 1 = identity.
+    var arpMaskChordGate: Double = 0.6   // the gap stab's note length (fraction of the step)
+    var arpMaskChordOct: Int = 0         // the gap stab's octave shift (−2…+2)
+    var arpMaskChordVel: Double = 1       // the gap stab's velocity scale (0…1)
     var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
     var harmUnits: PitchUnits = .semitones              // §2: harmonize intervals in semitones or pool degrees
     var utilTransposeUnits: PitchUnits = .semitones     // §2: TRANSPOSE in semitones or pool degrees
@@ -288,6 +293,7 @@ enum AutoParamField: Equatable {
     case euclidPulses, euclidSteps, euclidRot, glideRange, modMin, modMax
     case lenShort, lenLong, lenRotate, weaveSpan, weaveEuclidSteps
     case arpMaskK, arpMaskRot                 // ARP EUCLID MASK: HITS (K) density · ROTATE — LFO targets (Docs/PLAN-param-lfo.md)
+    case arpMaskChordGate, arpMaskChordOct    // ARP EUCLID MASK GAPS=CHORD: the gap stab's LENGTH · OCTAVE — LFO targets
     /// nil ⇒ this param is NOT render-time automatable (nested/complex) → its lane stays step-bake only.
     init?(key: String) {
         switch key {
@@ -300,6 +306,7 @@ enum AutoParamField: Equatable {
         case "modMax": self = .modMax;        case "lenShort": self = .lenShort;  case "lenLong": self = .lenLong
         case "lenRotate": self = .lenRotate;  case "weaveSpan": self = .weaveSpan; case "weaveEuclidSteps": self = .weaveEuclidSteps
         case "arpMaskK": self = .arpMaskK;    case "arpMaskRotate": self = .arpMaskRot
+        case "arpMaskChordGate": self = .arpMaskChordGate; case "arpMaskChordOct": self = .arpMaskChordOct
         default: return nil
         }
     }
@@ -338,6 +345,8 @@ extension SnapParams {
         case .weaveEuclidSteps: s.weaveEuclidSteps = ci(2, 16)
         case .arpMaskK:     s.arpMaskK = ci(1, 16)        // the engine reads min(K, N) — K ≥ N just = mask OFF for that window
         case .arpMaskRot:   s.arpMaskRotate = ci(0, 15)
+        case .arpMaskChordGate: s.arpMaskChordGate = cd(0.05, 1)
+        case .arpMaskChordOct:  s.arpMaskChordOct = ci(-2, 2)
         }
         return s
     }
@@ -354,6 +363,7 @@ extension SnapParams {
         case .modMax: return Double(modMax);  case .lenShort: return lenShort;        case .lenLong: return lenLong
         case .lenRotate: return Double(lenRotate); case .weaveSpan: return Double(weaveSpan); case .weaveEuclidSteps: return Double(weaveEuclidSteps)
         case .arpMaskK: return Double(arpMaskK); case .arpMaskRot: return Double(arpMaskRotate)
+        case .arpMaskChordGate: return arpMaskChordGate; case .arpMaskChordOct: return Double(arpMaskChordOct)
         }
     }
 }
@@ -371,6 +381,7 @@ extension AutoParamField {
         case .modMax: return (0, 127);  case .lenShort: return (0.05, 0.95); case .lenLong: return (0, 1)
         case .lenRotate: return (0, 7); case .weaveSpan: return (1, 8);   case .weaveEuclidSteps: return (2, 16)
         case .arpMaskK: return (1, 16); case .arpMaskRot: return (0, 15)
+        case .arpMaskChordGate: return (0.05, 1); case .arpMaskChordOct: return (-2, 2)
         }
     }
 }

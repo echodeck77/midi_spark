@@ -5,6 +5,19 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-12._
 
+## ★ PER-PARAM LFO + ARP EUCLID MASK (2026-09-15; spec `Docs/PLAN-param-lfo.md`)
+LANDED on `main`: the ∿ LFO button (Stage 1 engine + Stage 2 UI) on ARP LENGTH; then HITS/ROTATE/CHANCE; then the
+GAPS=CHORD gap-stab controls (OCTAVE · LENGTH · VELOCITY, LFO on OCT + LEN). OPEN:
+- **★ ACCENT LAYER (the next euclid-mask feature — pencilled in, Paul 2026-09-15):** a SECOND euclidean pattern (own
+  K-of-N + ROTATE) that BOOSTS velocity on the steps it hits — the classic two-euclid technique (one pattern for
+  notes, one for accents). Medium-sized; makes the mask genuinely generative. Do after the CHORD-stab work.
+- **FILL (secondary):** every N bars play ALL steps (a euclidean fill/turnaround). Small.
+- **Stage 3 — SPEED (rate) LFO:** the arp's rate is an `ArpRate` enum, absent from `AutoParamField` → needs an
+  enum-index target + `settingAuto` cast (rate jumping at block boundaries is acceptable, ratified 2026-09-15).
+- **Roll-out:** WEAVE LENGTH (same `gate`, one-liner) + OCTAVES; other processors' continuous params.
+- **DEVICE-EYE owed:** every ∿ button + the popover editor + the seed-on-open (depth 0.35) behaviour; the CHORD-stab
+  controls; the long HITS label row not crowding its button.
+
 ## ★ PLAY-FERRIES-ARE-PARTS — follow-ups (2026-09-08; feature DONE Phases 1–3, on `main`)
 The 8 play ferries are now full `BuildPart` slots + the sole navigation (spec `AcceptanceCriteria-play-ferries-as-parts.md`).
 OPEN:
