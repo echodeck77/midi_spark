@@ -1610,7 +1610,7 @@ extension DiagView {
                                 // directly above them): its radius = the SAME formula, with the overlay's boxH = (cell+cgap)*1.5.
                                 let flowBoxH = (cell + cgap) * 1.5
                                 let inCircleR = max(3.5, min(flowBoxH * 0.16, sideW * 0.42))
-                                AnyView(roomsMachineRowRail(width: sideW, height: blockH, buttonWidth: 2 * inCircleR))
+                                AnyView(roomsMachineRowRail(width: sideW, height: blockH, buttonWidth: 6 * inCircleR))   // 3× the circle width (Paul 2026-09-16); clamped to the flank (sideW) inside the rail
                             }
                             AnyView(roomsChainTrash(width: sideW, height: blockH))   // the DELETE trash (drawn only mid-drag; keeps registering its drop zone)
                         }.frame(width: sideW, height: blockH))
@@ -2025,7 +2025,7 @@ extension DiagView {
                 let sliceLo = Color(hex: glow).opacity(base + iLo * iLo * 0.80)   // near focus = bright · far = dim (dark base shows through)
                 let sliceHi = Color(hex: glow).opacity(base + iHi * iHi * 0.80)
                 let dotHue: Color = focused ? Color(hex: mixHex(mHex, 0x000000, 0.55)) : mHue   // the ferry's OWN pre-allocated colour (deepened on the focused own-colour highlight for contrast)
-                let dotD = max(2.5, selH * 0.16)
+                let dotD = max(4, selH * 0.32)   // BIGGER identity dots (Paul 2026-09-16) — the button (selH) is unchanged; only the circles grow
                 RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.04))
                     .overlay { RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [sliceLo, sliceHi], startPoint: .leading, endPoint: .trailing)) }   // the CONTINUOUS emanation (this ferry's slice)
                     .overlay { if focused { RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(0.95)) } }              // FOCUSED = the light source: its OWN full colour
