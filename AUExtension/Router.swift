@@ -1523,30 +1523,20 @@ final class Router {
         let gridBeats = Double(W) * S
         for si in cell.procs.indices where !cell.procs[si].paramLFOs.isEmpty {
             for lfo in cell.procs[si].paramLFOs {
-                guard lfo.depth > 0 else { continue }
-                let periodBeats = lfo.free ? gridBeats : lfo.period.periodBeats
+                // FROM → TO sweep (Paul 2026-09-15 redesign): the shape's 0…1 output maps FROM→TO→FROM. Inactive unless
+                // both endpoints are set and differ (the builder already dropped the rest, but guard here too).
+                guard let from = lfo.from, let to = lfo.to, from != to else { continue }
+                // DURATION: grid STEPS (stepSpan, re-syncs to the grid) or a fixed musical subdivision (period).
+                let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: gridBeats) : lfo.period.periodBeats
                 guard periodBeats > 0 else { continue }
                 let cyc = Int((mb / periodBeats).rounded(.down))
-                // RATE LFO (Paul 2026-09-15): the arp SPEED is a discrete ladder (ArpRate.allCases = 6 normal · 6 dotted ·
-                // 6 triplet; index i → family i/6, rung i%6, rung 0=1/1 slowest … 5=1/32 fastest). The LFO swings the RUNG
-                // around the base rate's rung; FIX (rateFamily) forces the family, else it follows the base rate's own family.
-                if lfo.target == "arpRate" {
-                    let ri = max(0, min(17, Int(cell.procs[si].rateIndex)))
-                    let baseFamily = ri / 6, baseRung = ri % 6
-                    let fam = (lfo.rateFamily ?? -1) >= 0 ? min(2, lfo.rateFamily!) : baseFamily
-                    let v = paramLFOValue(base: Double(baseRung), shape: lfo.shape,
-                                          phase: mb / periodBeats + lfo.phase, depth: lfo.depth, span: 5,
-                                          quantizeLevels: lfo.quantize, column: column, cycleIndex: cyc)
-                    let rung = max(0, min(5, Int(v.rounded())))
-                    cell.procs[si].rateIndex = Int8(fam * 6 + rung)
-                    continue
+                let u = modUnipolar(lfo.shape, phase: mb / periodBeats, column: column, cc: 0, cycleIndex: cyc)   // 0…1
+                let v = from + u * (to - from)                                     // sweep between the authored endpoints
+                if lfo.target == "arpRate" {                                       // rate = the discrete ladder index (0…17); FROM/TO are rate picks
+                    cell.procs[si].rateIndex = Int8(max(0, min(17, Int(v.rounded()))))
+                } else if let field = AutoParamField(key: lfo.target) {
+                    cell.procs[si] = cell.procs[si].settingAuto(field, v)          // settingAuto clamps to the param's range
                 }
-                guard let field = AutoParamField(key: lfo.target) else { continue }
-                let (lo, hi) = field.unitRange
-                let v = paramLFOValue(base: cell.procs[si].autoValue(field), shape: lfo.shape,
-                                      phase: mb / periodBeats + lfo.phase, depth: lfo.depth, span: hi - lo,
-                                      quantizeLevels: lfo.quantize, column: column, cycleIndex: cyc)
-                cell.procs[si] = cell.procs[si].settingAuto(field, v)
             }
         }
     }

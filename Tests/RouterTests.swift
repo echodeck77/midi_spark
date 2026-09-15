@@ -4293,14 +4293,14 @@ final class RouterTests: XCTestCase {
             return out
         }
         let none = runLFO([])
-        let zero = runLFO([ParamLFO(target: "gate", shape: .square, depth: 0)])                     // depth 0 → filtered out
-        let lfo  = runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, depth: 1.0)])      // full swing, 1-beat square
-        XCTAssertEqual(none.events, zero.events, "a depth-0 LFO resolves away → byte-identical event stream")
+        let zero = runLFO([ParamLFO(target: "gate")])                                                        // no endpoints (from==to==nil) → filtered out
+        let lfo  = runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, from: 0.05, to: 1.0)])      // sweep note length short ↔ full, 1-beat square
+        XCTAssertEqual(none.events, zero.events, "an endpoint-less LFO resolves away → byte-identical event stream")
         let dNone = durs(none), dLFO = durs(lfo)
         XCTAssertLessThanOrEqual(Set(dNone).count, 2, "constant gate ⇒ uniform ARP note lengths")
         XCTAssertGreaterThan(Set(dLFO).count, 1, "a gate LFO makes note LENGTH vary over time")
         XCTAssertGreaterThan((dLFO.max() ?? 0) - (dLFO.min() ?? 0), (dNone.first ?? 0) / 2, "the LFO swing is substantial")
-        XCTAssertEqual(lfo.events, runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, depth: 1.0)]).events, "the LFO stream is replay-exact (beat-derived)")
+        XCTAssertEqual(lfo.events, runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, from: 0.05, to: 1.0)]).events, "the LFO stream is replay-exact (beat-derived)")
     }
     // PER-PARAM LFO (Docs/PLAN-param-lfo.md): the new ARP EUCLID-MASK targets. An arpMaskK LFO modulates the HIT COUNT (K)
     // → the euclidean density breathes over time; depth 0 resolves away (byte-identical); nothing left stuck.
@@ -4316,9 +4316,9 @@ final class RouterTests: XCTestCase {
             return e
         }
         let none = runLFO([])
-        let zero = runLFO([ParamLFO(target: "arpMaskK", shape: .square, depth: 0)])
-        let lfo  = runLFO([ParamLFO(target: "arpMaskK", shape: .square, period: .r1, depth: 0.6)])   // wide swing: sparse ↔ full
-        XCTAssertEqual(none.events, zero.events, "a depth-0 arpMaskK LFO resolves away → byte-identical")
+        let zero = runLFO([ParamLFO(target: "arpMaskK")])
+        let lfo  = runLFO([ParamLFO(target: "arpMaskK", shape: .square, period: .r1, from: 2, to: 8)])   // sweep density: sparse (2 of 8) ↔ full (8 of 8)
+        XCTAssertEqual(none.events, zero.events, "an endpoint-less arpMaskK LFO resolves away → byte-identical")
         XCTAssertGreaterThan(lfo.ons.count, none.ons.count, "an arpMaskK LFO opens the euclid density (more hits when K swings up)")
     }
     // EUCLID MASK GAPS = CHORD gap-stab controls (Docs/PLAN-param-lfo.md): the gap chord strike gets its own OCTAVE + VELOCITY

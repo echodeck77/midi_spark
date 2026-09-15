@@ -49,6 +49,7 @@ let arpPatternCases = ArpPattern.allCases
     case 8:    return rowBeats
     case 16:   return 2 * rowBeats
     case 32:   return 4 * rowBeats
+    case 64:   return 8 * rowBeats    // ×8 — the LFO DURATION ladder reaches ×8 (Paul 2026-09-15)
     default:   return Double(n) * S   // 2·3·4·6 columns
     }
 }

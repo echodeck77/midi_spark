@@ -180,15 +180,16 @@ let machineIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush"
 // period + depth wired inline to a setting, oscillating it over time. Reuses the MOD oscillator (`modUnipolar`) and the
 // span-automation render write (`settingAuto`). `target` = an AutoParamField key (e.g. "gate"); the LFO adds a BIPOLAR
 // swing AROUND the param's own (base) value, so depth 0 == byte-identical. Stage 1 targets ARP LENGTH (gate). Append-only.
+// PER-PARAM LFO (Docs/PLAN-param-lfo.md; Paul 2026-09-15 redesign): the LFO sweeps a param FROM → TO and back, over a
+// DURATION, shaped by a WAVE. No depth/phase/quantize (they confused) — the two endpoints ARE the range, authored with the
+// param's own control. Removed fields (free/depth/phase/quantize/rateFamily) decode away as ignored extra keys.
 struct ParamLFO: Codable, Equatable {
-    var target: String = "gate"      // the AutoParamField key it modulates (resolved at build; unknown ⇒ dropped)
+    var target: String = "gate"      // the AutoParamField key (or "arpRate") it modulates (resolved at build; unknown ⇒ dropped)
     var shape: ModShape = .sine      // WAVE — SINE · TRI · SQR · RAMP · S&H
-    var period: ModRate = .r2        // DURATION — one cycle in beats
-    var free: Bool = false           // FREE = ride the global grid clock (seamless loop) instead of the fixed period
-    var depth: Double = 0            // 0…1 — the bipolar swing amount as a fraction of the param's range (0 = off)
-    var phase: Double = 0            // 0…1 = 0–360° phase offset
-    var quantize: Int = 0            // snap the shape to N levels (0/1 = smooth · 2… = stepped)
-    var rateFamily: Int? = nil       // RATE LFO ("arpRate") only: FIX the rate TYPE the sweep uses — nil/<0 = follow the base rate's own family · 0 = normal · 1 = dotted · 2 = triplet (Paul 2026-09-15). Optional → old ParamLFOs decode.
+    var period: ModRate = .r2        // DURATION as a fixed musical subdivision (beats/cycle) — used when stepSpan is nil
+    var stepSpan: Int? = nil         // DURATION as grid STEPS: 1…8 = N steps · 16/32/64 = ×2/×4/×8 bars. nil ⇒ use `period`.
+    var from: Double? = nil          // sweep endpoint A, in the param's NATURAL value space (rateIndex 0…17 for "arpRate")
+    var to: Double? = nil            // sweep endpoint B. ACTIVE only when from & to are both set AND differ.
 }
 
 struct MachineParams: Codable, Equatable {

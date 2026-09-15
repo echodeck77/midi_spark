@@ -1550,8 +1550,9 @@ struct ProcessorBox: View {
     // The ∿ LFO button — idle = dim; ACTIVE (an LFO with depth > 0) = accent-filled + the chosen waveform. Tap opens the
     // editor popover (which seeds a default LFO on first open); REMOVE inside clears it.
     private func lfoButton(_ target: String) -> some View {
-        let active = (lfoFor(target)?.depth ?? 0) > 0
-        let shape = lfoFor(target)?.shape ?? .sine
+        let l = lfoFor(target)
+        let active = { if let f = l?.from, let t = l?.to, f != t { return true }; return false }()   // ACTIVE = the two endpoints differ
+        let shape = l?.shape ?? .sine
         return HStack(spacing: 3) {
             waveGlyph(shape, active ? .black : accent).frame(width: 15, height: 8)
             Text("LFO").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(active ? .black : accent.opacity(0.8))
@@ -1564,8 +1565,10 @@ struct ProcessorBox: View {
         // editor's concrete type is erased here so lfoButton's `some View` no longer depends on itself.
         .popover(isPresented: Binding(get: { lfoEditTarget == target }, set: { if !$0 { lfoEditTarget = nil } })) { AnyView(lfoEditor(target)) }
     }
-    // The LFO editor (a popover, mirroring the MOD editor's controls): DEPTH · WAVE · DURATION · PHASE · QUANTIZE, bound to
-    // the param's ParamLFO. Opening it seeds a musical default (depth 0.35) so the LFO is immediately audible; REMOVE / DEPTH 0 = off.
+    // The LFO editor (Paul 2026-09-15 redesign): the LFO sweeps the param FROM → TO and back, over a DURATION, shaped by a
+    // WAVE. FROM/TO are authored with the param's OWN control (a "second view" of the card control) and each carries a DIM
+    // live marker that moves with the music. No depth/phase/quantize (they confused). Opening seeds FROM=the card's current
+    // value, TO=a contrasting endpoint so the sweep is immediately audible; REMOVE (or FROM==TO) = off.
     private func lfoEditor(_ target: String) -> some View {
         let lfo = lfoFor(target) ?? ParamLFO(target: target)
         return VStack(alignment: .leading, spacing: 12) {
@@ -1580,23 +1583,131 @@ struct ProcessorBox: View {
                     .background(RoundedRectangle(cornerRadius: 5).fill(Color.red.opacity(0.16)))
                     .contentShape(Rectangle()).onTapGesture { clearLFO(target); lfoEditTarget = nil }
             }
-            heroField("DEPTH  \(Int(lfo.depth * 100))%   (0 = off)") { slider(bind(lfo.depth) { v in setLFO(target) { $0.depth = v } }, in: 0...1) }
+            Text("Sweeps FROM → TO and back over the DURATION. The dim mark tracks where it is now.")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.4)).fixedSize(horizontal: false, vertical: true)
+            lfoEndpoint("FROM", target: target, value: lfo.from ?? lfoSeedFrom(target), lfo: lfo) { v in setLFO(target) { $0.from = v; if $0.to == nil { $0.to = lfoSeedTo(target) } } }
+            lfoEndpoint("TO",   target: target, value: lfo.to   ?? lfoSeedTo(target),   lfo: lfo) { v in setLFO(target) { $0.to = v; if $0.from == nil { $0.from = lfoSeedFrom(target) } } }
             field("WAVE") { iconSeg(ModShape.allCases.map(\.rawValue), sel: lfo.shape.rawValue, glyph: { i, t in waveGlyph(ModShape.allCases[i], t) }) { i in setLFO(target) { $0.shape = ModShape.allCases[i] } } }
-            field("DURATION  (beats / cycle · FREE = one cycle over the grid)") {
-                seg(ModRate.allCases.map(\.rawValue) + ["FREE"], sel: lfo.free ? "FREE" : lfo.period.rawValue) { i in
-                    setLFO(target) { if i == ModRate.allCases.count { $0.free = true } else { $0.free = false; $0.period = ModRate.allCases[i] } } }
-            }
-            row2({ field("PHASE  \(Int((lfo.phase * 360).rounded()))°") { slider(bind(lfo.phase) { v in setLFO(target) { $0.phase = v } }, in: 0...1) } },
-                 { field("QUANTIZE  \(lfo.quantize >= 2 ? "\(lfo.quantize)" : "smooth")") { numPair(lfo.quantize, 0...16) { v in setLFO(target) { $0.quantize = v } } } })
-            if target == "arpRate" {   // FIX the rate TYPE the sweep walks (else it follows the base rate's own family)
-                field("FIX TO TYPE") {
-                    seg(["FOLLOW", "NORMAL", "DOTTED", "TRIP"], sel: ["FOLLOW", "NORMAL", "DOTTED", "TRIP"][min(3, (lfo.rateFamily ?? -1) + 1)]) { i in
-                        setLFO(target) { $0.rateFamily = (i == 0 ? nil : i - 1) } }
+            // DURATION — grid STEPS (1…8 · ×2/×4/×8, re-syncs to the grid) OR a fixed musical subdivision (beats/cycle).
+            field("DURATION — STEPS (grid-locked) · or a fixed subdivision") {
+                VStack(alignment: .leading, spacing: 5) {
+                    seg(lfoDurValues.map { lfoDurLabel($0) }, sel: lfo.stepSpan != nil ? lfoDurLabel(lfo.stepSpan!) : "—") { i in setLFO(target) { $0.stepSpan = lfoDurValues[i] } }
+                    seg(ModRate.allCases.map(\.rawValue), sel: lfo.stepSpan == nil ? lfo.period.rawValue : "—") { i in setLFO(target) { $0.stepSpan = nil; $0.period = ModRate.allCases[i] } }
                 }
             }
         }
-        .padding(16).frame(minWidth: 300, maxWidth: 340)
-        .onAppear { if lfoFor(target) == nil { setLFO(target) { $0.depth = 0.35 } } }
+        .padding(16).frame(minWidth: 320, maxWidth: 380)
+        .onAppear { if lfoFor(target) == nil { setLFO(target) { $0.from = lfoSeedFrom(target); $0.to = lfoSeedTo(target) } } }
+    }
+    // DURATION grid ladder (Paul 2026-09-15): 1…8 steps · ×2/×4/×8 bars (16/32/64), matching spanLadderBeats.
+    private let lfoDurValues = [1, 2, 3, 4, 6, 8, 16, 32, 64]
+    private func lfoDurLabel(_ n: Int) -> String { n == 16 ? "×2" : (n == 32 ? "×4" : (n == 64 ? "×8" : "\(n)")) }
+    // One FROM/TO endpoint: the param's own control + a DIM live readout (updates with the music while playing).
+    @ViewBuilder private func lfoEndpoint(_ label: String, target: String, value: Double, lfo: ParamLFO, _ set: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                Spacer(minLength: 0)
+                TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !clockPlaying)) { tl in   // the dim "now" readout, moving with the music
+                    if let live = lfoLiveNatural(lfo, date: tl.date) {
+                        Text("♪ \(lfoFmt(target, live))").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    }
+                }
+            }
+            lfoEndpointControl(target: target, value: value, lfo: lfo, set)
+        }
+    }
+    // The param's native control, bound to a FROM/TO endpoint (a "second view" of the card control). Sliders also carry a
+    // dim live TICK; rate uses the speed grid; the counted params use the ◀n▶ pair (their dim live value shows in the header).
+    @ViewBuilder private func lfoEndpointControl(target: String, value: Double, lfo: ParamLFO, _ set: @escaping (Double) -> Void) -> some View {
+        switch target {
+        case "arpRate":
+            lfoRateGrid(sel: max(0, min(17, Int(value.rounded()))), set)
+        case "arpMaskK":
+            numPair(max(1, min(16, Int(value.rounded()))), 1...16) { set(Double($0)) }
+        case "arpMaskRotate":
+            numPair(max(0, min(15, Int(value.rounded()))), 0...15, wrap: true) { set(Double($0)) }
+        case "arpMaskChordOct":
+            numPair(max(-2, min(2, Int(value.rounded()))), -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { set(Double($0)) }
+        default:
+            lfoSlider(value, (target == "rtcChance") ? 0...1 : 0.05...1, lfo: lfo, set)   // gate / chord-len / chance
+        }
+    }
+    // A slider endpoint with a dim live TICK overlaid at the current LFO value (moves with the music).
+    private func lfoSlider(_ v: Double, _ range: ClosedRange<Double>, lfo: ParamLFO, _ set: @escaping (Double) -> Void) -> some View {
+        let lo = range.lowerBound, hi = range.upperBound
+        return ZStack(alignment: .leading) {
+            slider(bind(max(0, min(1, (v - lo) / (hi - lo)))) { set(lo + $0 * (hi - lo)) }, in: 0...1)
+            GeometryReader { g in
+                TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !clockPlaying)) { tl in
+                    if let live = lfoLiveNatural(lfo, date: tl.date) {
+                        let f = max(0, min(1, (live - lo) / (hi - lo)))
+                        Rectangle().fill(Color.white.opacity(0.4)).frame(width: 2).offset(x: f * g.size.width).allowsHitTesting(false)
+                    }
+                }
+            }
+        }
+    }
+    // The rate speed grid as a FROM/TO endpoint: `sel` (the endpoint rung) is solid; the live rung gets a dim ring.
+    private func lfoRateGrid(sel: Int, _ pick: @escaping (Double) -> Void) -> some View {
+        let all = ArpRate.allCases
+        return VStack(alignment: .leading, spacing: 3) {
+            ForEach(0..<3, id: \.self) { row in
+                HStack(spacing: 3) {
+                    ForEach(0..<6, id: \.self) { col in
+                        let idx = row * 6 + col; let on = idx == sel
+                        Text(all[idx].rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.5)
+                            .frame(maxWidth: .infinity, minHeight: 26).padding(.horizontal, 1)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.09)))
+                            .contentShape(Rectangle()).onTapGesture { pick(Double(idx)) }
+                    }
+                }
+            }
+        }
+    }
+    // The current LFO output in the param's NATURAL space, for the dim live markers (nil when stopped/inactive). Uses the
+    // scene clock (gridStepBeats) so the step-span duration matches the engine; the beat is extrapolated like the playheads.
+    private func lfoLiveNatural(_ lfo: ParamLFO, date: Date) -> Double? {
+        guard clockPlaying, let from = lfo.from, let to = lfo.to, from != to else { return nil }
+        let S = Swift.max(0.0001, gridStepBeats)
+        let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: 8 * S) : lfo.period.periodBeats
+        guard periodBeats > 0 else { return nil }
+        let beat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+        let cyc = Int((beat / periodBeats).rounded(.down))
+        let u = modUnipolar(lfo.shape, phase: beat / periodBeats, column: 0, cc: 0, cycleIndex: cyc)
+        return from + u * (to - from)
+    }
+    // Format a natural value for a target's dim live readout.
+    private func lfoFmt(_ target: String, _ v: Double) -> String {
+        switch target {
+        case "arpRate":         return ArpRate.allCases[max(0, min(17, Int(v.rounded())))].rawValue
+        case "arpMaskChordOct": let n = Int(v.rounded()); return n > 0 ? "+\(n)" : "\(n)"
+        case "arpMaskK", "arpMaskRotate": return "\(Int(v.rounded()))"
+        default:                return "\(Int((v * 100).rounded()))%"
+        }
+    }
+    // Seed FROM = the card's current value (a "second view"); TO = a contrasting endpoint so the sweep is audible at once.
+    private func lfoSeedFrom(_ target: String) -> Double {
+        switch target {
+        case "arpRate":            return Double(ArpRate.allCases.firstIndex(of: p.rate ?? .r1_16) ?? 3)
+        case "arpMaskK":           return Double(max(1, min(16, p.arpMaskK ?? (p.arpMaskN ?? 8))))
+        case "arpMaskRotate":      return Double(max(0, min(15, p.arpMaskRotate ?? 0)))
+        case "arpMaskChordOct":    return Double(max(-2, min(2, p.arpMaskChordOct ?? 0)))
+        case "arpMaskChordGate":   return p.arpMaskChordGate ?? (p.gate ?? 0.6)
+        case "rtcChance":          return p.rtcChance ?? 0.5
+        default:                   return p.gate ?? 0.6
+        }
+    }
+    private func lfoSeedTo(_ target: String) -> Double {
+        switch target {
+        case "arpRate":            let i = ArpRate.allCases.firstIndex(of: p.rate ?? .r1_16) ?? 3; return Double(min(i / 6 * 6 + 5, min(17, i + 2)))   // a faster rung in the same family
+        case "arpMaskK":           return 1                                   // sweep the density down to 1 hit
+        case "arpMaskRotate":      return Double(max(0, (p.arpMaskN ?? 8) - 1))
+        case "arpMaskChordOct":    return 1
+        case "arpMaskChordGate", "rtcChance": return 1
+        default:                   return 1                                   // gate → full length
+        }
     }
     // A BIPOLAR slider (§presentation idea 4/22): centred on 0; DOUBLE-TAP the label = reset to centre. `v`/`set` are in
     // the natural range; the track maps it to 0…1.
