@@ -1868,6 +1868,18 @@ func chordsDegreeAt(step: Int, degrees: [Int], rotate: Int) -> (degree: Int, res
     return (0, true)                                        // all-carry ⇒ nothing to hold → rest
 }
 
+/// What the CHORDS degree MATRIX should show at column `c` (Bugfix Paul 2026-09-15): `bright` = an AUTHORED degree /
+/// explicit REST (a cell the user set); `faint` = the chord an unset/carry column actually CARRIES (so the matrix matches
+/// the audio when the length is extended past the authored columns). Mirrors `chordsDegreeAt`'s carry (no live ROTATE —
+/// the matrix is the authored score). Previously the editor lit a FALSE degree-0 (I) for carry columns. Pure/testable.
+func chordsMatrixCell(_ degrees: [Int], step c: Int, steps: Int) -> (bright: Int?, faint: Int?) {
+    let v = c < degrees.count ? degrees[c] : -1
+    if v >= 0 && v <= 7 { return (v, nil) }                 // authored degree (0…6) or explicit REST (7) → BRIGHT
+    let degs = (0..<max(1, steps)).map { $0 < degrees.count ? degrees[$0] : -1 }
+    let r = chordsDegreeAt(step: c, degrees: degs, rotate: 0)
+    return (nil, r.rest ? nil : r.degree)                   // CARRY → FAINT the carried chord; carry-to-silence → nothing
+}
+
 /// CHORDS FOLLOW (SPEC-chords-stage §1 — "the bounce"): the scale DEGREE (0-based) a played `note` NAMES, by pitch class in
 /// the scale (root + tones). A note NOT in the scale snaps to the nearest degree (down-ties). So a bassline names the
 /// progression: play the tonic → I, the fifth → V. Pure/testable.

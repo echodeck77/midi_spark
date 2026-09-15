@@ -1081,6 +1081,25 @@ final class DerivationsTests: XCTestCase {
         let cSharp = scaleDegreeOf(61, root: 0, scaleTones: maj)   // C# not in C major → snaps to a neighbour (C=0 or D=1)
         XCTAssertTrue(cSharp == 0 || cSharp == 1, "an off-scale note snaps to the nearest degree")
     }
+    // CHORDS matrix DISPLAY (Bugfix Paul 2026-09-15): extending the pattern past its authored columns used to light a FALSE
+    // degree-0 (I) in the editor while the engine CARRIED the last chord → screen ≠ audio. chordsMatrixCell must light nothing
+    // BRIGHT there, and show the carried chord FAINT, matching what chordsDegreeAt (the engine) actually plays.
+    func testChordsMatrixCellShowsCarryNotFalseTonic() {
+        let a = [0, 3, 4, 5]                                  // authored I · IV · V · V (last authored = V, NOT the tonic)
+        // authored columns light bright, no faint
+        XCTAssertEqual(chordsMatrixCell(a, step: 0, steps: 8).bright, 0)
+        XCTAssertEqual(chordsMatrixCell(a, step: 2, steps: 8).bright, 4)
+        XCTAssertNil(chordsMatrixCell(a, step: 2, steps: 8).faint)
+        // extended columns (4…7): NOTHING bright (was a false I), FAINT = the carried chord (V), matching the engine
+        for c in 4...7 {
+            XCTAssertNil(chordsMatrixCell(a, step: c, steps: 8).bright, "col \(c): an extended column lights nothing bright")
+            XCTAssertEqual(chordsMatrixCell(a, step: c, steps: 8).faint, 5, "col \(c): shows FAINT the carried chord (V)")
+            let degs = (0..<8).map { $0 < a.count ? a[$0] : -1 }
+            XCTAssertEqual(chordsMatrixCell(a, step: c, steps: 8).faint, chordsDegreeAt(step: c, degrees: degs, rotate: 0).degree, "display == what the engine plays")
+        }
+        // an explicit REST (7) stays bright REST, not carried
+        XCTAssertEqual(chordsMatrixCell([0, 7, 4], step: 1, steps: 8).bright, 7)
+    }
     func testChordsWalkIsSeededAndDeterministic() {   // CHORDS WALK — the gravity dice, replay-exact
         XCTAssertEqual(chordsWalkDegreeAt(step: 0, seed: 42), 0, "the walk starts on the tonic")
         for s in 0..<32 { XCTAssertTrue((0..<7).contains(chordsWalkDegreeAt(step: s, seed: 42)), "always a valid degree") }

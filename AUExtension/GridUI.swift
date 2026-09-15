@@ -1100,7 +1100,11 @@ struct ProcessorBox: View {
                 stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7], steps: steps,
                     header: { (opt: Int) in AnyView(Text(opt == 7 ? "REST" : degreeLabel(degree: opt, scaleTones: ScaleType.major.intervals)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))) },
                     onRotate: { d in setParam { $0.chordsRotate = ((($0.chordsRotate ?? 0) + d) % steps + steps) % steps } },
-                    selected: { c in let a = p.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; let v = c < a.count ? a[c] : 0; return (v >= 0 && v <= 7) ? v : 0 },
+                    // BRIGHT = an AUTHORED degree/REST; a carry/unset column lights NOTHING bright (BUGFIX Paul 2026-09-15: it
+                    // used to falsely light I). FAINT (`dim`) = the chord the column actually CARRIES → the matrix matches the
+                    // audio when the length is extended past the authored columns. Both from the pure `chordsMatrixCell`.
+                    dim: { c in chordsMatrixCell(p.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4], step: c, steps: steps).faint },
+                    selected: { c in chordsMatrixCell(p.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4], step: c, steps: steps).bright ?? -1 },
                     set: { c, opt in setParam { var a = $0.chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; while a.count < steps { a.append(-1) }; if c < steps { a[c] = opt }; $0.chordsDegrees = a } })
             } else if mode == .follow {
                 Text("FOLLOW — the note you PLAY names the degree, in the SCALE-FROM key. Play the 5th → the V chord; the 2nd → ii. Change the note, the chord follows.").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -1311,6 +1315,7 @@ struct ProcessorBox: View {
     /// the whole pattern reads as geometry. One reusable widget for LENGTH · RATCHET PATTERN · TUTTI PATTERN · … .
     @ViewBuilder private func stateMatrixRadio<Opt: Hashable>(
         _ options: [Opt], steps: Int = 8, clock: StateMatrixClock? = nil, header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
+        dim: ((Int) -> Opt?)? = nil,   // optional FAINT layer (Paul 2026-09-15): a column with no bright `selected` cell can show a dimmer cell — e.g. CHORDS shows the chord an empty column CARRIES, so the matrix matches the audio. nil ⇒ unchanged.
         selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
     ) -> some View {
         let cols = max(1, min(32, steps))   // variable matrix width (CHORDS ≤16; RATCHET PATTERN up to 32 — Paul 2026-09-07); other callers default to 8
@@ -1325,10 +1330,11 @@ struct ProcessorBox: View {
                         header(opt).frame(width: 64, alignment: .leading)
                         ForEach(0..<cols, id: \.self) { step in
                             let on = selected(step) == opt
+                            let dimOn: Bool = { guard !on, let d = dim, let dv = d(step) else { return false }; return dv == opt }()   // FAINT: this column's carried/implied state
                             let live = step == liveCol                        // PLAYHEAD (idea 15): the live column (ratchet's own clock, or the global grid)
-                            RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(live ? 0.14 : 0.06))
+                            RoundedRectangle(cornerRadius: 4).fill(on ? accent : (dimOn ? accent.opacity(0.28) : Color.white.opacity(live ? 0.14 : 0.06)))
                                 .frame(maxWidth: .infinity).frame(height: 26)
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: on ? 1.5 : 1))
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : (dimOn ? 0.4 : 0.12)), lineWidth: on ? 1.5 : 1))
                                 .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
                                 .contentShape(Rectangle()).onTapGesture { set(step, opt) }
                         }
