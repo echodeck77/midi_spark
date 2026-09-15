@@ -1496,14 +1496,16 @@ struct ProcessorBox: View {
             }
         }
     }
-    // The label row shared by field/heroField: just the label, OR (when `lfo` is set) the label + a right-aligned ∿ LFO
-    // button that takes NO extra vertical space (Docs/PLAN-param-lfo.md, Paul 2026-09-15).
+    // The label row shared by field/heroField: just the label, OR (when `lfo` is set) the label with the ∿ LFO button
+    // IMMEDIATELY to its right (Paul 2026-09-15 — not right-aligned; a long label was pushing the button off-screen), taking
+    // NO extra vertical space (Docs/PLAN-param-lfo.md). The label shrinks/truncates before the button, so the button is
+    // always visible; the trailing Spacer keeps the pair left-packed.
     @ViewBuilder private func lfoLabelRow(_ label: String, opacity: Double, _ lfo: String?) -> some View {
         if let t = lfo {
             HStack(spacing: 6) {
-                Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(opacity))
-                Spacer(minLength: 8)
-                lfoButton(t)
+                Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(opacity)).layoutPriority(0)
+                lfoButton(t).layoutPriority(1)
+                Spacer(minLength: 0)
             }
         } else {
             Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(opacity))
