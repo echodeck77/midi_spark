@@ -418,7 +418,7 @@ struct ProcessorBox: View {
             }
             // SPEED (3 rows: standard · dotted · triplet) | LENGTH — left to right.
             HStack(alignment: .top, spacing: 12) {
-                field("SPEED", \.rate) { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
+                field("SPEED", \.rate, lfo: "arpRate") { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }   // ∿ LFO sweeps the rate ladder (Docs/PLAN-param-lfo.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate, lfo: "gate") {   // ∿ LFO on the label row (Docs/PLAN-param-lfo.md)
                     slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
@@ -1541,6 +1541,7 @@ struct ProcessorBox: View {
     private func lfoLabelText(_ target: String) -> String {
         switch target {
         case "gate": return "LENGTH"; case "rtcChance": return "CHANCE"
+        case "arpRate": return "RATE"
         case "arpMaskK": return "HITS"; case "arpMaskRotate": return "ROTATE"
         case "arpMaskChordOct": return "CHORD OCT"; case "arpMaskChordGate": return "CHORD LEN"
         default: return target.uppercased()
@@ -1587,6 +1588,12 @@ struct ProcessorBox: View {
             }
             row2({ field("PHASE  \(Int((lfo.phase * 360).rounded()))°") { slider(bind(lfo.phase) { v in setLFO(target) { $0.phase = v } }, in: 0...1) } },
                  { field("QUANTIZE  \(lfo.quantize >= 2 ? "\(lfo.quantize)" : "smooth")") { numPair(lfo.quantize, 0...16) { v in setLFO(target) { $0.quantize = v } } } })
+            if target == "arpRate" {   // FIX the rate TYPE the sweep walks (else it follows the base rate's own family)
+                field("FIX TO TYPE") {
+                    seg(["FOLLOW", "NORMAL", "DOTTED", "TRIP"], sel: ["FOLLOW", "NORMAL", "DOTTED", "TRIP"][min(3, (lfo.rateFamily ?? -1) + 1)]) { i in
+                        setLFO(target) { $0.rateFamily = (i == 0 ? nil : i - 1) } }
+                }
+            }
         }
         .padding(16).frame(minWidth: 300, maxWidth: 340)
         .onAppear { if lfoFor(target) == nil { setLFO(target) { $0.depth = 0.35 } } }

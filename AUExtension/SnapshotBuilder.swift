@@ -577,7 +577,7 @@ enum SnapshotBuilder {
         if let v = p.modRate { out.modRate = v }
         // PER-PARAM LFOs (Docs/PLAN-param-lfo.md): keep only ACTIVE (depth > 0) entries on a KNOWN target — so a
         // depth-0 / unknown-key LFO resolves away → paramLFOs empty → hasParamLFO false → byte-identical.
-        if let v = p.paramLFOs { out.paramLFOs = v.filter { $0.depth > 0 && AutoParamField(key: $0.target) != nil } }
+        if let v = p.paramLFOs { out.paramLFOs = v.filter { $0.depth > 0 && ($0.target == "arpRate" || AutoParamField(key: $0.target) != nil) } }   // "arpRate" is engine-special (rung sweep + family fix), not an AutoParamField
         if let v = p.modSpan { out.modSpan = v }
         // MIGRATE the old cell|row STEPS span onto modStepSpan when unset: row→ROW, cell→PERIOD (both 8 steps → byte-
         // identical). A doc that never touched STEPS is unaffected (modStepSpan only reshapes the STEPS source).

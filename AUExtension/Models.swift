@@ -188,6 +188,7 @@ struct ParamLFO: Codable, Equatable {
     var depth: Double = 0            // 0…1 — the bipolar swing amount as a fraction of the param's range (0 = off)
     var phase: Double = 0            // 0…1 = 0–360° phase offset
     var quantize: Int = 0            // snap the shape to N levels (0/1 = smooth · 2… = stepped)
+    var rateFamily: Int? = nil       // RATE LFO ("arpRate") only: FIX the rate TYPE the sweep uses — nil/<0 = follow the base rate's own family · 0 = normal · 1 = dotted · 2 = triplet (Paul 2026-09-15). Optional → old ParamLFOs decode.
 }
 
 struct MachineParams: Codable, Equatable {
