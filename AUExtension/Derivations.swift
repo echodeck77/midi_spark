@@ -1280,9 +1280,9 @@ func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
 /// input filter notes carry no channel (delta §7); emission stamps the bus channel.
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
                    pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
-                   noteLo: UInt8 = 0, noteHi: UInt8 = 127) -> Int {
+                   noteLo: UInt8 = 0, noteHi: UInt8 = 127, seed: UInt64 = 0) -> Int {
     arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool,
-            filter: filter, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi).note
+            filter: filter, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi, seed: seed).note
 }
 
 /// The arp source pick AND the picked note's velocity (user 2026-08-09: processors inherit velocity from their
@@ -1291,19 +1291,19 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
              pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
              noteLo: UInt8 = 0, noteHi: UInt8 = 127,
-             octDown: Bool = false, randomAnchor: Int = 0) -> (note: Int, vel: UInt8) {
+             octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0) -> (note: Int, vel: UInt8) {
     // Legacy single-channel `filter` → channel MASK, byte-identical (0 → OMNI 0xFFFF · n → bit n−1) — then the mask body.
     let mask: UInt16 = filter == 0 ? 0xFFFF : (filter >= 1 && filter <= 16 ? (UInt16(1) << UInt16(filter - 1)) : 0)
     return arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool,
                    chanMask: mask, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi,
-                   octDown: octDown, randomAnchor: randomAnchor)
+                   octDown: octDown, randomAnchor: randomAnchor, seed: seed)
 }
 // MULTI-CHANNEL arp source pick (Paul 2026-08-23): filter the source by a channel MASK so an arp honours a door's
 // multi-channel subset on LIVE input (the `for: cell` path passes cell.inputChanMask; a frozen omniRead pool passes OMNI).
 func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
              pool: NotePool, chanMask: UInt16, cableMask: Int = 0b1111,
              noteLo: UInt8 = 0, noteHi: UInt8 = 127,
-             octDown: Bool = false, randomAnchor: Int = 0) -> (note: Int, vel: UInt8) {
+             octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0) -> (note: Int, vel: UInt8) {
     // RANGE (§2): arps admit only in-window source notes (vel window intentionally NOT applied to arps — unchanged).
     let fullRange = noteLo <= 0 && noteHi >= 127
     let count = fullRange ? pool.srcCount(chanMask: chanMask, cableMask: cableMask)
@@ -1342,6 +1342,13 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
                 pos = Int(h % UInt64(span))
             }
         }
+    case .randomOnce:
+        // RANDOM ONCE (Paul 2026-09-16): a FIXED shuffled order, rolled from a PERSISTED seed and repeated EVERY cycle —
+        // unlike .random, which re-hashes the absolute tick so each cycle differs. The position depends ONLY on the within-
+        // cycle index `asc` (0…span-1) and the seed, so every loop is identical, and different machines/seeds shuffle
+        // differently. Same seeded-hash style as .random (not a strict permutation — a position may repeat, matching how
+        // .random already behaves), just cycle-stable. No accumulation, no allocation (invariant 2/3).
+        pos = Int(splitmix64Mix(UInt64(bitPattern: Int64(asc)) &+ seed) % UInt64(span))
     case .asPlayed:
         pos = asc   // ascending through the press sequence (below), not the sorted set
     case .altLo, .altHi:
@@ -1379,18 +1386,18 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 /// so the render loop's arp source-picks can't drift the pairing. The preview/audition paths keep the
 /// explicit-`filter:` form (they force a source, not the cell's).
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell,
-                   octDown: Bool = false, randomAnchor: Int = 0) -> Int {
-    arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool, for: cell, octDown: octDown, randomAnchor: randomAnchor).note
+                   octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0) -> Int {
+    arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool, for: cell, octDown: octDown, randomAnchor: randomAnchor, seed: seed).note
 }
 func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell,
-             octDown: Bool = false, randomAnchor: Int = 0) -> (note: Int, vel: UInt8) {
+             octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0) -> (note: Int, vel: UInt8) {
     // MULTI-CHANNEL (Paul 2026-08-23): filter by the cell's channel MASK (was the legacy single `inputChannel` — which is
     // OMNI for a multi-channel-masked door, so an arp ignored the mask on live input). omniRead FROZEN pool → skip the
     // door filter entirely (channel/cable/range applied at capture; see NotePool.omniRead).
     arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
             pool: pool, chanMask: pool.omniRead ? 0xFFFF : cell.inputChanMask, cableMask: pool.omniRead ? 0b1111 : Int(cell.inputCableMask),
             noteLo: pool.omniRead ? 0 : cell.inputRangeLo, noteHi: pool.omniRead ? 127 : cell.inputRangeHi,   // RANGE (§2)
-            octDown: octDown, randomAnchor: randomAnchor)
+            octDown: octDown, randomAnchor: randomAnchor, seed: seed)
 }
 
 // MARK: - Processor dispatch (§3/§4)

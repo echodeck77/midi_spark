@@ -5788,6 +5788,7 @@ extension DiagView {
         case .down:          return (cyc - 1) - (i % cyc)
         case .upDown:        let period = 2 * (cyc - 1); let j = i % period; return j < cyc ? j : period - j
         case .random:        return Int(splitmix64Mix(UInt64(i) &+ 0x9E3779B9) % UInt64(cyc))
+        case .randomOnce:    return Int(splitmix64Mix(UInt64(i % cyc) &+ 0x9E3779B9) % UInt64(cyc))   // cycle-stable preview (the real order uses the machine's persisted arpSeed) — Paul 2026-09-16
         case .altLo, .altHi:                                          // low/high pedal alternating with each other rank
             let period = 2 * (cyc - 1); let s = i % period
             let loPos = (s % 2 == 0) ? 0 : (s + 1) / 2

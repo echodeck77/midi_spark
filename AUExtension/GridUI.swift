@@ -396,14 +396,19 @@ struct ProcessorBox: View {
         case .arp: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
             // PATTERN (Paul 2026-09-13): ALL options on ONE line, no highlight bar. The last two (RND HI / RND LO FIRST)
             // are the RANDOM anchor — which note each cycle opens on — folded in from the retired RANDOM ANCHOR control.
-            field("PATTERN") {
+            field("ARP PATTERN") {
                 arpPatternRow(pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0) { pat, anc in
-                    setParam { $0.pattern = pat; $0.arpRandomAnchor = anc } } }
+                    setParam {
+                        $0.pattern = pat; $0.arpRandomAnchor = anc
+                        // RANDOM ONCE (Paul 2026-09-16): each tap rolls a FRESH persisted seed → a new fixed shuffle (and a
+                        // re-tap = re-roll). Only for this pattern; every other pick leaves the stored seed untouched.
+                        if pat == .randomOnce { $0.arpSeed = Int.random(in: Int.min...Int.max) }
+                    } } }
             // FLOW (phase; LEGATO default, first) | OCTAVES | OCT DIR — their own row, below PATTERN and above SPEED (label was "NEW CHORD").
             HStack(alignment: .top, spacing: 12) {
                 // FLOW stacked VERTICALLY (Paul 2026-09-14): legato/retrig/free on top of each other. (Main since moved
                 // this to its own row with OCTAVES/OCT DIR, so the earlier "line up with SPEED" framing no longer applies.)
-                field("FLOW", \.phase) { segV(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
+                field("ARP FLOW", \.phase) { segV(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
                     setParam { $0.phase = [ArpPhase.legato, .retrig, .free][i] } } }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 field("OCTAVES", \.octaves) { numPair(p.octaves ?? 1, 1...4) { v in setParam { $0.octaves = v } } }
@@ -1839,6 +1844,7 @@ struct ProcessorBox: View {
         (.random,   0, "RANDOM",     "shuffle"),
         (.random,   2, "RND HI FIRST", "shuffle"),
         (.random,   1, "RAND LO FIRST", "shuffle"),
+        (.randomOnce, 0, "RANDOM ONCE", "shuffle"),   // a FIXED shuffle off a persisted seed — repeats every cycle (Paul 2026-09-16)
     ]
     private func arpPatternRow(pattern: ArpPattern, anchor: Int, _ pick: @escaping (ArpPattern, Int) -> Void) -> some View {
         let opts = ProcessorBox.arpPatternOptions

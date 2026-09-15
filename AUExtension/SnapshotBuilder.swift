@@ -512,6 +512,7 @@ enum SnapshotBuilder {
         out.arpSpanN = max(0, min(32, p.arpSpanN ?? 0))   // SPAN re-anchor: nil ⇒ FREE (0), else re-sync every N columns
         if let v = p.arpOctDown { out.arpOctDown = v }
         if let v = p.arpRandomAnchor { out.arpRandomAnchor = max(0, min(2, v)) }
+        if let v = p.arpSeed { out.arpSeed = UInt64(bitPattern: Int64(v)) }   // RANDOM ONCE persisted seed → render-side (Paul 2026-09-16)
         // EUCLID MASK: N ∈ 1…64, K ∈ 1…N (nil K ⇒ = N ⇒ OFF). Rotate wrapped into 0…N−1.
         out.arpMaskN = max(1, min(64, p.arpMaskN ?? 8))
         out.arpMaskK = max(1, min(out.arpMaskN, p.arpMaskK ?? out.arpMaskN))

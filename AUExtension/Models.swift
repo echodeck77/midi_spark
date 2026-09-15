@@ -76,7 +76,7 @@ enum GlidePriority: String, Codable, CaseIterable { case last = "LAST", low = "L
 enum GlideMode: String, Codable, CaseIterable { case bend = "BEND", synth = "SYNTH", step = "STEP" }
 // APPEND-ONLY (Paul 2026-09-13): new cases go at the END — patternIndex = firstIndex(of:) in allCases, so appending
 // keeps every stored index stable. altLo/altHi = the low/high note pedals, alternating with each other note (1,2,1,3,1,4…).
-enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED", altLo = "ALT LO", altHi = "ALT HI" }
+enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED", altLo = "ALT LO", altHi = "ALT HI", randomOnce = "RANDOM ONCE" }   // .randomOnce APPENDED (Paul 2026-09-16) — keeps the stored patternIndex of 0…6 stable; a fixed shuffled order off a persisted seed (arpSeed)
 // RIFF (SPEC-riff-processor §1): when a stencil RANK exceeds the held-note count (a 5 against a 3-note chord) —
 // FOLD (wrap + octave up, default/musical) · CLAMP (the top note) · WRAP (wrap in the same octave).
 enum RiffWrap: String, Codable, CaseIterable { case fold = "FOLD", clamp = "CLAMP", wrap = "WRAP" }
@@ -214,6 +214,7 @@ struct MachineParams: Codable, Equatable {
     var arpSpanN: Int? = nil       // arp SPAN (Paul 2026-09-13, replaces FIT): nil/0 ⇒ FREE (phase forever, byte-identical) · 1·2·3·4·6·8·16(×2)·32(×4) ⇒ re-anchor the pattern to index 0 every N columns (polymeter) — the universal span-ladder model, same as riff/euclid.
     var arpOctDown: Bool? = false  // OCT DIRECTION (Paul 2026-08-22): laps descend the octaves (top octave first) — "up the chord, down the octaves". Orthogonal to PATTERN (which orders WITHIN a lap).
     var arpRandomAnchor: Int? = 0  // RANDOM ANCHOR (Paul 2026-08-22): 0 OFF · 1 LOW-first · 2 HIGH-first — when PATTERN=RANDOM, each cycle (a full pool×oct traversal) OPENS on the lowest/highest note, the rest shuffle (seeded).
+    var arpSeed: Int? = nil        // RANDOM ONCE seed (Paul 2026-09-16): additive-Optional; PERSISTED with the machine so its fixed shuffled order survives save/load. Rolled fresh each time RANDOM ONCE is picked; unused by every other pattern.
     // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): ONE Bjorklund K-of-N mask on the arp. K = N ⇒ OFF (today's
     // arp byte-identical). K < N gates the line — GAPS · WALK · ROTATE. All Optional/additive; nil ⇒ untouched.
     var arpMaskN: Int? = nil          // the mask window (steps). nil ⇒ 8

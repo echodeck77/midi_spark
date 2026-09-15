@@ -3803,7 +3803,7 @@ final class Router {
                                   cycleBeats: cycleBeats, phase: p.phase, runStartColumn: cell.runStartColumn)
             let pick = arpPick(phaseIndex: pIdx, octaves: Int(p.octaves), pattern: p.patternIndex,
                                pool: src, filter: 0, cableMask: 0b1111,
-                               octDown: p.arpOctDown, randomAnchor: p.arpRandomAnchor)   // velocity inherited from the picked source note
+                               octDown: p.arpOctDown, randomAnchor: p.arpRandomAnchor, seed: p.arpSeed)   // velocity inherited from the picked source note
             if pick.note >= 0 && pick.note <= 127 { dst.noteOn(UInt8(pick.note), velocity: max(1, pick.vel), channel: 0) }
         case .chance:
             let colStart = columnStart(m, S)
@@ -4373,13 +4373,13 @@ final class Router {
                 composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: machine.a.patternIndex,
                                    pool: chainScratch, filter: 0, cableMask: 0b1111,
-                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor)
+                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed)
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             } else {
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves,
                                    pattern: machine.a.patternIndex, pool: pool, for: cell,
-                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor)   // §7 source filter
+                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed)   // §7 source filter
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             }
@@ -4739,7 +4739,7 @@ final class Router {
                       windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
             let pick = arpPick(phaseIndex: tick, octaves: octaves, pattern: machine.a.patternIndex,
                                pool: pool, filter: UInt8(clamping: filter),
-                               octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor)
+                               octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed)
             guard pick.note >= 0 else { return }
             let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
             emitArtic(note: UInt8(n), busMask: busMask, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
@@ -4791,7 +4791,7 @@ final class Router {
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
                 let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
                                       cycleBeats: cycleBeats, phase: machine.a.phase, runStartColumn: -1)
-                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: machine.a.patternIndex, pool: pool, filter: f, octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor)
+                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: machine.a.patternIndex, pool: pool, filter: f, octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed)
                 guard pick.note >= 0 else { return }
                 let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
                 emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
@@ -4914,7 +4914,7 @@ final class Router {
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
                 let pick = arpPick(phaseIndex: tick, octaves: octaves,   // phase zeroed: index = ticks since hold
                                    pattern: treat.a.patternIndex, pool: pool, for: cell,
-                                   octDown: treat.a.arpOctDown, randomAnchor: treat.a.arpRandomAnchor)
+                                   octDown: treat.a.arpOctDown, randomAnchor: treat.a.arpRandomAnchor, seed: treat.a.arpSeed)
                 guard pick.note >= 0 else { return }
                 let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
                 emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,

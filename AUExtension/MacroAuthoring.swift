@@ -116,10 +116,10 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
     switch type {
     case .arp:
         return [bypass,
-                MacroControlParam(key: "pattern", label: "PATTERN", kind: .option(ArpPattern.allCases.map(\.rawValue))),
+                MacroControlParam(key: "pattern", label: "ARP PATTERN", kind: .option(ArpPattern.allCases.map(\.rawValue))),
                 MacroControlParam(key: "rate", label: "SPEED", kind: .option(ArpRate.allCases.map(\.rawValue))),
                 MacroControlParam(key: "octaves", label: "OCTAVES", kind: .stepper(lo: 1, hi: 4)),
-                MacroControlParam(key: "phase", label: "FLOW", kind: .option(ArpPhase.allCases.map(\.rawValue))),
+                MacroControlParam(key: "phase", label: "ARP FLOW", kind: .option(ArpPhase.allCases.map(\.rawValue))),
                 length]
     case .ratchet:
         return [bypass,

@@ -2261,6 +2261,24 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(arpPick(phaseIndex: 0, octaves: octaves, pattern: 3, pool: p, randomAnchor: 2).note, 79, "HIGH anchor = top note of the top octave (67+12)")
     }
 
+    // RANDOM ONCE (Paul 2026-09-16): a FIXED shuffle off a persisted seed — the SAME order every cycle (unlike RANDOM,
+    // which re-hashes the absolute tick), and different seeds shuffle differently.
+    func testArpRandomOnceIsCycleStableAndSeedDependent() {
+        let p = NotePool(); for n: UInt8 in [60, 64, 67] { p.noteOn(n, velocity: 100, channel: 0) }; p.rebuildSorted()
+        let octaves = 2, span = 6; let pat: UInt8 = 7   // RANDOM ONCE = ArpPattern index 7 (appended)
+        let seed: UInt64 = 0xABCD_EF12
+        for k in 0..<span {   // the order repeats identically each cycle (position depends on phaseIndex % span, not the cycle)
+            let a = arpPick(phaseIndex: Int64(k), octaves: octaves, pattern: pat, pool: p, seed: seed).note
+            let b = arpPick(phaseIndex: Int64(k + span), octaves: octaves, pattern: pat, pool: p, seed: seed).note
+            XCTAssertEqual(a, b, "RANDOM ONCE repeats identically each cycle (step \(k))")
+        }
+        let s1 = (0..<span).map { arpPick(phaseIndex: Int64($0), octaves: octaves, pattern: pat, pool: p, seed: 0x1111).note }
+        let s2 = (0..<span).map { arpPick(phaseIndex: Int64($0), octaves: octaves, pattern: pat, pool: p, seed: 0x2222).note }
+        XCTAssertNotEqual(s1, s2, "different seeds shuffle to a different order")
+        let valid: Set<Int> = [60, 64, 67, 72, 76, 79]   // the 3-note pool across 2 octaves
+        for n in s1 { XCTAssertTrue(valid.contains(n), "picked note \(n) is a real pool member") }
+    }
+
     // KEYS EXCLUDE (Paul 2026-08-22): the complement door subtracts these pitch classes from its typed set.
     func testPitchClassMaskCollectsHeldPitchClassesUnderFilters() {
         let p = NotePool()

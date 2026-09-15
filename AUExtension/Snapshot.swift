@@ -103,6 +103,7 @@ struct SnapParams {
     var arpSpanN: Int = 0            // arp SPAN re-anchor: 0 = FREE (free-run) · >0 = re-sync the pattern to index 0 every N columns
     var arpOctDown: Bool = false     // OCT DIRECTION: laps descend the octaves (top octave first)
     var arpRandomAnchor: Int = 0     // RANDOM ANCHOR: 0 off · 1 low-first · 2 high-first (RANDOM pattern)
+    var arpSeed: UInt64 = 0          // RANDOM ONCE seed (Paul 2026-09-16): the persisted seed for the fixed shuffled order; 0 = unset (still deterministic)
     // EUCLID MASK (SPEC-arp-euclid-mask): resolved. maskK == maskN ⇒ OFF (untouched arp).
     var arpMaskN: Int = 8            // the mask window (steps)
     var arpMaskK: Int = 8            // hits (K of N); K == N ⇒ off
