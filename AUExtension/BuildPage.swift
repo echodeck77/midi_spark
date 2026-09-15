@@ -1662,7 +1662,9 @@ extension DiagView {
     @ViewBuilder func roomsMachineRowRail(width: CGFloat, height: CGFloat) -> some View {
         let gap = BuildGeom.castGap
         let rows = DiagView.roomsGridRows
-        let rowH = max(1, (height - gap * CGFloat(rows - 1)) / CGFloat(rows))
+        // Fixed 26pt buttons (Paul 2026-09-16) — MATCH the processor card-header / part-grid row selectors + the verb stack
+        // in the opposite flank (both 26). Was (height − gaps)/rows ≈ 45 → too big. The compact stack centres in the flank.
+        let rowH: CGFloat = 26
         VStack(spacing: gap) {
             ForEach(0..<rows, id: \.self) { n in
                 roomsSideButton(n, part: true).frame(width: width, height: rowH)
