@@ -1114,10 +1114,15 @@ struct DiagView: View {
                     meters.cellSounding[i] = on
                 }
             }
-            // PLAY-STATE GREY (Paul 2026-09-14): grey the processor editor unless the SELECTED machine's active cell is
-            // sounding right now. Deduped @State (only re-renders the editor when the grey state flips). BUILD-tab only.
+            // PLAY-STATE GREY (Paul 2026-09-14): grey the processor editor unless MIDI is reaching THIS processor instance
+            // right now. Deduped @State (only re-renders the editor when the grey state flips). BUILD-tab only.
+            // UNIFIED with the IN piano + OUT roll gate (Paul 2026-09-16 fix, round 3): use the SAME buildProcessingNow the
+            // OUT roll uses (line ~1049) instead of a parallel buildSelectedMachineProcessing() — that divergent copy read
+            // bright throughout for a 16-step part with row A in cols 1–8 / row B in 9–16 (it stayed on row A's columns).
+            // buildProcessing is positional per the FOCUSED rung vs the part's own playhead column: bright only while the
+            // focused rung is the active rung under the current column → dims cleanly when the playhead reaches row B's half.
             if activeTab == .build {
-                let proc = buildSelectedMachineProcessing()
+                let proc = buildProcessingNow
                 if proc != buildSelectedProcessing { buildSelectedProcessing = proc }
             }
         }

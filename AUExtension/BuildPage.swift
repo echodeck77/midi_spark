@@ -5342,44 +5342,9 @@ extension DiagView {
     //  longer tints by the machines it feeds. The emitter side keeps its own buildEmitterPlayingHues below.)
     // The machines of every CELL currently PLAYING through emitter `e` (its velocity-strip tint) — the sounding part rungs +
     // the chain audition + the live play columns that emit on `e`. Multiple → a vertical strip of all of them. (Paul 2026-08-31)
-    // PLAY-STATE GREY (Paul 2026-09-14): is the SELECTED machine's currently-ACTIVE cell sounding right now? Enumerates the
-    // EXACT engine cells this machine occupies — the chain audition (SELECT, col-0 row), the active ferry's selected rungs
-    // (PART staging, rows 0–7), and any background ferry's flatten steps (play layer, rows 8–15) — and asks the live per-cell
-    // sounding feed (meters.cellSoundVel > 0). So the processor editor greys unless the specific cell/row that is active AT
-    // THIS INSTANT is producing output. Mirrors buildEmitterPlayingHues' cell enumeration, minus the per-emitter filter.
-    func buildSelectedMachineProcessing() -> Bool {
-        guard let cid = ddSelectedMachineID else { return false }
-        // SELECT chain audition (Paul 2026-09-16 fix): the machine is CONTINUOUSLY engaged to receive here, so it's ALWAYS
-        // "processing" — never grey.
-        if ddSolo { return true }
-        // PART/PLAY GREY — POSITIONAL, not sounding-based (Paul 2026-09-16 fix, round 2). The machine is "able to receive MIDI"
-        // whenever a live playhead column SELECTS one of its cells — including BETWEEN its notes (rests, gate gaps). The earlier
-        // pass tested the instantaneous per-cell OUTPUT (meters.cellSoundVel > 0), so the editor greyed on/off every time the
-        // active cell fell silent between strikes — the flashing Paul reported. Now we ask WHICH cell the playhead is over
-        // RIGHT NOW (beat-derived, the same clock the visible part/ferry playheads use) and grey only when that cell isn't ours.
-        let now = Date()
-        // active ferry / on-bench part → the part's OWN playhead column (buildPartColumnNow guards playing + staging, -1 else).
-        let c = buildPartColumnNow(at: now)
-        if c >= 0 {
-            let r = BuildSceneLogic.selectedRung(buildStagingSel, c)
-            if r >= 0, buildRowMachine(r) == cid { return true }
-        }
-        // background ferries → the play-layer flatten, each looping its own steps at its own rate (same column math per ferry).
-        if d.playing {
-            let sw = max(1.0, Double(swing) / 50.0)
-            let live = meters.beatAnchor + now.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-            for f in 0..<8 where f != buildActiveFerry && f < buildPlayColOn.count && buildPlayColOn[f] {
-                let steps = f < buildPlayColSteps.count ? buildPlayColSteps[f] : []
-                let sb = (f < buildPlayColRate.count ? buildPlayColRate[f] : nil)?.beats ?? stepBeats
-                guard !steps.isEmpty, sb > 0 else { continue }
-                let musical = musicalOf(live, stepBeats: sb, a: sw)
-                let wrapped = (musical / sb).truncatingRemainder(dividingBy: Double(steps.count))
-                let s = Int(wrapped < 0 ? wrapped + Double(steps.count) : wrapped)
-                if s >= 0, s < steps.count, steps[s] == cid { return true }
-            }
-        }
-        return false
-    }
+    // (PLAY-STATE GREY's buildSelectedMachineProcessing() was RETIRED 2026-09-16 — the grey now reads buildProcessingNow, the
+    //  SAME "is MIDI reaching THIS processor instance" gate the IN piano + OUT roll use; the divergent copy read bright
+    //  throughout for a two-half 16-step part. See the poll in AudioUnitViewController.)
     private func buildEmitterPlayingHues(_ e: Bus) -> [MeterBand] {
         // One band per MACHINE feeding e, in first-seen order; each band ACCUMULATES the grid cells that machine occupies so
         // the fader can rise each strip to that machine's OWN velocity (max decayed cellHitVel across its cells). (Paul 2026-09-07)
