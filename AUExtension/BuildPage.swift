@@ -1605,7 +1605,13 @@ extension DiagView {
                 } else {
                     AnyView(HStack(alignment: .center, spacing: 0) {           // LEFT flank: ROW RAIL (part room) ↔ trash · MIDI CHAIN centred · verb buttons (LIBRARY/MUTATE/CLEAR) RIGHT (Paul 2026-09-10)
                         AnyView(ZStack {                                        // LEFT — the 4 part-row selectors (another view of the selected/playing row), swapped for the trash while dragging (Paul 2026-09-13)
-                            if roomsRoom == .part && !buildTrashVisible { AnyView(roomsMachineRowRail(width: sideW, height: blockH)) }
+                            if roomsRoom == .part && !buildTrashVisible {
+                                // Match the row buttons to the INPUT circle that feeds the chain (drawn by buildChainFlowOverlay
+                                // directly above them): its radius = the SAME formula, with the overlay's boxH = (cell+cgap)*1.5.
+                                let flowBoxH = (cell + cgap) * 1.5
+                                let inCircleR = max(3.5, min(flowBoxH * 0.16, sideW * 0.42))
+                                AnyView(roomsMachineRowRail(width: sideW, height: blockH, buttonWidth: 2 * inCircleR))
+                            }
                             AnyView(roomsChainTrash(width: sideW, height: blockH))   // the DELETE trash (drawn only mid-drag; keeps registering its drop zone)
                         }.frame(width: sideW, height: blockH))
                         AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
@@ -1659,16 +1665,20 @@ extension DiagView {
     // grid's RIGHT rail (roomsSideButton part:true) — stacked in the trash's flank slot, shown whenever the trash isn't.
     // It's another view of the currently-selected row, each carrying the 1-step sweeping playhead (roomsCardRowPlayhead)
     // so the machine box also shows which row is playing. PART room only (rows are a part concept — the caller gates it).
-    @ViewBuilder func roomsMachineRowRail(width: CGFloat, height: CGFloat) -> some View {
+    @ViewBuilder func roomsMachineRowRail(width: CGFloat, height: CGFloat, buttonWidth: CGFloat) -> some View {
         let gap = BuildGeom.castGap
         let rows = DiagView.roomsGridRows
         // Fixed 26pt buttons (Paul 2026-09-16) — MATCH the processor card-header / part-grid row selectors + the verb stack
         // in the opposite flank (both 26). Was (height − gaps)/rows ≈ 45 → too big. The compact stack centres in the flank.
         let rowH: CGFloat = 26
+        // NARROW to the input CIRCLE's width (Paul 2026-09-16): the buttons match the velocity circle that feeds the chain,
+        // which sits directly above them — so `buttonWidth` = that circle's diameter (from the caller), not the full flank.
+        // They stay CENTRED in the sideW flank (the circle is at the flank centre), keeping them under the circle.
+        let bw = min(width, max(1, buttonWidth))
         VStack(spacing: gap) {
             ForEach(0..<rows, id: \.self) { n in
-                roomsSideButton(n, part: true).frame(width: width, height: rowH)
-                    .overlay { roomsCardRowPlayhead(n, w: width, h: rowH).clipShape(RoundedRectangle(cornerRadius: 5)) }   // the 1-step sweep while THIS row plays (Paul 2026-09-13)
+                roomsSideButton(n, part: true).frame(width: bw, height: rowH)
+                    .overlay { roomsCardRowPlayhead(n, w: bw, h: rowH).clipShape(RoundedRectangle(cornerRadius: 5)) }   // the 1-step sweep while THIS row plays (Paul 2026-09-13)
             }
         }
         .frame(width: width, height: height, alignment: .center)
