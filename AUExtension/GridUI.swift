@@ -198,6 +198,7 @@ struct ProcessorBox: View {
     var avoidInputNotes: [[Int]] = [[], [], [], []]     // AVOID editor: per-input held PITCHES (recvHeldNotes; armed/scale doors report their pool) — feeds both illustration pianos
     var avoidChainInputDoor: Int = -1                   // AVOID editor: the door feeding THIS chain (its receiver) — the notes the filter acts on; -1 = unknown
     @State private var showTypePicker = false           // B1: the title-as-picker popover
+    @State private var lfoEditTarget: String? = nil      // PER-PARAM LFO (Docs/PLAN-param-lfo.md): which param's ∿ LFO editor popover is open
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
     @State private var laneReadout: String? = nil        // LANE READOUT (idea 18): the value floating while a lane bar is dragged
     @State private var togglePaintTarget: Bool? = nil    // toggleLane drag-paint (Paul 2026-09-07): the state set by the first cell touched, painted across the drag
@@ -414,7 +415,7 @@ struct ProcessorBox: View {
             HStack(alignment: .top, spacing: 12) {
                 field("SPEED", \.rate) { arpSpeedGrid(sel: p.rate ?? .r1_16) { r in setParam { $0.rate = r } } }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate) {
+                field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate, lfo: "gate") {   // ∿ LFO on the label row (Docs/PLAN-param-lfo.md)
                     slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1489,12 +1490,74 @@ struct ProcessorBox: View {
     // keypath overload now renders identically to the plain `field(_:)` — the `kp` argument is kept so every call site
     // compiles unchanged, and a future "grey while the processor isn't PLAYING" treatment can hang here instead.
     static let paramDefaults = MachineParams()   // kept (harmless) in case a future play-state treatment wants a default reference
-    private func field<C: View, V: Equatable>(_ label: String, _ kp: KeyPath<MachineParams, V>, @ViewBuilder _ content: () -> C) -> some View {
+    private func field<C: View, V: Equatable>(_ label: String, _ kp: KeyPath<MachineParams, V>, lfo: String? = nil, @ViewBuilder _ content: () -> C) -> some View {
         _ = kp
         return VStack(alignment: .leading, spacing: 5) {
-            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            if let t = lfo {   // PER-PARAM LFO: the ∿ button rides the LABEL ROW, right-aligned — no extra vertical space (Paul 2026-09-15)
+                HStack(spacing: 6) {
+                    Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+                    Spacer(minLength: 8)
+                    lfoButton(t)
+                }
+            } else {
+                Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            }
             content()
         }
+    }
+    // PER-PARAM LFO (Docs/PLAN-param-lfo.md, Stage 2) — model access (find / upsert / clear the LFO for a param key).
+    private func lfoFor(_ target: String) -> ParamLFO? { (p.paramLFOs ?? []).first { $0.target == target } }
+    private func setLFO(_ target: String, _ f: @escaping (inout ParamLFO) -> Void) {
+        setParam { var arr = $0.paramLFOs ?? []
+            if let i = arr.firstIndex(where: { $0.target == target }) { f(&arr[i]) } else { var l = ParamLFO(target: target); f(&l); arr.append(l) }
+            $0.paramLFOs = arr.isEmpty ? nil : arr }
+    }
+    private func clearLFO(_ target: String) {
+        setParam { let a = ($0.paramLFOs ?? []).filter { $0.target != target }; $0.paramLFOs = a.isEmpty ? nil : a }
+    }
+    private func lfoLabelText(_ target: String) -> String { target == "gate" ? "LENGTH" : target.uppercased() }
+    // The ∿ LFO button — idle = dim; ACTIVE (an LFO with depth > 0) = accent-filled + the chosen waveform. Tap opens the
+    // editor popover (which seeds a default LFO on first open); REMOVE inside clears it.
+    private func lfoButton(_ target: String) -> some View {
+        let active = (lfoFor(target)?.depth ?? 0) > 0
+        let shape = lfoFor(target)?.shape ?? .sine
+        return HStack(spacing: 3) {
+            waveGlyph(shape, active ? .black : accent).frame(width: 15, height: 8)
+            Text("LFO").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(active ? .black : accent.opacity(0.8))
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 4).fill(active ? accent : accent.opacity(0.14)))
+        .contentShape(Rectangle())
+        .onTapGesture { lfoEditTarget = target }
+        .popover(isPresented: Binding(get: { lfoEditTarget == target }, set: { if !$0 { lfoEditTarget = nil } })) { lfoEditor(target) }
+    }
+    // The LFO editor (a popover, mirroring the MOD editor's controls): DEPTH · WAVE · DURATION · PHASE · QUANTIZE, bound to
+    // the param's ParamLFO. Opening it seeds a musical default (depth 0.35) so the LFO is immediately audible; REMOVE / DEPTH 0 = off.
+    private func lfoEditor(_ target: String) -> some View {
+        let lfo = lfoFor(target) ?? ParamLFO(target: target)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                HStack(spacing: 6) {
+                    waveGlyph(lfo.shape, accent).frame(width: 20, height: 11)
+                    Text("\(lfoLabelText(target)) LFO").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                }
+                Spacer()
+                Text("REMOVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.red.opacity(0.85))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.red.opacity(0.16)))
+                    .contentShape(Rectangle()).onTapGesture { clearLFO(target); lfoEditTarget = nil }
+            }
+            heroField("DEPTH  \(Int(lfo.depth * 100))%   (0 = off)") { slider(bind(lfo.depth) { v in setLFO(target) { $0.depth = v } }, in: 0...1) }
+            field("WAVE") { iconSeg(ModShape.allCases.map(\.rawValue), sel: lfo.shape.rawValue, glyph: { i, t in waveGlyph(ModShape.allCases[i], t) }) { i in setLFO(target) { $0.shape = ModShape.allCases[i] } } }
+            field("DURATION  (beats / cycle · FREE = one cycle over the grid)") {
+                seg(ModRate.allCases.map(\.rawValue) + ["FREE"], sel: lfo.free ? "FREE" : lfo.period.rawValue) { i in
+                    setLFO(target) { if i == ModRate.allCases.count { $0.free = true } else { $0.free = false; $0.period = ModRate.allCases[i] } } }
+            }
+            row2({ field("PHASE  \(Int((lfo.phase * 360).rounded()))°") { slider(bind(lfo.phase) { v in setLFO(target) { $0.phase = v } }, in: 0...1) } },
+                 { field("QUANTIZE  \(lfo.quantize >= 2 ? "\(lfo.quantize)" : "smooth")") { numPair(lfo.quantize, 0...16) { v in setLFO(target) { $0.quantize = v } } } })
+        }
+        .padding(16).frame(minWidth: 300, maxWidth: 340)
+        .onAppear { if lfoFor(target) == nil { setLFO(target) { $0.depth = 0.35 } } }
     }
     // A BIPOLAR slider (§presentation idea 4/22): centred on 0; DOUBLE-TAP the label = reset to centre. `v`/`set` are in
     // the natural range; the track maps it to 0…1.
