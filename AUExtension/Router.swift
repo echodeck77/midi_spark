@@ -4234,7 +4234,14 @@ final class Router {
             // `steps` against an aligning span DRIFTS then SNAPS BACK (polymeter). Pure (derived from the absolute beat +
             // the span constant — no accumulated phase), so replay-exact.
             let phaseBeat = p.riffSpanN > 0 ? (mTickBeat - columnStart(mTickBeat, spanLadderBeats(p.riffSpanN, S: S, row: cycleBeats))) : mTickBeat
-            let step = ((Int((phaseBeat / riffBeats).rounded(.down)) % steps) + steps) % steps
+            let raw = Int((phaseBeat / riffBeats).rounded(.down))
+            let fwd = ((raw % steps) + steps) % steps
+            let step: Int                                          // DIRECTION (Paul 2026-09-16): the stencil playback order
+            switch p.riffDir {
+            case .forward:  step = fwd
+            case .reverse:  step = steps - 1 - fwd
+            case .pingpong: let per = max(1, 2 * (steps - 1)); let t = ((raw % per) + per) % per; step = t < steps ? t : per - t
+            }
             if step < p.riffTie.count && p.riffTie[step] { return }   // §5 TIE — no new attack; the striking step's off was EXTENDED to cover this step (a held ⌒)
             // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask bits) — a chord that follows the held chord;
             // MONO strikes the single riffRanks[step]. Both share the per-step §5 modifiers.

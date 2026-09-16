@@ -252,6 +252,7 @@ struct SnapParams {
     var riffTie: [Bool] = []                             // per-step tie (empty ⇒ none)
     var riffSlide: [Bool] = []                           // per-step slide (empty ⇒ none)
     var riffWrap: RiffWrap = .fold
+    var riffDir: RiffDir = .forward                      // DIRECTION: the stencil playback order (Paul 2026-09-16)
     var riffSpanN: Int = 0                               // SPAN re-anchor: 0 = FREE (free-run, today) · >0 = re-sync the stencil every N columns
     var strikePerSpan: Bool = false                      // STRIKE PER SPAN (Paul 2026-08-27): a DRONE re-articulates only at each span origin, holds between
     var strikeSpanN: Int = 8                             // the re-articulation cadence in columns (spanLadder, ≥1); 8 = once per row lap

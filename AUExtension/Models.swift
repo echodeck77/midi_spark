@@ -80,6 +80,7 @@ enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", 
 // RIFF (SPEC-riff-processor §1): when a stencil RANK exceeds the held-note count (a 5 against a 3-note chord) —
 // FOLD (wrap + octave up, default/musical) · CLAMP (the top note) · WRAP (wrap in the same octave).
 enum RiffWrap: String, Codable, CaseIterable { case fold = "FOLD", clamp = "CLAMP", wrap = "WRAP" }
+enum RiffDir: String, Codable, CaseIterable { case forward = "FWD", reverse = "REV", pingpong = "PING-PONG" }   // stencil playback order (Paul 2026-09-16)
 // ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): non-hit steps are silence (REST) or sustain the previous
 // note (TIE); the walk marches through rests (MARCH — holes) or steps only on hits (WAIT — the sequence re-spaced).
 enum ArpMaskGap: String, Codable, CaseIterable { case rest = "REST", tie = "TIE", chord = "CHORD" }   // non-hit steps: rest (silence) · tie (sustain the prior note) · chord (strike the full held chord) — Paul 2026-09-14
@@ -390,6 +391,7 @@ struct MachineParams: Codable, Equatable {
     var riffTie: [Bool]? = nil                  // per-step: extend the previous note (a held ⌒) — v1b
     var riffSlide: [Bool]? = nil                // per-step: legato → GLIDE SYNTH slide (§5 interlock) — v2
     var riffWrap: RiffWrap? = nil               // rank > held count → FOLD (default) | CLAMP | WRAP
+    var riffDir: RiffDir? = nil                 // DIRECTION (Paul 2026-09-16): FWD (default) | REV | PING-PONG — the order the stencil steps play
     // SPAN RE-ANCHOR (Paul 2026-08-27, the universal re-sync model): how often the free-running stencil snaps back to
     // step 0 — nil/0 ⇒ FREE (the today behaviour: the stencil runs on the global grid, an odd length phases forever) ·
     // 1·2·3·4·6·8 cols · 16=×2 · 32=×4 ⇒ re-anchor every N columns. An odd length against an aligning span = drift then

@@ -1071,11 +1071,13 @@ struct ProcessorBox: View {
             riffToggleLane("SLIDE  ↝", steps: steps, on: { $0 < slA.count && slA[$0] }, accent: accent, glyph: "↝") { s in setParam { var a = $0.riffSlide ?? []; while a.count < steps { a.append(false) }; a[s].toggle(); $0.riffSlide = a } }
             row2({ field("STEPS", \.riffSteps) { numPair(steps, 1...32) { v in setParam { $0.riffSteps = v } } } },
                  { field("VOICING", \.riffPoly) { seg(["MONO", "POLY"], sel: poly ? "POLY" : "MONO") { i in setParam { $0.riffPoly = (i == 1) } } } })
-            field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } }
-            frameRow(grid:  { frameGrid(p.riffRate ?? .r1_16) { r in setParam { $0.riffRate = r } } },   // §1 ANATOMY FOOTER (riff has no ROTATE)
-                     rotate: { EmptyView() },
-                     span:   { frameSpan(p.riffSpanN ?? 0, free: true) { v in setParam { $0.riffSpanN = v } } },
-                     pairs: .riff)
+            row2({ field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } },
+                 { field("DIRECTION", \.riffDir) { seg(RiffDir.allCases.map(\.rawValue), sel: (p.riffDir ?? .forward).rawValue) { i in setParam { $0.riffDir = RiffDir.allCases[i] } } } })   // stencil playback order (Paul 2026-09-16)
+            // GATE LENGTH — the per-note length (the standard gate, which the riff already honours), with the ∿ LFO (Paul 2026-09-16).
+            field("GATE LENGTH  \(Int((p.gate ?? 0.6) * 100))%", \.gate, lfo: "gate") { slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) }
+            // RATE + SPAN — roomy, each on its OWN line (riff has a per-step RATE and a separate SPAN, not one DURATION — Paul 2026-09-16).
+            field("RATE") { arpSpeedGrid(sel: p.riffRate ?? .r1_16) { r in setParam { $0.riffRate = r } } }
+            field("SPAN") { frameSpan(p.riffSpanN ?? 0, free: true) { v in setParam { $0.riffSpanN = v } } }
         })
         case .tap: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // ROUTING (AcceptanceCriteria-tap-processor) — the mid-chain send: LEVEL · TO · MUTE
             let lv = p.tapLevel ?? 1.0

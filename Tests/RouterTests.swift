@@ -4177,6 +4177,22 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(notes.isEmpty, "the riff sounds")
         XCTAssertTrue(notes.allSatisfy { $0 == 60 }, "every rank-1 tick plays the LOWEST held note (C=60), never E(64) — got \(notes)")
     }
+    // DIRECTION (Paul 2026-09-16): the stencil plays FORWARD (default) · REVERSE · PING-PONG. REVERSE walks the steps backwards.
+    func testRiffDirectionReversesTheStencil() {
+        func notes(_ dir: RiffDir) -> [Int] {
+            var c = Machine(machineID: "gold", type: .riff)
+            c.paramsA.riffRanks = [1, 2, 3, 4]; c.paramsA.riffSteps = 4; c.paramsA.riffRate = .r1_8; c.paramsA.riffWrap = .clamp; c.paramsA.riffDir = dir
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 62, 64, 65]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        }
+        let fwd = notes(.forward), rev = notes(.reverse)
+        XCTAssertEqual(fwd.first, 60, "FORWARD opens on step 0 (rank 1 = lowest = 60)")
+        XCTAssertEqual(rev.first, 65, "REVERSE opens on the LAST step (rank 4 = 65)")
+        XCTAssertNotEqual(fwd, rev, "the playback order is reversed")
+    }
     // RIFF STAGE 2 (Paul 2026-08-26): POLY strikes a SET of ranks per step (a chord that follows the held chord).
     func testRiffPolyStrikesTheRankSet() {
         var c = Machine(machineID: "gold", type: .riff)
