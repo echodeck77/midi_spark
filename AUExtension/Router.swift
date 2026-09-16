@@ -1524,15 +1524,17 @@ final class Router {
         let gridBeats = Double(W) * S
         for si in cell.procs.indices where !cell.procs[si].paramLFOs.isEmpty {
             for lfo in cell.procs[si].paramLFOs {
-                // FROM → TO sweep (Paul 2026-09-15 redesign): the shape's 0…1 output maps FROM→TO→FROM. Inactive unless
-                // both endpoints are set and differ (the builder already dropped the rest, but guard here too).
-                guard let from = lfo.from, let to = lfo.to, from != to else { continue }
+                // BASE → TO sweep (Paul 2026-09-16 two-views): FROM ≡ the processor's own param (its authored base value),
+                // so the LFO stores only TO. The shape's 0…1 maps BASE→TO→BASE. Inactive when TO == the base (guarded).
+                guard let to = lfo.to else { continue }
                 // DURATION: grid STEPS (stepSpan, re-syncs to the grid) or a fixed musical subdivision (period).
                 let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: gridBeats) : lfo.period.periodBeats
                 guard periodBeats > 0 else { continue }
                 let cyc = Int((mb / periodBeats).rounded(.down))
                 let u = modUnipolar(lfo.shape, phase: mb / periodBeats, column: column, cc: 0, cycleIndex: cyc)   // 0…1
-                if lfo.target == "arpRate" {                                       // rate = the discrete ladder index (0…17); FROM/TO are rate picks
+                if lfo.target == "arpRate" {                                       // rate = the discrete ladder index (0…17); FROM = the base rate, TO = a rate pick
+                    let from = Double(max(0, min(17, Int(cell.procs[si].rateIndex))))   // the authored base rate IS the FROM endpoint
+                    guard from != to else { continue }
                     // IGNORE families (Paul 2026-09-16): sweep over the ALLOWED-rate ladder only, so ignored families are
                     // never visited (snap FROM/TO to the nearest kept rung, interpolate over ladder POSITIONS).
                     let ladder = arpRateAllowedLadder(ignore: lfo.rateIgnoreResolved)
@@ -1540,8 +1542,9 @@ final class Router {
                     let pos = Int((Double(fp) + u * Double(tp - fp)).rounded())
                     cell.procs[si].rateIndex = Int8(ladder[max(0, min(ladder.count - 1, pos))])
                 } else if let field = AutoParamField(key: lfo.target) {
-                    let v = from + u * (to - from)                                 // sweep between the authored endpoints
-                    cell.procs[si] = cell.procs[si].settingAuto(field, v)          // settingAuto clamps to the param's range
+                    let from = cell.procs[si].autoValue(field)                     // the authored base param IS the FROM endpoint
+                    guard from != to else { continue }
+                    cell.procs[si] = cell.procs[si].settingAuto(field, from + u * (to - from))   // sweep base→TO; settingAuto clamps
                 }
             }
         }

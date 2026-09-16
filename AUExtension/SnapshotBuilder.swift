@@ -578,8 +578,8 @@ enum SnapshotBuilder {
         if let v = p.modRate { out.modRate = v }
         // PER-PARAM LFOs (Docs/PLAN-param-lfo.md): keep only ACTIVE (depth > 0) entries on a KNOWN target — so a
         // depth-0 / unknown-key LFO resolves away → paramLFOs empty → hasParamLFO false → byte-identical.
-        if let v = p.paramLFOs { out.paramLFOs = v.filter { l in   // ACTIVE = both endpoints set AND differ (from==to ⇒ constant ⇒ byte-identical drop); "arpRate" is engine-special (rung sweep), not an AutoParamField
-            guard let f = l.from, let t = l.to, f != t else { return false }
+        if let v = p.paramLFOs { out.paramLFOs = v.filter { l in   // FROM ≡ the base param now (Paul 2026-09-16 two-views); keep any LFO with a TO endpoint on a known target — the engine's from(base)!=to guard makes a to==base LFO a byte-identical no-op. "arpRate" is engine-special (rung sweep).
+            guard l.to != nil else { return false }
             return l.target == "arpRate" || AutoParamField(key: l.target) != nil
         } }
         if let v = p.modSpan { out.modSpan = v }

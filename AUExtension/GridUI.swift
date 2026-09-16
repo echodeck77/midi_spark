@@ -1592,27 +1592,29 @@ struct ProcessorBox: View {
                     Text("REMOVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.red.opacity(0.85))
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(RoundedRectangle(cornerRadius: 5).fill(Color.red.opacity(0.16)))
-                        .contentShape(Rectangle()).onTapGesture { clearLFO(target); lfoEditTarget = nil }
+                        .contentShape(Rectangle()).onTapGesture { clearLFO(target) }   // keep the box OPEN — it now reflects the processor (FROM=TO=base) so you can re-author (Paul 2026-09-16); tap outside to close
                 }
-                if target == "arpRate" {   // IGNORE rate families the sweep skips (Paul 2026-09-16) — grid unchanged, ignored rows just dim + aren't visited. Default: ignore DOTTED + TRIP.
-                    let ig = lfo.rateIgnoreResolved
+                if target == "arpRate" {   // INCLUDE rate families the sweep uses (Paul 2026-09-16) — grid unchanged, un-included rows dim + aren't visited. Default: NORMAL only.
+                    let ig = lfo.rateIgnoreResolved   // stored as an IGNORE mask; the UI shows the INCLUDE inverse
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("IGNORE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                        Text("INCLUDE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
                         HStack(spacing: 6) {
-                            ForEach(Array(["NORMAL", "DOTTED", "TRIP"].enumerated()), id: \.offset) { bit, name in
-                                let ignored = (ig & (1 << bit)) != 0
-                                Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(ignored ? .black : accent)
+                            ForEach(Array(["NORMAL", "DOTTED", "TRIPLETS"].enumerated()), id: \.offset) { bit, name in
+                                let included = (ig & (1 << bit)) == 0
+                                Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(included ? .black : accent)
                                     .lineLimit(1).minimumScaleFactor(0.6).frame(maxWidth: .infinity, minHeight: 40)
-                                    .background(RoundedRectangle(cornerRadius: 7).fill(ignored ? accent : Color.white.opacity(0.09)))
+                                    .background(RoundedRectangle(cornerRadius: 7).fill(included ? accent : Color.white.opacity(0.09)))
                                     .contentShape(Rectangle()).onTapGesture {
-                                        setLFO(target) { let next = ig ^ (1 << bit); $0.rateIgnore = (next & 0b111) == 0b111 ? ig : next }   // can't ignore all three
+                                        setLFO(target) { let next = ig ^ (1 << bit); $0.rateIgnore = (next & 0b111) == 0b111 ? ig : next }   // can't INCLUDE none (= ignore all three)
                                     }
                             }
                         }
                     }
                 }
-                lfoEndpoint("FROM", target: target, value: lfo.from ?? lfoSeedFrom(target), lfo: lfo) { v in setLFO(target) { $0.from = v; if $0.to == nil { $0.to = lfoSeedTo(target) } } }
-                lfoEndpoint("TO",   target: target, value: lfo.to   ?? lfoSeedTo(target),   lfo: lfo) { v in setLFO(target) { $0.to = v; if $0.from == nil { $0.from = lfoSeedFrom(target) } } }
+                // FROM ≡ the PROCESSOR's own param (two views of one value): read the live base, and writing it edits the
+                // processor control itself (and vice-versa — the main control writes the same param). TO is the LFO endpoint.
+                lfoEndpoint("FROM", target: target, value: lfoSeedFrom(target), lfo: lfo) { v in lfoSetBase(target, v) }
+                lfoEndpoint("TO",   target: target, value: lfo.to ?? lfoSeedTo(target), lfo: lfo) { v in setLFO(target) { $0.to = v } }
                 // WAVE — ONE row (Paul 2026-09-16), the 5 shapes equal-width across the full FROM/TO width (was iconSeg, which wrapped to 2 rows).
                 VStack(alignment: .leading, spacing: 5) {
                     Text("WAVE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
@@ -1646,7 +1648,8 @@ struct ProcessorBox: View {
             .padding(16)
         }
         .frame(width: 360).frame(maxHeight: 480)   // fixed width; capped height → the popover clamps to a short host + scrolls
-        .onAppear { if lfoFor(target) == nil { setLFO(target) { $0.from = lfoSeedFrom(target); $0.to = lfoSeedTo(target) } } }
+        // NO auto-seed on open (Paul 2026-09-16): opening reflects the processor — FROM reads the live base, TO seeds = base
+        // (from==to ⇒ inactive) until the user drags TO. The LFO is only created when TO is moved.
     }
     // DURATION grid ladder (Paul 2026-09-15): 1…8 steps · ×2/×4/×8 bars (16/32/64), matching spanLadderBeats.
     private let lfoDurValues = [1, 2, 3, 4, 6, 8, 16, 32, 64]
@@ -1724,7 +1727,8 @@ struct ProcessorBox: View {
     }
     // The current LFO output as a LADDER-SNAPPED rate index (mirrors the engine's ignore-aware sweep), for the dim live ring.
     private func lfoLiveRateIndex(_ lfo: ParamLFO, date: Date) -> Int? {
-        guard clockPlaying, let from = lfo.from, let to = lfo.to, from != to else { return nil }
+        let from = lfoSeedFrom(lfo.target)   // FROM ≡ the base param (two views)
+        guard clockPlaying, let to = lfo.to, from != to else { return nil }
         let S = Swift.max(0.0001, gridStepBeats)
         let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: 8 * S) : lfo.period.periodBeats
         guard periodBeats > 0 else { return nil }
@@ -1739,7 +1743,8 @@ struct ProcessorBox: View {
     // The current LFO output in the param's NATURAL space, for the dim live markers (nil when stopped/inactive). Uses the
     // scene clock (gridStepBeats) so the step-span duration matches the engine; the beat is extrapolated like the playheads.
     private func lfoLiveNatural(_ lfo: ParamLFO, date: Date) -> Double? {
-        guard clockPlaying, let from = lfo.from, let to = lfo.to, from != to else { return nil }
+        let from = lfoSeedFrom(lfo.target)   // FROM ≡ the base param (two views)
+        guard clockPlaying, let to = lfo.to, from != to else { return nil }
         let S = Swift.max(0.0001, gridStepBeats)
         let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: 8 * S) : lfo.period.periodBeats
         guard periodBeats > 0 else { return nil }
@@ -1769,14 +1774,19 @@ struct ProcessorBox: View {
         default:                   return p.gate ?? 0.6
         }
     }
-    private func lfoSeedTo(_ target: String) -> Double {
+    // TO seeds = the processor's CURRENT value (Paul 2026-09-16): opening/deleting an LFO shows FROM==TO==the base, so the
+    // box reflects how the control is set; the user drags TO to author a sweep.
+    private func lfoSeedTo(_ target: String) -> Double { lfoSeedFrom(target) }
+    // Write the PROCESSOR's own param — the inverse of lfoSeedFrom, so the FROM control IS the main control (two views).
+    private func lfoSetBase(_ target: String, _ v: Double) {
         switch target {
-        case "arpRate":            let i = ArpRate.allCases.firstIndex(of: p.rate ?? .r1_16) ?? 3; return Double(min(i / 6 * 6 + 5, min(17, i + 2)))   // a faster rung in the same family
-        case "arpMaskK":           return 1                                   // sweep the density down to 1 hit
-        case "arpMaskRotate":      return Double(max(0, (p.arpMaskN ?? 8) - 1))
-        case "arpMaskChordOct":    return 1
-        case "arpMaskChordGate", "rtcChance": return 1
-        default:                   return 1                                   // gate → full length
+        case "arpRate":            setParam { $0.rate = ArpRate.allCases[max(0, min(17, Int(v.rounded())))] }
+        case "arpMaskK":           setParam { $0.arpMaskK = max(1, min(16, Int(v.rounded()))) }
+        case "arpMaskRotate":      setParam { $0.arpMaskRotate = max(0, min(15, Int(v.rounded()))) }
+        case "arpMaskChordOct":    setParam { $0.arpMaskChordOct = max(-2, min(2, Int(v.rounded()))) }
+        case "arpMaskChordGate":   setParam { $0.arpMaskChordGate = v }
+        case "rtcChance":          setParam { $0.rtcChance = v }
+        default:                   setParam { $0.gate = v }
         }
     }
     // A BIPOLAR slider (§presentation idea 4/22): centred on 0; DOUBLE-TAP the label = reset to centre. `v`/`set` are in

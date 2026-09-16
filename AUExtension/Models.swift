@@ -188,8 +188,9 @@ struct ParamLFO: Codable, Equatable {
     var shape: ModShape = .sine      // WAVE — SINE · TRI · SQR · RAMP · S&H
     var period: ModRate = .r2        // DURATION as a fixed musical subdivision (beats/cycle) — used when stepSpan is nil
     var stepSpan: Int? = nil         // DURATION as grid STEPS: 1…8 = N steps · 16/32/64 = ×2/×4/×8 bars. nil ⇒ use `period`.
-    var from: Double? = nil          // sweep endpoint A, in the param's NATURAL value space (rateIndex 0…17 for "arpRate")
-    var to: Double? = nil            // sweep endpoint B. ACTIVE only when from & to are both set AND differ.
+    var from: Double? = nil          // VESTIGIAL (Paul 2026-09-16): FROM is now the processor's OWN param (two views) — the
+                                     //   engine + UI read the live base, not this. Kept for decode/round-trip compatibility.
+    var to: Double? = nil            // sweep endpoint (the LFO's far end); FROM = the base param. ACTIVE when to != the base.
     var rateIgnore: Int? = nil       // "arpRate" only (Paul 2026-09-16): IGNORE families the sweep skips — bit0 normal · bit1 dotted · bit2 triplet. nil ⇒ default IGNORE dotted+triplet (0b110 = normal only). The full grid still shows; ignored rows just aren't swept.
     var rateIgnoreResolved: Int { let m = (rateIgnore ?? 0b110) & 0b111; return m == 0b111 ? 0b110 : m }   // never ignore ALL three (would leave no rate) — fall back to keeping normal
 }
