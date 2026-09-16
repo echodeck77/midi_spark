@@ -3,20 +3,22 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-12._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-16._
 
-## ★ PER-PARAM LFO + ARP EUCLID MASK (2026-09-15; spec `Docs/PLAN-param-lfo.md`)
-LANDED on `main`: the ∿ LFO button (Stage 1 engine + Stage 2 UI) on ARP LENGTH; then HITS/ROTATE/CHANCE; then the
-GAPS=CHORD gap-stab controls (OCTAVE · LENGTH · VELOCITY, LFO on OCT + LEN). OPEN:
+## ★ PER-PARAM LFO + ARP EUCLID MASK (2026-09-15/16; spec `Docs/PLAN-param-lfo.md`)
+LANDED on `main`: the ∿ LFO button (engine + UI) on ARP LENGTH · HITS/ROTATE/CHANCE · the GAPS=CHORD gap-stab
+controls (OCTAVE · LENGTH · VELOCITY) · the SPEED/rate LFO with INCLUDE-family toggles (NORMAL/DOTTED/TRIPLETS) ·
+and the FROM→TO→DURATION→WAVE **editor redesign** (FROM is two-views of the base param; depth/phase/quantize
+dropped, `paramLFOValue` removed). The MOD editor was reworked to the same FROM/TO/DURATION/WAVE anatomy (`383ca9c`).
+OPEN:
 - **★ ACCENT LAYER (the next euclid-mask feature — pencilled in, Paul 2026-09-15):** a SECOND euclidean pattern (own
   K-of-N + ROTATE) that BOOSTS velocity on the steps it hits — the classic two-euclid technique (one pattern for
   notes, one for accents). Medium-sized; makes the mask genuinely generative. Do after the CHORD-stab work.
 - **FILL (secondary):** every N bars play ALL steps (a euclidean fill/turnaround). Small.
-- **Stage 3 — SPEED (rate) LFO:** the arp's rate is an `ArpRate` enum, absent from `AutoParamField` → needs an
-  enum-index target + `settingAuto` cast (rate jumping at block boundaries is acceptable, ratified 2026-09-15).
-- **Roll-out:** WEAVE LENGTH (same `gate`, one-liner) + OCTAVES; other processors' continuous params.
-- **DEVICE-EYE owed:** every ∿ button + the popover editor + the seed-on-open (depth 0.35) behaviour; the CHORD-stab
-  controls; the long HITS label row not crowding its button.
+- **∿ LFO roll-out:** RIFF RATE (the rate-grid endpoint is arpRate-specific — generalise it), WEAVE LENGTH + OCTAVES,
+  and other processors' continuous params (RIFF GATE LENGTH already has it).
+- **DEVICE-EYE owed:** the ∿ buttons + the popover editor; the CHORD-stab controls; the long HITS label row not
+  crowding its button; the MOD/RIFF/DEAL editors + the live CC marker.
 
 ## ★ PLAY-FERRIES-ARE-PARTS — follow-ups (2026-09-08; feature DONE Phases 1–3, on `main`)
 The 8 play ferries are now full `BuildPart` slots + the sole navigation (spec `AcceptanceCriteria-play-ferries-as-parts.md`).

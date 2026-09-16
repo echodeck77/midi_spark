@@ -1,5 +1,12 @@
 # PLAN — the per-parameter LFO (the ∿ "mod button" beside a param label)
 
+> **⚠ SUPERSEDED IN PART (2026-09-16) — the DEPTH/PHASE/QUANTIZE model below was NOT shipped.** The ∿ LFO
+> LANDED, but redesigned to a **FROM → TO** sweep over a **DURATION** (GRID STEPS · FIXED SUBDIVISION) shaped by a
+> **WAVE**: there is no DEPTH, PHASE, or QUANTIZE, and **FROM ≡ the base param** (two views of one value — editing
+> either updates both). `paramLFOValue` was removed; `applyParamLFO` is the engine. The arp RATE LFO added
+> INCLUDE-family toggles (NORMAL/DOTTED/TRIPLETS). The MOD editor was reworked to the same FROM/TO/DURATION/WAVE
+> anatomy. Read the rest of this doc as the ORIGINAL design intent, not the built shape.
+
 A **mod button next to any relevant parameter's label**: tap it, set a WAVEFORM + a DURATION (+ a DEPTH), and that
 param oscillates over time — an LFO wired straight to the setting. First targets: the ARP's **LENGTH** (gate) and
 **SPEED** (rate). Paul 2026-09-14.

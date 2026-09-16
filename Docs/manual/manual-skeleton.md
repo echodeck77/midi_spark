@@ -13,7 +13,7 @@ Every control entry is: `**Label** {#anchor} — factual what-it-is. _Why: TBD._
 > - **The TAB ROW is gone (2026-08-21). BUILD is the SOLE surface.** `{#tab-bar}`'s "BUILD · GRID · MIDI IN ·
 >   MIDI OUT · MACROS · AUTOMATION" tabs no longer exist; the header carries CONFIG BUTTONS instead —
 >   RATE · MIDI IN · MIDI OUT · RACK · ROW 8 · RECORD — each opening a sheet/overlay, not a page.
-> - **`{#processor-type}` "6 types" is a fossil — there are 27** (see the storefront catalog, grouped
+> - **`{#processor-type}` "6 types" is a fossil — there are 32** (see the storefront catalog, grouped
 >   MELODY/HARMONY/RHYTHM/DYNAMICS/CONTROL/TIME/UTILITY/ROUTING).
 > - **The door-level BYPASS toggle was REMOVED.** `{#recv-bypass}` / `{#bypass-dest}` describe a door→emitter
 >   straight wire that no longer exists. A door now has SIX MODES — thru · latch · hold · keys · replay · file —
@@ -63,7 +63,7 @@ as rows · pick where each speaks · flatten weaves the line.**
 ## 1.4 Inside the chain — the processor slots {#build-chain-slots} [BUILD]
 _The CHAIN footer opens the selected colour's stages. Editing a stage edits the colour — one machine, everywhere it's placed._
 - **Processor slot** {#chain-slot} — one stage of the chain, in signal order; up to 8 deep. _Why: One stage of the machine, top to bottom. The chain IS the colour's sound-design surface: what this machine does is the sum of these few decisions._
-- **Type picker** {#processor-type} — choose the stage's machine (27 types, grouped in the storefront catalog). _Why: Choose the stage's species. The catalog groups them by intent — MELODY · HARMONY · RHYTHM · DYNAMICS · CONTROL · TIME · UTILITY · ROUTING — and depth comes from combining them, not from a longer flat menu._
+- **Type picker** {#processor-type} — choose the stage's machine (32 types, grouped in the storefront catalog). _Why: Choose the stage's species. The catalog groups them by intent — MELODY · HARMONY · RHYTHM · DYNAMICS · CONTROL · TIME · UTILITY · ROUTING — and depth comes from combining them, not from a longer flat menu._
 - **Slot BYPASS** {#chain-bypass} — true-bypass this stage (passthrough). _Why: Every stage's true-bypass, and your debugger: eight processors deep, the question "which one is doing that?" is answered by switching suspects off one at a time. It's also a performance socket — a dormant stage left bypassed is a fill waiting for a trigger to punch it in._
 - **Slot remove** {#chain-remove} — delete this stage. _Why: Take the stage out entirely. Bypass first if you're only wondering; remove when you're sure._
 - **+ ADD PROCESSOR** {#chain-add} — append a stage. _Why: Grow the machine, up to eight stages. The invitation is the empty chain's whole face: a new colour is a passthrough waiting for its first idea._

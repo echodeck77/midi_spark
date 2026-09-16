@@ -199,6 +199,31 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE 2026-09-14→16 ARC — RANDOM ONCE · per-param ∿ LFO (+ redesign) · MOD rework · RIFF additions · DEAL · card-grey ·
+  sliders · housekeeping (all on `main`; iOS builds, macOS 1116 green; DEVICE eye/ear owed on the UI). A run of Paul's asks.
+  (1) **RANDOM ONCE arp pattern** (`cd65b3e`) — `ArpPattern.randomOnce`, a per-pool shuffle from a PERSISTED `arpSeed`
+  (`splitmix64Mix(asc+seed) % span`), replay-exact; PATTERN→"ARP PATTERN", FLOW→"ARP FLOW". (2) **PROCESSOR-CARD PLAY-GREY is
+  POSITIONAL, not sounding** (`44fe3d9`/`bbeeaac`/`26a361c`/`6ac926c`, earlier per-cell `5592eab`/`8521d86`) — the card dims when
+  the machine can't receive MIDI in the current column, read from `buildProcessingNow` (fixed the flashing: was gated on
+  live SOUND, which flickered). (3) **ARP euclid GAPS=CHORD stab controls** (OCTAVE·LENGTH·VELOCITY) + LFO on HITS/ROTATE/CHANCE
+  (`605c74f`/`a244ff2`/`dbc4abc`). (4) **THE PER-PARAM ∿ LFO** (`0a516a2`→`d4de554`) — a mod button beside a param label. Stage 1
+  engine + Stage 2 UI, THEN a REDESIGN: `ParamLFO { target, shape (WAVE), period/stepSpan (DURATION), to }` sweeps the base
+  param → TO over a DURATION (GRID STEPS · FIXED SUBDIVISION); **FROM ≡ the base param — two views of one value** (editing either
+  updates both, seeded on open, kept on REMOVE); DEPTH/PHASE/QUANTIZE + `paramLFOValue` all REMOVED. Arp RATE is special-cased
+  (`applyParamLFO` sweeps the rate ladder) with **INCLUDE-family toggles** (NORMAL/DOTTED/TRIPLETS via `rateIgnore`). Engine
+  `applyParamLFO`; editor `lfoEditor`. (5) **SLIDERS chunkier/grabbier** (`4d12f40`, `FineSlider` track 5→9pt · thumb 16→28pt).
+  (6) **HOUSEKEEPING** (`a3d57b2`) — CHORDS **8→16 fix** (`chordsDegreesResolved`/`applyChords` now size the degree matrix + rotate
+  to the matrix WIDTH — a 16-wide progression was truncated to 8), Dice fillRole fix, dead `paramLFOValue` removed, stale
+  "128 cells"→256 comments. (7) **MOD editor → the arp-LFO anatomy** (`383ca9c`) — reworked to FROM/TO + DURATION [GRID STEPS ·
+  FIXED SUBDIVISION] + WAVE (was MIN/MAX; engine still stores `modMin`/`modMax`, only the labels/editor changed) + a live CC
+  marker + `modStepSpanN` (grid-steps duration via `spanLadderBeats`). (8) **RIFF gate-length + DIRECTION** (`9afa57c`) —
+  a gate-length control (with ∿ LFO) + `RiffDir` FWD/REV/PING-PONG step reorder + a roomier RATE grid + SPAN on its own line.
+  (9) **NEW `DEAL` processor** (`ce1f54a`) — a simple OUTPUT dealer (ROUTING group): OVERRIDE the cell's emitters and deal N1
+  notes to emitter 1 then N2 to emitter 2 (repeat, defaults 1/1). Note-transparent (`cellMode .deal = .identity`); reuses the
+  TURNS moment-counter idiom in `emitArtic` with per-cell counters (reset on every transport/scene/panic edge → no stuck notes);
+  DEAL mode = **OVER TIME** (per strike) · **WITHIN CHORD** (per note-in-moment) · **EVERY NOTE** (per note-on). +Router/fuzz
+  tests. v1 flag (like TURNS): the deal position isn't replay-exact across a mid-phrase seek/loop; WITHIN CHORD after a mono
+  driver sits at position 0. DEVICE-owed: every ∿ button + the MOD/RIFF/DEAL editors + DEAL splitting across two synths audibly.**
 - **▶ FERRY DRAG-AND-DROP — long-press copy/seed RETIRED; SELECT-cell-is-a-part; colour inherit + reallocation; housekeeping
   (2026-09-12, on `main`, `7f1bd88`…`6852381` + the housekeeping commit; iOS builds, macOS 1086→1090 green; DEVICE eye owed).
   Paul reworked how a SELECT cell reaches a play ferry. **COPY GESTURE RETIRED:** the play-ferry + right side-rail LONG-PRESS

@@ -65,12 +65,15 @@ should anyone else.
 > mode is WRITTEN onto the chain box AND the editor title, abbreviated (e.g. "WEAVE HARM", "MOD
 > LFO", "RATCHET COIN", "TUTTI PAT", "BURST ONCE"). This realises the design's original storefront
 > intent ("each storefront IS its mode; the radio hides") plus Paul's box-label ask. Built:
-> `BuildPage.buildCatalog` (31 cards) + `buildProcLabel`; the 5 GridUI mode radios dropped. RIFF +
-> VELOCITY stay future/unbuilt. (The card names + blurbs below are the built set.)
+> `BuildPage.buildCatalog` + `buildProcLabel`; the 5 GridUI mode radios dropped. **UPDATE (2026-09-16):**
+> the built catalog has since GROWN to ~46 cards across 7 groups (a UTILITY group + ROUTING cards were
+> added); RIFF, VELOCITY, and DEAL are all now BUILT (no longer future). (The card names + blurbs below
+> are the original ratified set; the live catalog is the source of truth.)
 
 # THE RATIFIED CARD SET (design-side, 2026-08-22 — ✅ RATIFIED BY PAUL 2026-08-22; PICKER SIMPLIFIED to one-per-processor, see banner)
 
-**31 cards · 6 groups. Names/one-liners are DISPLAY-LAYER only (Codable IDs frozen).
+**The original ratified set was 31 cards · 6 groups; the live catalog has since grown to ~46 cards · 7 groups
+(see the top-banner update). Names/one-liners are DISPLAY-LAYER only (Codable IDs frozen).
 ✅ RATIFIED BY PAUL 2026-08-22 — these names + groups + one-liners are the build target.
 Format: CARD NAME — catalog one-liner (also the panel sub-header unless noted).** Reconciled
 against the Code-side engine-truth inventory (the drift flags D1–D8 were absorbed — see notes
@@ -110,8 +113,8 @@ inline).
 **DYNAMICS**
 - **HUMANIZE** — Loosens the timing and softens the hits: a human touch. (D3-honest: late +
   duck only)
-- *(future)* **VELOCITY SCALE** — Squeezes or expands how hard notes hit.
-- *(future)* **VELOCITY PATTERN** — Paints accents and ghost notes across the bar.
+- **VELOCITY** — a per-step velocity SEQUENCER (shipped 2026-09-07 as ONE card, TIME or NOTE clock;
+  superseded the planned VELOCITY SCALE / VELOCITY PATTERN split).
 
 **CONTROL** (shared sub-header on all five: "Moves synth controls — makes no notes of its own.")
 - **LFO** (MOD/SHAPE) — A wave moving a synth knob: sweeps and wobbles.
@@ -136,4 +139,4 @@ fader" is a suggested manual binding, not a mechanism). SPLIT/ECHO/EUCLID/LENGTH
 (LFO/FOLLOWER/STEP MOD/ENVELOPE/CC IN) — is approved and is the build target. The picker rework
 (grouping + descriptions + the 31-card split, each split card pre-setting its mode) is the
 net-new UI, now greenlit. Engine untouched (the split only sets a default mode on add; Codable
-IDs frozen). RIFF + VELOCITY remain the two future/unbuilt entries.
+IDs frozen). (UPDATE 2026-09-16: RIFF, VELOCITY, and DEAL are all now built — no future/unbuilt entries remain.)
