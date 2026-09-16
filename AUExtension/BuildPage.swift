@@ -70,17 +70,17 @@ private enum BuildGeom {
 
 // Placeholder cast hues (mockup palette). Real machines come from the part's cast when the palette is wired.
 private let buildPanel = Color(red: 0.08, green: 0.09, blue: 0.11)
-private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
+let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 // PART AUTOMATION (Paul 2026-09-01): each chain (machine) gets FIVE Auto lanes — a DIRECT param automation (macros dropped
 // to v2). A lane picks a processor param, sets its BEFORE→AFTER, a SPAN that shapes the curve/repeat WITHIN the painted
 // extent (disabled for binary params), and an EXTENT of grid cells (painted via APPLY). Baked per-cell at build (rides the
 // M2 substrate). Per-machine (shared across the machine's cells). `AutoLane`/`PartAutoMachine` live in BuildModel.swift
 // (Foundation-only, in the test target + Codable so the automation travels with the document).
-private let buildDim   = Color(white: 0.36)
+let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
-private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
+let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 private let buildRed   = Color(red: 0.91, green: 0.36, blue: 0.44)   // ROW 8 CLEAR + destructive verbs
-private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
+let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
 // THE ROOM SIGNATURES (Paul 2026-08-29, §8b WAYFINDING): each room owns a machine and every DOOR wears its DESTINATION's
 // signature — RAINBOW = SELECT (a multimachine strip, refuses one hue) · AMBER = PART · INDIGO = PLAY (retires cyan) ·
 // RED = REEL/record. Hex are starting points (Paul's glass tunes; the STRUCTURE is the instruction).
@@ -1168,315 +1168,10 @@ extension DiagView {
 
     // THE PASS BROWSER (Paul 2026-08-19): an 8×8 grid — TOP 4 rows = the last 32 passes (newest bottom-right), tap one to
     // replay it live; BOTTOM 4 rows = the selected pass drawn as A/B/C/D piano-roll lanes. SAVE exports the selected pass.
-    private var reelLaneHues: [Color] { [Color(red: 0.19, green: 0.83, blue: 0.91),   // A cyan
+    var reelLaneHues: [Color] { [Color(red: 0.19, green: 0.83, blue: 0.91),   // A cyan
                                          Color(red: 0.36, green: 0.92, blue: 0.52),   // B green
                                          Color(red: 1.0,  green: 0.72, blue: 0.2),    // C amber
                                          Color(red: 0.85, green: 0.5,  blue: 0.95)] } // D violet
-    // THE PASS BROWSER (Paul 2026-08-26 redesign): the whole thing reads as ONE 8×8 grid — the recorded PASSES fill the
-    // top 4 rows (uniform SQUARE cells), the four A/B/C/D MIDI lanes fill the bottom 4 rows (each the full grid width, one
-    // cell tall). The page header + instructions + controls live in a COLUMN on the RIGHT (was a banner above). PREV/NEXT
-    // PAGINATE the pass block; REMOVE DUPLICATES collapses runs of identical passes.
-    private func buildReelPopup(size: CGSize) -> some View {
-        let outerPad: CGFloat = 16, gap: CGFloat = 3, sidebarW: CGFloat = 234, colGap: CGFloat = 18
-        let areaW = size.width - 2 * outerPad - sidebarW - colGap
-        let areaH = size.height - 2 * outerPad
-        let cellSize = max(14, min((areaW - 7 * gap) / 8, (areaH - 7 * gap) / 8))   // one SQUARE cell → a uniform 8×8
-        let gridSide = 8 * cellSize + 7 * gap
-        let visible = buildReelVisiblePasses()                                   // non-empty (+ deduped if toggled), in ring order
-        let pageCount = max(1, (visible.count + 31) / 32)
-        let page = min(max(0, reelPage), pageCount - 1)
-        let pageSlice = Array(visible.dropFirst(page * 32).prefix(32))           // this page's ≤32 passes → the 4×8 block
-        return ZStack {
-            Color(red: 0.055, green: 0.065, blue: 0.085).ignoresSafeArea()      // FULL-SCREEN opaque backdrop
-            if size.width <= size.height {                                      // PORTRAIT — the pass browser is a LANDSCAPE-ONLY view; prompt to rotate rather than cram the landscape block into a tall window
-                buildReelRotatePrompt()
-            } else {
-                HStack(alignment: .top, spacing: colGap) {
-                    VStack(spacing: gap) {                                      // LEFT — the 8×8 grid
-                        ForEach(0..<4, id: \.self) { r in                      // TOP 4 rows — the passes (this page)
-                            HStack(spacing: gap) {
-                                ForEach(0..<8, id: \.self) { c in
-                                    let idx = r * 8 + c
-                                    buildReelPassCell(idx < pageSlice.count ? pageSlice[idx] : -1, w: cellSize, h: cellSize)
-                                }
-                            }
-                        }
-                        buildReelRollSection(width: gridSide, laneH: cellSize, gap: gap)   // BOTTOM 4 rows — A/B/C/D lanes + playhead
-                    }.frame(width: gridSide, height: gridSide)
-                    buildReelSidebar(pageCount: pageCount, page: page)          // RIGHT — header · instructions · controls
-                        .frame(width: sidebarW, height: gridSide, alignment: .top)
-                }
-            }
-        }
-        .onAppear {
-            au?.reelSetBrowsing(true)                                             // freeze the history tape while browsing
-            reelPage = Int.max                                                    // OPEN ON THE NEWEST PAGE (clamped to the last page) — Paul 2026-08-26
-            reelSelLoPass = -1; reelSelHiPass = -1; reelRangeCyc = 0              // fresh selection (the anchor = the auto-latest pass)
-            reelExportLanes = []                                                  // start exporting the master mix
-        }
-        .onDisappear { au?.reelStopReplay(); au?.reelSetBrowsing(false) }         // close → stop any replay + resume normal play, record again next pass
-    }
-    // PORTRAIT fallback (Paul 2026-08-26): the pass browser is a landscape-only view; in a tall window, prompt to rotate.
-    @ViewBuilder private func buildReelRotatePrompt() -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "arrow.clockwise").font(.system(size: 40, weight: .light)).foregroundColor(buildCyan)
-            Text("ROTATE TO LANDSCAPE").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(.white.opacity(0.85))
-            Text("The pass browser is a landscape view.").font(.system(size: 12, weight: .medium)).foregroundColor(.white.opacity(0.5))
-            Button { reelShowPopup = false } label: {
-                Text("CLOSE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
-                    .padding(.horizontal, 24).padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCell)).overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
-            }.padding(.top, 6)
-        }.padding(40)
-    }
-    // The passes to show: non-empty, in ring order; when REMOVE DUPLICATES is on, a pass whose content matches the last
-    // KEPT pass is hidden (collapses a run — e.g. a held loop filing the same bar every pass). (Paul 2026-08-26)
-    private func buildReelVisiblePasses() -> [Int] {
-        var out: [Int] = []
-        var lastSig: UInt64? = nil
-        for (i, p) in reelPassNumbers.enumerated() where p >= 0 {
-            let s = i < reelPassSigs.count ? reelPassSigs[i] : 0
-            if reelDedup, s == lastSig { continue }                            // duplicate of the last kept → hide
-            out.append(p); lastSig = s
-        }
-        return out
-    }
-    // The RIGHT sidebar — title + a plain-language instruction + PAGINATION + REMOVE DUPLICATES + RESTORE SETUP (#5) + SAVE.
-    @ViewBuilder private func buildReelSidebar(pageCount: Int, page: Int) -> some View {
-        let anyPass = reelPassNumbers.contains { $0 >= 0 }
-        let hasState = reelSelPassNo >= 0 && reelStateRing[reelSelPassNo] != nil
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("REEL").font(.system(size: 24, weight: .heavy, design: .monospaced)).tracking(3).foregroundColor(buildCyan)
-                Text("PASS BROWSER").font(.system(size: 11, weight: .bold, design: .monospaced)).tracking(2).foregroundColor(buildDim)
-            }
-            Text("Tap a pass to hear it. PAGE steps through the whole history; EXTEND grows the selection across passes (the roll and SAVE cover the range). Tap a lane to export just that emitter (none = the master mix).")
-                .font(.system(size: 11, weight: .medium)).foregroundColor(.white.opacity(0.55)).fixedSize(horizontal: false, vertical: true)
-            Rectangle().fill(buildEdge).frame(height: 1)
-            let visible = buildReelVisiblePasses()
-            let (rlo, rhi) = buildReelExportRange()
-            let selLabel = rlo < 0 ? "—" : (rlo == rhi ? "PASS \(rlo + 1)" : "PASSES \(rlo + 1)–\(rhi + 1)")
-            let laneLabel = reelExportLanes.isEmpty ? "MASTER" : reelExportLanes.sorted().map { ["A", "B", "C", "D"][$0] }.joined(separator: "·")
-            // PAGINATION — page the whole history (32 passes at a time), independent of the selection (Paul 2026-08-26).
-            HStack(spacing: 8) {
-                buildReelStepBtn(back: true, enabled: page > 0) { reelPage = max(0, page - 1) }
-                VStack(spacing: 1) {
-                    Text("PAGE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
-                    Text("\(page + 1)/\(pageCount)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
-                }.frame(maxWidth: .infinity)
-                buildReelStepBtn(back: false, enabled: page < pageCount - 1) { reelPage = min(pageCount - 1, page + 1) }
-            }
-            // EXTEND — grow the SELECTION to the neighbouring recorded pass; the page follows so the new edge stays visible.
-            HStack(spacing: 8) {
-                buildReelStepBtn(back: true, enabled: rlo >= 0 && visible.contains { $0 < rlo }) { buildReelExtend(-1) }
-                VStack(spacing: 1) {
-                    Text("EXTEND").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
-                    Text(selLabel).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.7)
-                }.frame(maxWidth: .infinity)
-                buildReelStepBtn(back: false, enabled: rhi >= 0 && visible.contains { $0 > rhi }) { buildReelExtend(1) }
-            }
-            buildReelToggle(label: "REMOVE DUPLICATES", on: reelDedup) { reelDedup.toggle(); reelPage = Int.max }
-            Button { buildReelRestoreState() } label: {                        // #5 — restore the setup live during the pass + CLOSE the reel
-                Text(hasState ? "RESTORE SETUP · PASS \(reelSelPassNo + 1)" : "RESTORE SETUP")
-                    .font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
-                    .foregroundColor(hasState ? .black : buildDim).frame(maxWidth: .infinity).padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(hasState ? Color(red: 0.85, green: 0.5, blue: 0.95).opacity(0.9) : buildCell))
-                    .overlay(hasState ? nil : RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
-            }.disabled(!hasState)
-            Spacer()
-            Button { buildReelExport() } label: {                             // SAVE the pass RANGE × the emitter selection → share sheet
-                Text(rlo >= 0 ? "SAVE \(selLabel) · \(laneLabel)" : "SAVE").font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
-                    .foregroundColor(rlo >= 0 || anyPass ? .black : buildDim).frame(maxWidth: .infinity).padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCyan.opacity(0.9)))
-            }
-            Button { reelShowPopup = false } label: {
-                Text("CLOSE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
-                    .frame(maxWidth: .infinity).padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCell)).overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
-            }
-        }
-    }
-    private func buildReelToggle(label: String, on: Bool, _ act: @escaping () -> Void) -> some View {
-        Button(action: act) {
-            HStack(spacing: 8) {
-                Image(systemName: on ? "checkmark.square.fill" : "square").font(.system(size: 14, weight: .bold)).foregroundColor(on ? buildCyan : buildDim)
-                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(on ? .white : buildDim)
-                Spacer(minLength: 0)
-            }.padding(.vertical, 8).padding(.horizontal, 9)
-            .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan.opacity(0.12) : buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? buildCyan.opacity(0.5) : buildEdge, lineWidth: 1))
-        }
-    }
-    // A generic ◀/▶ chevron step button — shared by PAGINATION (page the history) and EXTEND (grow the selection); disabled at the ends.
-    @ViewBuilder private func buildReelStepBtn(back: Bool, enabled: Bool, _ act: @escaping () -> Void) -> some View {
-        Button(action: act) {
-            Image(systemName: back ? "chevron.left" : "chevron.right").font(.system(size: 14, weight: .heavy))
-                .foregroundColor(enabled ? buildCyan : buildDim).frame(width: 44, height: 30)
-                .background(RoundedRectangle(cornerRadius: 6).fill(buildCell)).overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
-        }.disabled(!enabled)
-    }
-    // #5 (Paul 2026-08-26): restore the deployed play-grid arrangement that was live during the selected pass. v1 = a LIVE
-    // switch (like a scene change); the append-only / undo-integrated "forward event" model is the next increment.
-    private func buildReelRestoreState() {
-        guard reelSelPassNo >= 0, let snap = reelStateRing[reelSelPassNo] else { return }
-        buildRestoreScene(snap)          // restore the play-grid arrangement that was live during that pass
-        reelShowPopup = false            // CLOSE the reel (Paul 2026-08-26) → .onDisappear stops the replay + unfreezes, so the UI shows the restored state live
-    }
-    // The 4 piano-roll lanes (bottom 4 rows of the 8×8) + a shared PLAYHEAD that sweeps while a pass replays. Each lane is
-    // ONE grid-cell tall and the full grid width, laid out with the SAME gap as the pass rows so the whole page reads as a
-    // uniform 8×8 (Paul 2026-08-26). Lanes do not collapse — all four always render.
-    private func buildReelRollSection(width: CGFloat, laneH: CGFloat, gap: CGFloat) -> some View {
-        let rollH = 4 * laneH + 3 * gap
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reelState != 2)) { tl in
-            let phase = reelPlayheadPhase(tl.date)                                // 0…1 across the pass, or nil (not replaying)
-            VStack(spacing: gap) {
-                ForEach(0..<4, id: \.self) { lane in
-                    buildReelLane(lane, width: width, height: laneH, phase: phase)
-                }
-            }
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(reelSelPassNo >= 0 ? 0.05 : 0)))   // SELECTION WASH (design §1.2) — links the cyan chip to the roll
-            .overlay(alignment: .leading) {
-                if let phase { Rectangle().fill(Color.white.opacity(0.75)).frame(width: 1.5, height: rollH).offset(x: CGFloat(phase) * width) }
-            }
-        }
-    }
-    // The playhead position (0…1) NOW, extrapolated from the last beat poll (one-clock rule). Only while replaying.
-    private func reelPlayheadPhase(_ now: Date) -> Double? {
-        guard reelState == 2, reelRangeCyc <= 0, reelCycle > 0 else { return nil }   // the sweeping playhead follows single-pass replay only (a range roll is static — no replay yet)
-        let beat = d.playing ? reelLastBeat + now.timeIntervalSince(reelLastBeatAt) * d.tempo / 60.0 : reelLastBeat
-        var p = beat.truncatingRemainder(dividingBy: reelCycle) / reelCycle
-        if p < 0 { p += 1 }
-        return p
-    }
-    // One pass cell. Populated → shows its 1-based pass number; the pinned/replaying pass lights cyan. Tap = select+replay,
-    // or (if it's already the replaying pass) stop and resume live.
-    @ViewBuilder private func buildReelPassCell(_ pass: Int, w: CGFloat, h: CGFloat) -> some View {
-        let lo = min(reelSelLoPass, reelSelHiPass), hi = max(reelSelLoPass, reelSelHiPass)
-        let inRange = pass >= 0 && reelSelLoPass >= 0 && pass >= lo && pass <= hi   // in the export/highlight range (Paul 2026-08-26)
-        let anchor = pass >= 0 && pass == reelSelPassNo                            // the replaying/audition pass
-        let lit = inRange || anchor
-        let playing = anchor && reelState == 2
-        RoundedRectangle(cornerRadius: 3)
-            .fill(pass < 0 ? Color.white.opacity(0.03) : (lit ? buildCyan : Color.white.opacity(0.08)))
-            .frame(width: w, height: h)
-            .overlay(playing ? RoundedRectangle(cornerRadius: 3).stroke(Color(red: 0.36, green: 0.92, blue: 0.52), lineWidth: 2)
-                             : (anchor && hi > lo ? RoundedRectangle(cornerRadius: 3).stroke(Color.white, lineWidth: 1.5) : nil))   // the anchor within a multi-pass range
-            .overlay(pass >= 0 ? Text("\(pass + 1)").font(.system(size: min(15, min(w, h) * 0.42), weight: .heavy, design: .monospaced))
-                        .foregroundColor(lit ? .black : buildCyan.opacity(0.9)) : nil)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard pass >= 0 else { return }
-                if playing { au?.reelStopReplay() } else { buildReelSelectPass(pass) }
-            }
-    }
-    // One emitter piano-roll lane. Draws the selected pass's notes for cable = lane+1 over a reference grid: 8 CELL
-    // dividers (vertical), OCTAVE dividers (horizontal at each C) with the C labelled on the left + right axis. Pitch is
-    // framed to whole octaves and shared across all lanes; x = pass length; opacity = velocity; the playhead lights notes.
-    private func buildReelLane(_ lane: Int, width: CGFloat, height: CGFloat, phase: Double?) -> some View {
-        let hue = reelLaneHues[lane]
-        let notes = reelRoll.filter { Int($0.cable) == lane + 1 }
-        let all = reelRoll.map { Int($0.note) }
-        let rawLo = all.min() ?? 48, rawHi = all.max() ?? 72
-        let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)   // frame to whole octaves → a C at top + bottom
-        let span = CGFloat(hi - lo)
-        let cyc = max(0.0001, reelEffCycle)                                      // the range total (multi-pass) or the single pass length
-        let selected = reelExportLanes.contains(lane)                           // this emitter is in the export selection (Paul 2026-08-26)
-        let head = phase.map { $0 * cyc }                                        // the playhead's beat, or nil
-        func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (height - 6) + 3 }
-        return ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
-            Canvas { ctx, sz in
-                // CELL dividers — 8 columns of the bar
-                for i in 1..<8 {
-                    let x = CGFloat(i) / 8 * sz.width
-                    ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) },
-                               with: .color(.white.opacity(0.07)), lineWidth: 0.5)
-                }
-                // OCTAVE dividers (horizontal at each C)
-                var n = lo
-                while n <= hi {
-                    let y = yOf(n)
-                    ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) },
-                               with: .color(.white.opacity(0.10)), lineWidth: 0.5)
-                    n += 12
-                }
-                // NOTES — each painted the MACHINE of the cell that played it (upcoming + already-played alike);
-                // falls back to the lane hue when the pass predates the machine tag. (Paul 2026-08-19)
-                for note in notes {
-                    let nc = note.machine != 0 ? Color(hex: note.machine) : hue
-                    let x = CGFloat(note.start / cyc) * sz.width
-                    let w = max(2, CGFloat((note.end - note.start) / cyc) * sz.width)
-                    let y = yOf(Int(note.note))
-                    let active = head.map { $0 >= note.start && $0 < note.end } ?? false
-                    let base = 0.45 + 0.5 * Double(note.vel) / 127
-                    let rect = CGRect(x: x, y: y - (active ? 2.5 : 1.5), width: min(w, sz.width - x), height: active ? 5 : 3)
-                    if active { ctx.fill(Path(roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 2), with: .color(nc.opacity(0.35))) }   // glow under
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1.4), with: .color(nc.opacity(active ? 1.0 : base)))
-                }
-            }.frame(width: width, height: height)
-            HStack(spacing: 3) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 8, weight: .bold)).foregroundColor(selected ? hue : hue.opacity(0.4))
-                Text(["A", "B", "C", "D"][lane]).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(selected ? 1 : 0.8))
-            }.padding(.leading, 4)
-        }
-        .overlay(selected ? RoundedRectangle(cornerRadius: 3).stroke(hue, lineWidth: 1.5) : nil)   // SELECTED emitter — highlighted for export (Paul 2026-08-26)
-        .contentShape(Rectangle())
-        .onTapGesture { if reelExportLanes.contains(lane) { reelExportLanes.remove(lane) } else { reelExportLanes.insert(lane) } }   // tap a lane → toggle it in the export selection (none ⇒ master)
-    }
-    // EXPORT the recorded pass to SMF files (the A–D sum + per-emitter stems), then present a share sheet. (Paul 2026-08-18)
-    // EXPORT the selected pass RANGE × the selected emitter LANES (Paul 2026-08-26). No lane selected ⇒ the MASTER (A–D sum).
-    private func buildReelExport() {
-        let (lo, hi) = buildReelExportRange()
-        guard lo >= 0, hi >= 0 else { return }
-        var mask: UInt8 = 0; for l in reelExportLanes where l >= 0 && l < 4 { mask |= (1 << UInt8(l)) }
-        let files = au?.reelExportRangeFiles(fromPass: lo, toPass: hi, emitterMask: mask) ?? []
-        guard !files.isEmpty else { return }
-        let dir = FileManager.default.temporaryDirectory
-        var urls: [URL] = []
-        for f in files {
-            let url = dir.appendingPathComponent(f.name)
-            if (try? f.data.write(to: url)) != nil { urls.append(url) }
-        }
-        guard !urls.isEmpty else { return }
-        reelShareURLs = urls
-        reelShowShare = true
-    }
-    // The pass range to export/highlight: the [lo,hi] set by ◀/▶, else the single selected pass. (pass numbers)
-    private func buildReelExportRange() -> (Int, Int) {
-        if reelSelLoPass >= 0 && reelSelHiPass >= 0 { return (min(reelSelLoPass, reelSelHiPass), max(reelSelLoPass, reelSelHiPass)) }
-        return (reelSelPassNo, reelSelPassNo)
-    }
-    // Tap a pass: collapse the range to that single pass + select/replay it (the anchor drives the live roll + audition).
-    private func buildReelSelectPass(_ pass: Int) {
-        reelSelLoPass = pass; reelSelHiPass = pass; reelRangeCyc = 0
-        au?.reelSelectPass(pass)
-    }
-    // ◀/▶ EXTEND (Paul 2026-08-26): grow the selection's LEFT (dir<0) or RIGHT (dir>0) edge to the next recorded pass; the
-    // page follows so the growing edge stays visible; the roll refreshes to the whole concatenated range.
-    private func buildReelExtend(_ dir: Int) {
-        let visible = buildReelVisiblePasses()
-        guard !visible.isEmpty else { return }
-        if reelSelLoPass < 0 || reelSelHiPass < 0 {   // nothing yet → seed from the anchor / newest
-            let seed = reelSelPassNo >= 0 ? reelSelPassNo : (visible.last ?? -1)
-            reelSelLoPass = seed; reelSelHiPass = seed
-        }
-        if dir < 0 {
-            if let prev = visible.last(where: { $0 < min(reelSelLoPass, reelSelHiPass) }) { reelSelLoPass = prev; buildReelPageFor(prev, visible: visible) }
-        } else {
-            if let next = visible.first(where: { $0 > max(reelSelLoPass, reelSelHiPass) }) { reelSelHiPass = next; buildReelPageFor(next, visible: visible) }
-        }
-        buildReelRefreshRange()
-    }
-    private func buildReelPageFor(_ pass: Int, visible: [Int]) { if let idx = visible.firstIndex(of: pass) { reelPage = idx / 32 } }
-    // Recompute the displayed roll for the current range: multi-pass ⇒ the concatenated range roll (+ its total length);
-    // single ⇒ leave reelRangeCyc 0 so the poll drives reelRoll from the anchor pass.
-    private func buildReelRefreshRange() {
-        guard reelSelLoPass >= 0, reelSelHiPass >= 0 else { reelRangeCyc = 0; return }
-        let lo = min(reelSelLoPass, reelSelHiPass), hi = max(reelSelLoPass, reelSelHiPass)
-        if hi > lo, let r = au?.reelRangeRoll(fromPass: lo, toPass: hi) { reelRoll = r.notes; reelRangeCyc = r.cycle }
-        else { reelRangeCyc = 0 }
-    }
-    private var reelEffCycle: Double { reelRangeCyc > 0 ? reelRangeCyc : reelCycle }   // the roll's x-axis span: the range total, or the single pass length
 
     // The selected machine's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.
     // THE ONE machine hue, DERIVED FROM POSITION (Paul 2026-09-06). A bench focus (a ferry / part row) has no intrinsic
@@ -2416,13 +2111,6 @@ extension DiagView {
     var roomsSelectCategories: [(label: String, types: [ProcessorType])] {
         [("ARP", [.arp]), ("RIFF", [.riff]), ("PULSE", [.euclid, .ratchet, .cascade, .strum, .weave, .burst]), ("CC", [.mod])]
     }
-    private func buildGridSelCategoryTypes(_ c: Int) -> [ProcessorType] { roomsSelectCategories[max(0, min(roomsSelectCategories.count - 1, c))].types }
-    // Recompute the CURRENT category's matching library indices (an entry matches if its chain contains the category's
-    // processor). Called on a category change + when the library loads. Cheap O(lib) scan, cached in buildGridSelCatIndices.
-    func buildGridSelRecomputeCategory() {
-        let cats = buildGridSelCategoryTypes(buildGridSelPage)
-        buildGridSelCatIndices = buildGridSelLib.indices.filter { i in buildGridSelLib[i].types.contains { cats.contains($0) } }
-    }
     @ViewBuilder private func roomsSelectPage(_ r: Int) -> some View {
         let cat = r < roomsSelectCategories.count ? roomsSelectCategories[r].label : ""
         let selected = buildGridSelPage == r
@@ -2431,17 +2119,6 @@ extension DiagView {
             .overlay(Text(cat).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(selected ? .black : .white.opacity(0.75)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 1))
             .contentShape(Rectangle())
             .onTapGesture { if buildGridSelPage != r && r < roomsSelectCategories.count { buildGridSelSetPage(r) } }
-    }
-    // Switch the SELECT grid to a new CATEGORY: stop the transient audition, drop cell-copy overrides + the selection,
-    // set the category, recompute its matching library slice + the drifting faces.
-    private func buildGridSelSetPage(_ c: Int) {
-        buildGridSelStopAudition()
-        buildGridSelOverride = [:]; buildGridSelSel = nil
-        buildGridSelName.removeAll()                                    // committed names are index-keyed → stale after a page remap (Paul 2026-09-12)
-        buildGridSelLastSlot.removeAll()                                // page remaps index→chain → the last-viewed-slot memory is stale (Paul 2026-09-10)
-        buildGridSelPage = c
-        buildGridSelRecomputeCategory()
-        buildGridSelComputeCellRolls()
     }
     // THE GRID FOOTER (Paul 2026-09-08) — a row at the BOTTOM of each grid, mirroring the top ferry row at 2/3 its height,
     // spanning the MAIN BODY only (the interior columns, NOT the side rails: flanked by rail-width spacers). PLACEHOLDER for
@@ -4079,7 +3756,7 @@ extension DiagView {
                            performEmit: buildPerformEmit, performPart: buildPerformPart, performMute: buildPerformMute,
                            performStagingRow: buildPerformStagingRow, performLane: buildPerformLane, row8On: buildRow8On)
     }
-    private func buildRestoreScene(_ s: BuildSceneSnapshot) {
+    func buildRestoreScene(_ s: BuildSceneSnapshot) {
         buildPerformCells = s.performCells; buildPerformChain = s.performChain; buildPerformRecv = s.performRecv
         buildPerformEmit = s.performEmit; buildPerformPart = s.performPart; buildPerformMute = s.performMute
         buildPerformStagingRow = s.performStagingRow; buildPerformLane = s.performLane
@@ -4183,7 +3860,7 @@ extension DiagView {
     var buildCanUndo: Bool { !buildUndoStack.isEmpty }
     var buildCanRedo: Bool { !buildRedoStack.isEmpty }
 
-    private func buildPublishScene() {
+    func buildPublishScene() {
         // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the ACTIVE ferry plays via the STAGING sequencer, which composes
         // the LIVE bench each publish — so a selection/content edit is heard + swept at once, no flatten needed here. A
         // BACKGROUND ferry's play-layer line is (re)flattened only when it goes on / when it stops being the active one.
@@ -4309,10 +3986,10 @@ extension DiagView {
         return (0..<8).first { buildRowMachine($0) == id }
     }
     // PER-ROW I/O resolution (Paul 2026-08-18): a row's OWN door/emitters, or the part default when unset (nil).
-    private func buildRowReceiverResolved(_ r: Int) -> Int {
+    func buildRowReceiverResolved(_ r: Int) -> Int {
         ((r >= 0 && r < buildRowReceiver.count) ? buildRowReceiver[r] : nil) ?? buildSelReceiver
     }
-    private func buildRowEmittersResolved(_ r: Int) -> Set<Bus> {
+    func buildRowEmittersResolved(_ r: Int) -> Set<Bus> {
         let own = (r >= 0 && r < buildRowEmitters.count) ? buildRowEmitters[r] : nil
         if let own, !own.isEmpty { return own }
         return buildDefaultEmitters
@@ -4323,7 +4000,7 @@ extension DiagView {
     private func buildMachineSlots(_ cid: String) -> [ProcessorSlot] {
         buildMachineReg[cid] ?? (docMachines.first { $0.machineID == cid }?.templateChain ?? [])
     }
-    private func buildMachineChain(_ cid: String) -> [ProcessorSlot] {
+    func buildMachineChain(_ cid: String) -> [ProcessorSlot] {
         buildMachineSlots(cid).filter { !buildIsEmptySlot($0) }
     }
     // Write a machine's machine to the right store, and reflect it live.
@@ -4364,7 +4041,7 @@ extension DiagView {
         }
     }
     // The base hue of a machine (its override if any, else its palette hex).
-    private func buildBaseHex(_ id: String) -> UInt32 { machineHueOverride[id] ?? machineIDs.firstIndex(of: id).map { machineHexes[$0] } ?? 0x808080 }
+    func buildBaseHex(_ id: String) -> UInt32 { machineHueOverride[id] ?? machineIDs.firstIndex(of: id).map { machineHexes[$0] } ?? 0x808080 }
     // Every hue currently IN USE by a live machine: the materialised document machines + every ephemeral/recoloured
     // override. An UNASSIGNED canonical hex is NOT counted — so a new machine can claim a genuinely distinct
     // canonical hue rather than a near-shade of its source. (Paul 2026-08-17)
@@ -4886,7 +4563,7 @@ extension DiagView {
 
 
     // buildStagingTap RETIRED (Paul 2026-09-12 dead-code sweep — no caller; the part grid drives selection elsewhere).
-    private func buildRowMachine(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<Snap.maxCols).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe; §E: scan all 16 columns
+    func buildRowMachine(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<Snap.maxCols).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe; §E: scan all 16 columns
     private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one machine
         for c in 0..<Snap.maxCols { buildStagingCells[c][r] = cid }   // §E: fill the whole 16-col row (width governs view/play)
         if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the machine's OWN machine (no per-row variation override)
@@ -4991,7 +4668,7 @@ extension DiagView {
     // GRID REBUILD P2 (Paul 2026-09-08): the cell face is now the STATIC piano-roll RIBBON (GridSkin.roomsRibbonFace) —
     // no constellation, no drift, no blink, no per-cell TimelineView. The `playing`/`strikeIdx`/`live` params are kept
     // for call-site compatibility but ignored: cells are calm, and the ferry row carries the motion (its playhead/glow).
-    @ViewBuilder private func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool = false, strikeIdx: [Int] = [], live: Bool = false) -> some View {
+    @ViewBuilder func buildOutputFace(_ bars: [GridSelBar], tint: Color, playing: Bool = false, strikeIdx: [Int] = [], live: Bool = false) -> some View {
         roomsRibbonFace(bars, tint: tint)
     }
     @ViewBuilder private func buildNoteSweep(indices: [Int], active: Bool, id: String?, emitter: Set<Bus> = [.a]) -> some View {
@@ -6165,16 +5842,6 @@ extension DiagView {
 
 
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    // THE GRID SELECTOR (AcceptanceCriteria-grid-selector.md, ratified 2026-08-22) — a full-page 8×8 where each cell is
-    // a COMPLETE MIDI chain. Tap = audition it live against the current input (mutually-exclusive, quantized next-step,
-    // the deployed piece plays on); the RIGHT column shows the selected chain read-only; COMMIT overwrites the ARRIVAL
-    // row's chain (one undo), CANCEL restores. It rides the EXISTING chain-audition path (ddSolo + buildPublishScene)
-    // on ONE reusable transient ephemeral machine, so the document is untouched until COMMIT (non-destructive by
-    // construction). Banks v1: DEALT (Dice.rollEnsemble ×8 = 64 seeded chains, RE-DEAL) + MY LIBRARY (saved + factory
-    // cells). FACTORY-as-a-curated-bank + EXCLUSIVE-OFF layering are deferred (flagged for Paul). The reel records every
-    // audition for free (real emission). §6 governor: ordinary derivation, standing caps apply.
-    private var buildGridSelAudID: String { "gsAud" }   // the ONE reusable transient machine that carries the browsed chain
 
     func buildOpenGridSel() {
         buildGridSelArrivalRow = buildSelectedRow                        // FREEZE the arrival row (buildSelectedRow resolves live)
@@ -6211,49 +5878,6 @@ extension DiagView {
     }
     // Open it for the SELECT room only if it isn't already live (roomsPage drives this on room entry).
     func buildEnsureGridSelOpen() { if !buildGridSelOpen { buildOpenGridSel() } }
-    // DEALT — 64 seeded, replay-safe chains (8 archetypes × 8 re-rolls). rollEnsemble runs the offline Router many times,
-    // so generate OFF the main thread with a spinner (64 = 8× the grid-RANDOMIZE cost, too much to block on).
-    private func buildGridSelDeal() {
-        // §3.1 THE PREGEN CORPUS: once the pool exists, DEAL is INSTANT — a seeded shuffle drawing 64 (RE-DEAL bumps the
-        // seed → a fresh 64). While the corpus is still building, fall back to a fresh 64-roll so the first open isn't empty.
-        buildGridSelLastSlot.removeAll()                                // a re-deal remaps index→chain → drop the last-viewed-slot memory (Paul 2026-09-10)
-        // COMMITTED cells PERSIST across a re-deal (Paul 2026-09-12): their override pins the index, so DON'T clear
-        // buildGridSelName here — the background corpus upgrade re-deals, and wiping names made committed cells revert by themselves.
-        if !buildGridSelCorpus.isEmpty {
-            var rng = DiceRNG(seed: buildGridSelDealSeed)
-            buildGridSelDealt = Array(buildGridSelCorpus.shuffled(using: &rng).prefix(64))
-            buildGridSelComputeCellRolls()                               // the drifting note faces for the freshly-dealt 64
-            return
-        }
-        guard !buildGridSelGenerating else { return }                    // re-entrancy: one deal at a time (racing deals could land out of seed order)
-        buildGridSelGenerating = true
-        let seed = buildGridSelDealSeed
-        runOnLargeStack {                                                // large stack: rollEnsemble runs the offline Router many times
-            var rng = DiceRNG(seed: seed)
-            var out: [Dice.EnsembleRow] = []
-            for _ in 0..<8 { out.append(contentsOf: Dice.rollEnsemble(using: &rng)) }   // each call = 8 contrasting archetypes
-            DispatchQueue.main.async { self.buildGridSelDealt = out; self.buildGridSelGenerating = false; self.buildGridSelComputeCellRolls() }
-        }
-    }
-    // §3.1 build the corpus INCREMENTALLY on a low-priority background thread — a batch of 64 at a time, chaining until the
-    // target, so it never blocks and DEAL upgrades to the richer pool after each batch (the "background queue tops it up").
-    // Each batch is seeded by the offset ⇒ a stable, deterministic library per session (persisting to disk is a follow-up).
-    private func buildGridSelBuildCorpus() {
-        let target = 256
-        guard !buildGridSelCorpusBuilding, buildGridSelCorpus.count < target else { return }
-        buildGridSelCorpusBuilding = true
-        let have = buildGridSelCorpus.count
-        runOnLargeStack(qos: .utility) {                                 // large stack: rollCorpus runs the offline Router many times
-            var rng = DiceRNG(seed: 0xC0DE_5EED &+ UInt64(have))         // per-batch seed offset → deterministic, non-repeating
-            let batch = Dice.rollCorpus(count: 64, using: &rng)
-            DispatchQueue.main.async {
-                self.buildGridSelCorpus.append(contentsOf: batch)
-                self.buildGridSelCorpusBuilding = false
-                if self.buildGridSelOpen { self.buildGridSelDeal() }     // upgrade the shown 64 to the growing pool
-                if self.buildGridSelCorpus.count < target { self.buildGridSelBuildCorpus() }   // top up
-            }
-        }
-    }
     // NEW INTERFACE — SELECT cell-to-cell COPY: stamp the active source onto grid cell i as a NEW in-memory INSTANCE
     // (a fresh hue), never overwriting the saved library; the copied cell then becomes the active/selected cell. (Paul 2026-08-28)
     func roomsCopyToSelectCell(_ i: Int) {
@@ -6265,52 +5889,12 @@ extension DiagView {
         buildGridSelAudition(i)                                         // the copied cell becomes the active/selected cell + auditions
     }
 
-    // Resolve a cell's chain + register + hue. DEALT reads memory; MY LIBRARY loads the cell from disk (TAP/COMMIT only,
-    // never per render — the cell FACE uses the cheap in-memory key hash instead).
-    private func buildGridSelChainAt(_ i: Int) -> (chain: [ProcessorSlot], transpose: Int, hex: UInt32)? {
-        if let ov = buildGridSelOverride[i] { return (ov.chain, 0, ov.hex) }   // NEW INTERFACE: a cell-to-cell COPY instance wins over the bank (Paul 2026-08-28)
-        if buildGridSelTab == 0 {
-            guard i >= 0 && i < buildGridSelDealt.count else { return nil }
-            let e = buildGridSelDealt[i]
-            return (e.chain, e.transpose, machineHexes[((i % 8) * 2) % 16])
-        } else {
-            guard i >= 0 && i < buildGridSelCatIndices.count else { return nil }   // CATEGORY: grid position i → the i-th library entry in the current category
-            let L = buildGridSelCatIndices[i]
-            guard L >= 0 && L < buildGridSelLib.count else { return nil }
-            let name = buildGridSelLib[L].name
-            // Resolve by SECTION, not by name — a saved cell may share a factory cell's name (saved rows are [0, factoryFrom)).
-            let cell = L >= buildGridSelLibFactoryFrom ? au?.factoryLibraryCell(name: name) : au?.loadLibraryCell(name: name)
-            return (cell?.processors ?? [], 0, machineHexes[i % 16])       // hue position-based
-        }
-    }
-    private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelOverride[i] != nil || (buildGridSelTab == 0 ? i < buildGridSelDealt.count : i < buildGridSelCatIndices.count) }   // a cell-to-cell COPY makes an empty position present too (Paul 2026-08-28); library filtered by CATEGORY (2026-08-29)
-    private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelOverride[i]?.hex ?? (buildGridSelTab == 0 ? machineHexes[((i % 8) * 2) % 16] : machineHexes[i % 16]) }
 
-    // AUDITION — register the browsed chain on the ONE transient machine, select it, and drive the existing chain-voice
-    // path: turn the chain voice ON (quantized) if not already, else swap which chain (quantized). Piece plays on.
-    private func buildGridSelAudition(_ i: Int) {
-        guard let hit = buildGridSelChainAt(i) else { return }
-        buildGridSelStampSourceRow = nil                                 // a library CELL is now the active source → clear the active side button (mutual exclusivity; no-op in old BUILD)
-        buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i)   // a DEALT/LIBRARY cell — its index is the commit source
-    }
-    // A select-grid TAP: SELECT MODE focuses the cell into the machine (no play/stop); else it auditions. (Paul 2026-08-31)
-    private func buildGridSelTapCell(_ i: Int) {
-        guard buildGridSelPresent(i) else { return }
-        // Paul 2026-09-05: a NEW select-grid cell after a PART promote starts with NULL I/O + all-8-pulsing (silent until wired).
-        if buildPartJustPromoted { buildPartJustPromoted = false; buildIONullPending = true }
-        if buildSelectMode { buildGridSelFocus(i); buildSelectMode = false } else { buildGridSelAudition(i) }   // SELECT ends after one pick (Paul 2026-08-31)
-    }
-    // FOCUS ONLY (SELECT mode): load the cell into the machine + select it, but DON'T start/swap the audition voice. (Paul 2026-08-31)
-    private func buildGridSelFocus(_ i: Int) {
-        guard let hit = buildGridSelChainAt(i) else { return }
-        buildGridSelStampSourceRow = nil
-        buildGridSelLoadChain(hit.chain, transpose: hit.transpose, hex: hit.hex, sel: i, play: false)
-    }
     // THE MOST IMPACTFUL PROCESSOR (Paul 2026-09-10): when a chain is chosen (or defaulted) on the SELECT grid, the
     // processor card defaults to whichever slot carries the most impact — a note-generating DRIVER (arp/riff/…) wins over
     // a harmony/dynamics shaper, which wins over a utility/routing stage. Skips bypassed slots; nil for an empty/all-util
     // chain (→ the card shows its invitation). Ranking mirrors isDriverType's spirit (drivers first).
-    private func buildImpactRank(_ t: ProcessorType) -> Int {
+    func buildImpactRank(_ t: ProcessorType) -> Int {
         switch t {
         case .arp, .riff:                                                    return 100   // the headline drivers (Paul's examples)
         case .ratchet, .strum, .euclid, .burst, .cascade, .weave, .hocket:  return 90    // other note-generating drivers
@@ -6321,75 +5905,6 @@ extension DiagView {
         default:                                                           return 20    // octave/transpose/channel/nudge/dest/muteMatrix/tap/passgate — utility & routing
         }
     }
-    private func buildMostImpactfulSlot(_ chain: [ProcessorSlot]) -> Int? {
-        var best: Int? = nil; var bestRank = Int.min
-        for (i, s) in chain.enumerated() where !s.bypassed {
-            let r = buildImpactRank(s.type)
-            if r > bestRank { bestRank = r; best = i }                       // first slot wins ties → earliest-in-chain
-        }
-        return best
-    }
-    // Load a chain onto the ONE transient audition machine, select it, and drive the chain voice (quantized). Shared by a
-    // cell audition (sel = the cell index → the commit source) and a ROW press (sel = nil → a view/hear of that part's chain).
-    private func buildGridSelLoadChain(_ raw: [ProcessorSlot], transpose: Int, hex: UInt32, sel: Int?, play: Bool = true) {
-        if let prev = buildGridSelSel, prev != sel, let s = buildEditSlot { buildGridSelLastSlot[prev] = s }   // REMEMBER the last processor viewed on the cell we're leaving (Paul 2026-09-10)
-        buildGridSelSel = sel
-        buildGridSelActiveRoll = gridSelRollBars(raw)                     // the piano-roll shown on the cell + the right column
-        // BAKE the register home into the CHAIN (a leading TRANSPOSE utility) rather than the ephemeral machine's transpose:
-        // the chain is baked into the published scene + swapped atomically at the STEP boundary, whereas the machine's
-        // transpose is re-resolved on every rebuild — so an ephemeral transpose would jump the still-sounding old chain a
-        // step early on a quantized swap. This keeps the whole swap quantized. (transpose stays 0 on the transient machine.)
-        var chain = raw
-        if transpose != 0 { var t = ProcessorSlot(type: .transpose); t.params.utilTranspose = max(-24, min(24, transpose)); chain.insert(t, at: 0) }
-        buildMachineReg[buildGridSelAudID] = chain
-        machineHueOverride[buildGridSelAudID] = hex
-        buildMachineTranspose[buildGridSelAudID] = 0
-        buildSyncMachines()
-        buildSelID = buildGridSelAudID; ddMachineSel = -1                  // ddSelectedMachineID now returns the transient
-        // THE PROCESSOR CARD (Paul 2026-09-10): RETURNING to a cell re-opens the LAST processor viewed there; a first visit
-        // defaults to the most impactful stage of the chain (arp/riff …) — either way the card lands on a processor, not the
-        // empty invitation. (The stored slot is guarded against a chain that changed length under it.)
-        if let s = sel, let last = buildGridSelLastSlot[s], last < chain.count { buildEditSlot = last }
-        else { buildEditSlot = buildMostImpactfulSlot(chain) }
-        buildAddSlot = nil; buildStageEye = false
-        guard play else { return }                                        // FOCUS ONLY (SELECT mode): shown in the machine, voice untouched (Paul 2026-08-31)
-        let instant = !buildGridSelQuantStep || !d.playing
-        if !ddSolo {                                                       // chain voice OFF → turn it on
-            if instant { buildPendingWorkshopVoice = nil; buildPendingReengage = false; buildSelectMachineVoice() }   // now (+ drop any stale arm)
-            else { buildPendingWorkshopVoice = .chain }                   // quantized: commit on the next d.absoluteStep boundary
-        } else {                                                          // already the voice → swap the chain
-            if instant { buildPendingReengage = false; buildPublishScene() } else { buildPendingReengage = true }
-        }
-    }
-    // Stop the transient audition but KEEP the browser open (tab-switch / RE-DEAL): silence the chain voice, reap the
-    // transient, and re-select the pre-open machine so nothing is stranded. The deployed piece plays on.
-    private func buildGridSelStopAudition() {
-        buildFerryMirrorRow = nil                                        // stop mirroring — the transient is being reaped
-        guard buildGridSelSel != nil || ddSolo || buildPendingWorkshopVoice != nil || buildPendingReengage else { return }
-        buildGridSelSel = nil; buildGridSelActiveRoll = []
-        buildPendingWorkshopVoice = nil; buildPendingReengage = false
-        buildMachineReg[buildGridSelAudID] = nil; machineHueOverride[buildGridSelAudID] = nil; buildMachineTranspose[buildGridSelAudID] = nil
-        if buildVoiceOwner == .chain { buildVoiceOwner = .none }
-        buildSelID = buildGridSelPriorSel; ddMachineSel = machineIDs.firstIndex(of: buildGridSelPriorSel ?? "") ?? -1
-        au?.clearMachineSolo(); buildSyncMachines(); buildPublishScene()
-    }
-    // HOLD-TO-STAMP (Paul 2026-08-26): while a browse CELL auditions, HOLDING a part-row stamps the auditioning chain onto
-    // that row — KEEPING the row's own machine — WITHOUT closing the browser (so you can stamp one machine onto several
-    // parts). A populated row keeps its hue + register (chain overwritten); an empty row mints a machine carrying the chain.
-    // The active STAMP SOURCE — one of two (mutually exclusive, "one thing is active"): a browse CELL
-    // (buildGridSelSel, SELECT library) or an active SIDE BUTTON's populated part row (buildGridSelStampSourceRow).
-    // This is what a long-press copy stamps. (Paul 2026-08-28)
-    private func buildGridSelStampSource() -> (chain: [ProcessorSlot], transpose: Int)? {
-        // Resolve the three candidates from @State, then defer to the pure, unit-tested priority (roomsStampSource):
-        // the live audition (gsAud) holds card EDITS — on SELECT BOTH a browse cell AND an aimed side button load + edit
-        // it (buildSelID == gsAud), so it wins (register home baked → transpose 0). PART edits the REAL machine instead
-        // (buildSelID != gsAud there → falls through to the browse cell / side row, which already reflects the edit).
-        // (BUG 2026-08-29: the old code read buildGridSelChainAt/buildMachineChain = the ORIGINAL, dropping edits.)
-        roomsStampSource(
-            auditionEdited: buildSelID == buildGridSelAudID ? buildMachineReg[buildGridSelAudID] : nil,
-            libraryCell: buildGridSelSel.flatMap { buildGridSelChainAt($0) }.map { ($0.chain, $0.transpose) },
-            sideRow: buildGridSelStampSourceRow.flatMap { s in buildRowMachine(s).map { (buildMachineChain($0), buildMachineTranspose[$0] ?? 0) } })
-    }
     // Make the side button the ONE active source (clear the library-cell source) — "one thing is active". (Paul 2026-08-28)
     private func buildRoomsSetActiveSide(_ n: Int) {
         if n != buildRowGenConfirm?.row { buildRowGenConfirm = nil }   // focusing a DIFFERENT row drops any pending KEEP|TRY-AGAIN (never sticks) — Paul 2026-09-11
@@ -6397,118 +5912,11 @@ extension DiagView {
     }
     // buildGridSelStampCommit (the ferry/rail long-press capture-into-mirror) is RETIRED (Paul 2026-09-12 — ferry drag-and-drop).
 
-    @ViewBuilder private func buildGridSelCell(_ i: Int, w: CGFloat, h: CGFloat, greyUnlessSel: Bool = false, vPad: CGFloat = 3) -> some View {
-        let present = buildGridSelPresent(i)
-        let hue = Color(hex: buildGridSelCellHex(i))
-        let sel = buildGridSelSel == i
-        // COMMITTED (Paul 2026-09-12): a cell that's been edited + named wears the SELECTED colour (not grey) + shows its hash
-        // name — even when not the current audition. It overrides the grey-unless-selected treatment below.
-        let committed = greyUnlessSel && buildGridSelName[i] != nil
-        // greyUnlessSel (SELECT grid, Paul 2026-08-29): an unselected present cell is a DARK-GREY button with a LIGHT-GREY
-        // piano roll; only the SELECTED cell wears its chain's machine + white roll. Else (old grid selector) = coloured.
-        let unselGrey = greyUnlessSel && !sel && !committed
-        // SELECT grid (greyUnlessSel): the PLAYING (selected) cell is ONE machine — the INVERSE of the unselected dark-grey
-        // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
-        let selGrey = greyUnlessSel && sel && !committed
-        let fill = present ? (sel ? (selGrey ? buildSelectGrey : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)   // selGrey ALTERNATES two bright shades per selection (matches the machine box; Paul 2026-09-01)
-        let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
-        // TASTEFUL CHEQUER (Paul 2026-08-31): the SELECT grid reads as a BOARD — a faint two-tone parity wash on every
-        // non-selected cell (the classic chessboard), subtle enough not to fight the roll. SELECT grid only (greyUnlessSel);
-        // the bright selected/focus cell stays clean.
-        let chequer = greyUnlessSel && !sel && !committed && ((i / 8 + i % 8) % 2 == 0)
-        ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(fill)
-            if chequer { RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)) }   // the lighter square of the board
-            if present && !committed {   // the piano-roll face — shown UNTIL the cell is committed, then REPLACED by its name (Paul 2026-09-12)
-                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint, strikeIdx: sel ? (buildChainAuditionRow.map { [$0] } ?? []) : [])
-                    .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
-            }
-            if committed, let nm = buildGridSelName[i] {   // the generated hash name, REPLACING the roll on a committed cell (Paul 2026-09-12)
-                Text(nm).font(.system(size: min(11, h * 0.4), weight: .heavy, design: .monospaced)).tracking(0.5)
-                    .foregroundColor(.black.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
-                    .shadow(color: .white.opacity(0.25), radius: 1)
-            }
-            if sel {       // THE ACTIVE CELL — a STATIC strong frame (Paul 2026-09-08: was a breathing strobe)
-                RoundedRectangle(cornerRadius: 6).stroke(selGrey ? Color.black : Color.white, lineWidth: 3)
-            }
-            if buildSelectMode && present { RoundedRectangle(cornerRadius: 6).stroke(Color.white, lineWidth: 2.5) }   // SELECT MODE: every cell lights white — tap to focus (Paul 2026-08-31)
-        }
-        .frame(width: w, height: h)
-        .contentShape(Rectangle())
-        .onTapGesture { buildGridSelTapCell(i) }   // SELECT mode focuses; else auditions
-    }
-    // THE SELECT-CELL PIANO ROLL (Paul 2026-08-31 — replaces the looping drift on the SELECT grid CELLS only; the ferries
-    // keep buildGridSelDriftFace/buildNoteSweep). A PRECISE one-frame piano roll of the chain's real output (gridSelRollBars
-    // = an offline render → each note's start · LENGTH (x0→x1 = bar width) · PITCH lane · VELOCITY (opacity)). STATIC at the
-    // real note positions when idle; when the cell is auditioning it SCROLLS LEFT→RIGHT, beat-locked to the music (the same
-    // extrapolated beat the cell playheads use). Same machine scheme (the caller's `tint`).
-    @ViewBuilder private func buildGridSelPianoRoll(_ bars: [GridSelBar], playing: Bool, tint: Color, strikeIdx: [Int] = []) -> some View {
-        buildOutputFace(bars, tint: tint, playing: playing, strikeIdx: strikeIdx)   // SELECT face = the unified expected-output constellation (Paul 2026-09-05 v2)
-    }
-    // THE DRIFTING NOTE FACE (Paul 2026-08-26): notes scroll RIGHT→LEFT, looping — the same aesthetic as the part/play grid
-    // cells (buildNoteSweep). Every present cell + row selector wears its chain's fingerprint drifting across it (a browse
-    // preview: you can't run 64 live voices, so each cell loops its chain's note pattern). Opacity by velocity.
-    @ViewBuilder private func buildGridSelDriftFace(_ bars: [GridSelBar], animated: Bool, period: Double = 2.4, tint: Color = .white) -> some View {
-        buildOutputFace(bars, tint: tint, playing: animated)   // Paul 2026-09-05 v2: the row selectors wear the SAME constellation as the cells (was drifting bars)
-    }
-    // Compute the drifting-note fingerprint for every present cell of the CURRENT tab, off the main thread (64× gridSelRollBars
-    // is too much to block on — the same reason DEAL is backgrounded). A generation token discards a batch if the deal/tab
-    // changed under it. Chains are gathered on the main thread first (library resolves via `au`), then bars computed pure.
-    private func buildGridSelComputeCellRolls() {
-        buildGridSelRollGen &+= 1
-        let gen = buildGridSelRollGen
-        var chains: [(Int, [ProcessorSlot])] = []
-        for i in 0..<64 where buildGridSelPresent(i) { if let hit = buildGridSelChainAt(i) { chains.append((i, hit.chain)) } }
-        // Paul 2026-09-05: do NOT clear the cache here — keep the old faces until the new ones are ready, else every cell
-        // blanks in the async gap ("goes blank then redraws"). The gen guard + full-dict swap below replace them atomically.
-        runOnLargeStack {                                                // large stack: gridSelRollBars → Dice.runRecorder (deep Router eval) ×64
-            var out: [Int: [GridSelBar]] = [:]
-            for (i, chain) in chains { out[i] = gridSelRollBars(chain) }
-            DispatchQueue.main.async { if self.buildGridSelRollGen == gen { self.buildGridSelCellRoll = out } }
-        }
-    }
     private var buildGridSelStampDur: Double { 0.65 }   // still LIVE: the SELECT cell→cell long-press copy (roomsCopyToSelectCell)
-    // buildGridSelStampPressing / buildGridSelStampFire / buildGridSelStampSweep (the ferry+rail long-press copy gesture,
-    // its rising-fill + commit-bloom animation) are RETIRED (Paul 2026-09-12) — superseded by ferry drag-and-drop.
-    private func buildGridSelAimRow(_ n: Int) {
-        buildGridSelArrivalRow = n
-        buildSelReceiver = buildRowReceiverResolved(n)                    // the audition plays through the AIMED part's door + emitters (so the MIDI-IN/OUT chips reflect it)
-        buildPartEmitters = buildRowEmittersResolved(n)
-        receivers = au?.uiReceivers() ?? receivers
-        // LOAD the pressed part's own chain into the MIDI CHAIN panel + audition it (Paul 2026-08-26). sel = nil → it's a
-        // view/hear of what's on the row, not a commit source (re-deal or tap a cell to change it). Empty row → clear.
-        if let cid = buildRowMachine(n) {
-            buildFerryMirrorRow = n                                       // a POPULATED ferry aim MIRRORS this row: card edits on gsAud write straight back to it (Paul 2026-08-30)
-            buildGridSelLoadChain(buildMachineChain(cid), transpose: buildMachineTranspose[cid] ?? 0, hex: buildBaseHex(cid), sel: nil)
-        } else {
-            buildFerryMirrorRow = nil                                     // empty row → no mirror target
-            buildGridSelStopAudition()                                    // empty part → nothing to load; silence the transient
-        }
-    }
     // The selected chain as compact read-only processor boxes (the transient gsAud machine, minus the register-home transpose).
 }
 
-// One note of a GRID SELECTOR chain's piano-roll fingerprint — normalized 0…1 (x = time, y = pitch, w = gate).
-struct GridSelBar: Equatable { let x0: Double; let x1: Double; let y: Double; let vel: Double }
 
-// The piano-roll fingerprint of a chain: an OFFLINE render (Dice.runRecorder vs a standard chord) → its emitter-A notes
-// as normalized bars. Pure + Foundation-only, so it runs off the main thread during a deal. Empty for a silent chain.
-func gridSelRollBars(_ chain: [ProcessorSlot]) -> [GridSelBar] {
-    let rec = Dice.runRecorder(chain)
-    let ons = rec.ons.filter { $0.cable == 1 }
-    guard !ons.isEmpty else { return [] }
-    let notes = ons.map { Int($0.note) }
-    let lo = notes.min()!, hi = notes.max()!, span = max(1, hi - lo)
-    let maxS = Double(max(Int64(1), max(ons.map { $0.sample }.max() ?? 1, rec.offs.map { $0.sample }.max() ?? 1)))
-    var bars: [GridSelBar] = []
-    for on in ons {
-        let off = rec.offs.filter { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }.map { $0.sample }.min()
-        let x0 = Double(on.sample) / maxS
-        let x1 = off.map { Double($0) / maxS } ?? min(1.0, x0 + 0.05)
-        bars.append(GridSelBar(x0: x0, x1: max(x0 + 0.02, min(1.0, x1)), y: 1.0 - Double(Int(on.note) - lo) / Double(span), vel: Double(on.vel) / 127.0))
-    }
-    return bars
-}
 
 // A share sheet for the REEL-TO-REEL export (SMF files). (Paul 2026-08-18)
 struct ReelShareSheet: UIViewControllerRepresentable {
