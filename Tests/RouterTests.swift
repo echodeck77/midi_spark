@@ -4374,6 +4374,35 @@ final class RouterTests: XCTestCase {
         XCTAssertNotEqual(full.events, normalOnly.events, "the IGNORE mask matters — ignoring dotted+triplet sweeps a different ladder")
         XCTAssertEqual(normalOnly.events, runLFO([ParamLFO(target: "arpRate", shape: .square, period: .r1, from: 0, to: 17, rateIgnore: 0b110)]).events, "replay-exact (beat-derived)")
     }
+    // RANDOM SAFETY (Paul 2026-09-16 — device "no audio shortly after RANDOM"): RANDOM writes a fresh rolled chain onto a
+    // machine that may be SOUNDING. Swapping through every archetype's rolled chain while a FAT chord is held must never
+    // leave a stuck note (the "no audio" symptom = a held note the synth never releases) or a leaked voice after the flush.
+    func testRandomRollChainSwapUnderFatChordNeverSticks() {
+        var rng = DiceRNG(seed: 0xBADA55)
+        let fat = chord([36, 40, 43, 47, 50, 53, 55, 60, 64, 67])   // a fat 10-note held chord (a big live input)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func windows(_ chain: [ProcessorSlot], _ n: Int) {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = chain; return c }() }
+            for _ in 0..<n {
+                router.process(box: b, pool: fat, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+        }
+        for a in Dice.Archetype.allCases {                       // simulate repeated RANDOM presses mid-play
+            let chain = Dice.rollArchetype(a, using: &rng).chain
+            if !chain.isEmpty { windows(chain, 5) }
+        }
+        let stop = box(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }) { _ in }
+        router.process(box: stop, pool: fat, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop → flush
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(router.quiescent, "swapping through every rolled archetype under a fat chord leaves no stuck voice")
+    }
     // RANDOM ANCHOR (Paul 2026-08-25 fix): on a FREE index, RANDOM ANCHOR LOW opens each pool cycle (span ticks) on the
     // LOWEST held note, then the rest shuffle — NOT a stream of the low note (the RETRIG per-column reset used to pedal it).
     func testRandomAnchorOpensEachPoolCycleThenShuffles() {
