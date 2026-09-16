@@ -284,6 +284,7 @@ struct MachineParams: Codable, Equatable {
     var modRate: ModRate? = .r2         // LFO PERIOD (beats per cycle) — SHAPE · STEPS (steps span one period)
     var modSpan: PatternSpan? = nil     // SHAPE: CELL (the modRate period, default) | ROW (one cycle spans the whole bar) — Paul 2026-08-19
     var modStepSpan: ModStepSpan? = nil // STEPS: PERIOD (rate period, default) | ROW | ROW×2 | ROW×4 (16/32 breakpoints) — Paul 2026-08-20
+    var modStepSpanN: Int? = nil        // DURATION as GRID STEPS (Paul 2026-09-16): 1·2·3·4·6·8·×2·×4·×8 (16/32/64), via spanLadderBeats — the arp-LFO duration model. nil ⇒ use modRate/modSpan (byte-identical). Supersedes modSpan/modStepSpan for display.
     var modFollow: ModFollow? = .register   // FOLLOW: which sounding property drives the CC
     var modSteps: [Int]? = nil          // STEPS: 8 values 0…127 (nil → a rising staircase)
     var modSmooth: Bool? = true         // STEPS: SMOOTH (interpolate) vs STEP (hold)

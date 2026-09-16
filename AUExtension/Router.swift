@@ -2703,6 +2703,7 @@ final class Router {
     // 1/2/4 bars. Shared by the CC emit path and the §2 internal-target sampler.
     private func modPeriodBeats(_ p: SnapParams, box: SnapshotBox) -> Double {
         let bar = Double(Snap.cols) * box.stepBeats
+        if p.modStepSpanN > 0 { return max(0.03125, spanLadderBeats(p.modStepSpanN, S: box.stepBeats, row: bar)) }   // GRID STEPS duration (Paul 2026-09-16, the arp-LFO ladder) — supersedes modRate/modSpan when set
         if p.modSource == .steps {
             switch p.modStepSpan {
             case .period: return max(0.03125, p.modRate.periodBeats)

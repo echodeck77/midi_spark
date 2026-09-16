@@ -3647,6 +3647,25 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.isEmpty, "a MOD cell sounds NO notes")
         assertNothingLeftSounding(e)
     }
+    // MOD DURATION as GRID STEPS (Paul 2026-09-16, arp-LFO anatomy): modStepSpanN drives the LFO period via spanLadderBeats;
+    // nil/0 ⇒ modRate (byte-identical). A different span ⇒ a different sweep, so the value sequence differs.
+    func testModStepSpanNDurationDrivesThePeriod() {
+        let cs = arpMachines()
+        func vals(_ setup: (inout MachineParams) -> Void) -> [UInt8] {
+            var mod = ProcessorSlot(type: .mod)
+            mod.params.modCC = 74; mod.params.modShape = .ramp; mod.params.modRate = .r1
+            setup(&mod.params)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+            return modCC74Events(e).map { $0.vel }
+        }
+        let baseline = vals { _ in }                       // modStepSpanN nil ⇒ period = modRate (.r1)
+        let gridFast = vals { $0.modStepSpanN = 1 }        // 1 grid step ⇒ a shorter period → a faster ramp
+        let gridSlow = vals { $0.modStepSpanN = 64 }       // ×8 bars ⇒ a much longer period
+        XCTAssertGreaterThan(baseline.count, 0, "the MOD cell emits CC")
+        XCTAssertNotEqual(gridFast, baseline, "GRID STEPS 1 changes the LFO period vs modRate")
+        XCTAssertNotEqual(gridSlow, gridFast, "the ×8-bar span sweeps far slower than a 1-step span")
+    }
     // FREE / THE LFO CELL (design-cc-stage §16, Paul 2026-09-09): a FREE MOD cell speaks EVERY window regardless of the
     // playhead. Placed in COLUMN 3 and run only within column 0's window, a schedule-gated (CELL) MOD is silent (never
     // active), but a FREE MOD emits — the grid as a mod-matrix.

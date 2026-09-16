@@ -586,6 +586,7 @@ enum SnapshotBuilder {
         // MIGRATE the old cell|row STEPS span onto modStepSpan when unset: row→ROW, cell→PERIOD (both 8 steps → byte-
         // identical). A doc that never touched STEPS is unaffected (modStepSpan only reshapes the STEPS source).
         if let v = p.modStepSpan { out.modStepSpan = v } else { out.modStepSpan = (out.modSpan == .row) ? .row : .period }
+        out.modStepSpanN = max(0, min(64, p.modStepSpanN ?? 0))   // GRID STEPS duration (Paul 2026-09-16); 0 = use modRate/modSpan
         if let v = p.modMin { out.modMin = clamp(v, 0, 127) }
         if let v = p.modMax { out.modMax = clamp(v, 0, 127) }
         if let v = p.modReset { out.modReset = v }

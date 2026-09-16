@@ -739,12 +739,24 @@ struct ProcessorBox: View {
             heroField("FEEL  \(Int((p.spread ?? 0.5) * 100))%") {
                 slider(bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1) }
         })
-        case .mod: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {      // CC GENERATOR / CC-stage §1 — a SOURCE spine (row 2 reshapes) + a universal TARGET/RANGE (row 3)
+        case .mod: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {      // CC GENERATOR — arp-LFO anatomy (Paul 2026-09-16): FROM · TO (+ live marker) · WAVE/DURATION/source rows · TARGET
             let src = p.modSource ?? .shape    // source set by the storefront card — no in-editor radio (Paul 2026-08-22)
+            let lo = p.modMin ?? 0, hi = p.modMax ?? 127
+            // FROM / TO — the value endpoints (ALL sources), with a live dim marker tracking the current CC output. MOD is
+            // standalone so these are its OWN authored min/max (no two-views / no seed reset); MIN>MAX still inverts.
+            TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !clockPlaying)) { tl in
+                let live = modLiveCC(date: tl.date)
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                    modEndpointSlider("FROM  \(lo)", lo, live: live) { v in setParam { $0.modMin = v } }
+                    modEndpointSlider("TO  \(hi)\(lo > hi ? "  (inv)" : "")", hi, live: live) { v in setParam { $0.modMax = v } }
+                }
+            }
             switch src {
             case .shape:
                 heroField("WAVE") { iconSeg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue, glyph: { i, t in waveGlyph(ModShape.allCases[i], t) }) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
-                field("CYCLE  (beats / cycle)", \.modRate) { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } }
+                modDurationControl()                              // DURATION — GRID STEPS · FIXED SUBDIVISION (the arp-LFO control), replaces CYCLE + SPAN
+                let ph = Int(((p.modPhase ?? 0) * 360).rounded())   // §14② PHASE offset 0–360°
+                field("PHASE  \(ph)°", \.modPhase) { slider(bind(p.modPhase ?? 0) { v in setParam { $0.modPhase = v } }, in: 0...1) }
             case .follow:
                 field("LISTEN TO", \.modFollow) { seg(ModFollow.allCases.map(\.rawValue), sel: (p.modFollow ?? .register).rawValue) { i in setParam { $0.modFollow = ModFollow.allCases[i] } } }
             case .steps:
@@ -754,7 +766,7 @@ struct ProcessorBox: View {
                 let shown = (0..<n).map { i -> Int in let s = p.modSteps ?? base; return s[i % s.count] }   // pad the stored steps to N for drawing
                 heroField("STEPS  (drag to draw · \(n))") { sliderLane(shown, count: n, eFill: true) { i, v in
                     setParam { var s = $0.modSteps ?? base; let orig = s; while s.count < n { s.append(orig[s.count % orig.count]) }; s[i] = v; $0.modSteps = s } } }
-                field("SPAN", \.modStepSpan) { seg(ModStepSpan.allCases.map(\.rawValue), sel: sspan.rawValue) { i in setParam { $0.modStepSpan = ModStepSpan.allCases[i] } } }   // PERIOD (rate) · ROW · ROW×2 · ROW×4 (16/32 breakpoints)
+                field("SPAN", \.modStepSpan) { seg(ModStepSpan.allCases.map(\.rawValue), sel: sspan.rawValue) { i in setParam { $0.modStepSpan = ModStepSpan.allCases[i] } } }   // STEPS keeps its coupled step-span (PERIOD/ROW/×2/×4)
                 if sspan == .period { field("CYCLE  (beats / cycle)", \.modRate) { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } } }   // the rate period only drives PERIOD span
                 field("GLIDE", \.modSmooth) { seg(["SMOOTH", "STEP"], sel: (p.modSmooth ?? true) ? "SMOOTH" : "STEP") { i in setParam { $0.modSmooth = (i == 0) } } }
             case .strike:
@@ -767,12 +779,6 @@ struct ProcessorBox: View {
                 field("FROM CC", \.modExternCC) { numPair(ec, 0...127, format: { ccLabelText($0) }) { v in setParam { $0.modExternCC = v } } }
                 let em = p.modExternMode ?? .reEmit    // §6: RE-EMIT (re-range) | SCALE (the wheel scales the SHAPE's depth)
                 field("MODE", \.modExternMode) { seg(["RE-EMIT", "SCALE"], sel: em == .scale ? "SCALE" : "RE-EMIT") { i in setParam { $0.modExternMode = (i == 1) ? .scale : .reEmit } } }
-            }
-            if src == .shape {                                     // SHAPE keeps CELL|ROW; STEPS has its own 4-way SPAN above
-                let mspan = p.modSpan ?? .cell
-                field("SPAN", \.modSpan) { seg(["CELL", "ROW"], sel: mspan == .row ? "ROW" : "CELL") { i in setParam { $0.modSpan = (i == 1) ? .row : .cell } } }   // CELL = the CYCLE period · ROW = one cycle spans the bar
-                let ph = Int(((p.modPhase ?? 0) * 360).rounded())   // §14② PHASE offset 0–360°
-                field("PHASE  \(ph)°", \.modPhase) { slider(bind(p.modPhase ?? 0) { v in setParam { $0.modPhase = v } }, in: 0...1) }
             }
             let target = p.modTarget ?? .cc
             sectionLabel("TARGET")
@@ -793,11 +799,7 @@ struct ProcessorBox: View {
                     }
                 }
             }
-            let lo = p.modMin ?? 0, hi = p.modMax ?? 127
-            row2({ field("MIN  \(lo)", \.modMin) {
-                slider(bind(Double(lo)) { v in setParam { $0.modMin = Int(v.rounded()) } }, in: 0...127) } },
-                 { field("MAX  \(hi)\(lo > hi ? "  (inv)" : "")", \.modMax) {
-                slider(bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127) } })
+            // (MIN/MAX moved to the FROM/TO endpoints at the TOP — Paul 2026-09-16 arp-LFO anatomy.)
             field("ON EXIT", \.modReset) { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
             let q = p.modQuantize ?? 0                             // §14① QUANTIZE — snap the output to N levels
             field("QUANTIZE", \.modQuantize) { numPair(q, 0...32, format: { $0 <= 1 ? "OFF" : "\($0) LVL" }) { v in setParam { $0.modQuantize = v } } }
@@ -1686,6 +1688,69 @@ struct ProcessorBox: View {
         default:
             lfoSlider(value, (target == "rtcChance") ? 0...1 : 0.05...1, lfo: lfo, set)   // gate / chord-len / chance
         }
+    }
+    // ── MOD editor (arp-LFO anatomy, Paul 2026-09-16) — the FROM/TO endpoint slider + a live CC marker + the DURATION control.
+    // A FROM/TO endpoint as a 0…127 slider with a dim live tick at the current CC value (nil ⇒ no marker: stopped, or a
+    // source whose value the editor can't derive — FOLLOW/EXTERN/STRIKE depend on the live pool / incoming CC / column entry).
+    private func modEndpointSlider(_ label: String, _ value: Int, live: Int?, _ set: @escaping (Int) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                Spacer(minLength: 0)
+                if let live { Text("♪ \(live)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)) }
+            }
+            ZStack(alignment: .leading) {
+                slider(bind(Double(value) / 127) { set(Int(($0 * 127).rounded())) }, in: 0...1)
+                GeometryReader { g in
+                    if let live { Rectangle().fill(Color.white.opacity(0.4)).frame(width: 2).offset(x: CGFloat(Double(live) / 127) * g.size.width).allowsHitTesting(false) }
+                }
+            }
+        }
+    }
+    // DURATION as the arp-LFO two groups — GRID STEPS (modStepSpanN, via spanLadderBeats) · FIXED SUBDIVISION (modRate).
+    // Mutually exclusive: GRID STEPS ⇒ modStepSpanN>0 · FIXED SUBDIVISION ⇒ modStepSpanN nil. (SHAPE source only.)
+    @ViewBuilder private func modDurationControl() -> some View {
+        let sn = p.modStepSpanN ?? 0
+        VStack(alignment: .leading, spacing: 8) {
+            Text("DURATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("GRID STEPS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                seg(lfoDurValues.map { lfoDurLabel($0) }, sel: sn > 0 ? lfoDurLabel(sn) : "—") { i in setParam { $0.modStepSpanN = lfoDurValues[i] } }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("FIXED SUBDIVISION").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                seg(ModRate.allCases.map(\.rawValue), sel: sn == 0 ? (p.modRate ?? .r2).rawValue : "—") { i in setParam { $0.modStepSpanN = nil; $0.modRate = ModRate.allCases[i] } }
+            }
+        }
+    }
+    // The MOD's current CC output right now (mirrors the engine's modSourceUnipolar→modMap so the marker matches audio).
+    // SHAPE + STEPS only (beat-derived); other sources return nil (no editor marker). nil when the clock is stopped.
+    private func modLiveCC(date: Date) -> Int? {
+        guard clockPlaying else { return nil }
+        let src = p.modSource ?? .shape
+        let S = Swift.max(0.0001, gridStepBeats)
+        let bar = Double(Snap.cols) * S
+        let sn = p.modStepSpanN ?? 0
+        let period: Double
+        if sn > 0 { period = Swift.max(0.03125, spanLadderBeats(sn, S: S, row: bar)) }
+        else if src == .steps {
+            switch p.modStepSpan ?? .period {
+            case .period: period = Swift.max(0.03125, (p.modRate ?? .r2).periodBeats)
+            case .row:    period = Swift.max(0.03125, bar)
+            case .row2:   period = Swift.max(0.03125, 2 * bar)
+            case .row4:   period = Swift.max(0.03125, 4 * bar)
+            }
+        } else { period = (p.modSpan ?? .cell) == .row ? Swift.max(0.03125, bar) : Swift.max(0.03125, (p.modRate ?? .r2).periodBeats) }
+        guard period > 0 else { return nil }
+        let beat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+        let cyc = Int((beat / period).rounded(.down))
+        let u: Double
+        switch src {
+        case .shape: u = modUnipolar(p.modShape ?? .sine, phase: beat / period + (p.modPhase ?? 0), column: 0, cc: p.modCC ?? 74, cycleIndex: cyc)
+        case .steps: u = modStepsUnipolar(p.modSteps ?? [0, 18, 36, 54, 72, 90, 108, 127], phase: beat / period, smooth: p.modSmooth ?? true)
+        default:     return nil
+        }
+        return modMap(u, min: p.modMin ?? 0, max: p.modMax ?? 127)
     }
     // A slider endpoint with a dim live TICK overlaid at the current LFO value (moves with the music).
     private func lfoSlider(_ v: Double, _ range: ClosedRange<Double>, lfo: ParamLFO, _ set: @escaping (Double) -> Void) -> some View {
