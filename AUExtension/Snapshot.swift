@@ -240,6 +240,9 @@ struct SnapParams {
     var utilNudgeMode: NudgeMode = .fixed            // TIMING LANE (Paul 2026-08-22 §5): FIXED = one offset · LANE = a per-column pocket
     var utilNudgeLane: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]   // LANE: 8 per-step offsets (−8…+8), the cell's COLUMN picks the slot
     var destSlices: [Int] = [0, 1, 2, 3, 0, 1, 2, 3]      // DEST MATRIX (Paul 2026-08-22 §5): per-onset-slice emitter (0=A…3=D), the hocket
+    var dealE1 = 0; var dealE2 = 1                       // DEAL (Paul 2026-09-16): the two emitters (0=A…3=D) — the engine finds the .deal proc by type
+    var dealN1 = 1; var dealN2 = 1                       // notes to each (≥1)
+    var dealMode: DealMode = .overTime                  // when the deal advances
     var muteSlices: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]      // MUTE MATRIX (Paul 2026-08-25 §5): per-onset-slice MUTED-emitter mask (bit i = emitter i muted); 0 ⇒ nothing muted
     // RIFF (SPEC-riff-processor): the resolved stencil. riffRanks defaults to a musical figure so a fresh RIFF plays.
     var riffSteps: Int = 16

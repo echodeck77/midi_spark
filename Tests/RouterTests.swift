@@ -4193,6 +4193,28 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(rev.first, 65, "REVERSE opens on the LAST step (rank 4 = 65)")
         XCTAssertNotEqual(fwd, rev, "the playback order is reversed")
     }
+    // DEAL (Paul 2026-09-16): a note-transparent output dealer — OVERRIDE the emitters, deal N1 → emitter 1, N2 → emitter 2.
+    func testDealOverridesEmittersAndSplitsAChord() {
+        var deal = ProcessorSlot(type: .deal)
+        deal.params.dealE1 = 0; deal.params.dealE2 = 1; deal.params.dealN1 = 1; deal.params.dealN2 = 1; deal.params.dealMode = .withinChord
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = [deal]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 2, into: e)
+        assertNothingLeftSounding(e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "WITHIN CHORD deals some notes to emitter A (cable 1)")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "and some to emitter B (cable 2)")
+        XCTAssertEqual(e.ons.filter { $0.cable == 3 || $0.cable == 4 }.count, 0, "the deal OVERRIDES the cell's emitters — nothing on C/D")
+    }
+    func testDealOverTimeHandsOffAcrossStrikes() {
+        var arp = ProcessorSlot(type: .arp); arp.params.pattern = .up; arp.params.rate = .r1_8; arp.params.phase = .free
+        var deal = ProcessorSlot(type: .deal); deal.params.dealE1 = 0; deal.params.dealE2 = 1; deal.params.dealMode = .overTime
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, deal]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+        assertNothingLeftSounding(e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "OVER TIME hands successive arp strikes to A")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "and to B")
+    }
     // RIFF STAGE 2 (Paul 2026-08-26): POLY strikes a SET of ranks per step (a chord that follows the held chord).
     func testRiffPolyStrikesTheRankSet() {
         var c = Machine(machineID: "gold", type: .riff)

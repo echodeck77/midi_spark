@@ -454,6 +454,9 @@ enum SnapshotBuilder {
         if let v = p.utilNudgeMode { out.utilNudgeMode = v }                 // TIMING LANE (Paul 2026-08-22 §5)
         if let v = p.utilNudgeLane { out.utilNudgeLane = v.map { clamp($0, -8, 8) } }
         if let v = p.destSlices { out.destSlices = v.map { clamp($0, 0, 3) } }   // DEST MATRIX (Paul 2026-08-22 §5)
+        out.dealE1 = clamp(p.dealE1 ?? 0, 0, 3); out.dealE2 = clamp(p.dealE2 ?? 1, 0, 3)   // DEAL (Paul 2026-09-16)
+        out.dealN1 = max(1, min(16, p.dealN1 ?? 1)); out.dealN2 = max(1, min(16, p.dealN2 ?? 1))
+        if let v = p.dealMode { out.dealMode = v }
         if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice
         // RIFF (SPEC-riff-processor): resolve the stencil. riffRanks nil ⇒ keeps the default figure. rate → beats.
         if let v = p.riffSteps { out.riffSteps = clamp(v, 1, 32) }   // variable length (Paul 2026-08-26): up to 32

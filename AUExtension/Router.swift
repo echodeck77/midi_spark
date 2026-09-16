@@ -308,6 +308,23 @@ final class Router {
     // Both are byte-identical when unset (−1 / 0). Reset before drainEchoTails so echo tails use the wire defaults (v1).
     private var chanOverride: Int16 = -1   // CHANNEL: output channel (−1 = the bus stamp · 0–15 = override)
     private var nudgeSamples: Int64 = 0    // NUDGE: timing offset in samples (0 = none)
+    // DEAL (Paul 2026-09-16): a note-transparent OUTPUT dealer — override the emitters, deal N1 notes → emitter 1, N2 →
+    // emitter 2 (repeat). Set per-cell (dealSetup); the per-cell counters advance in emitArtic. Live turn-taking state
+    // (same class as ALT/TURNS' altMomentIndex): reset on a fresh play. Fixed storage → no render-path allocation.
+    private var dealActive = false
+    private var dealE1 = 0, dealE2 = 1, dealN1 = 1, dealN2 = 1
+    private var dealMode: DealMode = .overTime
+    private var dealMoment = [Int](repeating: -1, count: Snap.cells)        // moments elapsed (OVER TIME) · −1 ⇒ first strike is pos 0
+    private var dealNoteInMoment = [Int](repeating: 0, count: Snap.cells)   // rank within the current moment (WITHIN CHORD)
+    private var dealLastOnset = [Int64](repeating: .min, count: Snap.cells) // last onset sample per cell (moment detection)
+    private var dealGlobal = [Int](repeating: 0, count: Snap.cells)         // running note count (EVERY NOTE)
+    private func dealSetup(_ cell: SnapCell) {   // find this cell's DEAL proc (last wins, like chopMask's DEST scan); set the emit-side state
+        dealActive = false
+        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .deal {
+            let p = cell.procs[j]
+            dealActive = true; dealE1 = p.dealE1 & 3; dealE2 = p.dealE2 & 3; dealN1 = max(1, p.dealN1); dealN2 = max(1, p.dealN2); dealMode = p.dealMode
+        }
+    }
     // THE SEAL COMET (note-on/off gate): a bitmask of the cells CURRENTLY SOUNDING (≥1 active non-silent voice).
     // Snapshotted on the render thread each window (a live set, like snapshotEmitterSounding); the UI polls it so the
     // The per-cell SOUNDING gate is derived on the UI side from `cellSoundVel > 0` (256-wide, covers cols 8–15); the old
@@ -1224,6 +1241,22 @@ final class Router {
                 busMask = (busMask & ~altMask) | (1 << altSequence[altMomentIndex % altSequence.count])
             }
         }
+        // DEAL (Paul 2026-09-16): OVERRIDE the emitters — deal N1 notes → emitter 1, N2 → emitter 2 (cycling). A per-cell live
+        // counter (same class as ALT/TURNS): OVER TIME advances per STRIKE (onset moment) · WITHIN CHORD per note in the moment
+        // (a chord split by rank) · EVERY NOTE per note-on. previewMode bypasses; wins over the cell's own emitters + chopMask.
+        if dealActive && !previewMode, currentCellIndex >= 0, currentCellIndex < dealMoment.count {
+            let c = currentCellIndex
+            if onSample != dealLastOnset[c] { dealLastOnset[c] = onSample; dealMoment[c] &+= 1; dealNoteInMoment[c] = 0 } else { dealNoteInMoment[c] &+= 1 }
+            dealGlobal[c] &+= 1
+            let cyc = max(1, dealN1 + dealN2)
+            let pos: Int
+            switch dealMode {
+            case .overTime:    pos = dealMoment[c]
+            case .withinChord: pos = dealNoteInMoment[c]
+            case .everyNote:   pos = dealGlobal[c] - 1
+            }
+            busMask = UInt8(1) << UInt8((((pos % cyc) + cyc) % cyc) < dealN1 ? dealE1 : dealE2)
+        }
         // §6a CLAIM v2: emit ALL claimant buses in this fan-out FIRST (any order among them), so every
         // claimant's ownership trace (the silent ghost opened in emitOneBus) is in the table before any
         // non-claimant in the same fan-out checks — co-onset suppression is then order-independent.
@@ -1562,6 +1595,7 @@ final class Router {
             currentMachineIndex = cell.machineIndex      // item 4 marks: this cell's Machine, for the source tint
             currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
             chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: effColumn)   // UTILITY CHANNEL/NUDGE emit overrides for this cell
+            dealSetup(cell)   // DEAL: this cell's emitter-deal state (Paul 2026-09-16)
             let ci = Int(cell.machineIndex)
             let machine = box.machines[ci]
             if !onSceneAudible(machine.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
@@ -1748,6 +1782,7 @@ final class Router {
             currentMachineIndex = cell.machineIndex      // item 4 marks: this cell's Machine, for the source tint
             currentCellIndex = column * Snap.rows + r  // SEAL comet: this cell's grid index
             chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // UTILITY CHANNEL/NUDGE emit overrides for this hold cell
+            dealSetup(cell)   // DEAL: this cell's emitter-deal state (Paul 2026-09-16)
             let ci = Int(cell.machineIndex)
             let machine = box.machines[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
@@ -2380,6 +2415,7 @@ final class Router {
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             prevEffColumn = -1
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
+            for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)

@@ -371,6 +371,7 @@ struct ProcessorBox: View {
         case .nudge:     return "slide this chain earlier or later in time"
         case .velocity:  return "set each note's velocity from a per-step lane (or pass it through)"
         case .dest:      return "route each step to a chosen emitter (hocket)"
+        case .deal:      return "deal notes across two emitters by count"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
         case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
@@ -981,6 +982,17 @@ struct ProcessorBox: View {
                     selected: { i in let s = p.destSlices ?? base; return i < s.count ? s[i] : 0 },
                     set: { i, e in setParam { var s = $0.destSlices ?? base; while s.count < 8 { s.append(0) }; s[i] = e; $0.destSlices = s } })
             }
+        })
+        case .deal: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // ROUTING (Paul 2026-09-16) — the DEAL: override the emitters, deal N1 → 1, N2 → 2
+            let e1 = max(0, min(3, p.dealE1 ?? 0)), e2 = max(0, min(3, p.dealE2 ?? 1))
+            let letters = ["A", "B", "C", "D"]
+            row2({ field("EMITTER 1", \.dealE1) { seg(letters, sel: letters[e1]) { i in setParam { $0.dealE1 = i } } } },
+                 { field("TO 1 — notes", \.dealN1) { numPair(p.dealN1 ?? 1, 1...16) { v in setParam { $0.dealN1 = v } } } })
+            row2({ field("EMITTER 2", \.dealE2) { seg(letters, sel: letters[e2]) { i in setParam { $0.dealE2 = i } } } },
+                 { field("TO 2 — notes", \.dealN2) { numPair(p.dealN2 ?? 1, 1...16) { v in setParam { $0.dealN2 = v } } } })
+            field("DEAL — when a note advances the deal", \.dealMode) { seg(DealMode.allCases.map(\.rawValue), sel: (p.dealMode ?? .overTime).rawValue) { i in setParam { $0.dealMode = DealMode.allCases[i] } } }
+            Text("OVER TIME — each strike in turn (a chord = one) · WITHIN CHORD — split a chord's notes · EVERY NOTE — every note-on")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         case .muteMatrix: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // ROUTING (Paul 2026-08-25 §5) — the MUTE MATRIX: per-step PART-MUTING (A/B/C/D × 8 multi-select)
             field("MUTE PER COLUMN — tap to silence an emitter on that grid column") {

@@ -63,6 +63,8 @@ final class FuzzTests: XCTestCase {
                                       .octave, .transpose,   // UTILITY pitch shifts — hammered for no-stuck-notes as head / upstream / downstream / hold-tail
                                       .channel, .nudge,      // UTILITY emit overrides — CHANNEL re-stamps, NUDGE shifts timing (clamped); hammered for no-stuck-notes
                                       .dest,     // ROUTING — per-slice emitter override (the hocket); hammered so the re-route never strands a note
+                                      .deal,     // ROUTING — the output dealer (two emitters by count); hammered so the deal-override never strands a note
+
                                       .muteMatrix,           // ROUTING — per-step part-muting; hammered so a mid-note mute never strands a sounding voice
                                       .riff,     // DRIVER — the rank stencil; hammered so wrap/oct/rest never strand a note
                                       .tap,                  // ROUTING — the mid-chain send; hammered so a parallel copy never strands a note
@@ -115,6 +117,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)
             if c.type == .dest && r.chance(0.6) { c.paramsA.destSlices = (0..<8).map { _ in r.int(4) } }   // DEST MATRIX §5 — per-slice emitter override (routing-class); hammer the re-route for no stuck notes
+            if c.type == .deal { c.paramsA.dealE1 = r.int(4); c.paramsA.dealE2 = r.int(4); c.paramsA.dealN1 = 1 + r.int(4); c.paramsA.dealN2 = 1 + r.int(4); c.paramsA.dealMode = [DealMode.overTime, .withinChord, .everyNote][r.int(3)] }   // DEAL — random emitter-deal; the override must never strand a note
             if c.type == .muteMatrix && r.chance(0.6) { c.paramsA.muteSlices = (0..<8).map { _ in r.int(16) } }   // MUTE MATRIX §5 — random per-step muted-emitter masks incl. full-mute (all 4) → note fully dropped; no stuck notes
             if c.type == .velocity && r.chance(0.7) {   // VELOCITY — random per-step override lane / passthrough mask / steps / rate / clock / span; note-transparent, must never strand a note
                 let n = 1 + r.int(32)

@@ -34,8 +34,10 @@ enum ProcessorType: String, Codable, CaseIterable {
     case avoid = "AVOID"       // FILTER (unified 2026-08-31): a per-note pitch filter — the DOOR key-filter as a chain stage. REFERENCE (KEY · DOOR · WIRE · ALL SOUNDING) × MODE (LOCK keep-in | AVOID remove-in) × ACTION (REMOVE drop | MOVE snap). Placeable anywhere; masks clashes / locks to key. Politeness, not counterpoint.
     case chords = "CHORDS"     // HARMONY (ratified 2026-09-01): derive a diatonic progression from a key by rank arithmetic — a held trigger → the chord for the current degree (PATTERN matrix · FOLLOW door-note · WALK gravity dice). A set-shaper like HARMONIZE, never a driver. No chord stored; plays in any key.
     case velocity = "VELOCITY" // DYNAMICS (Paul 2026-09-07): a per-step velocity SEQUENCER — override each note's velocity from a per-step lane (or PASSTHROUGH that step). Note-transparent MODIFIER (never a driver); TIME (RATE·STEPS·SPAN) or NOTE (advance per note) clock, mirroring RATCHET PATTERN.
+    case deal = "DEAL"         // ROUTING (Paul 2026-09-16): a simple output dealer — OVERRIDE the emitters, deal N1 notes to emitter 1 then N2 to emitter 2 (repeat). Note-transparent; DEAL mode = OVER TIME (per strike) · WITHIN CHORD (per note) · EVERY NOTE.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
+enum DealMode: String, Codable, CaseIterable { case overTime = "OVER TIME", withinChord = "WITHIN CHORD", everyNote = "EVERY NOTE" }   // DEAL: when the deal advances (Paul 2026-09-16)
 // AVOID / LOCK (unified 2026-08-31, Paul) — one processor covers "avoid clashing with X" AND "lock to key": a per-note
 // pitch-class filter (the ratified keyFilterNote) as a chain stage.
 enum AvoidRefKind: String, Codable, CaseIterable { case key = "KEY", door = "DOOR", wire = "WIRE", sounding = "ALL", soundingOut = "OUTALL" }   // the reference set to test against (§G: soundingOut = EVERYTHING OUT, all emitter output minus this cell's own buses)
@@ -378,6 +380,12 @@ struct MachineParams: Codable, Equatable {
     var utilNudgeMode: NudgeMode? = nil         // TIMING LANE (Paul 2026-08-22 §5): FIXED (one offset, default) | LANE (8 per-column offsets — the pocket drawn). nil ⇒ FIXED
     var utilNudgeLane: [Int]? = nil             // LANE: 8 per-step time offsets (−8…+8 sixteenths); the cell's COLUMN picks the slot
     var destSlices: [Int]? = nil                // DEST MATRIX (Paul 2026-08-22 §5): 8 per-onset-slice emitters (0=A…3=D) — hocket painted. nil ⇒ a rotating default
+    // DEAL (Paul 2026-09-16): the simple output dealer — override the emitters, deal N1 → emitter 1, N2 → emitter 2 (repeat). All additive-Optional.
+    var dealE1: Int? = nil                       // emitter 1 (0=A…3=D); nil ⇒ A
+    var dealE2: Int? = nil                       // emitter 2 (0=A…3=D); nil ⇒ B
+    var dealN1: Int? = nil                       // notes to emitter 1; nil ⇒ 1
+    var dealN2: Int? = nil                       // notes to emitter 2; nil ⇒ 1
+    var dealMode: DealMode? = nil                // when the deal advances; nil ⇒ OVER TIME
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
     // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
     // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.

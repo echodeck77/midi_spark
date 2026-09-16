@@ -6064,6 +6064,7 @@ extension DiagView {
                 C("CHANNEL", "Sends this chain out on its own MIDI channel.", .channel),
                 C("NUDGE", "Slides this chain a little earlier or later in time.", .nudge),
                 C("DEST", "Sends each step to a chosen emitter — hocket between synths.", .dest),
+                C("DEAL", "Deals notes across two emitters — N to one, N to the other.", .deal),
                 C("MUTE MATRIX", "Mutes chosen emitters per step — gate parts in and out.", .muteMatrix),
                 C("TAP", "Sends a copy of the stream out here + passes it on — layered parallel outputs.", .tap),
             ]),
