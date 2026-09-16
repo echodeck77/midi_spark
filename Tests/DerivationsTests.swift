@@ -1772,19 +1772,7 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modUnipolar(.square, phase: 0.1, column: 0, cc: 1, cycleIndex: 0), 1, "first half HIGH")
         XCTAssertEqual(modUnipolar(.square, phase: 0.9, column: 0, cc: 1, cycleIndex: 0), 0, "second half LOW")
     }
-    // PER-PARAM LFO (Docs/PLAN-param-lfo.md): base + a BIPOLAR ±(depth·span) swing shaped by the waveform; depth 0 = base.
-    func testParamLFOValueBipolarSwing() {
-        func v(_ shape: ModShape, _ phase: Double, depth: Double = 1, span: Double = 1, q: Int = 0) -> Double {
-            paramLFOValue(base: 0.5, shape: shape, phase: phase, depth: depth, span: span, quantizeLevels: q, column: 0, cycleIndex: 0)
-        }
-        XCTAssertEqual(v(.sine, 0.25, depth: 0), 0.5, accuracy: 1e-9, "depth 0 ⇒ base unchanged")
-        XCTAssertEqual(v(.sine, 0),    0.5, accuracy: 1e-9, "sine at 0 (u=0.5) ⇒ no offset")
-        XCTAssertEqual(v(.sine, 0.25), 1.5, accuracy: 1e-9, "sine peak (u=1) ⇒ +span·depth")
-        XCTAssertEqual(v(.sine, 0.75), -0.5, accuracy: 1e-9, "sine trough (u=0) ⇒ −span·depth")
-        XCTAssertEqual(v(.sine, 0.25, span: 0.5), 1.0, accuracy: 1e-9, "span scales the swing")
-        XCTAssertGreaterThan(v(.square, 0.1), v(.square, 0.6), "square: first half swings up, second half down")
-        XCTAssertEqual(v(.sine, 0.20, q: 2), 1.5, accuracy: 1e-9, "QUANTIZE 2 snaps the shape to its extreme (peak)")
-    }
+    // (testParamLFOValueBipolarSwing REMOVED 2026-09-16 — paramLFOValue was retired with the FROM→TO LFO redesign.)
     func testModRampAndInversion() {
         XCTAssertEqual(modUnipolar(.ramp, phase: 0,   column: 0, cc: 1, cycleIndex: 0), 0,   accuracy: 1e-9)
         XCTAssertEqual(modUnipolar(.ramp, phase: 0.5, column: 0, cc: 1, cycleIndex: 0), 0.5, accuracy: 1e-9)
@@ -2288,6 +2276,41 @@ final class DerivationsTests: XCTestCase {
         let ladder = arpRateAllowedLadder(ignore: 0b110)   // [0…5]
         XCTAssertEqual(nearestLadderPos(ladder, 2), 2, "kept index maps to its own position")
         XCTAssertEqual(nearestLadderPos(ladder, 14), 5, "an ignored (triplet) endpoint snaps to the nearest kept rung")
+    }
+
+    // ParamLFO.rateIgnoreResolved (Paul 2026-09-16): default ignore dotted+triplet; never ignore all three.
+    func testParamLFORateIgnoreResolved() {
+        XCTAssertEqual(ParamLFO(target: "arpRate").rateIgnoreResolved, 0b110, "nil ⇒ default ignore dotted+triplet")
+        XCTAssertEqual(ParamLFO(target: "arpRate", rateIgnore: 0b111).rateIgnoreResolved, 0b110, "all-three ⇒ keep normal")
+        XCTAssertEqual(ParamLFO(target: "arpRate", rateIgnore: 0b101).rateIgnoreResolved, 0b101, "explicit mask preserved")
+        XCTAssertEqual(ParamLFO(target: "arpRate", rateIgnore: 0b1010).rateIgnoreResolved, 0b010, "high bits masked off")
+    }
+
+    // CHORDS degrees sized to the matrix width (Paul 2026-09-16 fix): a wide matrix keeps all its authored columns.
+    func testChordsDegreesResolvedSizesToSteps() {
+        XCTAssertEqual(MachineParams().chordsDegreesResolved(steps: 8), [0, 0, 5, 5, 3, 3, 4, 4], "default 8")
+        let padded = MachineParams().chordsDegreesResolved(steps: 16)
+        XCTAssertEqual(padded.count, 16); XCTAssertEqual(Array(padded.prefix(8)), [0, 0, 5, 5, 3, 3, 4, 4])
+        XCTAssertEqual(Array(padded.suffix(8)), Array(repeating: -1, count: 8), "cols 8–15 carry-fill (were dropped before)")
+        var p = MachineParams(); p.chordsDegrees = Array(0..<10)
+        XCTAssertEqual(p.chordsDegreesResolved(steps: 8), Array(0..<8), "a >steps input truncates")
+    }
+
+    // chordsDegreeAt carry / explicit-rest / all-carry / rotate (only indirectly covered before).
+    func testChordsDegreeAtBranches() {
+        XCTAssertEqual(chordsDegreeAt(step: 1, degrees: [4, -1, -1, -1, -1, -1, -1, -1], rotate: 0).degree, 4, "carry holds the last real degree")
+        XCTAssertFalse(chordsDegreeAt(step: 1, degrees: [4, -1, -1, -1, -1, -1, -1, -1], rotate: 0).rest)
+        XCTAssertTrue(chordsDegreeAt(step: 1, degrees: [7, -1, -1, -1, -1, -1, -1, -1], rotate: 0).rest, "a REST (7) carries SILENCE, not degree 0")
+        XCTAssertTrue(chordsDegreeAt(step: 0, degrees: [-1, -1, -1, -1, -1, -1, -1, -1], rotate: 0).rest, "all-carry ⇒ rest")
+        XCTAssertEqual(chordsDegreeAt(step: 0, degrees: [2, -1, -1, -1, 5, -1, -1, -1], rotate: 4).degree, 5, "rotate 4 strides to column 4")
+    }
+
+    // span ladder ×8 reach + rtcCoinCount determinism/bounds-swap (untested edges).
+    func testSpanLadder64AndRtcCoinCountEdges() {
+        XCTAssertEqual(spanLadderBeats(64, S: 0.5, row: 4.0), 32.0, "×8 = 8 rows")
+        XCTAssertEqual(rtcCoinCount(step: 5, lo: 2, hi: 6), rtcCoinCount(step: 5, lo: 2, hi: 6), "replay-exact (deterministic per step)")
+        let swapped = rtcCoinCount(step: 5, lo: 6, hi: 2)
+        XCTAssertTrue((2...6).contains(swapped), "inverted lo>hi is order-guarded → in-range, no trap")
     }
 
     // KEYS EXCLUDE (Paul 2026-08-22): the complement door subtracts these pitch classes from its typed set.

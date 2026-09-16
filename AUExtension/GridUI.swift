@@ -534,14 +534,15 @@ struct ProcessorBox: View {
                 let head = livePass(at: tl.date)
                 HStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { i in
-                    let on = (p.passes ?? [true,true,true,true])[i]
+                    let pv = p.passes ?? [true,true,true,true]
+                    let on = i < pv.count ? pv[i] : true                    // bounds-safe: a ragged/short decoded array won't trap
                     Text("\(i+1)").font(.system(size: 16, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? .black : .white.opacity(0.6))
                         .frame(maxWidth: .infinity).frame(height: 42)
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.1)))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(i == head ? Color.white : .clear, lineWidth: 3))   // the playhead ring
                         .contentShape(Rectangle())
-                        .onTapGesture { setParam { var pp = $0.passes ?? [true,true,true,true]; pp[i].toggle(); $0.passes = pp } }
+                        .onTapGesture { setParam { var pp = $0.passes ?? [true,true,true,true]; while pp.count <= i { pp.append(true) }; pp[i].toggle(); $0.passes = pp } }
                 }
                 }
               }
@@ -575,11 +576,12 @@ struct ProcessorBox: View {
             optionsCluster([("CONSTANT N", p.chanceDensity ?? false, { setParam { $0.chanceDensity = !($0.chanceDensity ?? false) } })])
         })
         case .harmonize: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
-            let iv = p.harmIntervals ?? [0,0,0]
+            let rawIv = p.harmIntervals ?? [0,0,0]
+            let iv = rawIv.count >= 3 ? rawIv : rawIv + Array(repeating: 0, count: 3 - rawIv.count)   // bounds-safe: pad a ragged/short decoded array
             let hu = p.harmUnits ?? .semitones
             ForEach(0..<3, id: \.self) { k in
                 field("VOICE \(k+1) \(iv[k] == 0 ? "off" : (iv[k] > 0 ? "+\(iv[k])" : "\(iv[k])"))") {
-                    stepper(iv[k], -24, 24) { v in setParam { var a = $0.harmIntervals ?? [0,0,0]; a[k] = v; $0.harmIntervals = a } }
+                    stepper(iv[k], -24, 24) { v in setParam { var a = $0.harmIntervals ?? [0,0,0]; while a.count <= k { a.append(0) }; a[k] = v; $0.harmIntervals = a } }
                 }
             }
             field("UNITS", \.harmUnits) { seg(PitchUnits.allCases.map { $0.rawValue }, sel: hu.rawValue) { i in setParam { $0.harmUnits = PitchUnits.allCases[i] } } }   // §2 POOL-STEP

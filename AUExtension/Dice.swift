@@ -268,7 +268,7 @@ enum Dice {
             return false
         }
         /// Try up to `n` candidates for a role until one lands (each stage otherwise often fails the gates → short chains).
-        func fillRole(_ n: Int, _ make: () -> ProcessorSlot) { for _ in 0..<n where !tryAdd(make()) {} }
+        func fillRole(_ n: Int, _ make: () -> ProcessorSlot) { for _ in 0..<n { if tryAdd(make()) { break } } }   // STOP at the first success (Paul 2026-09-16 fix — the old `where !tryAdd{}` re-ran tryAdd every iteration, appending on EACH success → over-stuffed chains, one DRIVER became up to 8)
         for _ in 0..<2 {                                                        // upstream SHAPERS (slow) — two attempts
             fillRole(4) { roleSlot(type: shaperTypes.randomElement(using: &rng)!, slow: true, using: &rng) }
         }
@@ -542,7 +542,9 @@ enum Dice {
         case .arp: return "ARP"; case .ratchet: return "RTC"; case .strum: return "STR"; case .passgate: return "GATE"
         case .chance: return "CHN"; case .harmonize: return "HRM"; case .echo: return "ECHO"; case .euclid: return "EUC"
         case .burst: return "BST"; case .cascade: return "CSC"; case .drone: return "DRN"; case .shift: return "SHF"
-        case .humanize: return "HUM"; case .tutti: return "TUT"; case .length: return "LEN"; case .weave: return "WVE"; case .split: return "SPL"; default: return "PROC"
+        case .humanize: return "HUM"; case .tutti: return "TUT"; case .length: return "LEN"; case .weave: return "WVE"; case .split: return "SPL"
+        case .riff: return "RIFF"   // was falling to "PROC" — .riff IS a weightedTypes switch target (Paul 2026-09-16)
+        default: return "PROC"
         }
     }
 }

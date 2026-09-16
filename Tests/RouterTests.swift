@@ -4342,6 +4342,38 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(low.isEmpty, "CHORD OCT −2 drops the gap stab two octaves (60 → 36)")
         XCTAssertTrue(low.allSatisfy { $0.vel == 40 }, "CHORD VEL 0.4 scales the gap stab velocity (100 → 40)")
     }
+    // CHORD LEN (arpMaskChordGate, Paul 2026-09-16): the gap stab has its OWN note length, distinct from the arp gate.
+    func testEuclidChordGapLengthIsIndependentOfArpGate() {
+        func runLen(_ g: Double) -> RecordingEmitter {
+            var c = Machine(machineID: "gold", type: .arp)
+            c.paramsA.pattern = .up; c.paramsA.rate = .r1_8; c.paramsA.octaves = 1; c.paramsA.gate = 0.5; c.paramsA.phase = .free
+            c.paramsA.arpMaskN = 8; c.paramsA.arpMaskK = 2; c.paramsA.arpMaskGap = .chord
+            c.paramsA.arpMaskChordGate = g
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
+            return e
+        }
+        XCTAssertNotEqual(runLen(1.0).events, runLen(0.1).events, "CHORD LEN changes the gap-stab note length (it's not just the arp gate)")
+    }
+    // arpRate LFO wiring (Paul 2026-09-16): the rate sweeps over the ALLOWED-family ladder; the IGNORE mask is honoured.
+    func testArpRateLFOSweepsAndHonoursIgnore() {
+        func runLFO(_ lfos: [ParamLFO]) -> RecordingEmitter {
+            var c = Machine(machineID: "gold", type: .arp)
+            c.paramsA.pattern = .up; c.paramsA.rate = .r1_8; c.paramsA.octaves = 1; c.paramsA.gate = 0.5; c.paramsA.phase = .free
+            c.paramsA.paramLFOs = lfos
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e); assertNothingLeftSounding(e)
+            return e
+        }
+        let none = runLFO([])
+        let full = runLFO([ParamLFO(target: "arpRate", shape: .square, period: .r1, from: 0, to: 17, rateIgnore: 0)])
+        let normalOnly = runLFO([ParamLFO(target: "arpRate", shape: .square, period: .r1, from: 0, to: 17, rateIgnore: 0b110)])
+        XCTAssertNotEqual(full.events, none.events, "an arpRate LFO changes the stream — the rate actually sweeps")
+        XCTAssertNotEqual(full.events, normalOnly.events, "the IGNORE mask matters — ignoring dotted+triplet sweeps a different ladder")
+        XCTAssertEqual(normalOnly.events, runLFO([ParamLFO(target: "arpRate", shape: .square, period: .r1, from: 0, to: 17, rateIgnore: 0b110)]).events, "replay-exact (beat-derived)")
+    }
     // RANDOM ANCHOR (Paul 2026-08-25 fix): on a FREE index, RANDOM ANCHOR LOW opens each pool cycle (span ticks) on the
     // LOWEST held note, then the rest shuffle — NOT a stream of the low note (the RETRIG per-column reset used to pedal it).
     func testRandomAnchorOpensEachPoolCycleThenShuffles() {

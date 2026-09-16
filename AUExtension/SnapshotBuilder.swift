@@ -13,14 +13,15 @@ enum SnapshotBuilder {
         if let v = p.chordsMode { out.chordsMode = v }
         out.chordsRoot = p.chordsRootResolved
         out.chordsScale = p.chordsScaleResolved
-        out.chordsDegrees = p.chordsDegreesResolved.map { clamp($0, -1, 7) }
+        let cSteps = p.chordsStepsResolved
+        out.chordsSteps = cSteps
+        out.chordsDegrees = p.chordsDegreesResolved(steps: cSteps).map { clamp($0, -1, 7) }   // sized to the matrix width so cols 8–15 of a wide matrix play (Paul 2026-09-16)
         out.chordsVoicing = p.chordsVoicingResolved
         out.chordsSpread = p.chordsSpreadResolved
-        if let v = p.chordsRotate { out.chordsRotate = ((v % 8) + 8) % 8 }
+        if let v = p.chordsRotate { out.chordsRotate = ((v % cSteps) + cSteps) % cSteps }   // rotate strides the FULL matrix (was mod 8, capping rotate on a 16-wide matrix)
         if let v = p.chordsWalkSeed { out.chordsWalkSeed = v }
         out.chordsScaleRef = p.chordsScaleRefResolved
         out.chordsRateBeats = p.chordsRateResolved.beats
-        out.chordsSteps = p.chordsStepsResolved
     }
 
     static func build(from doc: PluginState, generation: UInt64 = 0, hues: [String: UInt32] = [:]) -> SnapshotBox {

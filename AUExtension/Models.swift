@@ -437,7 +437,15 @@ struct MachineParams: Codable, Equatable {
     var chordsVoicingResolved: ChordVoicing { chordsVoicing ?? .triad }
     var chordsSpreadResolved: ChordSpread { chordsSpread ?? .close }
     /// The 8-step degree matrix, resolved — defaults to a I–vi–IV–V loop (0,0,5,5,3,3,4,4) so a fresh CHORDS plays.
-    var chordsDegreesResolved: [Int] { let d = chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]; return d.count == 8 ? d : (d + [Int](repeating: -1, count: 8)).prefix(8).map { $0 } }
+    // SIZED TO THE MATRIX WIDTH (Paul 2026-09-16 fix): pad/truncate the degrees to EXACTLY `steps`, so chordsDegreeAt (which
+    // loops on degrees.count) plays every authored column of a 9…16-wide matrix — the old fixed-8 truncation dropped columns
+    // 8–15 (they wrapped/carried, screen ≠ audio). Short arrays carry-fill with -1; nil ⇒ the 8-degree default. steps=8 ⇒
+    // byte-identical to the old resolver.
+    func chordsDegreesResolved(steps: Int) -> [Int] {
+        let d = chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]
+        let n = max(1, min(16, steps))
+        return d.count == n ? d : (d.count > n ? Array(d.prefix(n)) : d + [Int](repeating: -1, count: n - d.count))
+    }
 }
 // CHORDS mode (SPEC-chords-stage §1): where the degree comes from.
 enum ChordsMode: String, Codable, CaseIterable { case pattern, follow, walk }

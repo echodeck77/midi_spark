@@ -284,7 +284,7 @@ final class Router {
     // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*Snap.rows+row) — the grid comet's
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
-    private var cellStrike = [UInt8](repeating: 0, count: Snap.cells)   // Snap.cells = 128 (col*rows+row, rows 0–15)
+    private var cellStrike = [UInt8](repeating: 0, count: Snap.cells)   // Snap.cells = 256 (maxCols·rows = 16·16; index col*rows+row)
     // THE NOTE-SWEEP feed (Paul 2026-08-19): per-cell RECENT emitted note-ons (pitch + velocity), a small ring per cell.
     // Drained read-and-clear like the strike feed → the piano-roll faces place marks at REAL pitch (not a hash), and the
     // BUILD note-sweep CONTOUR axis gets its per-note pitch. Fixed storage; no allocation on the render path.
@@ -804,7 +804,7 @@ final class Router {
 
     // Topmost occupied, non-muted cell in a grid column — the single active cell (grid-chaining across
     // cells is retired; a cell's OWN processor chain runs in emitColumnHolds / the tick loop). cells
-    // index = column*Snap.rows + row (128 cells; Snapshot.swift). Muted cells produce nothing (§6.2).
+    // index = column*Snap.rows + row (256 cells = maxCols·rows; Snapshot.swift). Muted cells produce nothing (§6.2).
     @inline(__always)
     private func topCell(in column: Int, _ box: SnapshotBox) -> (row: Int, cell: SnapCell)? {
         let c = ((column % Snap.maxCols) + Snap.maxCols) % Snap.maxCols   // §E: wrap over the full 16-col storage so a 16-wide column reads its OWN cell (not col%8)
@@ -1513,7 +1513,8 @@ final class Router {
         cell.procs[ra.slot] = cell.procs[ra.slot].settingAuto(ra.field, ra.lo + frac * (ra.hi - ra.lo))
     }
     /// PER-PARAM LFO (Docs/PLAN-param-lfo.md): oscillate scalar params around their base value. Beat-derived → replay-safe
-    /// (invariant 2); value-copied via settingAuto → no alloc (invariant 3); reshapes a scalar only, opens/closes no voices
+    /// (invariant 2); the `cell.procs[si] = …` write-back is a COW of the procs array (same accepted render-path alloc as
+    /// applyRenderAuto — feature-gated on box.hasParamLFO, so byte-identical + alloc-free when no LFO is active); reshapes a scalar only, opens/closes no voices
     /// (invariant 4). Sampled at the window beat, like SMOOTH renderAuto / applyInternalMods (block-start, deterministic per
     /// schedule). Runs AFTER renderAuto + internal MOD, so it swings around a base that already includes those (the ratified
     /// "sum" behaviour). Called only when box.hasParamLFO (else byte-identical). (Paul 2026-09-15.)
