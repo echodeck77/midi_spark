@@ -360,10 +360,10 @@ final class MigrationTests: XCTestCase {
         XCTAssertNil(r.busChannels); XCTAssertNil(r.activeScene); XCTAssertNil(r.morphMaster)
         XCTAssertEqual(r.busChannelsResolved, [1, 2, 3, 4], "nil ⇒ the default stamp channels")
         XCTAssertEqual(r.activeSceneResolved, 0, "nil ⇒ scene 0")
-        XCTAssertEqual(r.morphMasterResolved, 0)
+        // morphMaster is a decode-only zombie now (the render never reads it; morphMasterResolved was removed 2026-09-17) — its nil is asserted above.
         // and the present values still round-trip when the keys ARE there
         let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(d))
-        XCTAssertEqual(back.busChannelsResolved, [7, 8, 9, 10]); XCTAssertEqual(back.activeSceneResolved, 1); XCTAssertEqual(back.morphMasterResolved, 0.5)
+        XCTAssertEqual(back.busChannelsResolved, [7, 8, 9, 10]); XCTAssertEqual(back.activeSceneResolved, 1); XCTAssertEqual(back.morphMaster, 0.5)
     }
 
     /// `resolved4` — the shared nil-safe per-emitter resolver behind ~11 rack helpers. Its four branches:

@@ -877,24 +877,23 @@ final class BuildSceneLogicTests: XCTestCase {
     func testUnpackEmptyCellIsBlankBench() {
         XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: nil, selectMachineID: nil), BuildPart())
     }
-    /// The 64-cell part store + the working part round-trip through Codable; an OLD doc (missing the keys) decodes to nil.
-    func testPlayGridDataRoundTripsCellPartsAndWorkingPart() throws {
+    /// The 64-cell part store round-trips through Codable; an OLD doc (missing the key) decodes to nil.
+    /// (`workingPart` was removed 2026-09-17 as an unread vestigial field.)
+    func testPlayGridDataRoundTripsCellParts() throws {
         var g = BuildPlayGridData()
         var cell = BuildPart(); cell.selID = "gold"; cell.stagingCells[0][0] = "gold"
         var parts = Array(repeating: Array(repeating: BuildPart?.none, count: 8), count: 8)
         parts[3][4] = cell
         g.playCellPart = parts
-        var wip = BuildPart(); wip.selID = "wip"; g.workingPart = wip
         let data = try JSONEncoder().encode(g)
         let back = try JSONDecoder().decode(BuildPlayGridData.self, from: data)
         XCTAssertEqual(back.playCellPart?[3][4]?.selID, "gold", "the part-backed cell round-trips")
         XCTAssertNil(back.playCellPart?[0][0] ?? nil, "an empty cell stays nil")
-        XCTAssertEqual(back.workingPart?.selID, "wip", "the working part round-trips")
-        // OLD doc: strip the new keys → decode → nil (byte-identical, no throw).
+        // OLD doc: strip the new key → decode → nil (byte-identical, no throw).
         var obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        obj.removeValue(forKey: "playCellPart"); obj.removeValue(forKey: "workingPart")
+        obj.removeValue(forKey: "playCellPart")
         let old = try JSONDecoder().decode(BuildPlayGridData.self, from: try JSONSerialization.data(withJSONObject: obj))
-        XCTAssertNil(old.playCellPart); XCTAssertNil(old.workingPart)
+        XCTAssertNil(old.playCellPart)
     }
     /// THE PLAY FERRIES ARE PARTS — Phase 1 (Paul 2026-09-08): the 8-slot `parts` round-trips through Codable; a doc with
     /// the legacy per-cell `playCellPart` but NO `parts` MIGRATES via `partsResolved` (each ferry column's first part-backed

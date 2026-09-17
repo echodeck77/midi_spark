@@ -1326,7 +1326,6 @@ struct PluginState: Codable, Equatable {
     var activeScene: Int? = nil
     var morphMaster: Double? = nil // DECODE-ONLY ZOMBIE (delta §9 item 5): param #300 was REMOVED 2026-09-16 (address
                                    // free to reuse) and the render never applied it — kept only so older docs decode.
-    var morphMasterResolved: Double { morphMaster ?? 0 }
     var busChannels: [Int]? = nil  // v3.0 (delta §7): each bus A–D stamps this channel on exit
     /// The 4 stamp channels, nil/short-array safe (missing ⇒ 1,2,3,4). Non-persisting read helper.
     var busChannelsResolved: [Int] { let b = busChannels ?? []; return (0..<4).map { $0 < b.count ? b[$0] : $0 + 1 } }

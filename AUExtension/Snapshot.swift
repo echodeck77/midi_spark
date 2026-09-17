@@ -429,7 +429,6 @@ final class SnapshotBox {
     let generation: UInt64           // increments per publish; render clears param overrides on change
     let stepBeats: Double
     let swing: Double                // 50…75 (§4 v2.3)
-    let morphMaster: Double          // DEAD WEIGHT — morph removed 2026-09-16; still built each snapshot but read by nothing (candidate for removal)
     let machines: [SnapMachine]        // ≥16 — sized to the document (BUILD ephemeral machines append beyond the 16)
     var renderAuto: [MachineAuto?] = []   // PHASE 2: per machine index; nil = none. Set by the builder BEFORE publish (immutable after). Empty ⇒ byte-identical.
     var hasParamLFO: Bool = false         // PER-PARAM LFO (Docs/PLAN-param-lfo.md): true iff any resolved cell proc carries a paramLFO. false ⇒ the render pass is skipped, byte-identical.
@@ -496,7 +495,7 @@ final class SnapshotBox {
     let broadcastActive: Bool        // ROW 8 BROADCAST: while lit, every emitted note MIRRORS to ALL 4 emitter wires (the wall) — a per-note fan-out at the emission boundary.
     let broadcastAll16: Bool         // ROW 8 BROADCAST all-16 (Paul 2026-08-26): the ALL-cable copy also fans across every MIDI channel (a multitimbral wall).
 
-    init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
+    init(generation: UInt64, stepBeats: Double, swing: Double,
          machines: [SnapMachine], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
          claimMask: UInt8 = 0, claimLeak: [UInt8] = [0, 0, 0, 0],
          flattenMask: UInt8 = 0, flattenAmount: [UInt8] = [0, 0, 0, 0],
@@ -535,7 +534,6 @@ final class SnapshotBox {
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
-        self.morphMaster = morphMaster
         self.machines = machines
         self.cells = cells
         self.busChannels = busChannels

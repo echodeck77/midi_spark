@@ -321,7 +321,6 @@ enum SnapshotBuilder {
         let box = SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
-                           morphMaster: max(0, min(1, doc.morphMasterResolved)),
                            machines: machines,
                            cells: cells,
                            busChannels: busCh,

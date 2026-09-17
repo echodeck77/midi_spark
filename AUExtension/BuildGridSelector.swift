@@ -160,12 +160,11 @@ extension DiagView {
         else { buildEditSlot = buildMostImpactfulSlot(chain) }
         buildAddSlot = nil; buildStageEye = false
         guard play else { return }                                        // FOCUS ONLY (SELECT mode): shown in the machine, voice untouched (Paul 2026-08-31)
-        let instant = !buildGridSelQuantStep || !d.playing
+        // QUANTIZE STEP mode was never wired (buildGridSelQuantStep hardwired false) → audition switching is always INSTANT.
         if !ddSolo {                                                       // chain voice OFF → turn it on
-            if instant { buildPendingWorkshopVoice = nil; buildPendingReengage = false; buildSelectMachineVoice() }   // now (+ drop any stale arm)
-            else { buildPendingWorkshopVoice = .chain }                   // quantized: commit on the next d.absoluteStep boundary
+            buildPendingWorkshopVoice = nil; buildPendingReengage = false; buildSelectMachineVoice()
         } else {                                                          // already the voice → swap the chain
-            if instant { buildPendingReengage = false; buildPublishScene() } else { buildPendingReengage = true }
+            buildPendingReengage = false; buildPublishScene()
         }
     }
 

@@ -100,7 +100,7 @@ struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Dou
 // user action can change, so a restore is whole (never partial). Value types only (cheap COW copies).
 struct BuildSnapshot {
     var stagingCells: [[String?]]; var stagingSel: [Int]; var stagingLane: UInt16
-    var parts: [BuildPart]; var currentPart: Int; var returnPart: Int?
+    var parts: [BuildPart]; var currentPart: Int
     var partEmitters: Set<Bus>; var partRate: StepRate?; var partLen: Int?
     var partCast: [String]; var castSlots: [Int: String]; var rowUnder: [String?]
     var rowReceiver: [Int?]; var rowEmitters: [Set<Bus>?]
@@ -3254,7 +3254,7 @@ extension DiagView {
     // ── BUILD UNDO (Paul 2026-08-27) — snapshot the WHOLE authoring @State + the document, so a restore is complete ────
     func buildCaptureSnapshot() -> BuildSnapshot {
         BuildSnapshot(stagingCells: buildStagingCells, stagingSel: buildStagingSel, stagingLane: buildStagingLane,
-                      parts: buildParts, currentPart: buildCurrentPart, returnPart: buildReturnPart,
+                      parts: buildParts, currentPart: buildCurrentPart,
                       partEmitters: buildPartEmitters, partRate: buildPartRate, partLen: buildPartLen,
                       partCast: buildPartCast, castSlots: buildCastSlots, rowUnder: buildRowUnder,
                       rowReceiver: buildRowReceiver, rowEmitters: buildRowEmitters,
@@ -3283,7 +3283,7 @@ extension DiagView {
         buildApplyingSnapshot = true
         defer { buildApplyingSnapshot = false }
         buildStagingCells = s.stagingCells; buildStagingSel = s.stagingSel; buildStagingLane = s.stagingLane
-        buildParts = s.parts; buildCurrentPart = s.currentPart; buildReturnPart = s.returnPart
+        buildParts = s.parts; buildCurrentPart = s.currentPart
         buildPartEmitters = s.partEmitters; buildPartRate = s.partRate; buildPartLen = s.partLen
         buildPartCast = s.partCast; buildCastSlots = s.castSlots; buildRowUnder = s.rowUnder
         buildRowReceiver = s.rowReceiver; buildRowEmitters = s.rowEmitters

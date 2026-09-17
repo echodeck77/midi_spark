@@ -115,7 +115,6 @@ struct BuildPlayGridData: Codable, Equatable {
     // flatten round-trips losslessly through the bench; nil ⇒ select-backed (the machineID in `cells`) or empty. The
     // persistent WORKING part is the bench's home for un-ferried WIP. Both additive-Optional → old docs decode to nil.
     var playCellPart: [[BuildPart?]]? = nil   // 8×8 [col][row]; a part-backed cell's stored part
-    var workingPart: BuildPart? = nil         // the "65th" part — the bench's home for un-ferried WIP
     // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts): each of the 8 ferries owns
     // ONE full BuildPart (nil ⇒ an empty ferry). This SUPERSEDES the 8×8 `playCellPart`; additive-Optional → an old doc
     // decodes `parts == nil` and migrates via `partsResolved` (below). Phase 1: the model + persistence only (invisible).
@@ -148,7 +147,6 @@ extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedDat
         hues        = try c.decodeIfPresent([String: UInt32].self, forKey: .hues) ?? [:]
         idCounter   = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
         playCellPart = try c.decodeIfPresent([[BuildPart?]].self, forKey: .playCellPart)   // PLAY-GRID FERRY EDITING (2026-09-05); nil = absent
-        workingPart  = try c.decodeIfPresent(BuildPart.self, forKey: .workingPart)
         parts        = try c.decodeIfPresent([BuildPart?].self, forKey: .parts)             // THE PLAY FERRIES ARE PARTS (2026-09-08); nil = absent → partsResolved migrates
         gridSelChains = try c.decodeIfPresent([Int: [ProcessorSlot]].self, forKey: .gridSelChains)   // committed SELECT cells (2026-09-12); nil = absent
         gridSelHues  = try c.decodeIfPresent([Int: UInt32].self, forKey: .gridSelHues)
