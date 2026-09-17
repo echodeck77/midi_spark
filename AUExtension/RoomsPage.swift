@@ -28,7 +28,7 @@ struct RoomsMetrics {
 //   • FOOTER = placeholder MIDI strips (4 IN + 4 OUT). TAP the footer → the in/out STRIP-CONTROLS overlay pops over the grid;
 //     TAP OUTSIDE → it recedes. (Real strip controls + MIDI config reuse comes next.)
 extension DiagView {
-    enum Room: String, CaseIterable { case select = "SELECT", part = "PART", play = "PLAY", reel = "REEL" }
+    enum Room: String, CaseIterable { case select = "SELECT", part = "PART" }
 
     // §8b: the footer/mixer are PLUMBING — room-neutral (only door affordances tint). So the footer's accent is a
     // neutral light grey now (was cyan). The per-strip mixer hues (green/blue/red/purple) stay their own identity.
@@ -52,8 +52,6 @@ extension DiagView {
             roomsField(roomsRoom).ignoresSafeArea()                        // §8b: charcoal floor everywhere; PLAY = the near-black stage
             switch roomsRoom {
             case .select, .part: roomsWorkbench(size)   // MERGED (Paul 2026-09-08): SELECT + PART are one page, a toggle picks the grid
-            case .play:   roomsPlay(size)
-            case .reel:   roomsReel(size)
             }
         }
     }
@@ -132,16 +130,6 @@ extension DiagView {
     // (The old uniform 9×9 launchUnit/launchCell9/colSelCell/rowSelCell were the PLACEHOLDER play grid — retired
     // 2026-08-29 when the PLAY room became a real 2/3-width grid, roomsPlayGrid in BuildPage. See roomsPlay below.)
 
-    // ── NAVIGATION ──
-    // (The ▲PLAY and part↔select nav are now SLIVERS inside the grid box — roomsPlayNavSliver / roomsSeamSliver in
-    // BuildPage. The PLAY grid still uses the capsule navDoor below. Paul 2026-08-28.)
-    private func navDoor(_ label: String, to room: Room) -> some View {
-        Button { roomsRoom = room } label: {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(roomsDoorInk(to: room))
-                .padding(.horizontal, 12).frame(height: 22)
-                .background(roomsDoorBar(to: room, corner: 11))            // §8b: the door wears its DESTINATION's signature
-        }.buttonStyle(.plain)
-    }
     // THE MIDI CHAIN panel — the REAL machine strip (play button · receiver toggles · chain + side buttons · emitter
     // toggles) reused verbatim from the old BUILD left column via buildPage's internal roomsMachineStrip. (Paul 2026-08-28)
     @ViewBuilder private func chainPanel(_ room: Room, _ m: RoomsMetrics) -> some View {
@@ -185,43 +173,5 @@ extension DiagView {
             .overlay { buildFerryDragGhost() }
         }
         .onAppear { if roomsRoom == .part { roomsPartSetup() } else { roomsSelectSetup() } }
-    }
-    // The SELECT|PART grid toggle + roomsSwitchGrid are RETIRED (Paul 2026-09-08, Phase 3): the ferry row is the sole
-    // navigation now. roomsPartSetup / roomsSelectSetup live on (called from buildActivateFerry / buildClearChain).
-    @ViewBuilder private func roomsPlay(_ size: CGSize) -> some View {
-        GeometryReader { g in
-            let navH: CGFloat = 30
-            let avail = g.size.width - 16 - 6                              // page padding (16) + 1 HStack gap (6)
-            let gridW = avail * 2 / 3                                      // THE GRID = 2/3 of the width (Paul 2026-08-29)
-            let chainW = avail - gridW                                     // the remaining 1/3 (reserved)
-            let bodyH = g.size.height - 16 - navH - 6                      // content height below the nav bar
-            VStack(spacing: 6) {
-                HStack(spacing: 8) {
-                    navDoor("◂ SELECT", to: .select); navDoor("PART ▸", to: .part)
-                    Spacer()
-                    roomsPlayStartStop().frame(width: max(120, gridW * 0.4))   // START/STOP the play grid (Paul 2026-08-29)
-                }.frame(height: navH)
-                HStack(spacing: 6) {
-                    roomsPlayGrid().frame(width: gridW, height: bodyH)     // the clean 8×8 (rung-per-column + per-column transport on the bottom row)
-                    Color.clear.frame(width: chainW, height: bodyH)       // the remaining 1/3 is RESERVED (Paul 2026-08-29 — no I/O toggles; ferried cells carry their own I/O)
-                }
-            }.padding(8)
-        }
-        // The PLAY room owns NO extra shared voice — only the persistent play layer sounds here. Gating it OFF on appear (the
-        // sibling of roomsSelect/roomsPart's .onAppear) stops a SELECT/PART audition from leaking onto the play page (Paul 2026-08-31).
-        .onAppear { roomsSyncVoice(.play) }
-        // (buildPlaySel inits to ROW 1 for every column — no per-appear seed needed; a user deselect then persists.)
-    }
-    @ViewBuilder private func roomsReel(_ size: CGSize) -> some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) { navDoor("◂ BACK", to: .select); Spacer() }.padding(.horizontal, 12).padding(.top, 8)   // §MERGE: back to the workbench (the standalone PLAY grid is retired)
-            ZStack {
-                RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.03)).overlay(RoundedRectangle(cornerRadius: 12).stroke(roomsRedSig.opacity(0.5), lineWidth: 1.5))   // §8b REEL = RED signature
-                VStack(spacing: 8) {
-                    Text("REEL").font(.system(size: 30, weight: .black, design: .monospaced)).foregroundColor(roomsRedSig)
-                    Text("the tape — recorded passes  ·  housed next").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 12).padding(.bottom, 8)
-        }
     }
 }

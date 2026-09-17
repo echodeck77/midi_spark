@@ -1637,30 +1637,9 @@ extension DiagView {
             }
         }
     }
-    // ── THE NAV SLIVERS — thin navigation bars that are a COMPONENT OF THE GRID BOX (Paul 2026-08-28). The ▲PLAY sliver
-    // sits directly above the top-row selector buttons (1/3 cell tall, spanning cols 1–8); the SEAM sliver sits beside
-    // the side buttons (1/3 cell wide, spanning the interior rows). Destination-cyan for now.
-    // A DOOR BAR fills with its DESTINATION's signature (§8b): a RAINBOW strip to SELECT · AMBER to PART · INDIGO to
-    // PLAY · RED to REEL. Used by every nav door/sliver so a door always announces where it leads.
-    @ViewBuilder func roomsDoorBar(to room: Room, corner: CGFloat = 4) -> some View {
-        let shape = RoundedRectangle(cornerRadius: corner)
-        switch room {
-        case .select: shape.fill(LinearGradient(colors: roomsRainbowHues, startPoint: .leading, endPoint: .trailing))
-        case .part:   shape.fill(roomsAmber)
-        case .play:   shape.fill(roomsIndigo)
-        case .reel:   shape.fill(roomsRedSig)
-        }
-    }
-    // The legible ink for a door's label on its signature fill.
-    func roomsDoorInk(to room: Room) -> Color {
-        switch room {
-        case .select, .part: return .black.opacity(0.82)   // on the rainbow strip / amber
-        case .play, .reel:   return .white                 // on indigo / red
-        }
-    }
     // The room's FIELD tint behind everything (§8b): charcoal floor in every room; PLAY is the dark stage (near-black).
     func roomsField(_ room: Room) -> Color {
-        room == .play ? Color(red: 0.02, green: 0.02, blue: 0.03) : Color(red: 0.06, green: 0.07, blue: 0.085)
+        Color(red: 0.06, green: 0.07, blue: 0.085)   // charcoal workbench floor (the PLAY dark-stage room was removed 2026-09-17)
     }
     // roomsPlayNavSliver RETIRED (Paul 2026-09-12 dead-code sweep — not mounted; the ferry row is the sole navigation).
     // The part↔select SEAM sliver/column are RETIRED (Paul 2026-09-08, Phase 3): the ferry row is the sole navigation.
@@ -2859,7 +2838,6 @@ extension DiagView {
             // would then double the play layer (Paul 2026-08-31: "it'll be playing but the UI doesn't show that").
             if buildGridSelSel != nil { buildApplyWorkshopVoice(.chain) } else { buildApplyWorkshopVoice(.none) }
         case .part:   buildApplyWorkshopVoice(.part)     // extra = the sequenced part; audition OFF (play layer persists)
-        case .play:   buildApplyWorkshopVoice(.none)     // no extra cell — just the 8 play cells
         default: break
         }
     }
@@ -2867,15 +2845,6 @@ extension DiagView {
     // Option A: buildStagingPlaying is now DERIVED from buildPlayColOn[active], so "the play surface is sounding" is
     // simply any column ON — no separate staging term needed (Paul 2026-09-13).
     var buildPlayPlaying: Bool { buildPlayColOn.contains(true) }
-    // Toggle ONE play column's independent playback + republish. (Paul 2026-08-29 — each play cell starts/stops on its own.)
-    func buildTogglePlayColumn(_ c: Int) {
-        guard c >= 0, c < buildPlayColOn.count, buildPlayColHasContent(c) else { return }
-        buildPlayColOn[c].toggle()
-        // Starting a play column: the play LAYER is the voice — the shared select/part audition must be OFF, else it would
-        // keep sounding this chain on rows 0…7 and this column's own stop (buildPlayColOn) could never silence it (Paul 2026-08-31).
-        if buildPlayColOn[c] { buildVoiceOwner = .none; au?.clearMachineSolo(); buildHostHalted = false }   // an explicit start re-enables free-run after a host halt
-        buildPublishScene()
-    }
     // buildSelectPlayColumn RETIRED (Paul 2026-09-12 dead-code sweep — its callers were the removed play-column ferry paths).
     // The PLAY column currently selected — its selected-rung cell's machine == buildSelID. The play-grid analogue of
     // buildSelectedRow (which only searches STAGING rows), so the I/O toggles reflect + edit a ferried play cell's OWN
@@ -2913,73 +2882,6 @@ extension DiagView {
     // The play grid has at least one column with content (a rung OR a pass).
     var buildPlayPopulated: Bool { (0..<8).contains { buildPlayColHasContent($0) } }
 
-    // ── THE PLAY GRID (Paul 2026-08-29 — "treat as new", BANDS DROPPED). A clean 8×8 over the play grid's OWN arrangement
-    // (buildPlayCells — INDEPENDENT of the part's buildStagingCells), ONE selected rung per column (buildPlaySel, default
-    // ROW 1), plus a BOTTOM READOUT row reflecting each column's selected cell (the numbered slots also shown at the TOP
-    // of the SELECT/PART grids). Cells arrive by the SELECT TOP-button ferry (roomsAssignPlayColumn) — which writes ONLY
-    // buildPlayCells, so it never touches the part-grid side buttons. Self-sizing: 9 equal rows (8 interior + 1 readout).
-    // MASTER START/STOP — starts EVERY populated column at once (or stops all). Per-column control lives on the bottom
-    // readout buttons (roomsPlayBottom) + the SELECT play-ferry buttons. Disabled until the grid has a populated rung.
-    @ViewBuilder func roomsPlayStartStop() -> some View {
-        buildColumnButton(buildPlayPlaying ? "STOP ALL" : "START ALL", active: buildPlayPlaying, fill: .grid, enabled: buildPlayPopulated || buildPlayPlaying || buildFerryParts.contains { $0 != nil }, fillHeight: true,   // enabled if any ferry exists (START ALL now starts ferries) or anything's playing (Paul 2026-09-13)
-                          action: { buildTogglePlayGrid() })
-    }
-    @ViewBuilder func roomsPlayGrid() -> some View {
-        GeometryReader { g in
-            let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad
-            let cw = max(6, (g.size.width - 2 * pad - 7 * gap) / 8)        // 8 cols, no rails → fills the width
-            let ch = max(6, (g.size.height - 2 * pad - 8 * gap) / 9)       // 9 rows (8 interior + 1 bottom readout)
-            VStack(spacing: gap) {
-                VStack(spacing: gap) {                                      // the interior 8×8 — the play grid's OWN cells (rung-per-column select). No playhead (Paul 2026-08-29).
-                    ForEach(0..<8, id: \.self) { r in
-                        HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in roomsPlayCell(c, r).frame(width: cw, height: ch) } }
-                    }
-                }
-                HStack(spacing: gap) {                                      // the BOTTOM readout — each column's selected cell
-                    ForEach(0..<8, id: \.self) { c in roomsPlayBottom(c).frame(width: cw, height: ch) }
-                }
-            }
-            .padding(pad)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
-        }
-    }
-    // A PLAY interior cell — reads the play grid's OWN store (buildPlayCells), ONE selected rung per column via
-    // buildPlaySel; tap selects that rung (re-tap the selected rung → deselect, column silent). Selected rung brighter.
-    @ViewBuilder private func roomsPlayCell(_ c: Int, _ r: Int) -> some View {
-        let id = (c < buildPlayCells.count && r < buildPlayCells[c].count) ? buildPlayCells[c][r] : nil
-        let selected = c < buildPlaySel.count && buildPlaySel[c] == r
-        let on = (c < buildPlayColOn.count && buildPlayColOn[c]) && selected
-        roomsGridCellBody(id: id, selected: selected, sweep: {
-            buildNoteSweep(indices: buildPlayColSweepIndices(c), active: on, id: id, emitter: c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])   // CONTINUOUS drift in the EMITTER machine (multi-step gathers all steps)
-            roomsCellPlayhead(active: on)   // PER-CELL PLAYHEAD — the pass sweeping L→R
-        })
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if c < buildPlaySel.count { buildPlaySel[c] = (buildPlaySel[c] == r) ? -1 : r }   // one rung per column, toggle
-                if c < buildPlayColOn.count, buildPlayColOn[c] { buildPublishScene() }   // Rooms1: a rung change while playing must re-publish so the engine FOLLOWS the selection (was UI-only → audio stayed on the old rung / kept sounding after deselect)
-            }
-    }
-    // A PLAY bottom-row button — column c's PER-COLUMN TRANSPORT (Paul 2026-08-29): shows the selected cell's machine + a
-    // play/stop icon reflecting the column's independent state; TAP = start/stop THIS column. Empty column → inert readout.
-    @ViewBuilder private func roomsPlayBottom(_ c: Int) -> some View {
-        let sel = c < buildPlaySel.count ? buildPlaySel[c] : -1
-        let id = (sel >= 0 && c < buildPlayCells.count && sel < buildPlayCells[c].count) ? buildPlayCells[c][sel] : nil
-        let hue = id.flatMap { machineHue($0) }
-        let populated = buildPlayColPopulated(c)
-        let on = c < buildPlayColOn.count && buildPlayColOn[c]
-        RoundedRectangle(cornerRadius: 4).fill(hue?.opacity(on ? 1.0 : 0.55) ?? Color.white.opacity(0.11))
-            .overlay {
-                if populated {
-                    Image(systemName: on ? "stop.fill" : "play.fill").font(.system(size: 11, weight: .black)).foregroundColor(.black.opacity(0.8))
-                } else {
-                    Text("\(c + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { buildTogglePlayColumn(c) }
-    }
     // (The GRID-WIDE play-grid playhead was removed 2026-08-29. The PER-CELL playhead below replaces it.)
     // PER-CELL PLAYHEAD (Paul 2026-08-29) — a thin line sweeping LEFT→RIGHT over one bar, BEAT-LOCKED, on each ACTIVE play
     // cell + play ferry. It makes a looping pass legible: independent per cell, cycling with the beat. Works under free-run
@@ -4926,41 +4828,6 @@ extension DiagView {
 
 
 
-    // ── small shared placeholder widgets ─────────────────────────────────────────────────────────────────────────
-    // The identical audition button at the top of each column (transport glyph + label, cyan-bordered). `active` marks
-    // it the playing voice; when active AND the transport plays, it becomes a PLAYHEAD — filling cyan L→R over `fill`'s
-    // period (.cell = one step · .grid = the whole 8-column loop), looping. Inactive buttons never animate. (user 2026-08-13)
-    @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, enabled: Bool = true, fillHeight: Bool = false, action: (() -> Void)? = nil) -> some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 5) {                                    // BOTH transport signs, the CURRENT state boldly lit (Paul 2026-08-15)
-                Image(systemName: "play.fill").font(.system(size: 15, weight: .black))
-                    .foregroundColor(active ? Color(red: 0.36, green: 0.92, blue: 0.52) : .white.opacity(0.22))   // PLAYING → GREEN play
-                Image(systemName: "stop.fill").font(.system(size: 15, weight: .black))
-                    .foregroundColor(active ? .white.opacity(0.22) : Color(red: 0.98, green: 0.5, blue: 0.5))     // STOPPED → RED stop
-            }
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .white : buildCyan).tracking(1)
-                .lineLimit(1).minimumScaleFactor(0.6)
-        }
-        .frame(maxWidth: .infinity, minHeight: fillHeight ? 0 : 38, maxHeight: fillHeight ? .infinity : 38)   // fillHeight ⇒ fill the caller's band (exact grid alignment); else the intrinsic 38
-        .background(
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 10).fill(active ? buildCyan.opacity(0.28) : buildCell)   // active = dim cyan base (empty)
-                if active && d.playing && fill != .none {
-                    GeometryReader { g in
-                        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                            RoundedRectangle(cornerRadius: 10).fill(buildCyan.opacity(0.3))              // dim fill = the playhead sweeping L→R
-                                .frame(width: g.size.width * buildHeaderFill(fill, tl.date))
-                        }
-                    }
-                }
-            }
-        )
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? buildCyan : buildEdge, lineWidth: 1))   // §0: the voice keeps the accent; idle mutes
-        // DISABLED (empty grid) looks IDENTICAL to the stopped state — full opacity — but stays inert (Paul 2026-08-18)
-        .contentShape(Rectangle())
-        .onTapGesture { if enabled { buildExitPlaceMode(); action?() } }   // a transport button is not a row selector → leaves PLACE mode
-        .allowsHitTesting(enabled)
-    }
 
     // The header playhead's fill fraction (0…1) — phase-locked to the transport, warped by SWING (as the grid playhead).
     // .cell fills over ONE step; .grid fills over the whole 8-column loop.
