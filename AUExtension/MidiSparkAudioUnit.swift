@@ -835,7 +835,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         document.machines[index].switchType(to: newType)
         suppressRebuild = true
         _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(document.machines[index].transpose)
-        _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(document.machines[index].morph)
         suppressRebuild = false
         scheduleRebuild()
     }
@@ -845,12 +844,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setMachineTranspose(_ index: Int, _ value: Int) {
         _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(max(-24, min(24, value)))
     }
-
-    /// Morph (AUParameter 200+i) — the per-Machine macro fader.
-    func setMachineMorph(_ index: Int, _ value: Double) {
-        _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(max(0, min(1, value)))
-    }
-
 
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.
@@ -930,8 +923,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     //   0            stepRate (index into StepRate.allCases)
     //   1            swing (50…75)
     //   100 + i      transpose per machine i (−24…+24)
-    //   200 + i      morph per machine i (0…1)          ← the macro (§3.2)
-    //   300          MORPH MASTER (0…1)                ← reserved-only (NON-functional; A/B morph removed from render)
+    //   200 + i      RETIRED (was morph per machine) — render-dead params removed 2026-09-16; addresses RESERVED, never reuse
+    //   300          RETIRED (was MORPH MASTER) — ditto
     //   400 + i      MACRO i (0…1)                     ← the macro block, 400…423 reserved (24); only the 8
     //                                                     SLIDERS (400…407) are host-automatable now (macro-panel
     //                                                     spec §5). A future transposeB must pick a base ≥ 500.
@@ -939,8 +932,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         static let stepRate: AUParameterAddress = 0
         static let swing: AUParameterAddress = 1
         static func transpose(_ i: Int) -> AUParameterAddress { 100 + AUParameterAddress(i) }
-        static func morph(_ i: Int) -> AUParameterAddress { 200 + AUParameterAddress(i) }
-        static let morphMaster: AUParameterAddress = 300
+        // 200+i morph / 300 morphMaster RETIRED 2026-09-16 (render-dead params removed). Addresses stay RESERVED — never reuse.
         static func macro(_ i: Int) -> AUParameterAddress { 400 + AUParameterAddress(i) }
         static let macroSliderCount = 8   // the automatable bank (0–7); buttons/timelines aren't single-value AU params
     }
@@ -965,17 +957,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 min: -24, max: 24, unit: .indexed, unitName: "st",
                 flags: stepped, valueStrings: nil, dependentParameters: nil))
         }
-        for (i, id) in machineIDs.enumerated() {
-            params.append(AUParameterTree.createParameter(
-                withIdentifier: "morph_\(id)", name: "Morph \(id.capitalized)",
-                address: ParamAddress.morph(i),
-                min: 0, max: 1, unit: .generic, unitName: nil,
-                flags: smooth, valueStrings: nil, dependentParameters: nil))
-        }
-        params.append(AUParameterTree.createParameter(
-            withIdentifier: "morphMaster", name: "Morph Master", address: ParamAddress.morphMaster,
-            min: 0, max: 1, unit: .generic, unitName: nil,
-            flags: smooth, valueStrings: nil, dependentParameters: nil))
+        // MORPH params (200+i) + MORPH MASTER (300) RETIRED 2026-09-16 — A/B morph was removed from the render, so
+        // these were render-dead host params cluttering every DAW's automation list. Addresses 200–215 + 300 stay
+        // RESERVED (never reuse — invariant 5). The document's morph/morphMaster fields remain as decode-only zombies.
         // MACRO SLIDERS (macro-panel spec §5): the 8 slider macros as host-automatable params — the reborn
         // automation story (AUM lanes · host MIDI-learn · the CC rail all ride these; no MIDI-learn code of ours).
         for i in 0..<ParamAddress.macroSliderCount {
@@ -1001,10 +985,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             case ParamAddress.swing:
                 guard !self.document.scenes.isEmpty else { break }   // K3
                 self.document.scenes[self.document.activeSceneResolved].swing = Int(value)
-            case ParamAddress.morphMaster:
-                self.document.morphMaster = Double(value)
-            case let a where a >= 200 && a < 200 + AUParameterAddress(machineIDs.count):
-                let idx = Int(a - 200); if idx < self.document.machines.count { self.document.machines[idx].morph = Double(value) }   // CR-13b: a decoded doc may have <16 machines
             case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
                 let idx = Int(a - 100); if idx < self.document.machines.count { self.document.machines[idx].transpose = Int(value) }
             case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
@@ -1020,9 +1000,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             case ParamAddress.stepRate:
                 return AUValue(StepRate.allCases.firstIndex(of: self.document.activeSceneState.stepRate) ?? 2)
             case ParamAddress.swing: return AUValue(self.document.activeSceneState.swing)
-            case ParamAddress.morphMaster: return AUValue(self.document.morphMasterResolved)
-            case let a where a >= 200 && a < 200 + AUParameterAddress(machineIDs.count):
-                let idx = Int(a - 200); return idx < self.document.machines.count ? AUValue(self.document.machines[idx].morph) : 0   // CR-13b: <16-machine doc guard
             case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
                 let idx = Int(a - 100); return idx < self.document.machines.count ? AUValue(self.document.machines[idx].transpose) : 0
             case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
@@ -1232,10 +1209,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         _parameterTree.parameter(withAddress: ParamAddress.stepRate)?.value =
             AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2)
         _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(scene.swing)
-        _parameterTree.parameter(withAddress: ParamAddress.morphMaster)?.value = AUValue(document.morphMasterResolved)
         for i in machineIDs.indices where i < document.machines.count {   // CR-13b: a decoded doc may carry <16 machines
-            _parameterTree.parameter(withAddress: ParamAddress.morph(i))?.value =
-                AUValue(document.machines[i].morph)
             _parameterTree.parameter(withAddress: ParamAddress.transpose(i))?.value =
                 AUValue(document.machines[i].transpose)
         }

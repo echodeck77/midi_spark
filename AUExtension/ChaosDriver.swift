@@ -137,7 +137,7 @@ final class ChaosDriver {
         switch rng.int(12) {
         case 0: au.setMachineType(ci, t)                                    // machine swap
         case 1: au.setMachineTranspose(ci, rng.range(-24, 24))
-        case 2: au.setMachineMorph(ci, rng.double())
+        case 2: au.setSwing(rng.range(50, 75))                              // (was setMachineMorph — morph params retired)
         case 3: if let c = cell { let bs = randomBusSet(); au.editCells([c]) { $0.buses = bs } }          // reroute
         case 4: if let c = cell { let r = rng.chance(0.85) ? rng.int(4) : -1; au.editCells([c]) { $0.inputReceiver = r < 0 ? nil : r } }
         case 5: if let c = cell { au.addSlotCells([c], type: t) }          // grow the chain
