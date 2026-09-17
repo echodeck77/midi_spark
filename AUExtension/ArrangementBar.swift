@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// §2 THE ARRANGEMENT BAR — the header IS the arrangement: LOGO · the 8 scene chips · ⚙, one row (the old
+/// §2 THE ARRANGEMENT BAR — the header IS the arrangement: LOGO · the 16 scene chips · ⚙, one row (the old
 /// header + scene strip merged; the reclaimed row goes to the grid). PIN: the LOGO yields (compressed to the
 /// "8×8" mark), never the chips; the chips flex to fill. The ⚙ BECOMES the red trash can during a scene drag.
 ///
@@ -8,9 +8,9 @@ import SwiftUI
 /// tap/drag/sweep logic live in one cohesive place. The VC still owns the 4 Hz poll and the grid's scene/
 /// machines: it passes the polled `sceneEmpty`/`activeSceneIdx` DOWN and gets `onSceneOpDone` back after any op.
 ///
-/// LAYOUT v2: the bar hosts the six-tab bar (`tabBar`) + undo/redo, rendered ONCE at the top of the whole app —
-/// every surface (GRID · PROCESSORS · RECEIVERS · EMITTERS · MACROS · AUTOMATION) is a tab, so the bar replaces the
-/// old PERFORM/EDIT toggle, the verbs-box EDIT button, and the edit page's DONE close button.
+/// HISTORICAL: a six-tab bar (GRID · PROCESSORS · RECEIVERS · EMITTERS · MACROS · AUTOMATION) briefly lived here —
+/// RETIRED 2026-08-21. BUILD is now the sole surface; this bar carries only the LOGO · scene chips · ⚙ (+ the
+/// header config controls fed in from the VC). There is no `tabBar` member.
 struct ArrangementBar: View {
     @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?

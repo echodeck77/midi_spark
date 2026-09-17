@@ -429,7 +429,7 @@ final class SnapshotBox {
     let generation: UInt64           // increments per publish; render clears param overrides on change
     let stepBeats: Double
     let swing: Double                // 50…75 (§4 v2.3)
-    let morphMaster: Double          // §13.5, parameter #35
+    let morphMaster: Double          // DEAD WEIGHT — morph removed 2026-09-16; still built each snapshot but read by nothing (candidate for removal)
     let machines: [SnapMachine]        // ≥16 — sized to the document (BUILD ephemeral machines append beyond the 16)
     var renderAuto: [MachineAuto?] = []   // PHASE 2: per machine index; nil = none. Set by the builder BEFORE publish (immutable after). Empty ⇒ byte-identical.
     var hasParamLFO: Bool = false         // PER-PARAM LFO (Docs/PLAN-param-lfo.md): true iff any resolved cell proc carries a paramLFO. false ⇒ the render pass is skipped, byte-identical.
@@ -684,7 +684,8 @@ func applyModChainOffset(_ p: SnapParams, param: MacroParam, offset: Double) -> 
 // CELL MACHINE (morph removed): the A/B blend is gone — every effective* reads the single (A) param bag.
 // They keep a `t` arg (always 0, ignored) so the render call sites are unchanged; the render feeds them the
 // per-cell chain slot via the `treat.a = head` injection SnapMachine. (The retired a→b interpolation, tiers,
-// and morphMaster #300 are history — Codable fields + the param address stay reserved per CLAUDE.md.)
+// and morphMaster #300 are history — the Codable fields are decode-only, and the param addresses (200-215/300)
+// were REMOVED 2026-09-16 and are FREE to reuse.)
 @inline(__always)
 func effectiveType(_ c: SnapMachine) -> ProcessorType { c.a.type }
 

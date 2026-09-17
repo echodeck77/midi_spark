@@ -478,15 +478,13 @@ struct Machine: Codable, Equatable {
     // v3.0 (delta §7): per-Machine OUT CH is REMOVED — channel is a property of the WIRE (busChannels),
     // not the treatment. Old docs carrying an `outChannel` key decode fine (Codable ignores unknown keys).
     var transpose: Int = 0         // −24…+24, accumulates in chains, clamped — the ACTIVE type's transpose
-    var morph: Double = 0          // §3.2 — the per-machine macro AUParameter — the ACTIVE type's morph
+    var morph: Double = 0          // DECODE-ONLY ZOMBIE — the per-machine morph AUParameter (was 200+i) was REMOVED 2026-09-16; the A/B morph layer is gone, the render reads only the A bag
     var paramsA: MachineParams = MachineParams()   // procA — the A face
-    // delta item 8 (TWO-PROCESSOR Machines): procB — this Machine's OWN second face. paramsB is REAL storage
-    // again (resolved with fallback A, so a sparse procB inherits A's fields). A cell's `alt` flag flips to
-    // procB; `morph` (below) is the position toward it. B-less ⇒ typeB == nil ⇒ b = a, no morph.
+    // DECODE-ONLY ZOMBIES — the A/B TWO-PROCESSOR morph layer was REMOVED with the morph params (2026-09-16). paramsB/
+    // typeB are no longer read by the render (every effective* reads the single A bag); they're kept only so older docs
+    // decode. The historical model: procB was a Machine's second face, `alt` flipped to it, `morph` was the position
+    // toward it (same type ⇒ glide · different ⇒ swap at t≥0.5). None of that runs now.
     var paramsB: MachineParams = MachineParams()
-    // delta item 8: procB's processor TYPE, or nil = B-less (the natural encoding — old docs decode nil).
-    // Same type as A ⇒ FULL morph glide; different ⇒ SWAP (binary flip at t≥0.5). B is sourced ONLY when
-    // this is non-nil, so a pre-pair doc's stale paramsB stays inert.
     var typeB: ProcessorType? = nil
     // delta item 8: procB's transpose — STORED (COPY A→B + round-trip) but render-INERT in v1 (SnapMachine
     // carries a single transpose; both faces sound with A's, matching the old pair behavior). Making it
@@ -572,8 +570,8 @@ struct OnConfig: Codable, Equatable {
     // ON ARRIVE
     var arrive: OnArrive = .none
     var arriveEvery: Int = 1                   // 1…4
-    var driftPct: Int = 10                     // ±n% (shown only when arrive == .morphDrift)
-    var driftMode: DriftMode = .pingpong       // ↻ / ⇄ (shown only when arrive == .morphDrift)
+    var driftPct: Int = 10                     // INERT — the MORPH-DRIFT arrive treatment was removed with the morph layer (Derivations arriveMorph gone)
+    var driftMode: DriftMode = .pingpong       // INERT — ditto
     // ON LEAVE
     var leave: OnLeave = .none
     // ON SCENE (independent checklist facets)
@@ -1326,8 +1324,8 @@ struct PluginState: Codable, Equatable {
     // decode and the WHOLE document failed to load (data-loss). Now additive-Optional (a missing key decodes nil), with
     // resolvers giving the same defaults. New/factory/preset docs still write them, so this is decode-tolerance only.
     var activeScene: Int? = nil
-    var morphMaster: Double? = nil // RETIRED (delta §9 item 5): param #300 stays registered (invariant 5)
-                                   // but the render no longer applies it — morph is per-Machine only.
+    var morphMaster: Double? = nil // DECODE-ONLY ZOMBIE (delta §9 item 5): param #300 was REMOVED 2026-09-16 (address
+                                   // free to reuse) and the render never applied it — kept only so older docs decode.
     var morphMasterResolved: Double { morphMaster ?? 0 }
     var busChannels: [Int]? = nil  // v3.0 (delta §7): each bus A–D stamps this channel on exit
     /// The 4 stamp channels, nil/short-array safe (missing ⇒ 1,2,3,4). Non-persisting read helper.

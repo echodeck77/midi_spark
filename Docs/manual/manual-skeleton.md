@@ -16,7 +16,7 @@ Every control entry is: `**Label** {#anchor} — factual what-it-is. _Why: TBD._
 > - **`{#processor-type}` "6 types" is a fossil — there are 32** (see the storefront catalog, grouped
 >   MELODY/HARMONY/RHYTHM/DYNAMICS/CONTROL/TIME/UTILITY/ROUTING).
 > - **The door-level BYPASS toggle was REMOVED.** `{#recv-bypass}` / `{#bypass-dest}` describe a door→emitter
->   straight wire that no longer exists. A door now has SIX MODES — thru · latch · hold · keys · replay · file —
+>   straight wire that no longer exists. A door now has EIGHT MODES — thru · latch · hold · keys · replay · file · scale · chord —
 >   so `{#keys-chord}`'s "KEYS \| CHORD latch rule" is one narrow slice of the current door-mode radio.
 > - **CLAIM / DUCK / TURNS(ALT) moved off the emitter strip into THE RACK matrix** (open via the RACK config
 >   button). `{#claim}` / `{#emit-duck}` describe strip buttons that were relocated; the emitter strip is now
@@ -82,7 +82,7 @@ _The CHAIN footer opens the selected colour's stages. Editing a stage edits the 
 ## 2.1 The header / arrangement bar {#header} [A — tops every tab]
 - **8×8 logotype** {#logo} — the app mark; long-press opens the developer SELF-TEST panel (runs the built-in BuildSelfTest MIDI checks). _Why: The maker's mark, and quietly a handle: it holds the app's identity in hosts that show many plugins at once. The long-press panel is a developer door — it runs the engine's own MIDI self-tests; nothing behind it is needed to play._
 - **PRESETS button** {#presets-open} — opens the preset browser; shows the loaded preset's name. _Why: Whole songs travel as presets: the grid, the scenes, the wiring, everything. Open this to change worlds; the name beside it tells you which world you're in._
-- **Header config buttons** {#tab-bar} — (RETIRED tab row.) There is no page-tab row any more — BUILD is the sole surface. The header instead carries a row of CONFIG BUTTONS — **RATE · MIDI IN · MIDI OUT · RACK · ROW 8 · RECORD** — each opening a sheet or overlay over the workshop. _Why: One workshop, with its rig config a button-press away rather than a page-switch away — you stay in the build and summon the doors, wires, and rack when you need them._
+- **Header config buttons** {#tab-bar} — (RETIRED tab row.) There is no page-tab row any more — BUILD is the sole surface. The header instead carries the **RACK** and **RECORD** buttons (each opening a sheet/overlay over the workshop). RATE lives on the ferry-settings card; MIDI IN/OUT are reached by tapping the machine-column strips; ROW 8 is currently unreachable. _Why: One workshop, with its rig config a button-press away rather than a page-switch away — you stay in the build and summon the rack and reel when you need them._
 - **PASS · tempo readout** {#transport-readout} — display-only "P#·bpm" while playing. _Why: The pass counter and tempo, so you know where the lap is without watching the playhead. Display only; the host owns time here, always._
 - **UNDO** {#undo} — step the document back one edit. _Why: Every structural change is one step back, including big ones. Undo covers STRUCTURE, not weather — performance gestures never need undoing because they never leave a mark._
 - **REDO** {#redo} — step forward. _Why: The other direction. Together with undo it makes building a safe place to guess._
@@ -127,7 +127,7 @@ _The CHAIN footer opens the selected colour's stages. Editing a stage edits the 
 - **KEY− / KEY+** {#master-key} — per-scene master transpose. _Why: The song's transpose, per scene: the whole arrangement up or down in semitones, structurally. Your held chord plus KEY is how one hand plays in every key._
 
 ## 2.7 The CONTROLS panel {#verbs} [GRID]
-- **CONTROLS panel** — the placeholder engine bank beside the macros under the grid: **RANDOMIZE · AUTOMATION · MUTATE · AUTOPLAY**. _Why: The four engines the play desk is growing into — a dice for the sound, an automation surface, a bounded mutator, and a self-player. They read as seats now; each lights up as its engine lands. Nothing here can damage the song._
+- **CONTROLS panel** — a placeholder engine bank: **RANDOMIZE · AUTOMATION · MUTATE · AUTOPLAY**. _(The old on-screen macro band under the grid was removed; the 8 macro sliders survive only as host-automatable parameters.)_ _Why: The four engines the play desk is growing into — a dice for the sound, an automation surface, a bounded mutator, and a self-player. They read as seats now; each lights up as its engine lands. Nothing here can damage the song._
 
 ## 2.8 SINGLE | MULTI — LADDER mode {#ladder-mode} [GRID]
 - **SINGLE | MULTI toggle** {#ladder} — the title-bar mode: SINGLE makes the columns exclusive (at most one rung sounds per column), MULTI lets every populated rung sound. _Why: SINGLE turns each column into a stack of alternate takes with one live at a time, switched on the bar like clips. Its real gift is arranged intensity: scenes remember your rung choices, so "the drop" becomes a thing you painted, not a thing you scramble for. (Hidden on BUILD — staging owns its own picking.)_

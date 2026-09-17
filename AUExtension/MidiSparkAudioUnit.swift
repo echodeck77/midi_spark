@@ -213,7 +213,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
     // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),
-    // and continuous AUParameter sliders (transpose/morph) are excluded for v1 (they bypass these paths).
+    // and the continuous transpose AUParameter is excluded for v1 (it bypasses these paths; the morph params were removed 2026-09-16).
     private var undoStack = UndoStack<PluginState>()
     var uiCanUndo: Bool { undoStack.canUndo }
     var uiCanRedo: Bool { undoStack.canRedo }
@@ -825,9 +825,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Read-only Machines (type + params) so the grid can render each cell's type glyph + params text.
     func uiMachines() -> [Machine] { document.machines }
 
-    /// Switch a Machine's processor type, isolating transpose/morph per type (spec revision). The type
-    /// change is a document edit; the restored transpose/morph are pushed to the AUParameter tree (with
-    /// the observer's rebuild suppressed, like the load paths) so host/UI reflect the new type's values.
+    /// Switch a Machine's processor type, isolating transpose per type (spec revision). The type change is a
+    /// document edit; the restored transpose is pushed to the AUParameter tree (with the observer's rebuild
+    /// suppressed, like the load paths) so host/UI reflect the new type's value. (Morph params removed 2026-09-16.)
     func setMachineType(_ index: Int, _ newType: ProcessorType) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard index >= 0, index < document.machines.count, document.machines[index].type != newType else { return }

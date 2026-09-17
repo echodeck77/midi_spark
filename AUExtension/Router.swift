@@ -26,8 +26,10 @@ import Foundation
 
 final class Router {
 
-    // Render-side parameter overrides (§7 second route). Slots:
-    //   0 stepRate · 1 swing · 2+i transpose(i) · 18+i morph(i) · 34 morphMaster
+    // Render-side parameter overrides (§7 second route) — this is the Router's OWN compact slot numbering, NOT the AU
+    // tree addresses. Slots: 0 stepRate · 1 swing · 2+i transpose(i) · 18+i morph(i) · 34 morphMaster.
+    // NOTE: the morph slots (18+i, 34) are now DEAD — the morph AU params were removed 2026-09-16, so no host
+    // .parameter event ever targets them; transpose (2+i) is the only live per-machine override. Array kept at 35.
     private var overrides = [Double](repeating: .nan, count: 35)
     private var overrideGen: UInt64 = .max
 
@@ -780,7 +782,8 @@ final class Router {
 
     @inline(__always)
     private func over(_ slotIndex: Int, _ fallback: Double) -> Double {
-        // The override table is sized for the 16 host-automatable machines (transpose 2+i, morph 18+i, i<16).
+        // The override table is sized for the 16 host-automatable machines (transpose 2+i, i<16; the morph slots 18+i
+        // are dead since the morph AU params were removed 2026-09-16).
         // An EPHEMERAL machine (index ≥16, Paul's unlimited-machines model) has no param address → no override,
         // so it uses its own value. Guard the read so a high machine index never traps the render thread.
         guard slotIndex >= 0, slotIndex < overrides.count else { return fallback }

@@ -6,6 +6,10 @@ Spec of record for the emitter-treatment rework. **Supersedes the tabbed emitter
 toggles) vs the loop switcher (the strip's enable button).
 
 ## BUILD STATUS
+> **⚠ SUPERSEDED (2026-09-17): the shipped rack matrix (`RackMatrix.swift`) wires only OWNS/KEY/TURNS.** The
+> "all eight live" status below did NOT survive the rooms/rack rework — CURVE · FENCE · MONO · POCKET · CONVERSATION
+> are rendered but DIMMED (not engine-backed) in the current UI. Read the status block below as historical.
+
 **ALL EIGHT PRIMARY TREATMENTS LIVE (2026-08-05, off-device: iOS builds + 424 macOS tests green; DEVICE pass owed).**
 Pass 1 (2026-08-04) shipped the shell + two-tier gate + OWNS/KEY/TURNS. 2026-08-05 un-dimmed the rest —
 CURVE · FENCE · MONO · POCKET · CONVERSATION. Only ECHO/CHOKE/GOVERNOR + secondary detail params remain dimmed.

@@ -62,16 +62,15 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 /// Live diagnostics: what the kernel is actually seeing, at 4 Hz.
 /// Interpreting it:
 ///  · PARAM EVENTS rising while you turn a mapped knob → host uses render-side events (kernel handles).
-///  · TREE morph moving but PARAM EVENTS static → host uses setValue (observer/snapshot path).
+///  · TREE transpose/macro moving but PARAM EVENTS static → host uses setValue (observer/snapshot path).
 ///  · Neither moving → the mapping isn't reaching this instance (host-side routing).
 ///  · CC IN rising → raw CC arrives at the MIDI input (and is passed through on A).
 /// §11/11b THE ROUND HELD VERBS — the rebuilt authoring surface. Hold a verb → the grid invites → taps do the
 /// verb → release = done (no armed state). Long-press a verb = LATCH (tap again releases). No verb held → taps
 /// are TRIGGERS. HOLD (the 6th button) is the §5c gesture-latch, not a grid verb.
 
-/// LAYOUT v2 (2026-08-05): the permanent surface addresses — a tab per surface, replacing the PERFORM/EDIT toggle
-/// and the in-grid overlays. GRID = the perform desk · PROCESSORS = the cell edit page · RECEIVERS = per-door config
-/// (from the cog) · EMITTERS = the RACK matrix · MACROS/AUTOMATION = dimmed 'coming' seats (phase 2+).
+/// HISTORICAL (LAYOUT v2, 2026-08-05): a tab-per-surface era briefly existed (GRID/PROCESSORS/RECEIVERS/EMITTERS/
+/// MACROS/AUTOMATION) — RETIRED 2026-08-21. See the note below.
 // Only BUILD remains — the GRID/MIDI IN/MIDI OUT/MACROS/AUTOMATION tabs were retired 2026-08-21 (BUILD is the sole
 // surface). `activeTab` is kept as a constant so the BUILD-only poll/render gates read cleanly.
 enum AppTab: String, CaseIterable {
@@ -362,8 +361,8 @@ struct DiagView: View {
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
     @State var buildGridSelPriorSel: String? = nil
     @State var buildGridSelLastSlot: [Int: Int] = [:]     // per SELECT-grid cell index → the last processor slot VIEWED there; leaving remembers it, returning re-opens it (Paul 2026-09-10)
-    @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
-    @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
+    @State var ddStickyReceiver: Int = 0      // sticky: the LAST receiver chosen → the default input for a fresh cell (R1 = 0)
+    @State var ddStickyBuses: Set<Bus> = [.a] // sticky: the LAST emitters chosen → the default output for a fresh cell (Emitter A)
     // (the playhead beat anchor moved into `meters` — a @State-held class — so its 4 Hz re-anchor doesn't re-run the body)
     // ddSolo / buildStagingPlaying are now COMPUTED mirrors of buildVoiceOwner (see BuildPage) — not stored state.
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
@@ -1168,10 +1167,9 @@ struct DiagView: View {
     // §6d TWO FLOWS signal column: RECEIVERS (4 grid-rows tall, 50% width, centred) → GRID → EMITTERS (same),
     // filling the available height as 17 equal rows (4 receiver + 9 grid [key + 8] + 4 emitter). The bands are
     // half-width and centred (user 2026-07-26); GridView height = 9·cell + 24, so total = 17·cell + 30.
-    // LAYOUT v2: the active tab's body. Every surface has ONE permanent address — no in-grid overlays, no
-    // PERFORM/EDIT toggle. GRID = the perform desk; PROCESSORS = the edit page; EMITTERS = the full rack matrix;
-    // RECEIVERS = per-door config (Part 4); MACROS/AUTOMATION = coming-soon placeholders (later phase).
-    // THE MAIN CONTENT COLUMN — header (+ tab bar) then the active tab's body. WHOLE-UI SCROLL (user 2026-08-05):
+    // The active surface's body. Only BUILD remains (the tab era was retired 2026-08-21); config (RACK, RECORD, the
+    // MIDI IN/OUT sheets) opens as overlays over BUILD, not as separate tabs.
+    // THE MAIN CONTENT COLUMN — header then the BUILD body. WHOLE-UI SCROLL (user 2026-08-05):
     // measure the column's natural height and, when it overflows the viewport, wrap the WHOLE thing (header + tabs
     // + body) in ONE ScrollView so it all scrolls together. When it fits, render RAW so the UIKit ColumnHoldOverlay
     // multi-touch stays alive (a ScrollView swallows those touches even with scrolling disabled).

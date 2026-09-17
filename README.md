@@ -12,18 +12,18 @@ routing matrix · state machine for live MIDI).
 `Docs/midispark-spec-v3.0-delta.md` (the delta wins conflicts).
 **Live status and the current plan:** `CLAUDE.md`.
 **UI reference:** the built plugin is the living reference for shipped features. The
-current surface is the ROOMS interface (SELECT / PART / PLAY grids + the reel-to-reel
-pass browser) — the old tab/PERFORM-EDIT/cell-editor surfaces have all been retired.
+current surface is a single merged SELECT/PART BUILD workbench (with the play ferries; the
+reel is a pop-up) — the old tab/PERFORM-EDIT/cell-editor surfaces have all been retired.
 For unbuilt behaviour, CLAUDE.md's status log + `Docs/pending-tasks.md` are the source
 of truth; `Docs/midispark-preview-v60.html` (simulator) and `-v61.html` (ratification
 board) are the surviving mockups.
 
 > Status in one line: the v3.0 graph-routing migration is DONE (grid-chaining was since
 > RETIRED — cells route from four receiver DOORS); ~32 processor types, channels/outputs,
-> receivers (six door modes incl. SCALE, LATCH + controller routing), macros, the emitter
+> receivers (eight door modes incl. SCALE/CHORD, LATCH + controller routing), macros, the emitter
 > RACK, per-part clock, the reel pass browser, and audition (all types) are built, with a
-> ~1116-test off-device suite covering the render engine itself. The UI is now the single
-> BUILD "rooms" surface (SELECT / PART / PLAY + the reel) — the six-tab shell and the old
+> ~1116-test off-device suite covering the render engine itself. The UI is now a single merged
+> BUILD SELECT/PART workbench (+ the play ferries and the reel pop-up) — the six-tab shell and the old
 > DRAG&DROP + PROCESSORS/cell-edit pages were retired. A/B-state morph was removed from the
 > render. See CLAUDE.md for live status; do not code from this README.
 
@@ -74,8 +74,8 @@ App/                                 Container app (registers the extension; ins
 AUExtension/
   Info.plist                         aumi declaration: type/subtype/manufacturer, MIDI tag
   MidiSparkAudioUnit.swift           AUAudioUnit: midiOutputNames (ALL + A–D), parameter tree (STABLE
-                                     addresses: 0 stepRate, 1 swing, 100+i transpose, 200+i morph,
-                                     300 morphMaster, 400+i macro ×8), fullState = host Preset (§1); setColourType
+                                     addresses: 0 stepRate, 1 swing, 100+i transpose, 400+i macro ×8;
+                                     morph 200+i/300 REMOVED 2026-09-16), fullState = host Preset (§1); setColourType
   Kernel.swift                       INPUT side + render boundary: transport/context derivation, incoming
                                      MIDI (source pool + passthrough + CC), param events, audition
                                      suppression → Router; hosts LiveMIDIEmitter (the one AudioToolbox user)
@@ -92,13 +92,13 @@ AUExtension/
   Diag.swift                         KernelDiag (pure) — render-side counters threaded through the pass
   Models.swift                       Spec §9 schema: Colour / Cell / SceneState / PluginState, Codable
   GridUI.swift                       The 8×8 grid + palette + PROCESSOR box + OUTPUTS (SwiftUI-only)
-  BuildPage.swift                    THE BUILD "rooms" surface — the SOLE UI (SELECT / PART / PLAY rooms + the
-                                     reel; cast / part-staging / play grid / machine strip; ephemeral colours)
+  BuildPage.swift                    THE BUILD workbench — the SOLE UI (one merged SELECT/PART grid + the play
+                                     ferries; the reel pop-up; machine strip; ephemeral colours)
   SceneFactory.swift                 The sixteen factory scenes (Foundation-only; Docs/factory-scenes.md)
   TestSessions.swift                 T1–T17 canned patches (the in-app loader is retired; now dev-only)
   AudioUnitViewController.swift      Extension UI host: the BUILD rooms surface + responsive DESK
                                      (the 4 Hz poll drives the playheads)
-Tests/                               Off-device unit tests (macOS MidiSparkTests target, ~1059 tests over the
+Tests/                               Off-device unit tests (macOS MidiSparkTests target, ~1116 tests over the
                                      pure core AND the render engine — first line of verification; green
                                      through every commit)
 Docs/                                Specs, migration plan, test playbook, factory scenes, UI guide, mockups
