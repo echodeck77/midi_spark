@@ -46,18 +46,22 @@ OPEN:
   removed); `buildExitPlaceMode` is still called from 5 live sites (kept — PLACE may return). All three want a dedicated
   DragDropPage/rooms-legacy pass, not a piecemeal removal. (`buildStopAllOnTransportStop` — the old "stop de-arms all"
   handler — was confirmed superseded by `buildTransportEdge` and REMOVED in the sweep; not a bug.)
-- **REMAINING DEAD-CODE PASS (grep-verified, needs a device-verified sweep):** the vestigial `.play`/`.reel` room subtree
-  (`roomsPlay`/`roomsPlayGrid`/`roomsPlayStartStop`/`roomsReel` — confirm no reel entry outside the room system before
-  removing the enum cases + switch arms). Plus survey-flagged standalone orphans to RE-verify (some may now be live):
-  `buildSetPartRate`/`roomsGridCellW`/`roomsPartPianoRoll`/`roomsPartMacroSection`/`buildAddCastColour` + `@State buildRowMode`.
-  (`buildGridSelDriftFace` is RESERVED — "the ferries keep it".)
-- **★ THE LEGACY PLAY-GRID CLUSTER (confirmed dead 2026-09-17, ferry-review finding #3):** `roomsPlayGrid()` has ZERO
-  render sites (the live surfaces both render the ferry row via `roomsPlayFerry`), so its whole subtree is unreachable:
-  `roomsPlayGrid`/`roomsPlayCell`/`roomsPlayBottom` + `buildTogglePlayColumn` + the `buildPlayCells`/`buildPlaySel`/
-  `buildPlayColSteps/Len/Rate`/`buildPlayColRecv/Emit` store + `buildSelectedPlayCol`. NOTE the latent hazard while it
-  lives: `buildTogglePlayColumn` does a naive `buildPlayColOn[c].toggle()` WITHOUT flatten/choke/launch-anchor (unlike the
-  live `buildSetFerryPlay`), so if anything re-wires the PLAY room to it, a background ferry would start SILENT. Safe to
-  delete as one grep-verified batch; it overlaps the `.play` room-subtree entry above — do them together.
+- **✅ DEAD-CODE SWEEP A1–A5 DONE (2026-09-17, on `main` `40209bd`…`6a307b7`; iOS builds, macOS 1078 green):** removed
+  ~640 lines of confirmed-dead UI + the test-only pure cluster: **A1** the retired AUTO/macro-authoring panel
+  (`autoSpanColumn` + 15 helpers + the inert span-draw guard + `buildPartDragAnchor`); **A2** the ROW 8 edit page
+  (`buildRow8EditPage` subtree + AU `setRow8Cell` + `buildRow8EditOpen/Slot` — kept the live `Row8Cell`/`buildRow8On`/
+  `setRow8On`/engine/persistence); **A3** the `.play`/`.reel` rooms (enum cases + `roomsPlay`/`roomsReel`/`navDoor`/
+  `roomsPlayGrid`/`roomsPlayCell`/`roomsPlayBottom`/`roomsPlayStartStop`/`roomsDoorBar`/`roomsDoorInk`/`buildTogglePlayColumn`/
+  `buildColumnButton`); **A5** orphaned `@State` (`buildReturnPart`, `buildGridSelQuantStep`) + vestigial `workingPart` +
+  `Snap.morphMaster`/`morphMasterResolved`; **A4** the 16 test-only pure fns + their 38 tests (laneValue/modCCValue/
+  columnSweepFraction/sealFit/voiceLeadTowardPrevious/poolStep/swapCells/libraryStripped/loadLoop/unpackPlayCell/
+  selectedRungs + the macro-authoring cluster). KEPT LIVE (do NOT remove): the play-ferry state/logic (`buildPlayColOn`,
+  `buildSetFerryPlay`, `buildTogglePlayGrid`, `buildPlayCells/Sel/…`), the reel OVERLAY (a separate live pop-up), and
+  `buildAutoActive`/`buildAutoInExtent`/`buildAutoLanesFor` (live inert-returning reads).
+- **STILL OPEN — survey-flagged standalone orphans to RE-verify (NOT part of the A1–A5 sweep; some may now be live):**
+  `buildSetPartRate`/`roomsGridCellW`/`roomsPartPianoRoll`/`roomsPartMacroSection`/`buildAddCastColour` + `@State buildRowMode`;
+  possibly-now-orphaned `buildSelectedPlayCol` (was play-grid I/O reflection). Also the now-unused MacroAuthoring types
+  (`MacroSlotBinding`/`MacroControlGroup`) left by the A4 macro-fn deletions. (`buildGridSelDriftFace` is RESERVED — "the ferries keep it".)
 - **PICK-FROM-LIBRARY (add-a-row):** currently opens `buildOpenLibrary` (the browser); may need a row-targeted placement so the
   picked chain lands on the empty row directly. Also DUPLICATE copies the chain, not the register-home transpose.
 - **GRID FOOTERS are PLACEHOLDER, not wired** (SELECT=pages · PART=column-loop) — reserve-space only; behaviour unbuilt.
