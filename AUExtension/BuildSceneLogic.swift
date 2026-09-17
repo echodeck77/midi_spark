@@ -81,9 +81,6 @@ enum BuildSceneLogic {
     // can hold a SET of rungs (poly selections), only these two bodies change — every caller already asks here.
     /// The primary selected rung for column `c` (-1 = the column is silent / out of range). Poly's "lead" rung.
     static func selectedRung(_ sel: [Int], _ c: Int) -> Int { (c >= 0 && c < sel.count) ? sel[c] : -1 }
-    /// The selected rungs for column `c` as a list — mono today (`[r]` or empty); the poly-ready read (callers that
-    /// iterate the sounding rungs use this, so the loop is already in place when a column becomes a set).
-    static func selectedRungs(_ sel: [Int], _ c: Int) -> [Int] { let r = selectedRung(sel, c); return r >= 0 ? [r] : [] }
     // PLAY-FERRY LAUNCH (Paul 2026-09-09, Phase 3): the ferries a NEW launch chokes — every OTHER currently-ON ferry sharing
     // the launching ferry's non-OFF choke group. Pure so the choke rule is unit-tested. group ≤ 0 (OFF) ⇒ no victims.
     static func chokeVictims(launching t: Int, group g: Int, parts: [BuildPart?], on: [Bool]) -> [Int] {
@@ -534,21 +531,6 @@ enum BuildSceneLogic {
         return .selectRung(row: row)   // EMPTY cells ARE selectable — the contract, locked by test
     }
 
-    // PLAY-GRID FERRY EDITING (Paul 2026-09-05, Docs/PLAN-play-grid-ferry-editing.md): unpack a play cell onto the BENCH.
-    // A PART-BACKED cell (its stored BuildPart) loads WHOLE — a lossless round-trip of what was flattened. A SELECT-BACKED
-    // cell (no stored part, just a machineID) yields a FRESH one-cell part: the bench cleared to exactly that one chain
-    // (top-left, selected), so editing starts from that single cell. Pure → unit-tested; the park/live-link/re-deposit
-    // lifecycle is UI-side (Stages 3–4).
-    static func unpackPlayCell(storedPart: BuildPart?, selectMachineID: String?) -> BuildPart {
-        if let p = storedPart { return p }                 // part-backed: the whole part, verbatim (lossless)
-        var part = BuildPart()                             // select-backed: a clean bench holding one cell
-        if let cid = selectMachineID {
-            part.stagingCells[0][0] = cid                  // the single chain, top-left (col 0, row 0)
-            part.stagingSel[0] = 0                         // that column's selected rung
-            part.selID = cid                               // the cast selection follows it
-        }
-        return part
-    }
 }
 
 // ── FERRY DRAG-AND-DROP (Paul 2026-09-12) — the drag carries a SELECT cell or a play ferry; it drops on a ferry (populate

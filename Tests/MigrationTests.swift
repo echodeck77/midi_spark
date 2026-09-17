@@ -604,25 +604,6 @@ final class MigrationTests: XCTestCase {
         XCTAssertFalse(s.isEmpty, "a placed cell ⇒ not empty")
     }
 
-    // Bounds-safe cell access: a stale UI position or a decoded RAGGED scene must never trap a subscript (the
-    // crash class behind multi-cell edits). cellAt/setCell/inBounds/swapCells all no-op out of range.
-    func testBoundsSafeCellAccessNeverTraps() {
-        var s = SceneState.empty()
-        s.cells[3][4] = Cell(machineID: "gold")
-        XCTAssertEqual(s.cellAt(3, 4)?.machineID, "gold", "in-range read round-trips")
-        XCTAssertNil(s.cellAt(99, 99), "far out-of-range read → nil, no trap")
-        XCTAssertNil(s.cellAt(-1, 0), "negative index → nil")
-        s.setCell(50, 50, Cell(machineID: "cyan"))          // out-of-range write is a no-op
-        XCTAssertTrue(s.cellAt(50, 50) == nil, "out-of-range write did nothing")
-        s.setCell(3, 4, nil); XCTAssertNil(s.cellAt(3, 4), "in-range write clears the cell")
-        s.swapCells((0, 0), (99, 99))                      // ragged/out-of-range swap is a no-op (no trap)
-        // A genuinely RAGGED scene (short of 8×8, as a bad decode could produce) is safe too.
-        let ragged = SceneState(cells: [[Cell(machineID: "gold"), nil]])   // 1 column, 2 rows
-        XCTAssertEqual(ragged.cellAt(0, 0)?.machineID, "gold")
-        XCTAssertNil(ragged.cellAt(0, 5), "row past the ragged column → nil")
-        XCTAssertNil(ragged.cellAt(7, 7), "column past the ragged grid → nil")
-        XCTAssertFalse(ragged.inBounds(7, 7)); XCTAssertTrue(ragged.inBounds(0, 1))
-    }
 
     func testPadScenesFillsToEightIdempotently() {
         var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
@@ -894,30 +875,6 @@ final class UndoStackTests: XCTestCase {
 // MARK: - Cell relocation (delta §5 drag-and-drop)
 
 final class CellRelocationTests: XCTestCase {
-    func testSwapCellsMovesToEmptyPreservingFields() {
-        var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.b]); c.inputRow = 3; return c }()
-        s.swapCells((0, 0), (2, 5))                    // move onto an empty slot
-        XCTAssertNil(s.cells[0][0])
-        XCTAssertEqual(s.cells[2][5]?.machineID, "gold")
-        XCTAssertEqual(s.cells[2][5]?.inputRow, 3, "the reference moves as-is (fields sacred)")
-        XCTAssertEqual(s.cells[2][5]?.buses, [.b])
-    }
-    func testSwapCellsSwapsTwoOccupied() {
-        var s = SceneState.empty()
-        s.cells[1][1] = Cell(machineID: "gold")
-        s.cells[4][2] = Cell(machineID: "cyan")
-        s.swapCells((1, 1), (4, 2))
-        XCTAssertEqual(s.cells[1][1]?.machineID, "cyan")
-        XCTAssertEqual(s.cells[4][2]?.machineID, "gold")
-    }
-    func testSwapCellsSelfAndOutOfRangeAreNoOps() {
-        var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold")
-        s.swapCells((0, 0), (0, 0))                    // self → no-op
-        XCTAssertEqual(s.cells[0][0]?.machineID, "gold")
-        s.swapCells((0, 0), (99, 99))                  // out of range (past the 16×16 grid) → no-op
-        XCTAssertEqual(s.cells[0][0]?.machineID, "gold")
-    }
 }
 
 // MARK: - StampConfig (delta §5) — session template / clipboard round trip

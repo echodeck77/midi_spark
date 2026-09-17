@@ -48,19 +48,6 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(out[4], -1, "col 4 (empty) pick falls back to silent, no trap")
     }
 
-    // MARK: selectedRung / selectedRungs (poly-prep — the one place that reads "which rung(s) speak in a column")
-    func testSelectedRungReadsThePerColumnSelection() {
-        let sel = [0, 3, -1, 7]
-        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, 0), 0)
-        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, 1), 3)
-        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, 2), -1, "an explicit deselect")
-        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, 9), -1, "out of range → silent, no trap")
-        XCTAssertEqual(BuildSceneLogic.selectedRung(sel, -1), -1, "negative column → silent, no trap")
-        // selectedRungs is the poly-ready read: mono today ⇒ [r] or empty.
-        XCTAssertEqual(BuildSceneLogic.selectedRungs(sel, 1), [3])
-        XCTAssertEqual(BuildSceneLogic.selectedRungs(sel, 2), [], "a silent column yields no rungs")
-        XCTAssertEqual(BuildSceneLogic.selectedRungs(sel, 9), [], "out of range yields no rungs")
-    }
 
     // MARK: mutateChain (the MUTATE row action — value-only, guaranteed distinct + audible)
 
@@ -857,26 +844,6 @@ final class BuildSceneLogicTests: XCTestCase {
 
     // MARK: - PLAY-GRID FERRY EDITING — Stage 1 model (Paul 2026-09-05)
 
-    /// A part-backed cell unpacks to its stored part, verbatim — the lossless round-trip that makes flatten→unpack exact.
-    func testUnpackPartBackedCellIsLossless() {
-        var p = BuildPart()
-        p.stagingCells[2][3] = "gold"; p.stagingSel[2] = 3; p.selID = "gold"; p.length = 5; p.receiver = 2; p.emitters = [.b]
-        XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: p, selectMachineID: nil), p,
-                       "part-backed unpack returns the whole stored part unchanged")
-    }
-    /// A select-backed cell (no part, just a machineID) unpacks to a fresh one-cell bench: that chain top-left, selected.
-    func testUnpackSelectBackedCellClearsToOneCell() {
-        let part = BuildSceneLogic.unpackPlayCell(storedPart: nil, selectMachineID: "teal")
-        XCTAssertEqual(part.stagingCells[0][0], "teal")
-        XCTAssertEqual(part.stagingSel[0], 0)
-        XCTAssertEqual(part.selID, "teal")
-        XCTAssertNil(part.stagingCells[1][0] ?? nil, "the rest of the bench is clear")
-        XCTAssertEqual(part.stagingSel[1], -1, "other columns carry no selection")
-    }
-    /// An empty cell (no part, no machineID) unpacks to a blank bench.
-    func testUnpackEmptyCellIsBlankBench() {
-        XCTAssertEqual(BuildSceneLogic.unpackPlayCell(storedPart: nil, selectMachineID: nil), BuildPart())
-    }
     /// The 64-cell part store round-trips through Codable; an OLD doc (missing the key) decodes to nil.
     /// (`workingPart` was removed 2026-09-17 as an unread vestigial field.)
     func testPlayGridDataRoundTripsCellParts() throws {

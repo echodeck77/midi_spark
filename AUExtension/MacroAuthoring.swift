@@ -45,63 +45,13 @@ struct MacroControlGroup: Equatable {
 
 // MARK: - the pure authoring logic (drives the TEST audition, the assignment eligibility, and the stored binding)
 
-/// §3 SPARSE DELTAS: for each param, ALT − MAIN, keeping ONLY the params that actually diverge (untouched params
-/// carry nothing). Continuous compares with an epsilon (float noise); discrete compares exactly. Keys are
-/// `MacroControlParam.key`. This IS the stored binding (relative — the offset law: if MAIN later moves, the delta
-/// still applies to the new base).
-func macroSparseDelta(main: [String: Double], alt: [String: Double],
-                      params: [MacroControlParam], eps: Double = 1e-9) -> [String: Double] {
-    var out: [String: Double] = [:]
-    for p in params {
-        let d = (alt[p.key] ?? 0) - (main[p.key] ?? 0)
-        if p.kind.isDiscrete ? (d != 0) : (abs(d) > eps) { out[p.key] = d }
-    }
-    return out
-}
 
-/// §5 MOVER ELIGIBILITY: a delta touching ANY discrete param is BUTTON-only (the slider rows dim). A
-/// continuous-only delta may also bind to a slider.
-func macroDeltaHasDiscrete(_ delta: [String: Double], params: [MacroControlParam]) -> Bool {
-    let discrete = Set(params.filter { $0.kind.isDiscrete }.map(\.key))
-    return delta.keys.contains { discrete.contains($0) }
-}
 
-/// The offset PREVIEW (the M1 law, generalised to a value dict) — effective = MAIN + value × delta per param.
-/// Continuous params glide, clamped to their range; discrete params SNAP to ALT past the halfway point (a
-/// button/step, never an intermediate). Drives the TEST slider (continuous) + TEST button (snap) audition and, at
-/// bind time, matches how the engine folds the offset. Returns a full value dict (MAIN for untouched params).
-func macroApply(main: [String: Double], delta: [String: Double], value: Double,
-                params: [MacroControlParam]) -> [String: Double] {
-    var out = main
-    let v = clamp(value, 0, 1)
-    for p in params {
-        guard let d = delta[p.key], d != 0 else { continue }
-        let base = main[p.key] ?? 0
-        switch p.kind {
-        case .continuous(let lo, let hi): out[p.key] = clamp(base + v * d, lo, hi)
-        case .option(let labels):         out[p.key] = clamp((base + v * d).rounded(), 0, Double(max(0, labels.count - 1)))   // SWEEP through the options
-        case .stepper(let lo, let hi):    out[p.key] = Double(clamp(Int((base + v * d).rounded()), lo, hi))                    // SWEEP through the steps
-        case .toggle, .mask:              out[p.key] = v >= 0.5 ? base + d : base                                              // binary SNAP at halfway
-        }
-    }
-    return out
-}
 
 /// One macro's binding to a processor slot — the param→delta map it holds on (col,row,slot). Powers the pop-up's
 /// "edit an existing macro" dropdown (reflect a macro back onto the page). Only continuous targets are stored today.
 struct MacroSlotBinding: Equatable { let macro: Int; let deltas: [String: Double] }
 
-/// The macros already bound to a processor slot, each with its param→delta map (summing overlapping targets).
-/// `col/row/slot` identify the slot; index = the macro's index. Pure/testable.
-func macroSlotBindings(_ macros: [Macro], col: Int, row: Int, slot: Int) -> [MacroSlotBinding] {
-    var out: [MacroSlotBinding] = []
-    for (i, m) in macros.enumerated() {
-        var d: [String: Double] = [:]
-        for t in m.targets where t.col == col && t.row == row && t.slot == slot { d[t.param, default: 0] += t.delta }
-        if !d.isEmpty { out.append(MacroSlotBinding(macro: i, deltas: d)) }
-    }
-    return out
-}
 
 // MARK: - the PROCESSOR domain (the first host — Paul's illustration). "All controls available to that processor"
 // + the universal BYPASS. Continuous keys reuse the MacroParam raws so those bindings fold through the engine
@@ -217,11 +167,6 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
     }
 }
 
-/// The control group for a processor slot at a grid position (id encodes col·row·slot so the host maps back).
-func macroGroupForProcessor(col: Int, row: Int, slot: Int, type: ProcessorType) -> MacroControlGroup {
-    MacroControlGroup(id: "proc:\(col),\(row),\(slot)", title: type.rawValue.uppercased(),
-                      domain: .processor, params: macroParamsForProcessor(type))
-}
 
 private func optionIndex<T: RawRepresentable & CaseIterable>(_ v: T?) -> Double where T.RawValue == String {
     Double(Array(T.allCases).firstIndex { $0.rawValue == v?.rawValue } ?? 0)

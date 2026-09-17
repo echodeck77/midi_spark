@@ -691,17 +691,6 @@ struct Cell: Codable, Equatable {
     var stars: Int? = nil
     var starsResolved: Int { max(0, min(5, stars ?? 0)) }
 
-    /// "Machine minus routing" for the CELL LIBRARY (§cell-machine 4.8): a copy carrying this cell's machine +
-    /// source-shaping (chord-split · velocity window · chop) + the given MATERIALISED chain, with ALL routing
-    /// (input receiver/row + output emitters) and perform state stripped — ready to stamp into a fresh position
-    /// and wire up. The grid-position-specific input row can't transfer; the emitters start blank (null-cell rule).
-    func libraryStripped(materialisedChain: [ProcessorSlot]) -> Cell {
-        var c = Cell(machineID: machineID)
-        c.processors = materialisedChain
-        c.chordSplit = chordSplit; c.velWindow = velWindow; c.chop = chop
-        c.buses = []                 // no output until the user wires one (routing is per-placement)
-        return c                     // inputRow/inputReceiver nil, alt/muted/bypassed false — all defaults
-    }
 }
 
 // DECODE-TOLERANCE (CR-8 class, 2026-08-29): the synthesized Decodable THROWS on any missing key EVEN for a
@@ -1117,16 +1106,6 @@ struct SceneState: Codable, Equatable {
     /// A scene with no placed cells — the sparse "+" slot on the strip (never destroyed; just absent).
     var isEmpty: Bool { cells.allSatisfy { $0.allSatisfy { $0 == nil } } }
 
-    /// delta §5 drag-and-drop: relocate a cell. Onto an empty slot = MOVE; onto an occupied slot = SWAP.
-    /// Both are one swap of the cell structs — fields move AS-IS (MOVES NEVER REWRITE REFERENCES: inputRow
-    /// is row-level, so within-row drags stay reference-safe and cross-row drags rewire meaning visibly).
-    mutating func swapCells(_ a: (col: Int, row: Int), _ b: (col: Int, row: Int)) {
-        guard inBounds(a.col, a.row), inBounds(b.col, b.row),
-              (a.col != b.col || a.row != b.row) else { return }
-        let tmp = cells[a.col][a.row]
-        cells[a.col][a.row] = cells[b.col][b.row]
-        cells[b.col][b.row] = tmp
-    }
 
     /// Is (col,row) a real slot in THIS scene's grid? A decoded/ragged scene can be short of 8×8, and a UI
     /// selection can outlive its cell (a clear or a scene switch leaves a stale position), so callers must

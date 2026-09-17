@@ -67,19 +67,6 @@ final class PresetStoreTests: XCTestCase {
         XCTAssertEqual(back.chopResolved.altDest, [.b], "source-shaping (chop) survives")
     }
 
-    // "Machine minus routing": the chain + source-shaping travel; input/output + perform state are stripped.
-    func testLibraryStrippedKeepsMachineDropsRouting() {
-        var cell = Cell(machineID: "gold", buses: [.a, .b])
-        cell.inputRow = 2; cell.inputReceiver = 1; cell.alt = true; cell.muted = true
-        cell.chop = Chop(mainMask: 0, altMask: 0, muteMask: 0xFF, altDest: [])   // all slices muted
-        let s = cell.libraryStripped(materialisedChain: [ProcessorSlot(type: .harmonize), ProcessorSlot(type: .arp)])
-        XCTAssertEqual(s.machineID, "gold")
-        XCTAssertEqual(s.processors?.count, 2, "the materialised chain travels")
-        XCTAssertEqual(s.chop?.muteMask, 0xFF, "source-shaping (chop) travels")
-        XCTAssertNil(s.inputRow, "input row stripped"); XCTAssertNil(s.inputReceiver, "receiver stripped")
-        XCTAssertTrue(s.buses.isEmpty, "output emitters stripped")
-        XCTAssertFalse(s.alt); XCTAssertFalse(s.muted)   // perform state defaulted
-    }
 
     // CELL MACHINE stage-4 — FACTORY cells: a non-empty read-only starter set, each a valid "machine minus routing".
     func testFactoryLibraryCellsAreValidMachinesMinusRouting() {

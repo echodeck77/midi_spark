@@ -1061,17 +1061,6 @@ final class DerivationsTests: XCTestCase {
         for s: UInt64 in 0..<300 where walkNextDegree(prev: 4, seed: s) == 0 { toI += 1 }
         XCTAssertGreaterThan(toI, 300 / 3, "V resolves HOME to I far more often than chance (weight 8 of 18)")
     }
-    func testVoiceLeadPicksTheNearestInversion() {
-        let maj = ScaleType.major.intervals
-        let prev = diatonicChord(degree: 0, scaleTones: maj, rootNote: 72)   // C an octave up: [72,76,79]
-        let g = diatonicChord(degree: 4, scaleTones: maj, rootNote: 60)      // G low: [67,71,74]
-        let led = voiceLeadTowardPrevious(g, previous: prev)
-        func pcs(_ c: [Int]) -> Set<Int> { Set(c.map { (($0 % 12) + 12) % 12 }) }
-        XCTAssertEqual(pcs(led), pcs(g), "voice-leading preserves the chord's pitch classes (it only re-octaves)")
-        func cost(_ c: [Int]) -> Int { c.reduce(0) { acc, note in acc + (prev.map { abs($0 - note) }.min() ?? 0) } }
-        XCTAssertLessThanOrEqual(cost(led), cost(g.sorted()), "the chosen inversion is no farther from the previous chord than root position")
-        XCTAssertEqual(voiceLeadTowardPrevious(g, previous: []), g.sorted(), "no previous → unchanged")
-    }
     func testScaleDegreeOfNamesTheDegree() {   // CHORDS FOLLOW — the played note names the degree
         let maj = ScaleType.major.intervals
         XCTAssertEqual(scaleDegreeOf(60, root: 0, scaleTones: maj), 0, "C in C major → I (degree 0)")
@@ -1132,27 +1121,6 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(r.scaleLabel, "C MAJOR")
         r.doorMode = .latch
         XCTAssertNil(r.scaleLabel, "switching off SCALE mode drops the label")
-    }
-    // POOL-STEP UNITS (ratified §2) — degree arithmetic against the chain's pool.
-    func testPoolStepWalksDegreesNotSemitones() {
-        let cMajor = [60, 62, 64, 65, 67, 69, 71, 72]   // C major (pitch classes C D E F G A B)
-        XCTAssertEqual(poolStep(60, steps: 0, pool: cMajor), 60, "0 steps = identity")
-        XCTAssertEqual(poolStep(60, steps: 2, pool: cMajor), 64, "C +2 degrees = E (the diatonic third)")
-        XCTAssertEqual(poolStep(67, steps: 2, pool: cMajor), 71, "G +2 degrees = B")
-        XCTAssertEqual(poolStep(60, steps: 7, pool: cMajor), 72, "C +7 degrees = C an octave up")
-        XCTAssertEqual(poolStep(64, steps: -2, pool: cMajor), 60, "E −2 degrees = C (down a third)")
-        // The third is KEY-DEPENDENT: in C minor, C +2 degrees = Eb (minor third), no inference.
-        let cMinor = [60, 62, 63, 65, 67, 68, 70]       // C D Eb F G Ab Bb
-        XCTAssertEqual(poolStep(60, steps: 2, pool: cMinor), 63, "C +2 in C minor = Eb")
-        // FOLD edge pin: an out-of-pool note anchors at the nearest degree first.
-        XCTAssertEqual(poolStep(61, steps: 0, pool: cMajor), 60, "C# folds to the nearest pool note (C)")
-        XCTAssertEqual(poolStep(61, steps: 2, pool: cMajor), 64, "C# anchors at C then steps +2 = E")
-        // A chord pool → chord-tone stacking: C-E-G, +1 degree from C = E, +2 = G.
-        let triad = [60, 64, 67]
-        XCTAssertEqual(poolStep(60, steps: 1, pool: triad), 64, "chord-tone stack: C +1 = E")
-        XCTAssertEqual(poolStep(60, steps: 3, pool: triad), 72, "C +3 in a triad = C an octave up")
-        // Empty pool → semitone fallback (defensive).
-        XCTAssertEqual(poolStep(60, steps: 4, pool: []), 64)
     }
     // THE KEY FILTER (ratified §3) — MINUS/ONLY × BLOCK/SNAP, pitch-class.
     func testKeyFilterMinusOnlyBlockSnap() {
@@ -1379,24 +1347,6 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - column sweep fraction (mutation-line / §6b chip playhead)
 
-    func testColumnSweepFractionSwingAwareSpansTheRealColumn() {
-        let S = 1.0
-        // swing 50: identity — the raw fraction.
-        XCTAssertEqual(columnSweepFraction(realBeat: 0.0, stepBeats: S, swing: 50), 0.0, accuracy: 1e-9)
-        XCTAssertEqual(columnSweepFraction(realBeat: 0.5, stepBeats: S, swing: 50), 0.5, accuracy: 1e-9)
-
-        // swing 62 stretches the FIRST column to realOf(S) > S raw beats. The raw fraction would WRAP to
-        // 0 at real beat 1.0 (the bug); the swing-aware fraction is still mid-sweep there and only wraps
-        // at the true (swung) column end.
-        let colEnd = realOf(1.0, stepBeats: S, a: 62.0 / 50.0)         // ≈ 1.24
-        XCTAssertGreaterThan(colEnd, 1.0, "swing stretches the first column past 1 raw beat")
-        let fAtRawWrap = columnSweepFraction(realBeat: 1.0, stepBeats: S, swing: 62)
-        XCTAssertGreaterThan(fAtRawWrap, 0.5, "still sweeping at real 1.0 — NOT wrapped early")
-        XCTAssertLessThan(fAtRawWrap, 1.0)
-        XCTAssertEqual(columnSweepFraction(realBeat: 0.0, stepBeats: S, swing: 62), 0.0, accuracy: 1e-9)
-        XCTAssertEqual(columnSweepFraction(realBeat: colEnd - 1e-4, stepBeats: S, swing: 62), 1.0, accuracy: 1e-3)
-        XCTAssertEqual(columnSweepFraction(realBeat: colEnd, stepBeats: S, swing: 62), 0.0, accuracy: 1e-9)  // wraps AT the column end
-    }
 
     // MARK: - TWO LATCH MODES — latchAddStep (note-toggle accumulation)
 
@@ -1618,27 +1568,6 @@ final class DerivationsTests: XCTestCase {
         }
         XCTAssertTrue(produced, "the coil POSITIVE branch is exercised (a coil IS produced for some gated hash)")
     }
-    // FIT (bbox-fit): the route's bounding box maps to the unit square, so the seal fills the drawable rect
-    // instead of hugging one side; a straight run centres on its zero-range axis.
-    func testSealFitFillsTheLength() {
-        for raw in stride(from: UInt32(0), to: 2048, by: 11) {
-            let fit = sealFit(sealGeometry(raw))
-            XCTAssertTrue(fit.fractions.allSatisfy { $0.x >= 0 && $0.x <= 1 && $0.y >= 0 && $0.y <= 1 }, "unit square")
-            // the forced horizontal entry guarantees an x-span, so the fit reaches BOTH edges (fills the length)
-            XCTAssertEqual(fit.fractions.map { $0.x }.min(), 0, "reaches the left edge")
-            XCTAssertEqual(fit.fractions.map { $0.x }.max(), 1, "…and the right edge")
-        }
-    }
-    func testSealFitCentresStraightRuns() {
-        let horiz = SealGeometry(nodes: [SIMD2<Double>(0, 1), SIMD2<Double>(1, 1), SIMD2<Double>(2, 1)],
-                                 arcAtNode: [false, false, false], coilNode: -1)
-        XCTAssertTrue(sealFit(horiz).fractions.allSatisfy { $0.y == 0.5 }, "a horizontal run centres vertically")
-        XCTAssertEqual(sealFit(horiz).fractions.map { $0.x }, [0, 0.5, 1], "…and spreads across x")
-        let vert = SealGeometry(nodes: [SIMD2<Double>(1, 0), SIMD2<Double>(1, 1), SIMD2<Double>(1, 2)],
-                                arcAtNode: [false, false, false], coilNode: -1)
-        XCTAssertTrue(sealFit(vert).fractions.allSatisfy { $0.x == 0.5 }, "a vertical run centres horizontally")
-        XCTAssertEqual(sealFit(sealGeometry(1234)), sealFit(sealGeometry(1234)), "deterministic — twins share the fit")
-    }
 
     // MARK: - shared pure helpers (extracted dedup — clampVel · positiveFract · splitmix64Mix)
 
@@ -1753,33 +1682,12 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - THE MOD PROCESSOR (CC generator) — pure shape values
 
-    func testModSineShapeAndRange() {
-        XCTAssertEqual(modUnipolar(.sine, phase: 0,    column: 0, cc: 74, cycleIndex: 0), 0.5, accuracy: 1e-9)
-        XCTAssertEqual(modUnipolar(.sine, phase: 0.25, column: 0, cc: 74, cycleIndex: 0), 1.0, accuracy: 1e-9)
-        XCTAssertEqual(modUnipolar(.sine, phase: 0.5,  column: 0, cc: 74, cycleIndex: 0), 0.5, accuracy: 1e-9)
-        XCTAssertEqual(modUnipolar(.sine, phase: 0.75, column: 0, cc: 74, cycleIndex: 0), 0.0, accuracy: 1e-9)
-        XCTAssertEqual(modCCValue(.sine, phase: 0.25, min: 0, max: 127, column: 0, cc: 74, cycleIndex: 0), 127, "peak maps to MAX")
-        XCTAssertEqual(modCCValue(.sine, phase: 0.25, min: 0, max: 64,  column: 0, cc: 74, cycleIndex: 0), 64,  "the MAX chip sets the ceiling")
-        for ph in stride(from: 0.0, to: 1.0, by: 0.05) {
-            let v = modCCValue(.sine, phase: ph, min: 0, max: 127, column: 0, cc: 74, cycleIndex: 0)
-            XCTAssertTrue(v >= 0 && v <= 127, "value in 0…127")
-        }
-    }
     func testModTriangleAndSquare() {
         XCTAssertEqual(modUnipolar(.triangle, phase: 0,    column: 0, cc: 1, cycleIndex: 0), 0,   accuracy: 1e-9)
         XCTAssertEqual(modUnipolar(.triangle, phase: 0.5,  column: 0, cc: 1, cycleIndex: 0), 1,   accuracy: 1e-9)
         XCTAssertEqual(modUnipolar(.triangle, phase: 0.25, column: 0, cc: 1, cycleIndex: 0), 0.5, accuracy: 1e-9)
         XCTAssertEqual(modUnipolar(.square, phase: 0.1, column: 0, cc: 1, cycleIndex: 0), 1, "first half HIGH")
         XCTAssertEqual(modUnipolar(.square, phase: 0.9, column: 0, cc: 1, cycleIndex: 0), 0, "second half LOW")
-    }
-    // (testParamLFOValueBipolarSwing REMOVED 2026-09-16 — paramLFOValue was retired with the FROM→TO LFO redesign.)
-    func testModRampAndInversion() {
-        XCTAssertEqual(modUnipolar(.ramp, phase: 0,   column: 0, cc: 1, cycleIndex: 0), 0,   accuracy: 1e-9)
-        XCTAssertEqual(modUnipolar(.ramp, phase: 0.5, column: 0, cc: 1, cycleIndex: 0), 0.5, accuracy: 1e-9)
-        XCTAssertEqual(modCCValue(.ramp, phase: 0.999, min: 0, max: 127, column: 0, cc: 1, cycleIndex: 0), 127, "the ramp rises to MAX")
-        // MIN > MAX INVERTS (no invert flag): the ramp peak now maps to the LOW end.
-        XCTAssertEqual(modCCValue(.ramp, phase: 0,     min: 100, max: 20, column: 0, cc: 1, cycleIndex: 0), 100, "inverted: phase 0 → MIN (high)")
-        XCTAssertEqual(modCCValue(.ramp, phase: 0.999, min: 100, max: 20, column: 0, cc: 1, cycleIndex: 0), 20,  "inverted: peak → MAX (low)")
     }
     func testModFollowUnipolar() {
         XCTAssertEqual(modFollowUnipolar(.count, count: 0, meanNote: 0, meanVel: 0), 0, accuracy: 1e-9)

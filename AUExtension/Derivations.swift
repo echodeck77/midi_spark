@@ -103,15 +103,6 @@ func modUnipolar(_ shape: ModShape, phase: Double, column: Int, cc: Int, cycleIn
         return Double(splitmix64Mix(seed) >> 11) / Double(UInt64(1) << 53)   // [0,1)
     }
 }
-
-/// The generated CC VALUE (0…127) at `phase`: the unipolar shape mapped onto [min, max]. The RANGE is depth AND
-/// polarity — `min > max` INVERTS (no invert flag). Pure, replay-safe. (CC-stage §1 row 3.)
-@inline(__always)
-func modCCValue(_ shape: ModShape, phase: Double, min lo: Int, max hi: Int, column: Int, cc: Int, cycleIndex: Int) -> Int {
-    let s = modUnipolar(shape, phase: phase, column: column, cc: cc, cycleIndex: cycleIndex)
-    return modMap(s, min: lo, max: hi)
-}
-
 /// Map a unipolar [0,1] onto [min,max] as a CC value (0…127). MIN > MAX inverts. The universal row-3 mapping every
 /// MOD source runs through (SHAPE · FOLLOW · STEPS · STRIKE · EXTERN). Pure.
 @inline(__always)
@@ -235,34 +226,6 @@ func modStrikeUnipolar(t: Double, attack: Double, release: Double) -> Double {
     return d < r ? 1 - d / r : 0
 }
 
-/// TIMELINE MACRO LANE — the value the playhead drives at musical position `absoluteBeat` (overlay-rule-macro-lanes).
-/// PURE + replay-safe: the step position = `absoluteBeat / stepBeats × rateMul`, wrapped over the 8 steps.
-///  · STEP   (0) — hold this step's value across the column.
-///  · SMOOTH (1) — glide across the column from this step's value toward the NEXT NON-BYPASSED value (bypassed
-///                 columns are skipped when finding the target).
-///  · BYPASS (2) — the lane is ABSENT this column: the macro sits at its `manual` (fader) value — sparse automation
-///                 with honest gaps.
-/// `lane`/`modes` are the 8-wide resolved arrays; `rateMul` from `Macro.laneRateMulResolved`.
-func laneValue(lane: [Double], modes: [Int], rateMul: Double, absoluteBeat: Double, stepBeats: Double, manual: Double) -> Double {
-    let n = lane.count
-    guard n > 0, stepBeats > 0, rateMul > 0 else { return manual }
-    let pos = absoluteBeat / stepBeats * rateMul          // continuous step position
-    let idx = Int(pos.rounded(.down))
-    let phase = pos - Double(idx)                          // 0…1 within the current step
-    let s = ((idx % n) + n) % n                            // wrapped step (handles negatives)
-    let mode = s < modes.count ? modes[s] : 0
-    switch mode {
-    case 2:                                                // BYPASS → the manual/fader value governs this column
-        return manual
-    case 1:                                                // SMOOTH → glide toward the next non-bypassed value
-        var j = s
-        for _ in 0..<n { j = (j + 1) % n; if (j < modes.count ? modes[j] : 0) != 2 { break } }
-        let a = lane[s], b = lane[j]
-        return a + (b - a) * max(0, min(1, phase))
-    default:                                               // STEP → hold this step's value
-        return lane[s]
-    }
-}
 
 // MARK: - The source pool (§2.5): omni, keyed by note number
 
@@ -657,16 +620,6 @@ func scaleNotes(root: Int, type: ScaleType, baseOct: Int, octaves: Int) -> [Int]
     return out                                                  // already ascending + distinct (intervals rise within an octave; octaves step by 12)
 }
 
-/// POOL-STEP UNITS (ratified scale-door §2): move `note` by `steps` DEGREES through the pool that feeds the chain, rather
-/// than by semitones. The pool is reduced to its sorted distinct PITCH CLASSES (the ladder), so +1 = the next scale/chord
-/// tone up, wrapping by octave past the ends. An input note whose pitch class is NOT in the pool anchors at the NEAREST
-/// pool degree first (the FOLD edge pin), then steps. `steps` may be negative (down). Result clamped 0…127. Pure/testable.
-/// Empty pool ⇒ falls back to a plain semitone shift (defensive; a chain with no pool never reaches here in practice).
-func poolStep(_ note: Int, steps: Int, pool: [Int]) -> Int {
-    var mask: UInt16 = 0
-    for n in pool { mask |= UInt16(1) << UInt16(((n % 12) + 12) % 12) }
-    return poolStepMask(note, steps: steps, pcMask: mask)
-}
 /// The allocation-free core of POOL-STEP (§2): the pool as a 12-bit PITCH-CLASS mask (`pitchClassMaskAll`). Degree
 /// arithmetic over the set bits; O(12), no allocation — safe on the render path. Empty mask ⇒ semitone fallback.
 func poolStepMask(_ note: Int, steps: Int, pcMask: UInt16) -> Int {
@@ -764,22 +717,6 @@ func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones 
     return diatonicChord(degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread).filter { $0 >= 0 && $0 <= 127 }
 }
 
-/// Voice-lead `chord` toward `previous` (SPEC-chords-stage §1 INVERT): pick the octave-rotation (inversion) whose notes sit
-/// NEAREST the previous chord's register — the least total leap. Smooth by construction. `previous` empty ⇒ `chord` unchanged.
-/// Pure/testable.
-func voiceLeadTowardPrevious(_ chord: [Int], previous: [Int]) -> [Int] {
-    guard !previous.isEmpty, chord.count >= 2 else { return chord.sorted() }
-    func cost(_ c: [Int]) -> Int {                                  // total distance = each note to its nearest previous note
-        c.reduce(0) { acc, note in acc + (previous.map { abs($0 - note) }.min() ?? 0) }
-    }
-    var best = chord.sorted(), bestCost = cost(best), cur = best
-    for _ in 1..<chord.count {                                      // each inversion: lift the current lowest an octave
-        cur = (Array(cur.dropFirst()) + [cur[0] + 12]).sorted()
-        let c = cost(cur)
-        if c < bestCost { bestCost = c; best = cur }
-    }
-    return best
-}
 
 /// The next degree in a functional random WALK (SPEC-chords-stage §1 WALK — "the gravity dice"): SEEDED (replay-exact, no
 /// accumulated state — the caller passes the step ordinal as `seed`), weighted by tonal gravity. From `prev` (0…6) the draw
@@ -1218,17 +1155,6 @@ func chordSplitWindow(count: Int, split: ChordSplit, noteAt: (Int) -> Int) -> (s
     }
 }
 
-/// The within-column sweep fraction (0 at column entry → 1 at exit) in REAL time — drives every
-/// mutation-line playhead (grid cells AND §6b Machine chips). SWING-AWARE: swing stretches/compresses
-/// the real column window (§4), so the sweep rides the SAME `musicalOf` warp the engine uses to map
-/// beats→columns, else it finishes early and wraps mid-column. At swing 50 (a = 1) `musicalOf` is the
-/// identity, so this is the raw (realBeat/step) fraction. One-clock: a pure function of the beat.
-func columnSweepFraction(realBeat: Double, stepBeats: Double, swing: Int) -> Double {
-    let a = Double(min(75, max(50, swing))) / 50.0
-    let S = max(0.001, stepBeats)
-    let m = musicalOf(realBeat, stepBeats: S, a: a)
-    return positiveFract(m / S)
-}
 
 /// COLUMN-SUBSET LAP (delta §5b) — the whole perform-v2 feature in one function. With `laneMask` the
 /// held columns (bit i set ⇒ column i is held), the EFFECTIVE column at global step `absoluteStep` is
@@ -2101,16 +2027,6 @@ struct SealFit: Equatable {
     var fractions: [SIMD2<Double>]   // per node, each component in [0,1] (0.5 on a zero-range axis)
     var rangeX: Double               // lattice x-extent (maxX − minX), 0…2
     var rangeY: Double               // lattice y-extent
-}
-func sealFit(_ geo: SealGeometry) -> SealFit {
-    let xs = geo.nodes.map { $0.x }, ys = geo.nodes.map { $0.y }
-    let minX = xs.min() ?? 0, maxX = xs.max() ?? 0, minY = ys.min() ?? 0, maxY = ys.max() ?? 0
-    let rangeX = maxX - minX, rangeY = maxY - minY
-    let fractions = geo.nodes.map { n in
-        SIMD2(rangeX > 0 ? (n.x - minX) / rangeX : 0.5,
-              rangeY > 0 ? (n.y - minY) / rangeY : 0.5)
-    }
-    return SealFit(fractions: fractions, rangeX: rangeX, rangeY: rangeY)
 }
 
 /// The cell-face TRIGGER glyph — deviation-shown. The bottom-right glyph comes from the ON-TAP action; a

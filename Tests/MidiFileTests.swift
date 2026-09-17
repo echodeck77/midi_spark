@@ -82,46 +82,5 @@ final class MidiFileTests: XCTestCase {
         XCTAssertNil(MidiFile.decode(Data()), "empty → nil")
         XCTAssertNil(MidiFile.decode(Data(Array("MThd".utf8) + [0,0,0,6, 0,0, 0,1])), "truncated header → nil")
     }
-    func testFileClipDrivesTheDoorRing() {
-        // The FILE→DoorRing bridge: decode → loadLoop → notesSoundingAt (the REPLAY playback path, reused).
-        let ev: [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] = [
-            (0.0, 0x90, 60, 100), (0.5, 0x90, 67, 100), (1.0, 0x80, 60, 0), (2.0, 0x80, 67, 0),
-        ]
-        guard let (notes, loopBeats) = MidiFile.decode(MidiFile.encode(events: ev, bpm: 120, ppq: 480, loopBeats: 4.0)) else { return XCTFail() }
-        let ring = DoorRing()
-        ring.loadLoop(notes.map { (beat: $0.beat, note: $0.note, vel: $0.vel, on: $0.on) }, lengthBeats: loopBeats)
-        var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16), ch = [UInt8](repeating: 0, count: 16)
-        func sounding(_ p: Double) -> Set<UInt8> { let c = ring.notesSoundingAt(p, outNote: &n, outVel: &v, outChan: &ch); return Set((0..<c).map { n[$0] }) }
-        XCTAssertEqual(sounding(0.25), [60], "only C at 0.25")
-        XCTAssertEqual(sounding(0.75), [60, 67], "C + G at 0.75")
-        XCTAssertEqual(sounding(1.5), [67], "C released → only G at 1.5")
-    }
 
-    func testLoadLoopParallelMatchesLoadLoopAndGuardsRaggedArrays() {
-        // The render-thread-safe PARALLEL-array loader (called when a FILE clip changes) must produce the SAME loop as the
-        // array-of-tuples loadLoop, and must CLAMP to the shortest array on a ragged input (no trap, no read past the end).
-        // Events: C(60) held [0,1] vel 100 · G(67) held [0.5,1] vel 90 · loopLen 2.
-        let beats: [Double] = [0.0, 0.5, 1.0, 1.0]
-        let notes: [UInt8]  = [60, 67, 60, 67]
-        let vels:  [UInt8]  = [100, 90, 0, 0]
-        let ons:   [Bool]   = [true, true, false, false]
-        let tuples: [(beat: Double, note: UInt8, vel: UInt8, on: Bool)] = [
-            (0.0, 60, 100, true), (0.5, 67, 90, true), (1.0, 60, 0, false), (1.0, 67, 0, false),
-        ]
-        let a = DoorRing(); a.loadLoop(tuples, lengthBeats: 2.0)
-        let b = DoorRing(); b.loadLoopParallel(beats: beats, notes: notes, vels: vels, ons: ons, lengthBeats: 2.0)
-        // loopRoll order isn't guaranteed (a still-open note is flushed from a dictionary) → compare as a set of quantised tuples.
-        func roll(_ r: DoorRing) -> Set<[Int]> { Set(r.loopRoll().map { [Int($0.note), Int($0.vel), Int(($0.start * 100).rounded()), Int(($0.end * 100).rounded())] }) }
-        XCTAssertEqual(roll(a), roll(b), "the parallel load produces an IDENTICAL loop to the tuple load")
-        XCTAssertEqual(roll(b), [[60, 100, 0, 100], [67, 90, 50, 100]], "C[0,1]@100 + G[.5,1]@90")
-
-        // RAGGED: `notes` one element short → clamp to 3 events (drop the 4th), no trap. C-on · G-on · C-off only → G stays
-        // open and is held to loopLen (2.0).
-        let ragged = DoorRing()
-        ragged.loadLoopParallel(beats: beats, notes: [60, 67, 60], vels: vels, ons: ons, lengthBeats: 2.0)
-        let rr = ragged.loopRoll()
-        XCTAssertEqual(rr.count, 2, "3 events → C paired + G held-open (no trap on the short array)")
-        XCTAssertEqual(Set(rr.map { Int($0.note) }), [60, 67])
-        XCTAssertEqual(rr.first { $0.note == 67 }?.end, 2.0, "G left open → held to loopLen")
-    }
 }

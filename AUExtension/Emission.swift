@@ -442,13 +442,6 @@ final class DoorRing {
     /// available and not prepend silent passes when < N passes have been played (Paul 2026-08-23).
     var oldestBeat: Double { count > 0 ? ordered(0).beat : .infinity }
 
-    /// Load an EXTERNAL loop (config-sheets FILE mode): a parsed .mid clip's note events drive the same playback path
-    /// as a captured REPLAY loop, so a FILE door reuses `notesSoundingAt`. Events are (beat, note, vel, on), already in
-    /// [0, lengthBeats); time-ordered by the caller (MidiFile.decode sorts, off-before-on at ties).
-    func loadLoop(_ events: [(beat: Double, note: UInt8, vel: UInt8, on: Bool)], lengthBeats: Double) {
-        loopN = 0; loopLen = max(0, lengthBeats)
-        for e in events where loopN < DoorRing.cap { loop[loopN] = Ev(beat: e.beat, note: e.note, vel: e.vel, on: e.on); loopN += 1 }
-    }
     /// Load from PARALLEL arrays (the box's SnapFileClip carries them) — no allocation, so it's safe to call on the
     /// render thread when the FILE clip changes. Arrays are the same length; caller guarantees ordering. (Paul 2026-08-20)
     func loadLoopParallel(beats: [Double], notes: [UInt8], vels: [UInt8], ons: [Bool], lengthBeats: Double) {
