@@ -2290,7 +2290,7 @@ extension DiagView {
                             .coordinateSpace(name: "partInt")
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
                                 .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: rowH, gap: gap, cols: cols) }
-                                .onEnded { _ in buildPartDragLast = nil; buildPartDragAnchor = nil })
+                                .onEnded { _ in buildPartDragLast = nil })
                             .saturation(gridSilenced ? 0.12 : 1).opacity(gridSilenced ? 0.5 : 1)   // MUTE/SOLO: the on-bench grid reads as silenced (still editable — opacity keeps hit-testing)
                             VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH)
                                 .overlay { roomsCardRowPlayhead(n, w: railW, h: rowH).clipShape(RoundedRectangle(cornerRadius: 5)) } } }   // RIGHT = numbered (part-position selector / copy source) + the 1-step sweep on the playing row (Paul 2026-09-13)
@@ -2350,212 +2350,6 @@ extension DiagView {
     // fade) AND removes the AUTO trigger from the per-step fold. The engine/model (partAuto, applyAuto, AutoLane) is left
     // DORMANT (no active lane ⇒ no fold) — revertible; the orphaned panel roomsPartMacroSection is already unmounted.
     func buildAutoActive() -> Int { -1 }
-    // (buildLiveStepNeeded removed Paul 2026-09-11: the processor-editor matrices/lanes/passgate + the stage-eye now SELF-CLOCK
-    //  their playheads from the free-running beat anchor, so NOTHING needs the live step folded into the whole-page `d` — the
-    //  per-step fold that re-rendered the page every step, hitching every playhead, is gone. The VC poll no longer reads it.)
-    func buildAutoSetActive(_ i: Int) {
-        let cid = ddSelectedMachineID ?? ""; guard !cid.isEmpty else { return }
-        var pa = buildAutoLanes[cid] ?? PartAutoMachine()
-        if pa.lanes.count < 5 { pa.lanes += Array(repeating: AutoLane(), count: 5 - pa.lanes.count) }
-        // DEFAULT SPAN ON ARM (Paul 2026-09-04): arming a lane with no span yet applies a WHOLE-PART sweep immediately, so
-        // the automation is audible at once (drag on the grid to draw a tighter span). span-only: no punch step needed.
-        if i >= 0, i < 5, pa.lanes[i].spanStart == nil, pa.lanes[i].spanLen == nil {
-            pa.lanes[i].spanStart = 0; pa.lanes[i].spanLen = buildPartCols
-        }
-        pa.activeLane = i; buildAutoLanes[cid] = pa
-        buildPublishScene()   // P3: selecting a lane ENABLES it → republish so it plays immediately
-    }
-    func buildSetAutoLane(_ mutate: (inout AutoLane) -> Void) {
-        let cid = ddSelectedMachineID ?? ""; guard !cid.isEmpty else { return }
-        var pa = buildAutoLanes[cid] ?? PartAutoMachine()
-        if pa.lanes.count < 5 { pa.lanes += Array(repeating: AutoLane(), count: 5 - pa.lanes.count) }
-        let li = pa.activeLane >= 0 ? pa.activeLane : 0
-        mutate(&pa.lanes[max(0, min(4, li))]); buildAutoLanes[cid] = pa
-        buildPublishScene()   // P3: any lane edit (param/machine/extent) republishes → plays live
-    }
-    // THE SPAN LADDER (Paul 2026-09-04): the AUTO panel's right ~20% column. Row 1 = 1…8 STEPS (re-anchor the FROM→TO
-    // sweep every N steps), row 2 = ×2/×4/×8 PASSES (every 2/4/8 bars). "1" is one full sweep (the engine treats span<2
-    // as FULL — re-anchoring every single step would leave no ramp). GREYED for on/off params — SPAN can't apply to a
-    // binary value.
-    @ViewBuilder private func autoSpanColumn(p: MacroControlParam, lane: AutoLane) -> some View {
-        let na = p.kind.isToggle
-        let cur = lane.spanLen ?? buildPartCols          // the span LENGTH in steps (span-only); default = the whole part
-        let passes = lane.spanPasses ?? 0                 // ×N passes = span N whole bars (render-time, Phase 2); 0 = a step-length span
-        let isCont: Bool = { if case .continuous = p.kind { return true } else { return false } }()   // SMOOTH only interpolates continuous params
-        let renderable = AutoParamField(key: p.key) != nil   // scalar params only reach the render-time engine; nested (intervals/split) stay step-bake
-        VStack(alignment: .leading, spacing: 4) {
-            macroColHead("SPAN")
-            HStack(spacing: 3) {                                         // 1…8 STEPS — the span length (or DRAG on the grid to draw it)
-                ForEach(1...8, id: \.self) { n in                        // mutually exclusive with ×N passes: picking a step length clears passes
-                    autoSpanChip("\(n)", on: passes == 0 && cur == n) { buildSetAutoLane { $0.spanLen = n; $0.spanPasses = nil; if $0.spanStart == nil { $0.spanStart = 0 } } }
-                }
-            }
-            HStack(spacing: 3) {                                         // ×2 / ×4 / ×8 PASSES — span N whole bars, ramps per pass (render-time)
-                ForEach([2, 4, 8], id: \.self) { m in                    // mutually exclusive with the 1…8 ladder: picking passes clears spanLen
-                    autoSpanChip("×\(m)", on: passes == m) { buildSetAutoLane { $0.spanPasses = ($0.spanPasses == m ? nil : m); $0.spanLen = nil; if $0.spanStart == nil { $0.spanStart = 0 } } }
-                }
-            }
-            .opacity(renderable ? 1 : 0.3).allowsHitTesting(renderable)   // ×N is render-time only — greyed for nested params (step-length spans still work)
-            HStack(spacing: 3) {                                         // STEP | SMOOTH — stepped per-column vs a continuous ramp (render-time; SMOOTH continuous-only)
-                autoSpanChip("STEP", on: !lane.smooth) { buildSetAutoLane { $0.smooth = false } }
-                autoSpanChip("SMOOTH", on: lane.smooth) { if isCont && renderable { buildSetAutoLane { $0.smooth = true } } }
-                    .opacity(isCont && renderable ? 1 : 0.3).allowsHitTesting(isCont && renderable)
-            }
-        }
-        .opacity(na ? 0.3 : 1)                                           // GREYED for on/off params (SPAN can't apply to a binary value)
-        .allowsHitTesting(!na)
-        .overlay(alignment: .topTrailing) { if na { Text("n/a").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45)) } }
-    }
-    @ViewBuilder private func autoSpanChip(_ t: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
-        Text(t).font(.system(size: 9, weight: .bold, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity).frame(height: 20)
-            .background(RoundedRectangle(cornerRadius: 4).fill(on ? buildSelHue.opacity(0.28) : Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? buildSelHue : Color.white.opacity(0.15), lineWidth: on ? 1.5 : 1))
-            .foregroundColor(on ? buildSelHue : .white.opacity(0.6))
-            .contentShape(Rectangle()).onTapGesture(perform: tap)
-    }
-    // §AUTO TAB (Paul 2026-09-02): the AUTO 1–5 + NONE selector reads as TABS — a top-rounded cell with a bottom ACCENT
-    // underline (amber when active, a faint baseline when not), sitting over the controls it reveals. The active-cell dot
-    // marks a lane that already holds an extent.
-    @ViewBuilder private func autoTab(_ t: String, on: Bool, dot: Bool, _ tap: @escaping () -> Void) -> some View {
-        let tabHue = buildSelHue   // AUTO tabs wear the machine of the MACHINE the automation is applied to (Paul 2026-09-04)
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                if dot { Circle().fill(tabHue).frame(width: 4, height: 4) }
-                Text(t).font(.system(size: 10, weight: on ? .heavy : .semibold, design: .monospaced))
-                    .foregroundColor(on ? tabHue : .white.opacity(0.5)).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity).frame(height: 22)
-            .background(UnevenRoundedRectangle(topLeadingRadius: 5, topTrailingRadius: 5).fill(on ? tabHue.opacity(0.16) : Color.white.opacity(0.04)))
-            Rectangle().fill(on ? tabHue : Color.white.opacity(0.12)).frame(height: on ? 2 : 1)   // the tab underline / baseline
-        }
-        .contentShape(Rectangle()).onTapGesture(perform: tap)
-    }
-    // §SWEEP FADER (Paul 2026-09-02): a compact FROM/TO endpoint fader — drag anywhere to set the value across the param's
-    // FULL range; the label reads the value formatted per the param kind. (NumPair/FineSlider are private to GridUI.)
-    @ViewBuilder private func autoRangeFader(_ label: String, value: Double, lo: Double, hi: Double, p: MacroControlParam, _ set: @escaping (Double) -> Void) -> some View {
-        let span = max(1e-9, hi - lo)
-        let frac = min(1, max(0, (value - lo) / span))
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.42))
-            GeometryReader { g in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06))
-                    RoundedRectangle(cornerRadius: 4).fill(roomsAmber.opacity(0.55)).frame(width: max(3, g.size.width * frac))
-                    Text(autoFmt(value, p)).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).padding(.leading, 6)
-                }
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onChanged { gg in set(lo + min(1, max(0, gg.location.x / max(1, g.size.width))) * span) })
-            }.frame(height: 24)
-        }.frame(maxWidth: .infinity)
-    }
-    // Format a sweep-endpoint value for its param kind (continuous → 2dp for small ranges, else int; toggle → ON/OFF;
-    // option → its label; stepper/mask → int).
-    private func autoFmt(_ v: Double, _ p: MacroControlParam) -> String {
-        switch p.kind {
-        case .continuous(let lo, let hi): return (hi - lo) <= 2 ? String(format: "%.2f", v) : String(Int(v.rounded()))
-        case .toggle: return v >= 0.5 ? "ON" : "OFF"
-        case .option(let opts): let i = min(opts.count - 1, max(0, Int(v.rounded()))); return opts.indices.contains(i) ? opts[i] : "\(i)"
-        case .stepper, .mask: return String(Int(v.rounded()))
-        }
-    }
-    // A SWEEP endpoint (FROM / TO), rendered with the control APPROPRIATE to the param kind (Paul 2026-09-04): a slider
-    // ONLY for a continuous value; a toggle gets an ON/OFF button (a bypass is never a slider), an option gets a
-    // tap-to-cycle chip, a stepper gets ◀ n ▶, a mask falls back to a raw slider.
-    @ViewBuilder private func autoSweepEndpoint(_ label: String, value: Double, p: MacroControlParam, _ set: @escaping (Double) -> Void) -> some View {
-        switch p.kind {
-        case .continuous(let lo, let hi):
-            autoRangeFader(label, value: value, lo: lo, hi: hi, p: p, set)
-        case .toggle:
-            autoSweepButton(label, text: value >= 0.5 ? "ON" : "OFF", on: value >= 0.5) { set(value >= 0.5 ? 0 : 1) }   // tap = flip
-        case .option(let opts):
-            let i = min(max(0, opts.count - 1), max(0, Int(value.rounded())))
-            autoSweepButton(label, text: opts.indices.contains(i) ? opts[i] : "\(i)", on: true) { set(Double((i + 1) % max(1, opts.count))) }   // tap = cycle
-        case .stepper(let lo, let hi):
-            autoSweepStepper(label, value: Int(value.rounded()), lo: lo, hi: hi, set)
-        case .mask(let bits):
-            autoRangeFader(label, value: value, lo: 0, hi: Double((1 << max(1, bits)) - 1), p: p, set)   // rare — raw packed int
-        }
-    }
-    @ViewBuilder private func autoSweepButton(_ label: String, text: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.42))
-            Text(text).font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity).frame(height: 24)
-                .background(RoundedRectangle(cornerRadius: 4).fill(on ? buildSelHue.opacity(0.22) : Color.white.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? buildSelHue : Color.white.opacity(0.15), lineWidth: 1))
-                .foregroundColor(on ? buildSelHue : .white.opacity(0.75))
-                .contentShape(Rectangle()).onTapGesture(perform: tap)
-        }.frame(maxWidth: .infinity)
-    }
-    @ViewBuilder private func autoSweepStepper(_ label: String, value: Int, lo: Int, hi: Int, _ set: @escaping (Double) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(.white.opacity(0.42))
-            HStack(spacing: 0) {
-                Text("◀").font(.system(size: 11, weight: .black)).frame(width: 22, height: 24).contentShape(Rectangle()).onTapGesture { set(Double(max(lo, value - 1))) }
-                Text("\(value)").font(.system(size: 10, weight: .heavy, design: .monospaced)).frame(maxWidth: .infinity)
-                Text("▶").font(.system(size: 11, weight: .black)).frame(width: 22, height: 24).contentShape(Rectangle()).onTapGesture { set(Double(min(hi, value + 1))) }
-            }
-            .frame(maxWidth: .infinity).frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
-            .foregroundColor(.white.opacity(0.85))
-        }.frame(maxWidth: .infinity)
-    }
-    // SWEEP STATE (Paul 2026-09-04): a live picture of the sweep below the FROM/TO row — the FROM→TO ramp drawn as a line
-    // with endpoint dots (updates as you drag FROM/TO), plus a PLAYHEAD marker riding the ramp at the cell currently being
-    // swept while the part plays. Shape = up-ramp / down-ramp / flat at a glance; playhead = where the sweep is right now.
-    @ViewBuilder private func autoSweepState(p: MacroControlParam, from: Double, to: Double) -> some View {
-        let full = BuildSceneLogic.autoParamFullRange(p.kind)
-        let span = max(1e-9, full.hi - full.lo)
-        let f = min(1, max(0, (from - full.lo) / span)), t = min(1, max(0, (to - full.lo) / span))
-        let playFrac: Double? = {                                   // the currently-swept cell's ramp position (0…1) while playing
-            guard d.playing && buildStagingPlaying else { return nil }
-            let col = max(0, min(Snap.maxCols - 1, d.effColumn))
-            guard col < buildStagingSel.count else { return nil }
-            let rung = buildStagingSel[col]; guard rung >= 0 else { return nil }
-            return buildAutoRampFrac(col * Snap.rows + rung)
-        }()
-        ZStack {
-            RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06))
-            Canvas { ctx, size in
-                let pad: CGFloat = 6
-                func y(_ frac: Double) -> CGFloat { pad + (size.height - 2 * pad) * CGFloat(1 - frac) }
-                let x0 = pad, x1 = size.width - pad
-                var line = Path(); line.move(to: CGPoint(x: x0, y: y(f))); line.addLine(to: CGPoint(x: x1, y: y(t)))
-                ctx.stroke(line, with: .color(buildSelHue.opacity(0.9)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                ctx.fill(Path(ellipseIn: CGRect(x: x0 - 3, y: y(f) - 3, width: 6, height: 6)), with: .color(buildSelHue))
-                ctx.fill(Path(ellipseIn: CGRect(x: x1 - 3, y: y(t) - 3, width: 6, height: 6)), with: .color(buildSelHue))
-                if let pf = playFrac {                              // the PLAYHEAD — where on the ramp the sweep is right now
-                    let px = x0 + (x1 - x0) * CGFloat(pf), py = y(f + (t - f) * pf)
-                    ctx.fill(Path(ellipseIn: CGRect(x: px - 4, y: py - 4, width: 8, height: 8)), with: .color(.white))
-                    ctx.stroke(Path(ellipseIn: CGRect(x: px - 4, y: py - 4, width: 8, height: 8)), with: .color(buildSelHue), lineWidth: 1.5)
-                }
-            }
-        }.frame(height: 30).frame(maxWidth: .infinity)
-    }
-    @ViewBuilder private func macroColHead(_ t: String) -> some View {
-        Text(t).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildSelHue.opacity(0.85))   // the AUTO section's row headers wear the SELECTED machine (Paul 2026-09-04)
-    }
-    @ViewBuilder private func macroHint(_ t: String) -> some View {
-        Text(t).font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.28)).frame(maxWidth: .infinity, alignment: .center)
-    }
-    @ViewBuilder private func autoChip(_ t: String, on: Bool, dot: Bool, wide: Bool, red: Bool = false, _ tap: @escaping () -> Void) -> some View {
-        let accent = red ? buildRed : roomsAmber
-        HStack(spacing: 4) {
-            if dot { Circle().fill(roomsAmber).frame(width: 4, height: 4) }
-            Text(t).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1)
-        }
-        .padding(.horizontal, wide ? 9 : 0).frame(minWidth: wide ? 0 : 26, minHeight: 24).frame(height: 24)
-        .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? accent : Color.white.opacity(0.12), lineWidth: 1))
-        .contentShape(Rectangle()).onTapGesture(perform: tap)
-    }
-    // The useful default param for a processor (Paul 2026-09-01: "length for arp"). Falls to the lane's chosen param, else
-    // the curated primary if present, else the first param. Curation mirrors the "order params by usefulness" intent.
-    // The resolved param key for a lane — delegates to the SHARED pure logic (single source of truth, testable).
-    private func autoResolvedParamKey(lane: AutoLane, type: ProcessorType, params: [MacroControlParam]) -> String {
-        BuildSceneLogic.autoResolvedParamKey(type, laneParam: lane.param)
-    }
     // (SPAN-ONLY, Paul 2026-09-04: the old PUNCH context/toggle — buildAutoArmedParam / buildAutoToggle — are retired;
     // a lane's extent is now a drawn SPAN, drag-authored in buildPartGridDrag.)
     // SPAN-ONLY (Paul 2026-09-04): a cell HAS the automation applied iff it is the SELECTED machine's cell and its column is
@@ -2567,17 +2361,6 @@ extension DiagView {
               buildStagingCells[col][row] == ddSelectedMachineID else { return false }   // the AUTOMATED machine's cell only
         let start = max(0, buildAutoLanesFor(ddSelectedMachineID ?? "")[max(0, min(4, active))].spanStart ?? 0)
         return col >= start
-    }
-    // A cell's ramp position (0…1) WITHIN its span tile — rank = (col − start) mod len — so the STATE playhead + any
-    // per-cell shading read the tiling sweep. nil = before the span / no lane.
-    func buildAutoRampFrac(_ idx: Int) -> Double? {
-        let active = buildAutoActive(); guard active >= 0 else { return nil }
-        let lane = buildAutoLanesFor(ddSelectedMachineID ?? "")[max(0, min(4, active))]
-        let col = idx / Snap.rows
-        let start = max(0, lane.spanStart ?? 0), len = max(1, lane.spanLen ?? buildPartCols)
-        guard col >= start else { return nil }
-        let rank = (col - start) % len
-        return len > 1 ? Double(rank) / Double(len - 1) : 1
     }
     // SHARED grid-cell body (Paul 2026-08-30 machine language): a DARK neutral STAGE (so the vivid EMITTER drift pops) + a
     // faint MACHINE-hue identity WASH + the sweep + a MACHINE-hue FRAME that's dim normally and BRIGHT when this cell's
@@ -2660,18 +2443,7 @@ extension DiagView {
         if buildRowGenConfirm?.row == r { return }   // this row shows KEEP | TRY AGAIN, not cells — its buttons own the touch
         buildKeepRowGen()                            // touching any OTHER row's cells acts as KEEP (Paul 2026-09-11)
         let key = c * 100 + r
-        let first = buildPartDragLast == nil
-        // SPAN DRAW (Paul 2026-09-04, span-only): while an AUTO lane is armed (and not SELECT mode), the drag DRAWS the
-        // automation SPAN — press column = the anchor, current column = the other end. It fills live as you drag; a single
-        // tap = a 1-column span. Needs the drag ANCHOR (@State), so it lives here rather than in the pure partGridTap.
-        if buildAutoActive() >= 0 && !buildSelectMode {
-            if first { buildPartDragAnchor = c }
-            let a = buildPartDragAnchor ?? c
-            let start = min(a, c), len = abs(c - a) + 1
-            buildSetAutoLane { $0.spanStart = start; $0.spanLen = len; $0.spanPasses = nil }   // drawing a step span = step mode (clears ×N passes)
-            buildPartDragLast = key
-            return
-        }
+        let first = buildPartDragLast == nil                            // first cell of this drag gesture (drives partGridTap's firstTapOfGesture)
         guard key != buildPartDragLast else { return }                  // act ONCE per cell entered
         buildPartDragLast = key
         let cid = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil

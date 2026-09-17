@@ -453,7 +453,6 @@ struct DiagView: View {
     @State var partRollComputing = false                 // an offline part-roll render is in flight OFF-MAIN (one at a time) — the 188× Router loop no longer stalls the main thread (Paul 2026-09-11)
     @State var buildPartRollGen: Int = 0                 // bumped by buildPublishScene so a CELL/CHAIN edit forces an offline recompute (even if the selection didn't change)
     @State var buildPartDragLast: Int? = nil   // PART GRID (Paul 2026-09-02): the last cell touched in the current tap/drag selection (nil = no active drag)
-    @State var buildPartDragAnchor: Int? = nil // SPAN DRAW (Paul 2026-09-04): the COLUMN a span-draw drag started on (nil = no active span drag)
     @State var buildHostHalted: Bool = false   // TRANSPORT (Paul 2026-09-02): the host stopped while we were following it → HALT (free-run off), cells stay armed; cleared on host START or an explicit BUILD play
     // §6a meter peaks (emitter + receiver) live in `meters` — a @State-held class so the 30 Hz updates DON'T re-run the
     // body (CPU, device 2026-08-24). The meter TimelineViews read `meters.emitPeak`/`emitPeakAt` etc. live through the reference.
