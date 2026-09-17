@@ -249,8 +249,6 @@ struct DiagView: View {
     @State var buildPerformStagingRow: [Int] = Array(repeating: -1, count: 8)   // play grid: each MULTI-rung grid row ← its source staging row (−1 = single-rung/none). Maps play-grid rung selection back to the part's stagingSel (Paul 2026-08-15)
     @State var buildRow8Cells: [Row8Cell] = Row8Cell.factoryDeck   // ROW 8 (Paul 2026-08-22): the authored action cells (refreshed from the document)
     @State var buildRow8On: [Bool] = Array(repeating: false, count: 8)   // ROW 8: the active scene's lit TOGGLE state
-    @State var buildRow8EditOpen: Bool = false   // ROW 8: the EDIT PAGE (authoring) overlay
-    @State var buildRow8EditSlot: Int = -1       // ROW 8 EDIT: which cell the page is authoring (−1 = the cell grid)
     // SCENES V2 (Paul 2026-08-12): in-memory play-grid arrangements. buildScenes holds the SAVED arrangements; index 0 is
     // the live one until the user captures more. Switching saves the current then restores the target (arrangement only —
     // parts/machines/master are shared). v1: not persisted, instant switch.

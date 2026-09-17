@@ -793,7 +793,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     // ROW 8 (Paul 2026-08-22): the action strip. `uiRow8` = the authored cells (document); `uiRow8On` = the active
     // scene's lit TOGGLE state. `setRow8On` is a PERFORMANCE write (record:false, scene-captured, rebuilds — the toggle
-    // engine FREEZE/HALFTIME reads it from the box). `setRow8Cell` AUTHORS a cell (undoable document edit).
+    // engine FREEZE/HALFTIME reads it from the box). The ROW 8 authoring UI (+ `setRow8Cell`) was removed 2026-09-17
+    // as unreachable dead code; the cells/on-toggles + engine/persistence remain (a scene restore still calls setRow8On).
     func uiRow8() -> [Row8Cell] { document.row8Resolved }
     func uiRow8On() -> [Bool] { document.activeSceneState.row8OnResolved }
     func setRow8On(_ i: Int, _ on: Bool) {
@@ -803,15 +804,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             while o.count < 8 { o.append(false) }
             o[i] = on
             s.row8On = o
-        }
-    }
-    func setRow8Cell(_ i: Int, _ cell: Row8Cell) {
-        guard i >= 0, i < 8 else { return }
-        editDocument { d in
-            var r = d.row8 ?? Row8Cell.factoryDeck
-            while r.count < 8 { r.append(Row8Cell()) }
-            r[i] = cell
-            d.row8 = r
         }
     }
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
