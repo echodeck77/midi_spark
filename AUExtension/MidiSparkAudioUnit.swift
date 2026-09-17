@@ -923,8 +923,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     //   0            stepRate (index into StepRate.allCases)
     //   1            swing (50…75)
     //   100 + i      transpose per machine i (−24…+24)
-    //   200 + i      RETIRED (was morph per machine) — render-dead params removed 2026-09-16; addresses RESERVED, never reuse
-    //   300          RETIRED (was MORPH MASTER) — ditto
+    //   200 + i      FREE (was morph per machine) — render-dead params removed 2026-09-16; addresses reusable
+    //   300          FREE (was MORPH MASTER) — ditto
     //   400 + i      MACRO i (0…1)                     ← the macro block, 400…423 reserved (24); only the 8
     //                                                     SLIDERS (400…407) are host-automatable now (macro-panel
     //                                                     spec §5). A future transposeB must pick a base ≥ 500.
@@ -932,7 +932,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         static let stepRate: AUParameterAddress = 0
         static let swing: AUParameterAddress = 1
         static func transpose(_ i: Int) -> AUParameterAddress { 100 + AUParameterAddress(i) }
-        // 200+i morph / 300 morphMaster RETIRED 2026-09-16 (render-dead params removed). Addresses stay RESERVED — never reuse.
+        // 200+i morph / 300 morphMaster REMOVED 2026-09-16 (render-dead params). Addresses 200–215/300 are free to reuse.
         static func macro(_ i: Int) -> AUParameterAddress { 400 + AUParameterAddress(i) }
         static let macroSliderCount = 8   // the automatable bank (0–7); buttons/timelines aren't single-value AU params
     }
@@ -957,9 +957,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 min: -24, max: 24, unit: .indexed, unitName: "st",
                 flags: stepped, valueStrings: nil, dependentParameters: nil))
         }
-        // MORPH params (200+i) + MORPH MASTER (300) RETIRED 2026-09-16 — A/B morph was removed from the render, so
-        // these were render-dead host params cluttering every DAW's automation list. Addresses 200–215 + 300 stay
-        // RESERVED (never reuse — invariant 5). The document's morph/morphMaster fields remain as decode-only zombies.
+        // MORPH params (200+i) + MORPH MASTER (300) REMOVED 2026-09-16 — A/B morph was removed from the render, so
+        // these were render-dead host params cluttering every DAW's automation list. Addresses 200–215 + 300 are now
+        // FREE to reuse (nothing shipped to preserve). The document's morph/morphMaster fields remain as decode-only zombies.
         // MACRO SLIDERS (macro-panel spec §5): the 8 slider macros as host-automatable params — the reborn
         // automation story (AUM lanes · host MIDI-learn · the CC rail all ride these; no MIDI-learn code of ours).
         for i in 0..<ParamAddress.macroSliderCount {
