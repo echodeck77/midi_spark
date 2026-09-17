@@ -1698,6 +1698,8 @@ extension DiagView {
             let spring = part?.launchTriggerResolved == .spring   // PLAY-FERRY LAUNCH (Phase 2b): SPRING = momentary (hold-to-play); LATCH = tap-toggle (today)
             let eHue = emitterHue(part?.emitters ?? [.a])
             let on = t < buildPlayColOn.count && buildPlayColOn[t]        // this part is sounding
+            let audible = buildFerryAudible(t)                           // false ⇒ this ferry is muted OR solo-excluded
+            let silenced = on && !audible                                // PLAYING (glyph lit) but producing NO audio → dim/desaturate it so it reads as silenced (Paul 2026-09-17)
             let focused = buildActiveFerry == t                          // this part is the one loaded on the bench
             let selH = max(10, g.size.height * 0.24)              // selector height — the M/S row below matches it (Paul 2026-09-09)
             let playH = max(12, g.size.height - 2 * selH - 6)     // the PLAY button = the rest (largest); selector + M/S are the two equal-height ends
@@ -1739,7 +1741,7 @@ extension DiagView {
                     .overlay { if set { roomsCellPlayhead(active: on, dim: focused).padding(2) } }   // PER-CELL PLAYHEAD — the SELECTED/open ferry sweeps too (so it reads as playing) but DIMMED, to set it apart from the other, un-opened ferries at full brightness (Paul 2026-09-13)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
-                    .shadow(color: on ? eHue.opacity(0.7) : .clear, radius: on ? 5 : 0)   // PLAYING → an EMITTER-coloured glow
+                    .shadow(color: (on && audible) ? eHue.opacity(0.7) : .clear, radius: (on && audible) ? 5 : 0)   // PLAYING (and AUDIBLE) → an EMITTER-coloured glow; a silenced ferry gets no glow
                     // PLAY/STOP icon (left) + the ferry NAME on ONE vertically-centred line — the name LEFT-aligned, right of the
                     // icon (a trailing Spacer keeps the icon+name group hugging the left). Paul 2026-09-10.
                     .overlay {
@@ -1764,6 +1766,7 @@ extension DiagView {
                     // onto it instead (the whole-ferry drag registered on the VStack below).
                     .onLongPressGesture(minimumDuration: .infinity, maximumDistance: 44,
                                         pressing: { p in if set && spring { buildSetFerryPlay(t, on: p) } }, perform: {})
+                    .saturation(silenced ? 0.12 : 1).opacity(silenced ? 0.5 : 1)   // SILENCED (on but muted / solo-excluded): grey + dim so a lit-glyph ferry that makes no sound reads as such (Paul 2026-09-17)
                 // ── M / S (Paul 2026-09-09): mute · solo THIS ferry's part, below the play cell, equal height to the selector ──
                 let muted = t < buildPlayColMute.count && buildPlayColMute[t]
                 let soloed = t < buildPlayColSolo.count && buildPlayColSolo[t]

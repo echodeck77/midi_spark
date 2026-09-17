@@ -51,6 +51,13 @@ OPEN:
   removing the enum cases + switch arms). Plus survey-flagged standalone orphans to RE-verify (some may now be live):
   `buildSetPartRate`/`roomsGridCellW`/`roomsPartPianoRoll`/`roomsPartMacroSection`/`buildAddCastColour` + `@State buildRowMode`.
   (`buildGridSelDriftFace` is RESERVED — "the ferries keep it".)
+- **★ THE LEGACY PLAY-GRID CLUSTER (confirmed dead 2026-09-17, ferry-review finding #3):** `roomsPlayGrid()` has ZERO
+  render sites (the live surfaces both render the ferry row via `roomsPlayFerry`), so its whole subtree is unreachable:
+  `roomsPlayGrid`/`roomsPlayCell`/`roomsPlayBottom` + `buildTogglePlayColumn` + the `buildPlayCells`/`buildPlaySel`/
+  `buildPlayColSteps/Len/Rate`/`buildPlayColRecv/Emit` store + `buildSelectedPlayCol`. NOTE the latent hazard while it
+  lives: `buildTogglePlayColumn` does a naive `buildPlayColOn[c].toggle()` WITHOUT flatten/choke/launch-anchor (unlike the
+  live `buildSetFerryPlay`), so if anything re-wires the PLAY room to it, a background ferry would start SILENT. Safe to
+  delete as one grep-verified batch; it overlaps the `.play` room-subtree entry above — do them together.
 - **PICK-FROM-LIBRARY (add-a-row):** currently opens `buildOpenLibrary` (the browser); may need a row-targeted placement so the
   picked chain lands on the empty row directly. Also DUPLICATE copies the chain, not the register-home transpose.
 - **GRID FOOTERS are PLACEHOLDER, not wired** (SELECT=pages · PART=column-loop) — reserve-space only; behaviour unbuilt.
