@@ -2263,6 +2263,10 @@ extension DiagView {
             let gap = RoomsMetrics.gap, pad = RoomsMetrics.pad               // heights come from the shared lattice (m); width stays per-view
             let cols = buildPartCols                                         // §E: the part-grid STEP count = the active width (8 or up to 16)
             let rows = DiagView.roomsGridRows                               // §MERGE: 4 interior rows
+            // MUTE/SOLO REFLECT ON THE ON-BENCH GRID (Paul 2026-09-17): the active ferry is PLAYING but inaudible (muted or
+            // solo-excluded) → grey + dim the interior grid so it reads as silenced, matching the ferry cell. The playhead
+            // keeps sweeping (mute ≠ stop) but is dimmed with it. Only when the active ferry is actually on (buildStagingPlaying).
+            let gridSilenced = buildStagingPlaying && (buildActiveFerry.map { !buildFerryAudible($0) } ?? false)
             // FULL-WIDTH SIDE RAILS (Paul 2026-09-02): the left/right rails (+ the ferry-row STOP/▲▼ that cap them) are ONE
             // interior cell wide — same as the play/ferry cells. Width = `cols` interior cells + 2 rails (cols+2 cells worth).
             let cw = max(6, (g.size.width - 2 * pad - CGFloat(cols + 1) * gap) / CGFloat(cols + 2))   // cell width (cols interior + 2 full-width rails)
@@ -2309,6 +2313,7 @@ extension DiagView {
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
                                 .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: rowH, gap: gap, cols: cols) }
                                 .onEnded { _ in buildPartDragLast = nil; buildPartDragAnchor = nil })
+                            .saturation(gridSilenced ? 0.12 : 1).opacity(gridSilenced ? 0.5 : 1)   // MUTE/SOLO: the on-bench grid reads as silenced (still editable — opacity keeps hit-testing)
                             VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH)
                                 .overlay { roomsCardRowPlayhead(n, w: railW, h: rowH).clipShape(RoundedRectangle(cornerRadius: 5)) } } }   // RIGHT = numbered (part-position selector / copy source) + the 1-step sweep on the playing row (Paul 2026-09-13)
                         }
