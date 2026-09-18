@@ -338,10 +338,12 @@ final class Router {
     private var recBufVel   = [UInt8](repeating: 0, count: Snap.cells * Router.recNoteCap)
     private var recBufGate  = [Double](repeating: 0, count: Snap.cells * Router.recNoteCap)
     private var recWindowIdx = [Int](repeating: Int.min, count: Snap.cells)   // CANON: the last window index committed (rolling)
+    private var recArmUnit  = [Int](repeating: Int.min, count: Snap.cells)    // the grain unit the current capture (re)started on (Int.min = unarmed)
+    private var recCycleBase = [Int](repeating: 0, count: Snap.cells)         // REFRESH: the unit the current committed loop began (for the M-cycle re-arm)
     // Reset the RECORDER state. `full` (scene/panic) drops the committed loop too; else (transport/latch/freeze) keep
     // the loop but discard any partial capture, so a stop→start keeps looping and a mid-record stop re-records clean.
     private func resetRecorderCapture(full: Bool) {
-        for i in recCapN.indices { recCapN[i] = 0; recWindowIdx[i] = Int.min }
+        for i in recCapN.indices { recCapN[i] = 0; recWindowIdx[i] = Int.min; recArmUnit[i] = Int.min; recCycleBase[i] = 0 }
         if full { for i in recCaptured.indices { recCaptured[i] = false; recBufN[i] = 0 } }
     }
     // The non-bypassed RECORDER proc downstream of `driver` (the capture stage), or nil.
@@ -3081,8 +3083,11 @@ final class Router {
                 }
                 continue
             }
-            // COMMIT at the record-window end (ONCE): build the loop buffer from the capture, per MODE.
-            if !recCaptured[ci] && unit >= w.endUnit && recCapN[ci] > 0 {
+            // ARM: on first reaching the record window, set the rolling record-window origin (REFRESH re-arms it later).
+            let recN = max(1, w.endUnit - w.startUnit)
+            if !recCaptured[ci] && recArmUnit[ci] == Int.min && unit >= w.startUnit { recArmUnit[ci] = w.startUnit }
+            // COMMIT at the record-window end: build the loop buffer from the capture, per MODE.
+            if !recCaptured[ci] && recArmUnit[ci] != Int.min && unit >= recArmUnit[ci] + recN && recCapN[ci] > 0 {
                 let src = min(recCapN[ci], Router.recNoteCap)
                 let base = ci * Router.recNoteCap
                 if rp.recMode == .freeze && rp.recFreeze == .held {
@@ -3108,9 +3113,16 @@ final class Router {
                     }
                     recBufN[ci] = src
                 }
-                recCaptured[ci] = true
+                recCaptured[ci] = true; recCycleBase[ci] = recArmUnit[ci] + recN
             }
-            guard recCaptured[ci], recBufN[ci] > 0, w.window > 0 else { continue }   // nothing to play yet
+            // REFRESH: every M cycles (M × N units) after the commit, re-arm to re-record the next window (the old loop
+            // pauses for that window while the live input is re-captured; ONCE/HOLD never re-arm here — HOLD's momentary
+            // grab needs a control signal, a later stage).
+            if recCaptured[ci] && rp.recCapture == .refresh {
+                let m2 = max(1, rp.recRefreshM)
+                if unit >= recCycleBase[ci] + m2 * recN { recCaptured[ci] = false; recCapN[ci] = 0; recArmUnit[ci] = unit }
+            }
+            guard recCaptured[ci], recBufN[ci] > 0, w.window > 0 else { continue }   // nothing to play yet (recording / re-recording)
             // PLAYBACK: LOOP the buffer from beat 0. Emit due notes in [mStart, mEnd) (test this loop iteration + the next).
             let kBase = Int((mStart / w.window).rounded(.down))
             currentCellIndex = ci; chanOverride = -1; nudgeSamples = 0
@@ -4188,13 +4200,17 @@ final class Router {
                 // fall through — LAYER
             } else if recCaptured[ci] {
                 if rp.recMix == .replace { return }               // committed loop → the live note is suppressed (the loop plays in emitColumnRecorder)
-            } else {
+            } else if recArmUnit[ci] != Int.min {
+                // RECORDING: the record window is [recArmUnit, recArmUnit + N) (rolls on a REFRESH re-arm). Capture the
+                // note (start relative to the window origin), then pass through (transparent). recArmUnit is set in
+                // emitColumnRecorder on (re)arm; Int.min = not yet armed (pre-arm on ARM AFTER-N) → pass through.
                 let w = recWindow(rp, passBeats: cycleBeats, stepBeats: S)
                 let unit = Int((m / w.unitBeats).rounded(.down))
-                if unit >= w.startUnit && unit < w.endUnit {       // RECORDING: capture this note, then pass through
+                let n = max(1, w.endUnit - w.startUnit)
+                if unit >= recArmUnit[ci] && unit < recArmUnit[ci] + n {
                     let k = recCapN[ci]
                     if k < Router.recNoteCap {
-                        let base = Double(w.startUnit) * w.unitBeats
+                        let base = Double(recArmUnit[ci]) * w.unitBeats
                         let x = ci * Router.recNoteCap + k
                         recCapStart[x] = m - base
                         recCapNote[x] = UInt8(note)
@@ -4202,7 +4218,7 @@ final class Router {
                         recCapGate[x] = max(0.01, Double(offSample - onSample) * beatsPerSample)
                         recCapN[ci] = k + 1
                     }
-                }                                                  // unit < startUnit (pre-arm) or >= endUnit (awaiting commit): pass through
+                }
             }
         }
         if driver >= cell.procs.count - 1 {                       // driver IS the tail → no post-stages

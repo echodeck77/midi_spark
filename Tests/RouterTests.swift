@@ -3632,6 +3632,20 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // RECORDER CAPTURE=REFRESH — the loop renews every M cycles: it re-records + re-commits, producing notes across the
+    // whole run with nothing stuck (the renew itself is device-ear-owed; here we lock no-stuck-notes across the re-arm).
+    func testRecorderRefreshRenewsWithoutStuckNotes() {
+        let cs = arpMachines()
+        let arp = ProcessorSlot(type: .arp)
+        var rec = ProcessorSlot(type: .recorder)
+        rec.params.recGrain = .passes; rec.params.recLen = 1; rec.params.recMode = .loop
+        rec.params.recArm = .onPlay; rec.params.recMix = .replace; rec.params.recCapture = .refresh; rec.params.recRefreshM = 2
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, rec]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 48, into: e)
+        XCTAssertGreaterThan(e.ons.count, 0, "the refreshing loop produces notes")
+        assertNothingLeftSounding(e)
+    }
+
     // CELL MACHINE stage-2 (FULL note-set flow): [harmonize +7 → ARP] arps BOTH the source note AND the added
     // voice — the whole set flows to the tail, not one note.
     func testChainHarmonizeToArpArpsAllVoices() {
