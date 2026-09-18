@@ -20,6 +20,18 @@ OPEN:
 - **DEVICE-EYE owed:** the ∿ buttons + the popover editor; the CHORD-stab controls; the long HITS label row not
   crowding its button; the MOD/RIFF/DEAL editors + the live CC marker.
 
+## ★ RECORDER — the looper-in-a-chain (spec `AcceptanceCriteria-recorder.md`; stages 0–4 BUILT on `main` `87934e5`…`09d690a`)
+BUILT: the driver-fed recorder — GRAIN passes|steps · LENGTH · ARM on-play|after-N · MODE LOOP/FREEZE(held·repeat)/CANON ·
+MIX replace|layer · CAPTURE once|refresh · the persistence READ/CLEAR half (authored/persisted `recEvents` seeds the loop).
+No stuck notes (fuzz + `testRecorder*`). DEFERRED (device-ear owed on the whole feel):
+- **★ SAVE drain (the big one):** the live-capture→document handoff (render→main), so a loop RECORDED in a session
+  persists to disk. The render↔main boundary is the crash-prone class — do it WITH device/host verification. Until then a
+  session's live recording is lost on reload (re-records on next play); authored/loaded buffers already persist + play.
+- **Standalone/hold-fed recorder:** a `[RECORDER]` with no upstream driver doesn't REPLACE-suppress (the identity hold
+  layers over the loop) — needs a hold-path capture, not just the driver fold.
+- **FREEZE-HELD true legato:** v1 re-pulses the frozen pad per loop; a real sustain wants the immortal-hold reconcile.
+- **CAPTURE HOLD:** the momentary "grab a new take" button needs a control signal (behaves like ONCE now).
+
 ## ★ PLAY-FERRIES-ARE-PARTS — follow-ups (2026-09-08; feature DONE Phases 1–3, on `main`)
 The 8 play ferries are now full `BuildPart` slots + the sole navigation (spec `AcceptanceCriteria-play-ferries-as-parts.md`).
 OPEN:

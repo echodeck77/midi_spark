@@ -1,7 +1,18 @@
 # AcceptanceCriteria — RECORDER (the looper-in-a-chain)
 
 Provenance: Paul 2026-09-18 (design conversation, ratified in chat). This is the CONTRACT — build to it; behaviour
-changes need a spec revision first. Not yet built.
+changes need a spec revision first.
+
+## BUILD STATUS (2026-09-18, on `main` `87934e5`…`09d690a`; iOS builds, macOS 1084 green incl. fuzz; DEVICE ear owed)
+BUILT (stages 0–4): the full surface (editor + storefront + persisted config); the engine for a DRIVER-fed recorder —
+GRAIN passes|steps · LENGTH 1…32 · ARM on-play|after-N · MODE **LOOP · FREEZE (held/repeat) · CANON** · MIX
+replace|layer · CAPTURE **once · refresh** ; and the persistence READ/CLEAR half (a persisted/authored `recEvents`
+seeds the loop directly — a stored-clip player — CLEAR resumes live recording). No stuck notes (fuzz-verified across
+every edge + all modes). Tests: `testRecorder*` in RouterTests.
+DEFERRED (see §v1 SCOPE): the live-capture→document **SAVE drain** (so a loop recorded in a session persists to disk —
+render→main, the one piece that most needs host verification); **standalone/hold-fed** recorder REPLACE-suppress (no
+driver ⇒ the hold layers); **FREEZE-HELD true legato** sustain (v1 re-pulses per loop); **HOLD**'s momentary grab
+(needs a control signal). The *feel* of the whole thing is device-ear-owed (built + tested off-device only).
 
 ## THE CONCEPT
 A RECORDER is a **looper that lives inside a machine's chain**. It has two phases:

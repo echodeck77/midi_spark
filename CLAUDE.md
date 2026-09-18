@@ -199,6 +199,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RECORDER — a new looper-in-a-chain processor, stages 0–4 (2026-09-18, on `main` `87934e5`…`09d690a`; iOS builds,
+  macOS 1084 green incl. fuzz; DEVICE ear owed). Paul ratified a spec (`AcceptanceCriteria-recorder.md`) then greenlit the
+  build; done in tested stages while he's away (no device checks). A `ProcessorType.recorder` that records the upstream
+  chain output over N steps/passes and plays it back — TRANSPARENT while recording (captured in the driver fold, GLIDE-
+  style), a DRIVER while playing back (a per-window `emitColumnRecorder` pass, echo-ring class). Built: the full surface
+  (editor + TIME storefront card + persisted config); the engine for a DRIVER-fed recorder — GRAIN passes|steps · LENGTH
+  1…32 · ARM on-play|after-N · MODE **LOOP · FREEZE(held/repeat) · CANON** · MIX replace|layer · CAPTURE **once|refresh** ;
+  and the persistence READ/CLEAR half (a persisted/authored `recEvents` = paired notes {beat·note·vel·gate} seeds the loop
+  directly — a stored-clip player; CLEAR resumes live recording). The phase is a pure fn of the pass/step number → a
+  committed loop is replay-exact; only the live capture window isn't seek-exact (accepted, TURNS/DEAL class). No stuck
+  notes (fuzz across every edge + all modes; `testRecorder*` in RouterTests). **DEFERRED (device-ear owed on the feel):**
+  the live-capture→document **SAVE drain** (render→main, so a session-recorded loop persists to disk — the crash-prone
+  boundary, wants host verification); **standalone/hold-fed** recorder REPLACE-suppress (no driver ⇒ the hold layers);
+  **FREEZE-HELD** true legato (v1 re-pulses per loop); **HOLD**'s momentary grab (needs a control signal). Per-cell render
+  state (recNoteCap=96) reset on every flush edge (scene/panic drop the loop; transport/latch/freeze keep it).**
 - **▶ THE 2026-09-14→16 ARC — RANDOM ONCE · per-param ∿ LFO (+ redesign) · MOD rework · RIFF additions · DEAL · card-grey ·
   sliders · housekeeping (all on `main`; iOS builds, macOS 1116 green; DEVICE eye/ear owed on the UI). A run of Paul's asks.
   (1) **RANDOM ONCE arp pattern** (`cd65b3e`) — `ArpPattern.randomOnce`, a per-pool shuffle from a PERSISTED `arpSeed`
