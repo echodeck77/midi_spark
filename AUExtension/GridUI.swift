@@ -372,6 +372,7 @@ struct ProcessorBox: View {
         case .velocity:  return "set each note's velocity from a per-step lane (or pass it through)"
         case .dest:      return "route each step to a chosen emitter (hocket)"
         case .deal:      return "deal notes across two emitters by count"
+        case .recorder:  return "record N steps/passes of the chain, then loop it back"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
         case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
@@ -993,6 +994,32 @@ struct ProcessorBox: View {
             field("DEAL — when a note advances the deal", \.dealMode) { seg(DealMode.allCases.map(\.rawValue), sel: (p.dealMode ?? .overTime).rawValue) { i in setParam { $0.dealMode = DealMode.allCases[i] } } }
             Text("OVER TIME — each strike in turn (a chord = one) · WITHIN CHORD — split a chord's notes · EVERY NOTE — every note-on")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        })
+        case .recorder: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-18) — the RECORDER: record N steps/passes upstream, then loop it back
+            let grain = p.recGrain ?? .passes
+            let mode = p.recMode ?? .loop
+            let cap = p.recCapture ?? .once
+            row2({ field("GRAIN", \.recGrain) { seg(RecGrain.allCases.map(\.rawValue), sel: grain.rawValue) { i in setParam { $0.recGrain = RecGrain.allCases[i] } } } },
+                 { field("LENGTH — \(grain.rawValue.lowercased())", \.recLen) { numPair(p.recLen ?? 1, 1...32) { v in setParam { $0.recLen = v } } } })
+            row2({ field("ARM", \.recArm) { seg(RecArm.allCases.map(\.rawValue), sel: (p.recArm ?? .onPlay).rawValue) { i in setParam { $0.recArm = RecArm.allCases[i] } } } },
+                 { field("AFTER — N", \.recArmN) { numPair(p.recArmN ?? 1, 1...32) { v in setParam { $0.recArmN = v } } } })
+            field("MODE", \.recMode) { seg(RecMode.allCases.map(\.rawValue), sel: mode.rawValue) { i in setParam { $0.recMode = RecMode.allCases[i] } } }
+            if mode == .freeze {
+                field("FREEZE STYLE — held pad | locked loop", \.recFreeze) { seg(RecFreeze.allCases.map(\.rawValue), sel: (p.recFreeze ?? .held).rawValue) { i in setParam { $0.recFreeze = RecFreeze.allCases[i] } } }
+            }
+            row2({ field("MIX", \.recMix) { seg(RecMix.allCases.map(\.rawValue), sel: (p.recMix ?? .replace).rawValue) { i in setParam { $0.recMix = RecMix.allCases[i] } } } },
+                 { field("CAPTURE", \.recCapture) { seg(RecCapture.allCases.map(\.rawValue), sel: cap.rawValue) { i in setParam { $0.recCapture = RecCapture.allCases[i] } } } })
+            if cap == .refresh {
+                field("REFRESH EVERY — M", \.recRefreshM) { numPair(p.recRefreshM ?? 1, 1...32) { v in setParam { $0.recRefreshM = v } } }
+            }
+            let bufN = p.recEvents?.count ?? 0
+            HStack {
+                Text(bufN > 0 ? "\(bufN) events recorded" : "empty — records on play, then loops")
+                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
+                Spacer()
+                Button("CLEAR") { setParam { $0.recEvents = nil } }
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).disabled(bufN == 0)
+            }
         })
         case .muteMatrix: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // ROUTING (Paul 2026-08-25 §5) — the MUTE MATRIX: per-step PART-MUTING (A/B/C/D × 8 multi-select)
             field("MUTE PER COLUMN — tap to silence an emitter on that grid column") {

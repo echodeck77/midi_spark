@@ -243,6 +243,17 @@ struct SnapParams {
     var dealE1 = 0; var dealE2 = 1                       // DEAL (Paul 2026-09-16): the two emitters (0=A…3=D) — the engine finds the .deal proc by type
     var dealN1 = 1; var dealN2 = 1                       // notes to each (≥1)
     var dealMode: DealMode = .overTime                  // when the deal advances
+    // RECORDER (AcceptanceCriteria-recorder, 2026-09-18): resolved looper config + the persisted buffer.
+    var recGrain: RecGrain = .passes
+    var recLen: Int = 1
+    var recArm: RecArm = .onPlay
+    var recArmN: Int = 1
+    var recMode: RecMode = .loop
+    var recFreeze: RecFreeze = .held
+    var recMix: RecMix = .replace
+    var recCapture: RecCapture = .once
+    var recRefreshM: Int = 1
+    var recEvents: [RecEvent] = []                       // the captured buffer (empty ⇒ nothing to play)
     var muteSlices: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]      // MUTE MATRIX (Paul 2026-08-25 §5): per-onset-slice MUTED-emitter mask (bit i = emitter i muted); 0 ⇒ nothing muted
     // RIFF (SPEC-riff-processor): the resolved stencil. riffRanks defaults to a musical figure so a fresh RIFF plays.
     var riffSteps: Int = 16

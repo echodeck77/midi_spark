@@ -35,9 +35,28 @@ enum ProcessorType: String, Codable, CaseIterable {
     case chords = "CHORDS"     // HARMONY (ratified 2026-09-01): derive a diatonic progression from a key by rank arithmetic — a held trigger → the chord for the current degree (PATTERN matrix · FOLLOW door-note · WALK gravity dice). A set-shaper like HARMONIZE, never a driver. No chord stored; plays in any key.
     case velocity = "VELOCITY" // DYNAMICS (Paul 2026-09-07): a per-step velocity SEQUENCER — override each note's velocity from a per-step lane (or PASSTHROUGH that step). Note-transparent MODIFIER (never a driver); TIME (RATE·STEPS·SPAN) or NOTE (advance per note) clock, mirroring RATCHET PATTERN.
     case deal = "DEAL"         // ROUTING (Paul 2026-09-16): a simple output dealer — OVERRIDE the emitters, deal N1 notes to emitter 1 then N2 to emitter 2 (repeat). Note-transparent; DEAL mode = OVER TIME (per strike) · WITHIN CHORD (per note) · EVERY NOTE.
+    case recorder = "RECORDER" // TIME (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain — record N steps/passes of the upstream output, then loop it back. Transparent while recording, a driver while playing back.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 enum DealMode: String, Codable, CaseIterable { case overTime = "OVER TIME", withinChord = "WITHIN CHORD", everyNote = "EVERY NOTE" }   // DEAL: when the deal advances (Paul 2026-09-16)
+// RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain — record N steps/passes of the
+// upstream output, then play it back. Transparent while recording, a driver while playing back.
+enum RecGrain: String, Codable, CaseIterable { case steps = "STEPS", passes = "PASSES" }   // the loop unit
+enum RecArm: String, Codable, CaseIterable { case onPlay = "ON PLAY", afterN = "AFTER N" }  // when capture begins
+enum RecMode: String, Codable, CaseIterable { case loop = "LOOP", freeze = "FREEZE", canon = "CANON" }
+enum RecFreeze: String, Codable, CaseIterable { case held = "HELD", repeatLoop = "REPEAT" }  // FREEZE style: sustained pad | locked rhythmic loop
+enum RecMix: String, Codable, CaseIterable { case replace = "REPLACE", layer = "LAYER" }     // playback: recording only | recording + live
+enum RecCapture: String, Codable, CaseIterable { case once = "ONCE", refresh = "REFRESH", hold = "HOLD" }  // re-arm: lock | renew every M | manual grab
+struct RecEvent: Codable, Equatable { var beat: Double = 0; var note: Int = 60; var vel: Int = 100; var on: Bool = true }   // one captured event: beat-offset within the window · pitch · velocity · on/off
+extension RecEvent {   // CR-8 decode-tolerant (a future field can't factory-reset an older buffer)
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        beat = try c.decodeIfPresent(Double.self, forKey: .beat) ?? 0
+        note = try c.decodeIfPresent(Int.self, forKey: .note) ?? 60
+        vel  = try c.decodeIfPresent(Int.self, forKey: .vel) ?? 100
+        on   = try c.decodeIfPresent(Bool.self, forKey: .on) ?? true
+    }
+}
 // AVOID / LOCK (unified 2026-08-31, Paul) — one processor covers "avoid clashing with X" AND "lock to key": a per-note
 // pitch-class filter (the ratified keyFilterNote) as a chain stage.
 enum AvoidRefKind: String, Codable, CaseIterable { case key = "KEY", door = "DOOR", wire = "WIRE", sounding = "ALL", soundingOut = "OUTALL" }   // the reference set to test against (§G: soundingOut = EVERYTHING OUT, all emitter output minus this cell's own buses)
@@ -386,6 +405,17 @@ struct MachineParams: Codable, Equatable {
     var dealN1: Int? = nil                       // notes to emitter 1; nil ⇒ 1
     var dealN2: Int? = nil                       // notes to emitter 2; nil ⇒ 1
     var dealMode: DealMode? = nil                // when the deal advances; nil ⇒ OVER TIME
+    // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain. All additive-Optional; the buffer PERSISTS on the machine.
+    var recGrain: RecGrain? = nil                // STEPS | PASSES; nil ⇒ PASSES
+    var recLen: Int? = nil                       // window length in grain units 1…32; nil ⇒ 1
+    var recArm: RecArm? = nil                    // ON PLAY | AFTER N; nil ⇒ ON PLAY
+    var recArmN: Int? = nil                      // AFTER N: units to wait before capture; nil ⇒ 1
+    var recMode: RecMode? = nil                  // LOOP | FREEZE | CANON; nil ⇒ LOOP
+    var recFreeze: RecFreeze? = nil              // FREEZE style: HELD | REPEAT; nil ⇒ HELD
+    var recMix: RecMix? = nil                    // REPLACE | LAYER; nil ⇒ REPLACE
+    var recCapture: RecCapture? = nil            // ONCE | REFRESH | HOLD; nil ⇒ ONCE
+    var recRefreshM: Int? = nil                  // REFRESH EVERY M cycles; nil ⇒ 1
+    var recEvents: [RecEvent]? = nil             // the PERSISTED captured buffer (beat-offset · pitch · vel · on/off); nil ⇒ empty
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
     // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
     // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.

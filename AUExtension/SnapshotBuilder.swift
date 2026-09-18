@@ -456,6 +456,17 @@ enum SnapshotBuilder {
         out.dealE1 = clamp(p.dealE1 ?? 0, 0, 3); out.dealE2 = clamp(p.dealE2 ?? 1, 0, 3)   // DEAL (Paul 2026-09-16)
         out.dealN1 = max(1, min(16, p.dealN1 ?? 1)); out.dealN2 = max(1, min(16, p.dealN2 ?? 1))
         if let v = p.dealMode { out.dealMode = v }
+        // RECORDER (AcceptanceCriteria-recorder, 2026-09-18): resolve config + carry the persisted buffer.
+        if let v = p.recGrain { out.recGrain = v }
+        out.recLen = clamp(p.recLen ?? 1, 1, 32)
+        if let v = p.recArm { out.recArm = v }
+        out.recArmN = clamp(p.recArmN ?? 1, 1, 32)
+        if let v = p.recMode { out.recMode = v }
+        if let v = p.recFreeze { out.recFreeze = v }
+        if let v = p.recMix { out.recMix = v }
+        if let v = p.recCapture { out.recCapture = v }
+        out.recRefreshM = clamp(p.recRefreshM ?? 1, 1, 32)
+        if let v = p.recEvents { out.recEvents = v }
         if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice
         // RIFF (SPEC-riff-processor): resolve the stencil. riffRanks nil ⇒ keeps the default figure. rate → beats.
         if let v = p.riffSteps { out.riffSteps = clamp(v, 1, 32) }   // variable length (Paul 2026-08-26): up to 32

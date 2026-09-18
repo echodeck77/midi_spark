@@ -5157,6 +5157,7 @@ extension DiagView {
                 C("ECHO", "Repeats each note, fading away like a delay.", .echo),
                 C("SHIFT", "Drags the whole chord behind the beat: laid-back.", .shift),
                 C("LENGTH", "Shapes how long each step rings: staccato to ties.", .length),
+                C("RECORDER", "Records what the chain plays, then loops it back — a tape in the chain.", .recorder),
             ]),
             BuildCardGroup(title: "UTILITY", note: "Plain per-chain overrides — move one chain without touching the door.", cards: [
                 C("OCTAVE", "Plays this chain a few octaves up or down.", .octave),
@@ -5186,6 +5187,7 @@ extension DiagView {
         case .weave:   switch s.params.weaveMode ?? .ladder { case .ladder: m = "LAD"; case .harmonic: m = "HARM"; case .drawn: m = "DRAWN"; case .euclid: m = "EUC" }
         case .mod:     switch s.params.modSource ?? .shape { case .shape: m = "LFO"; case .follow: m = "FOLLOW"; case .steps: m = "STEP"; case .strike: m = "ENV"; case .extern: m = "CC IN" }
         case .hocket:  switch s.params.hocketMode ?? .gaps { case .gaps: m = "GAPS"; case .trade: m = "TRADE" }
+        case .recorder: switch s.params.recMode ?? .loop { case .loop: m = "LOOP"; case .freeze: m = "FRZ"; case .canon: m = "CANON" }
         case .avoid:
             switch s.params.avoidRefKind ?? .sounding {
             case .key:      m = "\(["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][(((s.params.avoidRoot ?? 0) % 12) + 12) % 12]) \((s.params.avoidScale ?? .major).label)"   // legacy/decode-only — the KEY reference is no longer settable in the UI (Paul 2026-08-31)
