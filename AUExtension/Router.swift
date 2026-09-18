@@ -337,10 +337,11 @@ final class Router {
     private var recBufNote  = [UInt8](repeating: 0, count: Snap.cells * Router.recNoteCap)
     private var recBufVel   = [UInt8](repeating: 0, count: Snap.cells * Router.recNoteCap)
     private var recBufGate  = [Double](repeating: 0, count: Snap.cells * Router.recNoteCap)
+    private var recWindowIdx = [Int](repeating: Int.min, count: Snap.cells)   // CANON: the last window index committed (rolling)
     // Reset the RECORDER state. `full` (scene/panic) drops the committed loop too; else (transport/latch/freeze) keep
     // the loop but discard any partial capture, so a stop→start keeps looping and a mid-record stop re-records clean.
     private func resetRecorderCapture(full: Bool) {
-        for i in recCapN.indices { recCapN[i] = 0 }
+        for i in recCapN.indices { recCapN[i] = 0; recWindowIdx[i] = Int.min }
         if full { for i in recCaptured.indices { recCaptured[i] = false; recBufN[i] = 0 } }
     }
     // The non-bypassed RECORDER proc downstream of `driver` (the capture stage), or nil.
@@ -3053,15 +3054,61 @@ final class Router {
             let rp = cell.procs[rs]
             let w = recWindow(rp, passBeats: passBeats, stepBeats: S)
             let unit = Int((mStart / w.unitBeats).rounded(.down))
-            // COMMIT at the record-window end (ONCE): pair the capture into the loop buffer, once.
-            if !recCaptured[ci] && unit >= w.endUnit && recCapN[ci] > 0 {
-                let n = min(recCapN[ci], Router.recNoteCap)
-                for i in 0..<n {
-                    let x = ci * Router.recNoteCap + i
-                    recBufStart[x] = recCapStart[x]; recBufNote[x] = recCapNote[x]
-                    recBufVel[x] = recCapVel[x]; recBufGate[x] = recCapGate[x]
+            // CANON (rolling self-delay): at each window boundary, the just-finished window's capture → the play buffer;
+            // play it back ONE WINDOW LATE. The live input keeps playing (LAYER in the capture hook), so the phrase
+            // chases itself a window later — a round. Never locks (keeps rolling).
+            if rp.recMode == .canon {
+                let win = max(0.03125, w.window)
+                let widx = Int((mStart / win).rounded(.down))
+                if recWindowIdx[ci] != widx {
+                    let base = ci * Router.recNoteCap, n = min(recCapN[ci], Router.recNoteCap)
+                    for i in 0..<n { recBufStart[base+i] = recCapStart[base+i]; recBufNote[base+i] = recCapNote[base+i]; recBufVel[base+i] = recCapVel[base+i]; recBufGate[base+i] = recCapGate[base+i] }
+                    recBufN[ci] = n; recCapN[ci] = 0; recWindowIdx[ci] = widx
                 }
-                recBufN[ci] = n; recCaptured[ci] = true
+                if recBufN[ci] > 0 {
+                    currentCellIndex = ci; chanOverride = -1; nudgeSamples = 0
+                    for i in 0..<recBufN[ci] {
+                        let x = ci * Router.recNoteCap + i
+                        let sched = Double(widx) * win + recBufStart[x]
+                        if sched >= mStart && sched < mEnd {
+                            let onS = sampleOf(musical: sched, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                            let gate = max(0.01, recBufGate[x])
+                            let offS = min(windowEnd, sampleOf(musical: sched + gate, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
+                            emitArtic(note: recBufNote[x], busMask: cell.busMask, onSample: onS, offSample: max(onS + 1, offS), windowEnd: windowEnd, velocity: recBufVel[x], out: out, diag: &diag)
+                        }
+                    }
+                    currentCellIndex = -1
+                }
+                continue
+            }
+            // COMMIT at the record-window end (ONCE): build the loop buffer from the capture, per MODE.
+            if !recCaptured[ci] && unit >= w.endUnit && recCapN[ci] > 0 {
+                let src = min(recCapN[ci], Router.recNoteCap)
+                let base = ci * Router.recNoteCap
+                if rp.recMode == .freeze && rp.recFreeze == .held {
+                    // FREEZE HELD: collapse to DISTINCT pitches, each held for the whole window (a frozen pad that
+                    // re-pulses per loop — a true legato sustain is a follow-up needing the immortal-hold reconcile).
+                    var n = 0
+                    for i in 0..<src {
+                        let note = recCapNote[base + i]
+                        var dup = false
+                        for j in 0..<n where recBufNote[base + j] == note { dup = true; break }
+                        if !dup && n < Router.recNoteCap {
+                            recBufStart[base + n] = 0; recBufNote[base + n] = note
+                            recBufVel[base + n] = recCapVel[base + i]; recBufGate[base + n] = w.window
+                            n += 1
+                        }
+                    }
+                    recBufN[ci] = n
+                } else {
+                    // LOOP · FREEZE REPEAT · (CANON plays as loop in v1): the captured notes verbatim.
+                    for i in 0..<src {
+                        recBufStart[base + i] = recCapStart[base + i]; recBufNote[base + i] = recCapNote[base + i]
+                        recBufVel[base + i] = recCapVel[base + i]; recBufGate[base + i] = recCapGate[base + i]
+                    }
+                    recBufN[ci] = src
+                }
+                recCaptured[ci] = true
             }
             guard recCaptured[ci], recBufN[ci] > 0, w.window > 0 else { continue }   // nothing to play yet
             // PLAYBACK: LOOP the buffer from beat 0. Emit due notes in [mStart, mEnd) (test this loop iteration + the next).
@@ -4125,7 +4172,21 @@ final class Router {
         // emitColumnRecorder, and REPLACE suppresses the live note here. Phase = a pure fn of the pass/step number.
         if currentCellIndex >= 0 && currentCellIndex < Snap.cells, let rs = downstreamRecorder(cell, after: driver) {
             let ci = currentCellIndex, rp = cell.procs[rs]
-            if recCaptured[ci] {
+            if rp.recMode == .canon {
+                // CANON: always record into the current window's ring (reset at boundaries in emitColumnRecorder); LAYER
+                // (never suppress — the live note keeps playing while its recording chases it one window later).
+                let k = recCapN[ci]
+                if k < Router.recNoteCap {
+                    let w = recWindow(rp, passBeats: cycleBeats, stepBeats: S)
+                    let win = max(0.03125, w.window)
+                    let x = ci * Router.recNoteCap + k
+                    recCapStart[x] = m - (m / win).rounded(.down) * win
+                    recCapNote[x] = UInt8(note); recCapVel[x] = velocity
+                    recCapGate[x] = max(0.01, Double(offSample - onSample) * beatsPerSample)
+                    recCapN[ci] = k + 1
+                }
+                // fall through — LAYER
+            } else if recCaptured[ci] {
                 if rp.recMix == .replace { return }               // committed loop → the live note is suppressed (the loop plays in emitColumnRecorder)
             } else {
                 let w = recWindow(rp, passBeats: cycleBeats, stepBeats: S)

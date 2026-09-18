@@ -3598,6 +3598,40 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // RECORDER FREEZE HELD — captures once, then holds the DISTINCT captured pitches as a pad. The played notes are a
+    // subset of the arp's pitches (deduped), it keeps sounding, and nothing is stuck.
+    func testRecorderFreezeHeldSustainsThePitches() {
+        let cs = arpMachines()
+        let arp = ProcessorSlot(type: .arp)
+        var rec = ProcessorSlot(type: .recorder)
+        rec.params.recGrain = .passes; rec.params.recLen = 1; rec.params.recMode = .freeze
+        rec.params.recFreeze = .held; rec.params.recArm = .onPlay; rec.params.recMix = .replace
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, rec]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 32, into: e)
+        XCTAssertGreaterThan(e.ons.count, 0, "the frozen pad plays")
+        let ea = RecordingEmitter()
+        let ba = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp]; return c }() }
+        run(ba, chord([60, 64, 67]), beats: 32, into: ea)
+        XCTAssertTrue(Set(e.ons.map { $0.note }).isSubset(of: Set(ea.ons.map { $0.note })), "the held pad's pitches are a subset of the arp's")
+        assertNothingLeftSounding(e)
+    }
+
+    // RECORDER CANON — records continuously and plays the phrase back one window LATE while the live arp continues
+    // (LAYER), so the total exceeds the arp alone (the chasing echo adds notes). Nothing stuck.
+    func testRecorderCanonEchoesOneWindowLater() {
+        let cs = arpMachines()
+        let arp = ProcessorSlot(type: .arp)
+        var rec = ProcessorSlot(type: .recorder)
+        rec.params.recGrain = .passes; rec.params.recLen = 1; rec.params.recMode = .canon; rec.params.recArm = .onPlay
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, rec]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 32, into: e)
+        let ea = RecordingEmitter()
+        let ba = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp]; return c }() }
+        run(ba, chord([60, 64, 67]), beats: 32, into: ea)
+        XCTAssertGreaterThan(e.ons.count, ea.ons.count, "canon adds a delayed copy on top of the live arp")
+        assertNothingLeftSounding(e)
+    }
+
     // CELL MACHINE stage-2 (FULL note-set flow): [harmonize +7 → ARP] arps BOTH the source note AND the added
     // voice — the whole set flows to the tail, not one note.
     func testChainHarmonizeToArpArpsAllVoices() {
