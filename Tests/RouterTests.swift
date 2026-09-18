@@ -3577,6 +3577,27 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // RECORDER (AcceptanceCriteria-recorder) — [ARP → RECORDER(LOOP·PASSES·N=1·ON PLAY·REPLACE·ONCE)] records the arp
+    // during pass 1, then loops it back. The loop must (a) reproduce the arp's note set, (b) keep playing past the
+    // record pass (so the total isn't just one pass), and (c) leave nothing stuck.
+    func testRecorderCapturesAndLoopsTheArp() {
+        let cs = arpMachines()
+        let arp = ProcessorSlot(type: .arp)
+        var rec = ProcessorSlot(type: .recorder)
+        rec.params.recGrain = .passes; rec.params.recLen = 1; rec.params.recMode = .loop
+        rec.params.recArm = .onPlay; rec.params.recMix = .replace; rec.params.recCapture = .once
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, rec]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 32, into: e)
+        // the arp alone over the same span — the reference note set + count.
+        let ea = RecordingEmitter()
+        let ba = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp]; return c }() }
+        run(ba, chord([60, 64, 67]), beats: 32, into: ea)
+        XCTAssertGreaterThan(e.ons.count, 0, "the recorder loop produces notes")
+        XCTAssertEqual(Set(e.ons.map { $0.note }), Set(ea.ons.map { $0.note }), "the loop reproduces the arp's note set")
+        XCTAssertGreaterThan(e.ons.count, ea.ons.count / 2, "the loop keeps playing past pass 1 (not silent after the record window)")
+        assertNothingLeftSounding(e)
+    }
+
     // CELL MACHINE stage-2 (FULL note-set flow): [harmonize +7 → ARP] arps BOTH the source note AND the added
     // voice — the whole set flows to the tail, not one note.
     func testChainHarmonizeToArpArpsAllVoices() {

@@ -70,6 +70,7 @@ final class FuzzTests: XCTestCase {
                                       .tap,                  // ROUTING — the mid-chain send; hammered so a parallel copy never strands a note
                                       .hocket,               // DRIVER — the wire-listening gate (GAPS/TRADE); hammered so the gate never strands a note across every edge
                                       .avoid,                // FILTER — the per-note pitch filter (drop/snap vs a reference); hammered as head/upstream/downstream/hold for no stuck notes
+                                      .recorder,             // TIME — the looper-in-a-chain (record + replay); hammered so capture/playback never strands a note across every edge
                                       .chords,               // HARMONY — a held trigger → a derived diatonic chord; hammered (random key/degrees/voicing) so the set-replace never strands a note
                                       .velocity]             // DYNAMICS — per-step velocity override; note-transparent, so it must never strand a note (random lane/pass/steps/rate/clock/span)
         // 40 machines (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-machines space, and the
@@ -118,6 +119,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .nudge && r.chance(0.5) { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = (0..<8).map { _ in r.int(17) - 8 } }   // TIMING LANE §5 — per-column ±8/16 pocket (clamped to the window, no stuck notes)
             if c.type == .dest && r.chance(0.6) { c.paramsA.destSlices = (0..<8).map { _ in r.int(4) } }   // DEST MATRIX §5 — per-slice emitter override (routing-class); hammer the re-route for no stuck notes
             if c.type == .deal { c.paramsA.dealE1 = r.int(4); c.paramsA.dealE2 = r.int(4); c.paramsA.dealN1 = 1 + r.int(4); c.paramsA.dealN2 = 1 + r.int(4); c.paramsA.dealMode = [DealMode.overTime, .withinChord, .everyNote][r.int(3)] }   // DEAL — random emitter-deal; the override must never strand a note
+            if c.type == .recorder { c.paramsA.recGrain = r.chance(0.5) ? .passes : .steps; c.paramsA.recLen = 1 + r.int(8); c.paramsA.recArm = r.chance(0.5) ? .onPlay : .afterN; c.paramsA.recArmN = 1 + r.int(4); c.paramsA.recMode = [RecMode.loop, .freeze, .canon][r.int(3)]; c.paramsA.recMix = r.chance(0.5) ? .replace : .layer; c.paramsA.recCapture = [RecCapture.once, .refresh, .hold][r.int(3)] }   // RECORDER — random looper config; capture + playback must never strand a note across every edge
             if c.type == .muteMatrix && r.chance(0.6) { c.paramsA.muteSlices = (0..<8).map { _ in r.int(16) } }   // MUTE MATRIX §5 — random per-step muted-emitter masks incl. full-mute (all 4) → note fully dropped; no stuck notes
             if c.type == .velocity && r.chance(0.7) {   // VELOCITY — random per-step override lane / passthrough mask / steps / rate / clock / span; note-transparent, must never strand a note
                 let n = 1 + r.int(32)

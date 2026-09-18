@@ -320,6 +320,49 @@ final class Router {
     private var dealNoteInMoment = [Int](repeating: 0, count: Snap.cells)   // rank within the current moment (WITHIN CHORD)
     private var dealLastOnset = [Int64](repeating: .min, count: Snap.cells) // last onset sample per cell (moment detection)
     private var dealGlobal = [Int](repeating: 0, count: Snap.cells)         // running note count (EVERY NOTE)
+    // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18) — the looper-in-a-chain. STAGE 1: LOOP · PASSES|STEPS ·
+    // ON PLAY|AFTER N · REPLACE|LAYER · CAPTURE ONCE, fed by an UPSTREAM DRIVER (captured in the driver fold). Per-cell
+    // render-side buffer (persistence + FREEZE/CANON/REFRESH/CLEAR are later stages). Sanctioned accumulated-state
+    // (echo-ring class): the record/playback PHASE is a pure fn of the pass/step number, so a committed loop plays back
+    // replay-exact (spec §REPLAY-EXACTNESS) — only the live capture window is not seek-exact.
+    private static let recNoteCap = 96
+    private var recCaptured = [Bool](repeating: false, count: Snap.cells)     // this cell's loop is committed → play (ONCE = never re-record)
+    private var recCapN  = [Int](repeating: 0, count: Snap.cells)             // in-progress capture count (this window)
+    private var recCapStart = [Double](repeating: 0, count: Snap.cells * Router.recNoteCap)  // note start, beats within the window
+    private var recCapNote  = [UInt8](repeating: 0, count: Snap.cells * Router.recNoteCap)
+    private var recCapVel   = [UInt8](repeating: 0, count: Snap.cells * Router.recNoteCap)
+    private var recCapGate  = [Double](repeating: 0, count: Snap.cells * Router.recNoteCap)  // note length in beats
+    private var recBufN  = [Int](repeating: 0, count: Snap.cells)             // committed loop note count
+    private var recBufStart = [Double](repeating: 0, count: Snap.cells * Router.recNoteCap)
+    private var recBufNote  = [UInt8](repeating: 0, count: Snap.cells * Router.recNoteCap)
+    private var recBufVel   = [UInt8](repeating: 0, count: Snap.cells * Router.recNoteCap)
+    private var recBufGate  = [Double](repeating: 0, count: Snap.cells * Router.recNoteCap)
+    // Reset the RECORDER state. `full` (scene/panic) drops the committed loop too; else (transport/latch/freeze) keep
+    // the loop but discard any partial capture, so a stop→start keeps looping and a mid-record stop re-records clean.
+    private func resetRecorderCapture(full: Bool) {
+        for i in recCapN.indices { recCapN[i] = 0 }
+        if full { for i in recCaptured.indices { recCaptured[i] = false; recBufN[i] = 0 } }
+    }
+    // The non-bypassed RECORDER proc downstream of `driver` (the capture stage), or nil.
+    private func downstreamRecorder(_ cell: SnapCell, after driver: Int) -> Int? {
+        var j = driver + 1
+        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .recorder { return j }; j += 1 }
+        return nil
+    }
+    // The cell's first non-bypassed RECORDER proc (any slot), or nil — for the playback pass.
+    private func recorderSlot(_ cell: SnapCell) -> Int? {
+        var j = 0
+        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .recorder { return j }; j += 1 }
+        return nil
+    }
+    // RECORDER window geometry (a pure fn of the grain/len/arm + the clock): unitBeats = the grain unit, window = N units,
+    // and the record window spans units [startUnit, endUnit). The PASS/STEP number decides record vs playback.
+    private func recWindow(_ p: SnapParams, passBeats: Double, stepBeats: Double) -> (unitBeats: Double, window: Double, startUnit: Int, endUnit: Int) {
+        let unitBeats = max(0.03125, p.recGrain == .passes ? passBeats : stepBeats)
+        let n = max(1, min(32, p.recLen))
+        let armDelay = p.recArm == .afterN ? max(0, min(32, p.recArmN)) : 0
+        return (unitBeats, unitBeats * Double(n), armDelay, armDelay + n)
+    }
     private func dealSetup(_ cell: SnapCell) {   // find this cell's DEAL proc (last wins, like chopMask's DEST scan); set the emit-side state
         dealActive = false
         for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .deal {
@@ -760,6 +803,7 @@ final class Router {
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
         clearEchoTails()
+        resetRecorderCapture(full: true)             // RECORDER: a full reset clears the loops
         for i in modLastColumn.indices { modLastColumn[i] = -1; modColumnEntryBeat[i] = 0 }   // MOD: forget the last CC + column, every slot (no reset emit — reset() has no `out`)
         for i in modLastVal.indices { modLastVal[i] = -1 }
         for i in modPrevTarget.indices { modPrevTarget[i] = -1 }
@@ -2422,6 +2466,7 @@ final class Router {
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
+            resetRecorderCapture(full: false)            // RECORDER: keep the committed loop across a stop→start; discard any partial capture
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on transport edges
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
@@ -2431,6 +2476,7 @@ final class Router {
             prevEffColumn = -1
             diag.panics &+= 1
             clearEchoTails()                             // ECHO: panic drops every pending tail
+            resetRecorderCapture(full: true)             // RECORDER: panic clears the loops too
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on panic
         }
         // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
@@ -2439,6 +2485,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
+            resetRecorderCapture(full: true)             // RECORDER: the old scene's loops die on the switch
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: the old scene's CC state resets on the switch
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
@@ -2448,6 +2495,7 @@ final class Router {
             prevEffColumn = -1
             prevLatchMask = latchMask
             clearEchoTails()                             // ECHO: the pool swapped — drop tails from the old chord
+            resetRecorderCapture(full: false)            // RECORDER: keep the loop across a latch edge; discard partial capture
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
         }
 
@@ -2465,6 +2513,7 @@ final class Router {
                 for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
                 for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 }
                 clearEchoTails()
+                resetRecorderCapture(full: false)             // RECORDER: unfreeze keeps the loop
                 flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)
             }
             prevFreezeActive = frozen
@@ -2489,6 +2538,7 @@ final class Router {
             for i in lastTick.indices { lastTick[i] = -1; lastGenStep[i] = Int64.min }      // free the solo row's tick-dedup
             previewPrevColumn = -1; strumProgress[0] = 0        // fresh column edge for the virtual cell
             clearEchoTails()                                    // parity with the other flush edges
+            resetRecorderCapture(full: false)             // RECORDER: a uniform↔multi clock switch keeps the loop
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // review 2026-08-23 [4]: allNotesOff closed the immortal MOD/GLIDE anchors — forget their stale bookkeeping (else a reused slot later emits a spurious off + the glide/CC goes silent)
             prevPreviewActive = preview.active
         }
@@ -2518,6 +2568,7 @@ final class Router {
             prevEffColumn = -1
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             clearEchoTails()                             // ECHO: a pass restart drops the old pass's tails
+            resetRecorderCapture(full: false)             // RECORDER: a pass restart keeps the loop (it IS the loop)
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
         }
         let beatPos = beatPos - passAnchor
@@ -2644,6 +2695,9 @@ final class Router {
                           beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
             emitColumnGlide(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
                             beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+            emitColumnRecorder(box: box, column: effColumn, beatPos: beatPos, windowBeats: modWindowBeats,
+                               passBeats: cycleBeats, S: S, a: a, beatsPerSample: beatsPerSample,
+                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         } else {
             for r in 0..<Snap.rows {
                 if rowLaunchArmed[r] { continue }   // PLAY-FERRY LAUNCH: armed-not-started rows emit nothing (rowEffColBuf = -1)
@@ -2652,6 +2706,10 @@ final class Router {
                               beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
                 emitColumnGlide(box: box, column: rowEffColBuf[r], pool: pool, beatPos: rowBeat, windowBeats: modWindowBeats,
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
+                let recSr = box.rowStep[r]; let recPass = Double(box.rowLength[r]) * recSr
+                emitColumnRecorder(box: box, column: rowEffColBuf[r], beatPos: rowBeat, windowBeats: modWindowBeats,
+                                   passBeats: recPass, S: recSr, a: a, beatsPerSample: beatsPerSample,
+                                   windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag, onlyRow: r)
             }
         }
         // FREE / LFO CELL (design-cc-stage §16, Paul 2026-09-09): MOD cells marked FREE emit every window regardless of
@@ -2975,6 +3033,57 @@ final class Router {
     }
     /// Drive the mono glide voices for the active column's single-slot GLIDE cells: anchor on the first note, bend-ramp
     /// to each in-range target (else RE-ANCHOR / CLAMP), phrase-end on rest or column exit. Runs before the pool guard.
+    // RECORDER (AcceptanceCriteria-recorder) — commit the capture at the record-window end, then play the committed loop.
+    // Runs per window BEFORE the tick loop (like emitColumnGlide), so a commit lands before this window's driver fold.
+    // The buffer is captured in emitDriverNote (upstream driver); REPLACE-suppression of the live note happens there.
+    private func emitColumnRecorder(box: SnapshotBox, column: Int, beatPos: Double, windowBeats: Double,
+                                    passBeats: Double, S: Double, a: Double, beatsPerSample: Double,
+                                    windowStart: Int64, windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag,
+                                    onlyRow: Int? = nil) {
+        if masterMute && !previewMode { return }
+        guard column >= 0 && column < Snap.maxCols else { return }
+        let mStart = musicalOf(beatPos, stepBeats: S, a: a)
+        let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
+            let ci = column * Snap.rows + r
+            let cell = box.cells[ci]
+            guard let rs = recorderSlot(cell) else { continue }
+            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
+               || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }
+            let rp = cell.procs[rs]
+            let w = recWindow(rp, passBeats: passBeats, stepBeats: S)
+            let unit = Int((mStart / w.unitBeats).rounded(.down))
+            // COMMIT at the record-window end (ONCE): pair the capture into the loop buffer, once.
+            if !recCaptured[ci] && unit >= w.endUnit && recCapN[ci] > 0 {
+                let n = min(recCapN[ci], Router.recNoteCap)
+                for i in 0..<n {
+                    let x = ci * Router.recNoteCap + i
+                    recBufStart[x] = recCapStart[x]; recBufNote[x] = recCapNote[x]
+                    recBufVel[x] = recCapVel[x]; recBufGate[x] = recCapGate[x]
+                }
+                recBufN[ci] = n; recCaptured[ci] = true
+            }
+            guard recCaptured[ci], recBufN[ci] > 0, w.window > 0 else { continue }   // nothing to play yet
+            // PLAYBACK: LOOP the buffer from beat 0. Emit due notes in [mStart, mEnd) (test this loop iteration + the next).
+            let kBase = Int((mStart / w.window).rounded(.down))
+            currentCellIndex = ci; chanOverride = -1; nudgeSamples = 0
+            for i in 0..<recBufN[ci] {
+                let x = ci * Router.recNoteCap + i
+                let st = recBufStart[x]
+                for k in [kBase, kBase + 1] where k >= 0 {
+                    let sched = Double(k) * w.window + st
+                    if sched >= mStart && sched < mEnd {
+                        let onS = sampleOf(musical: sched, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                        let gate = max(0.01, recBufGate[x])
+                        let offS = min(windowEnd, sampleOf(musical: sched + gate, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
+                        emitArtic(note: recBufNote[x], busMask: cell.busMask, onSample: onS, offSample: max(onS + 1, offS),
+                                  windowEnd: windowEnd, velocity: recBufVel[x], out: out, diag: &diag)
+                    }
+                }
+            }
+            currentCellIndex = -1
+        }
+    }
     private func emitColumnGlide(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
                                  beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
         let slot = onlyRow ?? Snap.rows
@@ -4010,6 +4119,30 @@ final class Router {
                 glideDrivenCount[ci] = k + 1
             }
             return
+        }
+        // RECORDER capture (AcceptanceCriteria-recorder): a downstream RECORDER records the driver's notes during its
+        // record window (transparent — the note still plays); once its loop is committed it plays back separately in
+        // emitColumnRecorder, and REPLACE suppresses the live note here. Phase = a pure fn of the pass/step number.
+        if currentCellIndex >= 0 && currentCellIndex < Snap.cells, let rs = downstreamRecorder(cell, after: driver) {
+            let ci = currentCellIndex, rp = cell.procs[rs]
+            if recCaptured[ci] {
+                if rp.recMix == .replace { return }               // committed loop → the live note is suppressed (the loop plays in emitColumnRecorder)
+            } else {
+                let w = recWindow(rp, passBeats: cycleBeats, stepBeats: S)
+                let unit = Int((m / w.unitBeats).rounded(.down))
+                if unit >= w.startUnit && unit < w.endUnit {       // RECORDING: capture this note, then pass through
+                    let k = recCapN[ci]
+                    if k < Router.recNoteCap {
+                        let base = Double(w.startUnit) * w.unitBeats
+                        let x = ci * Router.recNoteCap + k
+                        recCapStart[x] = m - base
+                        recCapNote[x] = UInt8(note)
+                        recCapVel[x] = velocity
+                        recCapGate[x] = max(0.01, Double(offSample - onSample) * beatsPerSample)
+                        recCapN[ci] = k + 1
+                    }
+                }                                                  // unit < startUnit (pre-arm) or >= endUnit (awaiting commit): pass through
+            }
         }
         if driver >= cell.procs.count - 1 {                       // driver IS the tail → no post-stages
             emitChop(note, cell: cell, bm: bm, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, m: m, S: S, out: out, diag: &diag)
