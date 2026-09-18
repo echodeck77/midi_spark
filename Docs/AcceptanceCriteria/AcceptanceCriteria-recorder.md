@@ -20,13 +20,15 @@ photographs a one-off random result and loops the frozen version.
 ## THE PANEL (controls)
 - **GRAIN** — `STEPS | PASSES`. The loop's unit: a short step-window (uses the part's step rate) or a phrase-window
   (uses the part's loop length). Both supported.
-- **LENGTH — N** — how many steps / passes the window spans (bounded; see Engine).
+- **LENGTH — N** — how many steps / passes the window spans. Bounded **1…32** for both GRAINs (sets the buffer size).
 - **ARM** — `ON PLAY | AFTER N`. When capture begins: from the first downbeat, or after N steps/passes have elapsed
   (let the phrase develop, then grab the next N).
 - **MODE** — `LOOP | FREEZE | CANON` (v1):
   - **LOOP** — the captured window replays rhythmically, re-triggered every N. A tape loop.
-  - **FREEZE** — capture once, then SUSTAIN the captured notes as a held layer (input-independent) — freeze a moment
-    into a pad/texture. Distinct SOUND from LOOP (held, not re-struck). ⚠ SEE OPEN Q1.
+  - **FREEZE** — capture once, then hold it input-independently, with a **FREEZE STYLE** sub-control (both ship):
+    **HELD** = SUSTAIN the captured notes as a pad/texture (they ring, not re-struck — a frozen moment) · **REPEAT** =
+    a locked rhythmic loop of the window that never refreshes. (HELD is the distinct-from-LOOP texture; REPEAT is the
+    "locked loop" reading.)
   - **CANON** — capture continuously and replay offset by N while recording continues — the phrase chases itself a
     window later (an instant round / self-delay). Inherently rolling.
 - **MIX** — `REPLACE | LAYER`. During playback: downstream hears ONLY the recording (REPLACE), or the recording PLUS
@@ -34,8 +36,7 @@ photographs a one-off random result and loops the frozen version.
 - **CAPTURE** — the re-arm control (#6): `ONCE | REFRESH EVERY M | HOLD`:
   - **ONCE** — record the first window, then LOCK the loop forever (the "freeze a happy accident" case).
   - **REFRESH EVERY M** — re-capture a fresh window every M cycles (a rolling looper that periodically renews).
-  - **HOLD** — a momentary button: re-arm/grab a new take on demand. (v1-optional — could drop for a clean two-state
-    ONCE|REFRESH; see OPEN Q2.)
+  - **HOLD** — a momentary button: re-arm/grab a new take on demand.
 - **CLEAR** — empty the buffer + disarm.
 
 ## WHAT IT RECORDS
@@ -57,8 +58,8 @@ Manual line: *"A recorder here is a loop pedal in the chain: it tapes what comes
   stream still passes through (so recording is audible). On playback the RECORDER is the note source, folded downstream
   through `emitDriverNote` like any driver.
 - **The capture buffer is a SANCTIONED accumulated-state exception** (the class of the echo ring / ReelDeck / TURNS
-  counters — the "derived, never accumulated" rule's blessed exceptions). Fixed-size, bounded by N × the max grain, no
-  render-path allocation.
+  counters — the "derived, never accumulated" rule's blessed exceptions). Fixed-size (N ≤ 32 windows' worth of events),
+  no render-path allocation.
 - **Playback reuses the ECHO activation ring** (emit stored events at future beats, column-independent, FLUSHED on
   every transport/scene/panic edge) and the **ReelDeck on/off pairing** (a note left open at the window edge closes at
   the boundary). No stuck notes by construction — every emitted on has a paired off; all playing voices close on a
@@ -101,14 +102,15 @@ Manual line: *"A recorder here is a loop pedal in the chain: it tapes what comes
    playback or by a host loop back to its start.
 
 ## v1 SCOPE / DEFERRED (flagged)
-- **v1:** GRAIN both · LENGTH · ARM (ON PLAY | AFTER N) · MODE (LOOP · FREEZE · CANON) · MIX (REPLACE | LAYER) ·
-  CAPTURE (ONCE | REFRESH | HOLD) · CLEAR · persisted buffer · literal pitches · RAW timing.
+- **v1:** GRAIN both · LENGTH (1…32) · ARM (ON PLAY | AFTER N) · MODE (LOOP · FREEZE [HELD | REPEAT] · CANON) ·
+  MIX (REPLACE | LAYER) · CAPTURE (ONCE | REFRESH | HOLD) · CLEAR · persisted buffer · literal pitches · RAW timing.
 - **Deferred:** OVERDUB (layer new input onto the loop each pass) · REVERSE / half-double-speed · GRID-quantize on
   capture · chord-FOLLOW re-voicing (RIFF-style) · per-cell buffers · multiple RECORDERs interacting in one chain.
 
-## OPEN QUESTIONS (confirm before build)
-- **Q1 — FREEZE semantics:** is FREEZE a SUSTAINED held capture (notes ring, a pad — my lean, distinct from LOOP), or
-  simply LOOP locked + input-independent (rhythmic repeat that never refreshes)? These sound different; pick one (or
-  ship both as a sub-option).
-- **Q2 — CAPTURE=HOLD:** keep the momentary "grab a new take" button, or trim CAPTURE to a clean ONCE | REFRESH?
-- **Q3 — LENGTH bound:** max N for STEPS (e.g. 16/32) and for PASSES (e.g. 4/8) — sets the buffer's fixed size.
+## RESOLVED (Paul 2026-09-18)
+- **Q1 — FREEZE semantics:** BOTH — FREEZE carries a `FREEZE STYLE` sub-control, `HELD` (sustained pad) | `REPEAT`
+  (locked rhythmic loop). Folded into MODE above.
+- **Q2 — CAPTURE=HOLD:** KEEP the momentary "grab a new take" button.
+- **Q3 — LENGTH bound:** max **N = 32** for both STEPS and PASSES.
+
+This spec is now fully ratified — build-ready when green-lit.
