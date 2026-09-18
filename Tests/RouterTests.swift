@@ -3646,6 +3646,35 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // RECORDER persistence (LOAD half) — a persisted/authored recEvents buffer seeds the loop directly and plays,
+    // no live driver required. (The live-capture→document SAVE drain is a later stage.)
+    func testRecorderPlaysAnAuthoredBuffer() {
+        let cs = arpMachines()
+        var rec = ProcessorSlot(type: .recorder)
+        rec.params.recMode = .loop; rec.params.recMix = .replace
+        rec.params.recEvents = [RecEvent(beat: 0, note: 72, vel: 100, gate: 0.5), RecEvent(beat: 1, note: 76, vel: 90, gate: 0.5)]
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [rec]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        let notes = Set(e.ons.map { $0.note })
+        XCTAssertTrue(notes.contains(72) && notes.contains(76), "the authored recorder buffer plays its notes")
+        assertNothingLeftSounding(e)
+    }
+
+    // RECORDER persistence — the recEvents buffer + config round-trip through Codable; an old doc missing the keys
+    // decodes to an empty buffer (CR-8 decode-tolerance).
+    func testRecorderBufferPersistRoundTrip() throws {
+        var m = Machine(machineID: "gold", type: .recorder)
+        m.paramsA.recEvents = [RecEvent(beat: 0.5, note: 64, vel: 80, gate: 0.3)]
+        m.paramsA.recMode = .canon; m.paramsA.recGrain = .steps
+        let back = try JSONDecoder().decode(Machine.self, from: JSONEncoder().encode(m))
+        XCTAssertEqual(back.paramsA.recEvents?.count, 1)
+        XCTAssertEqual(back.paramsA.recEvents?.first?.note, 64)
+        XCTAssertEqual(back.paramsA.recEvents?.first?.gate, 0.3)
+        XCTAssertEqual(back.paramsA.recMode, .canon)
+        let bare = try JSONDecoder().decode(Machine.self, from: JSONEncoder().encode(Machine(machineID: "gold", type: .arp)))
+        XCTAssertNil(bare.paramsA.recEvents, "an old doc without recorder keys decodes to an empty buffer")
+    }
+
     // CELL MACHINE stage-2 (FULL note-set flow): [harmonize +7 → ARP] arps BOTH the source note AND the added
     // voice — the whole set flows to the tail, not one note.
     func testChainHarmonizeToArpArpsAllVoices() {

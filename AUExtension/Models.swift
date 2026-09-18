@@ -47,14 +47,14 @@ enum RecMode: String, Codable, CaseIterable { case loop = "LOOP", freeze = "FREE
 enum RecFreeze: String, Codable, CaseIterable { case held = "HELD", repeatLoop = "REPEAT" }  // FREEZE style: sustained pad | locked rhythmic loop
 enum RecMix: String, Codable, CaseIterable { case replace = "REPLACE", layer = "LAYER" }     // playback: recording only | recording + live
 enum RecCapture: String, Codable, CaseIterable { case once = "ONCE", refresh = "REFRESH", hold = "HOLD" }  // re-arm: lock | renew every M | manual grab
-struct RecEvent: Codable, Equatable { var beat: Double = 0; var note: Int = 60; var vel: Int = 100; var on: Bool = true }   // one captured event: beat-offset within the window · pitch · velocity · on/off
+struct RecEvent: Codable, Equatable { var beat: Double = 0; var note: Int = 60; var vel: Int = 100; var gate: Double = 0.25 }   // one captured NOTE: start beat within the window · pitch · velocity · length (beats)
 extension RecEvent {   // CR-8 decode-tolerant (a future field can't factory-reset an older buffer)
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         beat = try c.decodeIfPresent(Double.self, forKey: .beat) ?? 0
         note = try c.decodeIfPresent(Int.self, forKey: .note) ?? 60
         vel  = try c.decodeIfPresent(Int.self, forKey: .vel) ?? 100
-        on   = try c.decodeIfPresent(Bool.self, forKey: .on) ?? true
+        gate = try c.decodeIfPresent(Double.self, forKey: .gate) ?? 0.25
     }
 }
 // AVOID / LOCK (unified 2026-08-31, Paul) — one processor covers "avoid clashing with X" AND "lock to key": a per-note

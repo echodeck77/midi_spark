@@ -3083,6 +3083,19 @@ final class Router {
                 }
                 continue
             }
+            // LOAD / authored buffer: a persisted (or hand-authored) recEvents seeds the loop directly — it plays
+            // immediately and the live capture is skipped (recEvents is AUTHORITATIVE when present; CLEAR empties it →
+            // live recording resumes). REFRESH still re-arms over it; ONCE plays it forever. (SAVE — draining a live
+            // capture back to recEvents — is a later stage; this is the read/CLEAR half.)
+            if !recCaptured[ci] && recBufN[ci] == 0 && !rp.recEvents.isEmpty {
+                let n = min(rp.recEvents.count, Router.recNoteCap), base = ci * Router.recNoteCap
+                for i in 0..<n {
+                    let ev = rp.recEvents[i]
+                    recBufStart[base+i] = max(0, ev.beat); recBufNote[base+i] = UInt8(max(0, min(127, ev.note)))
+                    recBufVel[base+i] = UInt8(max(1, min(127, ev.vel))); recBufGate[base+i] = max(0.01, ev.gate)
+                }
+                recBufN[ci] = n; recCaptured[ci] = true; recCycleBase[ci] = unit
+            }
             // ARM: on first reaching the record window, set the rolling record-window origin (REFRESH re-arms it later).
             let recN = max(1, w.endUnit - w.startUnit)
             if !recCaptured[ci] && recArmUnit[ci] == Int.min && unit >= w.startUnit { recArmUnit[ci] = w.startUnit }
