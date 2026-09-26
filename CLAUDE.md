@@ -199,6 +199,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PLAY FERRIES — the background playback line is now a LIVE DERIVATION, not a cache (2026-09-26, on `main`,
+  `80c1dc4`; iOS builds, macOS 1085 green; DEVICE eye/ear owed). Follow-up to the ferry-playhead rate fix, prompted by
+  Paul's own mental model of the feature: "every play ferry is a part grid, only the selected one is visible" —
+  TRUE of the storage (`buildFerryParts`, one `BuildPart` per ferry) but NOT of playback. The active ferry's staging
+  sequencer already recomposes from the live bench every publish (pure); every OTHER on-air ferry played from
+  `buildPlayColSteps/Rate/Len/StepRecv/StepEmit` — a snapshot `buildFlattenFerry` only refreshed at specific event
+  boundaries (a ferry goes on / stops being active). Any edit to a background ferry's stored `BuildPart` between
+  those events (its rate, its I/O, a drag-and-drop overwrite) left the cached line stale until the next transition —
+  the same root cause as the rate-playhead bug, generalised. FIX: `buildPublishScene` now re-derives every ON,
+  non-active ferry's flattened line from `buildFerryParts[t]` (the one source of truth) on EVERY publish, before
+  those arrays are read into the scene `Input` — giving background ferries the same "always live" treatment the
+  active ferry already had, just collapsed to the ONE hidden play-layer row each background ferry is allocated
+  (`Snap.playLayerRowBase` — a genuine engine constraint: poly background playback isn't built, so a background
+  ferry's whole grid must reduce to a mono line regardless). The persisted `@State` shape and the existing event-
+  triggered `buildFlattenFerry` calls are untouched (now harmless belt-and-braces) — this closes the staleness GAP
+  between those events rather than replacing the mechanism. Should also fix any other background-ferry field (I/O,
+  chain) that could have gone stale the same way, not just rate — device-owed to confirm.**
 - **▶ PLAY FERRY PLAYHEAD — now follows the cell's own PER-PART RATE (2026-09-26, on `main`, `c6f0f5a`; iOS builds,
   macOS 1085 green; DEVICE eye owed). Paul: changing a ferry's RATE updates the part-grid playhead at once but the
   play-ferry BUTTON's own playhead kept sweeping at the original rate. ROOT CAUSE: `roomsCellPlayhead` (the sweep
