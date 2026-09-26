@@ -229,9 +229,35 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   fixed a test-design pitfall along the way: column 0 is invariant under any pure ratio scaling, so a first-draft
   test picked it as the "special" column and couldn't distinguish a working transform from a no-op; an RTCDEBUG trace
   confirmed the transform itself was correct throughout; two-CLOCK composition matches the product ratio regardless
-  of stage order). **NEXT:** Stage 2 (DRAWN mode — the lane, GLIDE quadratic segments, drift readout) · Stage 3+
-  (extend `clockTransformedBeat` to the remaining self-clocked consumers, one at a time) · the CLOCK-before-a-driver
-  scoping question is going to design via the outbox.**
+  of stage order). **STAGE 2 — DRAWN mode landed same day (`e528b94`; iOS builds, macOS 1105 green):** a hand-
+  authored per-column ratio LANE — `ClockMode` gains `.drawn`; `clockDrawnRatios`/`clockDrawnGlide`/`clockDrawnSteps`/
+  `clockDrawnRate` (Models.swift, MachineParams) resolve ONCE at `SnapshotBuilder` time via `clockDrawnResolveRatios`
+  (empty/−1 "CARRY" columns hold the PREVIOUS explicit ratio, wrapping around the lane if the whole thing is empty —
+  a pure carry-forward scan, never re-mapped on the render side) into fully-resolved `SnapParams` arrays. Two more
+  pure functions (`Derivations.swift`): `clockDrawnPhase` (per-column SET = snap to the column's ratio immediately ·
+  GLIDE = linearly ramp FROM the previous column's landed ratio TO this one, a quadratic phase accumulation within
+  that column — factored via `fullLaps × lapAdvance + partial + current` so it stays O(steps) and exact no matter how
+  many laps have elapsed, never a per-lap summation) and `clockDrawnDriftPerLap` (the lane's own net beats gained/
+  lost per lap against real grid time — an honesty readout, not a correction). SPAN's FREE (0) end is a genuine mode
+  here (the lane just laps forever from absolute beat 0) — `spanLadderBeats` has no "0 = free" sentinel of its own
+  (n≤1 means ONE COLUMN), so `Router.clockTransformedBeat`'s DRAWN branch guards `clockSpanN > 0` explicitly before
+  calling it, mirroring the same idiom RATCHET PATTERN/DEST already use for their own free-run spans (caught before
+  it shipped — DRAWN's UI passes `frameSpan(free: true)`, unlike WAVE's `free: false`, since WAVE's period can never
+  sensibly be zero but DRAWN's can). UI: STEPS/RATE/a `stateMatrixRadio` ratio-per-column matrix (a "···" CARRY rung
+  above the 9 ratio rungs) + a `toggleLane` GLIDE row + SPAN + the drift-readout `Text`, reusing only pre-existing
+  widgets per the spec; a "CLOCK DRAWN" storefront card. +5 DerivationsTests (carry-forward/wrap/empty-lane fallback,
+  all-×1 no-op, SET-vs-GLIDE hand-verified exact values, the drift readout cross-checked against the phase function's
+  own lap advance, exactness across 50 simulated laps) +2 RouterTests (a single constant-ratio DRAWN column reduces
+  EXACTLY to FIXED at that ratio — an equivalence check, not a hand-derived count, so it can't hit the column-0-style
+  invariance trap again · SET vs GLIDE genuinely fold differently, hand-verified via a fresh RTCDEBUG trace after the
+  first draft's parameters coincidentally produced the SAME strike total for both — the same lesson twice now: never
+  trust a hand-derived beat/column mapping without an empirical trace first). Also caught pre-merge: a `toggleLane`
+  call with two named arguments in the wrong order (Swift requires labelled arguments in declaration order) — would
+  have failed only the iOS build, not the macOS unit-test target (GridUI.swift isn't in that target), so it's a
+  standing reminder that this codebase's off-device verification needs BOTH passes, not just the faster one. **NEXT:**
+  Stage 3+ (extend `clockTransformedBeat` to the remaining self-clocked consumers — DEST/VELOCITY/MOD/EUCLID/TUTTI/
+  BURST/CASCADE/WEAVE/RIFF — one at a time) · the CLOCK-before-a-driver scoping question is going to design via the
+  outbox, still unanswered.**
 - **▶ PART GRID — LOOP-COLUMN BUTTONS, order-preserving (2026-09-26, on `main`, `8530379`; iOS builds, macOS 1090
   green; DEVICE eye/ear owed). Paul: toggle buttons on the part grid's bottom rail restricting playback to a chosen
   subset of columns, played in the order they were ADDED (not left-to-right) — both the part-grid playhead and the
