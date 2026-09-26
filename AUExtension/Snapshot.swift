@@ -255,13 +255,7 @@ struct SnapParams {
     var recCapture: RecCapture = .once
     var recRefreshM: Int = 1
     var recEvents: [RecEvent] = []                       // the captured buffer (empty ⇒ nothing to play)
-    // CLOCK (Paul 2026-09-26, Stage 1): resolved FIXED/WAVE params. clockRatio defaults to 4 (×1, identity — byte-
-    // identical) so an unset CLOCK stage is inert; clockDepth defaults to 0 (WAVE inactive) for the same reason.
-    var clockMode: ClockMode = .fixed
-    var clockRatio: Int = 4
-    var clockOffset: Int = 0
-    var clockShape: ClockWaveShape = .sine
-    var clockDepth: Double = 0
+    // CLOCK (Paul 2026-09-26; FIXED/WAVE removed same day — see Models.swift's field comment): resolved DRAWN lane.
     var clockSpanN: Int = 8
     // DRAWN (Stage 2): already fully resolved — clockDrawnRatios carries no −1 sentinels (SnapshotBuilder ran
     // clockDrawnResolveRatios once); the render side just reads these arrays, no further mapping/allocation.

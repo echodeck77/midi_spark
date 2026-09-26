@@ -39,17 +39,14 @@ enum ProcessorType: String, Codable, CaseIterable {
     case clock = "CLOCK"       // TIME (AcceptanceCriteria-clock-processor, ratified 2026-09-26, design-partner spec): a placeable pattern-clock transform — everything downstream's OWN internal step machinery (a fold consumer's rate/slice math) reads a transformed beat; everything upstream, and every GRID-time quantity (windows/columns/spans/reel), is untouched (the sovereign law). Note-transparent.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
-/// CLOCK MODE (Paul 2026-09-26, Stage 1 — DRAWN lands separately): FIXED = a ratio ladder + step offset · WAVE = a
-/// zero-mean closed-form wobble around ×1 (rubato/accelerando) that provably re-lands in phase every SPAN.
-enum ClockMode: String, Codable, CaseIterable { case fixed = "FIXED", wave = "WAVE", drawn = "DRAWN" }
-/// The FIXED ratio ladder (×4…÷4) — a plain index, mirroring `spanLadderValues`'s "a small curated ladder, not a
-/// free slider" shape. Index 4 (×1) is the identity/no-op rung.
+/// The CLOCK ratio ladder (×4…÷4) — a plain index into DRAWN's per-column picks, mirroring `spanLadderValues`'s "a
+/// small curated ladder, not a free slider" shape. Index 4 (×1) is the identity/no-op rung. (Paul 2026-09-26: CLOCK
+/// used to offer FIXED/WAVE/DRAWN as three mode choices; FIXED and WAVE were removed entire — Paul's own spec, "a
+/// grid with a variable number of steps, each step a mutually exclusive speed, and another row on the same grid
+/// for glide", describes ONE mechanism, not a choice of three, and matches only what was DRAWN mode. CLOCK is now
+/// always that grid.)
 let clockRatioLadder: [Double] = [4, 3, 2, 1.5, 1, 1.0 / 1.5, 0.5, 1.0 / 3.0, 0.25]
 let clockRatioLabels: [String] = ["×4", "×3", "×2", "×1.5", "×1", "÷1.5", "÷2", "÷3", "÷4"]
-/// WAVE shape (Paul 2026-09-26): SINE and TRIANGLE only — both continuous, closed-form, and genuinely zero-mean
-/// over one period (the re-landing proof needs this); SQUARE (discontinuous — a literal time-jump) and S&H (not
-/// periodic/deterministic the same way) don't fit a TIME warp, unlike MOD's `ModShape` which drives a CC, not time.
-enum ClockWaveShape: String, Codable, CaseIterable { case sine = "SINE", triangle = "TRI" }
 enum DealMode: String, Codable, CaseIterable { case overTime = "OVER TIME", withinChord = "WITHIN CHORD", everyNote = "EVERY NOTE" }   // DEAL: when the deal advances (Paul 2026-09-16)
 // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain — record N steps/passes of the
 // upstream output, then play it back. Transparent while recording, a driver while playing back.
@@ -429,16 +426,12 @@ struct MachineParams: Codable, Equatable {
     var recCapture: RecCapture? = nil            // ONCE | REFRESH | HOLD; nil ⇒ ONCE
     var recRefreshM: Int? = nil                  // REFRESH EVERY M cycles; nil ⇒ 1
     var recEvents: [RecEvent]? = nil             // the PERSISTED captured buffer (beat-offset · pitch · vel · on/off); nil ⇒ empty
-    // CLOCK (AcceptanceCriteria-clock-processor, ratified 2026-09-26, Stage 1 — DRAWN mode's lane fields land separately):
-    // FIXED = a ratio + step offset; WAVE = a zero-mean closed-form wobble (rubato/accelerando) around ×1 that provably
-    // re-lands in phase every SPAN. Note-transparent — the transform reaches only a downstream fold consumer's OWN
-    // internal step machinery (Router.clockTransformedBeat), never grid time (columns/windows/spans/reel).
-    var clockMode: ClockMode? = nil              // FIXED | WAVE; nil ⇒ FIXED
-    var clockRatio: Int? = nil                   // FIXED: index into clockRatioLadder; nil ⇒ 4 (×1, the identity rung)
-    var clockOffset: Int? = nil                  // FIXED: offset in this cell's own grid steps; nil ⇒ 0
-    var clockShape: ClockWaveShape? = nil        // WAVE: SINE | TRIANGLE; nil ⇒ SINE
-    var clockDepth: Double? = nil                // WAVE: 0…1 (clamped <1 at resolve — monotonicity, never lets local time run backward); nil ⇒ 0 (inactive)
-    var clockSpanN: Int? = nil                   // WAVE/DRAWN: the span ladder value (spanLadderValues) — the wobble's period, or the lane's re-anchor; nil ⇒ ROW (8)
+    // CLOCK (AcceptanceCriteria-clock-processor, ratified 2026-09-26; FIXED/WAVE modes REMOVED same day — Paul's
+    // own spec describes one grid, not a mode choice — CLOCK is now always the DRAWN lane below). Note-transparent —
+    // the transform reaches only a downstream fold consumer's OWN internal step machinery
+    // (Router.clockTransformedBeat) or a driver's own tick generation (Router.driverClockBeat/Inverse), never grid
+    // time (columns/windows/spans/reel) itself.
+    var clockSpanN: Int? = nil                   // the lane's SPAN re-anchor (spanLadderValues); nil ⇒ ROW (8)
     // DRAWN (Stage 2, Paul 2026-09-26): the lane — RIFF's anatomy wearing time; Paul's own final spec for the whole
     // feature ("a grid with a variable number of steps, each step a mutually exclusive speed, and another row on
     // the same grid for glide") — wired to retime a DRIVER's own tick generation (Router.driverClockBeat/Inverse),

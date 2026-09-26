@@ -361,16 +361,15 @@ final class RouterTests: XCTestCase {
     // working transform from a no-op one (the mistake this test caught on first write: with column 0 special, ×1
     // and ×2 produced the identical total by coincidence, even though the underlying beats genuinely differed — a
     // direct RTCDEBUG trace of clockTransformedBeat's output confirmed the transform itself was correct). At ×2 the
-    // same 4 notes land on columns [0,2,4,6] — column 1 is never hit, so the burst disappears entirely.
+    // same 4 notes land on columns [0,2,4,6] — column 1 is never hit, so the burst disappears entirely. Uses a
+    // single-step, all-SET DRAWN lane (`drawnClock`, below) as a plain "multiply the beat by N" clock — CLOCK's
+    // FIXED/WAVE modes were built here and removed the same day (Paul's own spec describes only this grid).
     func testClockTransformsTheRatchetFoldsOwnColumnMath() {
-        func strikeCount(clockRatio: Int?) -> Int {
+        func strikeCount(clockRatioIndex: Int?) -> Int {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var procs = [arp]
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let idx = clockRatioIndex { procs.append(drawnClock(ratioIndex: idx)) }
             var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
             rat.params.rtcSteps = 8; rat.params.rtcSlices = [1, 3, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0   // only column 1 ratchets ×3
             procs.append(rat)
@@ -379,9 +378,9 @@ final class RouterTests: XCTestCase {
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        let noClock = strikeCount(clockRatio: nil)
-        let atRatioOne = strikeCount(clockRatio: clockRatioLadder.firstIndex(of: 1)!)   // ×1 = the identity rung
-        let atRatioTwo = strikeCount(clockRatio: clockRatioLadder.firstIndex(of: 2)!)   // ×2
+        let noClock = strikeCount(clockRatioIndex: nil)
+        let atRatioOne = strikeCount(clockRatioIndex: clockRatioLadder.firstIndex(of: 1)!)   // ×1 = the identity rung
+        let atRatioTwo = strikeCount(clockRatioIndex: clockRatioLadder.firstIndex(of: 2)!)   // ×2
         XCTAssertEqual(atRatioOne, noClock, "a ×1 CLOCK stage is a no-op — byte-identical to no CLOCK at all (test #5)")
         XCTAssertEqual(noClock, 6, "sanity: 3 plain notes (col 0,2,3) + 1 burst-of-3 (col 1, the note at m=0.5) = 6")
         XCTAssertEqual(atRatioTwo, 4, "×2 moves every note off column 1 entirely (0,2,4,6) — the burst disappears, all 4 notes pass through plain")
@@ -395,7 +394,7 @@ final class RouterTests: XCTestCase {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var procs = [arp]
-            for r in ratios { var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = r; procs.append(ck) }
+            for r in ratios { procs.append(drawnClock(ratioIndex: r)) }
             var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
             rat.params.rtcSteps = 8; rat.params.rtcSlices = [3, 1, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0
             procs.append(rat)
@@ -405,41 +404,9 @@ final class RouterTests: XCTestCase {
             return e.ons.filter { $0.cable == 1 }.count
         }
         let two = clockRatioLadder.firstIndex(of: 2)!, three = clockRatioLadder.firstIndex(of: 3)!
-        // clockRatioLadder has no literal ×6 rung — compose it via two FIXED stages on each side of the comparison
-        // instead: [×2→×3] must equal [×3→×2] (multiplication commutes, and both equal the same product either way).
-        XCTAssertEqual(strikeCount([two, three]), strikeCount([three, two]), "two CLOCK stages compose as a product — order between two FIXED ratios doesn't matter")
-    }
-    // DRAWN (Stage 2), test #3 (drawn purity): rather than hand-deriving exact strike counts through the piecewise
-    // phase function (the column-0-invariance pitfall above is a warning that this kind of arithmetic is easy to get
-    // subtly wrong), this proves DRAWN by EQUIVALENCE to the already-locked-down FIXED case — a DRAWN lane of ONE
-    // constant-ratio SET column, on FREE span, must reduce EXACTLY to a FIXED stage at that same ratio (both are
-    // `phase(beat) = beat × ratio`), so it can reuse the Stage-1 FIXED test's own known-good strike counts.
-    func testClockDrawnWithOneConstantColumnMatchesFixedAtThatRatio() {
-        func strikeCount(clock: ProcessorSlot?) -> Int {
-            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
-            var procs = [arp]
-            if let clock { procs.append(clock) }
-            var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
-            rat.params.rtcSteps = 8; rat.params.rtcSlices = [1, 3, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0
-            procs.append(rat)
-            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.count
-        }
-        func drawnConstant(_ ratioIdx: Int) -> ProcessorSlot {
-            var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .drawn
-            ck.params.clockDrawnSteps = 1; ck.params.clockDrawnRatios = [ratioIdx]; ck.params.clockDrawnGlide = [false]
-            ck.params.clockDrawnRate = .r1_8; ck.params.clockSpanN = 0   // FREE — no re-anchor, matches FIXED's unbounded ramp
-            return ck
-        }
-        let two = clockRatioLadder.firstIndex(of: 2)!, one = clockRatioLadder.firstIndex(of: 1)!
-        var fixedTwo = ProcessorSlot(type: .clock); fixedTwo.params.clockMode = .fixed; fixedTwo.params.clockRatio = two
-        let noClock = strikeCount(clock: nil)
-        XCTAssertEqual(strikeCount(clock: drawnConstant(one)), noClock, "DRAWN, one column at ×1, is a no-op — matches no CLOCK at all")
-        XCTAssertEqual(strikeCount(clock: drawnConstant(two)), strikeCount(clock: fixedTwo),
-                       "DRAWN with a single constant-×2 column reduces EXACTLY to a FIXED ×2 stage — same phase function, same fold result")
+        // clockRatioLadder has no literal ×6 rung — compose it via two single-step DRAWN clocks on each side of the
+        // comparison instead: [×2→×3] must equal [×3→×2] (multiplication commutes, and both equal the same product).
+        XCTAssertEqual(strikeCount([two, three]), strikeCount([three, two]), "two CLOCK stages compose as a product — order between two ratios doesn't matter")
     }
     // GLIDE genuinely changes the fold result vs SET for the same authored ratio sequence. Hand-verified via a direct
     // trace of clockTransformedBeat's output (mirroring the column-0-invariance lesson above): the arp emits exactly
@@ -451,7 +418,7 @@ final class RouterTests: XCTestCase {
         func strikeCount(glide: Bool) -> Int {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
-            var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .drawn
+            var ck = ProcessorSlot(type: .clock)
             ck.params.clockDrawnSteps = 2
             ck.params.clockDrawnRatios = [clockRatioLadder.firstIndex(of: 4)!, clockRatioLadder.firstIndex(of: 1)!]
             ck.params.clockDrawnGlide = [false, glide]
@@ -484,10 +451,7 @@ final class RouterTests: XCTestCase {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var procs = [arp]
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let ratio = clockRatio { procs.append(drawnClock(ratioIndex: ratio)) }
             var dest = ProcessorSlot(type: .dest)
             dest.params.destRate = .r1_8; dest.params.destSlices = [0, 1, 0, 0, 0, 0, 0, 0]   // col1 → B, else → A
             procs.append(dest)
@@ -507,10 +471,7 @@ final class RouterTests: XCTestCase {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var procs = [arp]
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let ratio = clockRatio { procs.append(drawnClock(ratioIndex: ratio)) }
             var vel = ProcessorSlot(type: .velocity)
             vel.params.velRate = .r1_8; vel.params.velSteps = 8
             vel.params.velLane = [40, 100, 40, 40, 40, 40, 40, 40]   // column 1 loud, everything else quiet
@@ -531,10 +492,7 @@ final class RouterTests: XCTestCase {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             var procs = [arp]
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let ratio = clockRatio { procs.append(drawnClock(ratioIndex: ratio)) }
             var tutti = ProcessorSlot(type: .tutti); tutti.params.tuttiMode = .pattern
             tutti.params.tuttiRate = .r1_8
             tutti.params.tuttiSlices = [.all, .rest, .all, .all, .all, .all, .all, .all]   // column 1 rests, else passes
@@ -555,10 +513,7 @@ final class RouterTests: XCTestCase {
         let cs = arpMachines()   // MOD needs no driver — an arp-typed base is fine, the chain below is explicit
         func ccValues(clockRatio: Int?) -> [UInt8] {
             var procs: [ProcessorSlot] = []
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let ratio = clockRatio { procs.append(drawnClock(ratioIndex: ratio)) }
             var mod = ProcessorSlot(type: .mod); mod.params.modShape = .ramp; mod.params.modCC = 20
             mod.params.modStepSpanN = 1   // PERIOD = one grid step (S), a short, easily-sampled cycle
             procs.append(mod)
@@ -587,7 +542,6 @@ final class RouterTests: XCTestCase {
     // density). `[CLOCK(drawn ×1)→ARP]` is byte-identical to no clock (the standing no-op law).
     private func drawnClock(ratioIndex: Int?) -> ProcessorSlot {
         var ck = ProcessorSlot(type: .clock)
-        ck.params.clockMode = .drawn
         ck.params.clockDrawnSteps = 1
         ck.params.clockDrawnRatios = [ratioIndex ?? clockRatioLadder.firstIndex(of: 1)!]
         ck.params.clockDrawnGlide = [false]
@@ -671,7 +625,6 @@ final class RouterTests: XCTestCase {
         func firstTickAfterBoundary(glideOn: Bool) -> Int64? {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var ck = ProcessorSlot(type: .clock)
-            ck.params.clockMode = .drawn
             ck.params.clockDrawnSteps = 2
             ck.params.clockDrawnRatios = [clockRatioLadder.firstIndex(of: 1)!, clockRatioLadder.firstIndex(of: 4)!]
             ck.params.clockDrawnGlide = [false, glideOn]

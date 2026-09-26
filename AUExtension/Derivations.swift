@@ -78,45 +78,15 @@ func nearestLadderPos(_ ladder: [Int], _ idx: Int) -> Int {
     }
 }
 
-// CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26, Stage 1 — DRAWN mode is a later stage) — the pure
-// beat → phase transform. A downstream fold consumer (RATCHET's own rate/slice math etc.) asks "what's local time
-// AT this one real beat instant?"; these functions answer it directly — no inversion, no accumulation, no walking.
-// The SOVEREIGN LAW: this is the ONLY thing CLOCK touches. Windows, columns, spans' own extents, and everything
-// else that reads a raw beat stays on that raw beat — callers choose which beat to feed these, never the reverse.
-
-/// FIXED mode: phase(beat) = beat × ratio + offset. `offsetBeats` is the cell's own grid steps (offsetSteps × S),
-/// resolved by the caller. Pure, trivially invertible (FIXED never needed the inverse in practice — driver
-/// retiming was built for DRAWN mode instead, per Paul's own spec; see `clockDrawnPhaseInverse` below).
-@inline(__always) func clockFixedPhase(_ beat: Double, ratio: Double, offsetBeats: Double) -> Double {
-    beat * ratio + offsetBeats
-}
-
-/// WAVE mode: a zero-mean closed-form wobble around ×1 — phase(beat) = beat − (depth·P/2π)·sin-or-cos term, chosen
-/// so it's ALWAYS zero-mean over one period P (the re-landing proof: phase(k·P) == k·P exactly, for any depth/shape
-/// — DerivationsTests locks this algebraically). `depth` MUST be < 1 (the caller clamps at resolve,
-/// `SnapshotBuilder`'s clockDepth ≤ 0.95) — at depth ≥ 1 the derivative can hit zero/negative and phase stops being
-/// monotonic (local time running backward), which would corrupt every downstream fold's note-ordering assumption.
-/// SINE: the closed form given in the spec. TRIANGLE: phase(beat) = beat + depth·P·T(frac(beat/P)), where T is the
-/// antiderivative of a unit triangle wave phase-matched to sine (rises 0→1 over the first quarter-period, falls to
-/// −1 by three-quarters, returns to 0) — a piecewise QUADRATIC in the fractional phase `f`, hand-verified: T(0) =
-/// T(1⁻) = 0 (so it's exactly periodic — no cross-cycle accumulation needed, unlike a naive running integral) and
-/// continuous at both breakpoints (f=¼, f=¾). Both shapes range over EXACTLY [−1,1] at their peak (⇒ the SAME
-/// depth<1 monotonicity clamp covers both).
-func clockWavePhase(_ beat: Double, shape: ClockWaveShape, depth: Double, periodBeats P: Double) -> Double {
-    guard P > 0 else { return beat }
-    let d = min(0.95, max(0, depth))   // belt-and-braces — SnapshotBuilder already clamps this at resolve
-    switch shape {
-    case .sine:
-        return beat - (d * P / (2 * .pi)) * cos(2 * .pi * beat / P)
-    case .triangle:
-        let f = positiveFract(beat / P)
-        let t: Double
-        if f < 0.25 { t = 2 * f * f }
-        else if f < 0.75 { t = 2 * f - 2 * f * f - 0.25 }
-        else { t = 2 * f * f - 4 * f + 2 }
-        return beat + d * P * t
-    }
-}
+// CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26) — the pure beat → phase transform. A downstream fold
+// consumer (RATCHET's own rate/slice math etc.) asks "what's local time AT this one real beat instant?"; a
+// retimed DRIVER asks the inverse ("what real beat produces this local tick?"); these functions answer both — no
+// accumulation, no walking. The SOVEREIGN LAW: this is the ONLY thing CLOCK touches. Windows, columns, spans' own
+// extents, and everything else that reads a raw beat stays on that raw beat — callers choose which beat to feed
+// these, never the reverse. (FIXED and WAVE modes — a simple ratio+offset and a zero-mean cosine/triangle wobble —
+// were built and then REMOVED entire, same day: Paul's own spec, "a grid with a variable number of steps, each
+// step a mutually exclusive speed, and another row on the same grid for glide", describes one mechanism, not a
+// choice of three, and matches only what follows — CLOCK is now always this DRAWN lane.)
 
 /// DRAWN mode (Stage 2, Paul 2026-09-26): RIFF's anatomy wearing time — resolve an authored lane's per-column ratio
 /// picks into actual ratio VALUES, carrying an empty column (−1, "CARRY the previous rate") forward from the last

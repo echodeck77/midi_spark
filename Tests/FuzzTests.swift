@@ -261,16 +261,10 @@ final class FuzzTests: XCTestCase {
         default:       break
         }
     }
-    // CLOCK (Paul 2026-09-26): all 3 modes randomized, incl. FIXED/WAVE — driver retiming (Router.driverClockBeat/
-    // Inverse) only wires DRAWN mode, so a FIXED/WAVE clock ahead of a driver must stay safely inert (no stuck notes
-    // either way); a DRAWN clock hammers the new retimed tick-search/schedule path at every step/ratio/glide
-    // combination the lane can produce, incl. CARRY columns and before a driver.
+    // CLOCK (Paul 2026-09-26; FIXED/WAVE removed same day — CLOCK is now always this grid): hammer the retimed
+    // tick-search/schedule path (Router.driverClockBeat/Inverse) at every step/ratio/glide/SPAN combination the
+    // lane can produce, incl. CARRY columns and before a driver.
     private func applyRandomClock(_ p: inout MachineParams, _ r: inout FuzzRNG) {
-        p.clockMode = ClockMode.allCases[r.int(ClockMode.allCases.count)]
-        p.clockRatio = r.int(clockRatioLadder.count)
-        p.clockOffset = r.int(9) - 4
-        p.clockShape = ClockWaveShape.allCases[r.int(ClockWaveShape.allCases.count)]
-        p.clockDepth = Double(r.range(0, 100)) / 100
         p.clockSpanN = [0, 1, 2, 3, 4, 6, 8, 16, 32][r.int(9)]
         let n = 1 + r.int(32)
         p.clockDrawnSteps = n

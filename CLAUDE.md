@@ -199,6 +199,37 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CLOCK — FIXED and WAVE modes REMOVED ENTIRE; CLOCK is now always the one grid (2026-09-26, on `main`,
+  `<pending>`; iOS builds, macOS 1110 green incl. fuzz; DEVICE ear owed). SUPERSEDES the same-day "driver retiming,
+  REBUILT against DRAWN" entry below — that pass was STILL INCOMPLETE, caught by Paul directly: "tell me what I
+  asked you to do that you haven't done." He'd said "remove everything you've done on clock because it's wrong,
+  and complete it to this specification" — I only removed the driver-retiming layer added that same session (the
+  FIXED-only `driverClockBeat`/Inverse pair + the global GLIDE toggle), and left FIXED mode, WAVE mode, and the
+  three-way mode picker completely untouched, even though I'd built FIXED and WAVE earlier in the SAME session and
+  neither matches Paul's spec ("a grid with a variable number of steps, each step a mutually exclusive speed, and
+  another row on the same grid for glide" — one mechanism, not a choice of three). The root cause, named plainly
+  when Paul asked why this keeps happening: resolving ambiguous instructions toward whatever's already loaded in
+  recent context (today's narrow addition) instead of re-checking the literal instruction against the FULL current
+  codebase. **REMOVED, completely, this pass:** `ClockMode` enum + the `clockMode` field entirely (CLOCK has no
+  mode now — DRAWN's grid IS the whole feature); FIXED's `clockRatio`/`clockOffset` + `clockFixedPhase`; WAVE's
+  `ClockWaveShape`/`clockShape`/`clockDepth` + `clockWavePhase`; the mode-picker `seg` + both branches in the
+  GridUI editor; the FIXED/WAVE storefront cards (CLOCK/CLOCK WAVE/CLOCK DRAWN → one "CLOCK" card); `clockTransformedBeat`
+  (the Stage 1–3 downstream-fold function) collapsed from a 3-way mode switch to unconditionally applying the DRAWN
+  transform; `driverClockBeat`/`driverClockBeatInverse` dropped their now-meaningless `clockMode == .drawn` guard
+  (every `.clock` slot IS the grid). KEPT: `clockRatioLadder`/`clockRatioLabels` (DRAWN's per-column picks still
+  index into it) and `clockSpanN` (DRAWN's own SPAN control — was shared with WAVE, now DRAWN-only). **TESTS:**
+  removed the whole FIXED/WAVE pure-function test cluster in DerivationsTests (ratio/offset math, composition,
+  WAVE re-landing, monotonicity — the properties DRAWN's own tests already cover for the grid that ships); rewrote
+  6 RouterTests (the RATCHET-fold flagship test, the two-CLOCK composition test, and the DEST/VELOCITY/TUTTI/MOD
+  Stage-3 tests) from FIXED-mode clock construction to a shared `drawnClock(ratioIndex:)` helper — a single-step,
+  all-SET DRAWN lane, algebraically identical to a FIXED ratio (`clockDrawnPhase` collapses to `beat×ratio` for one
+  constant column, independent of steps/rate) — deleted the now-pointless `testClockDrawnWithOneConstantColumnMatchesFixedAtThatRatio`
+  (its whole point was proving DRAWN reduces to FIXED; nothing left to compare against); trimmed
+  `testClockParamsResolveAndClamp` to only the DRAWN `clockDrawnSteps` clamp (the `clockDepth`/`clockRatio` clamps
+  it tested are gone with the fields); simplified `applyRandomClock`'s fuzz randomizer to DRAWN-only fields. Net
+  −7 tests (1117→1110) — FIXED/WAVE tests removed outright rather than converted, since there's no FIXED/WAVE
+  behavior left to test. **NEXT:** the one grid is now unconditionally what CLOCK is — no follow-up mode work
+  planned; revisit only if Paul asks for a second control paradigm alongside it.**
 - **▶ CLOCK — driver retiming, REBUILT against Paul's own grid (DRAWN, not FIXED) (2026-09-26, on `main`, `790fb39`;
   iOS builds, macOS 1117 green incl. fuzz; DEVICE ear owed). SUPERSEDES the same-day "driver retiming (FIXED only) +
   a GLIDE row" entry below — that build was WRONG and was entirely removed, not kept alongside this one. The story,

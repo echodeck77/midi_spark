@@ -3785,14 +3785,16 @@ final class Router {
         while j < cell.procs.count { if !cell.slotBypass[j] && isRatchetFoldable(cell.procs[j]) { return j }; j += 1 }
         return nil
     }
-    /// CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26, Stage 1) — THE SOVEREIGN LAW, mechanically: the
-    /// beat a downstream fold consumer at `target` should use for its OWN internal step/rate math, after composing
-    /// every non-bypassed CLOCK stage strictly between `from` and `target` IN CHAIN ORDER (multiple CLOCKs compose —
-    /// the composition test). No CLOCK in range ⇒ returns `atBeat` unchanged, so this is a no-op (byte-identical)
-    /// whenever the feature is unused. This is the ONLY thing CLOCK touches: `S`/`cycleBeats` (needed only to size a
-    /// WAVE stage's own SPAN/offset) are read, never transformed — the caller's own window/column/span math is
-    /// untouched, and the RETURNED value is substituted ONLY into that one consumer's own rate/slice formula, never
-    /// propagated anywhere else (note pitch/velocity, gate timing, echo scheduling — all keep reading the real beat).
+    /// CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26) — THE SOVEREIGN LAW, mechanically: the beat a
+    /// downstream fold consumer at `target` should use for its OWN internal step/rate math, after composing every
+    /// non-bypassed CLOCK stage strictly between `from` and `target` IN CHAIN ORDER (multiple CLOCKs compose — the
+    /// composition test). No CLOCK in range ⇒ returns `atBeat` unchanged, so this is a no-op (byte-identical)
+    /// whenever the feature is unused. This is the ONLY thing CLOCK touches: `S`/`cycleBeats` (needed only to size
+    /// the lane's own SPAN) are read, never transformed — the caller's own window/column/span math is untouched,
+    /// and the RETURNED value is substituted ONLY into that one consumer's own rate/slice formula, never
+    /// propagated anywhere else (note pitch/velocity, gate timing, echo scheduling — all keep reading the real
+    /// beat). CLOCK is now always the DRAWN lane below — FIXED/WAVE were removed entire (Paul 2026-09-26, same day —
+    /// Paul's own spec describes one mechanism, not a choice of three).
     private func clockTransformedBeat(_ cell: SnapCell, from: Int, to target: Int, atBeat: Double, S: Double, cycleBeats: Double) -> Double {
         guard target > from else { return atBeat }
         var beat = atBeat
@@ -3800,23 +3802,13 @@ final class Router {
         while j < target {
             if !cell.slotBypass[j], cell.procs[j].type == .clock {
                 let p = cell.procs[j]
-                switch p.clockMode {
-                case .fixed:
-                    let ratio = clockRatioLadder[max(0, min(clockRatioLadder.count - 1, p.clockRatio))]
-                    beat = clockFixedPhase(beat, ratio: ratio, offsetBeats: Double(p.clockOffset) * S)
-                case .wave:
-                    let period = spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats)
-                    beat = clockWavePhase(beat, shape: p.clockShape, depth: p.clockDepth, periodBeats: period)
-                case .drawn:
-                    // FREE (clockSpanN 0) is a real, tested mode here — the lane just laps forever from absolute
-                    // beat 0 (clockDrawnPhase's own fullLaps factoring keeps that O(steps), never a per-lap walk
-                    // since t=0). spanLadderBeats itself has no "0 = free" sentinel (n≤1 means ONE COLUMN, not
-                    // free) — this mirrors the same explicit `> 0` guard RATCHET PATTERN/DEST use for their own
-                    // free-run spans, so 0 isn't misread as "one column" here.
-                    let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
-                    beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                           steps: p.clockDrawnSteps, rateBeats: p.clockDrawnRateBeats, periodBeats: period)
-                }
+                // FREE (clockSpanN 0) is a real, tested mode here — the lane just laps forever from absolute beat
+                // 0 (clockDrawnPhase's own fullLaps factoring keeps that O(steps), never a per-lap walk since t=0).
+                // spanLadderBeats itself has no "0 = free" sentinel (n≤1 means ONE COLUMN, not free) — this mirrors
+                // the same explicit `> 0` guard RATCHET PATTERN/DEST use for their own free-run spans.
+                let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
+                beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
+                                       steps: p.clockDrawnSteps, rateBeats: p.clockDrawnRateBeats, periodBeats: period)
             }
             j += 1
         }
@@ -3825,22 +3817,20 @@ final class Router {
     /// Driver retiming (Paul 2026-09-26, final spec: "a grid with a variable number of steps, each step a mutually
     /// exclusive speed, and another row on the same grid for glide"). `clockTransformedBeat` above is for
     /// DOWNSTREAM fold consumers that only ever READ a beat — for a DRIVER's own tick generation, the tick must be
-    /// SCHEDULED too, which needs an exact inverse. DRAWN mode is Paul's own grid — its per-column ratio picks
+    /// SCHEDULED too, which needs an exact inverse. CLOCK's grid IS this spec: its per-column ratio picks
     /// (`clockDrawnRatios`) ARE the mutually-exclusive-speed-per-step, and `clockDrawnGlide` IS the second row on
-    /// that same grid — no separate glide mechanism needed, DRAWN's own ramping is stateless (purely a function of
-    /// where you are in the current column, never a remembered "previous session" value). Only DRAWN is wired here
-    /// — FIXED (the simple ×2/×3 row) and WAVE stay exactly as inert before a driver as they've always been
-    /// (unwired, not what was asked for). `originRef` is the window's own REAL start beat, threaded through
-    /// unchanged from `iterateTicks`; every DRAWN slot recomputes its OWN span-origin from it (each slot may carry
-    /// its own SPAN), pinned to this ONE reference for the whole tick search so the forward window-bound
-    /// transforms and every later tick inversion agree on the same span-anchor (see `clockDrawnPhase`'s
-    /// `originOverride` doc comment for why that matters).
+    /// that same grid — no separate glide mechanism needed, its own ramping is stateless (purely a function of
+    /// where you are in the current column, never a remembered "previous session" value). `originRef` is the
+    /// window's own REAL start beat, threaded through unchanged from `iterateTicks`; every CLOCK slot recomputes
+    /// its OWN span-origin from it (each slot may carry its own SPAN), pinned to this ONE reference for the whole
+    /// tick search so the forward window-bound transforms and every later tick inversion agree on the same
+    /// span-anchor (see `clockDrawnPhase`'s `originOverride` doc comment for why that matters).
     private func driverClockBeat(_ cell: SnapCell, from: Int, to target: Int, atBeat: Double, S: Double, cycleBeats: Double, originRef: Double) -> Double {
         guard target > from else { return atBeat }
         var beat = atBeat
         var j = from
         while j < target {
-            if !cell.slotBypass[j], cell.procs[j].type == .clock, cell.procs[j].clockMode == .drawn {
+            if !cell.slotBypass[j], cell.procs[j].type == .clock {
                 let p = cell.procs[j]
                 let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
                 let origin = period > 0 ? columnStart(originRef, period) : 0
@@ -3862,7 +3852,7 @@ final class Router {
         var beat = atLocalBeat
         var j = target - 1
         while j >= from {
-            if !cell.slotBypass[j], cell.procs[j].type == .clock, cell.procs[j].clockMode == .drawn {
+            if !cell.slotBypass[j], cell.procs[j].type == .clock {
                 let p = cell.procs[j]
                 let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
                 let origin = period > 0 ? columnStart(originRef, period) : 0

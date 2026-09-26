@@ -468,15 +468,7 @@ enum SnapshotBuilder {
         if let v = p.recCapture { out.recCapture = v }
         out.recRefreshM = clamp(p.recRefreshM ?? 1, 1, 32)
         if let v = p.recEvents { out.recEvents = v }
-        // CLOCK (Paul 2026-09-26, Stage 1): clockDepth is clamped BELOW 1 here — the one safety-critical resolve in
-        // this block. dphase/dbeat = 1 + depth·sin(...) must stay positive (monotonic — local time must never run
-        // backward, or every downstream fold consumer's ordering assumption breaks); depth==1 hits zero at the sine's
-        // trough, so the ceiling is 0.95, not 1.
-        if let v = p.clockMode { out.clockMode = v }
-        out.clockRatio = clamp(p.clockRatio ?? 4, 0, clockRatioLadder.count - 1)
-        if let v = p.clockOffset { out.clockOffset = v }
-        if let v = p.clockShape { out.clockShape = v }
-        out.clockDepth = clamp(p.clockDepth ?? 0, 0, 0.95)
+        // CLOCK (Paul 2026-09-26; FIXED/WAVE removed same day): only the DRAWN lane resolves now.
         if let v = p.clockSpanN { out.clockSpanN = v }
         // DRAWN (Stage 2): resolve the lane ONCE here — carries −1/empty columns forward into real ratio VALUES
         // (clockDrawnResolveRatios), so the render side (Router.clockTransformedBeat) never re-maps or allocates.

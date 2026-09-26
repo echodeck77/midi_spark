@@ -2214,70 +2214,13 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(ParamLFO(target: "arpRate", rateIgnore: 0b1010).rateIgnoreResolved, 0b010, "high bits masked off")
     }
 
-    // CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26, Stage 1) — the pure phase transform.
-
-    func testClockFixedPhaseAppliesRatioAndOffset() {
-        XCTAssertEqual(clockFixedPhase(4, ratio: 2, offsetBeats: 0), 8, accuracy: 1e-9, "×2 doubles the beat")
-        XCTAssertEqual(clockFixedPhase(4, ratio: 0.5, offsetBeats: 0), 2, accuracy: 1e-9, "÷2 halves it")
-        XCTAssertEqual(clockFixedPhase(4, ratio: 1, offsetBeats: 1.5), 5.5, accuracy: 1e-9, "offset shifts it")
-    }
-
-    // Test #4 (the composition test): two FIXED CLOCKs in a row multiply their ratios — [×2 → ×3] == a single ×6.
-    func testClockFixedComposesMultiplicatively() {
-        let once = clockFixedPhase(clockFixedPhase(5, ratio: 2, offsetBeats: 0), ratio: 3, offsetBeats: 0)
-        let combined = clockFixedPhase(5, ratio: 6, offsetBeats: 0)
-        XCTAssertEqual(once, combined, accuracy: 1e-9, "×2 then ×3 == a single ×6")
-    }
-
-    // Test #4/#5 (×1 no-op): FIXED at ratio 1 / offset 0 must be byte-identical to no transform at all.
-    func testClockFixedAtRatioOneIsNoOp() {
-        for beat in stride(from: -3.0, through: 9.0, by: 0.7) {
-            XCTAssertEqual(clockFixedPhase(beat, ratio: 1, offsetBeats: 0), beat, accuracy: 1e-12)
-        }
-    }
-
-    // Test #2 (RE-LANDING): a WAVE stage's phase must return EXACTLY to grid alignment at every SPAN boundary,
-    // regardless of depth, shape, or which beat inside the period you started from — this is the zero-mean-integral
-    // proof the spec commissions, checked algebraically rather than just by hand.
-    func testClockWaveRelandsExactlyAtEverySpanBoundary() {
-        for shape: ClockWaveShape in [.sine, .triangle] {
-            for depth in [0.1, 0.5, 0.9] {
-                for period in [1.0, 2.0, 4.5] {
-                    for k in [1, 2, 3] {
-                        let boundary = Double(k) * period
-                        let phase = clockWavePhase(0, shape: shape, depth: depth, periodBeats: period)
-                        let phaseAtBoundary = clockWavePhase(boundary, shape: shape, depth: depth, periodBeats: period)
-                        XCTAssertEqual(phaseAtBoundary - phase, boundary, accuracy: 1e-9,
-                                       "\(shape) depth \(depth) period \(period) × \(k): must advance EXACTLY \(boundary) beats over \(k) whole period(s)")
-                    }
-                }
-            }
-        }
-    }
-
-    // Test #5 (×1/depth-0 no-op): WAVE at depth 0 must be byte-identical to no transform.
-    func testClockWaveAtDepthZeroIsNoOp() {
-        for shape: ClockWaveShape in [.sine, .triangle] {
-            for beat in stride(from: -3.0, through: 9.0, by: 0.7) {
-                XCTAssertEqual(clockWavePhase(beat, shape: shape, depth: 0, periodBeats: 4), beat, accuracy: 1e-12)
-            }
-        }
-    }
-
-    // Monotonicity safety: at the clamped depth ceiling (0.95, what SnapshotBuilder actually allows through), phase
-    // must still be non-decreasing everywhere — local time must never run backward, or a downstream fold consumer's
-    // note-ordering assumption breaks. Sampled densely across a period at the worst-case depth for both shapes.
-    func testClockWavePhaseNeverRunsBackwardAtMaxAllowedDepth() {
-        for shape: ClockWaveShape in [.sine, .triangle] {
-            var prev = clockWavePhase(0, shape: shape, depth: 0.95, periodBeats: 4)
-            for i in 1...400 {
-                let beat = Double(i) * 0.01
-                let phase = clockWavePhase(beat, shape: shape, depth: 0.95, periodBeats: 4)
-                XCTAssertGreaterThanOrEqual(phase, prev, "\(shape): phase must never decrease as beat advances")
-                prev = phase
-            }
-        }
-    }
+    // CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26) — the pure phase transform. FIXED (a simple
+    // ratio+offset) and WAVE (a zero-mean cosine/triangle wobble) modes were built here and removed the same day —
+    // Paul's own spec ("a grid with a variable number of steps, each step a mutually exclusive speed, and another
+    // row on the same grid for glide") describes one mechanism, not a choice of three; CLOCK is now always the
+    // DRAWN grid below. Their pure-function tests (ratio/offset math, composition, re-landing at SPAN boundaries,
+    // monotonicity at the depth clamp) are gone with the functions — DRAWN's own tests below cover the same shape
+    // of properties (no-op at ×1, composition, monotonicity) for the grid that actually ships.
 
     // DRAWN (Stage 2): an empty/CARRY (-1) column holds the PREVIOUS explicit ratio — resolved ONCE at SnapshotBuilder
     // time so the render side never re-maps. picks [×1, CARRY, ×2, CARRY] → [1, 1, 2, 2] (ladder idx 4=×1, 2=×2).

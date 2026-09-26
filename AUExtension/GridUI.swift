@@ -373,7 +373,7 @@ struct ProcessorBox: View {
         case .dest:      return "route each step, on its own clock, to a chosen emitter — or none (hocket)"
         case .deal:      return "deal notes across two emitters by count"
         case .recorder:  return "record N steps/passes of the chain, then loop it back"
-        case .clock:     return "retimes everything after it in the chain — a ratio, or a wobble that always lands back in time"
+        case .clock:     return "retimes everything after it in the chain — a hand-drawn per-step speed grid, with glide"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
         case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
@@ -1035,65 +1035,47 @@ struct ProcessorBox: View {
                     .font(.system(size: 11, weight: .heavy, design: .monospaced)).disabled(bufN == 0)
             }
         })
-        case .clock: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-26) — CLOCK: retimes everything after it in the chain. Stage 2 adds DRAWN.
-            let mode = p.clockMode ?? .fixed
-            field("MODE — how the transform is authored", \.clockMode) {
-                seg(ClockMode.allCases.map(\.rawValue), sel: mode.rawValue) { i in setParam { $0.clockMode = ClockMode.allCases[i] } } }
-            if mode == .fixed {
-                let ratio = max(0, min(clockRatioLadder.count - 1, p.clockRatio ?? 4))
-                heroField("RATE — the ratio downstream ticks at") {
-                    seg(clockRatioLabels, sel: clockRatioLabels[ratio]) { i in setParam { $0.clockRatio = i } } }
-                field("OFFSET — nudge downstream's start, in this chain's own grid steps", \.clockOffset) {
-                    numPair(p.clockOffset ?? 0, -8...8) { v in setParam { $0.clockOffset = v } } }
-                Text("Two copies of a chain, one at OFFSET 2, play as a self-following canon. Reshapes a downstream reader's own math (RATCHET/DEST/VELOCITY/TUTTI/MOD) — placed before a driver (ARP/RIFF/RATCHET) it has no effect; use DRAWN for that.")
-                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            } else if mode == .wave {
-                field("SHAPE — the wobble's waveform", \.clockShape) {
-                    seg(ClockWaveShape.allCases.map(\.rawValue), sel: (p.clockShape ?? .sine).rawValue) { i in setParam { $0.clockShape = ClockWaveShape.allCases[i] } } }
-                heroField("DEPTH — how far it strays  \(Int((p.clockDepth ?? 0) * 100))%") {
-                    slider(bind(p.clockDepth ?? 0) { v in setParam { $0.clockDepth = v } }, in: 0...0.95) }
-                frameSpan(p.clockSpanN ?? 8, free: false) { v in setParam { $0.clockSpanN = v } }
-                Text("Rubato at shallow DEPTH, accelerando via a ramped one. Always lands back in time at every SPAN — provably, not by luck.")
-                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            } else {   // DRAWN: a hand-authored grid — variable steps, each a mutually exclusive speed, with a GLIDE row on
-                       // the same grid (Paul 2026-09-26's own spec). Placed before a driver (ARP/RIFF/RATCHET) this genuinely
-                       // retimes its ticks, not just a downstream reader's math. Empty/CARRY columns hold the last explicit ratio.
-                let steps = max(1, min(32, p.clockDrawnSteps ?? 8))
-                let picks = p.clockDrawnRatios ?? []
-                let glideArr = p.clockDrawnGlide ?? []
-                field("STEPS — the lane's own length", \.clockDrawnSteps) {
-                    numPair(steps, 1...32) { v in setParam { $0.clockDrawnSteps = v } } }
-                field("RATE — the lane's own column speed, on GRID time (the clock never clocks itself)", \.clockDrawnRate) {
-                    seg(ArpRate.allCases.map(\.rawValue), sel: (p.clockDrawnRate ?? .r1_8).rawValue) { i in setParam { $0.clockDrawnRate = ArpRate.allCases[i] } } }
-                heroField("RATIO PER COLUMN — tap a rung; the top row (···) CARRIES the previous column's ratio forward") {
-                    stateMatrixRadio(Array((-1...8)), steps: steps,
-                        header: { opt in AnyView(Text(opt < 0 ? "···" : clockRatioLabels[opt]).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))) },
-                        selected: { s in s < picks.count ? picks[s] : -1 },
-                        set: { s, opt in setParam {
-                            var arr = $0.clockDrawnRatios ?? Array(repeating: -1, count: steps)
-                            while arr.count <= s { arr.append(-1) }
-                            arr[s] = opt
-                            $0.clockDrawnRatios = arr
-                        } })
-                }
-                field("GLIDE — this column ramps FROM the previous column's ratio TO its own, instead of snapping") {
-                    toggleLane(steps, on: { s in s < glideArr.count && glideArr[s] }, glyph: "arrow.up.right") { s, v in
-                        setParam {
-                            var arr = $0.clockDrawnGlide ?? Array(repeating: false, count: steps)
-                            while arr.count <= s { arr.append(false) }
-                            arr[s] = v
-                            $0.clockDrawnGlide = arr
-                        }
+        case .clock: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-26) — CLOCK: a
+            // hand-authored grid — variable steps, each a mutually exclusive speed, with a GLIDE row on the same
+            // grid (Paul's own final spec — FIXED/WAVE mode alternatives were built, then removed entire the same
+            // day: this grid is the whole feature, not one of several). Placed before a driver (ARP/RIFF/RATCHET)
+            // this genuinely retimes its ticks; placed before a fold consumer (RATCHET/DEST/VELOCITY/TUTTI/MOD) it
+            // reshapes that stage's own math. Empty/CARRY columns hold the last explicit ratio.
+            let steps = max(1, min(32, p.clockDrawnSteps ?? 8))
+            let picks = p.clockDrawnRatios ?? []
+            let glideArr = p.clockDrawnGlide ?? []
+            field("STEPS — the grid's own length", \.clockDrawnSteps) {
+                numPair(steps, 1...32) { v in setParam { $0.clockDrawnSteps = v } } }
+            field("RATE — the grid's own column speed, on GRID time (the clock never clocks itself)", \.clockDrawnRate) {
+                seg(ArpRate.allCases.map(\.rawValue), sel: (p.clockDrawnRate ?? .r1_8).rawValue) { i in setParam { $0.clockDrawnRate = ArpRate.allCases[i] } } }
+            heroField("SPEED PER STEP — tap a rung; the top row (···) CARRIES the previous step's speed forward") {
+                stateMatrixRadio(Array((-1...8)), steps: steps,
+                    header: { opt in AnyView(Text(opt < 0 ? "···" : clockRatioLabels[opt]).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))) },
+                    selected: { s in s < picks.count ? picks[s] : -1 },
+                    set: { s, opt in setParam {
+                        var arr = $0.clockDrawnRatios ?? Array(repeating: -1, count: steps)
+                        while arr.count <= s { arr.append(-1) }
+                        arr[s] = opt
+                        $0.clockDrawnRatios = arr
+                    } })
+            }
+            field("GLIDE — this step ramps FROM the previous step's speed TO its own, instead of snapping") {
+                toggleLane(steps, on: { s in s < glideArr.count && glideArr[s] }, glyph: "arrow.up.right") { s, v in
+                    setParam {
+                        var arr = $0.clockDrawnGlide ?? Array(repeating: false, count: steps)
+                        while arr.count <= s { arr.append(false) }
+                        arr[s] = v
+                        $0.clockDrawnGlide = arr
                     }
                 }
-                frameSpan(p.clockSpanN ?? 8, free: true) { v in setParam { $0.clockSpanN = v } }
-                let resolved = clockDrawnResolveRatios(picks, steps: steps)
-                let rateBeats = max(0.03125, (p.clockDrawnRate ?? .r1_8).beats)
-                let drift = clockDrawnDriftPerLap(resolved, glide: glideArr, steps: steps, rateBeats: rateBeats)
-                Text(abs(drift) < 0.001 ? "This lane lands back in time every lap — no drift." :
-                     "This lane drifts \(drift > 0 ? "ahead" : "behind") by \(String(format: "%.2f", abs(drift))) beats every lap against the grid.")
-                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            frameSpan(p.clockSpanN ?? 8, free: true) { v in setParam { $0.clockSpanN = v } }
+            let resolved = clockDrawnResolveRatios(picks, steps: steps)
+            let rateBeats = max(0.03125, (p.clockDrawnRate ?? .r1_8).beats)
+            let drift = clockDrawnDriftPerLap(resolved, glide: glideArr, steps: steps, rateBeats: rateBeats)
+            Text(abs(drift) < 0.001 ? "This grid lands back in time every lap — no drift." :
+                 "This grid drifts \(drift > 0 ? "ahead" : "behind") by \(String(format: "%.2f", abs(drift))) beats every lap against the transport.")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("Everything AFTER this stage in the chain ticks to its time; everything before keeps the part's. Position is meaning.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
