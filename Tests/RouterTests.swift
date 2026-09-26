@@ -597,10 +597,15 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(riffCount(clockRatioIndex: nil), 3); XCTAssertEqual(riffCount(clockRatioIndex: two), 6)
         XCTAssertEqual(ratchetAllCount(clockRatioIndex: nil), 6); XCTAssertEqual(ratchetAllCount(clockRatioIndex: two), 12)
     }
-    // The scope boundary: EUCLID is dispatched entirely differently (emitGeneratorRow, not the three call sites
-    // driver retiming touched) — a CLOCK before it must have ZERO effect, confirming the feature doesn't leak
-    // beyond its stated scope (ARP/RIFF/RATCHET-ALL only).
-    func testClockDrawnDoesNotReachEuclid() {
+    // WIDENED (Paul 2026-09-26: "shouldn't all downstream processors read an upstream clock, defaulting to real
+    // time if none is present?" — yes; confirmed via a real repro — "put a 1-step grid on speed, change it, put a
+    // euclid or ratchet pattern after it" — and neither was retimed). EUCLID already shared `iterateTicks` with
+    // ARP/RIFF/RATCHET-ALL — it just wasn't wired to the clock-aware parameters at its own call site. SUPERSEDES
+    // `testClockDrawnDoesNotReachEuclid`, which asserted the OLD (now-fixed) gap. ×1 stays the standing no-op law;
+    // ×3 must pack meaningfully more pulses into the same real window (mirroring ARP's 4→8 under ×2) — asserted as
+    // an inequality, not a hand-derived count, since the exact number depends on tick-search quantization that
+    // isn't the property under test.
+    func testClockDrawnRetimesEuclidToo() {
         func euclidCount(clockRatioIndex: Int?) -> Int {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var procs: [ProcessorSlot] = []
@@ -612,8 +617,10 @@ final class RouterTests: XCTestCase {
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        let three = clockRatioLadder.firstIndex(of: 3)!
-        XCTAssertEqual(euclidCount(clockRatioIndex: nil), euclidCount(clockRatioIndex: three), "EUCLID is untouched — same count with or without an upstream DRAWN clock")
+        let noClock = euclidCount(clockRatioIndex: nil)
+        let one = clockRatioLadder.firstIndex(of: 1)!, three = clockRatioLadder.firstIndex(of: 3)!
+        XCTAssertEqual(euclidCount(clockRatioIndex: one), noClock, "×1 CLOCK is a no-op for EUCLID too")
+        XCTAssertGreaterThan(euclidCount(clockRatioIndex: three), noClock, "×3 CLOCK packs meaningfully more EUCLID pulses into the same real window")
     }
     // CLOCK DRAWN's GLIDE row (Paul 2026-09-26, final spec — "another row on the same grid for glide"): a column
     // marked GLIDE ramps its rate in from the previous column's landed ratio instead of snapping at column entry.

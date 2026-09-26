@@ -3453,6 +3453,16 @@ final class Router {
             let rs = cell.runStartColumn >= 0 ? Int(cell.runStartColumn) : Int(((colStart - passStart) / S).rounded(.down))
             origin = passStart + Double(rs) * S; capAtCol = false
         }
+        // CLOCK (Paul 2026-09-26): WEAVE's per-rank clock is a hand-rolled window scan, not `iterateTicks` — so it
+        // gets the SAME treatment built directly into its own loop: the window bounds + this rank's own origin/
+        // column-cap all shift into local time ONCE (shared across every rank — none of them depend on rank), the
+        // EXISTING search math runs unchanged there, and each found local tick inverts back to real before
+        // scheduling. No-op (byte-identical) when this cell isn't a retimed driver.
+        let localWinStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: mWinStart, S: S, cycleBeats: cyc, originRef: mWinStart)
+        let localWinEnd = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: mWinEnd, S: S, cycleBeats: cyc, originRef: mWinStart)
+        let localColStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colStart, S: S, cycleBeats: cyc, originRef: mWinStart)
+        let localColEnd = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colEnd, S: S, cycleBeats: cyc, originRef: mWinStart)
+        let localOrigin = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: origin, S: S, cycleBeats: cyc, originRef: mWinStart)
         for rank in 0..<count {
             let clockRank = min(rank, span - 1)   // extras join the top clock
             let n = srcNotes[rank].note + transpose
@@ -3463,24 +3473,26 @@ final class Router {
                 euclidPatternInto(&euclidBuf, pulses: max(1, min(M, 2 * clockRank + 1)), steps: M, rotation: 0)
                 let sub = S / Double(M)
                 for stepI in 0..<M where euclidBuf[stepI] {
-                    let tau = colStart + Double(stepI) * sub
+                    let localTau = localColStart + Double(stepI) * sub
+                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: min(localColStart + S, localTau + sub * gateFrac), S: S, cycleBeats: cyc, originRef: mWinStart)
                     guard tau >= mWinStart && tau < mWinEnd else { continue }
-                    emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: min(colEnd, tau + sub * gateFrac), bm: bm,
+                    emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: tau + gate, bm: bm,
                                     emits: emits, hasDownstream: hasDownstream, chainDriver: chainDriver, windowEnd: windowEnd,
                                     beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, cyc: cyc, out: out, diag: &diag)
                 }
             } else {                               // a regular per-rank clock (LADDER/HARMONIC formula, or DRAWN's authored rate)
                 let sub = (p.weaveMode == .drawn) ? max(0.03125, p.weaveDrawnBeats[min(clockRank, p.weaveDrawnBeats.count - 1)])
                                                   : weaveRate(mode: p.weaveMode, baseBeats: max(0.03125, p.weaveBaseBeats), rank: clockRank)
-                let scanEnd = capAtCol ? min(mWinEnd, colEnd) : mWinEnd
-                var j = Int(((mWinStart - origin) / sub).rounded(.down)); if j < 0 { j = 0 }
+                let localScanEnd = capAtCol ? min(localWinEnd, localColEnd) : localWinEnd
+                var j = Int(((localWinStart - localOrigin) / sub).rounded(.down)); if j < 0 { j = 0 }
                 while true {
-                    let tau = origin + Double(j) * sub
-                    if tau >= scanEnd { break }
+                    let localTau = localOrigin + Double(j) * sub
+                    if localTau >= localScanEnd { break }
                     j += 1
-                    guard tau >= mWinStart else { continue }
-                    let off = capAtCol ? min(colEnd, tau + sub * gateFrac) : (tau + sub * gateFrac)
-                    emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: off, bm: bm,
+                    guard localTau >= localWinStart else { continue }
+                    let localOff = capAtCol ? min(localColEnd, localTau + sub * gateFrac) : (localTau + sub * gateFrac)
+                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: localOff, S: S, cycleBeats: cyc, originRef: mWinStart)
+                    emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: tau + gate, bm: bm,
                                     emits: emits, hasDownstream: hasDownstream, chainDriver: chainDriver, windowEnd: windowEnd,
                                     beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, cyc: cyc, out: out, diag: &diag)
                 }
@@ -3587,7 +3599,8 @@ final class Router {
                 let effHits = Int64(max(1, cycleHits))
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { _, mTickBeat, _, _ in
+                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
+                             clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc) { _, mTickBeat, _, _ in
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/replay-exact.
                     let phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
                     let localT = Int64((phaseBeat / sub).rounded(.down))
@@ -3623,15 +3636,20 @@ final class Router {
         case .burst:
             let count = Int(max(2, min(16, p.count)))
             // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,
-            // no alloc). Shared by all three modes; ONCE reproduces the old inline loop → byte-identical.
+            // no alloc). Shared by all three modes; ONCE reproduces the old inline loop → byte-identical. CLOCK
+            // (Paul 2026-09-26): the anchor shifts into local time, the roll's own shape is computed there
+            // unchanged, then each strike's onset+gate invert back to real — `clockLocalAnchor`/`clockDriverTiming`
+            // no-op (byte-identical) when this cell isn't a retimed driver.
             func layBurst(anchor: Double, width: Double) {
+                let localAnchor = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: anchor, S: S, cycleBeats: cyc, originRef: mWinStart)
                 burstFractionsInto(&burstBuf, count: count, curve: p.curve)
                 let minGap = width / Double(count) * 0.9
                 for i in 0..<count {
-                    let tau = anchor + burstBuf[i] * width
+                    let localTau = localAnchor + burstBuf[i] * width
+                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: localTau + minGap, S: S, cycleBeats: cyc, originRef: mWinStart)
                     if inWindow(tau) {
                         let velScale = max(0.05, Double(100 - i * (60 / max(1, count))) / 100.0)   // fade across the roll (relative)
-                        strikeChord(tau: tau, velScale: velScale, gateBeats: minGap)
+                        strikeChord(tau: tau, velScale: velScale, gateBeats: gate)
                     }
                 }
             }
@@ -3677,40 +3695,50 @@ final class Router {
             let cAnchor = cLadder ? columnStart(colStart, cWidth) : (cRow ? columnStart(colStart, cyc) : colStart)
             let sub = cLadder ? arpRateReveal : (cRow ? (cWidth / Double(max(1, srcN))) : arpRateReveal)
             guard sub > 0 else { break }
+            // CLOCK (Paul 2026-09-26): the anchor and the held-to-boundary point both shift into local time; each
+            // reveal's local tick then inverts back independently (a duration can't invert directly — only points
+            // can — so the gate is the REAL difference of two independently-inverted points, not a scaled width).
+            let localAnchor = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: cAnchor, S: S, cycleBeats: cyc, originRef: mWinStart)
             for j in 0..<srcN {                                   // reveal note j at tick j, HELD to the boundary (accumulating)
-                let tau = cAnchor + Double(j) * sub
-                if tau >= cAnchor + cWidth { break }              // ran past the span — the rest reveal next entry
+                let localTau = localAnchor + Double(j) * sub
+                if localTau >= localAnchor + cWidth { break }     // ran past the span — the rest reveal next entry
+                let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: localAnchor + cWidth, S: S, cycleBeats: cyc, originRef: mWinStart)
                 if inWindow(tau) {
                     let idx = p.strumDir == .down ? (srcN - 1 - j) : j   // reveal order (UP default · DOWN top-first)
-                    let gate = (cAnchor + cWidth) - tau           // sustain to the span (column/bar) boundary
                     strikeChord(tau: tau, velScale: 1.0, gateBeats: max(0.01, gate), onlyIndex: idx)
                 }
             }
         case .drone:
             // PAD: strike the whole entry chord ONCE, held to the boundary; the GATE knob scales the inherited velocity.
-            if inWindow(colStart) {
-                strikeChord(tau: colStart, velScale: max(0.05, min(1, p.gate)), gateBeats: S)
+            // CLOCK (Paul 2026-09-26): the column's local start anchors the strike; held-to-boundary is the local
+            // column's own end, both inverted back to real for scheduling.
+            let droneLocalStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colStart, S: S, cycleBeats: cyc, originRef: mWinStart)
+            let (droneTau, droneGate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: droneLocalStart, localOff: droneLocalStart + S, S: S, cycleBeats: cyc, originRef: mWinStart)
+            if inWindow(droneTau) {
+                strikeChord(tau: droneTau, velScale: max(0.05, min(1, p.gate)), gateBeats: droneGate)
             }
         case .shift:
             // GROOVE: push the chord's onset LATE by up to ~40% of the step (spread 0…1), held to the boundary.
             let push = max(0, min(1, p.spread)) * 0.4 * S
-            let tau = colStart + push
-            if inWindow(tau) { strikeChord(tau: tau, velScale: 1.0, gateBeats: max(0.05, S - push)) }
+            let shiftLocalStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colStart, S: S, cycleBeats: cyc, originRef: mWinStart)
+            let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: shiftLocalStart + push, localOff: shiftLocalStart + S, S: S, cycleBeats: cyc, originRef: mWinStart)
+            if inWindow(tau) { strikeChord(tau: tau, velScale: 1.0, gateBeats: gate) }
         case .humanize:
             // THE DETERMINISTIC HUMAN: each note strikes at a seeded late offset (0…~15% step) with a seeded velocity
             // duck — replay-safe (seed = column · note · index). AMOUNT (spread) scales both. Held to the boundary.
             // The duck is RELATIVE, so it ducks the inherited source velocity (user 2026-08-09).
             let amt = max(0, min(1, p.spread))
             let col = UInt64(bitPattern: Int64((colStart / S).rounded()))
+            let humanizeLocalStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colStart, S: S, cycleBeats: cyc, originRef: mWinStart)
             for (k, sn) in srcNotes.enumerated() {
                 let note = sn.note + transpose
                 guard note >= 0 && note <= 127 else { continue }
                 let h = splitmix64Mix(col &* 2_654_435_761 &+ UInt64(note) &* 131 &+ UInt64(k) &* 17)
                 let tFrac = Double(h & 0xFFFF) / 65535.0                     // 0…1 → late offset
                 let vFrac = Double((h >> 16) & 0xFFFF) / 65535.0             // 0…1 → velocity duck
-                let tau = colStart + tFrac * amt * 0.15 * S
                 let velScale = max(0.05, (100.0 - vFrac * amt * 45.0) / 100.0)
-                if inWindow(tau) { strikeChord(tau: tau, velScale: velScale, gateBeats: max(0.05, colStart + S - tau), onlyIndex: k) }
+                let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: humanizeLocalStart + tFrac * amt * 0.15 * S, localOff: humanizeLocalStart + S, S: S, cycleBeats: cyc, originRef: mWinStart)
+                if inWindow(tau) { strikeChord(tau: tau, velScale: velScale, gateBeats: gate, onlyIndex: k) }
             }
         case .hocket:
             // HOCKET (v1, AcceptanceCriteria-hocket-processor): play the pool (WHAT) timed by LISTENING to another wire
@@ -3727,7 +3755,8 @@ final class Router {
                 let sub = max(0.03125, p.hocketRateBeats)
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { tick, mTickBeat, onTime, _ in
+                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
+                             clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc) { tick, mTickBeat, onTime, _ in
                     let pass: Bool
                     switch p.hocketMode {
                     case .gaps:
@@ -3865,6 +3894,32 @@ final class Router {
             j -= 1
         }
         return beat
+    }
+    /// Widening driver retiming beyond ARP/RIFF/RATCHET-ALL (Paul 2026-09-26: "shouldn't all downstream processors
+    /// read an upstream clock, defaulting to the real one if none is present?" — yes). Those three share
+    /// `iterateTicks`, which does "shift the search window forward, walk in local time, invert each discovered
+    /// tick back" internally. EUCLID and HOCKET already route through `iterateTicks` too (just needed the same 3
+    /// arguments wired in) — but BURST/CASCADE/DRONE/SHIFT/HUMANIZE/WEAVE and RATCHET's PATTERN/COIN modes each
+    /// compute their OWN one-shot/loop timing directly, with no shared helper to hook into. These two functions
+    /// factor out the same pattern for THEM: `clockLocalAnchor` shifts a real anchor point forward into the
+    /// clock's local time (so a generator's existing internal math — unchanged — runs relative to where the clock
+    /// says "now" is); `clockDriverTiming` takes the resulting local onset/off pair and inverts BOTH back to real
+    /// beats, returning a real onset + a real gate length (computed as a difference of two independently-inverted
+    /// points, never by "converting a duration" — durations don't invert correctly under a non-uniform transform,
+    /// only points do). Both are no-ops (chainDriver < 0, i.e. no driver context at all) or CLOCK-absent (the
+    /// underlying `driverClockBeat`/Inverse already no-op when no `.clock` slot is in range) — so every existing
+    /// call site that doesn't yet pass through these two functions is unaffected, and every generator's own
+    /// column-membership/window-search bounds keep reading the untransformed real beat (the sovereign law: only a
+    /// driver's own onset/gate — not which grid column it's active in — should ever see the clock's time).
+    private func clockLocalAnchor(_ cell: SnapCell, chainDriver: Int, realAnchor: Double, S: Double, cycleBeats: Double, originRef: Double) -> Double {
+        guard chainDriver >= 0 else { return realAnchor }
+        return driverClockBeat(cell, from: 0, to: chainDriver, atBeat: realAnchor, S: S, cycleBeats: cycleBeats, originRef: originRef)
+    }
+    private func clockDriverTiming(_ cell: SnapCell, chainDriver: Int, localOnset: Double, localOff: Double, S: Double, cycleBeats: Double, originRef: Double) -> (onset: Double, gateBeats: Double) {
+        guard chainDriver >= 0 else { return (localOnset, max(0.001, localOff - localOnset)) }
+        let onset = driverClockBeatInverse(cell, from: 0, to: chainDriver, atLocalBeat: localOnset, S: S, cycleBeats: cycleBeats, originRef: originRef)
+        let off = driverClockBeatInverse(cell, from: 0, to: chainDriver, atLocalBeat: localOff, S: S, cycleBeats: cycleBeats, originRef: originRef)
+        return (onset, max(0.001, off - onset))
     }
     /// The LAST non-bypassed SPLIT slot after `driver` (last-writer wins), or nil.
     private func downstreamSplitIndex(_ cell: SnapCell, after driver: Int) -> Int? {
@@ -4934,21 +4989,27 @@ final class Router {
             let rate = max(0.03125, p.rtcRateBeats)
             let steps = max(1, min(32, p.rtcSteps))
             let spanBeats = p.rtcSpanN > 0 ? Double(p.rtcSpanN) * rate : 0   // SPAN = re-anchor every N MATRIX columns (N × RATE); 0 = free-run (Paul 2026-09-07)
-            var tk = Int((mWinStart / rate).rounded(.down)) - 1          // one tick early (a sub-strike can spill into this window)
+            // CLOCK (Paul 2026-09-26): the same iterateTicks pattern, built into this hand-rolled loop directly —
+            // the window bounds shift into local time, the tick search (which matrix column, which count) runs
+            // there unchanged, each sub-strike inverts back to real before the REAL half-open window check.
+            let localWinStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: mWinStart, S: S, cycleBeats: cycleBeats, originRef: mWinStart)
+            let localWinEnd = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: mWinEnd, S: S, cycleBeats: cycleBeats, originRef: mWinStart)
+            var tk = Int((localWinStart / rate).rounded(.down)) - 1          // one tick early (a sub-strike can spill into this window)
             while true {
-                let tickStart = Double(tk) * rate
-                if tickStart >= mWinEnd { break }
+                let tickStart = Double(tk) * rate   // LOCAL
+                if tickStart >= localWinEnd { break }
                 // which matrix column is the playhead on? re-anchored by SPAN (like RIFF), else free-running; + ROTATE
                 let localTick = spanBeats > 0 ? Int(((tickStart - columnStart(tickStart, spanBeats)) / rate).rounded(.down)) : tk
                 let col = (((localTick + p.rtcRotate) % steps) + steps) % steps
                 let count = max(1, min(8, col < p.rtcSlices.count ? p.rtcSlices[col] : 1))   // 1 = single hit · 2…8 = ratchet · NO REST (Paul 2026-09-07: every column sounds)
                 let sub = rate / Double(count)
                 for j in 0..<count {
-                    let tau = tickStart + Double(j) * sub
-                    if tau < mWinStart || tau >= mWinEnd { continue }   // half-open: fires in exactly one render window
+                    let localTau = tickStart + Double(j) * sub
+                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: localTau + sub * 0.6, S: S, cycleBeats: cycleBeats, originRef: mWinStart)
+                    if tau < mWinStart || tau >= mWinEnd { continue }   // half-open: fires in exactly one render window (REAL)
                     let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
                     let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    let offT = sampleOf(musical: tau + sub * 0.6, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    let offT = sampleOf(musical: tau + gate, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
                                     onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
                                     windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
@@ -4959,7 +5020,6 @@ final class Router {
         }
         var col = columnStart(mWinStart, S)
         while col < mWinEnd {
-            let colEnd = col + S
             if mode == .coin {
                 let step = Int((col / S).rounded())
                 // COIN — SHAPING THE DICE (Paul 2026-08-26): ①④ fire decision (gap/quota/velocity-gated), then ① size pick.
@@ -4968,12 +5028,18 @@ final class Router {
                 let count = ratchets ? (p.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: p.rtcCountLo, hi: p.rtcCountHi)
                                                                  : rtcCoinSize(step: step, weights: p.rtcSizeWeights)) : 1
                 let sub = S / Double(max(1, count))
+                // CLOCK (Paul 2026-09-26): the COIN decision itself stays keyed to the REAL grid column (`step`,
+                // above — column membership is the sovereign law) — only the sub-strikes WITHIN a firing column
+                // retime: shift this column's start into local time, run the existing spacing math there, invert
+                // each sub-strike back.
+                let localCol = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: col, S: S, cycleBeats: cycleBeats, originRef: mWinStart)
                 for j in 0..<count {
-                    let tau = col + Double(j) * sub
+                    let localTau = localCol + Double(j) * sub
+                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: min(localCol + S, localTau + sub * 0.6), S: S, cycleBeats: cycleBeats, originRef: mWinStart)
                     guard tau >= mWinStart && tau < mWinEnd else { continue }
                     let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
                     let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    let offT = sampleOf(musical: min(colEnd, tau + sub * 0.6), beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    let offT = sampleOf(musical: tau + gate, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
                                     onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
                                     windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
