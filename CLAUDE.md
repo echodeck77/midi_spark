@@ -199,6 +199,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DEST MATRIX — NONE emitter + its own free-running RATE, the RATCHET-PATTERN-class fix (2026-09-26, on `main`,
+  `0104c95`; iOS builds, macOS 1084 green incl. fuzz; DEVICE ear/eye owed). Paul's report on DEST (§5 routing-class,
+  built 2026-08-22): zero emitters should be selectable, it needs a rate control, and "the visuals for which cell is
+  lit up has nothing to do with what I hear" — he named RATCHET PATTERN's development as the precedent for how to
+  read + fix this. ROOT CAUSE (same shape as RATCHET's pre-v6 bug): DEST indexed its 8-slot matrix via `chopSlice(m,
+  columnBeats: S)` — an 8-way subdivision of the CELL'S OWN column, tied to whatever was driving notes through it —
+  while the EDITOR matrix lit the unrelated DEFAULT grid-column clock (one column per whole bar step, ~8× slower).
+  Two different clocks: the lit cell never corresponded to the emitter actually heard. FIX (mirrors RATCHET PATTERN
+  v6/v7's self-clocked model): DEST now runs its OWN free-running clock — `destRate: ArpRate?` (nil ⇒ 1/8) →
+  `destRateBeats`; `Router.chopMask`'s DEST branch computes `sl = floor(m ÷ destRateBeats) mod 8` (absolute beat,
+  decoupled from the column/driver) instead of `chopSlice`; CHOP's own chopSlice branch is UNTOUCHED (that's a
+  distinct, intentional per-column feature). The editor matrix (`GridUI` `.dest` case) extrapolates the IDENTICAL
+  formula per animation frame via `StateMatrixClock` (RATCHET PATTERN's own mechanism — never the ~4 Hz poll, which
+  aliases a fast rate into a jump), so the lit cell and the audible route are now always the same clock. **NONE**:
+  `destSlices` gains `−1` (silence this step, no emitter) alongside 0=A…3=D — the matrix shows a 5th "·" column; a
+  NONE slice yields mask 0, which every existing chopMask consumer already handles safely (no voice opens, no stuck
+  note — the same path MUTE=0 already proved). FuzzTests' DEST randomizer widened to hit NONE + a random RATE. 2
+  pre-existing RouterTests (`testDestMatrixHocketsTheArpAcrossEmitters`/`testMuteMatrixComposesOverDest`) still pass
+  unchanged under the new clock. DEVICE-owed: the editor RATE control feel, the NONE "·" column, and confirming the
+  playhead now visibly tracks what's heard.**
 - **▶ RECORDER — a new looper-in-a-chain processor, stages 0–4 (2026-09-18, on `main` `87934e5`…`09d690a`; iOS builds,
   macOS 1084 green incl. fuzz; DEVICE ear owed). Paul ratified a spec (`AcceptanceCriteria-recorder.md`) then greenlit the
   build; done in tested stages while he's away (no device checks). A `ProcessorType.recorder` that records the upstream
