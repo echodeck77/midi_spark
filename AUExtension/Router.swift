@@ -2695,7 +2695,7 @@ final class Router {
         let modWindowBeats = Double(frameCount) * beatsPerSample
         if uniformFast {
             emitColumnMod(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
-                          beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+                          beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, S: S, cycleBeats: cycleBeats)
             emitColumnGlide(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
                             beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
             emitColumnRecorder(box: box, column: effColumn, beatPos: beatPos, windowBeats: modWindowBeats,
@@ -2706,7 +2706,8 @@ final class Router {
                 if rowLaunchArmed[r] { continue }   // PLAY-FERRY LAUNCH: armed-not-started rows emit nothing (rowEffColBuf = -1)
                 let rowBeat = beatPos - box.rowLaunchAnchor[r]   // PLAY-FERRY LAUNCH: anchored beat (anchor cancels in the offset math; 0 ⇒ raw)
                 emitColumnMod(box: box, column: rowEffColBuf[r], pool: pool, beatPos: rowBeat, windowBeats: modWindowBeats,
-                              beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
+                              beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r,
+                              S: box.rowStep[r], cycleBeats: Double(box.rowLength[r]) * box.rowStep[r])
                 emitColumnGlide(box: box, column: rowEffColBuf[r], pool: pool, beatPos: rowBeat, windowBeats: modWindowBeats,
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
                 let recSr = box.rowStep[r]; let recPass = Double(box.rowLength[r]) * recSr
@@ -2835,7 +2836,8 @@ final class Router {
     /// on every ENABLED bus's cable + All, on the bus's stamp channel. Runs BEFORE the held-note guard — MOD needs no
     /// keys down. When the playhead LEAVES a column, the departed column's MOD cells (modReset) send their default (0).
     private func emitColumnMod(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
-                               beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
+                               beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?, onlyRow: Int? = nil,
+                               S: Double = 0, cycleBeats: Double = 0) {
         let slot = onlyRow ?? Snap.rows                           // PER-ROW LEAVE-DISPOSITION: one slot per row, or the global slot
         if modLastColumn[slot] != Int32(column) {                 // LEAVE-DISPOSITION: reset the column we just left
             if modLastColumn[slot] >= 0 { emitModResets(box: box, column: Int(modLastColumn[slot]), atSample: windowStart, out: out, onlyRow: onlyRow) }
@@ -2867,7 +2869,12 @@ final class Router {
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
                     if b >= beatPos {
-                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: b, period: period, column: column, entryBeat: entryBeat)
+                        // CLOCK (Paul 2026-09-26, Stage 3): MOD has no driver — CLOCK reaches it whenever a CLOCK stage
+                        // sits ANYWHERE before MOD's own slot in THIS cell's chain (from chain-start, not driver-relative
+                        // like the fold consumers), transforming only the SHAPE read below; `sample` (when the CC is
+                        // actually sent) stays on the real beat `b` — CLOCK never touches real output timing.
+                        let bClock = S > 0 ? clockTransformedBeat(cell, from: 0, to: si, atBeat: b, S: S, cycleBeats: cycleBeats) : b
+                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: bClock, period: period, column: column, entryBeat: entryBeat)
                         var value = modMap(s, min: p.modMin, max: p.modMax)
                         if p.modQuantize > 1 { value = modQuantizeValue(value, levels: p.modQuantize) }   // §14① QUANTIZE
                         let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
@@ -2894,6 +2901,7 @@ final class Router {
             let col = idx / Snap.rows, row = idx % Snap.rows
             if cellSoloedOut(col, row) { continue }
             if !cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row)) { continue }
+            let rowS = box.rowStep[row], rowCyc = Double(box.rowLength[row]) * rowS   // CLOCK (Stage 3): this row's own clock, for the transform below
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modFree && cell.procs[si].modTarget == .cc {
                 let p = cell.procs[si]
                 let period = modPeriodBeats(p, box: box)
@@ -2901,7 +2909,8 @@ final class Router {
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
                     if b >= beatPos {
-                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: b, period: period, column: col, entryBeat: 0)   // FREE ignores column entry → phase from the origin
+                        let bClock = rowS > 0 ? clockTransformedBeat(cell, from: 0, to: si, atBeat: b, S: rowS, cycleBeats: rowCyc) : b
+                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: bClock, period: period, column: col, entryBeat: 0)   // FREE ignores column entry → phase from the origin
                         var value = modMap(s, min: p.modMin, max: p.modMax)
                         if p.modQuantize > 1 { value = modQuantizeValue(value, levels: p.modQuantize) }
                         let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
@@ -4062,8 +4071,14 @@ final class Router {
     /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent
     /// derivation: identity/gate/ratchet/strum pass the set, a closed gate empties it, chance drops by
     /// probability, harmonize expands to voices, an ARP mid-chain collapses the set to its one note at m.
+    // CLOCK (Paul 2026-09-26, Stage 3): `clockFrom`/`atSlot` — when both ≥0 (the emitDriverNote fold call site passes
+    // `driver + 1`/this slot's own index j) — let the ONE self-clocked case below (.tutti) read a CLOCK-transformed
+    // beat for its OWN step/rate math, same mechanism as RATCHET/VELOCITY/DEST. Every other mode here ignores them
+    // entirely (they don't read `m` as a self-clock at all — ARP/CHANCE/etc. still key off the raw beat, untouched);
+    // default -1 ⇒ byte-identical to every pre-existing call site (composeChainSet's upstream re-pooling, the echo-
+    // repeat refold — neither is "downstream of a driver", so CLOCK has nothing to transform there in this pass).
     private func applyStage(_ p: SnapParams, mode: CellMode, src: NotePool, into dst: NotePool,
-                            cell: SnapCell, m: Double, S: Double, cycleBeats: Double) {
+                            cell: SnapCell, m: Double, S: Double, cycleBeats: Double, clockFrom: Int = -1, atSlot: Int = -1) {
         switch mode {
         case .silent:
             break                                              // closed passgate → empty
@@ -4086,10 +4101,11 @@ final class Router {
                 if chancePassesPool(beat: colStart, note: Int(n), rank: k, count: cCnt, probability: chanceBase, tilt: p.chanceTilt, constantDensity: p.chanceDensity) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .tutti:                                           // [TUTTI→ARP]: reshape the source pool per step/slice
+            let mClock = clockFrom >= 0 && atSlot >= 0 ? clockTransformedBeat(cell, from: clockFrom, to: atSlot, atBeat: m, S: S, cycleBeats: cycleBeats) : m
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
             if p.tuttiMode == .coin {
                 var solo = -1                                   // −1 = TUTTI (whole set passes)
-                let step = S > 0 ? Int((columnStart(m, S) / S).rounded()) : 0
+                let step = S > 0 ? Int((columnStart(mClock, S) / S).rounded()) : 0
                 if !tuttiIsTutti(step: step, balance: p.tuttiBalance) { solo = tuttiSoloRank(step: step, count: cCnt, pick: p.tuttiPick) }
                 for k in 0..<cCnt where solo < 0 || k == solo {
                     let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
@@ -4097,7 +4113,7 @@ final class Router {
                 }
             } else {                                            // PATTERN: the authored slice shape at beat m
                 let sub = max(0.03125, p.tuttiSliceBeats)
-                let idx = (((tuttiSliceOf(m, sliceBeats: sub) + p.tuttiRotate) % 8) + 8) % 8
+                let idx = (((tuttiSliceOf(mClock, sliceBeats: sub) + p.tuttiRotate) % 8) + 8) % 8
                 let (rankCount, oct) = tuttiSliceRanksInto(&tuttiRankBufB, idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: cCnt)
                 for ri in 0..<rankCount {
                     let rank = tuttiRankBufB[ri]; guard rank >= 0 && rank < cCnt else { continue }
@@ -4289,6 +4305,7 @@ final class Router {
         var shiftP: SnapParams? = nil   // SHIFT downstream (Paul 2026-09-06): a fixed late push per note
         var humanP: SnapParams? = nil   // HUMANIZE downstream: seeded per-note timing + velocity jitter
         var velP: SnapParams? = nil     // VELOCITY downstream (Paul 2026-09-07): a per-step velocity OVERRIDE; note-transparent, applied at the final emit
+        var velIdx = -1                 // its slot index (Paul 2026-09-26, CLOCK Stage 3) — so its own rate math can read a CLOCK-transformed beat
         var j = driver + 1
         avoidDriverSurvivorValid = true   // downstream fold: a [driver→AVOID(move)] snaps onto the driver's whole-pool survivors (resolved above), not the single driven note (B-1)
         defer { avoidDriverSurvivorValid = false }
@@ -4297,7 +4314,7 @@ final class Router {
                 if cell.procs[j].type == .echo {
                     echoP = cell.procs[j]   // hold the params; DIRECT registers over the final folded set (below)
                     if cell.procs[j].echoRoute == .chain {   // §7② CHAIN: seed from the set reaching ECHO's INPUT (cur so far); drainEchoTails re-folds each repeat through slots j+1…tail
-                        let echoBM = chopMask(cell, m: m, S: S, base: bm)
+                        let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
                         for kk in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
                             let sn = cur.srcAscending(kk, filter: 0, cableMask: 0b1111)
                             pushEchoForNote(Int(sn), vel: max(1, cur.velocity(sn)), bm: echoBM, p: cell.procs[j], onset: m, S: S,
@@ -4333,11 +4350,13 @@ final class Router {
                 } else if cell.procs[j].type == .humanize {
                     humanP = cell.procs[j]   // GROOVE: seeded per-note timing + velocity jitter; applied at the final emit
                 } else if cell.procs[j].type == .velocity {
-                    velP = cell.procs[j]     // per-step velocity OVERRIDE; note-transparent to the set, applied at the final emit
+                    velP = cell.procs[j]; velIdx = j   // per-step velocity OVERRIDE; note-transparent to the set, applied at the final emit
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()
-                    applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
+                    // CLOCK (Paul 2026-09-26, Stage 3): threads into applyStage's ONE self-clocked case (.tutti) —
+                    // every other mode here ignores clockFrom/atSlot entirely, so this is a no-op elsewhere.
+                    applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats, clockFrom: driver + 1, atSlot: j)
                     swap(&cur, &nxt)
                 }
             }
@@ -4397,7 +4416,7 @@ final class Router {
             if ep.echoRoute != .chain {   // DIRECT (v1): echo the fully-processed final set (all downstream stages applied)
                 // §cell-edit F CHOP: the tail routes through the per-slice split too — it inherits the source note's
                 // slice destination, so echoes follow the note (a muted slice → mask 0 → no tail). (user 2026-08-09.)
-                let echoBM = chopMask(cell, m: m, S: S, base: bm)
+                let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
                 for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
                     let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
                     pushEchoForNote(Int(n), vel: max(1, cur.velocity(n)), bm: echoBM, p: ep, onset: m, S: S)   // each echo inherits its note's velocity
@@ -4411,11 +4430,14 @@ final class Router {
         // lane every N columns. Computed once (same onset for the whole folded set → every note this step shares it).
         var velOverride: Int? = nil
         if let vp = velP {
+            // CLOCK (Paul 2026-09-26, Stage 3): a CLOCK stage between the driver and this VELOCITY fold retimes its
+            // OWN lane-step math, same mechanism as RATCHET's fold above — note pitch/timing here is untouched.
+            let mClock = velIdx >= 0 ? clockTransformedBeat(cell, from: driver + 1, to: velIdx, atBeat: m, S: S, cycleBeats: cycleBeats) : m
             let steps = max(1, min(32, vp.velSteps))
             let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]
             let advBeats = vp.velClock == .note ? max(0.03125, driverStep) : max(0.03125, vp.velRateBeats)
             let spanBeats = vp.velSpanN > 0 ? Double(vp.velSpanN) * advBeats : 0
-            let localBeat = spanBeats > 0 ? (m - columnStart(m, spanBeats)) : m
+            let localBeat = spanBeats > 0 ? (mClock - columnStart(mClock, spanBeats)) : mClock
             let g = Int((localBeat / advBeats).rounded(.down))
             velOverride = velLaneStep(lane: vp.velLane, pass: vp.velPass, steps: steps, col: g)
         }
@@ -4444,10 +4466,10 @@ final class Router {
             // STRIKE 0 = the driver note itself, at its OWN length (offOut = LENGTH-overridden gate). Then, if the fold
             // ratchet calls for N>1, register N−1 more COPIES spaced over the gap to the next note — via the ECHO ring so
             // they spread across render blocks (each copy keeps the note's own length; overlaps re-articulate cleanly).
-            emitChop(Int(n), cell: cell, bm: bm, onSample: onN, offSample: offN, windowEnd: windowEnd, velocity: UInt8(baseVel), m: m, S: S, out: out, diag: &diag)
+            emitChop(Int(n), cell: cell, bm: bm, onSample: onN, offSample: offN, windowEnd: windowEnd, velocity: UInt8(baseVel), m: m, S: S, out: out, diag: &diag, clockFrom: driver + 1, cycleBeats: cycleBeats)
             if foldBurst > 1 && foldSpacingBeats > 0 {
                 let noteLenBeats = max(0.01, Double(max(1, offOut - onSample)) * beatsPerSample)
-                let echoBM = chopMask(cell, m: m, S: S, base: bm)
+                let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
                 pushEchoTail(onset: m, note: n, vel: UInt8(baseVel), busMask: echoBM, timeBeats: foldSpacingBeats, repeats: foldBurst - 1,
                              feedDelay: 1.0, decay: foldDecay, offset: 0, pitch: 0, gateBeats: noteLenBeats)
             }
@@ -4469,7 +4491,11 @@ final class Router {
                      route: route, cellIdx: cellIdx, echoSlot: echoSlot)
     }
     /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).
-    private func chopMask(_ cell: SnapCell, m: Double, S: Double, base: UInt8) -> UInt8 {
+    /// CLOCK (Paul 2026-09-26, Stage 3): `clockFrom` — when ≥0 (the driver-fold call sites pass `driver + 1`) — is the
+    /// slot a CLOCK stage between it and DEST's own slot would retime; DEST is the ONLY reader (CHOP's `chopSlice` and
+    /// MUTE MATRIX's `columnStart` below are unaffected — this doesn't touch note timing, only DEST's own routing read).
+    /// Default −1 ⇒ byte-identical to every pre-existing call site (no driver context, or CLOCK not yet reached there).
+    private func chopMask(_ cell: SnapCell, m: Double, S: Double, base: UInt8, clockFrom: Int = -1, cycleBeats: Double = 0) -> UInt8 {
         // ONE bounded scan (≤8 procs) for the last DEST + the last MUTE — a proc is never both, so the else-if keeps each
         // "last wins" independently. DEST is the router (overrides CHOP); MUTE (§5) composes on top, removing emitters.
         var destProc = -1, muteProc = -1
@@ -4489,8 +4515,9 @@ final class Router {
             // mod 8. The UI matrix (GridUI's `.dest` case) extrapolates the SAME formula per animation frame, so the lit
             // cell and the audible route are always the same clock. −1 = NONE (no emitter — silence this step).
             let dp = cell.procs[destProc]
+            let mClock = clockFrom >= 0 ? clockTransformedBeat(cell, from: clockFrom, to: destProc, atBeat: m, S: S, cycleBeats: cycleBeats) : m
             let rate = max(0.03125, dp.destRateBeats)
-            let sl = (((Int((m / rate).rounded(.down))) % 8) + 8) % 8
+            let sl = (((Int((mClock / rate).rounded(.down))) % 8) + 8) % 8
             let d = dp.destSlices
             let e = sl < d.count ? max(-1, min(3, d[sl])) : 0
             result = e < 0 ? 0 : (UInt8(1) << UInt8(e))   // route to exactly this emitter, or none
@@ -4511,10 +4538,12 @@ final class Router {
         return result
     }
     /// Emit one note applying the cell's per-slice CHOP routing (the shared tail of every tick emitter).
+    /// CLOCK (Paul 2026-09-26, Stage 3): `clockFrom`/`cycleBeats` forward to `chopMask` — see its own doc comment.
     private func emitChop(_ note: Int, cell: SnapCell, bm: UInt8, onSample: Int64, offSample: Int64,
-                          windowEnd: Int64, velocity: UInt8, m: Double, S: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+                          windowEnd: Int64, velocity: UInt8, m: Double, S: Double, out: MIDIEmitter?, diag: inout KernelDiag,
+                          clockFrom: Int = -1, cycleBeats: Double = 0) {
         guard note >= 0 && note <= 127 else { return }
-        let tbm = chopMask(cell, m: m, S: S, base: bm)
+        let tbm = chopMask(cell, m: m, S: S, base: bm, clockFrom: clockFrom, cycleBeats: cycleBeats)
         if tbm != 0 { emitArtic(note: UInt8(note), busMask: tbm, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, out: out, diag: &diag) }
     }
 

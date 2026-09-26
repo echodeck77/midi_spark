@@ -469,6 +469,110 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(glideOn, 4, "GLIDE: the same 4 notes, but the ramp moves every one of them off column 1 — all plain")
         XCTAssertNotEqual(set, glideOn, "the SAME authored ratio sequence folds differently as SET (snap) vs GLIDE (ramp)")
     }
+    // CLOCK Stage 3 (Paul 2026-09-26): extends clockTransformedBeat to the OTHER self-clocked consumers that can
+    // genuinely sit downstream of a real driver's fold — DEST, VELOCITY, TUTTI (via emitDriverNote's forward scan)
+    // and MOD (its own chain-position scan, since it has no driver at all). EUCLID/BURST/CASCADE/WEAVE/RIFF are
+    // drivers themselves (isDriverType) — chainDriverIndex always makes them the LAST driver-type slot, so they
+    // never reach a downstream-fold position under the current architecture; retiming THEM needs the still-open
+    // CLOCK-before-a-driver inversion problem, out of scope here (see the Stage-1 scoping note in the outbox).
+    //
+    // [ARP→CLOCK ×2→DEST]: DEST routes column 1 (the only note at m=0.5, WITHOUT clock) to emitter B; every other
+    // column routes to A. WITH a ×2 clock the same 4 notes (mClock = 0,1,2,3) land on columns 0,2,4,6 — column 1 is
+    // never hit, so DEST never picks B at all.
+    func testClockTransformsDestsOwnRoutingClock() {
+        func cableBCount(clockRatio: Int?) -> Int {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var procs = [arp]
+            if let ratio = clockRatio {
+                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
+                procs.append(ck)
+            }
+            var dest = ProcessorSlot(type: .dest)
+            dest.params.destRate = .r1_8; dest.params.destSlices = [0, 1, 0, 0, 0, 0, 0, 0]   // col1 → B, else → A
+            procs.append(dest)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 2 }.count   // cable 2 = wire B
+        }
+        XCTAssertEqual(cableBCount(clockRatio: nil), 1, "no clock: the note at m=0.5 lands on column 1 → routes to B once")
+        let two = clockRatioLadder.firstIndex(of: 2)!
+        XCTAssertEqual(cableBCount(clockRatio: two), 0, "×2 clock: none of the 4 transformed notes ever land on column 1 → B never fires")
+    }
+    // [ARP→CLOCK ×2→VELOCITY]: VELOCITY's lane has ONE loud step (100) at column 1 (the m=0.5 note, no clock); every
+    // other step is 40. A ×2 clock moves every one of the 4 notes off column 1 → every note plays at 40.
+    func testClockTransformsVelocitysOwnLaneClock() {
+        func loudCount(clockRatio: Int?) -> Int {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var procs = [arp]
+            if let ratio = clockRatio {
+                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
+                procs.append(ck)
+            }
+            var vel = ProcessorSlot(type: .velocity)
+            vel.params.velRate = .r1_8; vel.params.velSteps = 8
+            vel.params.velLane = [40, 100, 40, 40, 40, 40, 40, 40]   // column 1 loud, everything else quiet
+            procs.append(vel)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 && $0.vel == 100 }.count   // cable 1 only — every note ALSO doubles onto the shared ALL cable (§7b)
+        }
+        XCTAssertEqual(loudCount(clockRatio: nil), 1, "no clock: the note at m=0.5 lands on the loud step")
+        let two = clockRatioLadder.firstIndex(of: 2)!
+        XCTAssertEqual(loudCount(clockRatio: two), 0, "×2 clock: none of the 4 transformed notes land on the loud step")
+    }
+    // [ARP→CLOCK ×2→TUTTI(PATTERN)]: TUTTI's slice at column 1 is REST (drops the single driven note through); every
+    // other slice is ALL (keeps it). A ×2 clock moves every note off column 1 → nothing gets dropped.
+    func testClockTransformsTuttisOwnSliceClock() {
+        func passCount(clockRatio: Int?) -> Int {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var procs = [arp]
+            if let ratio = clockRatio {
+                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
+                procs.append(ck)
+            }
+            var tutti = ProcessorSlot(type: .tutti); tutti.params.tuttiMode = .pattern
+            tutti.params.tuttiRate = .r1_8
+            tutti.params.tuttiSlices = [.all, .rest, .all, .all, .all, .all, .all, .all]   // column 1 rests, else passes
+            procs.append(tutti)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count   // cable 1 only — every note ALSO doubles onto the shared ALL cable (§7b)
+        }
+        XCTAssertEqual(passCount(clockRatio: nil), 3, "no clock: the note at m=0.5 lands on the REST column and is dropped — 3 of 4 pass")
+        let two = clockRatioLadder.firstIndex(of: 2)!
+        XCTAssertEqual(passCount(clockRatio: two), 4, "×2 clock: no note ever lands on the REST column — all 4 pass")
+    }
+    // [CLOCK ×2→MOD]: MOD has no driver at all — CLOCK reaches it from chain-start, not driver-relative. A RAMP-shape
+    // MOD sampled across a window must emit a genuinely different CC value sequence when retimed (a ×1 clock stays
+    // byte-identical to no clock at all — the standing no-op law every CLOCK mode obeys).
+    func testClockTransformsModsOwnShapeClock() {
+        let cs = arpMachines()   // MOD needs no driver — an arp-typed base is fine, the chain below is explicit
+        func ccValues(clockRatio: Int?) -> [UInt8] {
+            var procs: [ProcessorSlot] = []
+            if let ratio = clockRatio {
+                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
+                procs.append(ck)
+            }
+            var mod = ProcessorSlot(type: .mod); mod.params.modShape = .ramp; mod.params.modCC = 20
+            mod.params.modStepSpanN = 1   // PERIOD = one grid step (S), a short, easily-sampled cycle
+            procs.append(mod)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            return e.events.filter { $0.status == 0xB0 && $0.cable == 1 && $0.note == 20 }.map { $0.vel }
+        }
+        let noClock = ccValues(clockRatio: nil)
+        XCTAssertFalse(noClock.isEmpty, "sanity: the RAMP actually emits CC events over 2 beats")
+        let one = clockRatioLadder.firstIndex(of: 1)!
+        XCTAssertEqual(ccValues(clockRatio: one), noClock, "×1 CLOCK is a no-op — byte-identical to no CLOCK at all, matching every other mode")
+        let two = clockRatioLadder.firstIndex(of: 2)!
+        XCTAssertNotEqual(ccValues(clockRatio: two), noClock, "×2 CLOCK genuinely retimes the RAMP — a different value sequence over the same real window")
+    }
     // STANDALONE RATCHET PATTERN = a PASS-THROUGH PROCESSOR, not a generator (Paul 2026-09-08). A lone (single-slot)
     // ratchet-pattern cell RECEIVES the input and passes it through; its own clock only decides per-column treatment
     // (1 = pass/sustain · 2…8 = ratchet · 0 = OFF/mute). It must NOT manufacture a note per step — the fix for "a short
