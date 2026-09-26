@@ -200,7 +200,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
 - **▶ CLOCK — FIXED and WAVE modes REMOVED ENTIRE; CLOCK is now always the one grid (2026-09-26, on `main`,
-  `<pending>`; iOS builds, macOS 1110 green incl. fuzz; DEVICE ear owed). SUPERSEDES the same-day "driver retiming,
+  `5a857df`; iOS builds, macOS 1110 green incl. fuzz; DEVICE ear owed). SUPERSEDES the same-day "driver retiming,
   REBUILT against DRAWN" entry below — that pass was STILL INCOMPLETE, caught by Paul directly: "tell me what I
   asked you to do that you haven't done." He'd said "remove everything you've done on clock because it's wrong,
   and complete it to this specification" — I only removed the driver-retiming layer added that same session (the
