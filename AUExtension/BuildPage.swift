@@ -3395,6 +3395,15 @@ extension DiagView {
             guard r >= 0, r < 8, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return [] }
             return buildMachineChain(cid)
         }
+        // LIVE RE-FLATTEN, every publish (Paul 2026-09-26): a background ferry's play-layer line used to be a CACHE, only
+        // refreshed at specific event boundaries (buildFlattenFerry called on activate/deactivate/play-toggle) — so an
+        // edit to its stored BuildPart between those events (e.g. its RATE, changed while it happened to be active a
+        // moment before) left the cache stale until the next transition (the play-ferry-playhead bug). The ACTIVE ferry
+        // was always PURE in this sense — the staging sequencer recomposes it from the live bench on every publish. Every
+        // OTHER on-air ferry now gets the same treatment: re-derive its flattened line from buildFerryParts[t] (its one
+        // source of truth) right here, so "every ferry is a live part grid, only the selected one is visible on the
+        // bench" holds structurally, not just as a mental model. Cheap (≤7 ferries × ≤16 columns, UI-thread only).
+        for t in 0..<8 where t != buildActiveFerry && t < buildPlayColOn.count && buildPlayColOn[t] { buildFlattenFerry(t) }
         // MULTI-STEP PASS (Paul 2026-08-30): a flattened part rides a play column as N steps — resolve each step's chain here.
         input.playColLen = buildPlayColLen
         input.playColSteps = buildPlayColSteps
