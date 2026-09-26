@@ -35,6 +35,9 @@ struct BuildPart: Codable, Equatable {
     // independent tempos. Additive-Optional (old parts decode nil ⇒ the scene default rate + a full 8).
     var rate: StepRate? = nil         // the part's step rate (nil ⇒ the scene default)
     var length: Int? = nil            // the part's LOOP length in columns 1…8 (nil ⇒ 8; < 8 = a shorter loop, a future step)
+    // PART LOOP SELECTION (Paul 2026-09-26): play ONLY these columns, in the order they were ADDED — not sorted, not
+    // the whole part. nil/empty ⇒ play the whole part (today's behaviour). See BuildSceneLogic.loopColumnPlan.
+    var loopCols: [Int]? = nil
     // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): per-ferry identity + how it fires when performed. Additive-Optional →
     // old parts decode nil ⇒ today's behaviour (unnamed · position hue · LOOP · LATCH · SYNC · no choke). These ride
     // BuildPlayGridData.parts persistence for free. The launch ANCHOR itself is runtime (@State), NOT stored here.
@@ -206,6 +209,7 @@ extension BuildPart {
         deployed     = try c.decodeIfPresent(Bool.self, forKey: .deployed) ?? false
         rate         = try c.decodeIfPresent(StepRate.self, forKey: .rate)
         length       = try c.decodeIfPresent(Int.self, forKey: .length)
+        loopCols     = try c.decodeIfPresent([Int].self, forKey: .loopCols)   // PART LOOP SELECTION (2026-09-26); nil = today
         ferryName      = try c.decodeIfPresent(String.self, forKey: .ferryName)                 // PLAY-FERRY LAUNCH (2026-09-09); nil = today
         ferryHue       = try c.decodeIfPresent(UInt32.self, forKey: .ferryHue)
         launchPlayback = try c.decodeIfPresent(FerryPlayback.self, forKey: .launchPlayback)

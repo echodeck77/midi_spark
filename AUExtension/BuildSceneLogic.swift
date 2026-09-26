@@ -37,6 +37,7 @@ enum BuildSceneLogic {
         var performLen: [Int?] = []                    // per play-grid ROW: its deployed part's loop length
         var stagingRate: StepRate? = nil               // the CURRENT part's rate (the staging audition rows)
         var stagingLen: Int? = nil                     // the CURRENT part's loop length
+        var stagingLoopCols: [Int] = []                // PART LOOP SELECTION (Paul 2026-09-26): the CURRENT part's ordered loop columns; empty ⇒ play the whole part
         // PER-ROW LAP (Paul 2026-08-19): the two grids' column-loop masks, kept SEPARATE — staging (current part) rows
         // lap `stagingLane`, piece rows lap `performLane`, so looping one grid never loops the other.
         var stagingLane: UInt16 = 0                     // the CURRENT part's column-loop mask (staging grid)
@@ -81,6 +82,18 @@ enum BuildSceneLogic {
     // can hold a SET of rungs (poly selections), only these two bodies change — every caller already asks here.
     /// The primary selected rung for column `c` (-1 = the column is silent / out of range). Poly's "lead" rung.
     static func selectedRung(_ sel: [Int], _ c: Int) -> Int { (c >= 0 && c < sel.count) ? sel[c] : -1 }
+    /// PART LOOP SELECTION (Paul 2026-09-26): when `loopCols` is non-empty, play ONLY those columns, in the order
+    /// they were added — not sorted, not the whole part. Out-of-range entries (e.g. from a since-shortened part) are
+    /// dropped silently; if that empties the selection, falls back to full playback (identity map) rather than going
+    /// silent. `count` is the effective step length (feeds rowLen); `physicalColumn(i)` maps a LOGICAL position
+    /// (0..<count, the sequential scene column) to the REAL part column to read from / draw at — the one function
+    /// every audio path AND both playheads share, so the lit cell and the emitter actually heard never disagree
+    /// (the RATCHET/DEST/ferry-rate lesson). Pure.
+    static func loopColumnPlan(_ loopCols: [Int], length: Int) -> (count: Int, physicalColumn: (Int) -> Int) {
+        let valid = loopCols.filter { $0 >= 0 && $0 < length }
+        guard !valid.isEmpty else { return (length, { $0 }) }
+        return (valid.count, { i in valid[max(0, min(valid.count - 1, i))] })
+    }
     // PLAY-FERRY LAUNCH (Paul 2026-09-09, Phase 3): the ferries a NEW launch chokes — every OTHER currently-ON ferry sharing
     // the launching ferry's non-OFF choke group. Pure so the choke rule is unit-tested. group ≤ 0 (OFF) ⇒ no victims.
     static func chokeVictims(launching t: Int, group g: Int, parts: [BuildPart?], on: [Bool]) -> [Int] {
@@ -233,9 +246,15 @@ enum BuildSceneLogic {
             } }
         }
 
+        // PART LOOP SELECTION (Paul 2026-09-26): computed once, shared by the cell-placement block below AND the
+        // rate/length block further down — the ONE plan both agree on. loopColumnPlan falls back to the identity map
+        // (every physical column, in order) when stagingLoopCols is empty, so this is byte-identical when unused.
+        let partLen = max(1, min(Snap.maxCols, i.stagingLen ?? Snap.cols))
+        let stagingPlan = loopColumnPlan(i.stagingLoopCols, length: partLen)
         if i.stagingPlaying {                                       // THE PART — the staging selection, ALONGSIDE the piece; each ROW carries its OWN I/O (Paul 2026-08-18)
             let dfltBuses: Set<Bus> = i.partEmitters.isEmpty ? [.a] : i.partEmitters
-            for c in 0..<Snap.maxCols {   // §E: 16-wide part
+            for logical in 0..<stagingPlan.count {   // §E: 16-wide part, or the LOOP SELECTION's own length/order
+                let c = stagingPlan.physicalColumn(logical)         // read from the REAL part column…
                 let r = selectedRung(i.stagingSel, c)
                 guard r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, let cid = i.stagingCells[c][r] else { continue }
                 let chain = r < i.rowChain.count ? i.rowChain[r] : []
@@ -248,7 +267,7 @@ enum BuildSceneLogic {
                 var cell = Cell(machineID: cid, buses: buses)
                 cell.inputReceiver = recv
                 cell.processors = applyAuto(chain, machineID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
-                s.setCell(c, r, cell)                               // the audition sits in front on a slot collision
+                s.setCell(logical, r, cell)                         // …write to the SEQUENTIAL scene column (the audition sits in front on a slot collision)
             }
         }
 
@@ -275,10 +294,15 @@ enum BuildSceneLogic {
         var rowLen = [Int?](repeating: nil, count: Snap.rows)
         var clockClaimed = [Bool](repeating: false, count: 8)   // rows the STAGING (front) voice owns — the piece never overrides these
         if i.stagingPlaying {
-            for c in 0..<Snap.maxCols {   // §E: 16-wide part
+            for logical in 0..<stagingPlan.count {   // the SAME plan as the cell-placement block above (one source of truth)
+                let c = stagingPlan.physicalColumn(logical)
                 let r = selectedRung(i.stagingSel, c)
                 if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
-                    rowStepRate[r] = i.stagingRate; rowLen[r] = i.stagingLen; clockClaimed[r] = true
+                    // rowLen reflects the LOOP's own length only when it actually changes the count (byte-identical
+                    // when the feature is unused — an unset loop resolves stagingPlan.count == partLen == i.stagingLen).
+                    rowStepRate[r] = i.stagingRate
+                    rowLen[r] = (stagingPlan.count == partLen) ? i.stagingLen : stagingPlan.count
+                    clockClaimed[r] = true
                 }
             }
         }

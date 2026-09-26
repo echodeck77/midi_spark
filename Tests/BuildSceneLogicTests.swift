@@ -647,6 +647,66 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s.rowLane?[2], 0b10, "staging's lane wins the shared row over the piece's")
     }
 
+    // MARK: loopColumnPlan + composeScene PART LOOP SELECTION (Paul 2026-09-26)
+
+    func testLoopColumnPlanFallsBackToIdentityWhenEmpty() {
+        let plan = BuildSceneLogic.loopColumnPlan([], length: 8)
+        XCTAssertEqual(plan.count, 8, "no selection ⇒ play the whole part")
+        XCTAssertEqual((0..<8).map(plan.physicalColumn), Array(0..<8), "identity map when unset")
+    }
+
+    func testLoopColumnPlanPreservesAddedOrderNotSorted() {
+        // The whole point: [3, 1, 5] must stay [3, 1, 5], NOT sort to [1, 3, 5].
+        let plan = BuildSceneLogic.loopColumnPlan([3, 1, 5], length: 8)
+        XCTAssertEqual(plan.count, 3)
+        XCTAssertEqual([plan.physicalColumn(0), plan.physicalColumn(1), plan.physicalColumn(2)], [3, 1, 5])
+    }
+
+    func testLoopColumnPlanDropsOutOfRangeAndFallsBackIfAllInvalid() {
+        // A column beyond the part's current length (e.g. the part was shortened after the loop was set) is dropped
+        // silently, not a crash; if that empties the selection, fall back to full playback rather than going silent.
+        let partial = BuildSceneLogic.loopColumnPlan([2, 99, 4], length: 8)
+        XCTAssertEqual(partial.count, 2, "the out-of-range 99 is dropped")
+        XCTAssertEqual([partial.physicalColumn(0), partial.physicalColumn(1)], [2, 4])
+        let allInvalid = BuildSceneLogic.loopColumnPlan([50, 99], length: 8)
+        XCTAssertEqual(allInvalid.count, 8, "every entry invalid ⇒ falls back to full playback, not silence")
+        XCTAssertEqual((0..<8).map(allInvalid.physicalColumn), Array(0..<8))
+    }
+
+    func testComposeScenePlaysOnlySelectedColumnsInAddedOrder() {
+        // Columns 3, 1, 5 each hold a distinct machine on row 2; a loop selection of [3, 1, 5] (deliberately NOT
+        // ascending) must compose the scene's SEQUENTIAL columns 0, 1, 2 with THAT order's content — reproducing
+        // exactly what plays, mirroring what buildFlattenFerry does for a background ferry.
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(3, 2, "m3"), (1, 2, "m1"), (5, 2, "m5")])
+        i.stagingSel = [-1, 2, -1, 2, -1, 2, -1, -1]
+        i.rowChain = (0..<8).map { $0 == 2 ? [ProcessorSlot(type: .arp)] : [] }
+        i.stagingLoopCols = [3, 1, 5]
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 2)?.machineID, "m3", "logical step 0 plays the FIRST added column (3), not the lowest")
+        XCTAssertEqual(s.cellAt(1, 2)?.machineID, "m1", "logical step 1 plays the SECOND added column (1)")
+        XCTAssertEqual(s.cellAt(2, 2)?.machineID, "m5", "logical step 2 plays the THIRD added column (5)")
+        XCTAssertNil(s.cellAt(3, 2), "columns beyond the selection's count are not written")
+        XCTAssertEqual(s.rowLen?[2], 3, "the row's effective length is the selection's count")
+    }
+
+    func testComposeSceneEmptyLoopSelectionIsByteIdenticalToUnset() {
+        // No loop selection ⇒ every physical column plays at its OWN position (today's behaviour) — the feature must
+        // be a true no-op when unused.
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 2, "a"), (1, 2, "b"), (2, 2, "c")])
+        i.stagingSel = [2, 2, 2, -1, -1, -1, -1, -1]
+        i.rowChain = (0..<8).map { $0 == 2 ? [ProcessorSlot(type: .arp)] : [] }
+        // stagingLoopCols left at its default ([])
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 2)?.machineID, "a")
+        XCTAssertEqual(s.cellAt(1, 2)?.machineID, "b")
+        XCTAssertEqual(s.cellAt(2, 2)?.machineID, "c")
+        XCTAssertNil(s.rowLen, "no rate/length/loop customisation at all ⇒ no per-row clock (fast path preserved)")
+    }
+
     // Regression (Paul 2026-08-16): MUTATE on a EUCLID gave only ONE variant then went dead — its euclidPulses/Steps/Rot
     // params were advertised but NOT wired into processorValues/applyProcessorValues, so the only working tweak was the
     // bypass toggle. With them wired, repeated MUTATE yields many distinct variants.

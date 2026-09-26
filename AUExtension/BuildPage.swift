@@ -101,7 +101,7 @@ struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Dou
 struct BuildSnapshot {
     var stagingCells: [[String?]]; var stagingSel: [Int]; var stagingLane: UInt16
     var parts: [BuildPart]; var currentPart: Int
-    var partEmitters: Set<Bus>; var partRate: StepRate?; var partLen: Int?
+    var partEmitters: Set<Bus>; var partRate: StepRate?; var partLen: Int?; var partLoopCols: [Int]
     var partCast: [String]; var castSlots: [Int: String]; var rowUnder: [String?]
     var rowReceiver: [Int?]; var rowEmitters: [Set<Bus>?]
     var performCells: [[String?]]; var performChain: [[[ProcessorSlot]]]; var performRecv: [Int]
@@ -1143,6 +1143,16 @@ extension DiagView {
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative for performRate mapping
         buildPublishScene()
     }
+    // PART LOOP SELECTION (Paul 2026-09-26): the bottom-rail loop buttons — tap toggles a column's membership. Adding
+    // APPENDS (added-order, not sorted); re-adding a removed column goes to the END, not back to its old position. An
+    // out-of-range column (the part has since shrunk) is simply dropped by BuildSceneLogic.loopColumnPlan at read time,
+    // never crashes — so no clamping is needed here.
+    func buildTogglePartLoopColumn(_ c: Int) {
+        if let idx = buildPartLoopCols.firstIndex(of: c) { buildPartLoopCols.remove(at: idx) }
+        else { buildPartLoopCols.append(c) }
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].loopCols = buildPartLoopCols.isEmpty ? nil : buildPartLoopCols }   // keep buildParts authoritative, mirrors buildSetPartRate
+        buildPublishScene()
+    }
     func buildSetPartLen(_ n: Int?) {
         let old = buildPartCols
         buildPartLen = n
@@ -1720,9 +1730,14 @@ extension DiagView {
                 // `buildPlayColRate[t]` (was: this button always read the scene-default `stepBeats`, so a per-ferry rate
                 // change was invisible here even though the part grid's own playhead updated at once).
                 let ferryRate: StepRate? = focused ? buildPartRate : (t < buildPlayColRate.count ? buildPlayColRate[t] : nil)
+                // PART LOOP SELECTION (Paul 2026-09-26): the ACTIVE ferry's effective step count is the live loop plan
+                // (BuildSceneLogic.loopColumnPlan over buildPartLoopCols — the same plan roomsPartPlayhead reads); a
+                // BACKGROUND ferry's is already loop-adjusted in buildPlayColLen[t] by buildFlattenFerry.
+                let ferrySteps = focused ? BuildSceneLogic.loopColumnPlan(buildPartLoopCols, length: buildPartCols).count
+                                         : (t < buildPlayColLen.count ? buildPlayColLen[t] : Snap.cols)
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
-                    .overlay { if set { roomsCellPlayhead(active: on, dim: focused, rate: ferryRate).padding(2) } }   // PER-CELL PLAYHEAD — the SELECTED/open ferry sweeps too (so it reads as playing) but DIMMED, to set it apart from the other, un-opened ferries at full brightness (Paul 2026-09-13)
+                    .overlay { if set { roomsCellPlayhead(active: on, dim: focused, rate: ferryRate, steps: ferrySteps).padding(2) } }   // PER-CELL PLAYHEAD — the SELECTED/open ferry sweeps too (so it reads as playing) but DIMMED, to set it apart from the other, un-opened ferries at full brightness (Paul 2026-09-13)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
                     .shadow(color: (on && audible) ? eHue.opacity(0.7) : .clear, radius: (on && audible) ? 5 : 0)   // PLAYING (and AUDIBLE) → an EMITTER-coloured glow; a silenced ferry gets no glow
@@ -1795,12 +1810,16 @@ extension DiagView {
             return
         }
         let len = max(1, min(Snap.maxCols, p.length ?? Snap.cols))
+        // PART LOOP SELECTION (Paul 2026-09-26): the SAME plan the staging sequencer uses (BuildSceneLogic.loopColumnPlan)
+        // — a background ferry with a loop selection flattens ONLY those columns, in their chosen order, into the
+        // sequential play line (physicalColumn(i) = identity when no loop is set → byte-identical to today).
+        let plan = BuildSceneLogic.loopColumnPlan(p.loopCols ?? [], length: len)
         let rungAt: (Int) -> Int = { c in BuildSceneLogic.selectedRung(p.stagingSel, c) }
-        buildPlayColSteps[t]     = (0..<len).map { c in let r = rungAt(c); return (r >= 0 && c < p.stagingCells.count && r < p.stagingCells[c].count) ? p.stagingCells[c][r] : nil }
-        buildPlayColLen[t]       = len
+        buildPlayColSteps[t]     = (0..<plan.count).map { i in let c = plan.physicalColumn(i); let r = rungAt(c); return (r >= 0 && c < p.stagingCells.count && r < p.stagingCells[c].count) ? p.stagingCells[c][r] : nil }
+        buildPlayColLen[t]       = plan.count
         buildPlayColRate[t]      = p.rate
-        buildPlayColStepRecv[t]  = (0..<len).map { c in let r = rungAt(c); return r >= 0 ? (p.rowReceiver.flatMap { r < $0.count ? $0[r] : nil } ?? p.receiver) : p.receiver }
-        buildPlayColStepEmit[t]  = (0..<len).map { c in let r = rungAt(c); return r >= 0 ? (p.rowEmitters.flatMap { r < $0.count ? $0[r] : nil } ?? p.emitters) : p.emitters }
+        buildPlayColStepRecv[t]  = (0..<plan.count).map { i in let c = plan.physicalColumn(i); let r = rungAt(c); return r >= 0 ? (p.rowReceiver.flatMap { r < $0.count ? $0[r] : nil } ?? p.receiver) : p.receiver }
+        buildPlayColStepEmit[t]  = (0..<plan.count).map { i in let c = plan.physicalColumn(i); let r = rungAt(c); return r >= 0 ? (p.rowEmitters.flatMap { r < $0.count ? $0[r] : nil } ?? p.emitters) : p.emitters }
     }
     // SELECTOR tap: bring ferry `t`'s part onto the bench (empty ferry → the SELECT grid). The ferry is a LIVE VIEW of its
     // part, so the outgoing ferry's bench edits are written back first.
@@ -2109,7 +2128,9 @@ extension DiagView {
     }
     // THE GRID FOOTER (Paul 2026-09-08) — a row at the BOTTOM of each grid, mirroring the top ferry row at 2/3 its height,
     // spanning the MAIN BODY only (the interior columns, NOT the side rails: flanked by rail-width spacers). PLACEHOLDER for
-    // now — SELECT = pages · PART = column-loop buttons (behaviour deliberately NOT wired yet; this just reserves the space).
+    // the SELECT grid — SELECT = pages (behaviour deliberately not wired yet; this just reserves the space). PART's own
+    // footer (column-loop buttons) is `roomsPartLoopFooter` below — split out once PART's behaviour was actually built,
+    // so this shell stays untouched for SELECT (Paul 2026-09-26).
     @ViewBuilder private func roomsGridFooter(cells: Int, railW: CGFloat, gap: CGFloat, h: CGFloat) -> some View {
         HStack(spacing: gap) {
             Color.clear.frame(width: railW, height: h)                       // left rail — excluded from the footer's width
@@ -2121,6 +2142,28 @@ extension DiagView {
                 }
             }
             Color.clear.frame(width: railW, height: h)                       // right rail — excluded
+        }
+        .frame(height: h)
+    }
+    // THE PART GRID'S LOOP FOOTER (Paul 2026-09-26) — same shell/sizing as roomsGridFooter (so the button never changes
+    // size), but each cell is a REAL toggle: a "repeat" glyph that restricts playback to the SELECTED columns, in the
+    // order they were tapped (BuildSceneLogic.loopColumnPlan is the single source of truth both the audio — composeScene/
+    // buildFlattenFerry — and the two playheads below read, so the lit button and what plays can't disagree).
+    @ViewBuilder private func roomsPartLoopFooter(cols: Int, railW: CGFloat, gap: CGFloat, h: CGFloat) -> some View {
+        HStack(spacing: gap) {
+            Color.clear.frame(width: railW, height: h)
+            HStack(spacing: gap) {
+                ForEach(0..<max(1, cols), id: \.self) { c in
+                    let on = buildPartLoopCols.contains(c)
+                    RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : Color.white.opacity(0.05))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.white.opacity(0.8) : buildEdge, lineWidth: on ? 2 : 1))
+                        .overlay(Image(systemName: "repeat").font(.system(size: 10, weight: .heavy)).foregroundColor(on ? .black : .white.opacity(0.4)))
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                        .onTapGesture { buildTogglePartLoopColumn(c) }
+                }
+            }
+            Color.clear.frame(width: railW, height: h)
         }
         .frame(height: h)
     }
@@ -2303,8 +2346,9 @@ extension DiagView {
                         }
                     }
                     // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
-                    roomsGridFooter(cells: cols, railW: railW, gap: gap, h: footerH)
-                        .frame(width: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), height: footerH).offset(y: footerY)   // PART = column-loop buttons (placeholder, not wired)
+                    // PART = the loop-column buttons (Paul 2026-09-26, wired — see roomsPartLoopFooter).
+                    roomsPartLoopFooter(cols: cols, railW: railW, gap: gap, h: footerH)
+                        .frame(width: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), height: footerH).offset(y: footerY)
                     // The processor-editor card (Paul 2026-09-08): docked BELOW the footer (no longer covering it), filling
                     // the rest of the freed lower half. Spans the FULL grid-region width (every rail + interior cell).
                     roomsProcessorCardAt(x: 0, y: cardY, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: max(0, lowerH - cardY))
@@ -2487,7 +2531,12 @@ extension DiagView {
     @ViewBuilder private func roomsPartPlayhead(colW: CGFloat, gap: CGFloat, rowH: CGFloat) -> some View {
         if d.playing && (buildStagingPlaying || buildActiveFerryPlaying) {   // follow the active ferry's play-layer line (Paul 2026-09-08), not only the old staging voice
             let sb = buildPartRate?.beats ?? stepBeats
-            let cols = buildPartCols                                        // §E: the active width
+            // PART LOOP SELECTION (Paul 2026-09-26): the SAME plan the audio uses (BuildSceneLogic.loopColumnPlan) — when
+            // a loop is selected the sweep covers only that many LOGICAL steps, and each logical step maps back to its
+            // REAL on-screen column so the playhead JUMPS between the selected cells (skipped columns genuinely don't
+            // play, so sliding through them would be misleading). Falls back to the identity map when unused.
+            let plan = BuildSceneLogic.loopColumnPlan(buildPartLoopCols, length: buildPartCols)
+            let cols = plan.count
             let rows = DiagView.roomsGridRows
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
@@ -2495,8 +2544,9 @@ extension DiagView {
                 let colF = sb > 0 ? musical / sb : 0
                 let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
                 let pcol = wrapped < 0 ? wrapped + Double(cols) : wrapped
-                let c = min(cols - 1, max(0, Int(pcol)))                    // the CURRENT column
-                let fract = min(1.0, max(0.0, pcol - Double(c)))           // progress ALONG that column's active cell, [0,1)
+                let logical = min(cols - 1, max(0, Int(pcol)))              // the CURRENT logical step
+                let fract = min(1.0, max(0.0, pcol - Double(logical)))     // progress ALONG that step's active cell, [0,1)
+                let c = plan.physicalColumn(logical)                       // the REAL column this step plays
                 let r = c < buildStagingSel.count ? buildStagingSel[c] : -1 // the ACTIVE cell = this column's selected rung
                 // (The per-cell VELOCITY FLASH on the grid body was removed 2026-09-11 — Paul: no flashing on the main grid.
                 // Velocity now flashes only on the play-ferry icons + the focused machine's play button.)
@@ -2515,15 +2565,17 @@ extension DiagView {
     @ViewBuilder private func roomsCardRowPlayhead(_ n: Int, w: CGFloat, h: CGFloat) -> some View {
         if d.playing && (buildStagingPlaying || buildActiveFerryPlaying) {
             let sb = buildPartRate?.beats ?? stepBeats
-            let cols = buildPartCols
+            let plan = BuildSceneLogic.loopColumnPlan(buildPartLoopCols, length: buildPartCols)   // PART LOOP SELECTION (Paul 2026-09-26) — same plan as roomsPartPlayhead
+            let cols = plan.count
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
                 let colF = sb > 0 ? musical / sb : 0
                 let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
                 let pcol = wrapped < 0 ? wrapped + Double(cols) : wrapped
-                let c = min(cols - 1, max(0, Int(pcol)))
-                let fract = min(1.0, max(0.0, pcol - Double(c)))
+                let logical = min(cols - 1, max(0, Int(pcol)))
+                let fract = min(1.0, max(0.0, pcol - Double(logical)))
+                let c = plan.physicalColumn(logical)
                 let r = c < buildStagingSel.count ? buildStagingSel[c] : -1   // the current column's ACTIVE rung
                 // LEADING-anchored in a FULL box-sized frame so the bar actually sweeps edge→edge (an offset inside a
                 // content-sized view collapses the layout → the old version got clipped to a mid-box flash). Paul 2026-09-12.
@@ -2669,7 +2721,7 @@ extension DiagView {
     // sole caller is the play-ferry button; it passes the ferry's live/flattened rate so the button's sweep matches
     // what's actually playing (Paul 2026-09-26: was hardcoded to stepBeats, so a per-ferry rate change was invisible
     // here even though the part grid's own playhead — which already read the live rate — updated at once).
-    @ViewBuilder private func roomsCellPlayhead(active: Bool, dim: Bool = false, rate: StepRate? = nil) -> some View {
+    @ViewBuilder private func roomsCellPlayhead(active: Bool, dim: Bool = false, rate: StepRate? = nil, steps: Int = Snap.cols) -> some View {
         // PERFECTLY STILL WHENEVER THE HOST TRANSPORT IS STOPPED (Paul 2026-09-04). Gated on d.playing (the HOST), NOT
         // free-run: when the host stops but the ferry keeps sounding a held/latched chord, free-run takes over and its
         // beat jumps to 0 then advances in blocks — which is exactly the "jump to the wrong spot, jump back, jiggle" on
@@ -2678,7 +2730,10 @@ extension DiagView {
         if active && d.playing {
             GeometryReader { g in
                 let sb = max(0.0001, rate?.beats ?? stepBeats)
-                let barBeats = Double(Snap.cols) * sb                // one bar = 8 steps
+                // `steps` (Paul 2026-09-26): the ferry's TRUE loop length — was hardcoded to Snap.cols (8), so a 16-step
+                // part's button already swept twice too fast regardless of any loop selection; now it's the caller's
+                // effective step count (a loop selection's own length, or the part's real length when none is set).
+                let barBeats = Double(max(1, steps)) * sb
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                     let ph = (live.truncatingRemainder(dividingBy: barBeats)) / barBeats
@@ -3265,7 +3320,7 @@ extension DiagView {
     func buildCaptureSnapshot() -> BuildSnapshot {
         BuildSnapshot(stagingCells: buildStagingCells, stagingSel: buildStagingSel, stagingLane: buildStagingLane,
                       parts: buildParts, currentPart: buildCurrentPart,
-                      partEmitters: buildPartEmitters, partRate: buildPartRate, partLen: buildPartLen,
+                      partEmitters: buildPartEmitters, partRate: buildPartRate, partLen: buildPartLen, partLoopCols: buildPartLoopCols,
                       partCast: buildPartCast, castSlots: buildCastSlots, rowUnder: buildRowUnder,
                       rowReceiver: buildRowReceiver, rowEmitters: buildRowEmitters,
                       performCells: buildPerformCells, performChain: buildPerformChain, performRecv: buildPerformRecv,
@@ -3294,7 +3349,7 @@ extension DiagView {
         defer { buildApplyingSnapshot = false }
         buildStagingCells = s.stagingCells; buildStagingSel = s.stagingSel; buildStagingLane = s.stagingLane
         buildParts = s.parts; buildCurrentPart = s.currentPart
-        buildPartEmitters = s.partEmitters; buildPartRate = s.partRate; buildPartLen = s.partLen
+        buildPartEmitters = s.partEmitters; buildPartRate = s.partRate; buildPartLen = s.partLen; buildPartLoopCols = s.partLoopCols
         buildPartCast = s.partCast; buildCastSlots = s.castSlots; buildRowUnder = s.rowUnder
         buildRowReceiver = s.rowReceiver; buildRowEmitters = s.rowEmitters
         buildPerformCells = s.performCells; buildPerformChain = s.performChain; buildPerformRecv = s.performRecv
@@ -3379,6 +3434,7 @@ extension DiagView {
         input.performLen  = (0..<8).map { r in let p = buildPerformPart[r]; return (p >= 0 && p < buildParts.count) ? buildParts[p].length : nil }
         input.stagingRate = buildPartRate
         input.stagingLen  = buildPartLen
+        input.stagingLoopCols = buildPartLoopCols   // PART LOOP SELECTION (Paul 2026-09-26)
         input.stagingLane = buildStagingLane                     // PER-ROW LAP: the two grids loop independently
         input.performLane = buildPerformLane
         // THE PLAY GRID (Paul 2026-08-29): each column an INDEPENDENT voice — only STARTED columns (buildPlayColOn) sound,
@@ -3779,6 +3835,7 @@ extension DiagView {
         buildRowReceiver = p.rowReceiver ?? Array(repeating: nil, count: 8)   // PER-ROW I/O — old parts have nil → all rows inherit (Paul 2026-08-18)
         buildRowEmitters = p.rowEmitters ?? Array(repeating: nil, count: 8)
         buildPartRate = p.rate; buildPartLen = p.length                       // PER-PART CLOCK (Paul 2026-08-19)
+        buildPartLoopCols = p.loopCols ?? []                                  // PART LOOP SELECTION (Paul 2026-09-26)
         buildReslotCast()                                       // migrate old parts + backfill any extra machine missing a slot
         buildEnforceCastHues()                                  // strong rule: no two palette machines share a hue
         buildDeletedRows = [:]   // transient — never crosses a part
@@ -3796,6 +3853,7 @@ extension DiagView {
         p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots
         p.rowReceiver = buildRowReceiver; p.rowEmitters = buildRowEmitters
         p.rate = buildPartRate; p.length = buildPartLen; p.deployed = false
+        p.loopCols = buildPartLoopCols.isEmpty ? nil : buildPartLoopCols     // PART LOOP SELECTION (Paul 2026-09-26)
         // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): these aren't bench @State — carry them from the active ferry's stored
         // part so a bench write-back (this fresh capture) never wipes name/hue/launch. Every capture site captures the ACTIVE
         // ferry, so buildFerryParts[buildActiveFerry] holds the authoritative launch fields (the panel edits it directly).

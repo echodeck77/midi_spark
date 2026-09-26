@@ -205,6 +205,7 @@ struct DiagView: View {
     @State var buildPartEmitters: Set<Bus> = [.a]        // the CURRENT part's output emitters (part-owned I/O; every machine follows)
     @State var buildPartRate: StepRate? = nil            // PER-PART CLOCK (Paul 2026-08-19): the CURRENT part's step rate (nil ⇒ scene default) — deployed parts play at independent tempos
     @State var buildPartLen: Int? = Snap.maxCols         // PER-PART CLOCK: the CURRENT part's loop length 1…16 — DEFAULTS to 16 steps (Paul 2026-09-09); a loaded part restores its own length (nil ⇒ 8 for old docs)
+    @State var buildPartLoopCols: [Int] = []             // PART LOOP SELECTION (Paul 2026-09-26): the CURRENT part's ordered loop columns; empty ⇒ play the whole part
     @State var buildPartCast: [String] = []              // the CURRENT part's cast MEMBERSHIP (visible palette over the global store); §2 cast view
     @State var buildCastSlots: [Int: String] = [:]       // §2 explicit slot→machineID for non-default machines (long-press places a machine on its pressed cell)
     @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined machines ONCE on first BUILD appear
