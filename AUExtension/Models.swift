@@ -436,6 +436,11 @@ struct MachineParams: Codable, Equatable {
     var clockMode: ClockMode? = nil              // FIXED | WAVE; nil ⇒ FIXED
     var clockRatio: Int? = nil                   // FIXED: index into clockRatioLadder; nil ⇒ 4 (×1, the identity rung)
     var clockOffset: Int? = nil                  // FIXED: offset in this cell's own grid steps; nil ⇒ 0
+    // GLIDE (Paul 2026-09-26): when armed, changing the FIXED ratio RAMPS the driver's effective speed to the new
+    // rung over `clockRatioGlideTime` beats instead of jumping instantly. Named distinctly from `clockDrawnGlide`
+    // above — that's DRAWN's per-column rate-ramp (a different mechanism); this is a live-edit smoother for FIXED.
+    var clockRatioGlide: Bool? = nil             // FIXED: nil/false ⇒ jump instantly (today's behavior, byte-identical)
+    var clockRatioGlideTime: Double? = nil       // FIXED: the ramp duration in beats; nil ⇒ 2 beats
     var clockShape: ClockWaveShape? = nil        // WAVE: SINE | TRIANGLE; nil ⇒ SINE
     var clockDepth: Double? = nil                // WAVE: 0…1 (clamped <1 at resolve — monotonicity, never lets local time run backward); nil ⇒ 0 (inactive)
     var clockSpanN: Int? = nil                   // WAVE/DRAWN: the span ladder value (spanLadderValues) — the wobble's period, or the lane's re-anchor; nil ⇒ ROW (8)

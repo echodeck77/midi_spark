@@ -1047,6 +1047,13 @@ struct ProcessorBox: View {
                     numPair(p.clockOffset ?? 0, -8...8) { v in setParam { $0.clockOffset = v } } }
                 Text("Two copies of a chain, one at OFFSET 2, play as a self-following canon.")
                     .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                let glideOn = p.clockRatioGlide ?? false
+                field("GLIDE — changing the RATE above ramps to it instead of jumping", \.clockRatioGlide) {
+                    seg(["OFF", "ON"], sel: glideOn ? "ON" : "OFF") { i in setParam { $0.clockRatioGlide = (i == 1) } } }
+                if glideOn {
+                    field("TIME — how long the ramp takes, in beats", \.clockRatioGlideTime) {
+                        numPair(Int((p.clockRatioGlideTime ?? 2).rounded()), 1...16) { v in setParam { $0.clockRatioGlideTime = Double(v) } } }
+                }
             } else if mode == .wave {
                 field("SHAPE — the wobble's waveform", \.clockShape) {
                     seg(ClockWaveShape.allCases.map(\.rawValue), sel: (p.clockShape ?? .sine).rawValue) { i in setParam { $0.clockShape = ClockWaveShape.allCases[i] } } }

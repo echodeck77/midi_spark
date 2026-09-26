@@ -85,9 +85,17 @@ func nearestLadderPos(_ ladder: [Int], _ idx: Int) -> Int {
 // else that reads a raw beat stays on that raw beat — callers choose which beat to feed these, never the reverse.
 
 /// FIXED mode: phase(beat) = beat × ratio + offset. `offsetBeats` is the cell's own grid steps (offsetSteps × S),
-/// resolved by the caller. Pure, trivially invertible (not that anything needs to — see Router.clockTransformedBeat).
+/// resolved by the caller. Pure, trivially invertible.
 @inline(__always) func clockFixedPhase(_ beat: Double, ratio: Double, offsetBeats: Double) -> Double {
     beat * ratio + offsetBeats
+}
+
+/// The exact inverse of `clockFixedPhase` (Paul 2026-09-26, driver retiming): given a LOCAL beat this FIXED stage
+/// produced, recover the REAL beat that produced it — `Router.clockTransformedBeatInverse` uses this to schedule a
+/// driver's own note at the correct real-time sample, after that driver's tick search has already run in local time.
+/// `ratio` is always a ladder value (0.25…4, never 0), so the division is always well-defined.
+@inline(__always) func clockFixedPhaseInverse(_ localBeat: Double, ratio: Double, offsetBeats: Double) -> Double {
+    (localBeat - offsetBeats) / ratio
 }
 
 /// WAVE mode: a zero-mean closed-form wobble around ×1 — phase(beat) = beat − (depth·P/2π)·sin-or-cos term, chosen

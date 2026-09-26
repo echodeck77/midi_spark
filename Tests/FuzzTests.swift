@@ -72,7 +72,8 @@ final class FuzzTests: XCTestCase {
                                       .avoid,                // FILTER — the per-note pitch filter (drop/snap vs a reference); hammered as head/upstream/downstream/hold for no stuck notes
                                       .recorder,             // TIME — the looper-in-a-chain (record + replay); hammered so capture/playback never strands a note across every edge
                                       .chords,               // HARMONY — a held trigger → a derived diatonic chord; hammered (random key/degrees/voicing) so the set-replace never strands a note
-                                      .velocity]             // DYNAMICS — per-step velocity override; note-transparent, so it must never strand a note (random lane/pass/steps/rate/clock/span)
+                                      .velocity,             // DYNAMICS — per-step velocity override; note-transparent, so it must never strand a note (random lane/pass/steps/rate/clock/span)
+                                      .clock]                // TIME — retimes everything after it (Paul 2026-09-26); note-transparent itself, but as of Part 1 it can retime a downstream DRIVER's own tick generation (FIXED mode) — hammered in EVERY chain position, incl. before a driver, so a retimed tick search/schedule never strands a note
         // 40 machines (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-machines space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-machine cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -145,6 +146,7 @@ final class FuzzTests: XCTestCase {
                 if r.chance(0.5) { c.paramsA.riffPoly = true; c.paramsA.riffMask = (0..<n).map { _ in r.int(256) } }   // POLY: per-step rank mask
             }
             if c.type == .octave || c.type == .transpose || c.type == .channel || c.type == .nudge { applyRandomUtil(&c.paramsA, type: c.type, &r) }   // UTILITY pitch shift — exercise range-clamp/drops
+            if c.type == .clock { applyRandomClock(&c.paramsA, &r) }
             applyRandomSpan(&c.paramsA, type: c.type, &r)   // SPAN CELL|ROW (2026-08-19): hammer the ROW paths for no-stuck-notes
             return c
         }
@@ -167,6 +169,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .echo && r.chance(0.6) { applyRandomEcho(&s.params, &r) }   // §7② CHAIN route hammered where echo sits mid-chain
                     if s.type == .harmonize && r.chance(0.6) { s.params.harmIntervals = [r.int(25) - 12, r.int(25) - 12, 0]; s.params.harmUnits = r.chance(0.5) ? .pool : .semitones }   // §2 POOL-STEP mid-chain
                     if s.type == .octave || s.type == .transpose || s.type == .channel || s.type == .nudge { applyRandomUtil(&s.params, type: s.type, &r) }
+                    if s.type == .clock { applyRandomClock(&s.params, &r) }   // exercises EVERY chain position incl. strictly before a driver slot
                     applyRandomSpan(&s.params, type: s.type, &r)
                     return s
                 }
@@ -257,6 +260,22 @@ final class FuzzTests: XCTestCase {
         case .ratchet: if r.chance(0.5) { p.rtcSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.rtcSpan = .row }   // RATE×ladder stage 2b
         default:       break
         }
+    }
+    // CLOCK (Paul 2026-09-26): all 3 modes randomized, incl. WAVE/DRAWN — Part 1 only builds FIXED-mode DRIVER
+    // retiming, so a WAVE/DRAWN clock ahead of a driver must stay safely inert (no stuck notes either way); a FIXED
+    // clock hammers the new retimed tick-search/schedule path at every ratio on the ladder, incl. before a driver.
+    private func applyRandomClock(_ p: inout MachineParams, _ r: inout FuzzRNG) {
+        p.clockMode = ClockMode.allCases[r.int(ClockMode.allCases.count)]
+        p.clockRatio = r.int(clockRatioLadder.count)
+        p.clockOffset = r.int(9) - 4
+        p.clockShape = ClockWaveShape.allCases[r.int(ClockWaveShape.allCases.count)]
+        p.clockDepth = Double(r.range(0, 100)) / 100
+        p.clockSpanN = [0, 1, 2, 3, 4, 6, 8, 16, 32][r.int(9)]
+        let n = 1 + r.int(32)
+        p.clockDrawnSteps = n
+        p.clockDrawnRatios = (0..<n).map { _ in r.chance(0.2) ? -1 : r.int(clockRatioLadder.count) }   // incl. CARRY
+        p.clockDrawnGlide = (0..<n).map { _ in r.chance(0.3) }
+        p.clockDrawnRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
     }
     private func applyRandomRtc(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.rtcMode = RatchetMode.allCases[r.int(RatchetMode.allCases.count)]   // ALL · COIN · PATTERN

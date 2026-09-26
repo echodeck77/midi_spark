@@ -2222,6 +2222,21 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(clockFixedPhase(4, ratio: 1, offsetBeats: 1.5), 5.5, accuracy: 1e-9, "offset shifts it")
     }
 
+    // Driver retiming (Paul 2026-09-26): clockFixedPhaseInverse must exactly undo clockFixedPhase across a spread of
+    // beats/ratios/offsets — this is the primitive a retimed driver uses to convert a LOCAL tick it found back to
+    // the REAL beat it must schedule at. Any drift here would misplace note-on/off sample positions.
+    func testClockFixedPhaseInverseRoundTrips() {
+        for beat in stride(from: -5.0, through: 11.0, by: 1.3) {
+            for ratio in [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0] {
+                for offset in [0.0, -2.0, 3.5] {
+                    let local = clockFixedPhase(beat, ratio: ratio, offsetBeats: offset)
+                    let back = clockFixedPhaseInverse(local, ratio: ratio, offsetBeats: offset)
+                    XCTAssertEqual(back, beat, accuracy: 1e-9, "ratio \(ratio) offset \(offset) beat \(beat)")
+                }
+            }
+        }
+    }
+
     // Test #4 (the composition test): two FIXED CLOCKs in a row multiply their ratios — [×2 → ×3] == a single ×6.
     func testClockFixedComposesMultiplicatively() {
         let once = clockFixedPhase(clockFixedPhase(5, ratio: 2, offsetBeats: 0), ratio: 3, offsetBeats: 0)

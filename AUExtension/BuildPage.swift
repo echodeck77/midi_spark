@@ -5223,7 +5223,9 @@ extension DiagView {
         case .recorder: switch s.params.recMode ?? .loop { case .loop: m = "LOOP"; case .freeze: m = "FRZ"; case .canon: m = "CANON" }
         case .clock:   // self-names its TRANSFORM (Paul 2026-09-26) — "CLOCK ×2" / "CLOCK ÷3" (FIXED) or "CLOCK WAVE" (a wobble; the panel header states the depth/span)
             switch s.params.clockMode ?? .fixed {
-            case .fixed: m = clockRatioLabels[max(0, min(clockRatioLabels.count - 1, s.params.clockRatio ?? 4))]
+            case .fixed:
+                let ratioLabel = clockRatioLabels[max(0, min(clockRatioLabels.count - 1, s.params.clockRatio ?? 4))]
+                m = (s.params.clockRatioGlide ?? false) ? "\(ratioLabel) ~" : ratioLabel   // ~ = GLIDE armed (Part 2)
             case .wave:  m = "WAVE"
             case .drawn: m = "DRAWN"
             }
