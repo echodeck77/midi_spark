@@ -12,9 +12,10 @@ with zero new call sites).
 - **DEVICE-EAR/EYE OWED (nothing built yet has been heard/seen):** the ON/OFF toggle-lane feel, the RATE/SPAN
   controls, and — most importantly — the actual sound of "steps 1–4 of 8 enabled → the first half repeats" and "3 of
   8 enabled → it rotates against the bar." Confirm against Paul's own two worked examples first.
-- **NOT DONE (flagged, not attempted):** no UI live-column highlight on the ON/OFF row (CLOCK's DRAWN grid gets a
-  `StateMatrixClock` extrapolated playhead via `stateMatrixRadio`; KILL STEP's row uses the simpler `toggleLane`
-  widget, which has no clock/highlight parameter — a nice-to-have follow-up, not required for the feature to work).
+- **LIVE PLAYHEAD ADDED (2026-09-27):** `toggleLane` gained an optional `live: ((Date) -> Int?)?` hook (nil for
+  every other existing caller — unchanged); KILL STEP's row calls `Derivations.killStepPhase` directly (the SAME
+  function the engine folds through) to compute the highlighted ENABLED index, so the lit cell and the audible step
+  can't drift apart. Still DEVICE-eye owed — the extrapolation math is untested off-device (TimelineView).
 
 ## ★ PER-PARAM LFO + ARP EUCLID MASK (2026-09-15/16; spec `Docs/PLAN-param-lfo.md`)
 LANDED on `main`: the ∿ LFO button (engine + UI) on ARP LENGTH · HITS/ROTATE/CHANCE · the GAPS=CHORD gap-stab

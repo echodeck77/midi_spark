@@ -1113,10 +1113,24 @@ struct ProcessorBox: View {
             // clock"). Shares CLOCK's own transform plumbing (Router.killStepPhase, detected alongside `.clock`).
             let steps = max(1, min(32, p.killStepCount ?? 8))
             let enabledArr: [Bool] = { var a = p.killStepEnabled ?? Array(repeating: true, count: steps); while a.count < steps { a.append(true) }; return Array(a.prefix(steps)) }()
+            // LIVE PLAYHEAD (Paul 2026-09-27): calls the SAME pure `killStepPhase` the engine folds through, so the
+            // lit cell and the audible step can't drift apart (the RATCHET PATTERN/DEST lesson — never derive the
+            // matrix's own clock separately from the one the render side actually reads). Highlights the ENABLED
+            // index currently in play — not the raw 0…steps-1 column — so watching it directly shows the repeat/
+            // rotate behaviour: for 4-of-8 it visibly bounces 0,1,2,3,0,1,2,3, never touching the disabled half.
+            let rate = Swift.max(0.03125, (p.killStepRate ?? .r1_8).beats)
+            let bar = 8.0 * Swift.max(0.0001, gridStepBeats)
+            let period = (p.killStepSpanN ?? 8) > 0 ? Swift.max(0.03125, spanLadderBeats(p.killStepSpanN ?? 8, S: rate, row: bar)) : 0
+            let killLive: ((Date) -> Int?)? = clockPlaying ? { date in
+                let b = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+                let originBeat = period > 0 ? columnStart(b, period) : 0
+                let local = killStepPhase(b, enabled: enabledArr, steps: steps, rateBeats: rate, periodBeats: period, originOverride: originBeat)
+                return posMod(Int(((local - originBeat) / rate).rounded(.down)), steps)
+            } : nil
             field("STEPS — the row's own length", \.killStepCount) {
                 numPair(steps, 1...32) { v in setParam { $0.killStepCount = v } } }
             heroField("ON/OFF PER STEP — a disabled step is skipped; the enabled steps repeat to fill the pass") {
-                toggleLane(steps, on: { s in s < enabledArr.count && enabledArr[s] }, glyph: "xmark") { s, target in
+                toggleLane(steps, on: { s in s < enabledArr.count && enabledArr[s] }, glyph: "xmark", live: killLive) { s, target in
                     setParam { var a = $0.killStepEnabled ?? Array(repeating: true, count: steps); while a.count < steps { a.append(true) }; a[s] = target; $0.killStepEnabled = a } }
             }
             field("RATE — this row's own clock", \.killStepRate) {
@@ -1601,15 +1615,33 @@ struct ProcessorBox: View {
     // A per-step TOGGLE ROW you can DRAW ACROSS (Paul 2026-09-07): ONE gesture over the whole row — the first cell the finger
     // touches sets the paint TARGET (its inverse), then every cell the finger crosses is SET to that target (idempotent, so
     // no flip-flop within a cell). Drag to enable/disable several at once; a plain tap still flips one. `on`/`setOn` per step.
-    private func toggleLane(_ count: Int, height: CGFloat = 24, on: @escaping (Int) -> Bool, glyph: String? = nil, _ setOn: @escaping (Int, Bool) -> Void) -> some View {
+    // `live` (Paul 2026-09-27, KILL STEP): an optional "given wall-clock now, which column (if any) is live" hook —
+    // when supplied, the lane self-animates (a TimelineView, like every other bespoke matrix playhead in this file:
+    // RATCHET PATTERN/DEST/CLOCK) and draws the SAME thin white top-bar `stateMatrixRadio` uses for its own live
+    // column, so a lane control reads as part of one grid language, not a separately-animated thing. Every existing
+    // caller omits it (nil) — unchanged, no TimelineView, byte-identical to before.
+    private func toggleLane(_ count: Int, height: CGFloat = 24, on: @escaping (Int) -> Bool, glyph: String? = nil, live: ((Date) -> Int?)? = nil, _ setOn: @escaping (Int, Bool) -> Void) -> some View {
+        Group {
+            if let live {
+                TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { tl in
+                    toggleLaneGrid(count, height: height, liveCol: live(tl.date), on: on, glyph: glyph, setOn)
+                }
+            } else {
+                toggleLaneGrid(count, height: height, liveCol: nil, on: on, glyph: glyph, setOn)
+            }
+        }
+    }
+    private func toggleLaneGrid(_ count: Int, height: CGFloat, liveCol: Int?, on: @escaping (Int) -> Bool, glyph: String?, _ setOn: @escaping (Int, Bool) -> Void) -> some View {
         GeometryReader { row in
             let W = row.size.width
             HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
                 ForEach(0..<count, id: \.self) { s in
                     let lit = on(s)
+                    let live = s == liveCol
                     RoundedRectangle(cornerRadius: 4).fill(lit ? accent.opacity(0.85) : Color.white.opacity(0.06))
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(lit ? accent : Color.white.opacity(0.14), lineWidth: lit ? 1.5 : 1))
                         .overlay { if lit, let g = glyph { Image(systemName: g).font(.system(size: 9, weight: .black)).foregroundColor(.black) } }
+                        .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
                         .frame(maxWidth: .infinity)
                 }
             }
