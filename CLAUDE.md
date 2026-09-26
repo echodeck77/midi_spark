@@ -199,6 +199,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CLOCK — driver retiming WIDENED to the whole generator roster (2026-09-26, on `main`, `e5e00cd`; macOS 1112
+  green, iOS builds; DEVICE ear owed). Paul's repro after the RATE-removal pass above: "euclid isn't effected by
+  tempo changes, neither is ratchet — put a 1-step grid on speed, change it, put a euclid or ratchet pattern after
+  it" — and asked "shouldn't all downstream processors read an upstream clock, defaulting to real time if none is
+  present?", then "do the lot please." Stages 1–3 (this file, earlier entries) only wired `iterateTicks` — shared
+  by ARP/RIFF/RATCHET-ALL — to the clock-transform params; every OTHER self-clocked generator computed its own
+  onset/gate math directly and never read an upstream CLOCK at all: EUCLID's own `iterateTicks` call site (the
+  params just weren't threaded through, even though the shared walker already supported it), HOCKET (same), BURST
+  (`layBurst`), CASCADE, DRONE, SHIFT, HUMANIZE, WEAVE (both its EUCLID sub-mode and its LADDER/HARMONIC/DRAWN
+  sub-mode), and RATCHET's PATTERN and COIN modes (`emitRatchetModal`) — three distinct code shapes across the
+  roster, none reachable by extending `iterateTicks` alone. **NEW shared helpers** `clockLocalAnchor`/
+  `clockDriverTiming` (Router.swift, beside `driverClockBeat`/`driverClockBeatInverse`) factor the pattern every
+  one of these needed: shift a real anchor forward into LOCAL (retimed) time once per driver, then for each
+  sub-strike invert the local onset+off pair back to real time INDEPENDENTLY — a duration can never be inverted
+  directly under a non-uniform DRAWN transform, only points can, so a note's real gate length is always the real
+  difference of two separately-inverted points. Both helpers are no-ops when `chainDriver < 0` (plain, non-CLOCK-
+  prefixed chains stay byte-identical). **THE SOVEREIGN LAW held throughout the widening**: RATCHET-COIN's per-step
+  chance decision (`rtcCoinFires(step:...)`) still reads the REAL column index — only its sub-strike SCHEDULING
+  reads the transformed local beat; column-membership never moves. **TEST FIX**: `testClockDrawnDoesNotReachEuclid`
+  asserted the OLD gap as correct behaviour (a deliberate scope-boundary lock at the time) — renamed/rewritten to
+  `testClockDrawnRetimesEuclidToo`, asserting ×1 is a no-op and ×3 packs meaningfully more pulses into the same
+  real window (an inequality, not a hand-derived count — this session's standing rule, hit twice already by trusting
+  un-traced hand derivations). **NEXT**: device ear-check, as with every CLOCK change this session — confirm EUCLID
+  and RATCHET (Paul's literal repro) now audibly retime, alongside the rest of the newly-wired roster.**
 - **▶ CLOCK — RATE removed (a column IS a grid step) · GLIDE merged into one grid widget · the playhead now actually
   tracks the grid · GLIDE SPANS a multi-step run instead of flatlining (2026-09-26, on `main`, `f8eb2fd`; iOS
   builds, macOS 1112 green incl. fuzz; DEVICE ear/eye owed). Four fixes from one device-driven thread, none of them
