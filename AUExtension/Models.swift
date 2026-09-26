@@ -37,6 +37,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case deal = "DEAL"         // ROUTING (Paul 2026-09-16): a simple output dealer — OVERRIDE the emitters, deal N1 notes to emitter 1 then N2 to emitter 2 (repeat). Note-transparent; DEAL mode = OVER TIME (per strike) · WITHIN CHORD (per note) · EVERY NOTE.
     case recorder = "RECORDER" // TIME (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain — record N steps/passes of the upstream output, then loop it back. Transparent while recording, a driver while playing back.
     case clock = "CLOCK"       // TIME (AcceptanceCriteria-clock-processor, ratified 2026-09-26, design-partner spec): a placeable pattern-clock transform — everything downstream's OWN internal step machinery (a fold consumer's rate/slice math) reads a transformed beat; everything upstream, and every GRID-time quantity (windows/columns/spans/reel), is untouched (the sovereign law). Note-transparent.
+    case killStep = "KILLSTEP" // TIME (Paul 2026-09-26, sibling to CLOCK): a single row of ON/OFF steps (variable count, default 8) with its own RATE + SPAN — a DISABLED step is removed from the downstream timeline entirely; the ENABLED steps repeat to fill the pass (an even split plays "the first half twice"; an uneven split rotates a sub-cycle that drifts against the bar — "overriding the clock"). Reuses CLOCK's own plumbing (Router.killStepPhase/…Inverse, detected alongside `.clock` by driverClockBeat/…Inverse/clockTransformedBeat) so it reaches the same whole generator roster CLOCK already does. Note-transparent.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 /// The CLOCK ratio ladder (×4…÷4) — a plain index into DRAWN's per-column picks, mirroring `spanLadderValues`'s "a
@@ -446,6 +447,14 @@ struct MachineParams: Codable, Equatable {
     // column-duration dial was a second, independent multiplier stacked on top of the per-step speed, AND part of
     // why the matrix's playhead couldn't line up with what plays. A clock column now IS one grid column — its
     // width is always this cell's own step (S), the SAME S the rest of the chain/grid already uses.
+    // KILL STEP (Paul 2026-09-26, sibling to CLOCK — a DISCRETE remap, not a continuous ratio warp): a row of
+    // `killStepCount` on/off switches; a disabled step is removed from the downstream timeline, the enabled steps
+    // repeat to fill the pass. UNLIKE clock, it carries its OWN RATE (an ordinary per-processor clock control, not
+    // borrowed from the grid's S) — the "value" it hands downstream is exact only relative to that rate.
+    var killStepCount: Int? = nil                // step count 1…32; nil ⇒ 8
+    var killStepEnabled: [Bool]? = nil           // per-step ON/OFF; nil ⇒ all ON (a true no-op, any RATE/SPAN)
+    var killStepRate: ArpRate? = nil             // this stage's OWN clock; nil ⇒ 1/8
+    var killStepSpanN: Int? = nil                // SPAN re-anchor (spanLadderValues, 0 = FREE); nil ⇒ ROW (8)
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
     // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
     // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.

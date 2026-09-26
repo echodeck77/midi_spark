@@ -162,8 +162,8 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "splitHigh", label: "SIDE", kind: .toggle),
                 MacroControlParam(key: "splitVFloor", label: "VEL MIN", kind: .stepper(lo: 1, hi: 127)),
                 MacroControlParam(key: "splitVCeil", label: "VEL MAX", kind: .stepper(lo: 1, hi: 127))]
-    case .octave, .transpose, .channel, .nudge, .dest, .muteMatrix, .riff, .tap, .hocket, .avoid, .chords, .velocity, .deal, .recorder, .clock:
-        return [bypass]   // UTILITY/ROUTING/RIFF/TAP/HOCKET/AVOID/CHORDS/VELOCITY/RECORDER/CLOCK: edited directly (per-step lanes / discrete params — no simple macro-foldable scalar)
+    case .octave, .transpose, .channel, .nudge, .dest, .muteMatrix, .riff, .tap, .hocket, .avoid, .chords, .velocity, .deal, .recorder, .clock, .killStep:
+        return [bypass]   // UTILITY/ROUTING/RIFF/TAP/HOCKET/AVOID/CHORDS/VELOCITY/RECORDER/CLOCK/KILL STEP: edited directly (per-step lanes / discrete params — no simple macro-foldable scalar)
     }
 }
 

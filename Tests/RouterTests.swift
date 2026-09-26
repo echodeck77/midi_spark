@@ -656,6 +656,78 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertGreaterThan(glideTick, setTick, "GLIDE's first tick after the column boundary lands later than SET's — the transition is softened, not instant")
     }
+    // KILL STEP (Paul 2026-09-26, sibling to CLOCK — a discrete on/off step remap rather than a continuous ratio
+    // warp): detected alongside `.clock` by the SAME `driverClockBeat`/…Inverse/`clockTransformedBeat` machinery, so
+    // it reaches every consumer CLOCK already does with no new call sites — these three tests exercise it through
+    // DEST exactly as `testClockTransformsDestsOwnRoutingClock` exercises CLOCK, since DEST's per-step routing is
+    // the clearest external witness of "which step landed here."
+    private func killStepStage(steps: Int, enabled: [Bool], rate: ArpRate = .r1_8) -> ProcessorSlot {
+        var ks = ProcessorSlot(type: .killStep)
+        ks.params.killStepCount = steps
+        ks.params.killStepEnabled = enabled
+        ks.params.killStepRate = rate
+        ks.params.killStepSpanN = 0   // FREE — no SPAN re-anchor discontinuity inside these short test windows
+        return ks
+    }
+    // [ARP→KILLSTEP(evens only)→DEST]: DEST routes column 1 (the only note at m=0.5, with no KILL STEP) to emitter
+    // B, else to A. KILL STEP keeps only the even indices {0,2,4,6} of 8 — the 4 arp notes (real columns 0…3) remap
+    // onto columns 0,2,4,6, so column 1 is never landed on.
+    func testKillStepTransformsDestsOwnRoutingClock() {
+        func cableBCount(killStep: Bool) -> Int {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var procs = [arp]
+            if killStep { procs.append(killStepStage(steps: 8, enabled: [true, false, true, false, true, false, true, false])) }
+            var dest = ProcessorSlot(type: .dest)
+            dest.params.destRate = .r1_8; dest.params.destSlices = [0, 1, 0, 0, 0, 0, 0, 0]   // col1 → B, else → A
+            procs.append(dest)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 2 }.count   // cable 2 = wire B
+        }
+        XCTAssertEqual(cableBCount(killStep: false), 1, "no KILL STEP: the note at m=0.5 lands on column 1 → routes to B once")
+        XCTAssertEqual(cableBCount(killStep: true), 0, "KILL STEP keeps only the even columns: none of the 4 arp notes ever remap onto column 1 → B never fires")
+    }
+    // The user's own worked example: "if only steps 1–4 [of 8] are enabled, the second half of the pass will not be
+    // played, and instead the first half will be played twice." DEST's slices 0–3 name A·B·C·D; 4–7 are NONE (never
+    // reached). Over 8 real columns (two laps of the 4 enabled steps), each of A·B·C·D should land exactly twice.
+    func testKillStepPlaysTheFirstHalfTwiceOverOnePass() {
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+        let ks = killStepStage(steps: 8, enabled: [true, true, true, true, false, false, false, false])
+        var dest = ProcessorSlot(type: .dest)
+        dest.params.destRate = .r1_8; dest.params.destSlices = [0, 1, 2, 3, -1, -1, -1, -1]
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = [arp, ks, dest]; return c }() }
+        // forceColumn: 0 (PLAY: THIS CELL), like the CLOCK GLIDE test above — a bare cell only ticks during its own
+        // grid column's real-time window otherwise, which isn't wide enough to show 8 real columns' worth of ticks.
+        // beats: 3.9, not 4 — a window landing EXACTLY on a 1/8-rate boundary picks up one extra boundary tick
+        // (hand-verified via a failing first draft: 4.0 gave 9 ticks, not 8 — `firstTick...lastT` is INCLUSIVE of a
+        // tick that falls precisely at the window's end); 3.9 stops strictly between ticks 7 and 8, giving exactly
+        // the 8 real columns (n=0…7) this test means to exercise.
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 2, "A — the enabled run's first step, twice (real columns 0 and 4)")
+        XCTAssertEqual(e.ons.filter { $0.cable == 2 }.count, 2, "B — real columns 1 and 5")
+        XCTAssertEqual(e.ons.filter { $0.cable == 3 }.count, 2, "C — real columns 2 and 6")
+        XCTAssertEqual(e.ons.filter { $0.cable == 4 }.count, 2, "D — real columns 3 and 7 — none of DEST's NONE-routed slices 4–7 were ever reached")
+    }
+    // The user's second example: enabling only 3 of 8 steps rotates a 3-cycle that "overrides the clock" — 8 isn't a
+    // multiple of 3, so the rotation drifts against the bar instead of landing evenly.
+    func testKillStepUnevenCountRotatesAgainstTheBar() {
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+        let ks = killStepStage(steps: 8, enabled: [true, true, true, false, false, false, false, false])
+        var dest = ProcessorSlot(type: .dest)
+        dest.params.destRate = .r1_8; dest.params.destSlices = [0, 1, 2, -1, -1, -1, -1, -1]
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = [arp, ks, dest]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e, forceColumn: 0)   // see the sibling test's comment: 3.9, not 4, avoids the boundary tick
+        assertNothingLeftSounding(e)
+        // A,B,C,A,B,C,A,B across 8 real columns — A and B land one extra time, C one fewer.
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "A — real columns 0, 3, 6")
+        XCTAssertEqual(e.ons.filter { $0.cable == 2 }.count, 3, "B — real columns 1, 4, 7")
+        XCTAssertEqual(e.ons.filter { $0.cable == 3 }.count, 2, "C — real columns 2, 5")
+    }
     // STANDALONE RATCHET PATTERN = a PASS-THROUGH PROCESSOR, not a generator (Paul 2026-09-08). A lone (single-slot)
     // ratchet-pattern cell RECEIVES the input and passes it through; its own clock only decides per-column treatment
     // (1 = pass/sustain · 2…8 = ratchet · 0 = OFF/mute). It must NOT manufacture a note per step — the fix for "a short

@@ -475,6 +475,12 @@ enum SnapshotBuilder {
         out.clockDrawnSteps = clamp(p.clockDrawnSteps ?? 8, 1, 32)
         out.clockDrawnGlide = (0..<out.clockDrawnSteps).map { i in (p.clockDrawnGlide?.count ?? 0) > i ? p.clockDrawnGlide![i] : false }
         out.clockDrawnRatios = clockDrawnResolveRatios(p.clockDrawnRatios ?? [], steps: out.clockDrawnSteps)
+        // KILL STEP (Paul 2026-09-26): resolve the on/off row ONCE here — short/missing entries default to ON (an
+        // untouched row is a true no-op), so the render side (Router.killStepPhase/…Inverse) never re-pads.
+        out.killStepCount = clamp(p.killStepCount ?? 8, 1, 32)
+        out.killStepEnabled = (0..<out.killStepCount).map { i in (p.killStepEnabled?.count ?? 0) > i ? p.killStepEnabled![i] : true }
+        if let v = p.killStepRate { out.killStepRateBeats = max(0.03125, v.beats) }
+        if let v = p.killStepSpanN { out.killStepSpanN = v }
         if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice
         // RIFF (SPEC-riff-processor): resolve the stencil. riffRanks nil ⇒ keeps the default figure. rate → beats.
         if let v = p.riffSteps { out.riffSteps = clamp(v, 1, 32) }   // variable length (Paul 2026-08-26): up to 32

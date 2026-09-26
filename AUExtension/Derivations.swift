@@ -234,6 +234,73 @@ func clockDrawnPhaseInverse(_ localBeat: Double, originBeat: Double, ratios: [Do
     return originBeat + fullLaps * lapBeats + Double(col) * rateBeats + clampedWithin
 }
 
+// KILL STEP (Paul 2026-09-26, sibling to CLOCK) — a single row of `steps` on/off switches (default 8): a DISABLED
+// step is removed from the downstream timeline entirely; the ENABLED steps repeat to fill the space (an even split
+// like 4-of-8 plays "the first half twice"; an uneven split like 3-of-8 rotates a 3-cycle that drifts against the
+// 8-column bar — deliberate k∤steps polymeter, the same shape `Derivations.lapColumn` already gives the ephemeral
+// LAP performance gesture, now AUTHORED with its own RATE/SPAN as a chain-position processor). Detected alongside
+// `.clock` by `Router.driverClockBeat`/…Inverse/`clockTransformedBeat`, so it composes in chain order with CLOCK
+// (and with itself) and reaches every consumer those functions already reach — no new call sites needed.
+//
+// Unlike CLOCK's ratio warp (a continuous, everywhere-invertible speed change), this is a DISCRETE remap: within a
+// kept real column, local time runs at ORDINARY rate (no speed change) — only WHICH column comes next changes.
+
+/// Construction: sort the enabled indices e_0 < e_1 < … < e_{k-1} (k ≤ steps); at the n-th real column since the
+/// span origin (n = ⌊(beat − origin) / rateBeats⌋, can be negative before the origin), the value fed downstream is
+/// `lap·steps + e_{n mod k}` where `lap = ⌊n / k⌋` — so `value mod steps` cycles through exactly the enabled
+/// indices in appearance order (e.g. steps=8, enabled={0,1,2,3} → 0,1,2,3,0,1,2,3,… over one pass — "the first half
+/// plays twice"; steps=8, enabled={0,1,2} → 0,1,2,0,1,2,0,1,… — a 3-cycle drifting against the 8-column bar,
+/// "overriding the clock"), and `value` is STRICTLY increasing in `n` (each lap of k real columns adds a full
+/// `steps`, always greater than any index within a lap) — which is exactly what the shared tick-search machinery
+/// needs: a monotonic local beat it can walk forward through and invert discovered ticks back from. An ALL-disabled
+/// row falls back to ALL-enabled (never silent/undefined, matching `clockDrawnResolveRatios`'s empty-lane
+/// convention), so this is a TRUE no-op — algebraically exact at any RATE/SPAN — whenever nothing has been switched
+/// off (value ≡ n exactly when k == steps, so `originBeat + value·rateBeats + withinCol` reduces to `beat` itself).
+/// `enabled` is already fully resolved (length == steps; SnapshotBuilder pads/clamps) — no render-path allocation
+/// here beyond the fixed-size local filter. `originOverride`, mirroring `clockDrawnPhase`, lets a driver's whole
+/// tick-search window pin every candidate to ONE shared span-origin (see that function's own doc comment for why).
+func killStepPhase(_ beat: Double, enabled: [Bool], steps: Int, rateBeats: Double, periodBeats P: Double, originOverride: Double? = nil) -> Double {
+    guard steps > 0, rateBeats > 0 else { return beat }
+    var onIdx = (0..<steps).filter { $0 < enabled.count && enabled[$0] }
+    if onIdx.isEmpty { onIdx = Array(0..<steps) }
+    let k = onIdx.count
+    let originBeat = originOverride ?? (P > 0 ? columnStart(beat, P) : 0)
+    let localOffset = beat - originBeat
+    let nD = (localOffset / rateBeats).rounded(.down)
+    let withinCol = localOffset - nD * rateBeats                 // in [0, rateBeats)
+    let n = Int(nD)
+    let lap = Int((Double(n) / Double(k)).rounded(.down))
+    let idxInK = n - lap * k                                     // posMod(n, k), in [0, k)
+    let e = onIdx[idxInK]
+    let value = lap * steps + e
+    return originBeat + Double(value) * rateBeats + withinCol
+}
+
+/// The inverse of `killStepPhase`. Since the forward map DELETES disabled columns from local time (a genuine gap,
+/// unlike CLOCK's everywhere-invertible ratio warp), a local beat that lands inside a gap — routine, not an edge
+/// case, since a downstream driver's own tick grid runs at ITS rate, generally not KILL STEP's — has no real beat
+/// that produced it. POLICY (documented, not a bug): snap it FORWARD to the start of the next enabled column, so a
+/// tick that would have spoken during a killed step instead speaks promptly once real content resumes — "downstream
+/// jumps past that step," read from the receiving end. Whenever the local beat DOES land on a real occurrence (the
+/// common case whenever the downstream rate matches `rateBeats`, or at any column-aligned boundary regardless of
+/// rate), the inverse is exact — `killStepPhase(killStepPhaseInverse(v, …), …) == v` at those points.
+func killStepPhaseInverse(_ localBeat: Double, originBeat: Double, enabled: [Bool], steps: Int, rateBeats: Double) -> Double {
+    guard steps > 0, rateBeats > 0 else { return localBeat }
+    var onIdx = (0..<steps).filter { $0 < enabled.count && enabled[$0] }
+    if onIdx.isEmpty { onIdx = Array(0..<steps) }
+    let k = onIdx.count
+    let localOffset = localBeat - originBeat
+    let valueD = (localOffset / rateBeats).rounded(.down)
+    let withinCol = localOffset - valueD * rateBeats              // in [0, rateBeats)
+    let value = Int(valueD)
+    let lap = Int((Double(value) / Double(steps)).rounded(.down))
+    let e = value - lap * steps                                   // posMod(value, steps), in [0, steps)
+    var i = 0
+    while i < k && onIdx[i] < e { i += 1 }                        // the enabled index AT/AFTER e within this lap…
+    let n = i < k ? lap * k + i : (lap + 1) * k                   // …else snap to the next lap's first enabled index
+    return originBeat + Double(n) * rateBeats + withinCol
+}
+
 /// THE DRIFT READOUT (Paul 2026-09-26, "honesty replaces the guarantee"): a DRAWN lane's net time gained/lost per
 /// full lap, in BEATS (positive ⇒ the lane runs ahead of grid time; negative ⇒ behind). Zero exactly when the
 /// lane's ratios average to 1 across the lap (e.g. every column at ×1, or a symmetric mix) — the DRAWN analogue of
@@ -1766,7 +1833,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .chords:    return .chords                          // HARMONY — a held trigger → the diatonic chord for the current degree (a set-shaper like harmonize)
     case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
-    case .channel, .nudge, .dest, .muteMatrix, .tap, .velocity, .deal, .clock: return .identity   // UTILITY/ROUTING/DYNAMICS/TIME — note-transparent; the emit-side effect (channel/timing/emitter/VELOCITY override · TAP's mid-chain send · DEAL's emitter deal · CLOCK's beat transform) applies elsewhere
+    case .channel, .nudge, .dest, .muteMatrix, .tap, .velocity, .deal, .clock, .killStep: return .identity   // UTILITY/ROUTING/DYNAMICS/TIME — note-transparent; the emit-side effect (channel/timing/emitter/VELOCITY override · TAP's mid-chain send · DEAL's emitter deal · CLOCK/KILL STEP's beat transform) applies elsewhere
     case .recorder:  return .identity                       // RECORDER (Stage 0, inert): note-transparent for now; record/playback lands in the engine stage
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
@@ -1954,6 +2021,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .deal:      return "rectangle.split.2x1"          // ROUTING — deal notes across two emitters
     case .recorder:  return "record.circle"                // TIME — the looper-in-a-chain (record + replay)
     case .clock:     return "clock.arrow.2.circlepath"      // TIME — a placeable pattern-clock transform
+    case .killStep:  return "square.slash"                  // TIME — a step row that removes disabled steps from the downstream timeline
     case .muteMatrix: return "speaker.slash"               // ROUTING — per-step part-muting (the gate grid)
     case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
     case .tap:       return "arrow.turn.up.right"          // ROUTING — the mid-chain send (the stream turns off to a parallel wire)

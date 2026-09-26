@@ -73,7 +73,8 @@ final class FuzzTests: XCTestCase {
                                       .recorder,             // TIME — the looper-in-a-chain (record + replay); hammered so capture/playback never strands a note across every edge
                                       .chords,               // HARMONY — a held trigger → a derived diatonic chord; hammered (random key/degrees/voicing) so the set-replace never strands a note
                                       .velocity,             // DYNAMICS — per-step velocity override; note-transparent, so it must never strand a note (random lane/pass/steps/rate/clock/span)
-                                      .clock]                // TIME — retimes everything after it (Paul 2026-09-26); note-transparent itself, but as of Part 1 it can retime a downstream DRIVER's own tick generation (FIXED mode) — hammered in EVERY chain position, incl. before a driver, so a retimed tick search/schedule never strands a note
+                                      .clock,   // TIME — retimes everything after it (Paul 2026-09-26); note-transparent itself, but as of Part 1 it can retime a downstream DRIVER's own tick generation (FIXED mode) — hammered in EVERY chain position, incl. before a driver, so a retimed tick search/schedule never strands a note
+                                      .killStep]             // TIME — sibling to CLOCK: a discrete on/off step remap (Paul 2026-09-26); hammered in EVERY chain position for no-stuck-notes, incl. the all-disabled fallback and the inverse's gap-snap
         // 40 machines (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-machines space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-machine cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -147,6 +148,7 @@ final class FuzzTests: XCTestCase {
             }
             if c.type == .octave || c.type == .transpose || c.type == .channel || c.type == .nudge { applyRandomUtil(&c.paramsA, type: c.type, &r) }   // UTILITY pitch shift — exercise range-clamp/drops
             if c.type == .clock { applyRandomClock(&c.paramsA, &r) }
+            if c.type == .killStep { applyRandomKillStep(&c.paramsA, &r) }
             applyRandomSpan(&c.paramsA, type: c.type, &r)   // SPAN CELL|ROW (2026-08-19): hammer the ROW paths for no-stuck-notes
             return c
         }
@@ -170,6 +172,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .harmonize && r.chance(0.6) { s.params.harmIntervals = [r.int(25) - 12, r.int(25) - 12, 0]; s.params.harmUnits = r.chance(0.5) ? .pool : .semitones }   // §2 POOL-STEP mid-chain
                     if s.type == .octave || s.type == .transpose || s.type == .channel || s.type == .nudge { applyRandomUtil(&s.params, type: s.type, &r) }
                     if s.type == .clock { applyRandomClock(&s.params, &r) }   // exercises EVERY chain position incl. strictly before a driver slot
+                    if s.type == .killStep { applyRandomKillStep(&s.params, &r) }   // exercises EVERY chain position incl. strictly before a driver slot
                     applyRandomSpan(&s.params, type: s.type, &r)
                     return s
                 }
@@ -271,6 +274,15 @@ final class FuzzTests: XCTestCase {
         p.clockDrawnSteps = n
         p.clockDrawnRatios = (0..<n).map { _ in r.chance(0.2) ? -1 : r.int(clockRatioLadder.count) }   // incl. CARRY
         p.clockDrawnGlide = (0..<n).map { _ in r.chance(0.3) }
+    }
+    // KILL STEP (Paul 2026-09-26, sibling to CLOCK) — random step count/row/rate/span, INCL. the all-disabled
+    // fallback edge (r.chance(0.15) below skews toward a mostly-off row often enough to hit it across seeds).
+    private func applyRandomKillStep(_ p: inout MachineParams, _ r: inout FuzzRNG) {
+        let n = 1 + r.int(32)
+        p.killStepCount = n
+        p.killStepEnabled = (0..<n).map { _ in r.chance(0.15) ? false : r.chance(0.7) }
+        p.killStepRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
+        p.killStepSpanN = [0, 1, 2, 3, 4, 6, 8, 16, 32][r.int(9)]
     }
     private func applyRandomRtc(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.rtcMode = RatchetMode.allCases[r.int(RatchetMode.allCases.count)]   // ALL · COIN · PATTERN

@@ -2359,6 +2359,82 @@ final class DerivationsTests: XCTestCase {
         }
     }
 
+    // KILL STEP (Paul 2026-09-26, sibling to CLOCK) — a DISCRETE on/off step remap: a disabled step is removed from
+    // the downstream timeline; the enabled steps repeat to fill the pass. A no-op (all steps enabled) reduces to the
+    // identity EXACTLY, at any rate/period, since `value ≡ n` when every index is kept.
+    func testKillStepPhaseIsExactIdentityWhenAllStepsEnabled() {
+        let allOn = Array(repeating: true, count: 8)
+        for rate in [0.25, 0.5, 1.0, 2.0] {
+            for origin in [0.0, 1.3, -2.7] {
+                for beat in stride(from: origin - 5, through: origin + 12, by: 0.41) {
+                    XCTAssertEqual(killStepPhase(beat, enabled: allOn, steps: 8, rateBeats: rate, periodBeats: 0, originOverride: origin),
+                                   beat, accuracy: 1e-9, "rate \(rate) origin \(origin) beat \(beat)")
+                }
+            }
+        }
+    }
+    // The user's own worked example: 4 of 8 steps enabled — real columns 0…7 (one rate-tick each) should read as
+    // 0,1,2,3,0,1,2,3 mod the row's own 8-step width ("the first half plays twice"), and the raw returned value
+    // must climb by a full lap (8) each time it wraps, since the shared tick-search machinery needs a monotonic
+    // local beat to walk forward through.
+    func testKillStepPhasePlaysTheFirstHalfTwiceOverOnePass() {
+        let enabled = [true, true, true, true, false, false, false, false]
+        let got = (0..<8).map { n in killStepPhase(Double(n), enabled: enabled, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
+        XCTAssertEqual(got, [0, 1, 2, 3, 8, 9, 10, 11], "columns 0…3 repeat (offset by a full lap of 8) instead of ever reaching 4…7")
+    }
+    // 3 of 8 enabled: the enabled set doesn't divide the 8-column bar evenly, so the 3-cycle rotates against it
+    // ("overriding the clock") instead of realigning every pass.
+    func testKillStepPhaseRotatesAnUnevenCountAgainstTheBar() {
+        let enabled = [true, true, true, false, false, false, false, false]
+        let got = (0..<8).map { n in killStepPhase(Double(n), enabled: enabled, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
+        XCTAssertEqual(got, [0, 1, 2, 8, 9, 10, 16, 17], "a 3-enabled-of-8 row drifts a full lap ahead every 3 real columns, never landing back on the bar's own 8-count")
+    }
+    // An all-disabled row is never silent/undefined — it falls back to all-enabled, matching
+    // `clockDrawnResolveRatios`'s empty-lane convention (a true no-op, identical to testKillStepPhaseIsExact…).
+    func testKillStepPhaseAllDisabledFallsBackToAllEnabled() {
+        let allOff = Array(repeating: false, count: 8)
+        for beat in stride(from: -3.0, through: 9.0, by: 0.7) {
+            XCTAssertEqual(killStepPhase(beat, enabled: allOff, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0),
+                           beat, accuracy: 1e-9, "beat \(beat)")
+        }
+    }
+    // Every output KILL STEP's forward transform can produce is, BY CONSTRUCTION, a real occurrence (never a gap —
+    // gaps only arise from an EXTERNAL local beat the transform never produced, e.g. a downstream driver ticking at
+    // its own unrelated rate) — so sweeping `beat` continuously and round-tripping forward→inverse must be exact
+    // everywhere, not just at column-aligned points (mirrors `testClockDrawnPhaseInverseRoundTrips`'s sweep style).
+    func testKillStepPhaseInverseRoundTripsAcrossAContinuousSweep() {
+        let cases: [(enabled: [Bool], steps: Int, rateBeats: Double)] = [
+            (Array(repeating: true, count: 8), 8, 0.5),
+            ([true, true, true, true, false, false, false, false], 8, 0.5),
+            ([true, true, true, false, false, false, false, false], 8, 0.25),
+            ([true, false, true, false, false], 5, 0.5),          // uneven steps, k∤steps
+            (Array(repeating: false, count: 6), 6, 1.0),          // all-disabled fallback
+            ([true], 1, 1.0),
+        ]
+        for c in cases {
+            for origin in [0.0, 2.7, -1.4] {
+                for beat in stride(from: origin - 3.0, through: origin + 9.0, by: 0.37) {
+                    let local = killStepPhase(beat, enabled: c.enabled, steps: c.steps, rateBeats: c.rateBeats, periodBeats: 0, originOverride: origin)
+                    let back = killStepPhaseInverse(local, originBeat: origin, enabled: c.enabled, steps: c.steps, rateBeats: c.rateBeats)
+                    XCTAssertEqual(back, beat, accuracy: 1e-6, "enabled \(c.enabled) origin \(origin) beat \(beat)")
+                }
+            }
+        }
+    }
+    // A local beat that DOESN'T correspond to any real occurrence (it falls inside a disabled column's span — a
+    // "gap") has documented, non-crashing behaviour: snap FORWARD to the start of the next enabled repeat. Hand-
+    // verified: enabled {0,1,2,3} of 8 at rate 1 from origin 0 — local beat 5.3 sits inside the disabled span
+    // [4,8); the next enabled repeat starts at the next lap's column 0, real beat 4 — so the inverse is 4.3, and
+    // (confirmed, not just asserted) forward-mapping THAT real beat lands on a genuine, differently-valued local
+    // beat (8.3, the very next repeat) rather than reproducing the original gap probe — this is not a round trip.
+    func testKillStepPhaseInverseSnapsForwardPastAGap() {
+        let enabled = [true, true, true, true, false, false, false, false]
+        let back = killStepPhaseInverse(5.3, originBeat: 0, enabled: enabled, steps: 8, rateBeats: 1)
+        XCTAssertEqual(back, 4.3, accuracy: 1e-9, "snaps forward to the start of the next enabled repeat (real column 0 of the second lap)")
+        let reforward = killStepPhase(back, enabled: enabled, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0)
+        XCTAssertEqual(reforward, 8.3, accuracy: 1e-9, "the snapped-to real beat maps forward to a genuine repeat, not back to the gap")
+    }
+
     // CHORDS degrees sized to the matrix width (Paul 2026-09-16 fix): a wide matrix keeps all its authored columns.
     func testChordsDegreesResolvedSizesToSteps() {
         XCTAssertEqual(MachineParams().chordsDegreesResolved(steps: 8), [0, 0, 5, 5, 3, 3, 4, 4], "default 8")

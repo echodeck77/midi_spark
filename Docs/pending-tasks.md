@@ -5,6 +5,17 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ KILL STEP — a new TIME processor, sibling to CLOCK (2026-09-26; LANDED on `main`, engine+UI+tests, macOS 1121
+green, iOS builds) — see CLAUDE.md's status log for the full writeup (the shape: reuses CLOCK's driver-retiming
+plumbing, generalized to detect `.killStep` slots too, so it reaches the WHOLE generator roster CLOCK already does
+with zero new call sites).
+- **DEVICE-EAR/EYE OWED (nothing built yet has been heard/seen):** the ON/OFF toggle-lane feel, the RATE/SPAN
+  controls, and — most importantly — the actual sound of "steps 1–4 of 8 enabled → the first half repeats" and "3 of
+  8 enabled → it rotates against the bar." Confirm against Paul's own two worked examples first.
+- **NOT DONE (flagged, not attempted):** no UI live-column highlight on the ON/OFF row (CLOCK's DRAWN grid gets a
+  `StateMatrixClock` extrapolated playhead via `stateMatrixRadio`; KILL STEP's row uses the simpler `toggleLane`
+  widget, which has no clock/highlight parameter — a nice-to-have follow-up, not required for the feature to work).
+
 ## ★ PER-PARAM LFO + ARP EUCLID MASK (2026-09-15/16; spec `Docs/PLAN-param-lfo.md`)
 LANDED on `main`: the ∿ LFO button (engine + UI) on ARP LENGTH · HITS/ROTATE/CHANCE · the GAPS=CHORD gap-stab
 controls (OCTAVE · LENGTH · VELOCITY) · the SPEED/rate LFO with INCLUDE-family toggles (NORMAL/DOTTED/TRIPLETS) ·

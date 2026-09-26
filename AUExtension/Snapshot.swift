@@ -262,6 +262,12 @@ struct SnapParams {
     var clockDrawnRatios: [Double] = [1, 1, 1, 1, 1, 1, 1, 1]
     var clockDrawnGlide: [Bool] = [false, false, false, false, false, false, false, false]
     var clockDrawnSteps: Int = 8
+    // KILL STEP (Paul 2026-09-26): resolved on/off row + this stage's own clock. killStepEnabled is fully resolved
+    // (length == killStepCount, no short-array reads needed render-side).
+    var killStepCount: Int = 8
+    var killStepEnabled: [Bool] = [true, true, true, true, true, true, true, true]
+    var killStepRateBeats: Double = 0.5
+    var killStepSpanN: Int = 8
     var muteSlices: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]      // MUTE MATRIX (Paul 2026-08-25 §5): per-onset-slice MUTED-emitter mask (bit i = emitter i muted); 0 ⇒ nothing muted
     // RIFF (SPEC-riff-processor): the resolved stencil. riffRanks defaults to a musical figure so a fresh RIFF plays.
     var riffSteps: Int = 16

@@ -374,6 +374,7 @@ struct ProcessorBox: View {
         case .deal:      return "deal notes across two emitters by count"
         case .recorder:  return "record N steps/passes of the chain, then loop it back"
         case .clock:     return "retimes everything after it in the chain — a hand-drawn per-step speed grid, with glide"
+        case .killStep:  return "switch steps off — everything after it jumps past them and repeats what's left"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
         case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
@@ -1103,6 +1104,27 @@ struct ProcessorBox: View {
                  "This grid drifts \(drift > 0 ? "ahead" : "behind") by \(String(format: "%.2f", abs(drift))) beats every lap against the transport.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("Everything AFTER this stage in the chain ticks to its time; everything before keeps the part's. Position is meaning.")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        })
+        case .killStep: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-26, sibling to
+            // CLOCK) — KILL STEP: a single row of ON/OFF steps with its own RATE + SPAN. A disabled step is removed
+            // from everything downstream's timeline; the enabled steps repeat to fill the pass (4-of-8 plays the
+            // first half twice; 3-of-8 rotates a sub-cycle that drifts against the bar — polymeter, "overriding the
+            // clock"). Shares CLOCK's own transform plumbing (Router.killStepPhase, detected alongside `.clock`).
+            let steps = max(1, min(32, p.killStepCount ?? 8))
+            let enabledArr: [Bool] = { var a = p.killStepEnabled ?? Array(repeating: true, count: steps); while a.count < steps { a.append(true) }; return Array(a.prefix(steps)) }()
+            field("STEPS — the row's own length", \.killStepCount) {
+                numPair(steps, 1...32) { v in setParam { $0.killStepCount = v } } }
+            heroField("ON/OFF PER STEP — a disabled step is skipped; the enabled steps repeat to fill the pass") {
+                toggleLane(steps, on: { s in s < enabledArr.count && enabledArr[s] }, glyph: "xmark") { s, target in
+                    setParam { var a = $0.killStepEnabled ?? Array(repeating: true, count: steps); while a.count < steps { a.append(true) }; a[s] = target; $0.killStepEnabled = a } }
+            }
+            field("RATE — this row's own clock", \.killStepRate) {
+                seg(ArpRate.allCases.map(\.rawValue), sel: (p.killStepRate ?? .r1_8).rawValue) { i in setParam { $0.killStepRate = ArpRate.allCases[i] } } }
+            frameSpan(p.killStepSpanN ?? 8, free: true) { v in setParam { $0.killStepSpanN = v } }
+            let onCount = enabledArr.filter { $0 }.count
+            Text(onCount == steps ? "Every step is on — a no-op, nothing skipped." :
+                 "\(onCount) of \(steps) steps play, in order, repeating to fill the pass.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         case .muteMatrix: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // ROUTING (Paul 2026-08-25 §5) — the MUTE MATRIX: per-step PART-MUTING (A/B/C/D × 8 multi-select)

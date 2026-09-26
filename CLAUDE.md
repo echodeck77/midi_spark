@@ -199,6 +199,52 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ KILL STEP — a new TIME processor, sibling to CLOCK (2026-09-26, on `main`, commit TBD; macOS 1121 green, iOS
+  builds; DEVICE ear/eye owed). Paul's spec: a single row of ON/OFF steps (variable count, default 8) with its own
+  RATE + SPAN — a disabled step is skipped, and everything downstream jumps past it; the enabled steps repeat to
+  fill the pass ("enable steps 1–4 of 8 → the second half never plays, the first half plays twice"), and an UNEVEN
+  count rotates a sub-cycle that drifts against the bar ("enable 3 of 8 → it rotates just those three, overriding
+  the clock"). **THE INSIGHT that made this cheap:** this is EXACTLY `Derivations.lapColumn`'s ephemeral-LAP
+  algorithm (`effColumn = S[absoluteStep mod k]`), now AUTHORED per-cell as a chain-position processor with its own
+  clock — and CLOCK's driver-retiming plumbing (`Router.driverClockBeat`/…Inverse/`clockTransformedBeat`) already
+  detects `.clock` slots ANYWHERE in a chain range and composes them in order; generalizing those THREE functions to
+  ALSO detect `.killStep` slots (dispatching to a KILL STEP-specific phase function instead of CLOCK's ratio warp)
+  means KILL STEP reaches the ENTIRE roster CLOCK's own multi-stage widening earned this session — every
+  `iterateTicks` driver (ARP/RIFF/RATCHET-ALL/EUCLID/HOCKET), every `clockLocalAnchor`/`clockDriverTiming` generator
+  (BURST/CASCADE/DRONE/SHIFT/HUMANIZE/WEAVE/RATCHET PATTERN&COIN), and every `clockTransformedBeat` fold consumer
+  (DEST/VELOCITY/TUTTI/MOD) — with ZERO new call sites, because those three functions were the only place `.clock`
+  was ever type-checked. KILL STEP and CLOCK also compose with each other in chain order for free (heterogeneous,
+  not just "multiple CLOCKs multiply").
+  **THE MATH (Derivations.swift, `killStepPhase`/`killStepPhaseInverse`):** genuinely different from CLOCK's
+  continuous, everywhere-invertible ratio warp — this is a DISCRETE remap with real gaps in local time (a disabled
+  column is deleted from the timeline, not slowed/sped). Construction: sort the enabled indices `e_0<…<e_{k-1}`; at
+  the n-th real column since the span origin, the value fed downstream is `lap·steps + e_{n mod k}` (`lap = n/k`) —
+  so `value mod steps` cycles through exactly the enabled indices in order, and `value` is STRICTLY increasing in
+  `n` (monotonic local beat, which is what the shared tick-search machinery needs to walk forward and invert).
+  All-disabled falls back to all-enabled (never silent/undefined, matching `clockDrawnResolveRatios`'s empty-lane
+  convention) — so a fresh, untouched KILL STEP is a TRUE no-op, algebraically exact at any RATE/SPAN (`value ≡ n`
+  when nothing's off). The INVERSE has a real design decision at its heart: a local beat that lands inside a
+  disabled column's gap (routine, since a downstream driver's own tick grid runs at ITS rate, not KILL STEP's) has
+  no real beat that produced it — POLICY (documented, not a bug): snap FORWARD to the start of the next enabled
+  repeat, so a tick that would have spoken during a killed step instead speaks promptly once real content resumes.
+  **MODEL:** `ProcessorType.killStep` + `killStepCount`/`killStepEnabled`/`killStepRate`/`killStepSpanN` on
+  MachineParams (all additive-Optional) → resolved SnapParams fields (short/missing enabled entries default to ON,
+  so an untouched row is a no-op) → the exhaustive-switch sites the compiler forced (cellMode `.identity` —
+  note-transparent, like CLOCK · emblemSymbol · typeDescription · macroParamsForProcessor `[bypass]` — edited
+  directly, no foldable scalar). **UI** (GridUI.swift): STEPS numPair, an ON/OFF `toggleLane` row (the RIFF/VELOCITY-
+  style paint-across widget), a RATE seg (ArpRate, its own clock — unlike CLOCK, which ties to the grid's S), and
+  the same `frameSpan(free: true)` SPAN control every span-having processor uses; a TIME storefront card beside
+  CLOCK; `buildProcLabel` self-names "N/total" (e.g. "4/8") on the chain box, mirroring CLOCK's "N-STEP".
+  **TESTS:** 6 Derivations (identity at any rate/period · the user's literal 4-of-8 and 3-of-8 examples asserted as
+  exact value sequences · all-disabled fallback · a continuous-sweep forward→inverse round-trip, since every output
+  the forward transform can produce is by construction never a gap · the gap-snap policy, hand-verified and then
+  confirmed non-round-tripping on purpose) + 3 Router (mirrors `testClockTransformsDestsOwnRoutingClock` — DEST is
+  the clearest external witness of "which step landed here"; the first draft's `beats:8`/`forceColumn:0` combination
+  landed exactly on a tick boundary and picked up a spurious 17th note — caught by the test run disagreeing with the
+  hand derivation, not by re-reading the arithmetic, this session's own standing discipline — fixed by widening to
+  `beats: 3.9`, which stops strictly between ticks) + the fuzz roster (`.killStep` in both the machine-level and
+  chain-slot rosters, `applyRandomKillStep`, including the all-disabled edge). **NEXT:** device ear/eye pass, as
+  with every CLOCK-family change this session.**
 - **▶ CLOCK — driver retiming WIDENED to the whole generator roster (2026-09-26, on `main`, `e5e00cd`; macOS 1112
   green, iOS builds; DEVICE ear owed). Paul's repro after the RATE-removal pass above: "euclid isn't effected by
   tempo changes, neither is ratchet — put a 1-step grid on speed, change it, put a euclid or ratchet pattern after

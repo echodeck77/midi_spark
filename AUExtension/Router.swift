@@ -3829,18 +3829,28 @@ final class Router {
         var beat = atBeat
         var j = from
         while j < target {
-            if !cell.slotBypass[j], cell.procs[j].type == .clock {
+            if !cell.slotBypass[j] {
                 let p = cell.procs[j]
-                // FREE (clockSpanN 0) is a real, tested mode here — the lane just laps forever from absolute beat
-                // 0 (clockDrawnPhase's own fullLaps factoring keeps that O(steps), never a per-lap walk since t=0).
-                // spanLadderBeats itself has no "0 = free" sentinel (n≤1 means ONE COLUMN, not free) — this mirrors
-                // the same explicit `> 0` guard RATCHET PATTERN/DEST use for their own free-run spans.
-                let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
-                // rateBeats = S (Paul 2026-09-26): a clock column IS one grid column — no separate RATE dial. This
-                // is also what makes the matrix's live-column highlight (GridUI) trivially correct: it's the SAME
-                // clock the rest of the grid already extrapolates from, just widened to this lane's own STEPS/SPAN.
-                beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                       steps: p.clockDrawnSteps, rateBeats: S, periodBeats: period)
+                if p.type == .clock {
+                    // FREE (clockSpanN 0) is a real, tested mode here — the lane just laps forever from absolute
+                    // beat 0 (clockDrawnPhase's own fullLaps factoring keeps that O(steps), never a per-lap walk
+                    // since t=0). spanLadderBeats itself has no "0 = free" sentinel (n≤1 means ONE COLUMN, not
+                    // free) — this mirrors the same explicit `> 0` guard RATCHET PATTERN/DEST use for their own
+                    // free-run spans.
+                    let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
+                    // rateBeats = S (Paul 2026-09-26): a clock column IS one grid column — no separate RATE dial.
+                    // This is also what makes the matrix's live-column highlight (GridUI) trivially correct: it's
+                    // the SAME clock the rest of the grid already extrapolates from, just widened to this lane's
+                    // own STEPS/SPAN.
+                    beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
+                                           steps: p.clockDrawnSteps, rateBeats: S, periodBeats: period)
+                } else if p.type == .killStep {
+                    // KILL STEP (Paul 2026-09-26, sibling to CLOCK) carries its OWN rate — unlike a clock column,
+                    // its "column" isn't the cell's grid step, so `S` here is ITS resolved rate, not the caller's.
+                    let rate = p.killStepRateBeats
+                    let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
+                    beat = killStepPhase(beat, enabled: p.killStepEnabled, steps: p.killStepCount, rateBeats: rate, periodBeats: period)
+                }
             }
             j += 1
         }
@@ -3862,13 +3872,21 @@ final class Router {
         var beat = atBeat
         var j = from
         while j < target {
-            if !cell.slotBypass[j], cell.procs[j].type == .clock {
+            if !cell.slotBypass[j] {
                 let p = cell.procs[j]
-                let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
-                let origin = period > 0 ? columnStart(originRef, period) : 0
-                beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                       steps: p.clockDrawnSteps, rateBeats: S, periodBeats: period,
-                                       originOverride: origin)
+                if p.type == .clock {
+                    let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
+                    let origin = period > 0 ? columnStart(originRef, period) : 0
+                    beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
+                                           steps: p.clockDrawnSteps, rateBeats: S, periodBeats: period,
+                                           originOverride: origin)
+                } else if p.type == .killStep {
+                    let rate = p.killStepRateBeats
+                    let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
+                    let origin = period > 0 ? columnStart(originRef, period) : 0
+                    beat = killStepPhase(beat, enabled: p.killStepEnabled, steps: p.killStepCount, rateBeats: rate,
+                                         periodBeats: period, originOverride: origin)
+                }
             }
             j += 1
         }
@@ -3884,12 +3902,19 @@ final class Router {
         var beat = atLocalBeat
         var j = target - 1
         while j >= from {
-            if !cell.slotBypass[j], cell.procs[j].type == .clock {
+            if !cell.slotBypass[j] {
                 let p = cell.procs[j]
-                let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
-                let origin = period > 0 ? columnStart(originRef, period) : 0
-                beat = clockDrawnPhaseInverse(beat, originBeat: origin, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                              steps: p.clockDrawnSteps, rateBeats: S)
+                if p.type == .clock {
+                    let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
+                    let origin = period > 0 ? columnStart(originRef, period) : 0
+                    beat = clockDrawnPhaseInverse(beat, originBeat: origin, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
+                                                  steps: p.clockDrawnSteps, rateBeats: S)
+                } else if p.type == .killStep {
+                    let rate = p.killStepRateBeats
+                    let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
+                    let origin = period > 0 ? columnStart(originRef, period) : 0
+                    beat = killStepPhaseInverse(beat, originBeat: origin, enabled: p.killStepEnabled, steps: p.killStepCount, rateBeats: rate)
+                }
             }
             j -= 1
         }
