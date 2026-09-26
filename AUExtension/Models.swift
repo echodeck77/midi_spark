@@ -442,7 +442,10 @@ struct MachineParams: Codable, Equatable {
     var clockDrawnRatios: [Int]? = nil           // per-column ratio-ladder index, or −1 = CARRY; nil ⇒ all ×1
     var clockDrawnGlide: [Bool]? = nil           // per-column SET(false)|GLIDE(true); nil ⇒ all SET
     var clockDrawnSteps: Int? = nil              // the lane length 1…32; nil ⇒ 8
-    var clockDrawnRate: ArpRate? = nil           // the lane's OWN column duration — advances on GRID time (the clock never clocks itself); nil ⇒ 1/8
+    // RATE REMOVED (Paul 2026-09-26): "what's the point of rate when we have a speed-per-step grid?" — a separate
+    // column-duration dial was a second, independent multiplier stacked on top of the per-step speed, AND part of
+    // why the matrix's playhead couldn't line up with what plays. A clock column now IS one grid column — its
+    // width is always this cell's own step (S), the SAME S the rest of the chain/grid already uses.
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
     // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
     // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.

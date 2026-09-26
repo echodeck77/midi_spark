@@ -3807,8 +3807,11 @@ final class Router {
                 // spanLadderBeats itself has no "0 = free" sentinel (n≤1 means ONE COLUMN, not free) — this mirrors
                 // the same explicit `> 0` guard RATCHET PATTERN/DEST use for their own free-run spans.
                 let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
+                // rateBeats = S (Paul 2026-09-26): a clock column IS one grid column — no separate RATE dial. This
+                // is also what makes the matrix's live-column highlight (GridUI) trivially correct: it's the SAME
+                // clock the rest of the grid already extrapolates from, just widened to this lane's own STEPS/SPAN.
                 beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                       steps: p.clockDrawnSteps, rateBeats: p.clockDrawnRateBeats, periodBeats: period)
+                                       steps: p.clockDrawnSteps, rateBeats: S, periodBeats: period)
             }
             j += 1
         }
@@ -3835,7 +3838,7 @@ final class Router {
                 let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
                 let origin = period > 0 ? columnStart(originRef, period) : 0
                 beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                       steps: p.clockDrawnSteps, rateBeats: p.clockDrawnRateBeats, periodBeats: period,
+                                       steps: p.clockDrawnSteps, rateBeats: S, periodBeats: period,
                                        originOverride: origin)
             }
             j += 1
@@ -3857,7 +3860,7 @@ final class Router {
                 let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
                 let origin = period > 0 ? columnStart(originRef, period) : 0
                 beat = clockDrawnPhaseInverse(beat, originBeat: origin, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                              steps: p.clockDrawnSteps, rateBeats: p.clockDrawnRateBeats)
+                                              steps: p.clockDrawnSteps, rateBeats: S)
             }
             j -= 1
         }

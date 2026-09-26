@@ -262,7 +262,6 @@ struct SnapParams {
     var clockDrawnRatios: [Double] = [1, 1, 1, 1, 1, 1, 1, 1]
     var clockDrawnGlide: [Bool] = [false, false, false, false, false, false, false, false]
     var clockDrawnSteps: Int = 8
-    var clockDrawnRateBeats: Double = 0.5
     var muteSlices: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]      // MUTE MATRIX (Paul 2026-08-25 §5): per-onset-slice MUTED-emitter mask (bit i = emitter i muted); 0 ⇒ nothing muted
     // RIFF (SPEC-riff-processor): the resolved stencil. riffRanks defaults to a musical figure so a fresh RIFF plays.
     var riffSteps: Int = 16

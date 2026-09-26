@@ -473,7 +473,6 @@ enum SnapshotBuilder {
         // DRAWN (Stage 2): resolve the lane ONCE here — carries −1/empty columns forward into real ratio VALUES
         // (clockDrawnResolveRatios), so the render side (Router.clockTransformedBeat) never re-maps or allocates.
         out.clockDrawnSteps = clamp(p.clockDrawnSteps ?? 8, 1, 32)
-        if let v = p.clockDrawnRate { out.clockDrawnRateBeats = max(0.03125, v.beats) }
         out.clockDrawnGlide = (0..<out.clockDrawnSteps).map { i in (p.clockDrawnGlide?.count ?? 0) > i ? p.clockDrawnGlide![i] : false }
         out.clockDrawnRatios = clockDrawnResolveRatios(p.clockDrawnRatios ?? [], steps: out.clockDrawnSteps)
         if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice

@@ -1044,13 +1044,48 @@ struct ProcessorBox: View {
             let steps = max(1, min(32, p.clockDrawnSteps ?? 8))
             let picks = p.clockDrawnRatios ?? []
             let glideArr = p.clockDrawnGlide ?? []
+            // RATE REMOVED (Paul 2026-09-26: "what's the point of rate when we have a speed-per-step grid?"): a
+            // clock column IS one grid column now — its width is always `gridStepBeats` (S), the SAME clock every
+            // other matrix/lane in this app already extrapolates its own playhead from. That also fixes the
+            // second complaint in the same message — the matrix used to light the PLAIN grid column (no clock
+            // passed to stateMatrixRadio at all) while the engine read a SEPARATE, independently-dialled rate, so
+            // the highlight and the audible column could disagree entirely. Now they're the same clock by
+            // construction: `rate: gridStepBeats` below is exactly what the engine uses (`rateBeats: S` in Router).
+            let S = Swift.max(0.0001, gridStepBeats)
+            let bar = 8.0 * S
+            let period = (p.clockSpanN ?? 8) > 0 ? Swift.max(0.03125, spanLadderBeats(p.clockSpanN ?? 8, S: S, row: bar)) : 0
+            let clockLive = clockPlaying ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo,
+                                                            rate: S, steps: steps, rotate: 0, span: period) : nil
             field("STEPS — the grid's own length", \.clockDrawnSteps) {
                 numPair(steps, 1...32) { v in setParam { $0.clockDrawnSteps = v } } }
-            field("RATE — the grid's own column speed, on GRID time (the clock never clocks itself)", \.clockDrawnRate) {
-                seg(ArpRate.allCases.map(\.rawValue), sel: (p.clockDrawnRate ?? .r1_8).rawValue) { i in setParam { $0.clockDrawnRate = ArpRate.allCases[i] } } }
+            // SPEED PER STEP + GLIDE — ONE grid (Paul 2026-09-26: "the GLIDE option should be part of the same grid
+            // control so it all lines up"): GLIDE used to be a separately-laid-out toggleLane below the matrix,
+            // full-width with no header column, so its cells didn't align with the matrix's (offset by the 64pt
+            // header label) — a real geometry mismatch, not just a stylistic one. It's now `stateMatrixRadio`'s
+            // own extra row, sharing the exact column width/spacing AND the same live-column highlight.
             heroField("SPEED PER STEP — tap a rung; the top row (···) CARRIES the previous step's speed forward") {
-                stateMatrixRadio(Array((-1...8)), steps: steps,
+                stateMatrixRadio(Array((-1...8)), steps: steps, clock: clockLive,
                     header: { opt in AnyView(Text(opt < 0 ? "···" : clockRatioLabels[opt]).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))) },
+                    extraRowHeader: AnyView(Text("GLIDE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))),
+                    extraRowCell: { step, live in
+                        let on = step < glideArr.count && glideArr[step]
+                        return AnyView(
+                            RoundedRectangle(cornerRadius: 4).fill(on ? accent.opacity(0.85) : Color.white.opacity(live ? 0.14 : 0.06))
+                                .frame(maxWidth: .infinity).frame(height: 26)
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: on ? 1.5 : 1))
+                                .overlay { if on { Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .black)).foregroundColor(.black) } }
+                                .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    setParam {
+                                        var arr = $0.clockDrawnGlide ?? Array(repeating: false, count: steps)
+                                        while arr.count <= step { arr.append(false) }
+                                        arr[step].toggle()
+                                        $0.clockDrawnGlide = arr
+                                    }
+                                }
+                        )
+                    },
                     selected: { s in s < picks.count ? picks[s] : -1 },
                     set: { s, opt in setParam {
                         var arr = $0.clockDrawnRatios ?? Array(repeating: -1, count: steps)
@@ -1059,20 +1094,11 @@ struct ProcessorBox: View {
                         $0.clockDrawnRatios = arr
                     } })
             }
-            field("GLIDE — this step ramps FROM the previous step's speed TO its own, instead of snapping") {
-                toggleLane(steps, on: { s in s < glideArr.count && glideArr[s] }, glyph: "arrow.up.right") { s, v in
-                    setParam {
-                        var arr = $0.clockDrawnGlide ?? Array(repeating: false, count: steps)
-                        while arr.count <= s { arr.append(false) }
-                        arr[s] = v
-                        $0.clockDrawnGlide = arr
-                    }
-                }
-            }
+            Text("GLIDE (bottom row): this step ramps FROM the previous step's speed TO its own, instead of snapping.")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             frameSpan(p.clockSpanN ?? 8, free: true) { v in setParam { $0.clockSpanN = v } }
             let resolved = clockDrawnResolveRatios(picks, steps: steps)
-            let rateBeats = max(0.03125, (p.clockDrawnRate ?? .r1_8).beats)
-            let drift = clockDrawnDriftPerLap(resolved, glide: glideArr, steps: steps, rateBeats: rateBeats)
+            let drift = clockDrawnDriftPerLap(resolved, glide: glideArr, steps: steps, rateBeats: S)
             Text(abs(drift) < 0.001 ? "This grid lands back in time every lap — no drift." :
                  "This grid drifts \(drift > 0 ? "ahead" : "behind") by \(String(format: "%.2f", abs(drift))) beats every lap against the transport.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -1430,6 +1456,11 @@ struct ProcessorBox: View {
     @ViewBuilder private func stateMatrixRadio<Opt: Hashable>(
         _ options: [Opt], steps: Int = 8, clock: StateMatrixClock? = nil, header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
         dim: ((Int) -> Opt?)? = nil,   // optional FAINT layer (Paul 2026-09-15): a column with no bright `selected` cell can show a dimmer cell — e.g. CHORDS shows the chord an empty column CARRIES, so the matrix matches the audio. nil ⇒ unchanged.
+        // EXTRA ROW (Paul 2026-09-26, CLOCK's GLIDE): an optional row sharing this SAME per-column geometry AND the
+        // SAME live-column highlight — for a control that isn't a mutually-exclusive "pick one option" pick (like
+        // a per-column on/off toggle) but still needs to visually READ as part of the one grid, not a separately-
+        // laid-out control underneath that may not line up. `extraRowCell(step, live)` draws that column.
+        extraRowHeader: AnyView? = nil, extraRowCell: ((Int, Bool) -> AnyView)? = nil,
         selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
     ) -> some View {
         let cols = max(1, min(32, steps))   // variable matrix width (CHORDS ≤16; RATCHET PATTERN up to 32 — Paul 2026-09-07); other callers default to 8
@@ -1452,6 +1483,12 @@ struct ProcessorBox: View {
                                 .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
                                 .contentShape(Rectangle()).onTapGesture { set(step, opt) }
                         }
+                    }
+                }
+                if let h = extraRowHeader, let cell = extraRowCell {
+                    HStack(spacing: 3) {
+                        h.frame(width: 64, alignment: .leading)
+                        ForEach(0..<cols, id: \.self) { step in cell(step, step == liveCol) }
                     }
                 }
             }

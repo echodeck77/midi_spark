@@ -261,16 +261,16 @@ final class FuzzTests: XCTestCase {
         default:       break
         }
     }
-    // CLOCK (Paul 2026-09-26; FIXED/WAVE removed same day — CLOCK is now always this grid): hammer the retimed
-    // tick-search/schedule path (Router.driverClockBeat/Inverse) at every step/ratio/glide/SPAN combination the
-    // lane can produce, incl. CARRY columns and before a driver.
+    // CLOCK (Paul 2026-09-26; FIXED/WAVE removed same day — CLOCK is now always this grid, and RATE removed too,
+    // same day — a column's width is always the cell's own step S, whatever else is fuzzing that doc): hammer the
+    // retimed tick-search/schedule path (Router.driverClockBeat/Inverse) at every step/ratio/glide/SPAN combination
+    // the lane can produce, incl. CARRY columns and before a driver.
     private func applyRandomClock(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.clockSpanN = [0, 1, 2, 3, 4, 6, 8, 16, 32][r.int(9)]
         let n = 1 + r.int(32)
         p.clockDrawnSteps = n
         p.clockDrawnRatios = (0..<n).map { _ in r.chance(0.2) ? -1 : r.int(clockRatioLadder.count) }   // incl. CARRY
         p.clockDrawnGlide = (0..<n).map { _ in r.chance(0.3) }
-        p.clockDrawnRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
     }
     private func applyRandomRtc(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.rtcMode = RatchetMode.allCases[r.int(RatchetMode.allCases.count)]   // ALL · COIN · PATTERN

@@ -44,6 +44,7 @@ final class RouterTests: XCTestCase {
     /// (the transport edge flushes every voice). Mirrors how the Kernel calls it each render.
     private func run(_ box: SnapshotBox, _ pool: NotePool, beats: Double, into emitter: RecordingEmitter,
                      laneMask: UInt16 = 0, soloCellMask: UInt64 = 0, releaseAtEnd: Bool = true,
+                     forceColumn: Int = -1,   // PLAY: THIS CELL (−1 = normal, unaffected) — bypasses the column-lap gate so a bare cell keeps ticking as real time advances past its own grid column's real-time span
                      tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) {
         let router = Router()
         var diag = KernelDiag()
@@ -51,8 +52,8 @@ final class RouterTests: XCTestCase {
         var beat = 0.0, ts = 0.0
         while beat < beats {
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
-                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: laneMask,
-                           soloCellMask: soloCellMask, out: emitter, diag: &diag)
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: forceColumn,
+                           laneMask: laneMask, soloCellMask: soloCellMask, out: emitter, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
         if releaseAtEnd {   // release the lap (laneMask 0) then stop — must return to the true timeline, no stuck notes
@@ -408,12 +409,12 @@ final class RouterTests: XCTestCase {
         // comparison instead: [×2→×3] must equal [×3→×2] (multiplication commutes, and both equal the same product).
         XCTAssertEqual(strikeCount([two, three]), strikeCount([three, two]), "two CLOCK stages compose as a product — order between two ratios doesn't matter")
     }
-    // GLIDE genuinely changes the fold result vs SET for the same authored ratio sequence. Hand-verified via a direct
-    // trace of clockTransformedBeat's output (mirroring the column-0-invariance lesson above): the arp emits exactly
-    // 4 notes here regardless of `beats:` (m = 0, 0.5, 1, 1.5 — a 3-note chord cycling once plus the next cycle's
-    // opening note; confirmed empirically, not assumed). With a 2-column DRAWN lane [×4, ×1] at RATE 1/4 (1 beat/col,
-    // FREE span): SET lands column 1 (the ×3 ratchet slice) once → 3 plain + 1 burst-of-3 = 6 strikes; GLIDE's ramp
-    // shifts every note's transformed beat just enough that NONE land on column 1 → 4 plain notes = 4 strikes.
+    // GLIDE genuinely changes the fold result vs SET for the same authored ratio sequence. RATE was removed
+    // 2026-09-26 — a clock column is now always the cell's own step S, not an independently-dialled value — so
+    // `forceColumn: 0` bypasses the column-lap gate, letting real time advance far enough to actually reach the
+    // lane's column 1 (a bare, un-held cell otherwise only ticks during its own grid column's real-time window).
+    // Asserted comparatively (not against a hand-derived exact count), matching this session's standing rule
+    // against hard-coding values that depend on floor-quantization/column interplay not under test.
     func testClockDrawnSetAndGlideProduceDifferentFoldResults() {
         func strikeCount(glide: Bool) -> Int {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
@@ -422,18 +423,20 @@ final class RouterTests: XCTestCase {
             ck.params.clockDrawnSteps = 2
             ck.params.clockDrawnRatios = [clockRatioLadder.firstIndex(of: 4)!, clockRatioLadder.firstIndex(of: 1)!]
             ck.params.clockDrawnGlide = [false, glide]
-            ck.params.clockDrawnRate = .r1_4; ck.params.clockSpanN = 0
+            ck.params.clockSpanN = 0
             var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
             rat.params.rtcSteps = 8; rat.params.rtcSlices = [1, 3, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0
             let procs = [arp, ck, rat]
             let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            // forceColumn: 0 — see testClockDrawnGlideRowSoftensTheColumnTransition's comment: a bare cell only
+            // ticks during its own grid column's real-time window ([0, S)), and this lane's column-1 boundary
+            // (real beat S, now that RATE ties to S) sits right at that window's edge, so bypassing the gate lets
+            // real time keep advancing far enough to actually reach column 1.
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
         let set = strikeCount(glide: false), glideOn = strikeCount(glide: true)
-        XCTAssertEqual(set, 6, "SET: col1 hit once (m=0.5's transform) → 3 plain + a burst-of-3")
-        XCTAssertEqual(glideOn, 4, "GLIDE: the same 4 notes, but the ramp moves every one of them off column 1 — all plain")
         XCTAssertNotEqual(set, glideOn, "the SAME authored ratio sequence folds differently as SET (snap) vs GLIDE (ramp)")
     }
     // CLOCK Stage 3 (Paul 2026-09-26): extends clockTransformedBeat to the OTHER self-clocked consumers that can
@@ -542,10 +545,9 @@ final class RouterTests: XCTestCase {
     // density). `[CLOCK(drawn ×1)→ARP]` is byte-identical to no clock (the standing no-op law).
     private func drawnClock(ratioIndex: Int?) -> ProcessorSlot {
         var ck = ProcessorSlot(type: .clock)
-        ck.params.clockDrawnSteps = 1
+        ck.params.clockDrawnSteps = 1   // single-step: rateBeats (now always S) cancels out of the math entirely, so this is a plain ×ratio multiply regardless of the cell's own step
         ck.params.clockDrawnRatios = [ratioIndex ?? clockRatioLadder.firstIndex(of: 1)!]
         ck.params.clockDrawnGlide = [false]
-        ck.params.clockDrawnRate = .r1_4
         ck.params.clockSpanN = 0   // FREE — no SPAN re-anchor discontinuity inside these short test windows
         return ck
     }
@@ -614,13 +616,12 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(euclidCount(clockRatioIndex: nil), euclidCount(clockRatioIndex: three), "EUCLID is untouched — same count with or without an upstream DRAWN clock")
     }
     // CLOCK DRAWN's GLIDE row (Paul 2026-09-26, final spec — "another row on the same grid for glide"): a column
-    // marked GLIDE ramps its rate in from the PREVIOUS column's landed ratio instead of snapping at column entry.
-    // Hand-derived (2-step lane, rateBeats=1 via .r1_4, ratios ×1→×4, driving an ARP at 1/8): SET reaches local
-    // phase 1.5 (the ARP's next tick after the column-1 boundary) at real beat 1.125; GLIDE reaches the same local
-    // phase at real beat 1.333 (the ramp is still close to ×1 just after the boundary) — so GLIDE's first
-    // post-boundary tick genuinely lands LATER in real time than SET's, the softened transition this row exists
-    // for. Measured empirically (not asserted against the derived beats directly), since the exact sample position
-    // also depends on tick-search quantization at the discontinuity, which isn't the property under test.
+    // marked GLIDE ramps its rate in from the previous column's landed ratio instead of snapping at column entry.
+    // rateBeats is now always S (RATE was removed the same day), so a 2-step lane's column boundary sits at real
+    // beat 2×S; the ARP's first post-boundary tick lands LATER under GLIDE than under SET (the ramp is still close
+    // to ×1 just after the boundary) — verified empirically (not asserted against hand-derived beats/samples
+    // directly, since the exact position also depends on tick-search quantization at the discontinuity, which
+    // isn't the property under test).
     func testClockDrawnGlideRowSoftensTheColumnTransition() {
         func firstTickAfterBoundary(glideOn: Bool) -> Int64? {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
@@ -628,14 +629,19 @@ final class RouterTests: XCTestCase {
             ck.params.clockDrawnSteps = 2
             ck.params.clockDrawnRatios = [clockRatioLadder.firstIndex(of: 1)!, clockRatioLadder.firstIndex(of: 4)!]
             ck.params.clockDrawnGlide = [false, glideOn]
-            ck.params.clockDrawnRate = .r1_4   // rateBeats == 1 real beat per column
             ck.params.clockSpanN = 0
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ck, arp]; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            // forceColumn: 0 (PLAY: THIS CELL) bypasses the column-lap gate entirely — otherwise the cell would
+            // only ever tick during the underlying grid's OWN column-0 real-time window ([0, S)), and since RATE
+            // was removed (a clock column is now S-wide too), a 2-step CLOCK lane needs 2×S of real time to show
+            // its second column at all — beyond the plain grid's single column-0 span. Bypassing the gate lets
+            // real time (and therefore CLOCK's own local phase) keep advancing so the col0→col1 transition
+            // is observable in a bare single-cell test.
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             let samples = e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
-            let boundarySample: Int64 = 24_000   // real beat 1.0 at 120bpm/48kHz (24000 samples/beat)
+            let boundarySample: Int64 = 48_000   // real beat 2.0 at 120bpm/48kHz (24000 samples/beat) — the col0/col1 boundary at S=2, rateBeats=S
             return samples.first(where: { $0 > boundarySample })
         }
         guard let setTick = firstTickAfterBoundary(glideOn: false), let glideTick = firstTickAfterBoundary(glideOn: true) else {

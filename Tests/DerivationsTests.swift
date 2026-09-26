@@ -2254,6 +2254,43 @@ final class DerivationsTests: XCTestCase {
                        1.625, accuracy: 1e-9, "GLIDE: col1 ramping ×1→×2, only half-elapsed")
     }
 
+    // GLIDE SPANS (Paul 2026-09-26, caught against a worked example): three consecutive GLIDE columns that all
+    // target the SAME ratio must ramp smoothly across ALL THREE, not reach the target after the first and flatline
+    // for the other two (the bug in the original "ramp from my immediate predecessor" reading — a segment whose
+    // two ends are numerically equal has no slope to inherit). Hand-derived with clean integers (spanFrom=1,
+    // target=7, 3-column span, rateBeats=1): each column's own SLICE of the overall 1→7 ramp is a UNIT-6/3=2-wide
+    // sub-ramp (col1: 1→3, col2: 3→5, col3: 5→7) — so the partial sums at each column boundary are exact integers,
+    // letting this be checked to full floating-point precision rather than approximately.
+    func testClockDrawnGlideSpanRampsAcrossTheWholeRunNotJustTheFirstColumn() {
+        let ratios = [1.0, 7.0, 7.0, 7.0]
+        let glide = [false, true, true, true]
+        XCTAssertEqual(clockDrawnPhase(1.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.0, accuracy: 1e-9, "end of col0 (SET at 1) = start of the span")
+        XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.75, accuracy: 1e-9, "col1's own slice (1→3) at its midpoint — NOT the old bug's 1→7 midpoint (which would give 3.0)")
+        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 3.0, accuracy: 1e-9, "end of col1 — reaches only 3, a third of the way to 7, not the full target")
+        XCTAssertEqual(clockDrawnPhase(3.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 7.0, accuracy: 1e-9, "end of col2 — cumulative columnAdvance(0..2) = 1 + 2 + 4 = 7")
+        XCTAssertEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 13.0, accuracy: 1e-9, "end of col3 (one full lap) — the span has fully landed on 7 by here")
+        XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: glide, steps: 4, rateBeats: 1), 9.0, accuracy: 1e-9, "drift = lapAdvance(13) − steps×rateBeats(4)")
+    }
+    // A run of DIFFERING consecutive targets (no two neighbours share a value) must be COMPLETELY UNCHANGED by the
+    // span fix above — each glide column is its own span of length 1, reducing exactly to the original one-column
+    // formula. Locks that the span walk doesn't alter the already-correct case Paul confirmed ("reading 2").
+    // Column real-time spans are [0,1)=col0, [1,2)=col1, [2,3)=col2, [3,4)=col3 (rateBeats=1) — verified via the
+    // engine's own actual output (an earlier draft of this test mis-mapped beats to columns by one and asserted
+    // the wrong numbers; caught by a failing run, not trusted by construction).
+    func testClockDrawnGlideOfDifferingTargetsIsUnaffectedBySpanLogic() {
+        let ratios = [1.0, 2.0, 3.0, 2.0]
+        let glide = [false, true, true, true]
+        XCTAssertEqual(clockDrawnPhase(1.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.0, accuracy: 1e-9, "end of col0 (SET at 1) = start of col1")
+        // col1 span-of-1: from=ratioAt(0)=1, to=2 → midpoint (w=0.5) = 1*0.5 + (2-1)/2*0.25 = 0.625; cumulative with col0's 1.0 = 1.625
+        XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.625, accuracy: 1e-9, "col1 midpoint")
+        // end of col1: columnAdvance(0)+columnAdvance(1) = 1 + (1+2)/2 = 2.5
+        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 2.5, accuracy: 1e-9, "end of col1")
+        // end of col2: + columnAdvance(2) = (2+3)/2 = 2.5 → cumulative 2.5+2.5=5.0
+        XCTAssertEqual(clockDrawnPhase(3.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 5.0, accuracy: 1e-9, "end of col2")
+        // end of col3: + columnAdvance(3) = (3+2)/2 = 2.5 → cumulative 5.0+2.5=7.5
+        XCTAssertEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 7.5, accuracy: 1e-9, "end of col3 — one full lap")
+    }
+
     // The drift readout must match what the phase function ACTUALLY does over one full lap — cross-checked against
     // the same SET/GLIDE pair above (lap = 2 beats real time; SET nets 3 beats local ⇒ +1 drift/lap; GLIDE nets 2.5 ⇒ +0.5).
     func testClockDrawnDriftPerLapMatchesThePhaseFunctionsOwnLapAdvance() {
@@ -2306,6 +2343,7 @@ final class DerivationsTests: XCTestCase {
             ([1, 2, 0.5, 1.5], [false, true, false, true], 4, 0.5),
             ([4, 0.25, 3, 1], [true, true, true, true], 4, 0.25),
             ([1], [false], 1, 1),
+            ([1, 5, 5, 5, 2], [false, true, true, true, false], 5, 0.5),   // a 3-column GLIDE SPAN (Paul 2026-09-26) — the inverse must resolve the same span endpoints the forward transform used
         ]
         for c in cases {
             for origin in [0.0, 2.7, -1.4] {

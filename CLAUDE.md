@@ -199,6 +199,50 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CLOCK — RATE removed (a column IS a grid step) · GLIDE merged into one grid widget · the playhead now actually
+  tracks the grid · GLIDE SPANS a multi-step run instead of flatlining (2026-09-26, on `main`, `<pending>`; iOS
+  builds, macOS 1112 green incl. fuzz; DEVICE ear/eye owed). Four fixes from one device-driven thread, none of them
+  the driver-retiming feature itself — all about the grid's OWN feel now that it's built. **(1) RATE REMOVED**
+  ("what's the point of rate when we have a speed-per-step grid? I think we'd lose nothing"): `clockDrawnRate`/
+  `clockDrawnRateBeats` deleted from Models/Snapshot/SnapshotBuilder; every `rateBeats:` call site in
+  `clockTransformedBeat`/`driverClockBeat`/`driverClockBeatInverse` now passes `S` (the cell's own grid step) — a
+  clock column IS a grid column, no independent dial. **(2) GLIDE MERGED INTO THE GRID** ("should be part of the
+  same grid control so it all lines up"): the old `toggleLane` GLIDE row was a SEPARATE full-width widget with no
+  leading label offset, so its columns didn't align with the ratio matrix's (which reserves a 64pt header column) —
+  a real geometry bug, not just a look. `stateMatrixRadio` gained an optional `extraRowHeader`/`extraRowCell` pair
+  (any other caller omits them, unaffected) so GLIDE now renders as one more row INSIDE the same widget, sharing
+  identical column geometry AND the same live-column highlight. **(3) THE PLAYHEAD NOW TRACKS THE REAL CLOCK**
+  ("it doesn't line up with what I'm hearing at all"): the CLOCK editor never passed a `clock:` argument to
+  `stateMatrixRadio` at all, so it fell through to the generic whole-grid `liveStep` column — unrelated to CLOCK's
+  own steps/rate/SPAN. Now constructs its own `StateMatrixClock` (`rate: gridStepBeats` — the SAME S as (1), so the
+  UI and the engine are provably the same clock — `steps:`/`span:` from the lane's own STEPS/SPAN controls) and
+  passes it through. **(4) GLIDE SPANS** (caught mid-fix, against a worked example Paul gave: "three glides in a
+  row, all on a distinct speed — should ramp up over three steps"): the ORIGINAL glide math ramped from a column's
+  IMMEDIATE PREDECESSOR's landed value to its own target, each column independently — so three consecutive columns
+  all targeting ×2 would reach ×2 after the FIRST column (1→2) then sit FLAT for the other two (2→2 has no slope
+  to inherit). Root-caused live in conversation (a segment whose two ends are numerically equal can't produce a
+  climb no matter how it's read) rather than guessed at. Fix: new `clockDrawnGlideEndpoints` coalesces a run of
+  CONSECUTIVE glide columns that all target the SAME ratio into one SPAN, and gives a column its own linear-
+  interpolated slice of the whole span's ramp (three ×2-glides after a ×1 now climb ~1.33→~1.67→2.0, reaching the
+  target only at the end of the third column). A run of DIFFERING consecutive targets (1→2→3→2, each a genuinely
+  new value) forms spans of length 1 throughout, reducing EXACTLY to the original one-column formula — confirmed
+  unaffected, not just assumed. Threaded into `clockDrawnPhase`, its inverse, and the drift readout (all three had
+  their own local `columnAdvance`/`(from,to)` lookup — now all three call the one shared span function, so they
+  can't independently drift out of sync). **THE TESTING, honestly recorded because it went sideways more than
+  once:** two hand-written span-math tests had OFF-BY-ONE column-boundary errors on the first draft (mapped a beat
+  to the wrong column — e.g. asserting col1's midpoint at beat 0.5 when col0 occupies [0,1) and col1 occupies
+  [1,2)) — caught by the actual test run disagreeing with the hand derivation, not by a second read-through; fixed
+  by recomputing from the column boundaries directly rather than trusting the first arithmetic pass twice. Separately,
+  three Router-level integration tests went from passing to failing to passing again as RATE's removal changed what
+  S actually is: a bare, un-held test cell only ever ticks during ITS OWN grid column's real-time span `[0, S)` —
+  fine for a single-step CLOCK lane (whose own real-time width is also just `S`, so it never needs to look further),
+  but a MULTI-step lane now needs `steps × S` of real time to show its later columns, which a bare cell's own
+  natural column window can't reach on its own. Pinning the scene's `stepRate` to force a convenient S was tried
+  first and made it WORSE (it also changes how many ticks the driver's own generation fits per column, an
+  unrelated engine behaviour, breaking a DIFFERENT assumption); the actual fix was `forceColumn: 0` (the existing
+  PLAY-THIS-CELL mechanism, newly threaded through the `run()` test helper), which bypasses the column-lap gate so
+  real time keeps advancing past the cell's own column regardless of grid width. **NEXT:** device ear/eye pass on
+  the merged grid + corrected playhead + the real 3-step glide feel, as always.**
 - **▶ CLOCK — FIXED and WAVE modes REMOVED ENTIRE; CLOCK is now always the one grid (2026-09-26, on `main`,
   `5a857df`; iOS builds, macOS 1110 green incl. fuzz; DEVICE ear owed). SUPERSEDES the same-day "driver retiming,
   REBUILT against DRAWN" entry below — that pass was STILL INCOMPLETE, caught by Paul directly: "tell me what I
