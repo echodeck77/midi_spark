@@ -199,6 +199,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PLAY FERRY PLAYHEAD — now follows the cell's own PER-PART RATE (2026-09-26, on `main`, `c6f0f5a`; iOS builds,
+  macOS 1085 green; DEVICE eye owed). Paul: changing a ferry's RATE updates the part-grid playhead at once but the
+  play-ferry BUTTON's own playhead kept sweeping at the original rate. ROOT CAUSE: `roomsCellPlayhead` (the sweep
+  drawn on every ferry's PLAY button) was hardcoded to the scene-default `stepBeats`, never reading PER-PART CLOCK at
+  all — unlike `roomsPartPlayhead` (the part grid's own sweep), which already reads `buildPartRate` live. FIX:
+  `roomsCellPlayhead` takes an optional `rate: StepRate?` (nil ⇒ `stepBeats`, byte-identical elsewhere — its only
+  caller is the ferry button); `roomsPlayFerry` passes the ferry's TRUE rate — the live `buildPartRate` for the
+  ACTIVE (bench-open) ferry (matches `roomsPartPlayhead` exactly, updates the instant the RATE menu changes) or the
+  stored `buildPlayColRate[t]` for a background ferry (refreshed whenever that ferry stops being active).**
 - **▶ ARP-RATE LFO — the ladder is now TEMPO-SORTED, not declaration-block order (2026-09-26, on `main`, `04b7807`;
   iOS builds, macOS 1085 green; DEVICE ear owed). Paul: "the LFO on the arp rate seems to miss out dotted and triplets
   even when I include them in the selection. It jumps right past them" — and pointed at the RATCHET PATTERN saga as
