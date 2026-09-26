@@ -199,7 +199,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ KILL STEP — a new TIME processor, sibling to CLOCK (2026-09-26, on `main`, commit TBD; macOS 1121 green, iOS
+- **▶ KILL STEP — a new TIME processor, sibling to CLOCK (2026-09-26, on `main`, `b1e7a19`; macOS 1121 green, iOS
   builds; DEVICE ear/eye owed). Paul's spec: a single row of ON/OFF steps (variable count, default 8) with its own
   RATE + SPAN — a disabled step is skipped, and everything downstream jumps past it; the enabled steps repeat to
   fill the pass ("enable steps 1–4 of 8 → the second half never plays, the first half plays twice"), and an UNEVEN
