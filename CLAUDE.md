@@ -199,6 +199,49 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CLOCK — driver retiming (FIXED only) + a GLIDE row (2026-09-26, on `main`, `4f90f86`; iOS builds, macOS 1117
+  green incl. fuzz; DEVICE ear owed). Paul's correction after testing `[CLOCK→ARP]` and hearing nothing: "instead of
+  using the host transport, the clock control will override it for everything downstream" — Stages 1–3 only let
+  CLOCK retime a DOWNSTREAM FOLD CONSUMER's own math (RATCHET's slice, DEST's route, …), never a DRIVER's actual
+  note scheduling; `composeChainSet` treated a pre-driver CLOCK as a complete no-op (its `cellMode` is `.identity`,
+  falling through the generic pass-through). I first over-scoped the fix by dragging WAVE-mode phase-inversion
+  (Newton's method) into the SAME plan Paul hadn't asked for ("why are you talking about cosine") — replanned to
+  EXACTLY what he described: the existing FIXED ratio grid (×4…÷4, unchanged) retiming a driver for real, plus a new
+  GLIDE row. **PART 1 (FIXED-only, 3 drivers):** a NEW dedicated forward+inverse pair, `driverClockBeat`/
+  `driverClockBeatInverse` (Router.swift) — distinct from `clockTransformedBeat` (Stages 1–3, still serves fold
+  consumers, all 3 modes) — because reusing the general function for the forward half while only skipping WAVE/
+  DRAWN on the inverse would silently desync the two and misplace every scheduled note under a WAVE/DRAWN clock; a
+  WAVE/DRAWN stage before a driver is treated as ABSENT in BOTH directions, on purpose. New `clockFixedPhaseInverse`
+  (Derivations.swift, round-trip tested). `iterateTicks` (the shared tick-walker for ARP/RIFF/RATCHET's ALL mode)
+  gains clock-awareness: the tick SEARCH runs in CLOCK-transformed LOCAL time, but the column-membership gate and
+  ALL sample scheduling key off the REAL beat each local tick maps back to (columns stay upstream of CLOCK,
+  untouched — the sovereign law) — resolved via a sharp subtlety worked through carefully: a candidate local tick
+  is inverted to real time IMMEDIATELY on discovery, and only the LOCAL beat reaches note-selection (`phaseIndex`→
+  `arpPick`). Threaded into the 3 driver functions that route entirely through `iterateTicks`: `emitArpRow`,
+  `emitRiffRow`, `emitRatchetRow`'s ALL-mode branch. EUCLID/BURST/CASCADE/SHIFT/HUMANIZE/DRONE/HOCKET are untouched —
+  confirmed (not just assumed) by a dedicated scope-boundary test — since they're `isDriverType` themselves and
+  `chainDriverIndex` always makes the LAST one the chain's own driver, so they never reach a downstream-fold
+  position; retiming them needs the SAME phase-inversion problem flagged after Stage 1, still open. **CLOCK was
+  NEVER IN THE FUZZER** despite three stages of render-path changes — added now (all 3 modes, every chain position
+  incl. before a driver); all 8 fuzz suites pass clean incl. transport-chaos/snapshot-swap-chaos. Every hand-derived
+  test expectation was wrong on the first pass (again) and fixed via a temporary debug trace before asserting — a
+  bare ARP at column 0 only sounds during that column's own real-time window (stable regardless of `beats:`, not a
+  bug); `[CLOCK×2→ARP]` doubles note count (4→8) exactly, RIFF (3→6) and RATCHET-ALL (6→12) the same shape, EUCLID
+  unchanged (9→9) confirming the scope boundary. **PART 2 — GLIDE:** a toggle beside the ratio grid; when armed, a
+  live ratio change ramps to the new value over a TIME control instead of jumping. `clockRatioGlide`/
+  `clockRatioGlideTime` (named distinctly from the pre-existing `clockDrawnGlide`, DRAWN's unrelated per-column
+  ramp). `resolveGlideRatio` is a THIRD instance of this codebase's sanctioned "remember across renders" exception,
+  mirroring MOD's own `modPrevTarget` array exactly (same per-cell-per-slot key, same compare-and-update idiom); an
+  authored change freezes the glide's CURRENT interpolated position before re-targeting, so an interrupted glide
+  re-aims smoothly instead of snapping back to the old start. Called with one stable per-window beat reference so
+  it's safe to call more than once per render (the inverse runs once per discovered tick) — idempotent by
+  construction, not by luck. Hand-verified via trace: under an instant jump the note right after a ratio change
+  lands EARLIER than naively expected (a real local-time discontinuity — some local ticks between the old and new
+  search windows are simply never found, an accepted, inherent cost of a hard jump); under GLIDE that same note
+  lands LATER, closer to the pre-change rate — asserted comparatively, not against hard-coded sample values, since
+  the exact numbers depend on floor-quantization details that aren't the property under test. **NEXT:** WAVE/DRAWN
+  driver retiming and the other 4+3 driver types stay explicitly out of scope — Paul's ask was FIXED + GLIDE only;
+  revisit only if asked. Device ear owed on the whole thing, as always.**
 - **▶ HOUSEKEEPING — dead-code sweep + 3 test-coverage gaps (2026-09-26, on `main`, `7fcac1e`; iOS builds, macOS 1112
   green). Three parallel read-only surveys (dead code · missing tests · refactor/efficiency) over the whole codebase,
   every finding independently re-verified before acting (per this file's own standing pattern). **DEAD CODE (6, all
