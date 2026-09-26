@@ -452,7 +452,8 @@ enum SnapshotBuilder {
         if let v = p.utilNudge { out.utilNudge = clamp(v, -8, 8) }           // ± sixteenths
         if let v = p.utilNudgeMode { out.utilNudgeMode = v }                 // TIMING LANE (Paul 2026-08-22 §5)
         if let v = p.utilNudgeLane { out.utilNudgeLane = v.map { clamp($0, -8, 8) } }
-        if let v = p.destSlices { out.destSlices = v.map { clamp($0, 0, 3) } }   // DEST MATRIX (Paul 2026-08-22 §5)
+        if let v = p.destSlices { out.destSlices = v.map { clamp($0, -1, 3) } }   // DEST MATRIX (Paul 2026-08-22 §5): −1 = NONE (Paul 2026-09-26)
+        if let v = p.destRate { out.destRateBeats = max(0.03125, v.beats) }       // DEST's OWN CLOCK (Paul 2026-09-26)
         out.dealE1 = clamp(p.dealE1 ?? 0, 0, 3); out.dealE2 = clamp(p.dealE2 ?? 1, 0, 3)   // DEAL (Paul 2026-09-16)
         out.dealN1 = max(1, min(16, p.dealN1 ?? 1)); out.dealN2 = max(1, min(16, p.dealN2 ?? 1))
         if let v = p.dealMode { out.dealMode = v }

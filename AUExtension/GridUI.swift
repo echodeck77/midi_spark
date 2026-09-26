@@ -370,7 +370,7 @@ struct ProcessorBox: View {
         case .channel:   return "send this chain out on a chosen MIDI channel"
         case .nudge:     return "slide this chain earlier or later in time"
         case .velocity:  return "set each note's velocity from a per-step lane (or pass it through)"
-        case .dest:      return "route each step to a chosen emitter (hocket)"
+        case .dest:      return "route each step, on its own clock, to a chosen emitter — or none (hocket)"
         case .deal:      return "deal notes across two emitters by count"
         case .recorder:  return "record N steps/passes of the chain, then loop it back"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
@@ -975,14 +975,27 @@ struct ProcessorBox: View {
                 seg(ArpRate.allCases.map(\.rawValue), sel: (p.velRate ?? .r1_8).rawValue) { i in setParam { $0.velRate = ArpRate.allCases[i] } } }
             frameSpan(p.velSpanN ?? 0, free: true) { v in setParam { $0.velSpanN = v } }   // SPAN = re-anchor the lane every N columns (0 = FREE across all STEPS)
         })
-        case .dest: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // ROUTING (Paul 2026-08-22 §5) — the DEST MATRIX: which emitter each onset-slice hockets to
+        case .dest: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // ROUTING (Paul 2026-08-22 §5, reworked 2026-09-26) — the DEST MATRIX: which emitter each step hockets to
             let base = [0, 1, 2, 3, 0, 1, 2, 3]
-            field("EMITTER PER STEP — tap a cell (the hocket)") {
-                stateMatrixRadio([0, 1, 2, 3],
-                    header: { e in AnyView(Text(["A", "B", "C", "D"][e]).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
-                    selected: { i in let s = p.destSlices ?? base; return i < s.count ? s[i] : 0 },
+            // OWN CLOCK (Paul 2026-09-26, RATCHET-PATTERN-shaped): the matrix used to light on the DEFAULT grid-column clock
+            // while the engine routed by `chopSlice` (an 8-way subdivision of ONE column) — two different clocks, so the lit
+            // cell had nothing to do with what emitter actually played. Both now read the SAME free-running self-clock
+            // (col = floor(beat ÷ RATE) mod 8), extrapolated per animation frame — never the ~4 Hz poll, which aliases a
+            // fast rate into a jump (the exact bug RATCHET PATTERN's matrix had before it got its own clock).
+            let destRate = Swift.max(0.03125, (p.destRate ?? .r1_8).beats)
+            let destClock = clockPlaying ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo,
+                                                             rate: destRate, steps: 8, rotate: 0, span: 0) : nil
+            field("EMITTER PER STEP — tap a cell (the hocket; · = no emitter)", \.destSlices) {
+                stateMatrixRadio([-1, 0, 1, 2, 3], clock: destClock,
+                    header: { e in
+                        let label = e == -1 ? "·" : ["A", "B", "C", "D"][e]
+                        return AnyView(Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(e == -1 ? 0.5 : 0.75)).frame(width: 22, alignment: .leading))
+                    },
+                    selected: { i in let s = p.destSlices ?? base; return i < s.count ? max(-1, min(3, s[i])) : 0 },
                     set: { i, e in setParam { var s = $0.destSlices ?? base; while s.count < 8 { s.append(0) }; s[i] = e; $0.destSlices = s } })
             }
+            field("RATE — the router's own clock (free-running)", \.destRate) {
+                seg(ArpRate.allCases.map(\.rawValue), sel: (p.destRate ?? .r1_8).rawValue) { i in setParam { $0.destRate = ArpRate.allCases[i] } } }
         })
         case .deal: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // ROUTING (Paul 2026-09-16) — the DEAL: override the emitters, deal N1 → 1, N2 → 2
             let e1 = max(0, min(3, p.dealE1 ?? 0)), e2 = max(0, min(3, p.dealE2 ?? 1))

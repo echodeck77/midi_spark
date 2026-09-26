@@ -4428,9 +4428,6 @@ final class Router {
     }
     /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).
     private func chopMask(_ cell: SnapCell, m: Double, S: Double, base: UInt8) -> UInt8 {
-        // DEST MATRIX (Paul 2026-08-22 §5): a routing-class processor OVERRIDES the emitter per onset-slice — the hocket
-        // painted (CHOP's dest row generalised). It wins over CHOP (DEST is the router). Cheap per-onset scan (≤8 procs).
-        let sl = Int(chopSlice(m, columnBeats: S))
         // ONE bounded scan (≤8 procs) for the last DEST + the last MUTE — a proc is never both, so the else-if keeps each
         // "last wins" independently. DEST is the router (overrides CHOP); MUTE (§5) composes on top, removing emitters.
         var destProc = -1, muteProc = -1
@@ -4440,10 +4437,23 @@ final class Router {
         }
         var result: UInt8
         if destProc >= 0 {
-            let d = cell.procs[destProc].destSlices
-            let e = sl < d.count ? max(0, min(3, d[sl])) : 0
-            result = UInt8(1) << UInt8(e)   // route to exactly this emitter
+            // DEST MATRIX (Paul 2026-08-22 §5, reworked 2026-09-26 — RATCHET-PATTERN-shaped): a routing-class processor that
+            // OVERRIDES the emitter per step — the hocket painted (CHOP's dest row generalised); wins over CHOP (DEST is the
+            // router). Its step is now driven by DEST's OWN FREE-RUNNING CLOCK (destRateBeats), not `chopSlice` (an 8-way
+            // subdivision of the CELL'S OWN column) — that tied the matrix to whatever was driving notes through it, so the
+            // lit cell in the editor had nothing to do with the emitter actually heard (the same class of bug RATCHET
+            // PATTERN had before it got its own clock — see Router.swift's RATCHET fold comment above). A note passing
+            // through reads whichever column DEST's own playhead is on AT THE NOTE'S TIME: col = floor(m ÷ destRateBeats)
+            // mod 8. The UI matrix (GridUI's `.dest` case) extrapolates the SAME formula per animation frame, so the lit
+            // cell and the audible route are always the same clock. −1 = NONE (no emitter — silence this step).
+            let dp = cell.procs[destProc]
+            let rate = max(0.03125, dp.destRateBeats)
+            let sl = (((Int((m / rate).rounded(.down))) % 8) + 8) % 8
+            let d = dp.destSlices
+            let e = sl < d.count ? max(-1, min(3, d[sl])) : 0
+            result = e < 0 ? 0 : (UInt8(1) << UInt8(e))   // route to exactly this emitter, or none
         } else if cell.chopActive {
+            let sl = Int(chopSlice(m, columnBeats: S))
             result = chopBusMask(base, main: (cell.chopMain >> UInt8(sl)) & 1 == 1, alt: (cell.chopAlt >> UInt8(sl)) & 1 == 1,
                                  mute: (cell.chopMute >> UInt8(sl)) & 1 == 1, altMask: cell.chopAltMask)
         } else { result = base }

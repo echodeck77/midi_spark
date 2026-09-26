@@ -398,7 +398,8 @@ struct MachineParams: Codable, Equatable {
     var utilNudge: Int? = 0                     // NUDGE: time offset in sixteenths of a beat (−8…+8)
     var utilNudgeMode: NudgeMode? = nil         // TIMING LANE (Paul 2026-08-22 §5): FIXED (one offset, default) | LANE (8 per-column offsets — the pocket drawn). nil ⇒ FIXED
     var utilNudgeLane: [Int]? = nil             // LANE: 8 per-step time offsets (−8…+8 sixteenths); the cell's COLUMN picks the slot
-    var destSlices: [Int]? = nil                // DEST MATRIX (Paul 2026-08-22 §5): 8 per-onset-slice emitters (0=A…3=D) — hocket painted. nil ⇒ a rotating default
+    var destSlices: [Int]? = nil                // DEST MATRIX (Paul 2026-08-22 §5): 8 per-step emitters (−1=NONE·0=A…3=D) — hocket painted. nil ⇒ a rotating default
+    var destRate: ArpRate? = nil                 // DEST's OWN CLOCK (Paul 2026-09-26, RATCHET-PATTERN-shaped): the matrix sweeps this rate, free-running — decoupled from whatever drives the notes through it. nil ⇒ 1/8
     // DEAL (Paul 2026-09-16): the simple output dealer — override the emitters, deal N1 → emitter 1, N2 → emitter 2 (repeat). All additive-Optional.
     var dealE1: Int? = nil                       // emitter 1 (0=A…3=D); nil ⇒ A
     var dealE2: Int? = nil                       // emitter 2 (0=A…3=D); nil ⇒ B

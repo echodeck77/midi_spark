@@ -239,7 +239,8 @@ struct SnapParams {
     var utilNudge: Int = 0                            // NUDGE: time offset in sixteenths (−8…+8)
     var utilNudgeMode: NudgeMode = .fixed            // TIMING LANE (Paul 2026-08-22 §5): FIXED = one offset · LANE = a per-column pocket
     var utilNudgeLane: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]   // LANE: 8 per-step offsets (−8…+8), the cell's COLUMN picks the slot
-    var destSlices: [Int] = [0, 1, 2, 3, 0, 1, 2, 3]      // DEST MATRIX (Paul 2026-08-22 §5): per-onset-slice emitter (0=A…3=D), the hocket
+    var destSlices: [Int] = [0, 1, 2, 3, 0, 1, 2, 3]      // DEST MATRIX (Paul 2026-08-22 §5): per-step emitter (−1=NONE·0=A…3=D), the hocket
+    var destRateBeats: Double = 0.5                       // DEST's OWN CLOCK (Paul 2026-09-26): free-running step spacing in beats (from destRate) — decoupled from the driver
     var dealE1 = 0; var dealE2 = 1                       // DEAL (Paul 2026-09-16): the two emitters (0=A…3=D) — the engine finds the .deal proc by type
     var dealN1 = 1; var dealN2 = 1                       // notes to each (≥1)
     var dealMode: DealMode = .overTime                  // when the deal advances
