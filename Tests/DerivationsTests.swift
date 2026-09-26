@@ -2176,14 +2176,34 @@ final class DerivationsTests: XCTestCase {
     }
 
     // LFO RATE IGNORE (Paul 2026-09-16): the sweep only visits KEPT families; FROM/TO snap to the nearest kept rung.
+    // The ladder is TEMPO-SORTED (Paul 2026-09-26 fix), not declaration-block order — a dotted/triplet rate musically
+    // interleaves BETWEEN two adjacent normal rates, so it must occupy a ladder POSITION between them, not off in its
+    // own block (else a normal→normal sweep — the common case — never crosses it even when "included").
     func testArpRateIgnoreLadderAndSnap() {
-        XCTAssertEqual(arpRateAllowedLadder(ignore: 0), Array(0..<18), "ignore nothing → full ladder")
-        XCTAssertEqual(arpRateAllowedLadder(ignore: 0b110), Array(0..<6), "default (ignore dotted+trip) → normal only")
-        XCTAssertEqual(arpRateAllowedLadder(ignore: 0b010), Array(0..<6) + Array(12..<18), "ignore dotted → normal + triplet")
+        XCTAssertEqual(arpRateAllowedLadder(ignore: 0), [6, 0, 7, 12, 1, 8, 13, 2, 9, 14, 3, 10, 15, 4, 11, 16, 5, 17],
+                       "ignore nothing → the full ladder, TEMPO-sorted slow→fast (dotted/triplet interleave with normal)")
+        XCTAssertEqual(arpRateAllowedLadder(ignore: 0b110), Array(0..<6), "default (ignore dotted+trip) → normal only (already tempo-order)")
+        XCTAssertEqual(arpRateAllowedLadder(ignore: 0b010), [0, 12, 1, 13, 2, 14, 3, 15, 4, 16, 5, 17],
+                       "ignore dotted → normal + triplet, tempo-interleaved (was the stale Array(0..<6)+Array(12..<18) block order)")
         XCTAssertEqual(arpRateAllowedLadder(ignore: 0b111), Array(0..<6), "all-ignore → keep normal (never empty)")
-        let ladder = arpRateAllowedLadder(ignore: 0b110)   // [0…5]
+        let ladder = arpRateAllowedLadder(ignore: 0b110)   // [0…5] — a single family sorts identically either way
         XCTAssertEqual(nearestLadderPos(ladder, 2), 2, "kept index maps to its own position")
         XCTAssertEqual(nearestLadderPos(ladder, 14), 5, "an ignored (triplet) endpoint snaps to the nearest kept rung")
+    }
+    // THE BUG (Paul 2026-09-26): "the LFO jumps right past dotted/triplet even when I include them." A sweep between
+    // TWO NORMAL rates (the common case — FROM defaults to the arp's own base rate) with all families included must
+    // now visit any dotted/triplet rate that musically falls between them — e.g. 1/8 (0.5 beats) → 1/4 (1.0 beats)
+    // passes through 1/4T (0.667) and 1/8D (0.75) in between. Before the tempo-sort fix, both endpoints sat in the
+    // same contiguous ladder block (positions 2…3 of [0..5]) and the interleaved families were never reached.
+    func testArpRateLFOSweepBetweenNormalRatesCrossesIncludedDottedAndTriplet() {
+        let ladder = arpRateAllowedLadder(ignore: 0)   // everything included
+        let r1_8 = ArpRate.allCases.firstIndex(of: .r1_8)!, r1_4 = ArpRate.allCases.firstIndex(of: .r1_4)!
+        let r1_4t = ArpRate.allCases.firstIndex(of: .r1_4t)!, r1_8d = ArpRate.allCases.firstIndex(of: .r1_8d)!
+        let fp = nearestLadderPos(ladder, r1_8), tp = nearestLadderPos(ladder, r1_4)
+        let lo = min(fp, tp), hi = max(fp, tp)
+        let crossed = Set(ladder[lo...hi])
+        XCTAssertTrue(crossed.contains(r1_4t), "sweeping 1/8→1/4 must pass through 1/4T (0.667 beats lies between 0.5 and 1.0)")
+        XCTAssertTrue(crossed.contains(r1_8d), "sweeping 1/8→1/4 must pass through 1/8D (0.75 beats lies between 0.5 and 1.0)")
     }
 
     // ParamLFO.rateIgnoreResolved (Paul 2026-09-16): default ignore dotted+triplet; never ignore all three.

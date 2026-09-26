@@ -42,11 +42,19 @@ let arpPatternCases = ArpPattern.allCases
 /// The ArpPattern at a stored patternIndex, clamped to UP for an out-of-range index — the render-path reader.
 @inline(__always) func arpPatternAt(_ i: Int) -> ArpPattern { i >= 0 && i < arpPatternCases.count ? arpPatternCases[i] : .up }
 /// The ARP RATE ladder the LFO is allowed to sweep, given an IGNORE mask (bit0 normal · bit1 dotted · bit2 triplet).
-/// ArpRate.allCases is ordered [6 normal · 6 dotted · 6 triplet] → family = index / 6. Returns the kept indices in
-/// order; never empty (an all-ignore mask keeps normal). Paul 2026-09-16 (LFO rate-family ignore).
+/// ArpRate.allCases is DECLARED as [6 normal · 6 dotted · 6 triplet] (family = index / 6), but a dotted/triplet rate
+/// musically falls BETWEEN two adjacent normal rates (e.g. 1/4T and 1/8D both sit between 1/8 and 1/4 in actual
+/// tempo) — so the ladder is sorted by ACTUAL DURATION (`.beats`, slow→fast), not by declaration block. Paul
+/// 2026-09-26: a raw block-ordered ladder made a FROM→TO sweep between two normal rates (the common case — FROM
+/// defaults to the arp's own base rate) NEVER reach dotted/triplet even when "included", because both endpoints sat
+/// in the same contiguous block of ladder POSITIONS — the interleaved families were included in the SET but never
+/// crossed in POSITION SPACE. Tempo-sorting makes ladder position a true proxy for musical position, so any
+/// included rate that lies between the two endpoints (by tempo) is now genuinely visited. Never empty (an all-ignore
+/// mask keeps normal). Paul 2026-09-16 (LFO rate-family ignore).
 func arpRateAllowedLadder(ignore mask: Int) -> [Int] {
     let m = (mask & 0b111) == 0b111 ? 0b110 : (mask & 0b111)   // all-ignore → keep normal (mirrors rateIgnoreResolved)
-    let out = (0..<18).filter { (m & (1 << ($0 / 6))) == 0 }
+    let kept: [Int] = (0..<18).filter { (m & (1 << ($0 / 6))) == 0 }
+    let out: [Int] = kept.sorted { Snap.arpRateBeats[$0] > Snap.arpRateBeats[$1] }   // slow → fast, by real duration (not declaration block); Snap.arpRateBeats is a cached static, no render-path alloc
     return out.isEmpty ? Array(0..<6) : out
 }
 /// The POSITION in `ladder` of the rung nearest to `idx` (a raw 0…17 rate index) — snaps a FROM/TO endpoint onto the
