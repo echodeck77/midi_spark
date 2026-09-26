@@ -199,6 +199,33 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CLOCK — GLIDE "elastic landing", in sync whether or not a step glides (2026-09-26, on `main`, on fix/clock-
+  glide-sync; macOS 1120 green incl. fuzz, iOS builds; DEVICE ear owed). Paul: "when it lands on a target, whether
+  it got there with or without glide, it should be in sync." Confirmed real: a plain linear GLIDE ramp only
+  contributes its own AVERAGE of (from,to) over the column, strictly less than `to` when accelerating — so it
+  banks LESS local time than SET reaching the same target, and that shortfall carries forward unchanged for the
+  rest of the SPAN window (already provable via the existing `testClockDrawnGlideRowSoftensTheColumnTransition`).
+  Asked Paul to pick a resolution (a monotone ramp can't avoid the shortfall — a calculus fact, not a bug); he
+  picked **elastic landing**: `clockDrawnGlideShape` splits a glide column into two straight-rate segments — a
+  short "kick" from `from` toward a computed peak `P`, then a longer ease from `P` back onto `to` — chosen so the
+  TWO SEGMENTS' combined area always equals `to × rateBeats` exactly, same as SET. `P = to + f×(to−from)`; f
+  defaults to a symmetric 0.5 for any accelerating (or mild decelerating) glide, shrinking (5% floor) only for a
+  STEEP deceleration where a full-size overshoot would otherwise drive `P` negative (local time running backward —
+  the exact class of bug WAVE's old depth clamp existed to prevent; no ladder rung pair near that floor in
+  practice, only extreme multi-rung jumps like ×4→÷4 engage it). `clockDrawnColumnAdvance` (new, replaces 3
+  copy-pasted closures) now returns `to × rateBeats` for a GLIDE column too — the fix itself, shared by
+  `clockDrawnPhase`, its inverse, and `clockDrawnDriftPerLap` so they can't disagree; the drift readout now only
+  ever reports a lane genuinely authored to run fast/slow on average, never an artefact of glide-vs-SET choice.
+  **BUG CAUGHT MID-BUILD:** a first draft generalised `P` for the adaptive-f case but left the within-column
+  quadratic denominators hard-coded to `/T` (only correct when f is exactly 0.5) — `testClockDrawnPhaseInverse-
+  RoundTrips` failed on the extreme ×4→÷4 all-glide case; traced with a throwaway Swift script rather than
+  re-guessing by hand (this session's own standing rule), fixed to `/(2×half)`/`/(2×rest)`. Rewrote the 4 affected
+  DerivationsTests with fresh values pulled from the actual function (never re-hand-derived blind) + added
+  `testClockDrawnGlideFullColumnAlwaysMatchesSetAtTheSameTarget` (sweeps the whole 9-rung ratio ladder both ways —
+  81 pairs — asserting zero drift AND a never-negative peak) as the standing regression guard. 1120 macOS tests
+  green incl. all 8 fuzz scenarios; RouterTests' existing glide-softening test still holds (GLIDE is still visibly
+  later than SET WITHIN the ramp, converging to exactly the same phase once it lands). **NEXT:** device ear-check —
+  confirm a glide into a target no longer leaves the rest of the pattern audibly later than a same-target SET would.**
 - **▶ KILL STEP — a new TIME processor, sibling to CLOCK (2026-09-26, on `main`, `b1e7a19`; macOS 1121 green, iOS
   builds; DEVICE ear/eye owed). A row of ON/OFF steps (variable count, default 8) + its own RATE + SPAN: a disabled
   step is skipped, everything downstream jumps past it, enabled steps repeat to fill the pass (4-of-8 → the first
@@ -1233,82 +1260,6 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   its neighbour, empty-store byte-identity, round-trip + old-doc-nil). **NEXT: M3–M6 — the 4-tab band (BIND · PLAY · PUNCH ·
   SPAN) as the bottom HALF of the PART grid (interior −50% height; ferry/▲▼/STOP unchanged), PART-PAGE-ONLY. Device-owed UI over
   the proven M1/M2 fold — held for Paul's device eye (band chrome / tab collapse / STOP placement have real interpretation room).**
-- **▶ CHORDS — the diatonic-progression stage, FEATURE-COMPLETE (2026-09-01, on `main`, `64ed992`+`df5289c`+`2fd8d98`; iOS
-  builds, macOS 995 green incl. fuzz; DEVICE ear owed). Paul ratified all three modes; built C1→C5. A new HARMONY set-shaper
-  `ProcessorType.chords` — a held note TRIGGERS the diatonic chord for the current DEGREE, DERIVED from a stage-declared KEY
-  by RANK ARITHMETIC (degree n = pool-steps {n,n+2,n+4} — stacked thirds, quality falls out of the key; NO chord stored, so
-  one stencil plays in any key). Wired like harmonize/split/avoid — `applyStage` (composeChainSet folds it UPSTREAM →
-  `[CHORDS→ARP/STRUM/DRONE]` all play the progression) + `emitColumnHolds` (lone/tail hold). NOT a driver. **MODES:** PATTERN
-  (the authored 8-step degree matrix — empty column CARRIES, quality-aware Roman headers) · FOLLOW (the played note NAMES the
-  degree via `scaleDegreeOf`, off-scale snaps) · WALK (`chordsWalkDegreeAt` — a seeded gravity walk chained from the tonic,
-  recomputed per window → replay-exact, no accumulated RNG). **VOICING** TRIAD|7TH|ADD9 · **SPREAD** CLOSE|OPEN · `diatonicChord`
-  + `voiceLeadTowardPrevious` (nearest inversion) + `walkNextDegree` (7×7 gravity table) + `degreeLabel` — all pure/Foundation,
-  concept-derived tests. **C5 lone/tail fix:** a bare `[CHORDS]` was silent (only sang via a downstream, the AVOID hold-path
-  gap in CHORDS form); now `isHoldTailChain` recognises a `.chords` tail + `emitColumnHolds` composes the stage INTO
-  chainScratch (upto-inclusive) and emits it as a legato-adoptable hold (existing adopt/close machinery → no stuck notes;
-  forceColumnHold sustains via soloSustain). Full surface: CellMode `.chords` + emblem `pianokeys` + typeParams editor (MODE ·
-  KEY root+scale · quality-aware degree matrix via stateMatrixRadio · VOICING · SPREAD) + storefront card (HARMONY) + fuzz
-  roster/randomizer. **+11 tests** (4 Derivations pure-core + 7 Router: PATTERN in-key/transpose/V · FOLLOW G→V/C→I · WALK
-  seeded/valid/replay-exact · lone sounds V · VOICING 7TH reaches the engine · [CHORDS→ARP] pitch-class-clean). **DEVICE-FIX
-  PASS (2026-09-01, `a038a68`; Paul: "doesn't respond to midi; one chord on play"):** NOT a stuck-note bug — the storefront
-  seeded PATTERN, which IGNORES the played pitch (authored degree lane) and under the SELECT audition's frozen column shows
-  only degree[0] = "no response, one chord." TWO fixes: ① DEFAULT → FOLLOW (the responsive mode: play a note → its diatonic
-  chord; PATTERN/WALK picked in the editor); ② C2b#1 DONE — CHORDS reads the KEY from a receiver door in SCALE mode
-  (`receiverScaleRoot`/`Type` threaded box→Router→applyStage; −1 = not a scale door → card key, byte-identical), so it "plays
-  in whatever key D declares." +3 RouterTests (FOLLOW tracks a changing held note under audition; a filled row plays a real
-  progression; a CHORDS on an E-major SCALE door sounds E G# B). **THE REAL "NOTHING SOUNDS" FIX (Paul pushed back — 2nd pass,
-  `0091e2b`):** the default-mode answer DODGED the bug. The SELECT/ferry audition parks the cell at col 0 of a row PINNED to
-  that column (rowLane single bit) — a row that NEVER re-transitions, so `emitColumnHolds` fires exactly ONCE. A legato drone
-  survives (immortal voice never closes); a NON-legato hold (CHORDS — and in fact HARMONIZE/CHANCE) strikes once, gates off at
-  the column end, never re-fires → "nothing sounds / one chord." (The earlier forceColumn test used a DIFFERENT path and masked
-  it.) FIX (scoped to CHORDS): ① CHORDS is now a LEGATO hold (sustains + adopts; a SWEEPING row re-strikes only when the chord
-  CHANGES — same degree in consecutive columns sustains); ② a PINNED continuous row (single held column — audition / single play
-  cell) RE-RECONCILES every window like forceColumnHold (reconcileOnly), so a legato CHORDS follows a LATE-armed latch + a
-  changing FOLLOW note instead of freezing at window 1. +3 RouterTests (sustains on the pinned audition like a drone; FOLLOW
-  picks up a note played AFTER the audition starts; sustains from a LATCHED receiver with no live keys). 1005 green, fuzz +
-  per-row-lap + no-stuck all green. **GENERALIZED (Paul: [CHORDS→ARP] plays, BYPASS the arp → silence; "extend to the other
-  relevant processors" — `bb59b20`):** bypassing the driver makes the tail a non-legato identity passthrough → the SAME fire-
-  once bug, but the CHORDS-scoped fix missed it. Reverted the CHORDS-only legato hack; folded a new `auditionSustain` (set when a
-  row is PINNED) into `soloSustain`, so a frozen-column preview (forceColumnHold OR the pinned audition) sustains EVERY hold —
-  identity/harmonize/chance/split/avoid/octave/transpose/chords + a bypassed-driver tail. Byte-identical on a SWEEPING row
-  (auditionSustain false unless pinned). +2 tests (1007 green): [CHORDS→bypassed arp] sustains; harmonize + chance sustain on
-  the audition. **SCALE FROM a REFERENCED door (`0ab1b00`):** Paul — the card KEY picker was confusing + WALK/FOLLOW should
-  reference a SCALE door (like AVOID's "listen to"). REMOVED the KEY picker; added **SCALE FROM ▸ — · A · B · C · D**
-  (`chordsScaleRef`) — a receiver set to SCALE supplies root+scale while the cell's OWN input stays the TRIGGER (FOLLOW names
-  the degree from the note you play; a separate door sets the key). No valid ref → C-major fallback (never keyless). Engine
-  reads `receiverScaleRoot/Type[chordsScaleRef]` (supersedes the own-receiver read). Editor shows a mode-appropriate body:
-  PATTERN keeps the matrix; FOLLOW/WALK get plain-language tells + WALK a RE-ROLL. +2 tests (referenced E major → E G# B; no
-  ref → C major), 1008 green. **STEPS + RATE (`0cd2b17`):** Paul — "we need steps and rate on chord." RATE (StepRate 2/1…1/8,
-  default 1/1) gives the progression its OWN clock (a chord per rate-tick, not per grid column) so it steps musically AND plays
-  THROUGH on the frozen/pinned audition (the beat advances even when the column is pinned); STEPS (1…16, default 8) is the
-  PATTERN matrix length (loops every N; the editor matrix is now variable-width). PATTERN+WALK step on RATE; FOLLOW is
-  continuous. KEY FIX: the rate step reads the RAW beat (mNow), not the grid-quantized colStart the hold path passes (else it
-  aliases to one frozen degree). +3 tests (progression steps; STEPS=2 loops the first two degrees; regressions hold), fuzz
-  randomizes mode/rate/steps/scaleRef, 1010 green. **C2b REMAINING (flagged, not blockers):** INVERT-toward-previous (pure `voiceLeadTowardPrevious`
-  exists+tested; wiring needs per-cell last-chord memory) · WINDOW ROW|BAR (span family) · the PATTERN degree-matrix headers
-  show major-quality Roman numerals (POSITION reference; the real quality follows the SCALE-FROM door at play — threading that
-  door's scale into the editor for live-accurate headers is a device-owed nicety).**
-- **▶ TIDE & EMBER COLOUR SCHEME + play-grid legibility + SELECT chequer/feedback + HOUSEKEEPING (2026-09-01, on `main`,
-  `6537159`…`e32925b`; iOS builds, macOS 978 green; DEVICE eye/ear owed). Paul picked the **Tide & Ember** scheme with the
-  **Even Dusk** play palette from a colour-study artifact. **PALETTE (`6537159`, GridUI + BuildPage tokens):** direction as
-  temperature — `receiverHues`/`receiverGreys` → COOL (IN), `emitterHexes` → WARM red·orange·gold·magenta (OUT), `playHexes`
-  → EVEN DUSK (8 evenly-spread muted hues, fixing the old dusk set that collapsed together), `roomsAmber`/`roomsIndigo` →
-  warm-ember/cool-tide signatures (roomsIndigo keeps its NAME but now holds a sea-blue — also flows to the STOP + ▲▼ ferry
-  buttons), `roomsRainbowHues` → warm→cool span. The 16 machine `colourHexes` were LEFT a full vivid spectrum (a warm-only
-  set would lose machine differentiability; PART character comes via the amber door). SELECT nav stays the rainbow (no muted-
-  nav pick made). **UI:** SELECT-grid cells get a tasteful two-tone CHEQUER (`fab29ac`); the ▲▼ ferry-row cursor is ONE solid
-  indigo block, not two buttons (`711cfd7`); the SELECT machine grey ALTERNATES between two bright shades on each new pick
-  (`cdf1345` — `buildSelectGrey`/`buildSelectGreyAlt`, flips on `buildGridSelSel` change) so a new selection visibly shifts
-  even though the audition is always the transient `gsAud`; STOP + ▲▼ restyled to the play-nav indigo (`898e8c3`). **HOUSEKEEPING
-  (`e32925b`, 3 read-only survey agents, every finding re-verified):** ① the CC120/123 forward path COMPLETED the 2026-08-31
-  HOLD fix — an incoming all-notes-off was still FORWARDED to the synth while a HOLD/LATCH is armed, silencing the held chord
-  DOWNSTREAM though it survived internally; now suppressed while `effectiveLatchMask != 0` (device-owed, Kernel isn't unit-
-  tested). ② dead-code sweep, net −149 lines (7 dead @State + `BuildGridMode` + `roomsPlayHeader` + `spanLadderFreeField` +
-  the old editor tab-overwrite cluster `buildColourTab`→`buildTabNowPlaying`/`buildPulseOverlay`/`buildEditorOverwriteRow` +
-  AU orphans `setCellsChain`/`forkCellToColour`/`setRow8OnRadioSetup`/`punchCC`/`sendProgramChange`/`editColour`/`uiExcludeDoor`).
-  ③ +1 test (`DoorRing.loadLoopParallel` round-trips == `loadLoop` + ragged-array clamp). ④ fixed the last stale `column*8+row`
-  comment (`Router.topCell`). Bug-hunt cleared all this session's changes (CC123-internal, focus-note feed, ferry duplicate).**
-
 - **Older entries (2026-09-01 and before) archived to `Docs/status-log-archive.md`** — moved out
   2026-09-26 to keep this file inside the context char limit; nothing was deleted, just relocated.
   Read that file for build history predating the entries above; `Docs/pending-tasks.md` stays the

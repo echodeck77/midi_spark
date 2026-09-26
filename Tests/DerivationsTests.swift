@@ -2243,60 +2243,105 @@ final class DerivationsTests: XCTestCase {
     }
 
     // SET snaps to a column's full ratio immediately; GLIDE ramps linearly from the PREVIOUS column's landed ratio to
-    // this one — hand-verified exact values (steps=2, ratios ×1 then ×2, rateBeats=1, FREE span): at the column-1
-    // midpoint (beat 1.5), SET has already been running at ×2 for half a beat (phase 1+1=2); GLIDE has only ramped
-    // from ×1 toward ×2 over that half-beat (phase 1+0.625=1.625) — a quadratic accumulation, not linear.
+    // this one — GLIDE now lands with the "elastic" shape (Paul 2026-09-26 ②, "in sync … with or without glide"):
+    // its FULL column contribution is exactly `to × rateBeats`, same as SET's, so it costs no local time overall —
+    // only the WITHIN-column shape differs (a brief overshoot then ease back onto the target, `clockDrawnGlideShape`).
+    // steps=2, ratios ×1 then ×2, rateBeats=1, FREE span: at the column-1 midpoint (beat 1.5, half the column, which
+    // is also exactly the elastic curve's 50/50 split point for an accelerating glide), SET has been running at its
+    // full ×2 for half a beat (phase 1+1=2); GLIDE's kick-then-ease has carried it to phase 1+0.875=1.875 — MORE than
+    // the old straight-ramp's 1.625, since the curve is already past its overshoot peak by the split point, not
+    // still crawling up from ×1 (values re-derived from the actual function, not re-guessed by hand).
     func testClockDrawnSetSnapsGlideRamps() {
         let ratios = [1.0, 2.0]
         XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: [false, false], steps: 2, rateBeats: 1, periodBeats: 0),
                        2.0, accuracy: 1e-9, "SET: col1 already running at its full ×2")
         XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: [false, true], steps: 2, rateBeats: 1, periodBeats: 0),
-                       1.625, accuracy: 1e-9, "GLIDE: col1 ramping ×1→×2, only half-elapsed")
+                       1.875, accuracy: 1e-9, "GLIDE: col1's elastic kick, half-elapsed")
+        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: [false, false], steps: 2, rateBeats: 1, periodBeats: 0),
+                       clockDrawnPhase(2.0, ratios: ratios, glide: [false, true], steps: 2, rateBeats: 1, periodBeats: 0),
+                       accuracy: 1e-9, "THE FIX ITSELF: by the end of col1, SET and GLIDE land at the identical phase — in sync either way")
     }
 
     // GLIDE SPANS (Paul 2026-09-26, caught against a worked example): three consecutive GLIDE columns that all
     // target the SAME ratio must ramp smoothly across ALL THREE, not reach the target after the first and flatline
     // for the other two (the bug in the original "ramp from my immediate predecessor" reading — a segment whose
-    // two ends are numerically equal has no slope to inherit). Hand-derived with clean integers (spanFrom=1,
-    // target=7, 3-column span, rateBeats=1): each column's own SLICE of the overall 1→7 ramp is a UNIT-6/3=2-wide
-    // sub-ramp (col1: 1→3, col2: 3→5, col3: 5→7) — so the partial sums at each column boundary are exact integers,
-    // letting this be checked to full floating-point precision rather than approximately.
+    // two ends are numerically equal has no slope to inherit). `clockDrawnGlideEndpoints` (the per-column checkpoint
+    // sequence, UNCHANGED by the elastic-landing fix) still climbs spanFrom=1 → target=7 in three even slices
+    // (col1: 1→3, col2: 3→5, col3: 5→7) — but each column's own FULL contribution is now its own checkpoint's `to`
+    // value exactly (1, 3, 5, 7 for col0..col3), not the old straight-ramp's average of its endpoints, so the
+    // cumulative phase at each boundary is the running sum of THOSE checkpoints (values pulled from the actual
+    // function's own output, per this session's rule of never trusting a hand-derivation of this math unchecked).
     func testClockDrawnGlideSpanRampsAcrossTheWholeRunNotJustTheFirstColumn() {
         let ratios = [1.0, 7.0, 7.0, 7.0]
         let glide = [false, true, true, true]
         XCTAssertEqual(clockDrawnPhase(1.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.0, accuracy: 1e-9, "end of col0 (SET at 1) = start of the span")
-        XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.75, accuracy: 1e-9, "col1's own slice (1→3) at its midpoint — NOT the old bug's 1→7 midpoint (which would give 3.0)")
-        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 3.0, accuracy: 1e-9, "end of col1 — reaches only 3, a third of the way to 7, not the full target")
-        XCTAssertEqual(clockDrawnPhase(3.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 7.0, accuracy: 1e-9, "end of col2 — cumulative columnAdvance(0..2) = 1 + 2 + 4 = 7")
-        XCTAssertEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 13.0, accuracy: 1e-9, "end of col3 (one full lap) — the span has fully landed on 7 by here")
-        XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: glide, steps: 4, rateBeats: 1), 9.0, accuracy: 1e-9, "drift = lapAdvance(13) − steps×rateBeats(4)")
+        XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 2.25, accuracy: 1e-9, "col1's own slice (1→3) at its midpoint")
+        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 4.0, accuracy: 1e-9, "end of col1 — its own checkpoint (3) landed exactly, cumulative with col0's 1")
+        XCTAssertEqual(clockDrawnPhase(3.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 9.0, accuracy: 1e-9, "end of col2 — cumulative checkpoints 1 + 3 + 5 = 9")
+        XCTAssertEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 16.0, accuracy: 1e-9, "end of col3 (one full lap) — cumulative checkpoints 1 + 3 + 5 + 7 = 16")
+        XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: glide, steps: 4, rateBeats: 1), 12.0, accuracy: 1e-9, "drift = lapAdvance(16) − steps×rateBeats(4) — the SAME 12 a SET lane at [1,3,5,7] would report (see the next test)")
+        // Confirms the drift is a property of the CHECKPOINT VALUES only, never of glide-vs-SET on the same targets:
+        XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: glide, steps: 4, rateBeats: 1),
+                       clockDrawnDriftPerLap([1, 3, 5, 7], glide: [false, false, false, false], steps: 4, rateBeats: 1),
+                       accuracy: 1e-9, "GLIDE-ing into a checkpoint sequence drifts identically to SET-ting those same checkpoints outright")
     }
     // A run of DIFFERING consecutive targets (no two neighbours share a value) must be COMPLETELY UNCHANGED by the
     // span fix above — each glide column is its own span of length 1, reducing exactly to the original one-column
-    // formula. Locks that the span walk doesn't alter the already-correct case Paul confirmed ("reading 2").
+    // formula. Locks that the span walk doesn't alter the already-correct case Paul confirmed ("reading 2"). Under
+    // the elastic-landing fix, a glide column's FULL contribution collapses to simply `to × rateBeats` — the SAME
+    // formula as SET at that same value — so this test now doubles as the plainest possible demonstration of the
+    // sync fix itself: swap ANY of these `true`s to `false` (SET) and every asserted phase is unchanged.
     // Column real-time spans are [0,1)=col0, [1,2)=col1, [2,3)=col2, [3,4)=col3 (rateBeats=1) — verified via the
     // engine's own actual output (an earlier draft of this test mis-mapped beats to columns by one and asserted
     // the wrong numbers; caught by a failing run, not trusted by construction).
     func testClockDrawnGlideOfDifferingTargetsIsUnaffectedBySpanLogic() {
         let ratios = [1.0, 2.0, 3.0, 2.0]
         let glide = [false, true, true, true]
+        let allSet = [false, false, false, false]
         XCTAssertEqual(clockDrawnPhase(1.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.0, accuracy: 1e-9, "end of col0 (SET at 1) = start of col1")
-        // col1 span-of-1: from=ratioAt(0)=1, to=2 → midpoint (w=0.5) = 1*0.5 + (2-1)/2*0.25 = 0.625; cumulative with col0's 1.0 = 1.625
-        XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.625, accuracy: 1e-9, "col1 midpoint")
-        // end of col1: columnAdvance(0)+columnAdvance(1) = 1 + (1+2)/2 = 2.5
-        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 2.5, accuracy: 1e-9, "end of col1")
-        // end of col2: + columnAdvance(2) = (2+3)/2 = 2.5 → cumulative 2.5+2.5=5.0
-        XCTAssertEqual(clockDrawnPhase(3.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 5.0, accuracy: 1e-9, "end of col2")
-        // end of col3: + columnAdvance(3) = (3+2)/2 = 2.5 → cumulative 5.0+2.5=7.5
-        XCTAssertEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 7.5, accuracy: 1e-9, "end of col3 — one full lap")
+        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 3.0, accuracy: 1e-9, "end of col1 — checkpoint 2 landed, cumulative with col0's 1")
+        XCTAssertEqual(clockDrawnPhase(3.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 6.0, accuracy: 1e-9, "end of col2 — cumulative checkpoints 1 + 2 + 3 = 6")
+        XCTAssertEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 8.0, accuracy: 1e-9, "end of col3 — one full lap, cumulative checkpoints 1 + 2 + 3 + 2 = 8")
+        // Every column boundary is identical whether those columns glide into their checkpoints or SET straight to them:
+        for beat in [1.0, 2.0, 3.0, 4.0] {
+            XCTAssertEqual(clockDrawnPhase(beat, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0),
+                           clockDrawnPhase(beat, ratios: ratios, glide: allSet, steps: 4, rateBeats: 1, periodBeats: 0),
+                           accuracy: 1e-9, "GLIDE and SET agree at every column boundary (beat \(beat)) — the sync fix")
+        }
     }
 
-    // The drift readout must match what the phase function ACTUALLY does over one full lap — cross-checked against
-    // the same SET/GLIDE pair above (lap = 2 beats real time; SET nets 3 beats local ⇒ +1 drift/lap; GLIDE nets 2.5 ⇒ +0.5).
+    // THE FIX ITSELF, swept across the WHOLE ratio ladder (Paul 2026-09-26 ②: "when it lands on a target, whether
+    // it got there with or without glide, it should be in sync"). Two invariants, for every (from, to) pair the
+    // ladder can produce — including the extreme ×4→÷4 deceleration that exposed the original bug (a hard-coded
+    // `/T` that only happened to be correct at the symmetric split, silently wrong once the adaptive floor shrank
+    // the split below 0.5; caught by `testClockDrawnPhaseInverseRoundTrips`, traced with a throwaway script rather
+    // than re-derived by hand a second time): (1) a GLIDE column's full contribution over one rateBeats span is
+    // byte-identical to a SET column landed on the same `to` — the actual sync guarantee; (2) the elastic peak
+    // never goes negative — local time must never run backward, or every downstream inverse breaks.
+    func testClockDrawnGlideFullColumnAlwaysMatchesSetAtTheSameTarget() {
+        let rateBeats = 0.5
+        for from in clockRatioLadder {
+            for to in clockRatioLadder {
+                let atEnd = clockDrawnGlideAdvance(rateBeats, from: from, to: to, rateBeats: rateBeats)
+                XCTAssertEqual(atEnd, to * rateBeats, accuracy: 1e-9,
+                               "GLIDE \(from)→\(to) over the whole column must land exactly where SET at \(to) would")
+                let (peak, f) = clockDrawnGlideShape(from: from, to: to)
+                XCTAssertGreaterThanOrEqual(peak, -1e-9, "elastic landing \(from)→\(to) (split \(f)) must never require local time to run backward")
+                // and the closed-form inverse must recover the full span exactly
+                let back = clockDrawnGlideAdvanceInverse(to * rateBeats, from: from, to: to, rateBeats: rateBeats)
+                XCTAssertEqual(back, rateBeats, accuracy: 1e-6, "inverting the full contribution must land exactly at the column's end")
+            }
+        }
+    }
+
+    // The drift readout must match what the phase function ACTUALLY does over one full lap. Since the elastic-
+    // landing fix (Paul 2026-09-26 ②) makes a GLIDE column's full contribution equal `to × rateBeats` — identical to
+    // SET at that same value — using GLIDE instead of SET on the SAME checkpoint sequence can no longer change the
+    // reported drift at all (this is the fix's whole point, restated as a drift-readout invariant).
     func testClockDrawnDriftPerLapMatchesThePhaseFunctionsOwnLapAdvance() {
         let ratios = [1.0, 2.0]
         XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: [false, false], steps: 2, rateBeats: 1), 1.0, accuracy: 1e-9)
-        XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: [false, true], steps: 2, rateBeats: 1), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: [false, true], steps: 2, rateBeats: 1), 1.0, accuracy: 1e-9, "GLIDE-ing into ×2 drifts exactly as much as SET-ting it — no glide-specific penalty")
         XCTAssertEqual(clockDrawnDriftPerLap([1, 1, 1, 1], glide: [false, false, false, false], steps: 4, rateBeats: 0.5), 0, accuracy: 1e-9)
     }
 

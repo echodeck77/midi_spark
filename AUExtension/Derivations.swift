@@ -136,14 +136,108 @@ func clockDrawnGlideEndpoints(_ i: Int, ratios: [Double], glide: [Bool], steps: 
     return (from, to)
 }
 
+/// GLIDE's "elastic landing" (Paul 2026-09-26, ②: "when it lands on a target, whether it got there with or
+/// without glide, it should be in sync"). SUPERSEDES the straight-line ramp this session started with: a plain
+/// linear ramp from `from` to `to` only contributes its OWN average, `(from+to)/2 × rateBeats`, of local time —
+/// strictly less than `to × rateBeats` whenever accelerating (`to > from`), which is exactly what a SET column at
+/// `to` contributes. That shortfall doesn't wash out; it carries forward UNCHANGED for the rest of the current
+/// SPAN window, so a driver's ticks land at a fixed real-time offset later for however long the pattern keeps
+/// re-using that target — audibly "not in sync" with a same-target SET, confirmed against the existing
+/// `RouterTests.testClockDrawnGlideRowSoftensTheColumnTransition` (which already proved GLIDE's first post-
+/// boundary tick lands later than SET's — the deficit this fixes).
+///
+/// A monotone ramp CANNOT avoid this (a basic calculus fact: an increasing function's average over an interval is
+/// strictly below its own endpoint value, unless the interval has zero width) — the only way to land on `to` at
+/// the column's end while still contributing exactly `to × rateBeats` overall is to let the instantaneous rate
+/// overshoot past `to` for part of the column, then ease back down onto it exactly at the end (or undershoot, for
+/// a decelerating glide). `clockDrawnGlideShape` builds that as two straight-line segments (a short "kick" from
+/// `from` up/down to a computed peak `P`, then a longer ease from `P` back to `to`) — each segment stays linear in
+/// RATE, so its own local-time contribution is still a plain quadratic (the SAME closed form the old single-
+/// segment ramp used, just applied twice), keeping both the forward phase and its exact inverse simple.
+///
+/// `P` is derived by requiring the two segments' combined area (local-time contributed) equal `to × rateBeats`
+/// exactly: for a segment split at fraction `f` of the column, `P = to + f×(to − from)` (algebra: solve
+/// `f×(from+P)/2 + (1−f)×(P+to)/2 = to` for P). `f` defaults to a nice symmetric 0.5 (an even kick-then-ease) for
+/// any ACCELERATING glide (`to ≥ from` — there `P ≥ to > 0` for any `f`, so it's always safe) or a mild
+/// deceleration; for a STEEP deceleration (`from` much larger than `to` — e.g. a ×4→÷4 jump across most of the
+/// ladder) a full-size overshoot would drive `P` negative, i.e. local time would briefly run BACKWARD, breaking
+/// the "derived, never accumulated" invariant every downstream inverse relies on (the exact class of bug WAVE's
+/// depth clamp existed to prevent). So `f` shrinks — down to a 5% floor — just far enough to keep `P ≥ 0`; this
+/// only engages for jumps far outside normal use (every ADJACENT-rung glide on the ladder is well inside the
+/// safe range, so the common case always gets the full, clearly-audible elastic landing). Pure; O(1).
+@inline(__always) func clockDrawnGlideShape(from: Double, to: Double) -> (peak: Double, splitFraction: Double) {
+    guard to < from else { return (to + 0.5 * (to - from), 0.5) }   // accelerating (or flat): always safe at f=0.5
+    let safeF = to / (from - to)                                    // the exact f where P would hit 0
+    let f = max(0.05, min(0.5, safeF))
+    return (to + f * (to - from), f)
+}
+/// The local-time ADVANCE of one GLIDE column, from its start up to `t` beats in (0…`rateBeats`) — the closed-form
+/// integral of the two-segment "elastic landing" rate curve `clockDrawnGlideShape` describes. Segment widths are
+/// `half = f×T` then `T−half` (NOT always `T/2` each — `f` shrinks below 0.5 for a steep deceleration), so each
+/// segment's own quadratic term divides by TWICE ITS OWN WIDTH, not by `T` (a first draft hard-coded `/T`, which
+/// only happens to equal `/(2×half)` when `f` is exactly 0.5 — caught by `testClockDrawnPhaseInverseRoundTrips`
+/// failing on an extreme ×4→÷4 lane, where the adaptive floor actually engages; traced with a throwaway script
+/// rather than re-guessed by hand, per this session's own standing rule about trusting a derivation unchecked).
+@inline(__always) func clockDrawnGlideAdvance(_ t: Double, from: Double, to: Double, rateBeats T: Double) -> Double {
+    guard T > 0 else { return 0 }
+    let (P, f) = clockDrawnGlideShape(from: from, to: to)
+    let half = f * T
+    if t <= half {
+        return from * t + (P - from) * t * t / (2 * half)
+    }
+    let posHalf = half * (from + P) / 2
+    let tp = t - half
+    let rest = T - half
+    return posHalf + P * tp + (to - P) * tp * tp / (2 * rest)
+}
+/// A GLIDE column's FULL local-time contribution over its whole duration — by construction (see
+/// `clockDrawnGlideShape`) always exactly `to × rateBeats`, the SAME formula a SET column at `to` would give. This
+/// is the fix itself: whether a column reaches `to` by SET or by GLIDE, it contributes the identical amount of
+/// local time, so nothing downstream drifts out of sync depending on which one was used.
+@inline(__always) func clockDrawnGlideFullAdvance(from: Double, to: Double, rateBeats: Double) -> Double { to * rateBeats }
+/// The exact inverse of `clockDrawnGlideAdvance` — given a target local-time advance `r` (0…the column's full
+/// contribution), returns how far into the column (0…`rateBeats`) that is. Each segment is linear-in-rate, so its
+/// own advance is a plain quadratic in elapsed time — solved the same closed-form way the old single-segment ramp
+/// was (the `+` root; a segment's own rate is monotonic across its own [0, half]/[half, rateBeats] span, so the
+/// root in range is unique). No iteration. Pure.
+@inline(__always) func clockDrawnGlideAdvanceInverse(_ r: Double, from: Double, to: Double, rateBeats T: Double) -> Double {
+    guard T > 0 else { return 0 }
+    let (P, f) = clockDrawnGlideShape(from: from, to: to)
+    let half = f * T
+    let posHalf = half * (from + P) / 2
+    let rest = T - half
+    func solveQuadratic(_ a: Double, _ b: Double, _ target: Double) -> Double {
+        guard abs(a) > 1e-12 else { return b > 0 ? target / b : 0 }
+        let disc = max(0, b * b + 4 * a * target)
+        return (-b + disc.squareRoot()) / (2 * a)
+    }
+    if r <= posHalf {
+        let t = solveQuadratic((P - from) / (2 * half), from, r)
+        return max(0, min(half, t))
+    }
+    let tp = solveQuadratic((to - P) / (2 * rest), P, r - posHalf)
+    return max(half, min(T, half + tp))
+}
+/// A resolved lane's per-column ratio, wrapping (both `i` and the array length may be negative/short — `posMod`
+/// handles both). Shared by every function below so the wrap rule can't drift between them.
+@inline(__always) func clockDrawnRatioAt(_ i: Int, ratios: [Double], steps: Int) -> Double { ratios[posMod(posMod(i, steps), ratios.count)] }
+@inline(__always) func clockDrawnIsGlide(_ i: Int, glide: [Bool]) -> Bool { i >= 0 && i < glide.count && glide[i] }
+/// Column i's FULL local-time contribution over its whole rateBeats span — SET = constant rate; GLIDE = exactly
+/// `to × rateBeats` too now (`clockDrawnGlideFullAdvance` — the elastic landing costs nothing versus SET). One
+/// shared spelling used by the phase function, its inverse, and the drift readout so they can't disagree.
+@inline(__always) func clockDrawnColumnAdvance(_ i: Int, ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double) -> Double {
+    guard clockDrawnIsGlide(i, glide: glide) else { return clockDrawnRatioAt(i, ratios: ratios, steps: steps) * rateBeats }
+    let (from, to) = clockDrawnGlideEndpoints(i, ratios: ratios, glide: glide, steps: steps)
+    return clockDrawnGlideFullAdvance(from: from, to: to, rateBeats: rateBeats)
+}
+
 /// DRAWN mode's phase transform: a piecewise per-column lane — a SET column (`glide[i]` false) holds a CONSTANT
-/// rate for its whole duration (a jump at column entry); a GLIDE column (`glide[i]` true) ramps LINEARLY in RATE
-/// across its duration, between the endpoints `clockDrawnGlideEndpoints` gives it (so phase is quadratic within
-/// that one column — the closed-form integral of a linear ramp). Genuinely NOT zero-mean — DRAWN forfeits WAVE's
-/// re-landing guarantee by design (the spec: "honesty replaces it" — see `clockDrawnDriftPerLap`, the UI's drift
-/// readout). Recomputed from the SPAN/lap origin every call (bounded to O(steps) — two small fixed-size loops
-/// (plus each glide column's own bounded span walk), no accumulation across renders, no render-path allocation
-/// since `ratios`/`glide` are the caller's own arrays). `periodBeats` 0 ⇒ free-run: the lane just repeats every
+/// rate for its whole duration (a jump at column entry); a GLIDE column (`glide[i]` true) ramps smoothly between
+/// the endpoints `clockDrawnGlideEndpoints` gives it via the "elastic landing" shape above — softening the
+/// transition WITHOUT costing any local time versus a same-target SET (`clockDrawnGlideFullAdvance`). Recomputed
+/// from the SPAN/lap origin every call (bounded to O(steps) — two small fixed-size loops (plus each glide
+/// column's own bounded span walk), no accumulation across renders, no render-path allocation since
+/// `ratios`/`glide` are the caller's own arrays). `periodBeats` 0 ⇒ free-run: the lane just repeats every
 /// `steps × rateBeats` from absolute beat 0 forever (still O(steps) per call via the `fullLaps` factor-out, not a
 /// per-lap walk since t=0). `ratios` is already fully resolved (via `clockDrawnResolveRatios` — no −1 sentinels);
 /// `glide.count` may be short (missing ⇒ SET). `originOverride` (Paul 2026-09-26, driver retiming): when supplied,
@@ -162,23 +256,14 @@ func clockDrawnPhase(_ beat: Double, ratios: [Double], glide: [Bool], steps: Int
     let remainder = localBeat - fullLaps * lapBeats                      // in [0, lapBeats)
     let col = min(steps - 1, max(0, Int((remainder / rateBeats).rounded(.down))))
     let withinCol = remainder - Double(col) * rateBeats                  // in [0, rateBeats)
-    func ratioAt(_ i: Int) -> Double { ratios[posMod(posMod(i, steps), ratios.count)] }
-    func isGlide(_ i: Int) -> Bool { i >= 0 && i < glide.count && glide[i] }
-    // The FULL contribution of column i, over its whole rateBeats span — SET = constant rate; GLIDE = the average
-    // of its own span-slice endpoints (a linear ramp's mean rate).
-    func columnAdvance(_ i: Int) -> Double {
-        guard isGlide(i) else { return ratioAt(i) * rateBeats }
-        let (from, to) = clockDrawnGlideEndpoints(i, ratios: ratios, glide: glide, steps: steps)
-        return (from + to) / 2 * rateBeats
-    }
-    var lapAdvance = 0.0; for i in 0..<steps { lapAdvance += columnAdvance(i) }
-    var partial = 0.0; for i in 0..<col { partial += columnAdvance(i) }
+    var lapAdvance = 0.0; for i in 0..<steps { lapAdvance += clockDrawnColumnAdvance(i, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats) }
+    var partial = 0.0; for i in 0..<col { partial += clockDrawnColumnAdvance(i, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats) }
     let currentAdvance: Double
-    if isGlide(col) {
+    if clockDrawnIsGlide(col, glide: glide) {
         let (from, to) = clockDrawnGlideEndpoints(col, ratios: ratios, glide: glide, steps: steps)
-        currentAdvance = from * withinCol + (to - from) / (2 * rateBeats) * withinCol * withinCol
+        currentAdvance = clockDrawnGlideAdvance(withinCol, from: from, to: to, rateBeats: rateBeats)
     } else {
-        currentAdvance = ratioAt(col) * withinCol
+        currentAdvance = clockDrawnRatioAt(col, ratios: ratios, steps: steps) * withinCol
     }
     return originBeat + fullLaps * lapAdvance + partial + currentAdvance
 }
@@ -196,14 +281,7 @@ func clockDrawnPhase(_ beat: Double, ratios: [Double], glide: [Bool], steps: Int
 func clockDrawnPhaseInverse(_ localBeat: Double, originBeat: Double, ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double) -> Double {
     guard steps > 0, rateBeats > 0, !ratios.isEmpty else { return localBeat }
     let lapBeats = Double(steps) * rateBeats
-    func ratioAt(_ i: Int) -> Double { ratios[posMod(posMod(i, steps), ratios.count)] }
-    func isGlide(_ i: Int) -> Bool { i >= 0 && i < glide.count && glide[i] }
-    func columnAdvance(_ i: Int) -> Double {
-        guard isGlide(i) else { return ratioAt(i) * rateBeats }
-        let (from, to) = clockDrawnGlideEndpoints(i, ratios: ratios, glide: glide, steps: steps)
-        return (from + to) / 2 * rateBeats
-    }
-    var lapAdvance = 0.0; for i in 0..<steps { lapAdvance += columnAdvance(i) }
+    var lapAdvance = 0.0; for i in 0..<steps { lapAdvance += clockDrawnColumnAdvance(i, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats) }
     guard lapAdvance > 0 else { return originBeat }
     let localOffset = localBeat - originBeat
     let fullLaps = (localOffset / lapAdvance).rounded(.down)
@@ -211,23 +289,17 @@ func clockDrawnPhaseInverse(_ localBeat: Double, originBeat: Double, ratios: [Do
     var col = steps - 1
     var partial = 0.0
     for i in 0..<steps {
-        let adv = columnAdvance(i)
+        let adv = clockDrawnColumnAdvance(i, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats)
         if remainder < partial + adv || i == steps - 1 { col = i; break }
         partial += adv
     }
     remainder -= partial                                        // local advance WITHIN this column, ≥ 0
     let withinCol: Double
-    if isGlide(col) {
+    if clockDrawnIsGlide(col, glide: glide) {
         let (from, to) = clockDrawnGlideEndpoints(col, ratios: ratios, glide: glide, steps: steps)
-        let a = (to - from) / (2 * rateBeats)
-        if abs(a) < 1e-12 {
-            withinCol = from > 0 ? remainder / from : 0
-        } else {
-            let disc = max(0, from * from + 4 * a * remainder)
-            withinCol = (-from + disc.squareRoot()) / (2 * a)
-        }
+        withinCol = clockDrawnGlideAdvanceInverse(remainder, from: from, to: to, rateBeats: rateBeats)
     } else {
-        let rate = ratioAt(col)
+        let rate = clockDrawnRatioAt(col, ratios: ratios, steps: steps)
         withinCol = rate > 0 ? remainder / rate : 0
     }
     let clampedWithin = max(0, min(rateBeats, withinCol))
@@ -301,23 +373,19 @@ func killStepPhaseInverse(_ localBeat: Double, originBeat: Double, enabled: [Boo
     return originBeat + Double(n) * rateBeats + withinCol
 }
 
-/// THE DRIFT READOUT (Paul 2026-09-26, "honesty replaces the guarantee"): a DRAWN lane's net time gained/lost per
-/// full lap, in BEATS (positive ⇒ the lane runs ahead of grid time; negative ⇒ behind). Zero exactly when the
-/// lane's ratios average to 1 across the lap (e.g. every column at ×1, or a symmetric mix) — the DRAWN analogue of
-/// WAVE's guaranteed re-landing, except here it's a fact to REPORT, not a property the engine enforces. Pure.
+/// THE DRIFT READOUT (Paul 2026-09-26, "honesty replaces the guarantee" — NARROWED same day by the elastic-landing
+/// fix above): a DRAWN lane's net time gained/lost per full lap, in BEATS (positive ⇒ the lane runs ahead of grid
+/// time; negative ⇒ behind). Zero exactly when the lane's per-column CHECKPOINT values (each glide column's own
+/// interpolated `to`, per `clockDrawnGlideEndpoints` — a mid-span glide reads its own slice, not the span's final
+/// target) average to 1 across the lap. What this no longer reports: any extra drift purely from CHOOSING glide
+/// over SET on a given step — `clockDrawnColumnAdvance` makes those byte-identical now, so this readout only ever
+/// reflects a lane that's genuinely, deliberately authored to run faster/slower than real time on average (the
+/// DRAWN analogue of WAVE's guaranteed re-landing for a lane that DOES average to ×1) — never an artefact of how a
+/// step happened to reach its own value. Pure.
 func clockDrawnDriftPerLap(_ ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double) -> Double {
     guard steps > 0, !ratios.isEmpty else { return 0 }
-    func ratioAt(_ i: Int) -> Double { ratios[posMod(posMod(i, steps), ratios.count)] }
-    func isGlide(_ i: Int) -> Bool { i >= 0 && i < glide.count && glide[i] }
     var lapAdvance = 0.0
-    for i in 0..<steps {
-        if isGlide(i) {
-            let (from, to) = clockDrawnGlideEndpoints(i, ratios: ratios, glide: glide, steps: steps)
-            lapAdvance += (from + to) / 2 * rateBeats
-        } else {
-            lapAdvance += ratioAt(i) * rateBeats
-        }
-    }
+    for i in 0..<steps { lapAdvance += clockDrawnColumnAdvance(i, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats) }
     return lapAdvance - Double(steps) * rateBeats
 }
 
