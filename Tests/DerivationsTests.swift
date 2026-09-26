@@ -2294,50 +2294,75 @@ final class DerivationsTests: XCTestCase {
     // Column real-time spans are [0,1)=col0, [1,2)=col1, [2,3)=col2, [3,4)=col3 (rateBeats=1) — verified via the
     // engine's own actual output (an earlier draft of this test mis-mapped beats to columns by one and asserted
     // the wrong numbers; caught by a failing run, not trusted by construction).
+    // Mixes an ACCELERATING run (col1: 1→2, col2: 2→3) with a DECELERATING one (col3: 3→2) — the "in sync" fix
+    // (Paul 2026-09-26 ③) applies ONLY to the accelerating columns; col3 keeps the plain, honest, non-zero-drift
+    // ramp (see `clockDrawnGlideAdvance`'s doc for why forcing sync on a deceleration is unsafe, not just
+    // undesirable — it makes local time briefly race ahead of a same-target SET, the exact mechanism behind Paul's
+    // "hiccups... a stutter" report). So GLIDE agrees with SET at the col1/col2 boundaries but NOT at col3's.
     func testClockDrawnGlideOfDifferingTargetsIsUnaffectedBySpanLogic() {
         let ratios = [1.0, 2.0, 3.0, 2.0]
         let glide = [false, true, true, true]
         let allSet = [false, false, false, false]
         XCTAssertEqual(clockDrawnPhase(1.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 1.0, accuracy: 1e-9, "end of col0 (SET at 1) = start of col1")
-        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 3.0, accuracy: 1e-9, "end of col1 — checkpoint 2 landed, cumulative with col0's 1")
-        XCTAssertEqual(clockDrawnPhase(3.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 6.0, accuracy: 1e-9, "end of col2 — cumulative checkpoints 1 + 2 + 3 = 6")
-        XCTAssertEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 8.0, accuracy: 1e-9, "end of col3 — one full lap, cumulative checkpoints 1 + 2 + 3 + 2 = 8")
-        // Every column boundary is identical whether those columns glide into their checkpoints or SET straight to them:
-        for beat in [1.0, 2.0, 3.0, 4.0] {
+        XCTAssertEqual(clockDrawnPhase(2.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 3.0, accuracy: 1e-9, "end of col1 (accelerating 1→2) — checkpoint 2 landed exactly, matching SET")
+        XCTAssertEqual(clockDrawnPhase(3.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 6.0, accuracy: 1e-9, "end of col2 (accelerating 2→3) — checkpoint 3 landed exactly, matching SET")
+        XCTAssertEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0), 8.5, accuracy: 1e-9, "end of col3 (DECELERATING 3→2) — the honest average (3+2)/2=2.5, NOT SET's 2 — no forced sync here")
+        // The accelerating columns agree with SET at their boundaries; the decelerating one does not:
+        for beat in [1.0, 2.0, 3.0] {
             XCTAssertEqual(clockDrawnPhase(beat, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0),
                            clockDrawnPhase(beat, ratios: ratios, glide: allSet, steps: 4, rateBeats: 1, periodBeats: 0),
-                           accuracy: 1e-9, "GLIDE and SET agree at every column boundary (beat \(beat)) — the sync fix")
+                           accuracy: 1e-9, "GLIDE and SET agree through the accelerating run (beat \(beat))")
         }
+        XCTAssertNotEqual(clockDrawnPhase(4.0, ratios: ratios, glide: glide, steps: 4, rateBeats: 1, periodBeats: 0),
+                           clockDrawnPhase(4.0, ratios: ratios, glide: allSet, steps: 4, rateBeats: 1, periodBeats: 0),
+                           "col3 decelerates, so GLIDE and SET genuinely diverge there — expected, not a regression")
     }
 
-    // THE FIX ITSELF, swept across the WHOLE ratio ladder (Paul 2026-09-26 ②: "when it lands on a target, whether
-    // it got there with or without glide, it should be in sync"). Two invariants, for every (from, to) pair the
-    // ladder can produce — including the extreme ×4→÷4 deceleration that exposed the original bug (a hard-coded
-    // `/T` that only happened to be correct at the symmetric split, silently wrong once the adaptive floor shrank
-    // the split below 0.5; caught by `testClockDrawnPhaseInverseRoundTrips`, traced with a throwaway script rather
-    // than re-derived by hand a second time): (1) a GLIDE column's full contribution over one rateBeats span is
-    // byte-identical to a SET column landed on the same `to` — the actual sync guarantee; (2) the elastic peak
-    // never goes negative — local time must never run backward, or every downstream inverse breaks.
+    // THE FIX ITSELF, swept across the WHOLE ratio ladder (Paul 2026-09-26 ②→③: "when it lands on a target, whether
+    // it got there with or without glide, it should be in sync" — then, once tried, "hiccups... a stutter" on a
+    // decelerating run). ACCELERATING pairs (to ≥ from) get the full sync guarantee: a GLIDE column's full
+    // contribution matches a same-target SET exactly, and the elastic peak never needs to go negative (proven safe
+    // for ANY split fraction when to ≥ from — see the doc comment). DECELERATING pairs (to < from) deliberately do
+    // NOT get this guarantee — forcing it there requires local time to race ahead of the same-target SET mid-column
+    // (confirmed with a throwaway script: up to 16% ahead for a simple ×2→×1 column), which is the actual mechanism
+    // behind the reported stutter — so they keep the plain, honest, straight-ramp average instead.
     func testClockDrawnGlideFullColumnAlwaysMatchesSetAtTheSameTarget() {
         let rateBeats = 0.5
         for from in clockRatioLadder {
             for to in clockRatioLadder {
                 let atEnd = clockDrawnGlideAdvance(rateBeats, from: from, to: to, rateBeats: rateBeats)
-                XCTAssertEqual(atEnd, to * rateBeats, accuracy: 1e-9,
-                               "GLIDE \(from)→\(to) over the whole column must land exactly where SET at \(to) would")
-                let (peak, f) = clockDrawnGlideShape(from: from, to: to)
-                XCTAssertGreaterThanOrEqual(peak, -1e-9, "elastic landing \(from)→\(to) (split \(f)) must never require local time to run backward")
-                // and the closed-form inverse must recover the full span exactly
-                let back = clockDrawnGlideAdvanceInverse(to * rateBeats, from: from, to: to, rateBeats: rateBeats)
+                let expected = to >= from ? to * rateBeats : (from + to) / 2 * rateBeats
+                XCTAssertEqual(atEnd, expected, accuracy: 1e-9,
+                               to >= from ? "ACCELERATING \(from)→\(to): must land exactly where SET at \(to) would"
+                                          : "DECELERATING \(from)→\(to): must keep the honest straight-ramp average, not force sync")
+                // and the closed-form inverse must recover the full span exactly, either way
+                let back = clockDrawnGlideAdvanceInverse(expected, from: from, to: to, rateBeats: rateBeats)
                 XCTAssertEqual(back, rateBeats, accuracy: 1e-6, "inverting the full contribution must land exactly at the column's end")
             }
         }
     }
+    // The mid-column trace must never let an ACCELERATING glide run AHEAD of a same-target SET (only ever behind or
+    // equal, converging exactly at the very end) — that's what makes the accelerating branch provably artefact-free
+    // for a downstream tick-search. A DECELERATING glide is EXPECTED to run ahead of a same-target SET throughout
+    // (it's the honest, un-synced average) — this test only guards the accelerating direction's safety property.
+    func testClockDrawnAcceleratingGlideNeverRunsAheadOfSet() {
+        let rateBeats = 1.0
+        for from in clockRatioLadder {
+            for to in clockRatioLadder where to >= from {
+                for frac in stride(from: 0.0, through: 1.0, by: 0.1) {
+                    let t = frac * rateBeats
+                    let glide = clockDrawnGlideAdvance(t, from: from, to: to, rateBeats: rateBeats)
+                    let set = to * t
+                    XCTAssertLessThanOrEqual(glide, set + 1e-9, "accelerating \(from)→\(to) at t=\(t) must never lead a same-target SET")
+                }
+            }
+        }
+    }
 
-    // The drift readout must match what the phase function ACTUALLY does over one full lap. Since the elastic-
-    // landing fix (Paul 2026-09-26 ②) makes a GLIDE column's full contribution equal `to × rateBeats` — identical to
-    // SET at that same value — using GLIDE instead of SET on the SAME checkpoint sequence can no longer change the
-    // reported drift at all (this is the fix's whole point, restated as a drift-readout invariant).
+    // The drift readout must match what the phase function ACTUALLY does over one full lap. An ACCELERATING glide
+    // column's full contribution equals `to × rateBeats` — identical to SET at that same value — so using GLIDE
+    // instead of SET on the SAME accelerating checkpoint can no longer change the reported drift at all. A
+    // DECELERATING glide still can (unchanged from before this whole "in sync" feature existed).
     func testClockDrawnDriftPerLapMatchesThePhaseFunctionsOwnLapAdvance() {
         let ratios = [1.0, 2.0]
         XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: [false, false], steps: 2, rateBeats: 1), 1.0, accuracy: 1e-9)

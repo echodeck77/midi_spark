@@ -226,6 +226,43 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   green incl. all 8 fuzz scenarios; RouterTests' existing glide-softening test still holds (GLIDE is still visibly
   later than SET WITHIN the ramp, converging to exactly the same phase once it lands). **NEXT:** device ear-check —
   confirm a glide into a target no longer leaves the rest of the pattern audibly later than a same-target SET would.**
+- **▶ CLOCK — GLIDE "elastic landing" NARROWED to accelerating glides only (2026-09-27, on `main`, on fix/clock-
+  glide-decel-safe; macOS 1122 green incl. fuzz, iOS builds; DEVICE ear owed). SUPERSEDES the entry above the same
+  day it landed — Paul actually tried it and reported two device symptoms: "weird behaviour… appears to change the
+  velocity two cells after a jump to another tempo when glide is set on the jump only," and "hiccups… a stutter"
+  with columns 1–4 all SET+glide to ×1 (column 8 at ×2, so the whole run decelerates ×2→×1 across 4 columns via the
+  SPAN-coalescing rule). Traced BOTH with a throwaway script rather than guessing: for a DECELERATING glide (e.g.
+  ×2→×1), the elastic curve's cumulative local time runs UP TO 16% AHEAD of a same-target SET for most of the
+  column before snapping back to exact parity only at the very end — the mechanism is a hard calculus asymmetry, not
+  a tuning knob: an ACCELERATING glide's elastic curve can be PROVEN to stay ≤ a same-target SET throughout the
+  whole column (verified both analytically and by sweep-testing the full ratio ladder), so it can never make a
+  downstream driver/fold-consumer discover an early/extra tick — but a DECELERATING glide's zero-drift correction
+  necessarily requires the opposite: dipping BELOW the (slower) target first, which means racing AHEAD of a
+  same-target SET before catching back down. That "ahead of schedule, then catch down" motion is exactly what reads
+  as a stutter, and it compounds badly across the coalesced 4-column run (four such wobbles in series). **FIX:**
+  `clockDrawnGlideAdvance`/`FullAdvance`/`AdvanceInverse` now branch on `to >= from` — ACCELERATING keeps the full
+  elastic "in sync" treatment (now with NO adaptive-f floor needed at all, since `P = to + 0.5×(to−from) ≥ to > 0`
+  unconditionally when accelerating — the floor only ever existed to protect decelerating overshoots, which no
+  longer take this branch); DECELERATING falls back to the plain single straight-line ramp — this feature's
+  ORIGINAL shape, honest/non-zero-average, exactly what shipped before the "in sync" work began. Re-verified with
+  the same throwaway-script technique: the 4-column ×2→×1 span now shows a PERFECTLY MONOTONIC, smoothly
+  decreasing rate in every column (no dip-then-recover) — confirmed against the actual function's own numeric
+  output, not re-derived by hand. **`clockDrawnGlideShape` simplified** (the adaptive split-fraction tuple is gone —
+  always exactly `T/2` now, so it returns a scalar peak, not a tuple) — a direct consequence of decel no longer
+  needing it. **TESTS:** rewrote `testClockDrawnGlideFullColumnAlwaysMatchesSetAtTheSameTarget` (accel → matches
+  SET exactly; decel → the honest average, an explicit different expectation) + `testClockDrawnGlideOfDifferingTargetsIsUnaffectedBySpanLogic`
+  (mixes an accelerating run with a trailing decelerating column — GLIDE now agrees with SET through the
+  acceleration and explicitly diverges at the deceleration, asserted both ways) + added
+  `testClockDrawnAcceleratingGlideNeverRunsAheadOfSet` (sweeps the whole ladder × a beat range, the standing
+  regression guard for the safety property the whole fix rests on). 1122 macOS tests green incl. fuzz; the two
+  pre-existing RouterTests (`…SetAndGlideProduceDifferentFoldResults` on a DECEL [×4,×1] pair, `…SoftensTheColumn
+  Transition` on an ACCEL [×1,×4] pair) both still pass unchanged, confirming each already happened to sit on the
+  side of this asymmetry it needed to. **HONEST REMAINING GAP (flagged, not a bug):** decelerating glides are back
+  to the ORIGINAL "not perfectly in sync" behaviour Paul first complained about — eliminating that drift there is
+  mathematically impossible without reintroducing the exact overshoot artefact just removed (proven, not a
+  limitation of this implementation specifically). The `clockDrawnDriftPerLap` readout still exists precisely for
+  this case. **NEXT:** device ear-check on both fronts — confirm the 4-column decel run now feels like one smooth
+  slowdown (no stutter), and confirm an ACCELERATING jump still lands cleanly in sync as before.**
 - **▶ KILL STEP — a new TIME processor, sibling to CLOCK (2026-09-26, on `main`, `b1e7a19`; macOS 1121 green, iOS
   builds; DEVICE ear/eye owed). A row of ON/OFF steps (variable count, default 8) + its own RATE + SPAN: a disabled
   step is skipped, everything downstream jumps past it, enabled steps repeat to fill the pass (4-of-8 → the first
