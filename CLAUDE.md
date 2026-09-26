@@ -199,6 +199,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ARP-RATE LFO — the ladder is now TEMPO-SORTED, not declaration-block order (2026-09-26, on `main`, `04b7807`;
+  iOS builds, macOS 1085 green; DEVICE ear owed). Paul: "the LFO on the arp rate seems to miss out dotted and triplets
+  even when I include them in the selection. It jumps right past them" — and pointed at the RATCHET PATTERN saga as
+  the model for diagnosing it. ROOT CAUSE (same shape as the RATCHET/DEST bugs — a ladder/clock whose position axis
+  didn't correspond to the real musical quantity it claimed to): `arpRateAllowedLadder(ignore:)` returned the kept
+  rate indices in ArpRate's DECLARATION-BLOCK order (all 6 normal · all 6 dotted · all 6 triplet). But a dotted/
+  triplet rate musically falls BETWEEN two adjacent normal rates (1/4T=0.667 beats and 1/8D=0.75 beats both sit
+  between 1/8=0.5 and 1/4=1.0). Since FROM defaults to the arp's own base rate, the common sweep is between two
+  NORMAL rates — and because both endpoints sat in the same contiguous ladder block, `applyParamLFO`'s linear FROM→TO
+  interpolation over ladder POSITIONS never crossed into the dotted/triplet block, even with those families fully
+  "included" (inclusion only ever affected which VALUES could exist in the set, never where they SAT in position-
+  space). **FIX:** the ladder is now sorted by ACTUAL DURATION (`.beats`, slow→fast) instead of declaration block —
+  ladder position is a true proxy for musical position, so any included rate that tempo-wise falls between the two
+  endpoints is genuinely visited. `nearestLadderPos` + the interpolation math untouched, only the ladder's order.
+  +1 regression test (`testArpRateLFOSweepBetweenNormalRatesCrossesIncludedDottedAndTriplet`, reproduces the exact
+  reported symptom: 1/8→1/4 must cross 1/4T and 1/8D) + `testArpRateIgnoreLadderAndSnap` updated to the new order.**
 - **▶ DEST MATRIX — NONE emitter + its own free-running RATE, the RATCHET-PATTERN-class fix (2026-09-26, on `main`,
   `0104c95`; iOS builds, macOS 1084 green incl. fuzz; DEVICE ear/eye owed). Paul's report on DEST (§5 routing-class,
   built 2026-08-22): zero emitters should be selectable, it needs a rate control, and "the visuals for which cell is
