@@ -199,6 +199,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ HOUSEKEEPING — dead-code sweep + 3 test-coverage gaps (2026-09-26, on `main`, `7fcac1e`; iOS builds, macOS 1112
+  green). Three parallel read-only surveys (dead code · missing tests · refactor/efficiency) over the whole codebase,
+  every finding independently re-verified before acting (per this file's own standing pattern). **DEAD CODE (6, all
+  pre-existing, unrelated to CLOCK):** `buildCreateMachine` + its stale doc comment, `buildHeaderFill` + the `BuildFill`
+  enum it was the sole consumer of, `partRollCamera` + its function-specific doc (the SECTION 1 header above it
+  describes still-live code and was kept), three unused colour aliases (`buildRed`/`stagingCyan`/`ladderGreen`).
+  **TESTS (closing the 2 load-bearing gaps CLOCK Stage 1–3 left behind):** `SnapshotBuilder`'s WHOLE `clock*` resolve/
+  clamp block had ZERO coverage — including the one safety-critical clamp (`clockDepth ≤ 0.95`, the monotonicity
+  ceiling keeping WAVE's local time from running backward; a regression there wouldn't fail anywhere else in the
+  suite) — +`testClockParamsResolveAndClamp`. `clockDrawnPhase`'s SPAN re-anchor branch (`periodBeats > 0`) was also
+  untested (every existing test only exercises FREE) — +`testClockDrawnPhaseReAnchorsAtEverySpanBoundary`. Plus a
+  minor `loopColumnPlan` out-of-range-clamp test. **REFACTOR survey: nothing actionable** — no render-path allocations
+  in the CLOCK code, one flagged-but-not-urgent pre-existing duplication (`emitColumnMod`/`emitFreeMod`'s parallel
+  loops), no stale comments, no bugs.**
 - **▶ CLOCK — a placeable pattern-clock transform, Stage 1 (2026-09-26, on `main`, `4afe9dd`; iOS builds, macOS 1098
   green; DEVICE ear/eye owed). Design-partner spec (`AcceptanceCriteria-clock-processor`, ratified via the
   `_dear_claude_code/` channel), planned first (`~/.claude/plans/whimsical-wibbling-walrus.md`): a chain stage where
