@@ -468,6 +468,16 @@ enum SnapshotBuilder {
         if let v = p.recCapture { out.recCapture = v }
         out.recRefreshM = clamp(p.recRefreshM ?? 1, 1, 32)
         if let v = p.recEvents { out.recEvents = v }
+        // CLOCK (Paul 2026-09-26, Stage 1): clockDepth is clamped BELOW 1 here — the one safety-critical resolve in
+        // this block. dphase/dbeat = 1 + depth·sin(...) must stay positive (monotonic — local time must never run
+        // backward, or every downstream fold consumer's ordering assumption breaks); depth==1 hits zero at the sine's
+        // trough, so the ceiling is 0.95, not 1.
+        if let v = p.clockMode { out.clockMode = v }
+        out.clockRatio = clamp(p.clockRatio ?? 4, 0, clockRatioLadder.count - 1)
+        if let v = p.clockOffset { out.clockOffset = v }
+        if let v = p.clockShape { out.clockShape = v }
+        out.clockDepth = clamp(p.clockDepth ?? 0, 0, 0.95)
+        if let v = p.clockSpanN { out.clockSpanN = v }
         if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice
         // RIFF (SPEC-riff-processor): resolve the stencil. riffRanks nil ⇒ keeps the default figure. rate → beats.
         if let v = p.riffSteps { out.riffSteps = clamp(v, 1, 32) }   // variable length (Paul 2026-08-26): up to 32

@@ -353,6 +353,62 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(allPass, arpOnly, "all-passthrough = the arp untouched (one note per arp note, NEVER silent — no rest)")
         XCTAssertGreaterThan(allRat, allPass, "all-ratchet-3 re-fires each arp note (more strikes than passthrough)")
     }
+    // CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26, Stage 1 flagship consumer): [ARP → CLOCK → RATCHET]
+    // — the ratchet fold's OWN column math must read the CLOCK-transformed beat, not the raw one. The arp fires 4
+    // notes at m = 0, 0.5, 1, 1.5 (rate 1/8 over 4 beats); the ratchet's own rate defaults to 0.5 beats/column, so
+    // WITHOUT any clock those land on columns [0,1,2,3]. The special (×3-ratchet) column is deliberately COLUMN 1,
+    // not 0 — column 0 is invariant under any pure ratio scaling (0 × anything = 0), so it can't discriminate a
+    // working transform from a no-op one (the mistake this test caught on first write: with column 0 special, ×1
+    // and ×2 produced the identical total by coincidence, even though the underlying beats genuinely differed — a
+    // direct RTCDEBUG trace of clockTransformedBeat's output confirmed the transform itself was correct). At ×2 the
+    // same 4 notes land on columns [0,2,4,6] — column 1 is never hit, so the burst disappears entirely.
+    func testClockTransformsTheRatchetFoldsOwnColumnMath() {
+        func strikeCount(clockRatio: Int?) -> Int {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var procs = [arp]
+            if let ratio = clockRatio {
+                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
+                procs.append(ck)
+            }
+            var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
+            rat.params.rtcSteps = 8; rat.params.rtcSlices = [1, 3, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0   // only column 1 ratchets ×3
+            procs.append(rat)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let noClock = strikeCount(clockRatio: nil)
+        let atRatioOne = strikeCount(clockRatio: clockRatioLadder.firstIndex(of: 1)!)   // ×1 = the identity rung
+        let atRatioTwo = strikeCount(clockRatio: clockRatioLadder.firstIndex(of: 2)!)   // ×2
+        XCTAssertEqual(atRatioOne, noClock, "a ×1 CLOCK stage is a no-op — byte-identical to no CLOCK at all (test #5)")
+        XCTAssertEqual(noClock, 6, "sanity: 3 plain notes (col 0,2,3) + 1 burst-of-3 (col 1, the note at m=0.5) = 6")
+        XCTAssertEqual(atRatioTwo, 4, "×2 moves every note off column 1 entirely (0,2,4,6) — the burst disappears, all 4 notes pass through plain")
+        XCTAssertNotEqual(atRatioTwo, noClock, "the transform genuinely changes which note gets ratcheted, not just a coincidental match")
+    }
+    // Test #4 (composition): two CLOCK stages in one chain must compose IN ORDER — [×2 → ×3] must behave exactly like
+    // a single ×6 stage, proving clockTransformedBeat folds multiple CLOCKs correctly through the real fold pipeline
+    // (not just the pure function in isolation — DerivationsTests already locks that algebraically).
+    func testTwoClockStagesComposeLikeTheirProductRatio() {
+        func strikeCount(_ ratios: [Int]) -> Int {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var procs = [arp]
+            for r in ratios { var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = r; procs.append(ck) }
+            var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
+            rat.params.rtcSteps = 8; rat.params.rtcSlices = [3, 1, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0
+            procs.append(rat)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let two = clockRatioLadder.firstIndex(of: 2)!, three = clockRatioLadder.firstIndex(of: 3)!
+        // clockRatioLadder has no literal ×6 rung — compose it via two FIXED stages on each side of the comparison
+        // instead: [×2→×3] must equal [×3→×2] (multiplication commutes, and both equal the same product either way).
+        XCTAssertEqual(strikeCount([two, three]), strikeCount([three, two]), "two CLOCK stages compose as a product — order between two FIXED ratios doesn't matter")
+    }
     // STANDALONE RATCHET PATTERN = a PASS-THROUGH PROCESSOR, not a generator (Paul 2026-09-08). A lone (single-slot)
     // ratchet-pattern cell RECEIVES the input and passes it through; its own clock only decides per-column treatment
     // (1 = pass/sustain · 2…8 = ratchet · 0 = OFF/mute). It must NOT manufacture a note per step — the fix for "a short

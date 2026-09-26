@@ -3751,6 +3751,34 @@ final class Router {
         while j < cell.procs.count { if !cell.slotBypass[j] && isRatchetFoldable(cell.procs[j]) { return j }; j += 1 }
         return nil
     }
+    /// CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26, Stage 1) — THE SOVEREIGN LAW, mechanically: the
+    /// beat a downstream fold consumer at `target` should use for its OWN internal step/rate math, after composing
+    /// every non-bypassed CLOCK stage strictly between `from` and `target` IN CHAIN ORDER (multiple CLOCKs compose —
+    /// the composition test). No CLOCK in range ⇒ returns `atBeat` unchanged, so this is a no-op (byte-identical)
+    /// whenever the feature is unused. This is the ONLY thing CLOCK touches: `S`/`cycleBeats` (needed only to size a
+    /// WAVE stage's own SPAN/offset) are read, never transformed — the caller's own window/column/span math is
+    /// untouched, and the RETURNED value is substituted ONLY into that one consumer's own rate/slice formula, never
+    /// propagated anywhere else (note pitch/velocity, gate timing, echo scheduling — all keep reading the real beat).
+    private func clockTransformedBeat(_ cell: SnapCell, from: Int, to target: Int, atBeat: Double, S: Double, cycleBeats: Double) -> Double {
+        guard target > from else { return atBeat }
+        var beat = atBeat
+        var j = from
+        while j < target {
+            if !cell.slotBypass[j], cell.procs[j].type == .clock {
+                let p = cell.procs[j]
+                switch p.clockMode {
+                case .fixed:
+                    let ratio = clockRatioLadder[max(0, min(clockRatioLadder.count - 1, p.clockRatio))]
+                    beat = clockFixedPhase(beat, ratio: ratio, offsetBeats: Double(p.clockOffset) * S)
+                case .wave:
+                    let period = spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats)
+                    beat = clockWavePhase(beat, shape: p.clockShape, depth: p.clockDepth, periodBeats: period)
+                }
+            }
+            j += 1
+        }
+        return beat
+    }
     /// The LAST non-bypassed SPLIT slot after `driver` (last-writer wins), or nil.
     private func downstreamSplitIndex(_ cell: SnapCell, after driver: Int) -> Int? {
         var found: Int? = nil, j = driver + 1
@@ -4315,6 +4343,11 @@ final class Router {
         var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0
         if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
             let rp = cell.procs[fi]
+            // CLOCK (Paul 2026-09-26, Stage 1 flagship consumer): if a CLOCK stage sits between the driver and this
+            // ratchet fold — e.g. [EUCLID→CLOCK 3:2→RATCHET] — the ratchet's OWN rate/slice math below reads the
+            // TRANSFORMED beat, not the raw one; note pitch/velocity/gate timing (everything else in this function)
+            // still key off the real `m`. No CLOCK in range ⇒ mClock == m (byte-identical, the sovereign law).
+            let mClock = clockTransformedBeat(cell, from: driver + 1, to: fi, atBeat: m, S: S, cycleBeats: cycleBeats)
             var slotBeats = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // COIN: subdivide the driver (arp) step
             if rp.rtcMode == .pattern {
                 let steps = max(1, min(32, rp.rtcSteps))
@@ -4323,14 +4356,14 @@ final class Router {
                 // for a uniform arp; approximate for a variable-timing driver), and a ratchet burst spreads over the note gap.
                 let advBeats = rp.rtcClock == .note ? slotBeats : max(0.03125, rp.rtcRateBeats)   // slotBeats = the driver (arp) step
                 let spanBeats = rp.rtcSpanN > 0 ? Double(rp.rtcSpanN) * advBeats : 0  // SPAN = re-anchor every N MATRIX columns; 0 = free-run
-                let localBeat = spanBeats > 0 ? (m - columnStart(m, spanBeats)) : m   // re-anchor the playhead phase; else free-run
+                let localBeat = spanBeats > 0 ? (mClock - columnStart(mClock, spanBeats)) : mClock   // re-anchor the playhead phase; else free-run
                 let g = Int((localBeat / advBeats).rounded(.down))                    // TIME: which column at this note's time · NOTE: this note's ordinal
                 let col = (((g + rp.rtcRotate) % steps) + steps) % steps
                 let raw = col < rp.rtcSlices.count ? rp.rtcSlices[col] : 1
                 if raw == 0 { cur.reset(); cur.rebuildSorted() }                      // OFF column → MUTE this driven note (unselect-to-mute, Paul 2026-09-08)
                 else if raw >= 2 { foldBurst = min(8, raw); slotBeats = advBeats }    // active column → ratchet N over the advance slot (own rate, or the note gap in NOTE mode) · 1 = passthrough
             } else {   // COIN pass-through (velFactor 1.0 in fold mode)
-                let step = Int((m / S).rounded())
+                let step = Int((mClock / S).rounded())
                 if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
                     foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
                                                           : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)

@@ -36,8 +36,20 @@ enum ProcessorType: String, Codable, CaseIterable {
     case velocity = "VELOCITY" // DYNAMICS (Paul 2026-09-07): a per-step velocity SEQUENCER — override each note's velocity from a per-step lane (or PASSTHROUGH that step). Note-transparent MODIFIER (never a driver); TIME (RATE·STEPS·SPAN) or NOTE (advance per note) clock, mirroring RATCHET PATTERN.
     case deal = "DEAL"         // ROUTING (Paul 2026-09-16): a simple output dealer — OVERRIDE the emitters, deal N1 notes to emitter 1 then N2 to emitter 2 (repeat). Note-transparent; DEAL mode = OVER TIME (per strike) · WITHIN CHORD (per note) · EVERY NOTE.
     case recorder = "RECORDER" // TIME (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain — record N steps/passes of the upstream output, then loop it back. Transparent while recording, a driver while playing back.
+    case clock = "CLOCK"       // TIME (AcceptanceCriteria-clock-processor, ratified 2026-09-26, design-partner spec): a placeable pattern-clock transform — everything downstream's OWN internal step machinery (a fold consumer's rate/slice math) reads a transformed beat; everything upstream, and every GRID-time quantity (windows/columns/spans/reel), is untouched (the sovereign law). Note-transparent.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
+/// CLOCK MODE (Paul 2026-09-26, Stage 1 — DRAWN lands separately): FIXED = a ratio ladder + step offset · WAVE = a
+/// zero-mean closed-form wobble around ×1 (rubato/accelerando) that provably re-lands in phase every SPAN.
+enum ClockMode: String, Codable, CaseIterable { case fixed = "FIXED", wave = "WAVE" }
+/// The FIXED ratio ladder (×4…÷4) — a plain index, mirroring `spanLadderValues`'s "a small curated ladder, not a
+/// free slider" shape. Index 4 (×1) is the identity/no-op rung.
+let clockRatioLadder: [Double] = [4, 3, 2, 1.5, 1, 1.0 / 1.5, 0.5, 1.0 / 3.0, 0.25]
+let clockRatioLabels: [String] = ["×4", "×3", "×2", "×1.5", "×1", "÷1.5", "÷2", "÷3", "÷4"]
+/// WAVE shape (Paul 2026-09-26): SINE and TRIANGLE only — both continuous, closed-form, and genuinely zero-mean
+/// over one period (the re-landing proof needs this); SQUARE (discontinuous — a literal time-jump) and S&H (not
+/// periodic/deterministic the same way) don't fit a TIME warp, unlike MOD's `ModShape` which drives a CC, not time.
+enum ClockWaveShape: String, Codable, CaseIterable { case sine = "SINE", triangle = "TRI" }
 enum DealMode: String, Codable, CaseIterable { case overTime = "OVER TIME", withinChord = "WITHIN CHORD", everyNote = "EVERY NOTE" }   // DEAL: when the deal advances (Paul 2026-09-16)
 // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain — record N steps/passes of the
 // upstream output, then play it back. Transparent while recording, a driver while playing back.
@@ -417,6 +429,16 @@ struct MachineParams: Codable, Equatable {
     var recCapture: RecCapture? = nil            // ONCE | REFRESH | HOLD; nil ⇒ ONCE
     var recRefreshM: Int? = nil                  // REFRESH EVERY M cycles; nil ⇒ 1
     var recEvents: [RecEvent]? = nil             // the PERSISTED captured buffer (beat-offset · pitch · vel · on/off); nil ⇒ empty
+    // CLOCK (AcceptanceCriteria-clock-processor, ratified 2026-09-26, Stage 1 — DRAWN mode's lane fields land separately):
+    // FIXED = a ratio + step offset; WAVE = a zero-mean closed-form wobble (rubato/accelerando) around ×1 that provably
+    // re-lands in phase every SPAN. Note-transparent — the transform reaches only a downstream fold consumer's OWN
+    // internal step machinery (Router.clockTransformedBeat), never grid time (columns/windows/spans/reel).
+    var clockMode: ClockMode? = nil              // FIXED | WAVE; nil ⇒ FIXED
+    var clockRatio: Int? = nil                   // FIXED: index into clockRatioLadder; nil ⇒ 4 (×1, the identity rung)
+    var clockOffset: Int? = nil                  // FIXED: offset in this cell's own grid steps; nil ⇒ 0
+    var clockShape: ClockWaveShape? = nil        // WAVE: SINE | TRIANGLE; nil ⇒ SINE
+    var clockDepth: Double? = nil                // WAVE: 0…1 (clamped <1 at resolve — monotonicity, never lets local time run backward); nil ⇒ 0 (inactive)
+    var clockSpanN: Int? = nil                   // WAVE: the span ladder value (spanLadderValues) — the wobble's period; nil ⇒ ROW (8)
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
     // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
     // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.

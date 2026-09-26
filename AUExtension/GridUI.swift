@@ -373,6 +373,7 @@ struct ProcessorBox: View {
         case .dest:      return "route each step, on its own clock, to a chosen emitter — or none (hocket)"
         case .deal:      return "deal notes across two emitters by count"
         case .recorder:  return "record N steps/passes of the chain, then loop it back"
+        case .clock:     return "retimes everything after it in the chain — a ratio, or a wobble that always lands back in time"
         case .muteMatrix: return "mute chosen emitters per step (part-gating)"
         case .riff:      return "an authored line that follows the held chord (a stencil of ranks)"
         case .tap:       return "send a copy out here + pass it on (layered parallel outputs)"
@@ -1033,6 +1034,30 @@ struct ProcessorBox: View {
                 Button("CLEAR") { setParam { $0.recEvents = nil } }
                     .font(.system(size: 11, weight: .heavy, design: .monospaced)).disabled(bufN == 0)
             }
+        })
+        case .clock: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-26, Stage 1 — DRAWN mode is a later stage) — CLOCK: retimes everything after it in the chain
+            let mode = p.clockMode ?? .fixed
+            field("MODE — how the transform is authored", \.clockMode) {
+                seg(ClockMode.allCases.map(\.rawValue), sel: mode.rawValue) { i in setParam { $0.clockMode = ClockMode.allCases[i] } } }
+            if mode == .fixed {
+                let ratio = max(0, min(clockRatioLadder.count - 1, p.clockRatio ?? 4))
+                heroField("RATE — the ratio downstream ticks at") {
+                    seg(clockRatioLabels, sel: clockRatioLabels[ratio]) { i in setParam { $0.clockRatio = i } } }
+                field("OFFSET — nudge downstream's start, in this chain's own grid steps", \.clockOffset) {
+                    numPair(p.clockOffset ?? 0, -8...8) { v in setParam { $0.clockOffset = v } } }
+                Text("Two copies of a chain, one at OFFSET 2, play as a self-following canon.")
+                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
+                field("SHAPE — the wobble's waveform", \.clockShape) {
+                    seg(ClockWaveShape.allCases.map(\.rawValue), sel: (p.clockShape ?? .sine).rawValue) { i in setParam { $0.clockShape = ClockWaveShape.allCases[i] } } }
+                heroField("DEPTH — how far it strays  \(Int((p.clockDepth ?? 0) * 100))%") {
+                    slider(bind(p.clockDepth ?? 0) { v in setParam { $0.clockDepth = v } }, in: 0...0.95) }
+                frameSpan(p.clockSpanN ?? 8, free: false) { v in setParam { $0.clockSpanN = v } }
+                Text("Rubato at shallow DEPTH, accelerando via a ramped one. Always lands back in time at every SPAN — provably, not by luck.")
+                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Everything AFTER this stage in the chain ticks to its time; everything before keeps the part's. Position is meaning.")
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         case .muteMatrix: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // ROUTING (Paul 2026-08-25 §5) — the MUTE MATRIX: per-step PART-MUTING (A/B/C/D × 8 multi-select)
             field("MUTE PER COLUMN — tap to silence an emitter on that grid column") {
