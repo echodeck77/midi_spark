@@ -1714,9 +1714,15 @@ extension DiagView {
                     .contentShape(Rectangle())
                     .onTapGesture { buildActivateFerry(t) }
                 // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
+                // PLAYHEAD RATE (Paul 2026-09-26): the ACTIVE (bench-open) ferry plays via the live STAGING sequencer, so
+                // its true rate is the LIVE `buildPartRate` (updates the instant the RATE menu changes it — matches
+                // roomsPartPlayhead); a BACKGROUND ferry plays via its flattened play-layer line, so it reads the stored
+                // `buildPlayColRate[t]` (was: this button always read the scene-default `stepBeats`, so a per-ferry rate
+                // change was invisible here even though the part grid's own playhead updated at once).
+                let ferryRate: StepRate? = focused ? buildPartRate : (t < buildPlayColRate.count ? buildPlayColRate[t] : nil)
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
-                    .overlay { if set { roomsCellPlayhead(active: on, dim: focused).padding(2) } }   // PER-CELL PLAYHEAD — the SELECTED/open ferry sweeps too (so it reads as playing) but DIMMED, to set it apart from the other, un-opened ferries at full brightness (Paul 2026-09-13)
+                    .overlay { if set { roomsCellPlayhead(active: on, dim: focused, rate: ferryRate).padding(2) } }   // PER-CELL PLAYHEAD — the SELECTED/open ferry sweeps too (so it reads as playing) but DIMMED, to set it apart from the other, un-opened ferries at full brightness (Paul 2026-09-13)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(set ? mHue.opacity(on ? 1.0 : 0.5) : buildEdge, lineWidth: on ? 3 : (set ? 2 : 1)))   // focus no longer marks the PLAY button — the SELECTOR carries it (Paul 2026-09-09)
                     .shadow(color: (on && audible) ? eHue.opacity(0.7) : .clear, radius: (on && audible) ? 5 : 0)   // PLAYING (and AUDIBLE) → an EMITTER-coloured glow; a silenced ferry gets no glow
@@ -2659,7 +2665,11 @@ extension DiagView {
     // cell + play ferry. It makes a looping pass legible: independent per cell, cycling with the beat. Works under free-run
     // too (diag.beat is now the EFFECTIVE beat). One bar per loop today (a 1-step continuous pass); when N-step passes land
     // (part loop-length / reel) the loop maps to the pass's real length.
-    @ViewBuilder private func roomsCellPlayhead(active: Bool, dim: Bool = false) -> some View {
+    // `rate`: this cell's OWN step rate (PER-PART CLOCK, Paul 2026-08-19) — nil ⇒ the scene default (stepBeats). The
+    // sole caller is the play-ferry button; it passes the ferry's live/flattened rate so the button's sweep matches
+    // what's actually playing (Paul 2026-09-26: was hardcoded to stepBeats, so a per-ferry rate change was invisible
+    // here even though the part grid's own playhead — which already read the live rate — updated at once).
+    @ViewBuilder private func roomsCellPlayhead(active: Bool, dim: Bool = false, rate: StepRate? = nil) -> some View {
         // PERFECTLY STILL WHENEVER THE HOST TRANSPORT IS STOPPED (Paul 2026-09-04). Gated on d.playing (the HOST), NOT
         // free-run: when the host stops but the ferry keeps sounding a held/latched chord, free-run takes over and its
         // beat jumps to 0 then advances in blocks — which is exactly the "jump to the wrong spot, jump back, jiggle" on
@@ -2667,7 +2677,7 @@ extension DiagView {
         // the machine play button.)
         if active && d.playing {
             GeometryReader { g in
-                let sb = max(0.0001, stepBeats)
+                let sb = max(0.0001, rate?.beats ?? stepBeats)
                 let barBeats = Double(Snap.cols) * sb                // one bar = 8 steps
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
