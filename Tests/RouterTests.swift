@@ -573,21 +573,33 @@ final class RouterTests: XCTestCase {
         let two = clockRatioLadder.firstIndex(of: 2)!
         XCTAssertNotEqual(ccValues(clockRatio: two), noClock, "×2 CLOCK genuinely retimes the RAMP — a different value sequence over the same real window")
     }
-    // CLOCK driver retiming (Paul 2026-09-26, Part 1 — FIXED mode only): a CLOCK stage BEFORE a driver now genuinely
-    // retimes that driver's own tick generation — not just a downstream fold consumer's reading of a beat (Stages
-    // 1–3). Hand-verified via a temporary debug trace before asserting (this session's standing discipline): a bare
-    // `[ARP]` cell at column 0 (rate 1/8) fires exactly 4 notes at real samples [0, 12000, 23999, 36000] — beats
-    // 0/0.5/1/1.5, the column's own active window — stable across beats:2/4/8 (the window, not the render length,
-    // bounds it). `[CLOCK ×2 → ARP]` fires exactly 8 notes in the SAME real window (double the local tick density,
-    // the intended effect). `[CLOCK ×1 → ARP]` is byte-identical to no clock (the standing no-op law).
-    func testClockRetimesArpsOwnGeneration() {
-        func onCount(clockRatio: Int?) -> Int {
+    // CLOCK driver retiming (Paul 2026-09-26, final spec: "a grid with a variable number of steps, each step a
+    // mutually exclusive speed, and another row on the same grid for glide" — DRAWN mode's own grid): a CLOCK
+    // stage in DRAWN mode BEFORE a driver now genuinely retimes that driver's own tick generation — not just a
+    // downstream fold consumer's reading of a beat (Stages 1–3, which stay FIXED/WAVE/DRAWN-agnostic and
+    // unaffected). A single-step, all-×N DRAWN lane reduces to the same linear math as FIXED's simple ratio would
+    // have (hand-verified algebraically: with one uniform SET column, `clockDrawnPhase` collapses to `ratio×beat`
+    // exactly, independent of the lane's own rate/step count), so this exercises the DRAWN wiring with the same
+    // shape of assertion the earlier FIXED-only attempt used. Hand-verified via a temporary debug trace before
+    // asserting (this session's standing discipline): a bare `[ARP]` cell at column 0 (rate 1/8) fires exactly 4
+    // notes in its column's own active window (stable across beats:2/4/8 — the window, not the render length,
+    // bounds it). `[CLOCK(drawn ×2)→ARP]` fires exactly 8 notes in the SAME real window (double the local tick
+    // density). `[CLOCK(drawn ×1)→ARP]` is byte-identical to no clock (the standing no-op law).
+    private func drawnClock(ratioIndex: Int?) -> ProcessorSlot {
+        var ck = ProcessorSlot(type: .clock)
+        ck.params.clockMode = .drawn
+        ck.params.clockDrawnSteps = 1
+        ck.params.clockDrawnRatios = [ratioIndex ?? clockRatioLadder.firstIndex(of: 1)!]
+        ck.params.clockDrawnGlide = [false]
+        ck.params.clockDrawnRate = .r1_4
+        ck.params.clockSpanN = 0   // FREE — no SPAN re-anchor discontinuity inside these short test windows
+        return ck
+    }
+    func testClockDrawnRetimesArpsOwnGeneration() {
+        func onCount(clockRatioIndex: Int?) -> Int {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var procs: [ProcessorSlot] = []
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let idx = clockRatioIndex { procs.append(drawnClock(ratioIndex: idx)) }
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
             procs.append(arp)
             let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
@@ -595,21 +607,18 @@ final class RouterTests: XCTestCase {
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        XCTAssertEqual(onCount(clockRatio: nil), 4, "sanity: a bare arp fires 4 notes in its column's own window")
+        XCTAssertEqual(onCount(clockRatioIndex: nil), 4, "sanity: a bare arp fires 4 notes in its column's own window")
         let one = clockRatioLadder.firstIndex(of: 1)!, two = clockRatioLadder.firstIndex(of: 2)!
-        XCTAssertEqual(onCount(clockRatio: one), 4, "×1 CLOCK is a no-op — byte-identical to no CLOCK at all")
-        XCTAssertEqual(onCount(clockRatio: two), 8, "×2 CLOCK packs exactly double the local ticks into the same real window")
+        XCTAssertEqual(onCount(clockRatioIndex: one), 4, "×1 DRAWN lane is a no-op — byte-identical to no CLOCK at all")
+        XCTAssertEqual(onCount(clockRatioIndex: two), 8, "×2 DRAWN lane packs exactly double the local ticks into the same real window")
     }
     // The same shared `iterateTicks` change generalizes to RIFF and RATCHET's ALL mode (both route through it,
-    // like ARP) — hand-verified: RIFF 3→6, RATCHET(ALL) 6→12, both exactly doubled by ×2.
-    func testClockRetimesRiffAndRatchetAllOwnGeneration() {
-        func riffCount(clockRatio: Int?) -> Int {
+    // like ARP) — hand-verified: RIFF 3→6, RATCHET(ALL) 6→12, both exactly doubled by a ×2 DRAWN lane.
+    func testClockDrawnRetimesRiffAndRatchetAllOwnGeneration() {
+        func riffCount(clockRatioIndex: Int?) -> Int {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var procs: [ProcessorSlot] = []
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let idx = clockRatioIndex { procs.append(drawnClock(ratioIndex: idx)) }
             var riff = ProcessorSlot(type: .riff); riff.params.riffRate = .r1_8
             procs.append(riff)
             let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
@@ -617,13 +626,10 @@ final class RouterTests: XCTestCase {
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        func ratchetAllCount(clockRatio: Int?) -> Int {
+        func ratchetAllCount(clockRatioIndex: Int?) -> Int {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var procs: [ProcessorSlot] = []
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let idx = clockRatioIndex { procs.append(drawnClock(ratioIndex: idx)) }
             var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .all; rat.params.count = 1
             procs.append(rat)
             let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
@@ -632,19 +638,17 @@ final class RouterTests: XCTestCase {
             return e.ons.filter { $0.cable == 1 }.count
         }
         let two = clockRatioLadder.firstIndex(of: 2)!
-        XCTAssertEqual(riffCount(clockRatio: nil), 3); XCTAssertEqual(riffCount(clockRatio: two), 6)
-        XCTAssertEqual(ratchetAllCount(clockRatio: nil), 6); XCTAssertEqual(ratchetAllCount(clockRatio: two), 12)
+        XCTAssertEqual(riffCount(clockRatioIndex: nil), 3); XCTAssertEqual(riffCount(clockRatioIndex: two), 6)
+        XCTAssertEqual(ratchetAllCount(clockRatioIndex: nil), 6); XCTAssertEqual(ratchetAllCount(clockRatioIndex: two), 12)
     }
-    // The scope boundary: EUCLID is dispatched entirely differently (emitGeneratorRow, not the three call sites Part
-    // 1 touched) — a CLOCK before it must have ZERO effect, confirming Part 1 doesn't leak beyond its stated scope.
-    func testClockDoesNotReachEuclidInPart1() {
-        func euclidCount(clockRatio: Int?) -> Int {
+    // The scope boundary: EUCLID is dispatched entirely differently (emitGeneratorRow, not the three call sites
+    // driver retiming touched) — a CLOCK before it must have ZERO effect, confirming the feature doesn't leak
+    // beyond its stated scope (ARP/RIFF/RATCHET-ALL only).
+    func testClockDrawnDoesNotReachEuclid() {
+        func euclidCount(clockRatioIndex: Int?) -> Int {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
             var procs: [ProcessorSlot] = []
-            if let ratio = clockRatio {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                procs.append(ck)
-            }
+            if let idx = clockRatioIndex { procs.append(drawnClock(ratioIndex: idx)) }
             var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 3; eu.params.euclidSteps = 8
             procs.append(eu)
             let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
@@ -653,54 +657,38 @@ final class RouterTests: XCTestCase {
             return e.ons.filter { $0.cable == 1 }.count
         }
         let three = clockRatioLadder.firstIndex(of: 3)!
-        XCTAssertEqual(euclidCount(clockRatio: nil), euclidCount(clockRatio: three), "EUCLID is untouched by Part 1 — same count with or without an upstream CLOCK")
+        XCTAssertEqual(euclidCount(clockRatioIndex: nil), euclidCount(clockRatioIndex: three), "EUCLID is untouched — same count with or without an upstream DRAWN clock")
     }
-    // CLOCK GLIDE (Paul 2026-09-26, Part 2): a live ratio change ramps instead of jumping. Hand-verified via a
-    // temporary two-phase-render trace before asserting: a chain switches from ×1 to ×4 mid-stream (real beat
-    // ≈0.43), GLIDE armed at 0.5 beats. WITHOUT glide, the ratio jumps instantly — the tick SEARCH leaps ahead in
-    // local time (an inherent discontinuity of an instant jump — some local ticks between the old and new search
-    // windows are never found), so the first post-switch note lands EARLIER than a naive "next beat" expectation
-    // (sample 10240). WITH glide, the ratio is still close to 1 for the first tick found after the switch (the ramp
-    // has barely started), so that note lands close to where the OLD ×1 rate would have put it — LATER (12000) —
-    // the softened transition this feature exists for. Asserted comparatively (glide's gap > no-glide's gap), not
-    // against hard-coded sample values, since the exact numbers depend on floor-quantization details of the
-    // discontinuity that aren't the property under test.
-    func testClockGlideSoftensARatioChangeInsteadOfJumping() {
-        func gapAcrossSwitch(glide: Bool) -> Int64 {
+    // CLOCK DRAWN's GLIDE row (Paul 2026-09-26, final spec — "another row on the same grid for glide"): a column
+    // marked GLIDE ramps its rate in from the PREVIOUS column's landed ratio instead of snapping at column entry.
+    // Hand-derived (2-step lane, rateBeats=1 via .r1_4, ratios ×1→×4, driving an ARP at 1/8): SET reaches local
+    // phase 1.5 (the ARP's next tick after the column-1 boundary) at real beat 1.125; GLIDE reaches the same local
+    // phase at real beat 1.333 (the ramp is still close to ×1 just after the boundary) — so GLIDE's first
+    // post-boundary tick genuinely lands LATER in real time than SET's, the softened transition this row exists
+    // for. Measured empirically (not asserted against the derived beats directly), since the exact sample position
+    // also depends on tick-search quantization at the discontinuity, which isn't the property under test.
+    func testClockDrawnGlideRowSoftensTheColumnTransition() {
+        func firstTickAfterBoundary(glideOn: Bool) -> Int64? {
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-            func makeBox(ratio: Int, glideOn: Bool) -> SnapshotBox {
-                var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .fixed; ck.params.clockRatio = ratio
-                ck.params.clockRatioGlide = glideOn; ck.params.clockRatioGlideTime = 0.5
-                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
-                return box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ck, arp]; return c }() }
-            }
-            let one = clockRatioLadder.firstIndex(of: 1)!, four = clockRatioLadder.firstIndex(of: 4)!
-            let boxA = makeBox(ratio: one, glideOn: glide)
-            let boxB = makeBox(ratio: four, glideOn: glide)
-            let router = Router(); var diag = KernelDiag()
-            let pool = chord([60, 64, 67])
-            let e = RecordingEmitter()
-            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-            let windowBeats = Double(frames) * tempo / 60.0 / sr
-            var beat = 0.0, ts = 0.0
-            while beat < 0.4 {   // phase A: settled at ×1
-                router.process(box: boxA, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-                beat += windowBeats; ts += Double(frames)
-            }
-            while beat < 1.2 {   // phase B: the switch to ×4 lands here
-                router.process(box: boxB, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-                beat += windowBeats; ts += Double(frames)
-            }
-            router.process(box: boxB, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            var ck = ProcessorSlot(type: .clock)
+            ck.params.clockMode = .drawn
+            ck.params.clockDrawnSteps = 2
+            ck.params.clockDrawnRatios = [clockRatioLadder.firstIndex(of: 1)!, clockRatioLadder.firstIndex(of: 4)!]
+            ck.params.clockDrawnGlide = [false, glideOn]
+            ck.params.clockDrawnRate = .r1_4   // rateBeats == 1 real beat per column
+            ck.params.clockSpanN = 0
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ck, arp]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
             assertNothingLeftSounding(e)
             let samples = e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
-            guard let idx = samples.firstIndex(where: { $0 >= 9600 }), idx > 0 else { return -1 }   // 9600 = real beat 0.4 in samples
-            return samples[idx] - samples[idx - 1]
+            let boundarySample: Int64 = 24_000   // real beat 1.0 at 120bpm/48kHz (24000 samples/beat)
+            return samples.first(where: { $0 > boundarySample })
         }
-        let gapNoGlide = gapAcrossSwitch(glide: false)
-        let gapGlide = gapAcrossSwitch(glide: true)
-        XCTAssertGreaterThan(gapNoGlide, 0, "sanity: the instant-jump scenario has notes straddling the switch")
-        XCTAssertGreaterThan(gapGlide, gapNoGlide, "GLIDE keeps the note right after a ratio change closer to the OLD rate's spacing — the jump is softened, not instant")
+        guard let setTick = firstTickAfterBoundary(glideOn: false), let glideTick = firstTickAfterBoundary(glideOn: true) else {
+            return XCTFail("expected a post-boundary tick in both cases")
+        }
+        XCTAssertGreaterThan(glideTick, setTick, "GLIDE's first tick after the column boundary lands later than SET's — the transition is softened, not instant")
     }
     // STANDALONE RATCHET PATTERN = a PASS-THROUGH PROCESSOR, not a generator (Paul 2026-09-08). A lone (single-slot)
     // ratchet-pattern cell RECEIVES the input and passes it through; its own clock only decides per-column treatment

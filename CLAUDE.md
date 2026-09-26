@@ -199,49 +199,47 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ CLOCK — driver retiming (FIXED only) + a GLIDE row (2026-09-26, on `main`, `4f90f86`; iOS builds, macOS 1117
-  green incl. fuzz; DEVICE ear owed). Paul's correction after testing `[CLOCK→ARP]` and hearing nothing: "instead of
-  using the host transport, the clock control will override it for everything downstream" — Stages 1–3 only let
-  CLOCK retime a DOWNSTREAM FOLD CONSUMER's own math (RATCHET's slice, DEST's route, …), never a DRIVER's actual
-  note scheduling; `composeChainSet` treated a pre-driver CLOCK as a complete no-op (its `cellMode` is `.identity`,
-  falling through the generic pass-through). I first over-scoped the fix by dragging WAVE-mode phase-inversion
-  (Newton's method) into the SAME plan Paul hadn't asked for ("why are you talking about cosine") — replanned to
-  EXACTLY what he described: the existing FIXED ratio grid (×4…÷4, unchanged) retiming a driver for real, plus a new
-  GLIDE row. **PART 1 (FIXED-only, 3 drivers):** a NEW dedicated forward+inverse pair, `driverClockBeat`/
-  `driverClockBeatInverse` (Router.swift) — distinct from `clockTransformedBeat` (Stages 1–3, still serves fold
-  consumers, all 3 modes) — because reusing the general function for the forward half while only skipping WAVE/
-  DRAWN on the inverse would silently desync the two and misplace every scheduled note under a WAVE/DRAWN clock; a
-  WAVE/DRAWN stage before a driver is treated as ABSENT in BOTH directions, on purpose. New `clockFixedPhaseInverse`
-  (Derivations.swift, round-trip tested). `iterateTicks` (the shared tick-walker for ARP/RIFF/RATCHET's ALL mode)
-  gains clock-awareness: the tick SEARCH runs in CLOCK-transformed LOCAL time, but the column-membership gate and
-  ALL sample scheduling key off the REAL beat each local tick maps back to (columns stay upstream of CLOCK,
-  untouched — the sovereign law) — resolved via a sharp subtlety worked through carefully: a candidate local tick
-  is inverted to real time IMMEDIATELY on discovery, and only the LOCAL beat reaches note-selection (`phaseIndex`→
-  `arpPick`). Threaded into the 3 driver functions that route entirely through `iterateTicks`: `emitArpRow`,
-  `emitRiffRow`, `emitRatchetRow`'s ALL-mode branch. EUCLID/BURST/CASCADE/SHIFT/HUMANIZE/DRONE/HOCKET are untouched —
-  confirmed (not just assumed) by a dedicated scope-boundary test — since they're `isDriverType` themselves and
-  `chainDriverIndex` always makes the LAST one the chain's own driver, so they never reach a downstream-fold
-  position; retiming them needs the SAME phase-inversion problem flagged after Stage 1, still open. **CLOCK was
-  NEVER IN THE FUZZER** despite three stages of render-path changes — added now (all 3 modes, every chain position
-  incl. before a driver); all 8 fuzz suites pass clean incl. transport-chaos/snapshot-swap-chaos. Every hand-derived
-  test expectation was wrong on the first pass (again) and fixed via a temporary debug trace before asserting — a
-  bare ARP at column 0 only sounds during that column's own real-time window (stable regardless of `beats:`, not a
-  bug); `[CLOCK×2→ARP]` doubles note count (4→8) exactly, RIFF (3→6) and RATCHET-ALL (6→12) the same shape, EUCLID
-  unchanged (9→9) confirming the scope boundary. **PART 2 — GLIDE:** a toggle beside the ratio grid; when armed, a
-  live ratio change ramps to the new value over a TIME control instead of jumping. `clockRatioGlide`/
-  `clockRatioGlideTime` (named distinctly from the pre-existing `clockDrawnGlide`, DRAWN's unrelated per-column
-  ramp). `resolveGlideRatio` is a THIRD instance of this codebase's sanctioned "remember across renders" exception,
-  mirroring MOD's own `modPrevTarget` array exactly (same per-cell-per-slot key, same compare-and-update idiom); an
-  authored change freezes the glide's CURRENT interpolated position before re-targeting, so an interrupted glide
-  re-aims smoothly instead of snapping back to the old start. Called with one stable per-window beat reference so
-  it's safe to call more than once per render (the inverse runs once per discovered tick) — idempotent by
-  construction, not by luck. Hand-verified via trace: under an instant jump the note right after a ratio change
-  lands EARLIER than naively expected (a real local-time discontinuity — some local ticks between the old and new
-  search windows are simply never found, an accepted, inherent cost of a hard jump); under GLIDE that same note
-  lands LATER, closer to the pre-change rate — asserted comparatively, not against hard-coded sample values, since
-  the exact numbers depend on floor-quantization details that aren't the property under test. **NEXT:** WAVE/DRAWN
-  driver retiming and the other 4+3 driver types stay explicitly out of scope — Paul's ask was FIXED + GLIDE only;
-  revisit only if asked. Device ear owed on the whole thing, as always.**
+- **▶ CLOCK — driver retiming, REBUILT against Paul's own grid (DRAWN, not FIXED) (2026-09-26, on `main`, `<pending>`;
+  iOS builds, macOS 1117 green incl. fuzz; DEVICE ear owed). SUPERSEDES the same-day "driver retiming (FIXED only) +
+  a GLIDE row" entry below — that build was WRONG and was entirely removed, not kept alongside this one. The story,
+  for the record (a real misunderstanding, not a euphemism): Paul tested `[CLOCK→ARP]`, heard nothing, and said "the
+  clock control will override the transport for everything downstream" — I read "grid" (from his own words, "we
+  have a grid with x2, x3, etc, as we see now") as FIXED mode's simple ×2/×3 seg-picker (a literal reading of what's
+  labelled on that row) and built driver retiming + a brand-new global GLIDE toggle for THAT mode. Paul's actual,
+  much more specific follow-up spec — "a grid with a variable number of steps, each step a mutually exclusive
+  speed, and another row on the same grid for glide" — describes something else entirely: DRAWN mode, which
+  ALREADY EXISTED (built in an earlier stage of this same feature, well before this driver-retiming conversation) —
+  variable steps (`clockDrawnSteps`, 1–32), a per-column mutually-exclusive ratio matrix (`clockDrawnRatios`), and
+  an existing per-column GLIDE row (`clockDrawnGlide`) directly beneath it. So the FIXED-mode work retimed the wrong
+  mode, and the new GLIDE toggle duplicated — badly, as a single global switch instead of a per-step row — a
+  mechanism DRAWN already had. Paul caught this ("the grid that appears on drawn still doesn't do anything… it
+  feels like you're not being straight with me") and, once the mismatch was confirmed back to him in plain language,
+  said to remove all of it and build to the real spec. **REMOVED, completely:** `driverClockBeat`/
+  `driverClockBeatInverse`'s FIXED-mode bodies, `clockFixedPhaseInverse`, `resolveGlideRatio` + its 3 backing arrays
+  (`clockPrevRatio`/`clockTargetRatio`/`clockChangeBeat` — a whole "remember across renders" exception that turned
+  out to be unnecessary), `clockRatioGlide`/`clockRatioGlideTime(Beats)` on `MachineParams`/`SnapParams` + their
+  resolve lines + their FIXED-mode UI row + the `buildProcLabel` "~" suffix. **REBUILT for DRAWN instead:**
+  `driverClockBeat`/`driverClockBeatInverse` now walk ONLY `.drawn` slots, calling the EXISTING `clockDrawnPhase`
+  (which gained an `originOverride` param, default nil ⇒ byte-identical for its Stage 1–3 fold-consumer callers) and
+  a new `clockDrawnPhaseInverse` (Derivations.swift) — SET columns invert linearly, GLIDE columns invert the
+  closed-form quadratic (the antiderivative of a linear rate ramp) via the quadratic formula's `+` root, proven the
+  only valid one in-range since a column's own rate is always positive throughout its span (monotonic, one root).
+  Both closed-form — a bounded O(steps) walk to find the column, then one algebraic solve, no iteration — so DRAWN's
+  own GLIDE needed NO new cross-render memory at all (unlike the FIXED attempt's now-deleted `resolveGlideRatio`):
+  a column's ramp is purely a function of its own position, stateless by construction. `iterateTicks` threads
+  `cycleBeats` + an `originRef` (the window's real start, pinned once per tick search so every slot's own SPAN-
+  origin and every discovered tick agree) instead of the old `nowBeat`. Same 3 call sites (`emitArpRow`,
+  `emitRiffRow`, `emitRatchetRow`'s ALL-mode branch), same sovereign-law shape (search in LOCAL time, invert to REAL
+  immediately on discovery, only note-selection stays local). **TESTS:** rewrote the 4 FIXED-mode RouterTests as
+  DRAWN-mode equivalents (`testClockDrawnRetimesArpsOwnGeneration`/`…RiffAndRatchetAllOwnGeneration`/
+  `…DoesNotReachEuclid`/`…GlideRowSoftensTheColumnTransition` — a single-step all-SET DRAWN lane is algebraically
+  identical to FIXED's linear math, so the doubling/no-op assertions carry over unchanged in spirit; the GLIDE test
+  is new — hand-derived a 2-step ×1→×4 lane, SET reaches the ARP's next tick at real beat 1.125 vs GLIDE's 1.333,
+  asserted comparatively per this session's standing "don't hard-code the exact sample, the discontinuity's own
+  quantization isn't the property under test" rule); replaced `clockFixedPhaseInverse`'s round-trip test with
+  `clockDrawnPhaseInverse`'s (5 ratio/glide/lane-shape cases × 3 origins × a beat sweep). Full suite + all 8 fuzz
+  scenarios stay green. **NEXT:** FIXED/WAVE driver retiming stay explicitly unbuilt — Paul's spec describes DRAWN's
+  grid specifically, not a mode choice; revisit only if asked. Device ear owed, as always.**
 - **▶ HOUSEKEEPING — dead-code sweep + 3 test-coverage gaps (2026-09-26, on `main`, `7fcac1e`; iOS builds, macOS 1112
   green). Three parallel read-only surveys (dead code · missing tests · refactor/efficiency) over the whole codebase,
   every finding independently re-verified before acting (per this file's own standing pattern). **DEAD CODE (6, all

@@ -260,11 +260,6 @@ struct SnapParams {
     var clockMode: ClockMode = .fixed
     var clockRatio: Int = 4
     var clockOffset: Int = 0
-    // GLIDE (Paul 2026-09-26, Part 2): nil/false clockRatioGlide ⇒ byte-identical to Part 1 (instant jump); when
-    // armed, driverClockBeat/Inverse interpolate toward clockRatio over clockRatioGlideTimeBeats instead of using
-    // it immediately. Default glide time 2 beats — a deliberately audible ramp, not a barely-there smoothing.
-    var clockRatioGlide: Bool = false
-    var clockRatioGlideTimeBeats: Double = 2
     var clockShape: ClockWaveShape = .sine
     var clockDepth: Double = 0
     var clockSpanN: Int = 8

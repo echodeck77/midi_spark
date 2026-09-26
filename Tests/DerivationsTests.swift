@@ -2222,21 +2222,6 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(clockFixedPhase(4, ratio: 1, offsetBeats: 1.5), 5.5, accuracy: 1e-9, "offset shifts it")
     }
 
-    // Driver retiming (Paul 2026-09-26): clockFixedPhaseInverse must exactly undo clockFixedPhase across a spread of
-    // beats/ratios/offsets — this is the primitive a retimed driver uses to convert a LOCAL tick it found back to
-    // the REAL beat it must schedule at. Any drift here would misplace note-on/off sample positions.
-    func testClockFixedPhaseInverseRoundTrips() {
-        for beat in stride(from: -5.0, through: 11.0, by: 1.3) {
-            for ratio in [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0] {
-                for offset in [0.0, -2.0, 3.5] {
-                    let local = clockFixedPhase(beat, ratio: ratio, offsetBeats: offset)
-                    let back = clockFixedPhaseInverse(local, ratio: ratio, offsetBeats: offset)
-                    XCTAssertEqual(back, beat, accuracy: 1e-9, "ratio \(ratio) offset \(offset) beat \(beat)")
-                }
-            }
-        }
-    }
-
     // Test #4 (the composition test): two FIXED CLOCKs in a row multiply their ratios — [×2 → ×3] == a single ×6.
     func testClockFixedComposesMultiplicatively() {
         let once = clockFixedPhase(clockFixedPhase(5, ratio: 2, offsetBeats: 0), ratio: 3, offsetBeats: 0)
@@ -2362,6 +2347,35 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(free, 5.0, accuracy: 1e-9, "FREE: drift accumulated since absolute beat 0")
         XCTAssertEqual(spanned, 3.5, accuracy: 1e-9, "SPAN: re-anchored at beat 3 (the period boundary), only 0.5 local beats since")
         XCTAssertNotEqual(free, spanned, "the SPAN control genuinely changes the phase, not just decoration")
+    }
+
+    // Driver retiming (Paul 2026-09-26, final spec — "a grid with a variable number of steps, each step a
+    // mutually exclusive speed, and another row on the same grid for glide"): clockDrawnPhaseInverse must exactly
+    // undo clockDrawnPhase across a spread of ratio/glide patterns, origins, and laps — this is the primitive a
+    // retimed driver (Router.driverClockBeat/Inverse) uses to convert a LOCAL tick it found on THIS grid back to
+    // the REAL beat it must schedule at. Any drift here would misplace note-on/off sample positions. Covers
+    // all-SET, all-GLIDE (including extreme ratios, where the quadratic coefficient is large), mixed SET/GLIDE,
+    // and a degenerate single-step lane.
+    func testClockDrawnPhaseInverseRoundTrips() {
+        let cases: [(ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double)] = [
+            ([1, 1, 1, 1], [false, false, false, false], 4, 0.5),
+            ([1, 2, 0.5, 1.5], [false, false, false, false], 4, 0.5),
+            ([1, 2, 0.5, 1.5], [false, true, false, true], 4, 0.5),
+            ([4, 0.25, 3, 1], [true, true, true, true], 4, 0.25),
+            ([1], [false], 1, 1),
+        ]
+        for c in cases {
+            for origin in [0.0, 2.7, -1.4] {
+                for beat in stride(from: origin - 3.0, through: origin + 9.0, by: 0.37) {
+                    let local = clockDrawnPhase(beat, ratios: c.ratios, glide: c.glide, steps: c.steps,
+                                                rateBeats: c.rateBeats, periodBeats: 0, originOverride: origin)
+                    let back = clockDrawnPhaseInverse(local, originBeat: origin, ratios: c.ratios, glide: c.glide,
+                                                       steps: c.steps, rateBeats: c.rateBeats)
+                    XCTAssertEqual(back, beat, accuracy: 1e-6,
+                                   "ratios \(c.ratios) glide \(c.glide) origin \(origin) beat \(beat)")
+                }
+            }
+        }
     }
 
     // CHORDS degrees sized to the matrix width (Paul 2026-09-16 fix): a wide matrix keeps all its authored columns.

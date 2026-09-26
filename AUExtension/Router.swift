@@ -422,15 +422,6 @@ final class Router {
     private var modLastColumn = [Int32](repeating: -1, count: Snap.rows + 1)  // the column whose MOD cells emitted last, per slot (reset when it exits)
     private var modColumnEntryBeat = [Double](repeating: 0, count: Snap.rows + 1)  // STRIKE: the beat the slot's active column became active (AR trigger)
     private var modPrevTarget = [Int16](repeating: -1, count: Snap.cells * 8)         // per (gridCell*8 + slot): the LAST CC# a MOD slot emitted — revert it when the target changes
-    // CLOCK GLIDE (Paul 2026-09-26, Part 2): a sanctioned "remember across renders" exception, same shape as
-    // modPrevTarget above — per (gridCell*8 + slot): the ratio a FIXED-mode CLOCK slot is gliding FROM/TO and the
-    // beat its current glide started, so a live ratio edit ramps instead of jumping. NaN in clockTargetRatio means
-    // "never seen this slot" (first read seeds it with no glide, matching Part 1's instant behavior for a doc that's
-    // never touched GLIDE). Resolved via `resolveGlideRatio`, called with a STABLE per-window beat reference so
-    // repeated calls within one render (the inverse runs once per discovered tick) are idempotent, not re-triggering.
-    private var clockPrevRatio = [Double](repeating: .nan, count: Snap.cells * 8)
-    private var clockTargetRatio = [Double](repeating: .nan, count: Snap.cells * 8)
-    private var clockChangeBeat = [Double](repeating: -.infinity, count: Snap.cells * 8)
     // GLIDE (notes→pitch-bend): one mono sliding voice per GLIDE cell. Beat-derived ramps + a sustained anchor note.
     private struct GlideVoice {
         var anchor: Int16 = -1     // the sounding note-on pitch (-1 = no voice)
@@ -2232,28 +2223,30 @@ final class Router {
     /// this owns the timing — so the boundary/dedup logic lives in exactly one place.
     /// Return from the body to skip a tick (the equivalent of `continue`).
     ///
-    /// CLOCK driver retiming (Paul 2026-09-26, Part 1 — FIXED mode only): `clockCell`/`clockFrom`/`clockTo` are
-    /// defaulted (nil / 0 / 0) — every caller that omits them, and every call where `clockTo <= clockFrom` (no
-    /// driver, or no CLOCK stage upstream of it), takes the exact code path this function always has; byte-
-    /// identical. When present, the tick SEARCH runs in the CLOCK-transformed LOCAL beat space (so the driver's
-    /// rhythm genuinely speeds up/slows down), but the column-membership gate and all sample scheduling still key
-    /// off the REAL beat each local tick maps back to — columns are upstream of CLOCK, untouched (the sovereign
-    /// law) — so a candidate is inverted back to real time immediately on discovery, before anything else reads it.
-    /// Only the LOCAL `mTickBeat` handed to `body()` stays local, since note-SELECTION (`phaseIndex`→`arpPick`)
-    /// is correctly a function of the driver's own local rhythm, never of real time.
+    /// CLOCK driver retiming (Paul 2026-09-26, final spec — DRAWN mode's grid: "a variable number of steps, each
+    /// step a mutually exclusive speed, and another row on the same grid for glide"): `clockCell`/`clockFrom`/
+    /// `clockTo`/`cycleBeats` are defaulted — every caller that omits them, and every call where `clockTo <=
+    /// clockFrom` (no driver, or no CLOCK stage upstream of it), takes the exact code path this function always
+    /// has; byte-identical. When present, the tick SEARCH runs in the CLOCK-transformed LOCAL beat space (so the
+    /// driver's rhythm genuinely speeds up/slows down/glides per the authored lane), but the column-membership
+    /// gate and all sample scheduling still key off the REAL beat each local tick maps back to — columns are
+    /// upstream of CLOCK, untouched (the sovereign law) — so a candidate is inverted back to real time immediately
+    /// on discovery, before anything else reads it. Only the LOCAL `mTickBeat` handed to `body()` stays local,
+    /// since note-SELECTION (`phaseIndex`→`arpPick`) is correctly a function of the driver's own local rhythm,
+    /// never of real time.
     private func iterateTicks(row: Int, effColumn: Int, sub: Double, gateFraction: Double,
                               beatPos: Double, windowBeats: Double, windowStart: Int64,
                               beatsPerSample: Double, S: Double, a: Double, columns: Int = Snap.cols,
-                              clockCell: SnapCell? = nil, clockFrom: Int = 0, clockTo: Int = 0,
+                              clockCell: SnapCell? = nil, clockFrom: Int = 0, clockTo: Int = 0, cycleBeats: Double = 0,
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
         let hasClock = clockCell != nil && clockTo > clockFrom
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        // GLIDE (Part 2): `nowBeat: mStartReal` throughout this call — a single stable reference for the whole
-        // window, so the (idempotent-by-design) glide reads below all agree, regardless of how many ticks are found.
-        let mStart = hasClock ? driverClockBeat(clockCell!, from: clockFrom, to: clockTo, atBeat: mStartReal, S: S, nowBeat: mStartReal) : mStartReal
-        let mEnd = hasClock ? driverClockBeat(clockCell!, from: clockFrom, to: clockTo, atBeat: mEndReal, S: S, nowBeat: mStartReal) : mEndReal
+        // `originRef: mStartReal` throughout this call — a single stable span-anchor reference for the whole
+        // window, so every tick discovered below agrees on the same origin regardless of how many are found.
+        let mStart = hasClock ? driverClockBeat(clockCell!, from: clockFrom, to: clockTo, atBeat: mStartReal, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mStartReal
+        let mEnd = hasClock ? driverClockBeat(clockCell!, from: clockFrom, to: clockTo, atBeat: mEndReal, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mEndReal
         // floor, not ceil: a tick AT a column boundary sits between render windows — the previous
         // column's window rejects it (wrong column) and ceil would round past it, dropping the
         // column's first note. floor + the == dedup catches it once (fired slightly late, clamped).
@@ -2263,7 +2256,7 @@ final class Router {
 
         for tick in firstTick...lastT {
             let mTickBeat = Double(tick) * sub   // LOCAL beat — feeds body() for note-selection only, never scheduling
-            let mTickBeatReal = hasClock ? driverClockBeatInverse(clockCell!, from: clockFrom, to: clockTo, atLocalBeat: mTickBeat, S: S, nowBeat: mStartReal) : mTickBeat
+            let mTickBeatReal = hasClock ? driverClockBeatInverse(clockCell!, from: clockFrom, to: clockTo, atLocalBeat: mTickBeat, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mTickBeat
             // Which column is EFFECTIVE at this tick's step (lap-aware, §5b) — REAL time, since columns stay
             // upstream of CLOCK — so a held column's ticks fire during the current window even though the tick's
             // TRUE column differs. With no lap, lapColumn returns the tick's true column and this is the original
@@ -2283,7 +2276,7 @@ final class Router {
             // so the local off-beat is computed, inverted back to real time, THEN clamped to the real column end.
             let colEnd = columnStart(mTickBeatReal, S) + S
             let mOffLocal = mTickBeat + sub * gateFraction
-            let mOffReal = hasClock ? driverClockBeatInverse(clockCell!, from: clockFrom, to: clockTo, atLocalBeat: mOffLocal, S: S, nowBeat: mStartReal) : mOffLocal
+            let mOffReal = hasClock ? driverClockBeatInverse(clockCell!, from: clockFrom, to: clockTo, atLocalBeat: mOffLocal, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mOffLocal
             let mOff = min(mOffReal, colEnd)
             let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)
@@ -3829,24 +3822,31 @@ final class Router {
         }
         return beat
     }
-    /// Driver retiming (Paul 2026-09-26, Part 1 — FIXED mode only). `clockTransformedBeat` above is for DOWNSTREAM
-    /// fold consumers that only ever READ a beat — for a DRIVER's own tick generation, the tick must be SCHEDULED
-    /// too, which needs an exact inverse. Only FIXED has one that's cheap and closed-form (divide instead of
-    /// multiply); WAVE/DRAWN driver-retiming isn't built, so a WAVE/DRAWN CLOCK stage in range is treated as ABSENT
-    /// here — deliberately, in BOTH directions, so forward and inverse always agree on exactly what they compose
-    /// (using the general `clockTransformedBeat` for the forward half and only skipping WAVE/DRAWN on the way back
-    /// would silently desync the two, misplacing every scheduled note under a WAVE/DRAWN clock — this pair avoids
-    /// that by construction). A WAVE/DRAWN clock before a driver stays exactly as inert as it was before this stage.
-    private func driverClockBeat(_ cell: SnapCell, from: Int, to target: Int, atBeat: Double, S: Double, nowBeat: Double) -> Double {
+    /// Driver retiming (Paul 2026-09-26, final spec: "a grid with a variable number of steps, each step a mutually
+    /// exclusive speed, and another row on the same grid for glide"). `clockTransformedBeat` above is for
+    /// DOWNSTREAM fold consumers that only ever READ a beat — for a DRIVER's own tick generation, the tick must be
+    /// SCHEDULED too, which needs an exact inverse. DRAWN mode is Paul's own grid — its per-column ratio picks
+    /// (`clockDrawnRatios`) ARE the mutually-exclusive-speed-per-step, and `clockDrawnGlide` IS the second row on
+    /// that same grid — no separate glide mechanism needed, DRAWN's own ramping is stateless (purely a function of
+    /// where you are in the current column, never a remembered "previous session" value). Only DRAWN is wired here
+    /// — FIXED (the simple ×2/×3 row) and WAVE stay exactly as inert before a driver as they've always been
+    /// (unwired, not what was asked for). `originRef` is the window's own REAL start beat, threaded through
+    /// unchanged from `iterateTicks`; every DRAWN slot recomputes its OWN span-origin from it (each slot may carry
+    /// its own SPAN), pinned to this ONE reference for the whole tick search so the forward window-bound
+    /// transforms and every later tick inversion agree on the same span-anchor (see `clockDrawnPhase`'s
+    /// `originOverride` doc comment for why that matters).
+    private func driverClockBeat(_ cell: SnapCell, from: Int, to target: Int, atBeat: Double, S: Double, cycleBeats: Double, originRef: Double) -> Double {
         guard target > from else { return atBeat }
         var beat = atBeat
         var j = from
         while j < target {
-            if !cell.slotBypass[j], cell.procs[j].type == .clock, cell.procs[j].clockMode == .fixed {
+            if !cell.slotBypass[j], cell.procs[j].type == .clock, cell.procs[j].clockMode == .drawn {
                 let p = cell.procs[j]
-                let baseRatio = clockRatioLadder[max(0, min(clockRatioLadder.count - 1, p.clockRatio))]
-                let ratio = p.clockRatioGlide ? resolveGlideRatio(cellIndex: currentCellIndex, slot: j, target: baseRatio, nowBeat: nowBeat, glideTimeBeats: p.clockRatioGlideTimeBeats) : baseRatio
-                beat = clockFixedPhase(beat, ratio: ratio, offsetBeats: Double(p.clockOffset) * S)
+                let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
+                let origin = period > 0 ? columnStart(originRef, period) : 0
+                beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
+                                       steps: p.clockDrawnSteps, rateBeats: p.clockDrawnRateBeats, periodBeats: period,
+                                       originOverride: origin)
             }
             j += 1
         }
@@ -3854,47 +3854,24 @@ final class Router {
     }
     /// The exact inverse of `driverClockBeat` — walks the SAME range in REVERSE order (undo the last-applied
     /// transform first, since inverting a composition reverses order), used to convert a LOCAL tick a retimed
-    /// driver found back to the REAL beat it must schedule its note-on/off at. `nowBeat` — see `resolveGlideRatio` —
-    /// must be the SAME stable per-window value passed to `driverClockBeat`, so a glide read here (once per
-    /// discovered tick) agrees with the one that shaped the window's own local search bounds.
-    private func driverClockBeatInverse(_ cell: SnapCell, from: Int, to target: Int, atLocalBeat: Double, S: Double, nowBeat: Double) -> Double {
+    /// driver found back to the REAL beat it must schedule its note-on/off at. `originRef` must be the SAME value
+    /// passed to `driverClockBeat` for this window, so every slot's origin agrees between the forward and inverse
+    /// passes.
+    private func driverClockBeatInverse(_ cell: SnapCell, from: Int, to target: Int, atLocalBeat: Double, S: Double, cycleBeats: Double, originRef: Double) -> Double {
         guard target > from else { return atLocalBeat }
         var beat = atLocalBeat
         var j = target - 1
         while j >= from {
-            if !cell.slotBypass[j], cell.procs[j].type == .clock, cell.procs[j].clockMode == .fixed {
+            if !cell.slotBypass[j], cell.procs[j].type == .clock, cell.procs[j].clockMode == .drawn {
                 let p = cell.procs[j]
-                let baseRatio = clockRatioLadder[max(0, min(clockRatioLadder.count - 1, p.clockRatio))]
-                let ratio = p.clockRatioGlide ? resolveGlideRatio(cellIndex: currentCellIndex, slot: j, target: baseRatio, nowBeat: nowBeat, glideTimeBeats: p.clockRatioGlideTimeBeats) : baseRatio
-                beat = clockFixedPhaseInverse(beat, ratio: ratio, offsetBeats: Double(p.clockOffset) * S)
+                let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
+                let origin = period > 0 ? columnStart(originRef, period) : 0
+                beat = clockDrawnPhaseInverse(beat, originBeat: origin, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
+                                              steps: p.clockDrawnSteps, rateBeats: p.clockDrawnRateBeats)
             }
             j -= 1
         }
         return beat
-    }
-    /// CLOCK GLIDE (Paul 2026-09-26, Part 2): the effective ratio for a gliding FIXED-mode CLOCK slot at `nowBeat` —
-    /// `target` linearly ramps in from wherever the PREVIOUS glide had reached, over `glideTimeBeats`. A genuinely
-    /// new `target` (the authored ratio changed) freezes the CURRENT interpolated position as the new starting
-    /// point before re-targeting, so an interrupted glide re-aims smoothly instead of snapping back. Safe to call
-    /// more than once per render window with the SAME `nowBeat` (the inverse runs once per discovered tick) — after
-    /// the first call updates the stored target to match, every subsequent call in that same window is a stable
-    /// no-op read, not a re-trigger. First-ever call for a slot seeds prevRatio/targetRatio to `target` with no
-    /// glide, so a document that's never touched GLIDE behaves exactly like Part 1 (instant).
-    private func resolveGlideRatio(cellIndex: Int, slot: Int, target: Double, nowBeat: Double, glideTimeBeats: Double) -> Double {
-        guard cellIndex >= 0 && cellIndex < Snap.cells else { return target }
-        let key = cellIndex * 8 + slot
-        guard key >= 0 && key < clockTargetRatio.count else { return target }
-        if clockTargetRatio[key].isNaN {
-            clockTargetRatio[key] = target; clockPrevRatio[key] = target; clockChangeBeat[key] = -.infinity
-        } else if target != clockTargetRatio[key] {
-            let elapsed = nowBeat - clockChangeBeat[key]
-            let priorProgress = glideTimeBeats > 0 ? max(0, min(1, elapsed / glideTimeBeats)) : 1
-            let currentEffective = clockPrevRatio[key] + (clockTargetRatio[key] - clockPrevRatio[key]) * priorProgress
-            clockPrevRatio[key] = currentEffective; clockTargetRatio[key] = target; clockChangeBeat[key] = nowBeat
-        }
-        let elapsed = nowBeat - clockChangeBeat[key]
-        let progress = glideTimeBeats > 0 ? max(0, min(1, elapsed / glideTimeBeats)) : 1
-        return clockPrevRatio[key] + (clockTargetRatio[key] - clockPrevRatio[key]) * progress
     }
     /// The LAST non-bypassed SPLIT slot after `driver` (last-writer wins), or nil.
     private func downstreamSplitIndex(_ cell: SnapCell, after driver: Int) -> Int? {
@@ -4671,7 +4648,7 @@ final class Router {
         iterateTicks(row: r, effColumn: effColumn, sub: riffBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded())),
-                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver) { tick, mTickBeat, onTime, offTime in
+                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cycleBeats) { tick, mTickBeat, onTime, offTime in
             // SPAN RE-ANCHOR (Paul 2026-08-27, the universal re-sync model — riff is the first card): FREE (spanN 0) runs
             // the global grid (today, byte-identical); spanN > 0 re-syncs the stencil to step 0 every N columns, so an odd
             // `steps` against an aligning span DRIFTS then SNAPS BACK (polymeter). Pure (derived from the absolute beat +
@@ -4778,7 +4755,7 @@ final class Router {
         iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded())),
-                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver) { tick, mTickBeat, onTime, offTime in
+                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cycleBeats) { tick, mTickBeat, onTime, offTime in
             let onT = onTime; var offT = offTime; var maskWalk: Int64? = nil
             if mActive {
                 let g = Int((mTickBeat / arpBeats).rounded(.down))          // global tick index (replay-exact)
@@ -4898,7 +4875,7 @@ final class Router {
         iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded())),
-                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver) { _, mTickBeat, onTime, offTime in
+                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cycleBeats) { _, mTickBeat, onTime, offTime in
             let colStart = columnStart(mTickBeat, S)
             let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
             let tbm = chopMask(cell, m: mTickBeat, S: S, base: bm)         // §cell-edit F CHOP: routes by the 8-slice

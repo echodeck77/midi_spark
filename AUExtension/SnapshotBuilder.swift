@@ -475,8 +475,6 @@ enum SnapshotBuilder {
         if let v = p.clockMode { out.clockMode = v }
         out.clockRatio = clamp(p.clockRatio ?? 4, 0, clockRatioLadder.count - 1)
         if let v = p.clockOffset { out.clockOffset = v }
-        if let v = p.clockRatioGlide { out.clockRatioGlide = v }   // GLIDE (Part 2): nil/false ⇒ byte-identical instant jump
-        out.clockRatioGlideTimeBeats = max(0.03125, p.clockRatioGlideTime ?? 2)
         if let v = p.clockShape { out.clockShape = v }
         out.clockDepth = clamp(p.clockDepth ?? 0, 0, 0.95)
         if let v = p.clockSpanN { out.clockSpanN = v }

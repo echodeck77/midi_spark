@@ -1045,15 +1045,8 @@ struct ProcessorBox: View {
                     seg(clockRatioLabels, sel: clockRatioLabels[ratio]) { i in setParam { $0.clockRatio = i } } }
                 field("OFFSET — nudge downstream's start, in this chain's own grid steps", \.clockOffset) {
                     numPair(p.clockOffset ?? 0, -8...8) { v in setParam { $0.clockOffset = v } } }
-                Text("Two copies of a chain, one at OFFSET 2, play as a self-following canon.")
+                Text("Two copies of a chain, one at OFFSET 2, play as a self-following canon. Reshapes a downstream reader's own math (RATCHET/DEST/VELOCITY/TUTTI/MOD) — placed before a driver (ARP/RIFF/RATCHET) it has no effect; use DRAWN for that.")
                     .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-                let glideOn = p.clockRatioGlide ?? false
-                field("GLIDE — changing the RATE above ramps to it instead of jumping", \.clockRatioGlide) {
-                    seg(["OFF", "ON"], sel: glideOn ? "ON" : "OFF") { i in setParam { $0.clockRatioGlide = (i == 1) } } }
-                if glideOn {
-                    field("TIME — how long the ramp takes, in beats", \.clockRatioGlideTime) {
-                        numPair(Int((p.clockRatioGlideTime ?? 2).rounded()), 1...16) { v in setParam { $0.clockRatioGlideTime = Double(v) } } }
-                }
             } else if mode == .wave {
                 field("SHAPE — the wobble's waveform", \.clockShape) {
                     seg(ClockWaveShape.allCases.map(\.rawValue), sel: (p.clockShape ?? .sine).rawValue) { i in setParam { $0.clockShape = ClockWaveShape.allCases[i] } } }
@@ -1062,7 +1055,9 @@ struct ProcessorBox: View {
                 frameSpan(p.clockSpanN ?? 8, free: false) { v in setParam { $0.clockSpanN = v } }
                 Text("Rubato at shallow DEPTH, accelerando via a ramped one. Always lands back in time at every SPAN — provably, not by luck.")
                     .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            } else {   // DRAWN (Stage 2): a hand-authored per-column ratio lane. Empty/CARRY columns hold the last explicit ratio.
+            } else {   // DRAWN: a hand-authored grid — variable steps, each a mutually exclusive speed, with a GLIDE row on
+                       // the same grid (Paul 2026-09-26's own spec). Placed before a driver (ARP/RIFF/RATCHET) this genuinely
+                       // retimes its ticks, not just a downstream reader's math. Empty/CARRY columns hold the last explicit ratio.
                 let steps = max(1, min(32, p.clockDrawnSteps ?? 8))
                 let picks = p.clockDrawnRatios ?? []
                 let glideArr = p.clockDrawnGlide ?? []

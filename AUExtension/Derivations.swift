@@ -85,17 +85,10 @@ func nearestLadderPos(_ ladder: [Int], _ idx: Int) -> Int {
 // else that reads a raw beat stays on that raw beat — callers choose which beat to feed these, never the reverse.
 
 /// FIXED mode: phase(beat) = beat × ratio + offset. `offsetBeats` is the cell's own grid steps (offsetSteps × S),
-/// resolved by the caller. Pure, trivially invertible.
+/// resolved by the caller. Pure, trivially invertible (FIXED never needed the inverse in practice — driver
+/// retiming was built for DRAWN mode instead, per Paul's own spec; see `clockDrawnPhaseInverse` below).
 @inline(__always) func clockFixedPhase(_ beat: Double, ratio: Double, offsetBeats: Double) -> Double {
     beat * ratio + offsetBeats
-}
-
-/// The exact inverse of `clockFixedPhase` (Paul 2026-09-26, driver retiming): given a LOCAL beat this FIXED stage
-/// produced, recover the REAL beat that produced it — `Router.clockTransformedBeatInverse` uses this to schedule a
-/// driver's own note at the correct real-time sample, after that driver's tick search has already run in local time.
-/// `ratio` is always a ladder value (0.25…4, never 0), so the division is always well-defined.
-@inline(__always) func clockFixedPhaseInverse(_ localBeat: Double, ratio: Double, offsetBeats: Double) -> Double {
-    (localBeat - offsetBeats) / ratio
 }
 
 /// WAVE mode: a zero-mean closed-form wobble around ×1 — phase(beat) = beat − (depth·P/2π)·sin-or-cos term, chosen
@@ -154,11 +147,17 @@ func clockDrawnResolveRatios(_ picks: [Int], steps: Int) -> [Double] {
 /// `periodBeats` 0 ⇒ free-run: the lane just repeats every `steps × rateBeats` from absolute beat 0 forever (still
 /// O(steps) per call via the `fullLaps` factor-out, not a per-lap walk since t=0). `ratios` is already fully
 /// resolved (via `clockDrawnResolveRatios` — no −1 sentinels); `glide.count` may be short (missing ⇒ SET).
-func clockDrawnPhase(_ beat: Double, ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double, periodBeats P: Double) -> Double {
+/// `originOverride` (Paul 2026-09-26, driver retiming): when supplied, USE this span-origin instead of
+/// recomputing `columnStart(beat, P)` — so a driver's whole tick search (window-start bound, window-end bound,
+/// and every tick discovered in between) can be pinned to ONE shared origin computed once from the window's real
+/// start, rather than each call silently picking its own (which could disagree right at a SPAN boundary crossing
+/// mid-window — a razor-thin, self-correcting edge case, but this avoids introducing it at all). nil (every
+/// existing caller) ⇒ byte-identical to before.
+func clockDrawnPhase(_ beat: Double, ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double, periodBeats P: Double, originOverride: Double? = nil) -> Double {
     guard steps > 0, rateBeats > 0, !ratios.isEmpty else { return beat }
     let lapBeats = Double(steps) * rateBeats
     guard lapBeats > 0 else { return beat }
-    let originBeat = P > 0 ? columnStart(beat, P) : 0
+    let originBeat = originOverride ?? (P > 0 ? columnStart(beat, P) : 0)
     let localBeat = beat - originBeat
     let fullLaps = (localBeat / lapBeats).rounded(.down)
     let remainder = localBeat - fullLaps * lapBeats                      // in [0, lapBeats)
@@ -183,6 +182,57 @@ func clockDrawnPhase(_ beat: Double, ratios: [Double], glide: [Bool], steps: Int
         currentAdvance = ratioAt(col) * withinCol
     }
     return originBeat + fullLaps * lapAdvance + partial + currentAdvance
+}
+
+/// The exact inverse of `clockDrawnPhase` (Paul 2026-09-26, driver retiming — THE feature: "a grid with a variable
+/// number of steps, each step a mutually exclusive speed, and another row on the same grid for glide", wired to
+/// retime a driver's own tick generation, not just a downstream fold consumer's math). Given a LOCAL beat that
+/// grid produced (relative to a KNOWN `originBeat` — see `Router.driverClockBeat`, which computes it once per
+/// tick-search window so every candidate tick agrees on the same span-anchor), recover the REAL beat that
+/// produced it. A SET column inverts linearly; a GLIDE column inverts the closed-form quadratic (the
+/// antiderivative of a linear rate ramp, via the quadratic formula — the `+` root, since a column's own rate is
+/// always positive throughout its span, so `columnAdvance` is strictly monotonic and exactly one root lies in
+/// [0, rateBeats]). Both closed-form: a bounded O(steps) walk to find the column, then one algebraic solve — no
+/// iteration, no numerical search, matching the "derived, never accumulated" invariant.
+func clockDrawnPhaseInverse(_ localBeat: Double, originBeat: Double, ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double) -> Double {
+    guard steps > 0, rateBeats > 0, !ratios.isEmpty else { return localBeat }
+    let lapBeats = Double(steps) * rateBeats
+    func ratioAt(_ i: Int) -> Double { ratios[posMod(posMod(i, steps), ratios.count)] }
+    func isGlide(_ i: Int) -> Bool { i >= 0 && i < glide.count && glide[i] }
+    func columnAdvance(_ i: Int) -> Double {
+        let to = ratioAt(i)
+        guard isGlide(i) else { return to * rateBeats }
+        return (ratioAt(i - 1) + to) / 2 * rateBeats
+    }
+    var lapAdvance = 0.0; for i in 0..<steps { lapAdvance += columnAdvance(i) }
+    guard lapAdvance > 0 else { return originBeat }
+    let localOffset = localBeat - originBeat
+    let fullLaps = (localOffset / lapAdvance).rounded(.down)
+    var remainder = localOffset - fullLaps * lapAdvance          // in [0, lapAdvance)
+    var col = steps - 1
+    var partial = 0.0
+    for i in 0..<steps {
+        let adv = columnAdvance(i)
+        if remainder < partial + adv || i == steps - 1 { col = i; break }
+        partial += adv
+    }
+    remainder -= partial                                        // local advance WITHIN this column, ≥ 0
+    let withinCol: Double
+    if isGlide(col) {
+        let from = ratioAt(col - 1), to = ratioAt(col)
+        let a = (to - from) / (2 * rateBeats)
+        if abs(a) < 1e-12 {
+            withinCol = from > 0 ? remainder / from : 0
+        } else {
+            let disc = max(0, from * from + 4 * a * remainder)
+            withinCol = (-from + disc.squareRoot()) / (2 * a)
+        }
+    } else {
+        let rate = ratioAt(col)
+        withinCol = rate > 0 ? remainder / rate : 0
+    }
+    let clampedWithin = max(0, min(rateBeats, withinCol))
+    return originBeat + fullLaps * lapBeats + Double(col) * rateBeats + clampedWithin
 }
 
 /// THE DRIFT READOUT (Paul 2026-09-26, "honesty replaces the guarantee"): a DRAWN lane's net time gained/lost per
