@@ -199,6 +199,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PART GRID — LOOP-COLUMN BUTTONS, order-preserving (2026-09-26, on `main`, `8530379`; iOS builds, macOS 1090
+  green; DEVICE eye/ear owed). Paul: toggle buttons on the part grid's bottom rail restricting playback to a chosen
+  subset of columns, played in the order they were ADDED (not left-to-right) — both the part-grid playhead and the
+  play-ferry button's playhead must reflect it. Planned first (`~/.claude/plans/whimsical-wibbling-walrus.md`), then
+  built to the approved plan. The bottom rail already existed as a placeholder for exactly this (`roomsGridFooter`,
+  "PART = column-loop buttons, not wired" — drew empty boxes); the existing engine lap primitive (`Derivations.
+  lapColumn`) is bitmask-based (always ascending order) and driven by a UIKit hold-gesture belonging to the retired
+  GRID tab — unreachable from BUILD and unable to express "added order" anyway. **DESIGN:** resequence at scene-
+  composition time rather than teach the real-time render engine a new ordered-lap concept — ONE pure primitive,
+  `BuildSceneLogic.loopColumnPlan(loopCols:length:)`, maps a logical step (0..<count) to the real part column to
+  read from / draw at (identity map when unused, byte-identical). BOTH audio paths — `composeSceneMeta`'s staging
+  block (the active ferry) and `buildFlattenFerry` (background ferries, already a live per-publish derivation since
+  the ferry-purity fix above) — and BOTH playheads (`roomsPartPlayhead`/`roomsCardRowPlayhead` for the part grid,
+  `roomsCellPlayhead`'s new `steps:` param for the ferry button) call the SAME function, so the lit cell and what
+  plays can never disagree (this session's standing lesson: RATCHET PATTERN → DEST → the ferry-rate fix → this).
+  `BuildPart.loopCols: [Int]?` (ordered, nil/empty ⇒ play the whole part) round-trips through `buildLoadBenchPart`/
+  `buildCaptureBenchPart` + the undo `BuildSnapshot`, exactly like `rate`/`length`; `buildTogglePartLoopColumn`
+  APPENDS on select (added-order — re-adding a removed column goes to the END, not its old position). New
+  `roomsPartLoopFooter` (a "repeat" SF Symbol per column, same size/shell as the placeholder) replaces the call at
+  the PART site only — the SELECT-page footer + `roomsGridFooter` itself are untouched. **ADJACENT BUG FOLDED IN:**
+  `roomsCellPlayhead`'s bar length was hardcoded to `Snap.cols` (8) even for a 16-step part — a 16-step ferry's
+  button already swept 2× too fast regardless of looping; now takes the caller's real effective step count. +5
+  `BuildSceneLogicTests` (loopColumnPlan identity/added-order/out-of-range-fallback; composeScene plays the selected
+  columns in added order, not sorted; an empty selection composes byte-identical to today).**
 - **▶ PLAY FERRIES — the background playback line is now a LIVE DERIVATION, not a cache (2026-09-26, on `main`,
   `80c1dc4`; iOS builds, macOS 1085 green; DEVICE eye/ear owed). Follow-up to the ferry-playhead rate fix, prompted by
   Paul's own mental model of the feature: "every play ferry is a part grid, only the selected one is visible" —
