@@ -199,6 +199,39 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CLOCK — a placeable pattern-clock transform, Stage 1 (2026-09-26, on `main`, `4afe9dd`; iOS builds, macOS 1098
+  green; DEVICE ear/eye owed). Design-partner spec (`AcceptanceCriteria-clock-processor`, ratified via the
+  `_dear_claude_code/` channel), planned first (`~/.claude/plans/whimsical-wibbling-walrus.md`): a chain stage where
+  everything downstream ticks to a transformed local time and everything upstream keeps the part's — polymeter,
+  rubato, stutter-time as an ordinary chain citizen. `[EUCLID→CLOCK 3:2→RATCHET]` = hemiola; `[ARP→CLOCK ÷2→ECHO]` =
+  half-time trails. **THE SOVEREIGN LAW, mechanically:** CLOCK never touches windows/columns/spans'-own-extents/the
+  reel/boundary-deferred switching — only a downstream FOLD consumer's OWN internal step/rate math reads the
+  transformed beat. Two pure functions (`Derivations.swift`): `clockFixedPhase` (beat×ratio+offset) and
+  `clockWavePhase` (a zero-mean closed-form wobble around ×1 — SINE or TRIANGLE, both hand-verified to re-land
+  EXACTLY in phase at every SPAN boundary, any depth); `depth` clamped <1 at resolve (`SnapshotBuilder`) so
+  dphase/dbeat never goes non-positive (local time must never run backward, or a downstream fold's note-ordering
+  breaks). **THE ENGINEERING:** `emitDriverNote`'s fold consumers (RATCHET/SPLIT/AVOID/GLIDE/VELOCITY/RECORDER) each
+  do their OWN independent backward-scan for "the first/last slot of type X after the driver" — no single sequential
+  pipeline to slot into. New `Router.clockTransformedBeat(cell,from:to:atBeat:S:cycleBeats:)` composes every CLOCK
+  stage strictly between two slot indices (multiple CLOCKs multiply, in chain order) — wired into exactly ONE
+  flagship consumer this stage, RATCHET's fold, matching the spec's own headline example. Every other self-clocked
+  consumer (DEST/VELOCITY/MOD/EUCLID/TUTTI/BURST/CASCADE/WEAVE/RIFF) is an explicit Stage-3+ follow-on, not built
+  blind — mirrors this session's own SPAN-LADDER staged rollout. **SCOPING CALL flagged to design (not blocking):**
+  CLOCK-before-a-driver (transforming a driver's OWN generation cadence, e.g. `[CLOCK→ARP]`) is OUT of v1 — it needs
+  inverting the phase function back to real time to schedule ticks, no closed form for WAVE; v1 = CLOCK strictly
+  between a driver and a downstream fold consumer, matching both of the spec's given examples. Model:
+  `ProcessorType.clock` + `ClockMode`(FIXED|WAVE) + `ClockWaveShape`(SINE|TRIANGLE only — SQUARE is discontinuous, S&H
+  isn't periodic/deterministic the way re-landing needs) + the 9-rung ratio ladder (×4…÷4, dotted/triplet deferred
+  per the spec). UI reuses only existing widgets (seg/numPair/slider/frameSpan); self-names the slot ("CLOCK ×2" /
+  "CLOCK WAVE") via `buildProcLabel`; two TIME-group storefront cards. +6 DerivationsTests (fixed math, multiplicative
+  composition, ×1/depth-0 no-ops, WAVE re-landing at every span boundary for both shapes/several depths/periods,
+  monotonicity at the clamp ceiling) +2 RouterTests (the RATCHET fold genuinely reads the transformed beat — caught +
+  fixed a test-design pitfall along the way: column 0 is invariant under any pure ratio scaling, so a first-draft
+  test picked it as the "special" column and couldn't distinguish a working transform from a no-op; an RTCDEBUG trace
+  confirmed the transform itself was correct throughout; two-CLOCK composition matches the product ratio regardless
+  of stage order). **NEXT:** Stage 2 (DRAWN mode — the lane, GLIDE quadratic segments, drift readout) · Stage 3+
+  (extend `clockTransformedBeat` to the remaining self-clocked consumers, one at a time) · the CLOCK-before-a-driver
+  scoping question is going to design via the outbox.**
 - **▶ PART GRID — LOOP-COLUMN BUTTONS, order-preserving (2026-09-26, on `main`, `8530379`; iOS builds, macOS 1090
   green; DEVICE eye/ear owed). Paul: toggle buttons on the part grid's bottom rail restricting playback to a chosen
   subset of columns, played in the order they were ADDED (not left-to-right) — both the part-grid playhead and the
