@@ -200,7 +200,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
 - **▶ CLOCK — RATE removed (a column IS a grid step) · GLIDE merged into one grid widget · the playhead now actually
-  tracks the grid · GLIDE SPANS a multi-step run instead of flatlining (2026-09-26, on `main`, `<pending>`; iOS
+  tracks the grid · GLIDE SPANS a multi-step run instead of flatlining (2026-09-26, on `main`, `f8eb2fd`; iOS
   builds, macOS 1112 green incl. fuzz; DEVICE ear/eye owed). Four fixes from one device-driven thread, none of them
   the driver-retiming feature itself — all about the grid's OWN feel now that it's built. **(1) RATE REMOVED**
   ("what's the point of rate when we have a speed-per-step grid? I think we'd lose nothing"): `clockDrawnRate`/
