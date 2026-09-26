@@ -254,10 +254,35 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   trust a hand-derived beat/column mapping without an empirical trace first). Also caught pre-merge: a `toggleLane`
   call with two named arguments in the wrong order (Swift requires labelled arguments in declaration order) — would
   have failed only the iOS build, not the macOS unit-test target (GridUI.swift isn't in that target), so it's a
-  standing reminder that this codebase's off-device verification needs BOTH passes, not just the faster one. **NEXT:**
-  Stage 3+ (extend `clockTransformedBeat` to the remaining self-clocked consumers — DEST/VELOCITY/MOD/EUCLID/TUTTI/
-  BURST/CASCADE/WEAVE/RIFF — one at a time) · the CLOCK-before-a-driver scoping question is going to design via the
-  outbox, still unanswered.**
+  standing reminder that this codebase's off-device verification needs BOTH passes, not just the faster one.
+  **STAGE 3 — DEST/VELOCITY/TUTTI/MOD (`4da7446`; iOS builds, macOS 1109 green):** threads `clockTransformedBeat`
+  into every self-clocked consumer that's ARCHITECTURALLY REACHABLE under the current fold model. **DEST + VELOCITY**
+  ride `emitDriverNote`'s fold exactly like RATCHET's Stage-1 wiring (`clockFrom = driver + 1`) — `chopMask`/
+  `emitChop` gained an optional `clockFrom`/`cycleBeats` pair (default −1/0, byte-identical at every other of the
+  now-16 call sites that don't pass it); VELOCITY's slot index is now captured during the forward scan (it only had
+  its params before). **TUTTI** rides `applyStage`'s generic dispatch (it's note-transparent, not pulled into its
+  own explicit branch like RATCHET/VELOCITY) — `applyStage` gained the SAME optional `clockFrom`/`atSlot` pair,
+  read by its ONE self-clocked case (`.tutti`) only; every other mode (ARP/CHANCE/HARMONIZE/…) ignores them
+  entirely. **MOD is the odd one out — it has NO driver at all** (`emitColumnMod`/`emitFreeMod` scan every MOD slot
+  in a cell unconditionally, column-gated or not), so it threads from CHAIN-START (`from: 0`) instead of driver-
+  relative — the first departure from the driver-relative framing all of Stages 1–3 used until now, since "down-
+  stream of a driver" simply doesn't apply to a processor whose whole point is speaking regardless of what's driving
+  notes. Only the shape-READ beat is transformed; the real sample-time a CC is actually sent at (and `entryBeat`,
+  the STRIKE envelope's re-trigger reference, which lives in real column-space) are both untouched — the sovereign
+  law again. **BLOCKED, not attempted:** EUCLID/BURST/CASCADE/WEAVE/RIFF are `isDriverType` themselves —
+  `chainDriverIndex` always makes the LAST one the chain's own driver (confirmed by re-reading its scan: only
+  driver-type slots enter the `lastDriver`/`lastNonFold` tracking at all), so they never reach a downstream-fold
+  position under this architecture regardless of chain order — `[ARP→EUCLID]` makes EUCLID the driver (re-pooling
+  from the ARP's output via `composeChainSet`), not a folded consumer reading ARP's per-tick beat. Retiming these
+  five needs the SAME phase-inversion problem Stage 1 scoped out (no closed-form inverse for WAVE or DRAWN) — not
+  a threading exercise like this stage, a genuine open design question. +4 RouterTests, one `[ARP→CLOCK→X]` pair
+  per consumer, each hand-verified via a fresh RTCDEBUG-style trace before asserting (two of the four — TUTTI and
+  VELOCITY — looked wrong on first run: every note emits on BOTH its own cable and the shared ALL cable per §7b, so
+  an unfiltered/vel-filtered count silently doubled; fixed by filtering to one cable, not a bug in the wiring — the
+  THIRD time this session an apparent CLOCK bug turned out to be a test-counting artefact once traced, not an engine
+  fault). **NEXT:** the CLOCK-before-a-driver scoping question is still open, going to design via the outbox — until
+  it lands, EUCLID/BURST/CASCADE/WEAVE/RIFF stay untouched by CLOCK; this closes out the reachable half of the
+  Stage-3 roster.**
 - **▶ PART GRID — LOOP-COLUMN BUTTONS, order-preserving (2026-09-26, on `main`, `8530379`; iOS builds, macOS 1090
   green; DEVICE eye/ear owed). Paul: toggle buttons on the part grid's bottom rail restricting playback to a chosen
   subset of columns, played in the order they were ADDED (not left-to-right) — both the part-grid playhead and the
