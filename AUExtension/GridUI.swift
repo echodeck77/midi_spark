@@ -1035,7 +1035,7 @@ struct ProcessorBox: View {
                     .font(.system(size: 11, weight: .heavy, design: .monospaced)).disabled(bufN == 0)
             }
         })
-        case .clock: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-26, Stage 1 — DRAWN mode is a later stage) — CLOCK: retimes everything after it in the chain
+        case .clock: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-26) — CLOCK: retimes everything after it in the chain. Stage 2 adds DRAWN.
             let mode = p.clockMode ?? .fixed
             field("MODE — how the transform is authored", \.clockMode) {
                 seg(ClockMode.allCases.map(\.rawValue), sel: mode.rawValue) { i in setParam { $0.clockMode = ClockMode.allCases[i] } } }
@@ -1047,13 +1047,49 @@ struct ProcessorBox: View {
                     numPair(p.clockOffset ?? 0, -8...8) { v in setParam { $0.clockOffset = v } } }
                 Text("Two copies of a chain, one at OFFSET 2, play as a self-following canon.")
                     .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            } else {
+            } else if mode == .wave {
                 field("SHAPE — the wobble's waveform", \.clockShape) {
                     seg(ClockWaveShape.allCases.map(\.rawValue), sel: (p.clockShape ?? .sine).rawValue) { i in setParam { $0.clockShape = ClockWaveShape.allCases[i] } } }
                 heroField("DEPTH — how far it strays  \(Int((p.clockDepth ?? 0) * 100))%") {
                     slider(bind(p.clockDepth ?? 0) { v in setParam { $0.clockDepth = v } }, in: 0...0.95) }
                 frameSpan(p.clockSpanN ?? 8, free: false) { v in setParam { $0.clockSpanN = v } }
                 Text("Rubato at shallow DEPTH, accelerando via a ramped one. Always lands back in time at every SPAN — provably, not by luck.")
+                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {   // DRAWN (Stage 2): a hand-authored per-column ratio lane. Empty/CARRY columns hold the last explicit ratio.
+                let steps = max(1, min(32, p.clockDrawnSteps ?? 8))
+                let picks = p.clockDrawnRatios ?? []
+                let glideArr = p.clockDrawnGlide ?? []
+                field("STEPS — the lane's own length", \.clockDrawnSteps) {
+                    numPair(steps, 1...32) { v in setParam { $0.clockDrawnSteps = v } } }
+                field("RATE — the lane's own column speed, on GRID time (the clock never clocks itself)", \.clockDrawnRate) {
+                    seg(ArpRate.allCases.map(\.rawValue), sel: (p.clockDrawnRate ?? .r1_8).rawValue) { i in setParam { $0.clockDrawnRate = ArpRate.allCases[i] } } }
+                heroField("RATIO PER COLUMN — tap a rung; the top row (···) CARRIES the previous column's ratio forward") {
+                    stateMatrixRadio(Array((-1...8)), steps: steps,
+                        header: { opt in AnyView(Text(opt < 0 ? "···" : clockRatioLabels[opt]).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))) },
+                        selected: { s in s < picks.count ? picks[s] : -1 },
+                        set: { s, opt in setParam {
+                            var arr = $0.clockDrawnRatios ?? Array(repeating: -1, count: steps)
+                            while arr.count <= s { arr.append(-1) }
+                            arr[s] = opt
+                            $0.clockDrawnRatios = arr
+                        } })
+                }
+                field("GLIDE — this column ramps FROM the previous column's ratio TO its own, instead of snapping") {
+                    toggleLane(steps, on: { s in s < glideArr.count && glideArr[s] }, glyph: "arrow.up.right") { s, v in
+                        setParam {
+                            var arr = $0.clockDrawnGlide ?? Array(repeating: false, count: steps)
+                            while arr.count <= s { arr.append(false) }
+                            arr[s] = v
+                            $0.clockDrawnGlide = arr
+                        }
+                    }
+                }
+                frameSpan(p.clockSpanN ?? 8, free: true) { v in setParam { $0.clockSpanN = v } }
+                let resolved = clockDrawnResolveRatios(picks, steps: steps)
+                let rateBeats = max(0.03125, (p.clockDrawnRate ?? .r1_8).beats)
+                let drift = clockDrawnDriftPerLap(resolved, glide: glideArr, steps: steps, rateBeats: rateBeats)
+                Text(abs(drift) < 0.001 ? "This lane lands back in time every lap — no drift." :
+                     "This lane drifts \(drift > 0 ? "ahead" : "behind") by \(String(format: "%.2f", abs(drift))) beats every lap against the grid.")
                     .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Text("Everything AFTER this stage in the chain ticks to its time; everything before keeps the part's. Position is meaning.")

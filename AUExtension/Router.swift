@@ -3773,6 +3773,15 @@ final class Router {
                 case .wave:
                     let period = spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats)
                     beat = clockWavePhase(beat, shape: p.clockShape, depth: p.clockDepth, periodBeats: period)
+                case .drawn:
+                    // FREE (clockSpanN 0) is a real, tested mode here — the lane just laps forever from absolute
+                    // beat 0 (clockDrawnPhase's own fullLaps factoring keeps that O(steps), never a per-lap walk
+                    // since t=0). spanLadderBeats itself has no "0 = free" sentinel (n≤1 means ONE COLUMN, not
+                    // free) — this mirrors the same explicit `> 0` guard RATCHET PATTERN/DEST use for their own
+                    // free-run spans, so 0 isn't misread as "one column" here.
+                    let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
+                    beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
+                                           steps: p.clockDrawnSteps, rateBeats: p.clockDrawnRateBeats, periodBeats: period)
                 }
             }
             j += 1

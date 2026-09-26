@@ -409,6 +409,66 @@ final class RouterTests: XCTestCase {
         // instead: [×2→×3] must equal [×3→×2] (multiplication commutes, and both equal the same product either way).
         XCTAssertEqual(strikeCount([two, three]), strikeCount([three, two]), "two CLOCK stages compose as a product — order between two FIXED ratios doesn't matter")
     }
+    // DRAWN (Stage 2), test #3 (drawn purity): rather than hand-deriving exact strike counts through the piecewise
+    // phase function (the column-0-invariance pitfall above is a warning that this kind of arithmetic is easy to get
+    // subtly wrong), this proves DRAWN by EQUIVALENCE to the already-locked-down FIXED case — a DRAWN lane of ONE
+    // constant-ratio SET column, on FREE span, must reduce EXACTLY to a FIXED stage at that same ratio (both are
+    // `phase(beat) = beat × ratio`), so it can reuse the Stage-1 FIXED test's own known-good strike counts.
+    func testClockDrawnWithOneConstantColumnMatchesFixedAtThatRatio() {
+        func strikeCount(clock: ProcessorSlot?) -> Int {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var procs = [arp]
+            if let clock { procs.append(clock) }
+            var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
+            rat.params.rtcSteps = 8; rat.params.rtcSlices = [1, 3, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0
+            procs.append(rat)
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        func drawnConstant(_ ratioIdx: Int) -> ProcessorSlot {
+            var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .drawn
+            ck.params.clockDrawnSteps = 1; ck.params.clockDrawnRatios = [ratioIdx]; ck.params.clockDrawnGlide = [false]
+            ck.params.clockDrawnRate = .r1_8; ck.params.clockSpanN = 0   // FREE — no re-anchor, matches FIXED's unbounded ramp
+            return ck
+        }
+        let two = clockRatioLadder.firstIndex(of: 2)!, one = clockRatioLadder.firstIndex(of: 1)!
+        var fixedTwo = ProcessorSlot(type: .clock); fixedTwo.params.clockMode = .fixed; fixedTwo.params.clockRatio = two
+        let noClock = strikeCount(clock: nil)
+        XCTAssertEqual(strikeCount(clock: drawnConstant(one)), noClock, "DRAWN, one column at ×1, is a no-op — matches no CLOCK at all")
+        XCTAssertEqual(strikeCount(clock: drawnConstant(two)), strikeCount(clock: fixedTwo),
+                       "DRAWN with a single constant-×2 column reduces EXACTLY to a FIXED ×2 stage — same phase function, same fold result")
+    }
+    // GLIDE genuinely changes the fold result vs SET for the same authored ratio sequence. Hand-verified via a direct
+    // trace of clockTransformedBeat's output (mirroring the column-0-invariance lesson above): the arp emits exactly
+    // 4 notes here regardless of `beats:` (m = 0, 0.5, 1, 1.5 — a 3-note chord cycling once plus the next cycle's
+    // opening note; confirmed empirically, not assumed). With a 2-column DRAWN lane [×4, ×1] at RATE 1/4 (1 beat/col,
+    // FREE span): SET lands column 1 (the ×3 ratchet slice) once → 3 plain + 1 burst-of-3 = 6 strikes; GLIDE's ramp
+    // shifts every note's transformed beat just enough that NONE land on column 1 → 4 plain notes = 4 strikes.
+    func testClockDrawnSetAndGlideProduceDifferentFoldResults() {
+        func strikeCount(glide: Bool) -> Int {
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var ck = ProcessorSlot(type: .clock); ck.params.clockMode = .drawn
+            ck.params.clockDrawnSteps = 2
+            ck.params.clockDrawnRatios = [clockRatioLadder.firstIndex(of: 4)!, clockRatioLadder.firstIndex(of: 1)!]
+            ck.params.clockDrawnGlide = [false, glide]
+            ck.params.clockDrawnRate = .r1_4; ck.params.clockSpanN = 0
+            var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
+            rat.params.rtcSteps = 8; rat.params.rtcSlices = [1, 3, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0
+            let procs = [arp, ck, rat]
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let set = strikeCount(glide: false), glideOn = strikeCount(glide: true)
+        XCTAssertEqual(set, 6, "SET: col1 hit once (m=0.5's transform) → 3 plain + a burst-of-3")
+        XCTAssertEqual(glideOn, 4, "GLIDE: the same 4 notes, but the ramp moves every one of them off column 1 — all plain")
+        XCTAssertNotEqual(set, glideOn, "the SAME authored ratio sequence folds differently as SET (snap) vs GLIDE (ramp)")
+    }
     // STANDALONE RATCHET PATTERN = a PASS-THROUGH PROCESSOR, not a generator (Paul 2026-09-08). A lone (single-slot)
     // ratchet-pattern cell RECEIVES the input and passes it through; its own clock only decides per-column treatment
     // (1 = pass/sustain · 2…8 = ratchet · 0 = OFF/mute). It must NOT manufacture a note per step — the fix for "a short

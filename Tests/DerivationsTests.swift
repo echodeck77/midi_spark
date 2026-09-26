@@ -2279,6 +2279,62 @@ final class DerivationsTests: XCTestCase {
         }
     }
 
+    // DRAWN (Stage 2): an empty/CARRY (-1) column holds the PREVIOUS explicit ratio — resolved ONCE at SnapshotBuilder
+    // time so the render side never re-maps. picks [×1, CARRY, ×2, CARRY] → [1, 1, 2, 2] (ladder idx 4=×1, 2=×2).
+    func testClockDrawnResolveRatiosCarriesForwardAndWrapsWhenEmpty() {
+        XCTAssertEqual(clockDrawnResolveRatios([4, -1, 2, -1], steps: 4), [1.0, 1.0, 2.0, 2.0])
+        // a WHOLE-lane-empty lane falls back to ×1 everywhere (never crashes, never picks a stale sentinel ratio).
+        XCTAssertEqual(clockDrawnResolveRatios([], steps: 4), [1.0, 1.0, 1.0, 1.0])
+        XCTAssertEqual(clockDrawnResolveRatios([-1, -1, -1], steps: 3), [1.0, 1.0, 1.0])
+        // a leading CARRY with only ONE explicit pick later in the lane wraps — it carries the loop's own last value.
+        XCTAssertEqual(clockDrawnResolveRatios([-1, -1, 2, -1], steps: 4), [2.0, 2.0, 2.0, 2.0])
+    }
+
+    // DRAWN at all-×1/all-SET must be byte-identical to no transform — the same ×1 no-op law FIXED/WAVE both honour.
+    func testClockDrawnPhaseAtAllUnityIsByteIdenticalToNoTransform() {
+        let ratios = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        let glide = [false, false, false, false, false, false, false, false]
+        for beat in stride(from: -3.0, through: 9.0, by: 0.7) {
+            XCTAssertEqual(clockDrawnPhase(beat, ratios: ratios, glide: glide, steps: 8, rateBeats: 0.5, periodBeats: 0), beat, accuracy: 1e-9)
+        }
+    }
+
+    // SET snaps to a column's full ratio immediately; GLIDE ramps linearly from the PREVIOUS column's landed ratio to
+    // this one — hand-verified exact values (steps=2, ratios ×1 then ×2, rateBeats=1, FREE span): at the column-1
+    // midpoint (beat 1.5), SET has already been running at ×2 for half a beat (phase 1+1=2); GLIDE has only ramped
+    // from ×1 toward ×2 over that half-beat (phase 1+0.625=1.625) — a quadratic accumulation, not linear.
+    func testClockDrawnSetSnapsGlideRamps() {
+        let ratios = [1.0, 2.0]
+        XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: [false, false], steps: 2, rateBeats: 1, periodBeats: 0),
+                       2.0, accuracy: 1e-9, "SET: col1 already running at its full ×2")
+        XCTAssertEqual(clockDrawnPhase(1.5, ratios: ratios, glide: [false, true], steps: 2, rateBeats: 1, periodBeats: 0),
+                       1.625, accuracy: 1e-9, "GLIDE: col1 ramping ×1→×2, only half-elapsed")
+    }
+
+    // The drift readout must match what the phase function ACTUALLY does over one full lap — cross-checked against
+    // the same SET/GLIDE pair above (lap = 2 beats real time; SET nets 3 beats local ⇒ +1 drift/lap; GLIDE nets 2.5 ⇒ +0.5).
+    func testClockDrawnDriftPerLapMatchesThePhaseFunctionsOwnLapAdvance() {
+        let ratios = [1.0, 2.0]
+        XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: [false, false], steps: 2, rateBeats: 1), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(clockDrawnDriftPerLap(ratios, glide: [false, true], steps: 2, rateBeats: 1), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(clockDrawnDriftPerLap([1, 1, 1, 1], glide: [false, false, false, false], steps: 4, rateBeats: 0.5), 0, accuracy: 1e-9)
+    }
+
+    // REPLAY-EXACTNESS: `clockDrawnPhase` factors elapsed time into `fullLaps × lapAdvance + (partial lap)` rather than
+    // summing lap-by-lap, so it stays exact — and O(steps), not O(laps) — no matter how many laps have already gone by.
+    // 50 laps later, the SAME within-lap offset must land exactly 50×lapAdvance further on, to floating-point precision.
+    func testClockDrawnPhaseStaysExactAcrossManyLaps() {
+        let ratios = [1.0, 2.0, 0.5, 1.5]
+        let glide = [false, true, false, true]
+        let steps = 4, rateBeats = 0.5
+        let lapAdvance = clockDrawnDriftPerLap(ratios, glide: glide, steps: steps, rateBeats: rateBeats) + Double(steps) * rateBeats
+        let within = 0.3
+        let early = clockDrawnPhase(within, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats, periodBeats: 0)
+        let lapBeats = Double(steps) * rateBeats
+        let late = clockDrawnPhase(within + 50 * lapBeats, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats, periodBeats: 0)
+        XCTAssertEqual(late - early, 50 * lapAdvance, accuracy: 1e-7)
+    }
+
     // CHORDS degrees sized to the matrix width (Paul 2026-09-16 fix): a wide matrix keeps all its authored columns.
     func testChordsDegreesResolvedSizesToSteps() {
         XCTAssertEqual(MachineParams().chordsDegreesResolved(steps: 8), [0, 0, 5, 5, 3, 3, 4, 4], "default 8")

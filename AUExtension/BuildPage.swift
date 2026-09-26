@@ -5237,6 +5237,7 @@ extension DiagView {
                 C("RECORDER", "Records what the chain plays, then loops it back — a tape in the chain.", .recorder),
                 C("CLOCK", "Retimes everything after it — a chosen ratio, placed anywhere in the chain.", .clock) { $0.clockMode = .fixed },
                 C("CLOCK WAVE", "Wobbles everything after it — rubato or accelerando that always lands back in time.", .clock) { $0.clockMode = .wave },
+                C("CLOCK DRAWN", "Hand-draw everything after it a per-column speed — stutters, ramps, a rotating tempo-cycle.", .clock) { $0.clockMode = .drawn },
             ]),
             BuildCardGroup(title: "UTILITY", note: "Plain per-chain overrides — move one chain without touching the door.", cards: [
                 C("OCTAVE", "Plays this chain a few octaves up or down.", .octave),
@@ -5271,6 +5272,7 @@ extension DiagView {
             switch s.params.clockMode ?? .fixed {
             case .fixed: m = clockRatioLabels[max(0, min(clockRatioLabels.count - 1, s.params.clockRatio ?? 4))]
             case .wave:  m = "WAVE"
+            case .drawn: m = "DRAWN"
             }
         case .avoid:
             switch s.params.avoidRefKind ?? .sounding {

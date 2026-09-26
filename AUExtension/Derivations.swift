@@ -117,6 +117,82 @@ func clockWavePhase(_ beat: Double, shape: ClockWaveShape, depth: Double, period
     }
 }
 
+/// DRAWN mode (Stage 2, Paul 2026-09-26): RIFF's anatomy wearing time — resolve an authored lane's per-column ratio
+/// picks into actual ratio VALUES, carrying an empty column (−1, "CARRY the previous rate") forward from the last
+/// explicit pick, wrapping around the lane if the very first column(s) are empty. An ALL-empty lane falls back to
+/// ×1 everywhere (never silent/undefined). Pure — call ONCE at resolve time (SnapshotBuilder), not per render: the
+/// render-side `clockDrawnPhase` takes the already-resolved values, no −1 sentinels, no render-path allocation.
+func clockDrawnResolveRatios(_ picks: [Int], steps: Int) -> [Double] {
+    guard steps > 0 else { return [] }
+    var lastExplicit = 4   // ×1 — the fallback if the WHOLE lane is empty
+    for i in (0..<steps).reversed() { let v = i < picks.count ? picks[i] : -1; if v >= 0 { lastExplicit = v; break } }
+    var carry = lastExplicit
+    var idx = [Int](repeating: 4, count: steps)
+    for i in 0..<steps {
+        let v = i < picks.count ? picks[i] : -1
+        if v >= 0 { carry = v }
+        idx[i] = carry
+    }
+    return idx.map { clockRatioLadder[max(0, min(clockRatioLadder.count - 1, $0))] }
+}
+
+/// DRAWN mode's phase transform: a piecewise per-column lane — a SET column (`glide[i]` false) holds a CONSTANT
+/// rate for its whole duration (a jump at column entry); a GLIDE column (`glide[i]` true) ramps LINEARLY in RATE
+/// from the previous column's landed rate to its own across its duration (so phase is quadratic within that one
+/// column — the closed-form integral of a linear ramp). Genuinely NOT zero-mean — DRAWN forfeits WAVE's re-landing
+/// guarantee by design (the spec: "honesty replaces it" — see `clockDrawnDriftPerLap`, the UI's drift readout).
+/// Recomputed from the SPAN/lap origin every call (bounded to O(steps) — two small fixed-size loops, no
+/// accumulation across renders, no render-path allocation since `ratios`/`glide` are the caller's own arrays).
+/// `periodBeats` 0 ⇒ free-run: the lane just repeats every `steps × rateBeats` from absolute beat 0 forever (still
+/// O(steps) per call via the `fullLaps` factor-out, not a per-lap walk since t=0). `ratios` is already fully
+/// resolved (via `clockDrawnResolveRatios` — no −1 sentinels); `glide.count` may be short (missing ⇒ SET).
+func clockDrawnPhase(_ beat: Double, ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double, periodBeats P: Double) -> Double {
+    guard steps > 0, rateBeats > 0, !ratios.isEmpty else { return beat }
+    let lapBeats = Double(steps) * rateBeats
+    guard lapBeats > 0 else { return beat }
+    let originBeat = P > 0 ? columnStart(beat, P) : 0
+    let localBeat = beat - originBeat
+    let fullLaps = (localBeat / lapBeats).rounded(.down)
+    let remainder = localBeat - fullLaps * lapBeats                      // in [0, lapBeats)
+    let col = min(steps - 1, max(0, Int((remainder / rateBeats).rounded(.down))))
+    let withinCol = remainder - Double(col) * rateBeats                  // in [0, rateBeats)
+    func ratioAt(_ i: Int) -> Double { ratios[posMod(posMod(i, steps), ratios.count)] }
+    func isGlide(_ i: Int) -> Bool { i >= 0 && i < glide.count && glide[i] }
+    // The FULL contribution of column i, over its whole rateBeats span — SET = constant rate; GLIDE = the average
+    // of its landed endpoint (the previous column's own ratio) and its own target (a linear ramp's mean rate).
+    func columnAdvance(_ i: Int) -> Double {
+        let to = ratioAt(i)
+        guard isGlide(i) else { return to * rateBeats }
+        return (ratioAt(i - 1) + to) / 2 * rateBeats
+    }
+    var lapAdvance = 0.0; for i in 0..<steps { lapAdvance += columnAdvance(i) }
+    var partial = 0.0; for i in 0..<col { partial += columnAdvance(i) }
+    let currentAdvance: Double
+    if isGlide(col) {
+        let from = ratioAt(col - 1), to = ratioAt(col)
+        currentAdvance = from * withinCol + (to - from) / (2 * rateBeats) * withinCol * withinCol
+    } else {
+        currentAdvance = ratioAt(col) * withinCol
+    }
+    return originBeat + fullLaps * lapAdvance + partial + currentAdvance
+}
+
+/// THE DRIFT READOUT (Paul 2026-09-26, "honesty replaces the guarantee"): a DRAWN lane's net time gained/lost per
+/// full lap, in BEATS (positive ⇒ the lane runs ahead of grid time; negative ⇒ behind). Zero exactly when the
+/// lane's ratios average to 1 across the lap (e.g. every column at ×1, or a symmetric mix) — the DRAWN analogue of
+/// WAVE's guaranteed re-landing, except here it's a fact to REPORT, not a property the engine enforces. Pure.
+func clockDrawnDriftPerLap(_ ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double) -> Double {
+    guard steps > 0, !ratios.isEmpty else { return 0 }
+    func ratioAt(_ i: Int) -> Double { ratios[posMod(posMod(i, steps), ratios.count)] }
+    func isGlide(_ i: Int) -> Bool { i >= 0 && i < glide.count && glide[i] }
+    var lapAdvance = 0.0
+    for i in 0..<steps {
+        let to = ratioAt(i)
+        lapAdvance += isGlide(i) ? (ratioAt(i - 1) + to) / 2 * rateBeats : to * rateBeats
+    }
+    return lapAdvance - Double(steps) * rateBeats
+}
+
 /// Piano-roll LANE for a MIDI note: C2…C6 (36…84) → 0…1, clamped. Shared by the perform-grid + BUILD-grid piano-roll
 /// faces so the pitch→lane mapping never drifts between them. (Paul 2026-08-19)
 @inline(__always) func rollLaneForPitch(_ note: Int) -> Double { clamp(Double(note - 36) / 48.0, 0, 1) }

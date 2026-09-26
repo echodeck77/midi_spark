@@ -41,7 +41,7 @@ enum ProcessorType: String, Codable, CaseIterable {
 }
 /// CLOCK MODE (Paul 2026-09-26, Stage 1 — DRAWN lands separately): FIXED = a ratio ladder + step offset · WAVE = a
 /// zero-mean closed-form wobble around ×1 (rubato/accelerando) that provably re-lands in phase every SPAN.
-enum ClockMode: String, Codable, CaseIterable { case fixed = "FIXED", wave = "WAVE" }
+enum ClockMode: String, Codable, CaseIterable { case fixed = "FIXED", wave = "WAVE", drawn = "DRAWN" }
 /// The FIXED ratio ladder (×4…÷4) — a plain index, mirroring `spanLadderValues`'s "a small curated ladder, not a
 /// free slider" shape. Index 4 (×1) is the identity/no-op rung.
 let clockRatioLadder: [Double] = [4, 3, 2, 1.5, 1, 1.0 / 1.5, 0.5, 1.0 / 3.0, 0.25]
@@ -438,7 +438,15 @@ struct MachineParams: Codable, Equatable {
     var clockOffset: Int? = nil                  // FIXED: offset in this cell's own grid steps; nil ⇒ 0
     var clockShape: ClockWaveShape? = nil        // WAVE: SINE | TRIANGLE; nil ⇒ SINE
     var clockDepth: Double? = nil                // WAVE: 0…1 (clamped <1 at resolve — monotonicity, never lets local time run backward); nil ⇒ 0 (inactive)
-    var clockSpanN: Int? = nil                   // WAVE: the span ladder value (spanLadderValues) — the wobble's period; nil ⇒ ROW (8)
+    var clockSpanN: Int? = nil                   // WAVE/DRAWN: the span ladder value (spanLadderValues) — the wobble's period, or the lane's re-anchor; nil ⇒ ROW (8)
+    // DRAWN (Stage 2, Paul 2026-09-26): the lane — RIFF's anatomy wearing time. Per column: −1 = CARRY the previous
+    // rate · 0…8 = a ratio-ladder index. `clockDrawnGlide[i]` true ⇒ column i RAMPS IN from the previous column's
+    // landed rate (a linear rate ramp — quadratic phase) instead of jumping at column entry (SET). STEPS need not
+    // be 16 — a short lane phase-drifts against the grid on purpose (a rotating tempo-cycle).
+    var clockDrawnRatios: [Int]? = nil           // per-column ratio-ladder index, or −1 = CARRY; nil ⇒ all ×1
+    var clockDrawnGlide: [Bool]? = nil           // per-column SET(false)|GLIDE(true); nil ⇒ all SET
+    var clockDrawnSteps: Int? = nil              // the lane length 1…32; nil ⇒ 8
+    var clockDrawnRate: ArpRate? = nil           // the lane's OWN column duration — advances on GRID time (the clock never clocks itself); nil ⇒ 1/8
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
     // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
     // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.
