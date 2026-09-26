@@ -673,6 +673,15 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual((0..<8).map(allInvalid.physicalColumn), Array(0..<8))
     }
 
+    // The defensive out-of-range clamp inside physicalColumn(i) — every real caller iterates 0..<plan.count by
+    // construction, so this was previously unexercised (housekeeping survey finding, 2026-09-26). Confirms it never
+    // traps and always returns a valid index, rather than trusting the clamp math by inspection alone.
+    func testLoopColumnPlanPhysicalColumnClampsOutOfRangeIndices() {
+        let plan = BuildSceneLogic.loopColumnPlan([3, 1, 5], length: 8)
+        XCTAssertEqual(plan.physicalColumn(-1), plan.physicalColumn(0), "a negative index clamps to the first entry")
+        XCTAssertEqual(plan.physicalColumn(plan.count + 5), plan.physicalColumn(plan.count - 1), "an over-range index clamps to the last entry")
+    }
+
     func testComposeScenePlaysOnlySelectedColumnsInAddedOrder() {
         // Columns 3, 1, 5 each hold a distinct machine on row 2; a loop selection of [3, 1, 5] (deliberately NOT
         // ascending) must compose the scene's SEQUENTIAL columns 0, 1, 2 with THAT order's content — reproducing

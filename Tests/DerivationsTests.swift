@@ -2335,6 +2335,20 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(late - early, 50 * lapAdvance, accuracy: 1e-7)
     }
 
+    // DRAWN's SPAN re-anchor branch (periodBeats > 0) — untested until now (housekeeping survey finding, 2026-09-26):
+    // every existing DRAWN test uses periodBeats: 0 (FREE). Hand-verified: ratios [×1, ×2], rateBeats 1, steps 2
+    // (lapBeats=2). At beat 3.5, FREE (period 0) has accumulated drift since absolute beat 0 → phase 5.0; SPAN
+    // (period 3, deliberately NOT a multiple of lapBeats, so the two modes can't coincidentally agree) re-anchors at
+    // beat 3 → phase 3.5, the re-anchor origin plus only the 0.5 local beats elapsed since it.
+    func testClockDrawnPhaseReAnchorsAtEverySpanBoundary() {
+        let ratios = [1.0, 2.0], glide = [false, false]
+        let free = clockDrawnPhase(3.5, ratios: ratios, glide: glide, steps: 2, rateBeats: 1, periodBeats: 0)
+        let spanned = clockDrawnPhase(3.5, ratios: ratios, glide: glide, steps: 2, rateBeats: 1, periodBeats: 3)
+        XCTAssertEqual(free, 5.0, accuracy: 1e-9, "FREE: drift accumulated since absolute beat 0")
+        XCTAssertEqual(spanned, 3.5, accuracy: 1e-9, "SPAN: re-anchored at beat 3 (the period boundary), only 0.5 local beats since")
+        XCTAssertNotEqual(free, spanned, "the SPAN control genuinely changes the phase, not just decoration")
+    }
+
     // CHORDS degrees sized to the matrix width (Paul 2026-09-16 fix): a wide matrix keeps all its authored columns.
     func testChordsDegreesResolvedSizesToSteps() {
         XCTAssertEqual(MachineParams().chordsDegreesResolved(steps: 8), [0, 0, 5, 5, 3, 3, 4, 4], "default 8")

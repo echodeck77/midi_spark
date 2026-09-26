@@ -79,7 +79,6 @@ let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
-private let buildRed   = Color(red: 0.91, green: 0.36, blue: 0.44)   // ROW 8 CLEAR + destructive verbs
 let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
 // THE ROOM SIGNATURES (Paul 2026-08-29, §8b WAYFINDING): each room owns a machine and every DOOR wears its DESTINATION's
 // signature — RAINBOW = SELECT (a multimachine strip, refuses one hue) · AMBER = PART · INDIGO = PLAY (retires cyan) ·
@@ -122,8 +121,6 @@ private let buildRollLife = 1.6   // seconds a note takes to cross the cell
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
 // The part grid's ROW-BUTTON mode (Paul 2026-08-16): a radio that changes what the left row buttons DO — SELECT the
 // whole row's rung · PLACE the selected machine · MUTATE a value-tweaked variant of it.
-enum BuildFill { case none, cell, grid }   // header playhead fill period: none · one step (.cell) · the whole loop (.grid)
-
 // BuildPart / BuildUnassignedData moved to BuildModel.swift (now persisted + test-target-visible).
 
 extension DiagView {
@@ -2369,25 +2366,6 @@ extension DiagView {
     // content actually shifts — a stylish "the view follows the music" scale, floored to 1.5 octaves. Notes stay horizontal
     // (accurate); outliers pin to the edge. Each visible STEP is framed in the SELECTED cell's machine; a note blooms under the
     // playhead. No keyboard gutter.
-    // The CAMERA fit for the part roll — weighted mean μ (pan) + weighted spread σ (zoom) over the notes overlapping the
-    // window. The overlap-fraction weight tapers to 0 at the edges, so a note entering ramps its influence smoothly → the
-    // axis eases (no per-frame @State needed — it's a continuous function of the scroll). A faint anchor at C4 regularises
-    // the empty window (μ→60, no divide-by-zero jump). win = ±2σ + pad, floored to 1.5 octaves, capped at 4. (Not in a
-    // ViewBuilder, so the loop is legal here.)
-    private func partRollCamera(_ notes: [PartRollDeck.Note], winStart: Double, winEnd: Double, cyc: Double) -> (mu: Double, pLoF: Double, win: Double) {
-        var wsum = 0.5, msum = 0.5 * 60, m2 = 0.5 * 3600
-        for n in notes {
-            for off in [-cyc, 0, cyc] {
-                let ov = min(n.end + off, winEnd) - max(n.start + off, winStart)
-                if ov <= 0 { continue }
-                let p = Double(n.note); wsum += ov; msum += ov * p; m2 += ov * p * p
-            }
-        }
-        let mu = msum / wsum
-        let sd = max(0, m2 / wsum - mu * mu).squareRoot()
-        let win = min(54.0, max(30.0, 4.0 * sd + 6.0))   // min 2.5 octaves (less zoomed-in — Paul 2026-09-03), cap 4.5
-        return (mu, mu - win / 2, win)
-    }
     // SECTION 2 — THE AUTO FLOW (Paul 2026-09-01, rev 2): AUTO-lane + PROCESSOR selector buttons over a PARAMETER TABLE
     // (each param + BEFORE/AFTER — a lane alters MULTIPLE params as a GROUP), + a right stack MERGE · RATE · APPLY. Macros
     // dropped (v2). Per-machine lanes. FLAGGED next stage: the APPLY grid-paint of the extent + the per-cell engine fold.
@@ -4082,19 +4060,6 @@ extension DiagView {
     // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette machine (carrying its machine); an existing
     // machine is simply selected. Either way the machine is SELECTED (its machine loads into the footer) — and THE TARGET
     // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
-    // Create a machine on BUILD as a PASSTHROUGH machine (empty chain → unprocessed MIDI). A bare `defined` machine
-    // has a nil templateChain, which the engine resolves via the LEGACY A-face — and every default machine is type
-    // .arp, so it would play an arp the user can't see in the (empty) chain. Store a passthrough placeholder so the
-    // audio matches the shown-empty chain. (user 2026-08-12)
-    private func buildCreateMachine(_ i: Int) {
-        guard i < machineIDs.count else { return }
-        ddCreateMachine(i)
-        au?.withChainMachine(machineIDs[i]) { $0 = [] }          // [] → a bypassed-passgate passthrough (not the arp A-face)
-        refreshFromDocument()
-    }
-
-
-
 
 
     // buildStagingTap RETIRED (Paul 2026-09-12 dead-code sweep — no caller; the part grid drives selection elsewhere).
@@ -4675,18 +4640,6 @@ extension DiagView {
         }
     }
 
-
-
-
-    // The header playhead's fill fraction (0…1) — phase-locked to the transport, warped by SWING (as the grid playhead).
-    // .cell fills over ONE step; .grid fills over the whole 8-column loop.
-    private func buildHeaderFill(_ fill: BuildFill, _ now: Date) -> CGFloat {
-        let live = meters.beatAnchor + now.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
-        let musical = musicalOf(live, stepBeats: stepBeats, a: max(1.0, Double(swing) / 50.0))
-        let period = fill == .cell ? stepBeats : stepBeats * Double(Snap.cols)
-        let raw = period > 0 ? (musical / period).truncatingRemainder(dividingBy: 1) : 0
-        return CGFloat(max(0, min(1, raw < 0 ? raw + 1 : raw)))
-    }
     @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, contentW: CGFloat) -> some View {
         let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
         // BODY ONLY (Paul 2026-09-10): the old header (machine cell · emblem · name · BYPASS/DELETE/CANCEL/DONE) is GONE — the

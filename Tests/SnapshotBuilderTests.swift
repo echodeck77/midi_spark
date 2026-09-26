@@ -600,6 +600,23 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(neg.a.chanceTilt, -1.0, "chanceTilt clamps to −1")
     }
 
+    // CLOCK (Paul 2026-09-26): the resolve/clamp block had ZERO test coverage until this housekeeping survey pass —
+    // including the one SAFETY-CRITICAL clamp, clockDepth ≤ 0.95, which keeps WAVE's local-time derivative
+    // (dphase/dbeat) strictly positive. A regression here wouldn't fail anywhere else in the suite — it would show up
+    // as a downstream fold consumer's note ordering silently corrupting when local time runs backward.
+    func testClockParamsResolveAndClamp() {
+        let sc = box(machines(customizing: 0) {
+            $0.paramsA.clockDepth = 1.5            // illegal → clamps to 0.95, the monotonicity ceiling
+            $0.paramsA.clockRatio = 99             // illegal → clamps into the ladder's valid range
+            $0.paramsA.clockDrawnSteps = 99        // illegal → clamps to the DRAWN lane's upper bound (32)
+        }) { _ in }.machines[0]
+        XCTAssertEqual(sc.a.clockDepth, 0.95, "clockDepth clamps to the monotonicity ceiling")
+        XCTAssertEqual(sc.a.clockRatio, clockRatioLadder.count - 1, "clockRatio clamps into the ladder's index range")
+        XCTAssertEqual(sc.a.clockDrawnSteps, 32, "clockDrawnSteps clamps to its upper bound")
+        let neg = box(machines(customizing: 0) { $0.paramsA.clockDrawnSteps = -5 }) { _ in }.machines[0]
+        XCTAssertEqual(neg.a.clockDrawnSteps, 1, "clockDrawnSteps clamps to its lower bound too")
+    }
+
     // The render thread's ONLY sanitization of the newer echo/euclid/glide/harmonize params — a wrong bound ships a bad
     // value straight into emission. The non-obvious ones: euclidSteps MIN is 2 (not 1), echoOffset is ±0.33. (coverage 2026-08-15)
     func testEchoEuclidGlideHarmResolveClamps() {

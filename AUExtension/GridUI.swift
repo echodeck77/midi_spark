@@ -2530,6 +2530,4 @@ struct ContentHeightKey: PreferenceKey {
 // face; set false to fall back to THE SEAL (kept intact). (The mosaic face was dropped 2026-08-23, Paul.)
 let usePianoRollFace = true
 
-private let stagingCyan = UI.cyan
-
 
