@@ -255,10 +255,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   ContinuousVoices` failed asserting row 0 empty when ferry 0's background content now legitimately lived there.
   FIX: a TRANSITIONAL `Snap.stagingRowBase = ferries×rowsPerFerry` (32) reserved past every ferry's block, where the
   still-live staging pass parks until Stage 3 unifies the composer — `Snap.rows` is 36 for this stage only, settling
-  to 32 once Stage 3 deletes the reservation. **NEXT: Stage 3 deletes `buildFlattenFerry`/`stagingRowBase` and
-  replaces the active/background split with one composer loop per ferry (this is where background polyphony
-  actually becomes possible); Stage 4 adds `stagingMulti`/`selMulti` multi-row selection surfaced in the ferry
-  settings tab.**
+  to 32 once Stage 3 deletes the reservation.
+  **STAGE 3 — one composer loop, every ferry alike (2026-09-27, `0233d34`; macOS 1116 green, iOS builds):**
+  `composeSceneMeta` no longer distinguishes an active bench ferry from a background one — every ON+audible ferry
+  composes from its own `BuildPart` into its own dedicated `ferryRowBase(t)` block, every publish; `buildPublishScene`
+  captures the active ferry fresh from live @State (`buildCaptureBenchPart`, already used for this — verified it
+  already carries every field the unified composer needs: rate/length/loopCols/receiver/emitters/rowReceiver/
+  rowEmitters) and reads every other ferry's stored part directly. **This is the structural change that actually
+  makes background polyphony possible** — a background ferry's content no longer gets flattened to one machine per
+  column before it can play. Traced before relying on it: `buildStagingPlaying` turned out to be LITERALLY
+  `buildPlayColOn[buildActiveFerry] ?? false` — the active ferry was already using the same on/off boolean as every
+  background ferry, so the two gates unify with zero special-casing. Deleted `buildFlattenFerry` + the `playCol*`
+  flattened-representation fields entirely, plus — found via a zero-caller trace, not guessed — a SELECT-page
+  per-column I/O editor that was already dead behind a permanently-nil stub (its own comment had already flagged
+  "returns with the Stage 3 unified ferry composer"), and the transitional `Snap.stagingRowBase` Stage 2 introduced
+  (`Snap.rows` settles back to 32). **DELIBERATE BEHAVIOUR UNIFICATION, flagged not buried:** a machine-less cell was
+  a silent "unset" on the staging grid but a passthrough live wire on the old flattened background path; onto one
+  code path, one rule — kept the staging rule (silent) for every ferry, matching "no active/background distinction."
+  DEVICE-AUDIBLE if a background ferry ever relied on that passthrough. **NEXT: Stage 4 adds `stagingMulti`/
+  `selMulti` per-ferry multi-row selection (`activeRungs` beside `selectedRung`) surfaced as a SINGLE|MULTI toggle in
+  the ferry settings tab — this is what actually lets a user select more than one row to sound per column.**
 - **▶ FERRY COLOUR SWAP — closes the "invents a third colour" gap (2026-09-27, on `main`, `1c2d3b7`; iOS
   builds, macOS 1123 green; DEVICE eye owed). Paul described the intended model for select→ferry colour (pick a
   colour via a selector → the SELECT cell shows it → dragging it onto a ferry lands verbatim, regardless of that
