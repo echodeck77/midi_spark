@@ -272,9 +272,36 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (`Snap.rows` settles back to 32). **DELIBERATE BEHAVIOUR UNIFICATION, flagged not buried:** a machine-less cell was
   a silent "unset" on the staging grid but a passthrough live wire on the old flattened background path; onto one
   code path, one rule — kept the staging rule (silent) for every ferry, matching "no active/background distinction."
-  DEVICE-AUDIBLE if a background ferry ever relied on that passthrough. **NEXT: Stage 4 adds `stagingMulti`/
-  `selMulti` per-ferry multi-row selection (`activeRungs` beside `selectedRung`) surfaced as a SINGLE|MULTI toggle in
-  the ferry settings tab — this is what actually lets a user select more than one row to sound per column.**
+  DEVICE-AUDIBLE if a background ferry ever relied on that passthrough.
+  **STAGE 4 — multi-select authoring, FEATURE COMPLETE (2026-09-27, `a71523d`; macOS 1126 green incl. 10 new, iOS
+  builds; DEVICE eye/ear owed on the whole feature). `BuildPart` gains `stagingMulti` (a per-column 4-bit mask) +
+  `selMulti`; `BuildSceneLogic.activeRungs(sel,multi,c)` is the plural sibling of `selectedRung` — the "POLY-PREP"
+  seam a 2026-09-14 session set up for exactly this ("only these two bodies change — every caller already asks
+  here"). `composeSceneMeta`'s per-ferry loop iterates every active rung instead of one; a ferry's own `selMulti`
+  gates whether its mask is even consulted, so flipping back to SINGLE can't leave a stale mask sounding rows it
+  shouldn't (a real fix, not automatic — required threading `selMulti` into the engine read, not just the UI).
+  `partGridTap` gained a multi-aware toggle branch (XOR a row's bit rather than exclusive-overwrite); the lead
+  (which row anchors the playhead/focus) follows the most recently toggled row, reassigning to a survivor if the
+  lead itself is toggled off. UI: a SINGLE|MULTI `launchInline` in the ferry settings tab, same shape as CHOKE.
+  Two v1 defaults from the plan, applied not re-litigated: the row-bulk-select rail REPLACES a column's active set
+  rather than adding to it; the part-grid playhead sweep stays lead-row-only even in MULTI (a per-row sweep is a
+  visual follow-up, not gated on anything audio). **Found in passing:** `buildPartGridDrag`'s row bound was still
+  hardcoded to 8, a stale leftover from Stage 2's shrink to 4 (no observable bug — the touch coordinate space was
+  already sized correctly — but wrong on its face, fixed); `buildFerryFlashIndices` + the emitter-strip playing-
+  colour band both iterated the lead only, generalized to every active rung so a multi-row ferry's flash/tint
+  doesn't under-represent what's actually sounding. Byte-identical for any ferry left in SINGLE (the default).
+  **THE WHOLE ARC (Stages 1-4, one session):** replaced the old model — rows 0-7 shared by whichever ferry sat on
+  the bench + a dead pre-ferry "PIECE" arrangement grid, rows 8-15 one mono row per background ferry via
+  `buildFlattenFerry` — with 8 ferries × 4 dedicated engine rows each, always live, no active/background
+  distinction, plus per-ferry SINGLE/MULTI row selection. Paul's own diagnosis ("why do we have rows 1 to 8 anyway
+  — sounds like a byproduct of an older model") was confirmed exactly right: `buildPerformPart` had zero live
+  writers, and the part-editing UI had already quietly shrunk to 4 rows (2026-09-08) without the engine following
+  suit. Plan: a session-local plan file (not checked in) validated by a dedicated research pass before any code
+  moved — closed two real open risks (a `col*8+row` UInt64 tap-mask cluster confirmed fully dead end-to-end; the
+  `Snap.rows`/`Snap.cells` call-site audit across Router/Kernel/SnapshotBuilder found almost everything already
+  symbolic, not hardcoded) before Stage 1 touched a single file. **DEVICE-OWED, the whole arc:** a backgrounded
+  ferry with 2+ rows populated actually sounds both machines together; the SINGLE|MULTI toggle feel; no stuck notes
+  across ferry activate/deactivate/mute while multi-row content plays in the background.**
 - **▶ FERRY COLOUR SWAP — closes the "invents a third colour" gap (2026-09-27, on `main`, `1c2d3b7`; iOS
   builds, macOS 1123 green; DEVICE eye owed). Paul described the intended model for select→ferry colour (pick a
   colour via a selector → the SELECT cell shows it → dragging it onto a ferry lands verbatim, regardless of that
