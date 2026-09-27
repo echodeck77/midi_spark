@@ -246,9 +246,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   theoretical solo-mask path is defensively zeroed by `buildPublishScene`'s own `clearMachineSolo()` every publish).
   `soloEmitterMask`/the live emitter-strip SOLO buttons are untouched — confirmed a separate, live feature despite
   sharing call sites. Ported 5 BuildSceneLogicTests that used `performCells` as scaffolding for the still-live
-  chain-audition-fallback logic to use `stagingCells` instead, rather than losing that coverage. **NEXT: Stage 2
-  widens `Snap.rows` 16→32 (`Snap.ferries`×`Snap.rowsPerFerry`), Stage 3 replaces the active/background split with
-  one composer loop per ferry, Stage 4 adds `stagingMulti`/`selMulti` multi-row selection surfaced in the ferry
+  chain-audition-fallback logic to use `stagingCells` instead, rather than losing that coverage.
+  **STAGE 2 — widen the row axis (2026-09-27, `0901d9b`; macOS 1109 green, iOS builds):** `Snap.ferries=8`/
+  `rowsPerFerry=4`/`ferryRowBase(t)=t×rowsPerFerry` land as the PERMANENT per-ferry addressing, replacing
+  `playLayerRowBase`; `BuildPart`'s row storage shrinks 8→4 to match the already-4-row `roomsPartGrid` UI. Caught by
+  testing, not guessed: naively relocating a background ferry's mono row from `8+t` to `ferryRowBase(t)` collides
+  with the still-untouched STAGING write path at `ferryRowBase(0)=row 0` — `testPlayGridComposesStartedColumnsAs-
+  ContinuousVoices` failed asserting row 0 empty when ferry 0's background content now legitimately lived there.
+  FIX: a TRANSITIONAL `Snap.stagingRowBase = ferries×rowsPerFerry` (32) reserved past every ferry's block, where the
+  still-live staging pass parks until Stage 3 unifies the composer — `Snap.rows` is 36 for this stage only, settling
+  to 32 once Stage 3 deletes the reservation. **NEXT: Stage 3 deletes `buildFlattenFerry`/`stagingRowBase` and
+  replaces the active/background split with one composer loop per ferry (this is where background polyphony
+  actually becomes possible); Stage 4 adds `stagingMulti`/`selMulti` multi-row selection surfaced in the ferry
   settings tab.**
 - **▶ FERRY COLOUR SWAP — closes the "invents a third colour" gap (2026-09-27, on `main`, `1c2d3b7`; iOS
   builds, macOS 1123 green; DEVICE eye owed). Paul described the intended model for select→ferry colour (pick a
