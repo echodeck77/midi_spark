@@ -199,6 +199,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SELECT GRID — the picked cell now survives a trip through PART (2026-09-27, on `feature/ferry-row-
+  unification`, `46c0b2d`; iOS builds; DEVICE eye owed). Paul: pick a SELECT cell → open PART → come back → wants the
+  SAME cell still in focus. ROOT CAUSE: `roomsPartSetup` always calls `buildRoomsSetActiveSide` to focus a part row,
+  which explicitly nils `buildGridSelSel` — the browse-cell pick and a ferry-row focus share ONE underlying value
+  (`buildSelectSource`, "one thing active", the 2026-09-06 desync fix) — so every PART entry silently discarded
+  whatever was picked on SELECT. FIX: new `buildGridSelLastPick` snapshots the outgoing pick (nil included, so a
+  deliberate deselect before leaving isn't resurrected) the moment PART claims the slot; `roomsSelectSetup` restores
+  it on a plain return (skipped when a playing part's cell is being carried over instead — `carryFromPart`, an
+  existing, more relevant behaviour for that case). Restoring the pick also resumes its chain audition for free,
+  since `roomsSyncVoice` already ties "a cell is selected" straight to "it's auditioning."**
 - **▶ EUCLID MASK — the arp-only mask pulled into a standalone downstream processor (2026-09-27, on `main`, `d6bb40d`;
   macOS 1116 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Paul asked whether the ARP EUCLID MASK feature
   (`arpMask*` — a K-of-N Bjorklund pattern with GAPS·WALK·ROTATE, baked inline into `emitArpRow`) could work as its
