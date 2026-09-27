@@ -233,6 +233,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   disabled-step behaviors (DROP/MUTE/PAUSE) instead of one fixed behavior — a direct spin-off of this same
   conversation. **DEVICE-OWED:** the new card's editor legibility, GAP=CHORD actually sounding right downstream of
   a non-ARP driver (e.g. `[RIFF→EUCLID MASK]`), TIE's extended-gate feel, ROTATE's control.**
+- **▶ SELECT GRID — picked-cell notes wear the selected ferry's colour (2026-09-27, on `feature/ferry-row-
+  unification`, `504416f`; iOS builds; DEVICE eye owed). Paul: the picked-but-uncommitted SELECT cell's face was
+  inverting (a bright background with dark-grey notes) — wants the notes coloured instead. `buildGridSelCell`'s
+  `rollTint` (BuildGridSelector.swift) now reads `buildFerryHex(buildActiveFerry)` — the SAME "selected colour" the
+  ferry-row selector glow already uses (`roomsPlayFerry`'s header-bar emanation) — instead of `Color(white: 0.22)`,
+  when the cell is picked (`selGrey`). Live: tapping a DIFFERENT, unselected ferry's own selector (`buildActivateFerry`)
+  re-points `buildActiveFerry`, so the notes recolour with it at once. Unaffected: picking a different SELECT cell or
+  deselecting falls out of the `sel`/`selGrey` branch entirely, reverting to the plain grey face exactly as before —
+  and a COMMITTED (named) cell's roll stays white on its own machine-hue background, untouched (it was never
+  "inverted" to begin with). DEVICE-OWED: legibility of a ferry hue as ink against the still-unchanged bright
+  `buildSelectGrey` card background — Paul asked only to recolour the notes, not the card, so that pairing is
+  unverified off-device.**
 - **▶ FERRY ROW UNIFICATION — Stage 1: dead-code removal (2026-09-27, on `feature/ferry-row-unification`, `f689649`;
   macOS 1109 green, iOS builds). Paul: background ferries should play polyphonically, not the mono reduction
   `buildFlattenFerry` forces on them today — and questioned why the engine has a shared rows-0-7 concept at all.
