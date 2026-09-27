@@ -9,13 +9,20 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 green, iOS builds) — see CLAUDE.md's status log for the full writeup (the shape: reuses CLOCK's driver-retiming
 plumbing, generalized to detect `.killStep` slots too, so it reaches the WHOLE generator roster CLOCK already does
 with zero new call sites).
-- **DEVICE-EAR/EYE OWED (nothing built yet has been heard/seen):** the ON/OFF toggle-lane feel, the RATE/SPAN
-  controls, and — most importantly — the actual sound of "steps 1–4 of 8 enabled → the first half repeats" and "3 of
-  8 enabled → it rotates against the bar." Confirm against Paul's own two worked examples first.
-- **LIVE PLAYHEAD ADDED (2026-09-27):** `toggleLane` gained an optional `live: ((Date) -> Int?)?` hook (nil for
-  every other existing caller — unchanged); KILL STEP's row calls `Derivations.killStepPhase` directly (the SAME
-  function the engine folds through) to compute the highlighted ENABLED index, so the lit cell and the audible step
-  can't drift apart. Still DEVICE-eye owed — the extrapolation math is untested off-device (TimelineView).
+- **DEVICE-EAR/EYE OWED (nothing built yet has been heard/seen):** the 4-state matrix feel (below), the RATE/SPAN/
+  PAUSE LEN controls, and — most importantly — the actual sound of "steps 1–4 of 8 ON → the first half repeats", "3
+  of 8 ON → it rotates against the bar", a MUTE'd step leaving a clean silent hole, and a PAUSE reading as a hold/
+  breath. Confirm against Paul's own worked examples first.
+- **LIVE PLAYHEAD, now table-driven (2026-09-27):** `stateMatrixRadio` gained an optional `liveColOverride:
+  ((Date) -> Int?)?` hook (nil for every other existing caller — unchanged, replacing the retired `toggleLane`
+  row's own `live:` hook of the same shape) — KILL STEP's row calls `Derivations.killStepPhase` directly (the SAME
+  function the engine folds through, via the SAME shared `killStepResolveTable`) to compute the highlighted index,
+  so the lit cell and the audible step can't drift apart. Still DEVICE-eye owed.
+- **✅ MUTE + PAUSE — LANDED (2026-09-27, `f35b595`; macOS 1134 green incl. fuzz).** The one boolean row is now a
+  4-state `KillStepMode` (ON·MUTE·DROP·PAUSE) — see CLAUDE.md's status log for the full writeup. **FLAGGED, not
+  built (scope, not a bug):** MUTE only has an effect when KILL STEP PRECEDES the driver it retimes
+  (`[KILL STEP→ARP]`); in the `[ARP→KILL STEP→DEST]` shape there's no note-generation event left at KILL STEP's own
+  position to suppress, so MUTE is a no-op there (DROP/PAUSE work in both positions).
 
 ## ★ PER-PARAM LFO + ARP EUCLID MASK (2026-09-15/16; spec `Docs/PLAN-param-lfo.md`)
 LANDED on `main`: the ∿ LFO button (engine + UI) on ARP LENGTH · HITS/ROTATE/CHANCE · the GAPS=CHORD gap-stab
@@ -30,11 +37,8 @@ OPEN:
   just ARP. WAIT was DROPPED (Paul: "I'm happy to drop wait as an option") — it belongs to the CLOCK/KILL-STEP
   upstream beat-transform family instead, which would need the opposite chain position. ARP's own `arpMask*`
   fields/editor are untouched. +7 RouterTests + fuzz coverage. Plan: `~/.claude/plans/stateless-tickling-flask.md`.
-  **★★ DUE NOW (Paul 2026-09-27, the gate — "planned and implemented" — is met):** raise with Paul whether KILL
-  STEP itself should gain selectable disabled-step behaviors (DROP/MUTE/PAUSE) instead of one fixed behavior — a
-  direct spin-off of this same conversation (once WAIT was dropped, Paul noticed KILL STEP is already the
-  generalized "what happens to a disabled step" mechanism, so its own disabled-step behavior might as well be
-  pluggable). Also see the memory file `euclid-mask-then-killstep-followup.md`.
+  **✅ THE REMINDER THIS TRIGGERED WAS ACTIONED (2026-09-27):** KILL STEP DROP/MUTE/PAUSE — see the KILL STEP entry
+  above and CLAUDE.md's status log; the memory file `euclid-mask-then-killstep-followup.md` can be deleted.
 - **★ ACCENT LAYER (the next euclid-mask feature — pencilled in, Paul 2026-09-15):** a SECOND euclidean pattern (own
   K-of-N + ROTATE) that BOOSTS velocity on the steps it hits — the classic two-euclid technique (one pattern for
   notes, one for accents). Medium-sized; makes the mask genuinely generative. Do after the CHORD-stab work.

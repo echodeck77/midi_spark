@@ -199,6 +199,50 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ KILL STEP — MUTE + PAUSE step behaviors alongside the original DROP (2026-09-27, on `main`, `f35b595`; macOS
+  1134 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Direct follow-through on the reminder set the day EUCLID
+  MASK landed: Paul asked to plan whether KILL STEP's one boolean ON/OFF row could grow MUTE ("the step advances but
+  doesn't play") and PAUSE ("stops it advancing for a configurable number of steps"), and whether the idea works/is
+  musical. Confirmed both — MUTE is the standard step-sequencer mute (a hole, pattern length unchanged); PAUSE has
+  real precedent (Elektron trig-condition holds, Metropolix's PAUSE/TIE stage type) — then ratified two calls via
+  AskUserQuestion: PAUSE freezes/holds (nothing new triggers; whatever's sounding just rings on — NOT a retrigger/
+  stutter) and its hold length is ONE global setting, not per-step. **BUILT:** the boolean row becomes a 4-state
+  `KillStepMode` (ON·MUTE·DROP·PAUSE) per step. DROP is the original mechanism, unchanged. MUTE counts exactly like
+  ON for the TRANSFORM (the downstream clock advances through it normally) — its whole effect is a new per-note FOLD
+  in `emitDriverNote`, the identical shape EUCLID MASK's REST just shipped with, keyed on the note's real onset
+  against KILL STEP's own rate (`precedingKillStepMuted`, scanning `0..<driver` like `driverClockBeat` itself).
+  **PAUSE broke the old one-line closed form** (`value = lap·steps + onIdx[n mod k]` assumed every real column maps
+  to exactly one local step; a hold needs SEVERAL real columns to map to the SAME frozen value) — replaced with a
+  small table PRECOMPUTED once per snapshot publish (`killStepResolveTable`, Derivations.swift), off the render
+  thread entirely; `killStepPhase`/`killStepPhaseInverse` now do a cheap `table[n mod columnsPerLap]` lookup instead
+  of deriving the cycle live. Proven byte-identical to the original formula whenever nothing is MUTE/PAUSE by
+  rerouting all 5 pre-existing `killStepPhase` tests through the new table unchanged (same assertions, same
+  results). The table is SHARED between `SnapshotBuilder`'s resolve and GridUI's live-playhead preview (one
+  function, so the lit cell and the audible step can't drift apart — the standing RATCHET PATTERN/DEST lesson).
+  `killStepEnabled: [Bool]?` stays as a decode-only migration source (true→ON, false→DROP), even though nothing had
+  shipped with it device-verified yet — costs nothing to keep. **UI:** the boolean `toggleLane` row is replaced with
+  `stateMatrixRadio` (the SAME one-of-N-per-column widget RATCHET PATTERN/DEST/LENGTH already use) — which gained a
+  new optional `liveColOverride` closure (mirroring `toggleLane`'s own `live:` shape) so KILL STEP's playhead can
+  still call `killStepPhase` directly instead of the widget's generic rotate-clock math (that generic math can't
+  express a freeze — using it here would have been a real regression from yesterday's playhead fix). Added a PAUSE
+  LEN control. **CAUGHT BY THE TEST SUITE, not guessed (this session's own standing rule):** a first draft's inverse
+  round-trip test assumed exactness everywhere, mirroring the pre-existing sweep test's own doc comment — but PAUSE
+  makes the forward map genuinely NON-INJECTIVE by design (every real column across a hold maps to the SAME frozen
+  value, so a beat landing on the hold's 2nd/3rd column can only invert back to its 1st) — 64 failures, traced to
+  the test's premise being wrong, not the implementation; fixed by replacing the blind sweep with the explicit
+  "inverts to the first occurrence" case, the SAME policy the pre-existing DROP-gap test already modeled explicitly
+  rather than swept. **FLAGGED, not built (scope, not a bug):** MUTE only has an effect when KILL STEP PRECEDES the
+  driver it retimes (`[KILL STEP→ARP]`, its own generation) — in the OTHER existing KILL STEP shape
+  (`[ARP→KILL STEP→DEST]`, retiming a downstream fold consumer's own clock) there's no note-generation event left at
+  KILL STEP's own position to suppress, so MUTE is a no-op there; DROP/PAUSE work in both positions since they're
+  pure time-transforms. +3 RouterTests (MUTE keeps timing but silences one note · PAUSE makes several consecutive
+  arp ticks land on DEST's same emitter, mirroring `testKillStepTransformsDestsOwnRoutingClock`'s own technique ·
+  the legacy `killStepEnabled` migration is byte-identical to authoring the equivalent `killStepMode` directly) + 4
+  new DerivationsTests (MUTE counts like ON for timing · a hold freezes for its exact length · the inverse picks the
+  first occurrence · all-columns-of-a-hold read the identical value) + fuzz coverage (hammers PAUSE especially, the
+  one genuinely new way a driver's own tick search could misbehave). Plan: `~/.claude/plans/stateless-tickling-
+  flask.md`. **DEVICE-OWED:** the 4-state matrix's legibility, MUTE actually leaving a clean silent hole vs. DROP's
+  compaction, and PAUSE reading as a hold/breath rather than a glitch.**
 - **▶ SELECT GRID — the picked cell now survives a trip through PART (2026-09-27, on `feature/ferry-row-
   unification`, `46c0b2d`; iOS builds; DEVICE eye owed). Paul: pick a SELECT cell → open PART → come back → wants the
   SAME cell still in focus. ROOT CAUSE: `roomsPartSetup` always calls `buildRoomsSetActiveSide` to focus a part row,
