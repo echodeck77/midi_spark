@@ -199,7 +199,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ FERRY COLOUR SWAP — closes the "invents a third colour" gap (2026-09-27, on `main`, commit pending; iOS
+- **▶ FERRY COLOUR SWAP — closes the "invents a third colour" gap (2026-09-27, on `main`, `1c2d3b7`; iOS
   builds, macOS 1123 green; DEVICE eye owed). Paul described the intended model for select→ferry colour (pick a
   colour via a selector → the SELECT cell shows it → dragging it onto a ferry lands verbatim, regardless of that
   ferry's own predetermined colour → a clash swaps the two slots' colours, never invents a new one → the SELECT
