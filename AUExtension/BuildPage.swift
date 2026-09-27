@@ -5112,6 +5112,7 @@ extension DiagView {
             BuildCardGroup(title: "DYNAMICS", note: nil, cards: [
                 C("HUMANIZE", "Loosens the timing and softens the hits: a human touch.", .humanize),
                 C("VELOCITY", "A per-step velocity sequencer — draw the accents, or pass a step through.", .velocity),
+                C("EUCLID MASK", "Gates a driven rhythm through a K-of-N euclidean pattern — rest, tie, or strike the chord on the gaps.", .euclidMask),
             ]),
             BuildCardGroup(title: "CONTROL", note: "Moves synth controls — makes no notes of its own.", cards: [
                 C("LFO", "A wave moving a synth knob: sweeps and wobbles.", .mod) { $0.modSource = .shape },
@@ -5146,7 +5147,7 @@ extension DiagView {
     private func buildProcLabel(_ s: ProcessorSlot) -> String {
         // AVOID/LOCK self-names by its MODE (Paul §7): the slot reads "LOCK A MIXO" / "AVOID CLASHES".
         let avoidBase = (s.params.avoidMode ?? .avoid) == .lock ? "LOCK" : "AVOID"
-        let base = s.type == .passgate ? "PASSES" : (s.type == .muteMatrix ? "MUTE MTX" : (s.type == .killStep ? "KILL STEP" : (s.type == .avoid ? avoidBase : s.type.rawValue)))
+        let base = s.type == .passgate ? "PASSES" : (s.type == .muteMatrix ? "MUTE MTX" : (s.type == .killStep ? "KILL STEP" : (s.type == .euclidMask ? "EUCLID MASK" : (s.type == .avoid ? avoidBase : s.type.rawValue))))
         let m: String
         let letters = ["A", "B", "C", "D"]
         switch s.type {
@@ -5164,6 +5165,9 @@ extension DiagView {
             var arr = s.params.killStepEnabled ?? Array(repeating: true, count: cnt)
             while arr.count < cnt { arr.append(true) }
             m = "\(arr.prefix(cnt).filter { $0 }.count)/\(cnt)"
+        case .euclidMask:   // self-names HITS-of-N (Paul 2026-09-27)
+            let mN = max(2, min(16, s.params.maskN ?? 8))
+            m = "\(max(1, min(mN, s.params.maskK ?? mN)))/\(mN)"
         case .avoid:
             switch s.params.avoidRefKind ?? .sounding {
             case .key:      m = "\(["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][(((s.params.avoidRoot ?? 0) % 12) + 12) % 12]) \((s.params.avoidScale ?? .major).label)"   // legacy/decode-only — the KEY reference is no longer settable in the UI (Paul 2026-08-31)

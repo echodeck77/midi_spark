@@ -38,6 +38,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case recorder = "RECORDER" // TIME (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain — record N steps/passes of the upstream output, then loop it back. Transparent while recording, a driver while playing back.
     case clock = "CLOCK"       // TIME (AcceptanceCriteria-clock-processor, ratified 2026-09-26, design-partner spec): a placeable pattern-clock transform — everything downstream's OWN internal step machinery (a fold consumer's rate/slice math) reads a transformed beat; everything upstream, and every GRID-time quantity (windows/columns/spans/reel), is untouched (the sovereign law). Note-transparent.
     case killStep = "KILLSTEP" // TIME (Paul 2026-09-26, sibling to CLOCK): a single row of ON/OFF steps (variable count, default 8) with its own RATE + SPAN — a DISABLED step is removed from the downstream timeline entirely; the ENABLED steps repeat to fill the pass (an even split plays "the first half twice"; an uneven split rotates a sub-cycle that drifts against the bar — "overriding the clock"). Reuses CLOCK's own plumbing (Router.killStepPhase/…Inverse, detected alongside `.clock` by driverClockBeat/…Inverse/clockTransformedBeat) so it reaches the same whole generator roster CLOCK already does. Note-transparent.
+    case euclidMask = "EUCLIDMASK" // DYNAMICS (Paul 2026-09-27): the arp-only euclid mask (SPEC-arp-euclid-mask), pulled out as its own downstream FOLD processor — a K-of-N Bjorklund pattern gates whatever driver precedes it (ARP/RIFF/STRUM/RATCHET/EUCLID-as-driver/…), not just ARP. GAPS = REST | TIE | CHORD + ROTATE only; WALK/WAIT was dropped (needs the driver's own phase-index, which a fold can't reach — see Docs/pending-tasks.md). Note-transparent classification (like VELOCITY/DEST); never a driver; a no-op with no upstream driver.
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 /// The CLOCK ratio ladder (×4…÷4) — a plain index into DRAWN's per-column picks, mirroring `spanLadderValues`'s "a
@@ -263,6 +264,17 @@ struct MachineParams: Codable, Equatable {
     var arpMaskChordGate: Double? = nil   // the gap stab's own LENGTH (fraction of step); nil ⇒ follow the arp gate (byte-identical)
     var arpMaskChordOct: Int? = nil       // the gap stab's OCTAVE shift −2…+2; nil ⇒ 0
     var arpMaskChordVel: Double? = nil     // the gap stab's VELOCITY scale 0…1; nil ⇒ 1
+    // EUCLID MASK, standalone processor (Paul 2026-09-27): the SAME Bjorklund K-of-N idea as arpMask* above, pulled
+    // out as its own downstream FOLD stage (isModifierFoldable) so it gates ANY driver's notes, not just ARP's own —
+    // reuses euclidMaskHit/euclidMaskTieRun unchanged. WALK/WAIT is deliberately NOT here (Paul: "happy to drop wait
+    // as an option" — it needs the driver's own phase-index, which a downstream fold can't reach; see pending-tasks.md).
+    var maskN: Int? = nil             // the mask window (steps). nil ⇒ 8
+    var maskK: Int? = nil             // hits (K of N). nil ⇒ = N (OFF/pass-through)
+    var maskRotate: Int? = 0          // rotate the Bjorklund figure (0…N−1)
+    var maskGap: ArpMaskGap? = nil    // non-hit steps: REST | TIE | CHORD (reuses the arp mask's enum as-is). nil ⇒ REST
+    var maskChordOct: Int? = nil      // the gap stab's OCTAVE shift −2…+2; nil ⇒ 0
+    var maskChordGate: Double? = nil  // the gap stab's own LENGTH (fraction of the driver's own step); nil ⇒ 0.6
+    var maskChordVel: Double? = nil   // the gap stab's VELOCITY scale 0…1; nil ⇒ 1
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]

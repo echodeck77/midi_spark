@@ -1848,7 +1848,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .chords:    return .chords                          // HARMONY — a held trigger → the diatonic chord for the current degree (a set-shaper like harmonize)
     case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
-    case .channel, .nudge, .dest, .muteMatrix, .tap, .velocity, .deal, .clock, .killStep: return .identity   // UTILITY/ROUTING/DYNAMICS/TIME — note-transparent; the emit-side effect (channel/timing/emitter/VELOCITY override · TAP's mid-chain send · DEAL's emitter deal · CLOCK/KILL STEP's beat transform) applies elsewhere
+    case .channel, .nudge, .dest, .muteMatrix, .tap, .velocity, .deal, .clock, .killStep, .euclidMask: return .identity   // UTILITY/ROUTING/DYNAMICS/TIME — note-transparent; the emit-side effect (channel/timing/emitter/VELOCITY override · TAP's mid-chain send · DEAL's emitter deal · CLOCK/KILL STEP's beat transform · EUCLID MASK's per-note fold) applies elsewhere
     case .recorder:  return .identity                       // RECORDER (Stage 0, inert): note-transparent for now; record/playback lands in the engine stage
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
@@ -2037,6 +2037,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .recorder:  return "record.circle"                // TIME — the looper-in-a-chain (record + replay)
     case .clock:     return "clock.arrow.2.circlepath"      // TIME — a placeable pattern-clock transform
     case .killStep:  return "square.slash"                  // TIME — a step row that removes disabled steps from the downstream timeline
+    case .euclidMask: return "line.3.horizontal.decrease.circle"   // DYNAMICS — a K-of-N mask FILTERING a driven rhythm (distinct from EUCLID's own grid glyph)
     case .muteMatrix: return "speaker.slash"               // ROUTING — per-step part-muting (the gate grid)
     case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
     case .tap:       return "arrow.turn.up.right"          // ROUTING — the mid-chain send (the stream turns off to a parallel wire)

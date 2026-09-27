@@ -381,6 +381,7 @@ struct ProcessorBox: View {
         case .hocket:    return "play your notes in another synth's gaps — or trade hits with it (listen to a wire)"
         case .avoid:     return "remove or move notes that clash with a reference — or lock them to a key"
         case .chords:    return "turn a held note into a diatonic chord progression, in key"
+        case .euclidMask: return "gate a driven rhythm through a K-of-N euclidean pattern — rest, tie, or chord the gaps"
         }
     }
 
@@ -1335,6 +1336,31 @@ struct ProcessorBox: View {
                 })
             }
             Text(avoidBlurb(input: refIsInput, letter: letters[idx], lock: md == .lock, clash: clashSemis, move: (p.avoidAction ?? .remove) == .move))
+                .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        })
+        case .euclidMask: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // DYNAMICS (Paul 2026-09-27): the
+            // arp-only euclid mask pulled out as its own downstream FOLD — gates ANY driver's notes with a K-of-N
+            // Bjorklund pattern. Same GAPS/ROTATE/CHORD-stab math as the ARP-embedded mask (arpMask*); WALK/WAIT is
+            // dropped here (it needs the driver's own phase-index, which a downstream fold can't reach).
+            let mN = max(2, min(16, p.maskN ?? 8))
+            let mK = max(1, min(mN, p.maskK ?? mN))
+            field("HITS  ◀K▶ of ◀N▶  (K < N gates the rhythm; K = N passes through)", \.maskK) {
+                HStack(spacing: 10) {
+                    numPair(mK, 1...mN) { v in setParam { $0.maskK = v; if $0.maskN == nil { $0.maskN = mN } } }
+                    Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    numPair(mN, 2...16) { v in setParam { $0.maskN = v; if let k = $0.maskK, k > v { $0.maskK = v } } }
+                }
+            }
+            if mK < mN {
+                row2({ field("GAPS", \.maskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.maskGap ?? .rest).rawValue) { i in setParam { $0.maskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
+                     { field("ROTATE", \.maskRotate) { numPair(p.maskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.maskRotate = v } } } })
+                if (p.maskGap ?? .rest) == .chord {   // GAPS = CHORD gap-stab controls, mirroring the ARP mask's own (Docs/PLAN-param-lfo.md)
+                    row2({ field("CHORD OCT", \.maskChordOct) { numPair(p.maskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.maskChordOct = v } } } },
+                         { field("CHORD LEN  \(Int((p.maskChordGate ?? 0.6) * 100))%", \.maskChordGate) { slider(bind(p.maskChordGate ?? 0.6) { v in setParam { $0.maskChordGate = v } }, in: 0.05...1) } })
+                    field("CHORD VEL  \(Int((p.maskChordVel ?? 1) * 100))%", \.maskChordVel) { slider(bind(p.maskChordVel ?? 1) { v in setParam { $0.maskChordVel = v } }, in: 0...1) }
+                }
+            }
+            Text("Downstream of a driver only — gates its notes by a K-of-N euclidean pattern. No driver upstream, no effect.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         }

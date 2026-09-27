@@ -3780,11 +3780,18 @@ final class Router {
     /// SHIFT / HUMANIZE are per-note MODIFIERS (Paul 2026-09-06): downstream of a real driver they don't re-pool — they
     /// jitter/push each driven note IN PLACE (emitDriverNote), so [ARP→HUMANIZE] humanizes the arp's notes + keeps its
     /// rhythm. As the ONLY driver (standalone / [non-driver→SHIFT]) they still GENERATE (chainDriverIndex falls to lastDriver).
-    private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize || p.type == .velocity }
+    private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize || p.type == .velocity || p.type == .euclidMask }
     /// The FIRST non-bypassed foldable RATCHET slot after `driver` — PATTERN (per-slice REST/pass/burst) or COIN PASS-THROUGH.
     private func downstreamRatchetFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
         var j = driver + 1
         while j < cell.procs.count { if !cell.slotBypass[j] && isRatchetFoldable(cell.procs[j]) { return j }; j += 1 }
+        return nil
+    }
+    /// The FIRST non-bypassed EUCLID MASK slot after `driver` (Paul 2026-09-27) — the arp-only euclid mask, pulled out
+    /// as its own downstream fold so it gates ANY driver's notes, not just ARP's own.
+    private func downstreamMaskFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
+        var j = driver + 1
+        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .euclidMask { return j }; j += 1 }
         return nil
     }
     /// CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26) — THE SOVEREIGN LAW, mechanically: the beat a
@@ -4484,6 +4491,46 @@ final class Router {
             }
             j += 1
         }
+        // EUCLID MASK fold (Paul 2026-09-27): the arp-only euclid mask pulled out as its own downstream stage — a
+        // K-of-N Bjorklund pattern gates THIS driver's notes, whichever driver it is. Ordinal `g` keys off the
+        // driver's own nominal step (driverStep, the SAME derivation VELOCITY's NOTE clock uses below) — "1 mask
+        // column = 1 driven note" — so it can never disagree with what's actually driving. REST/TIE drop the note on
+        // a gap (TIE's gate-extension happened at the PRECEDING hit, mirrored below — exactly like the ARP-embedded
+        // mask); CHORD replaces it with a stab off the composed input pool (chainScratch, already populated by the
+        // driver's own composeChainSet call just before it invoked this function — no separate pool needed here).
+        var maskDropAll = false
+        var maskChordP: SnapParams? = nil
+        var maskTieOffBeats = 0.0
+        if let mi = downstreamMaskFoldIndex(cell, after: driver) {
+            let mp = cell.procs[mi]
+            let mN = max(2, min(16, mp.maskN ?? 8)), mK = max(1, min(mN, mp.maskK ?? mN))
+            if mK < mN {
+                let driverStep = max(0.03125, Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))])
+                let g = Int((m / driverStep).rounded(.down))
+                let rot = mp.maskRotate ?? 0
+                if !euclidMaskHit(g, k: mK, n: mN, rotate: rot) {                 // GAP
+                    if (mp.maskGap ?? .rest) == .chord { maskChordP = mp } else { maskDropAll = true }   // REST or TIE
+                } else if (mp.maskGap ?? .rest) == .tie {                          // HIT, TIE: cover the following gap run
+                    maskTieOffBeats = Double(euclidMaskTieRun(g, k: mK, n: mN, rotate: rot)) * driverStep
+                }
+            }
+        }
+        if maskDropAll { return }
+        if let mp = maskChordP {
+            let cOct = (mp.maskChordOct ?? 0) * 12
+            let cVelScale = mp.maskChordVel ?? 1
+            let chordGateBeats = max(0.01, mp.maskChordGate ?? 0.6) * S
+            let offC = onSample + Int64((chordGateBeats / beatsPerSample).rounded())
+            let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
+            for k in 0..<chainScratch.srcCount(filter: 0) {
+                let b = Int(chainScratch.srcAscending(k, filter: 0))
+                let nv = b + cOct
+                guard nv >= 0 && nv <= 127 else { continue }
+                let cvel = UInt8(max(1, min(127, Int(Double(max(1, chainScratch.velocity(UInt8(b)))) * cVelScale))))
+                emitChop(nv, cell: cell, bm: echoBM, onSample: onSample, offSample: offC, windowEnd: windowEnd, velocity: cvel, m: m, S: S, out: out, diag: &diag, clockFrom: driver + 1, cycleBeats: cycleBeats)
+            }
+            return
+        }
         // RATCHET fold (Paul 2026-09-07): the ratchet is a PASS-THROUGH with its OWN CLOCK — NOT a driver, NOT per arp-note.
         // PATTERN: the ratchet's playhead runs on its OWN RATE (rtcRate, SPAN re-anchors); a note passing through reads
         // whichever column that playhead is on AT THE NOTE'S TIME (col = floor(noteBeat ÷ rtcRate) mod STEPS). 1 = PASS THROUGH
@@ -4585,6 +4632,9 @@ final class Router {
                 if offB != 0 { let len = max(1, offN - onN); onN = min(windowEnd, onSample + offB); offN = onN + len }   // shift both → length preserved, clamped to the block
                 baseVel = max(1, Int((Double(baseVel) * vScale).rounded()))
             }
+            // EUCLID MASK TIE (Paul 2026-09-27): a hit note covers the following gap run — extend its own gate,
+            // mirroring the ARP-embedded mask's identical `off = on + (ties+1)×step×gate` shape.
+            if maskTieOffBeats > 0 { offN += Int64((maskTieOffBeats / beatsPerSample).rounded()) }
             // STRIKE 0 = the driver note itself, at its OWN length (offOut = LENGTH-overridden gate). Then, if the fold
             // ratchet calls for N>1, register N−1 more COPIES spaced over the gap to the next note — via the ECHO ring so
             // they spread across render blocks (each copy keeps the note's own length; overlaps re-articulate cleanly).

@@ -115,6 +115,16 @@ struct SnapParams {
     var arpMaskChordGate: Double = 0.6   // the gap stab's note length (fraction of the step)
     var arpMaskChordOct: Int = 0         // the gap stab's octave shift (−2…+2)
     var arpMaskChordVel: Double = 1       // the gap stab's velocity scale (0…1)
+    // EUCLID MASK, standalone processor (Paul 2026-09-27): the SAME resolved shape as arpMask* above, for the new
+    // downstream-fold processor type (§ isModifierFoldable) — gates ANY driver, not just ARP. No WALK field: WAIT
+    // was dropped (a downstream fold can't reach the driver's own phase-index).
+    var maskN: Int = 8
+    var maskK: Int = 8
+    var maskGap: ArpMaskGap = .rest
+    var maskRotate: Int = 0
+    var maskChordGate: Double = 0.6
+    var maskChordOct: Int = 0
+    var maskChordVel: Double = 1
     var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
     var harmUnits: PitchUnits = .semitones              // §2: harmonize intervals in semitones or pool degrees
     var utilTransposeUnits: PitchUnits = .semitones     // §2: TRANSPOSE in semitones or pool degrees

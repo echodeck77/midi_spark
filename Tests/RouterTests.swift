@@ -302,6 +302,111 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(span2.contains(80) || span2.contains(100), "SPAN=2 re-anchors every 2 columns → only lane[0],lane[1] (40,60) ever read")
         XCTAssertTrue(free.contains(80) || free.contains(100), "free-run (SPAN=0) sweeps all 4 lane columns")
     }
+    // EUCLID MASK (Paul 2026-09-27): the arp-only euclid mask (arpMask*) pulled out as its own downstream FOLD
+    // processor (isModifierFoldable, like SHIFT/HUMANIZE/VELOCITY) — a K-of-N Bjorklund pattern gates ANY driver's
+    // notes, not just ARP's own. WAIT/WALK was dropped (needs the driver's own phase-index, out of a fold's reach).
+    func testEuclidMaskFoldRestDropsGapNotes() {
+        func arpCellCount(_ mask: ProcessorSlot?) -> Int {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var procs = [arp]; if let m = mask { procs.append(m) }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 4; mask.params.maskGap = .rest
+        let arpOnly = arpCellCount(nil)
+        let masked = arpCellCount(mask)
+        XCTAssertLessThan(masked, arpOnly, "[ARP→EUCLID MASK(4-of-8, REST)] drops the gap ticks — fewer note-ons than the arp alone")
+    }
+    // TIE: the SAME hit ticks gate through as REST (same note-on count), but each hit's gate is extended across the
+    // following gap run instead of staying at its own short length — so its off-times land strictly later than REST's.
+    func testEuclidMaskFoldTieExtendsGateAcrossGaps() {
+        func offInfo(_ gap: ArpMaskGap) -> (count: Int, offSum: Int64) {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 4; mask.params.maskGap = gap
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            let offs = e.offs.filter { $0.cable == 1 }
+            return (offs.count, offs.reduce(Int64(0)) { $0 + $1.sample })
+        }
+        let rest = offInfo(.rest), tie = offInfo(.tie)
+        XCTAssertEqual(tie.count, rest.count, "TIE and REST gate the SAME hit ticks — same note-on/off count")
+        XCTAssertGreaterThan(tie.offSum, rest.offSum, "TIE extends each hit's gate across its following gap run — later offs than REST's un-extended gates")
+    }
+    // CHORD: a gap strikes the WHOLE composed input chord instead of resting — for a 3-note chord this emits MORE
+    // note-ons than the arp alone (each of the ~half-the-ticks gaps becomes a 3-note stab instead of nothing).
+    func testEuclidMaskFoldChordStabsTheGap() {
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 4; mask.params.maskGap = .chord
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        func count(_ procs: [ProcessorSlot]) -> Int {
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let arpOnly = count([arp]), chorded = count([arp, mask])
+        XCTAssertGreaterThan(chorded, arpOnly, "[ARP→EUCLID MASK(4-of-8, CHORD)] strikes the whole 3-note chord on every gap — more note-ons than the arp alone")
+    }
+    // ROTATE shifts WHICH ticks gate through (not just how many — a Bjorklund K-of-N always keeps exactly K hits per
+    // N regardless of rotation), so two different rotations of the SAME K/N must produce different onset sets.
+    func testEuclidMaskFoldRotateShiftsWhichStepsGate() {
+        func onsets(_ rotate: Int) -> [Int64] {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 3; mask.params.maskRotate = rotate
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.sample }
+        }
+        XCTAssertNotEqual(onsets(0), onsets(2), "rotating the Bjorklund figure changes WHICH ticks gate through, not just how many")
+    }
+    // K = N is the OFF state (SPEC-arp-euclid-mask's own convention, carried over unchanged) — byte-identical to the
+    // arp alone.
+    func testEuclidMaskKEqualsNIsANoOp() {
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 8
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        func ons(_ procs: [ProcessorSlot]) -> [RecordingEmitter.Ev] {
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }
+        }
+        XCTAssertEqual(ons([arp, mask]), ons([arp]), "K = N is OFF — byte-identical to the arp alone")
+    }
+    // Driver-agnostic, the actual point of pulling this out of ARP: [RIFF→EUCLID MASK] gates just like [ARP→EUCLID
+    // MASK] does — don't just re-prove it on arp.
+    func testEuclidMaskFoldsOntoRiffToo() {
+        func riffCount(_ withMask: Bool) -> Int {
+            var riff = ProcessorSlot(type: .riff); riff.params.riffRate = .r1_16
+            var procs = [riff]
+            if withMask { var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 4; procs.append(mask) }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertLessThan(riffCount(true), riffCount(false), "[RIFF→EUCLID MASK] also gates — proves the mask is driver-agnostic, not arp-only")
+    }
+    // Standalone (no driver upstream): an explicit v1 no-op, like DEST/VELOCITY/CLOCK/KILL STEP — nothing to fold
+    // onto, so a lone [EUCLID MASK] must behave exactly like an empty chain (the AVOID-class "silently emits nothing
+    // standalone" bug this guards against — Housekeeping 2026-08-31).
+    func testEuclidMaskAloneIsANoOp() {
+        let cs = arpMachines()
+        var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 4   // an ACTIVE mask — still nothing to fold onto
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mask]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
+                       "a lone EUCLID MASK has no driver to fold onto — it's a no-op, exactly like an empty chain")
+        assertNothingLeftSounding(e)
+    }
     // A chain whose ONLY driver is a fold-ratchet (COIN pass-through) must still DRIVE: chainDriverIndex skips isRatchetFold
     // but falls back to the last driver when there's no non-fold driver, so a lone [RATCHET COIN rtcFold] generates.
     func testLoneFoldableRatchetStillDrives() {

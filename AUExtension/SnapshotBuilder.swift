@@ -552,6 +552,14 @@ enum SnapshotBuilder {
         out.arpMaskChordGate = p.arpMaskChordGate.map { clamp($0, 0.05, 1) } ?? out.gate
         out.arpMaskChordOct = clamp(p.arpMaskChordOct ?? 0, -2, 2)
         out.arpMaskChordVel = clamp(p.arpMaskChordVel ?? 1, 0, 1)
+        // EUCLID MASK, standalone processor (Paul 2026-09-27): same resolve shape as arpMask* above, no WALK.
+        out.maskN = max(1, min(64, p.maskN ?? 8))
+        out.maskK = max(1, min(out.maskN, p.maskK ?? out.maskN))
+        if let v = p.maskGap { out.maskGap = v }
+        out.maskRotate = (((p.maskRotate ?? 0) % out.maskN) + out.maskN) % out.maskN
+        out.maskChordGate = clamp(p.maskChordGate ?? 0.6, 0.05, 1)
+        out.maskChordOct = clamp(p.maskChordOct ?? 0, -2, 2)
+        out.maskChordVel = clamp(p.maskChordVel ?? 1, 0, 1)
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
             out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),
