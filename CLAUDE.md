@@ -199,6 +199,40 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID MASK — the arp-only mask pulled into a standalone downstream processor (2026-09-27, on `main`, `d6bb40d`;
+  macOS 1116 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Paul asked whether the ARP EUCLID MASK feature
+  (`arpMask*` — a K-of-N Bjorklund pattern with GAPS·WALK·ROTATE, baked inline into `emitArpRow`) could work as its
+  own chain processor, usable downstream of ANY driver, not just ARP. Worked the architecture out live: GAP
+  (REST·TIE·CHORD) + ROTATE fit the codebase's existing per-note downstream-FOLD seam (`isModifierFoldable` +
+  `emitDriverNote`) — the same one SHIFT/HUMANIZE/VELOCITY/RATCHET's fold already use — so pulling them out reaches
+  the WHOLE driver roster (ARP/RIFF/STRUM/RATCHET/EUCLID-as-driver/…) for free. WALK's WAIT mode does NOT fit that
+  seam — it doesn't reshape a note it's handed, it overrides which note the driver picks in the first place (feeds
+  `euclidMaskHitsBefore` into `arpPick`'s `phaseIndex`), a decision already made before any fold sees the note.
+  Traced WAIT's actual mechanism to the SAME renumbering `killStepPhase` already does — it belongs to the OTHER
+  existing seam, the upstream beat-transform family CLOCK/KILL STEP use (`driverClockBeat`), which would need the
+  processor to sit BEFORE its target driver instead of after (the opposite position from GAP/CHORD/ROTATE). Paul:
+  "I'm happy to drop wait as an option." **BUILT:** `ProcessorType.euclidMask` — not `isDriverType`, joins
+  `isModifierFoldable`; a new fold block in `emitDriverNote` keyed on the note's ordinal against the upstream
+  driver's own rate (mirroring VELOCITY's `driverStep`), reusing `euclidMaskHit`/`euclidMaskTieRun` unchanged; new
+  `mask*` fields mirrored on BOTH `MachineParams` and `SnapParams` (+ the `SnapshotBuilder` resolve — missing this
+  the first time round is what the macOS build caught immediately); a new GridUI editor (the ARP mask block minus
+  WALK); a DYNAMICS storefront card; `cellMode` classifies it `.identity` (same bucket as VELOCITY/DEST/CLOCK/KILL
+  STEP — verified via `applyStage`'s `default:` fallthrough, not assumed). ARP's own embedded `arpMask*`
+  fields/editor are UNTOUCHED — this is additive, not a migration. +7 RouterTests (REST drops gap notes · TIE
+  extends the gate across gaps, not just count · CHORD stabs the gap with more note-ons · ROTATE changes WHICH
+  ticks gate, not the count · K=N is byte-identical to the arp alone · folds onto RIFF too, proving it's
+  driver-agnostic · a lone instance is a no-op exactly like an empty chain, guarding the AVOID-class "silently
+  emits nothing standalone" bug) + fuzz coverage (hammers the CHORD note-injection path especially, the most likely
+  place to leak a stuck voice). **CAUGHT DURING THE BUILD (own dead-code survey, not guessed):** `MacroAuthoring.
+  swift`'s per-processor macro-bindable-params switch is exhaustive via a big bundled catch-all case
+  (`case .octave, .transpose, …, .killStep:`) that a naive grep for `"case .killStep"` misses (killStep isn't the
+  FIRST case in that line) — cost one extra build round-trip; added `.euclidMask` to the same bucket (its config is
+  per-step/discrete, not a simple macro-foldable scalar, matching KILL STEP's own reasoning). **PLAN:**
+  `~/.claude/plans/stateless-tickling-flask.md`. **DEFERRED (Paul 2026-09-27, logged in `Docs/pending-tasks.md` +
+  a memory file):** once this is device-verified, raise whether KILL STEP itself should gain selectable
+  disabled-step behaviors (DROP/MUTE/PAUSE) instead of one fixed behavior — a direct spin-off of this same
+  conversation. **DEVICE-OWED:** the new card's editor legibility, GAP=CHORD actually sounding right downstream of
+  a non-ARP driver (e.g. `[RIFF→EUCLID MASK]`), TIE's extended-gate feel, ROTATE's control.**
 - **▶ FERRY ROW UNIFICATION — Stage 1: dead-code removal (2026-09-27, on `feature/ferry-row-unification`, `f689649`;
   macOS 1109 green, iOS builds). Paul: background ferries should play polyphonically, not the mono reduction
   `buildFlattenFerry` forces on them today — and questioned why the engine has a shared rows-0-7 concept at all.

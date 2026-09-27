@@ -23,24 +23,18 @@ controls (OCTAVE · LENGTH · VELOCITY) · the SPEED/rate LFO with INCLUDE-famil
 and the FROM→TO→DURATION→WAVE **editor redesign** (FROM is two-views of the base param; depth/phase/quantize
 dropped, `paramLFOValue` removed). The MOD editor was reworked to the same FROM/TO/DURATION/WAVE anatomy (`383ca9c`).
 OPEN:
-- **★ GENERALIZE THE MASK INTO A STANDALONE DOWNSTREAM PROCESSOR (discussed with Paul 2026-09-27, NOT YET PLANNED):**
-  pull GAP (REST·TIE·CHORD) + ROTATE out of ARP-only fields (`arpMask*` on `MachineParams`, applied inline inside
-  `emitArpRow`) into a new non-driver chain processor, following the SAME seam SHIFT/HUMANIZE/VELOCITY already use
-  (`isModifierFoldable` — Router.swift:3810 — makes `chainDriverIndex` skip it so the upstream driver keeps
-  generating; the note-level effect applies in `emitDriverNote`, keyed on the note's ordinal against the upstream
-  driver's own rate, like VELOCITY's `driverStep` at Router.swift:4586) — so it folds onto ANY driver (RIFF, STRUM,
-  RATCHET, EUCLID-as-driver, etc.), not just ARP. **WAIT DROPPED (Paul 2026-09-27):** WAIT ("the walk only advances
-  on hits") doesn't fit that fold seam — it actually maps onto the OTHER existing seam, the upstream beat-transform
-  family CLOCK/KILL STEP use (`driverClockBeat`/`killStepPhase`, Router.swift:3870/3900 + Derivations.swift:335 —
-  structurally the same renumbering KILL STEP already does with a hand-toggled lane, just fed a Bjorklund K/N/rotate
-  pattern instead), which would require the processor to sit BEFORE its target driver in the chain — the opposite
-  position from GAP/CHORD/ROTATE's AFTER. Paul chose to drop WAIT rather than take on that chain-position split (one
-  processor, one role). TIE + MARCH's mute are fold-compatible, no such problem. **★★ REMINDER FOR AFTER THIS LANDS
-  (Paul 2026-09-27):** revisit extending KILL STEP itself with selectable disabled-step behaviors — DROP (today's
-  only behavior: skip/compact, downstream jumps past it) / MUTE / PAUSE — instead of one fixed behavior. A direct
-  spin-off of this same conversation (once WAIT was dropped, Paul noticed KILL STEP is already the generalized
-  "what happens to a disabled step" mechanism, so its own disabled-step behavior might as well be pluggable). Do NOT
-  build until the euclid-mask extraction above is planned + implemented first.
+- **✅ EUCLID MASK — GENERALIZED INTO A STANDALONE DOWNSTREAM PROCESSOR — LANDED (2026-09-27, on `main`, `d6bb40d`;
+  macOS 1116 green incl. fuzz, iOS builds; DEVICE ear/eye owed).** See CLAUDE.md's status log for the full writeup.
+  Pulled GAP (REST·TIE·CHORD) + ROTATE out of ARP-only fields (`arpMask*`) into a new `ProcessorType.euclidMask` —
+  a non-driver fold (`isModifierFoldable`) that gates ANY driver (RIFF, STRUM, RATCHET, EUCLID-as-driver, etc.), not
+  just ARP. WAIT was DROPPED (Paul: "I'm happy to drop wait as an option") — it belongs to the CLOCK/KILL-STEP
+  upstream beat-transform family instead, which would need the opposite chain position. ARP's own `arpMask*`
+  fields/editor are untouched. +7 RouterTests + fuzz coverage. Plan: `~/.claude/plans/stateless-tickling-flask.md`.
+  **★★ DUE NOW (Paul 2026-09-27, the gate — "planned and implemented" — is met):** raise with Paul whether KILL
+  STEP itself should gain selectable disabled-step behaviors (DROP/MUTE/PAUSE) instead of one fixed behavior — a
+  direct spin-off of this same conversation (once WAIT was dropped, Paul noticed KILL STEP is already the
+  generalized "what happens to a disabled step" mechanism, so its own disabled-step behavior might as well be
+  pluggable). Also see the memory file `euclid-mask-then-killstep-followup.md`.
 - **★ ACCENT LAYER (the next euclid-mask feature — pencilled in, Paul 2026-09-15):** a SECOND euclidean pattern (own
   K-of-N + ROTATE) that BOOSTS velocity on the steps it hits — the classic two-euclid technique (one pattern for
   notes, one for accents). Medium-sized; makes the mask genuinely generative. Do after the CHORD-stab work.
