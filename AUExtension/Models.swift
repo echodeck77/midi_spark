@@ -117,6 +117,13 @@ enum RiffDir: String, Codable, CaseIterable { case forward = "FWD", reverse = "R
 // note (TIE); the walk marches through rests (MARCH — holes) or steps only on hits (WAIT — the sequence re-spaced).
 enum ArpMaskGap: String, Codable, CaseIterable { case rest = "REST", tie = "TIE", chord = "CHORD" }   // non-hit steps: rest (silence) · tie (sustain the prior note) · chord (strike the full held chord) — Paul 2026-09-14
 enum ArpMaskWalk: String, Codable, CaseIterable { case march = "MARCH", wait = "WAIT" }
+// KILL STEP per-step MODE (Paul 2026-09-27): a step is exactly one of these four — ON (plays normally) · MUTE (the
+// downstream clock still advances through it, only its sound is suppressed — a pure per-note fold, no timing
+// change) · DROP (today's original "disabled": removed from the downstream timeline entirely, the surviving steps
+// compact + repeat to refill the pass) · PAUSE (the downstream clock FREEZES at its current value for a
+// configurable number of extra steps, then resumes — a hold/breath, not a retrigger: nothing new triggers during
+// the freeze, whatever's already sounding just rings on).
+enum KillStepMode: String, Codable, CaseIterable { case on = "ON", mute = "MUTE", drop = "DROP", pause = "PAUSE" }
 // EUCLID LINES (SPEC-euclid-variations §10, ratified): EUCLID = up to 8 lines in one card — each a euclid pattern
 // (K-of-N · ROTATE · INVERT) striking a TARGET (0 = ALL the chord, honouring the card's PICK · 1–8 = a specific pool
 // rank). Per-line STEPS = polyrhythm (kick/hat/pulse from one chord, one machine). Line 1 = today's single euclid; when
@@ -464,7 +471,11 @@ struct MachineParams: Codable, Equatable {
     // repeat to fill the pass. UNLIKE clock, it carries its OWN RATE (an ordinary per-processor clock control, not
     // borrowed from the grid's S) — the "value" it hands downstream is exact only relative to that rate.
     var killStepCount: Int? = nil                // step count 1…32; nil ⇒ 8
-    var killStepEnabled: [Bool]? = nil           // per-step ON/OFF; nil ⇒ all ON (a true no-op, any RATE/SPAN)
+    var killStepEnabled: [Bool]? = nil           // LEGACY (Paul 2026-09-27, decode-only migration source — nothing shipped ever
+                                                  // wrote this after killStepMode landed): per-step ON/OFF. When killStepMode is
+                                                  // absent, resolved as true→.on/false→.drop (byte-identical to before).
+    var killStepMode: [KillStepMode]? = nil      // per-step ON·MUTE·DROP·PAUSE (Paul 2026-09-27); nil ⇒ derive from killStepEnabled, else all ON
+    var killStepPauseLen: Int? = nil             // PAUSE hold length, in EXTRA steps beyond the one it already occupies; nil ⇒ 1
     var killStepRate: ArpRate? = nil             // this stage's OWN clock; nil ⇒ 1/8
     var killStepSpanN: Int? = nil                // SPAN re-anchor (spanLadderValues, 0 = FREE); nil ⇒ ROW (8)
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)

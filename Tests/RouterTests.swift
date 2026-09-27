@@ -814,6 +814,67 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 2 }.count, 3, "B — real columns 1, 4, 7")
         XCTAssertEqual(e.ons.filter { $0.cable == 3 }.count, 2, "C — real columns 2, 5")
     }
+    // KILL STEP MUTE (Paul 2026-09-27): unlike DROP, MUTE only has an effect when KILL STEP precedes the driver it
+    // retimes ([KILL STEP→ARP] — its OWN generation); downstream of a driver ([ARP→KILL STEP→DEST]) KILL STEP only
+    // retimes DEST's own clock, and there's no note-generation event left at its own position to suppress, so MUTE
+    // is a no-op there (DROP/PAUSE still work in both positions since they're pure time-transforms — flagged, not a
+    // bug). Here: ONE muted step removes exactly that step's note-on; every OTHER onset keeps its exact real timing
+    // (unlike DROP, nothing compacts/repeats to fill the gap).
+    func testKillStepMuteKeepsTimingButSilencesTheStep() {
+        func onsets(_ modes: [KillStepMode]) -> [Int64] {
+            var ks = ProcessorSlot(type: .killStep); ks.params.killStepCount = 8; ks.params.killStepMode = modes; ks.params.killStepRate = .r1_8; ks.params.killStepSpanN = 0
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ks, arp]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
+        }
+        let allOn = onsets(Array(repeating: .on, count: 8))
+        var oneMuted = Array(repeating: KillStepMode.on, count: 8); oneMuted[3] = .mute
+        let muted = onsets(oneMuted)
+        XCTAssertEqual(muted.count, allOn.count - 1, "MUTE removes exactly one note-on — the muted step's — nothing else")
+        XCTAssertEqual(Set(allOn).subtracting(muted).count, 1, "the timing of every OTHER onset is byte-identical (unlike DROP, nothing compacts to fill the hole)")
+    }
+    // KILL STEP PAUSE (Paul 2026-09-27): freezes the downstream clock at its current value for PAUSE LEN extra real
+    // columns, then resumes — a hold, not a retrigger. [ARP→KILL STEP→DEST] makes DEST's own routing the external
+    // witness (mirrors `testKillStepTransformsDestsOwnRoutingClock`'s technique): a step immediately before a PAUSE
+    // step should see SEVERAL consecutive real arp ticks land on the SAME emitter while the pause holds, instead of
+    // advancing one-per-tick like every other step.
+    func testKillStepPauseFreezesDownstreamTicks() {
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+        var ks = ProcessorSlot(type: .killStep)
+        ks.params.killStepCount = 8; ks.params.killStepRate = .r1_8; ks.params.killStepSpanN = 0
+        ks.params.killStepMode = [.on, .on, .pause, .on, .on, .on, .on, .on]   // step 2 pauses
+        ks.params.killStepPauseLen = 2                                         // holds for 3 real columns total (1 + 2)
+        var dest = ProcessorSlot(type: .dest)
+        dest.params.destRate = .r1_8; dest.params.destSlices = [0, 1, 2, 3, -1, -1, -1, -1]   // slice 2 → C; the paused step's slot
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); c.processors = [arp, ks, dest]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 1, "A — real column 0, unaffected by a pause two steps later")
+        XCTAssertEqual(e.ons.filter { $0.cable == 2 }.count, 1, "B — real column 1")
+        XCTAssertEqual(e.ons.filter { $0.cable == 3 }.count, 3, "C — real columns 2,3,4 ALL read the frozen value during the hold, unlike every other step's one-per-tick advance")
+        XCTAssertEqual(e.ons.filter { $0.cable == 4 }.count, 1, "D — real column 5, resumes normally once the hold ends")
+    }
+    // LEGACY MIGRATION (Paul 2026-09-27): an old doc's killStepEnabled (true→ON, false→DROP) must resolve
+    // BYTE-IDENTICAL to the same pattern authored directly via the new killStepMode field.
+    func testKillStepLegacyEnabledMigratesToOnAndDrop() {
+        func onsets(_ configure: (inout ProcessorSlot) -> Void) -> [Int64] {
+            var ks = ProcessorSlot(type: .killStep); ks.params.killStepCount = 8; ks.params.killStepRate = .r1_8; ks.params.killStepSpanN = 0
+            configure(&ks)
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ks, arp]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
+        }
+        let legacy = onsets { $0.params.killStepEnabled = [true, true, true, true, false, false, false, false] }
+        let modern = onsets { $0.params.killStepMode = [.on, .on, .on, .on, .drop, .drop, .drop, .drop] }
+        XCTAssertEqual(legacy, modern, "an old killStepEnabled row and the equivalent new killStepMode row must resolve identically")
+    }
     // STANDALONE RATCHET PATTERN = a PASS-THROUGH PROCESSOR, not a generator (Paul 2026-09-08). A lone (single-slot)
     // ratchet-pattern cell RECEIVES the input and passes it through; its own clock only decides per-column treatment
     // (1 = pass/sustain · 2…8 = ratchet · 0 = OFF/mute). It must NOT manufacture a note per step — the fix for "a short

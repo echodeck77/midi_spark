@@ -5121,11 +5121,13 @@ extension DiagView {
         case .recorder: switch s.params.recMode ?? .loop { case .loop: m = "LOOP"; case .freeze: m = "FRZ"; case .canon: m = "CANON" }
         case .clock:   // self-names its own step count (Paul 2026-09-26 — FIXED/WAVE removed; CLOCK is now always the grid)
             m = "\(max(1, min(32, s.params.clockDrawnSteps ?? 8)))-STEP"
-        case .killStep:   // self-names ON-count/TOTAL (Paul 2026-09-26)
+        case .killStep:   // self-names ON-count/TOTAL (Paul 2026-09-26; MUTE/DROP/PAUSE all count as "not on" 2026-09-27)
             let cnt = max(1, min(32, s.params.killStepCount ?? 8))
-            var arr = s.params.killStepEnabled ?? Array(repeating: true, count: cnt)
-            while arr.count < cnt { arr.append(true) }
-            m = "\(arr.prefix(cnt).filter { $0 }.count)/\(cnt)"
+            let modes: [KillStepMode]
+            if let m2 = s.params.killStepMode, !m2.isEmpty { modes = (0..<cnt).map { i in i < m2.count ? m2[i] : .on } }
+            else if let e = s.params.killStepEnabled, !e.isEmpty { modes = (0..<cnt).map { i in (i < e.count ? e[i] : true) ? .on : .drop } }
+            else { modes = Array(repeating: .on, count: cnt) }
+            m = "\(modes.filter { $0 == .on }.count)/\(cnt)"
         case .euclidMask:   // self-names HITS-of-N (Paul 2026-09-27)
             let mN = max(2, min(16, s.params.maskN ?? 8))
             m = "\(max(1, min(mN, s.params.maskK ?? mN)))/\(mN)"

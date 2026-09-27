@@ -2351,15 +2351,20 @@ final class DerivationsTests: XCTestCase {
         }
     }
 
-    // KILL STEP (Paul 2026-09-26, sibling to CLOCK) — a DISCRETE on/off step remap: a disabled step is removed from
-    // the downstream timeline; the enabled steps repeat to fill the pass. A no-op (all steps enabled) reduces to the
-    // identity EXACTLY, at any rate/period, since `value ≡ n` when every index is kept.
+    // KILL STEP (Paul 2026-09-26, sibling to CLOCK; MUTE/PAUSE added 2026-09-27) — a DISCRETE step remap via a
+    // PRECOMPUTED table (`killStepResolveTable`): DROP is removed from the downstream timeline, the surviving steps
+    // repeat to fill the pass; MUTE counts exactly like ON for this transform (it only silences the note — a
+    // separate fold, Router.emitDriverNote — never this table); PAUSE freezes the local value for its own hold
+    // length. `ksModes` converts the OLD bool-array fixtures (true→ON, false→DROP) so these read exactly as they did
+    // before the table refactor — proving it byte-identical whenever nothing is MUTE/PAUSE. A no-op (all ON) reduces
+    // to the identity EXACTLY, at any rate/period, since `value ≡ n` when every index is kept.
+    private func ksModes(_ enabled: [Bool]) -> [KillStepMode] { enabled.map { $0 ? .on : .drop } }
     func testKillStepPhaseIsExactIdentityWhenAllStepsEnabled() {
-        let allOn = Array(repeating: true, count: 8)
+        let t = killStepResolveTable(ksModes(Array(repeating: true, count: 8)), pauseLen: 1)
         for rate in [0.25, 0.5, 1.0, 2.0] {
             for origin in [0.0, 1.3, -2.7] {
                 for beat in stride(from: origin - 5, through: origin + 12, by: 0.41) {
-                    XCTAssertEqual(killStepPhase(beat, enabled: allOn, steps: 8, rateBeats: rate, periodBeats: 0, originOverride: origin),
+                    XCTAssertEqual(killStepPhase(beat, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: rate, periodBeats: 0, originOverride: origin),
                                    beat, accuracy: 1e-9, "rate \(rate) origin \(origin) beat \(beat)")
                 }
             }
@@ -2370,23 +2375,23 @@ final class DerivationsTests: XCTestCase {
     // must climb by a full lap (8) each time it wraps, since the shared tick-search machinery needs a monotonic
     // local beat to walk forward through.
     func testKillStepPhasePlaysTheFirstHalfTwiceOverOnePass() {
-        let enabled = [true, true, true, true, false, false, false, false]
-        let got = (0..<8).map { n in killStepPhase(Double(n), enabled: enabled, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
+        let t = killStepResolveTable(ksModes([true, true, true, true, false, false, false, false]), pauseLen: 1)
+        let got = (0..<8).map { n in killStepPhase(Double(n), columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
         XCTAssertEqual(got, [0, 1, 2, 3, 8, 9, 10, 11], "columns 0…3 repeat (offset by a full lap of 8) instead of ever reaching 4…7")
     }
     // 3 of 8 enabled: the enabled set doesn't divide the 8-column bar evenly, so the 3-cycle rotates against it
     // ("overriding the clock") instead of realigning every pass.
     func testKillStepPhaseRotatesAnUnevenCountAgainstTheBar() {
-        let enabled = [true, true, true, false, false, false, false, false]
-        let got = (0..<8).map { n in killStepPhase(Double(n), enabled: enabled, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
+        let t = killStepResolveTable(ksModes([true, true, true, false, false, false, false, false]), pauseLen: 1)
+        let got = (0..<8).map { n in killStepPhase(Double(n), columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
         XCTAssertEqual(got, [0, 1, 2, 8, 9, 10, 16, 17], "a 3-enabled-of-8 row drifts a full lap ahead every 3 real columns, never landing back on the bar's own 8-count")
     }
     // An all-disabled row is never silent/undefined — it falls back to all-enabled, matching
     // `clockDrawnResolveRatios`'s empty-lane convention (a true no-op, identical to testKillStepPhaseIsExact…).
     func testKillStepPhaseAllDisabledFallsBackToAllEnabled() {
-        let allOff = Array(repeating: false, count: 8)
+        let t = killStepResolveTable(ksModes(Array(repeating: false, count: 8)), pauseLen: 1)
         for beat in stride(from: -3.0, through: 9.0, by: 0.7) {
-            XCTAssertEqual(killStepPhase(beat, enabled: allOff, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0),
+            XCTAssertEqual(killStepPhase(beat, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0),
                            beat, accuracy: 1e-9, "beat \(beat)")
         }
     }
@@ -2404,10 +2409,11 @@ final class DerivationsTests: XCTestCase {
             ([true], 1, 1.0),
         ]
         for c in cases {
+            let t = killStepResolveTable(ksModes(c.enabled), pauseLen: 1)
             for origin in [0.0, 2.7, -1.4] {
                 for beat in stride(from: origin - 3.0, through: origin + 9.0, by: 0.37) {
-                    let local = killStepPhase(beat, enabled: c.enabled, steps: c.steps, rateBeats: c.rateBeats, periodBeats: 0, originOverride: origin)
-                    let back = killStepPhaseInverse(local, originBeat: origin, enabled: c.enabled, steps: c.steps, rateBeats: c.rateBeats)
+                    let local = killStepPhase(beat, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: c.steps, rateBeats: c.rateBeats, periodBeats: 0, originOverride: origin)
+                    let back = killStepPhaseInverse(local, originBeat: origin, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, firstSlot: t.firstSlot, steps: c.steps, rateBeats: c.rateBeats)
                     XCTAssertEqual(back, beat, accuracy: 1e-6, "enabled \(c.enabled) origin \(origin) beat \(beat)")
                 }
             }
@@ -2420,11 +2426,60 @@ final class DerivationsTests: XCTestCase {
     // (confirmed, not just asserted) forward-mapping THAT real beat lands on a genuine, differently-valued local
     // beat (8.3, the very next repeat) rather than reproducing the original gap probe — this is not a round trip.
     func testKillStepPhaseInverseSnapsForwardPastAGap() {
-        let enabled = [true, true, true, true, false, false, false, false]
-        let back = killStepPhaseInverse(5.3, originBeat: 0, enabled: enabled, steps: 8, rateBeats: 1)
+        let t = killStepResolveTable(ksModes([true, true, true, true, false, false, false, false]), pauseLen: 1)
+        let back = killStepPhaseInverse(5.3, originBeat: 0, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, firstSlot: t.firstSlot, steps: 8, rateBeats: 1)
         XCTAssertEqual(back, 4.3, accuracy: 1e-9, "snaps forward to the start of the next enabled repeat (real column 0 of the second lap)")
-        let reforward = killStepPhase(back, enabled: enabled, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0)
+        let reforward = killStepPhase(back, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0)
         XCTAssertEqual(reforward, 8.3, accuracy: 1e-9, "the snapped-to real beat maps forward to a genuine repeat, not back to the gap")
+    }
+    // NEW (Paul 2026-09-27): MUTE counts exactly like ON for this TRANSFORM — a row of [ON,MUTE,ON,MUTE,DROP×4]
+    // must be timing-IDENTICAL to testKillStepPhasePlaysTheFirstHalfTwiceOverOnePass's plain ON/DROP row (MUTE's
+    // only effect — silencing the note — lives entirely in Router.emitDriverNote's fold, never in this table).
+    func testKillStepPhaseMuteCountsLikeOnForTiming() {
+        let t = killStepResolveTable([.on, .mute, .on, .mute, .drop, .drop, .drop, .drop], pauseLen: 1)
+        let got = (0..<8).map { n in killStepPhase(Double(n), columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
+        XCTAssertEqual(got, [0, 1, 2, 3, 8, 9, 10, 11], "MUTE steps advance the local value exactly like ON — same shape as an equivalent ON/DROP row")
+    }
+    // NEW: PAUSE freezes the local value across its own hold — real columns [pauseCol, pauseCol+1+pauseLen) must
+    // read the IDENTICAL local value (a true freeze, no drift within the hold), then jump forward by exactly one
+    // step once it ends. Hand-traced against `killStepResolveTable`'s own algorithm, not guessed.
+    func testKillStepPhasePauseFreezesForItsHoldLength() {
+        let t = killStepResolveTable([.on, .pause, .on, .on], pauseLen: 2)   // step 1 pauses; table = [0,1,1,1,2,3], columnsPerLap 6
+        let got = (0..<6).map { n in killStepPhase(Double(n), columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 4, rateBeats: 1, periodBeats: 0, originOverride: 0) }
+        XCTAssertEqual(got, [0, 1, 1, 1, 2, 3], "step 1's PAUSE holds the SAME local value across 3 real columns (1 + pauseLen 2), then resumes")
+    }
+    // Inverse round-trip must also hold with MUTE in the mix — MUTE is injective just like ON (each real column still
+    // maps to a DISTINCT local value), so the same "exact everywhere" guarantee applies. (PAUSE is deliberately
+    // EXCLUDED here — see the two tests below for why a blind round-trip sweep is the wrong test for it.)
+    func testKillStepPhaseInverseRoundTripsWithMuteInTheMix() {
+        let t = killStepResolveTable([.on, .mute, .on, .mute, .drop, .drop, .drop, .drop], pauseLen: 1)
+        for origin in [0.0, 1.9] {
+            for beat in stride(from: origin - 3.0, through: origin + 9.0, by: 0.31) {
+                let local = killStepPhase(beat, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 0.5, periodBeats: 0, originOverride: origin)
+                let back = killStepPhaseInverse(local, originBeat: origin, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, firstSlot: t.firstSlot, steps: 8, rateBeats: 0.5)
+                XCTAssertEqual(back, beat, accuracy: 1e-6, "origin \(origin) beat \(beat)")
+            }
+        }
+    }
+    // CAUGHT BY THE TEST SUITE, not hand-derived (this session's own standing rule — trace, don't re-guess): a first
+    // draft asserted the SAME blind round-trip sweep for PAUSE and failed ~64 times. Root cause, traced: PAUSE makes
+    // the forward map NON-INJECTIVE by design — every real column across the whole hold maps to the SAME frozen local
+    // value (that IS the freeze) — so a beat landing on the 2nd/3rd real column of a hold can only invert back to the
+    // hold's FIRST column (same "snap to a real occurrence" policy `testKillStepPhaseInverseSnapsForwardPastAGap`
+    // already documents for DROP gaps — this is that same policy, hand-verified explicitly instead of swept blindly).
+    func testKillStepPhaseInverseOfAPausedValuePicksTheFirstOccurrence() {
+        let t = killStepResolveTable([.on, .pause, .on, .on], pauseLen: 2)   // step 1 pauses; table [0,1,1,1,2,3], columnsPerLap 6
+        for frac in [0.0, 0.2, 0.7] {   // any within-column offset — the inverse still snaps the COLUMN, offset carries through
+            let back = killStepPhaseInverse(1.0 + frac, originBeat: 0, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, firstSlot: t.firstSlot, steps: 4, rateBeats: 1)
+            XCTAssertEqual(back, 1.0 + frac, accuracy: 1e-9, "value 1's FIRST real occurrence is real column 1 — frac \(frac)")
+        }
+    }
+    // The other half of the same fact, checked forward: real columns 1, 2, AND 3 (the whole hold: 1 + pauseLen 2)
+    // must all map to the SAME local value — a true freeze, not an approximation.
+    func testKillStepPhaseAllColumnsOfAHoldMapToTheSameValue() {
+        let t = killStepResolveTable([.on, .pause, .on, .on], pauseLen: 2)
+        let values = [1.0, 2.0, 3.0].map { n in killStepPhase(n, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 4, rateBeats: 1, periodBeats: 0, originOverride: 0) }
+        XCTAssertEqual(Set(values).count, 1, "real columns 1,2,3 (the whole 3-column hold) must read the IDENTICAL local value \(values)")
     }
 
     // CHORDS degrees sized to the matrix width (Paul 2026-09-16 fix): a wide matrix keeps all its authored columns.

@@ -475,10 +475,32 @@ enum SnapshotBuilder {
         out.clockDrawnSteps = clamp(p.clockDrawnSteps ?? 8, 1, 32)
         out.clockDrawnGlide = (0..<out.clockDrawnSteps).map { i in (p.clockDrawnGlide?.count ?? 0) > i ? p.clockDrawnGlide![i] : false }
         out.clockDrawnRatios = clockDrawnResolveRatios(p.clockDrawnRatios ?? [], steps: out.clockDrawnSteps)
-        // KILL STEP (Paul 2026-09-26): resolve the on/off row ONCE here — short/missing entries default to ON (an
-        // untouched row is a true no-op), so the render side (Router.killStepPhase/…Inverse) never re-pads.
+        // KILL STEP (Paul 2026-09-26; MUTE/PAUSE added 2026-09-27): resolve the per-step MODE row ONCE here —
+        // short/missing entries default to ON (an untouched row is a true no-op) — then precompute the transform
+        // TABLE the render side reads (Router.killStepPhase/…Inverse), so no re-derivation happens on the render
+        // path. Prefer the new killStepMode; else migrate the legacy killStepEnabled bool row (true→ON, false→DROP,
+        // byte-identical to what shipped before this); else all ON.
         out.killStepCount = clamp(p.killStepCount ?? 8, 1, 32)
-        out.killStepEnabled = (0..<out.killStepCount).map { i in (p.killStepEnabled?.count ?? 0) > i ? p.killStepEnabled![i] : true }
+        let ksModes: [KillStepMode]
+        if let m = p.killStepMode, !m.isEmpty {
+            ksModes = (0..<out.killStepCount).map { i in i < m.count ? m[i] : .on }
+        } else if let e = p.killStepEnabled, !e.isEmpty {
+            ksModes = (0..<out.killStepCount).map { i in (i < e.count ? e[i] : true) ? .on : .drop }
+        } else {
+            ksModes = Array(repeating: .on, count: out.killStepCount)
+        }
+        out.killStepMode = ksModes
+        out.killStepPauseLen = clamp(p.killStepPauseLen ?? 1, 1, 16)
+        // The TABLE (shared with GridUI's live-playhead preview via killStepResolveTable, Derivations.swift, so the
+        // two can never independently drift): walk the non-DROP steps in order; a PAUSE step repeats its own index
+        // (1 + pauseLen) times, so downstream's local clock reads the SAME value across every real column of the
+        // hold (a true freeze). ON and MUTE both consume exactly one column each — MUTE affects only whether a note
+        // SOUNDS (a separate fold, Router.emitDriverNote), never this table. When no step is MUTE/PAUSE this reduces
+        // to EXACTLY today's onIdx/k — same length, same contents, same order.
+        let ksTable = killStepResolveTable(ksModes, pauseLen: out.killStepPauseLen)
+        out.killStepColumnMap = ksTable.columnMap
+        out.killStepColumnsPerLap = ksTable.columnsPerLap
+        out.killStepFirstSlot = ksTable.firstSlot
         if let v = p.killStepRate { out.killStepRateBeats = max(0.03125, v.beats) }
         if let v = p.killStepSpanN { out.killStepSpanN = v }
         if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice

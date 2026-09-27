@@ -318,59 +318,72 @@ func clockDrawnPhaseInverse(_ localBeat: Double, originBeat: Double, ratios: [Do
 // Unlike CLOCK's ratio warp (a continuous, everywhere-invertible speed change), this is a DISCRETE remap: within a
 // kept real column, local time runs at ORDINARY rate (no speed change) — only WHICH column comes next changes.
 
-/// Construction: sort the enabled indices e_0 < e_1 < … < e_{k-1} (k ≤ steps); at the n-th real column since the
-/// span origin (n = ⌊(beat − origin) / rateBeats⌋, can be negative before the origin), the value fed downstream is
-/// `lap·steps + e_{n mod k}` where `lap = ⌊n / k⌋` — so `value mod steps` cycles through exactly the enabled
-/// indices in appearance order (e.g. steps=8, enabled={0,1,2,3} → 0,1,2,3,0,1,2,3,… over one pass — "the first half
-/// plays twice"; steps=8, enabled={0,1,2} → 0,1,2,0,1,2,0,1,… — a 3-cycle drifting against the 8-column bar,
-/// "overriding the clock"), and `value` is STRICTLY increasing in `n` (each lap of k real columns adds a full
-/// `steps`, always greater than any index within a lap) — which is exactly what the shared tick-search machinery
-/// needs: a monotonic local beat it can walk forward through and invert discovered ticks back from. An ALL-disabled
-/// row falls back to ALL-enabled (never silent/undefined, matching `clockDrawnResolveRatios`'s empty-lane
-/// convention), so this is a TRUE no-op — algebraically exact at any RATE/SPAN — whenever nothing has been switched
-/// off (value ≡ n exactly when k == steps, so `originBeat + value·rateBeats + withinCol` reduces to `beat` itself).
-/// `enabled` is already fully resolved (length == steps; SnapshotBuilder pads/clamps) — no render-path allocation
-/// here beyond the fixed-size local filter. `originOverride`, mirroring `clockDrawnPhase`, lets a driver's whole
-/// tick-search window pin every candidate to ONE shared span-origin (see that function's own doc comment for why).
-func killStepPhase(_ beat: Double, enabled: [Bool], steps: Int, rateBeats: Double, periodBeats P: Double, originOverride: Double? = nil) -> Double {
-    guard steps > 0, rateBeats > 0 else { return beat }
-    var onIdx = (0..<steps).filter { $0 < enabled.count && enabled[$0] }
-    if onIdx.isEmpty { onIdx = Array(0..<steps) }
-    let k = onIdx.count
+/// Construction (Paul 2026-09-27, generalized for MUTE/PAUSE): `columnMap`/`columnsPerLap` are a PRECOMPUTED table
+/// (SnapshotBuilder, off the render thread — see its KILL STEP resolve comment) replacing the live onIdx/k scan this
+/// function used to do itself. At the n-th real column since the span origin (n = ⌊(beat − origin) / rateBeats⌋, can
+/// be negative before the origin), the value fed downstream is `lap·steps + columnMap[n mod columnsPerLap]` where
+/// `lap = ⌊n / columnsPerLap⌋` — so `value mod steps` cycles through the table in order (e.g. steps=8, ON={0,1,2,3}
+/// → 0,1,2,3,0,1,2,3,… over one pass — "the first half plays twice"). `value` is STRICTLY increasing in `n` (each
+/// lap adds a full `steps`, always greater than any value within a lap) — exactly what the shared tick-search
+/// machinery needs: a monotonic local beat it can walk forward through and invert discovered ticks back from. A
+/// MUTE step occupies exactly one table slot, same as ON (MUTE affects only whether a note SOUNDS — Router.
+/// emitDriverNote's own fold — never this table); a PAUSE step occupies `1 + pauseLen` CONSECUTIVE slots holding the
+/// SAME value (a true freeze — no new tick can be discovered until the value changes); a DROP step occupies none
+/// (columnsPerLap is table.count, not steps — the length already reflects every hold/skip). When nothing is
+/// MUTE/PAUSE this is BYTE-IDENTICAL to the original ON/DROP-only formula (`columnMap`≡the old `onIdx`,
+/// `columnsPerLap`≡the old `k`) — including the "nothing switched off ⇒ value ≡ n, a true no-op" case.
+/// `originOverride`, mirroring `clockDrawnPhase`, lets a driver's whole tick-search window pin every candidate to
+/// ONE shared span-origin (see that function's own doc comment for why).
+/// KILL STEP's precomputed transform table (Paul 2026-09-27) — shared by SnapshotBuilder (the render resolve) and
+/// GridUI (the editor's live-playhead preview), so the two can never independently drift (the RATCHET PATTERN/DEST
+/// lesson: never derive a matrix's own clock separately from the one the render side actually reads). `modes` must
+/// already be padded to the row's step count (the caller's own concern, mirroring `clockDrawnResolveRatios`'s
+/// contract). See `killStepPhase`'s doc comment below for what the returned table means.
+func killStepResolveTable(_ modes: [KillStepMode], pauseLen: Int) -> (columnMap: [Int], columnsPerLap: Int, firstSlot: [Int]) {
+    var onIdx = (0..<modes.count).filter { modes[$0] != .drop }
+    if onIdx.isEmpty { onIdx = Array(0..<modes.count) }   // all-DROP falls back to all-steps (never silent/undefined)
+    var map: [Int] = []
+    var firstSlot = Array(repeating: -1, count: modes.count)
+    for i in onIdx {
+        if firstSlot[i] < 0 { firstSlot[i] = map.count }
+        let reps = modes[i] == .pause ? 1 + max(0, pauseLen) : 1
+        for _ in 0..<reps { map.append(i) }
+    }
+    return (map, map.count, firstSlot)
+}
+func killStepPhase(_ beat: Double, columnMap: [Int], columnsPerLap: Int, steps: Int, rateBeats: Double, periodBeats P: Double, originOverride: Double? = nil) -> Double {
+    guard steps > 0, rateBeats > 0, columnsPerLap > 0, columnsPerLap <= columnMap.count else { return beat }
     let originBeat = originOverride ?? (P > 0 ? columnStart(beat, P) : 0)
     let localOffset = beat - originBeat
     let nD = (localOffset / rateBeats).rounded(.down)
     let withinCol = localOffset - nD * rateBeats                 // in [0, rateBeats)
     let n = Int(nD)
-    let lap = Int((Double(n) / Double(k)).rounded(.down))
-    let idxInK = n - lap * k                                     // posMod(n, k), in [0, k)
-    let e = onIdx[idxInK]
-    let value = lap * steps + e
+    let lap = Int((Double(n) / Double(columnsPerLap)).rounded(.down))
+    let j = n - lap * columnsPerLap                               // posMod(n, columnsPerLap), in [0, columnsPerLap)
+    let value = lap * steps + columnMap[j]
     return originBeat + Double(value) * rateBeats + withinCol
 }
 
-/// The inverse of `killStepPhase`. Since the forward map DELETES disabled columns from local time (a genuine gap,
-/// unlike CLOCK's everywhere-invertible ratio warp), a local beat that lands inside a gap — routine, not an edge
-/// case, since a downstream driver's own tick grid runs at ITS rate, generally not KILL STEP's — has no real beat
-/// that produced it. POLICY (documented, not a bug): snap it FORWARD to the start of the next enabled column, so a
-/// tick that would have spoken during a killed step instead speaks promptly once real content resumes — "downstream
-/// jumps past that step," read from the receiving end. Whenever the local beat DOES land on a real occurrence (the
-/// common case whenever the downstream rate matches `rateBeats`, or at any column-aligned boundary regardless of
-/// rate), the inverse is exact — `killStepPhase(killStepPhaseInverse(v, …), …) == v` at those points.
-func killStepPhaseInverse(_ localBeat: Double, originBeat: Double, enabled: [Bool], steps: Int, rateBeats: Double) -> Double {
-    guard steps > 0, rateBeats > 0 else { return localBeat }
-    var onIdx = (0..<steps).filter { $0 < enabled.count && enabled[$0] }
-    if onIdx.isEmpty { onIdx = Array(0..<steps) }
-    let k = onIdx.count
+/// The inverse of `killStepPhase`. Since the forward map DELETES dropped columns from local time (a genuine gap,
+/// unlike CLOCK's everywhere-invertible ratio warp) and can additionally FREEZE on a paused one, a local beat that
+/// lands on a step index that never occurs — routine, not an edge case, since a downstream driver's own tick grid
+/// runs at ITS rate, generally not KILL STEP's — has no real beat that produced it. POLICY (documented, not a bug,
+/// unchanged from before): snap it FORWARD to the start of the next real occurrence, so a tick that would have
+/// spoken during a dropped step instead speaks promptly once real content resumes — "downstream jumps past that
+/// step," read from the receiving end. `firstSlot[step]` (SnapshotBuilder) is the table's FIRST slot for that step,
+/// or −1 if the step is DROP (never occurs). Whenever the local beat DOES land on a real occurrence, the inverse is
+/// exact — `killStepPhase(killStepPhaseInverse(v, …), …) == v` at those points, same guarantee as before.
+func killStepPhaseInverse(_ localBeat: Double, originBeat: Double, columnMap: [Int], columnsPerLap: Int, firstSlot: [Int], steps: Int, rateBeats: Double) -> Double {
+    guard steps > 0, rateBeats > 0, columnsPerLap > 0 else { return localBeat }
     let localOffset = localBeat - originBeat
     let valueD = (localOffset / rateBeats).rounded(.down)
     let withinCol = localOffset - valueD * rateBeats              // in [0, rateBeats)
     let value = Int(valueD)
     let lap = Int((Double(value) / Double(steps)).rounded(.down))
     let e = value - lap * steps                                   // posMod(value, steps), in [0, steps)
-    var i = 0
-    while i < k && onIdx[i] < e { i += 1 }                        // the enabled index AT/AFTER e within this lap…
-    let n = i < k ? lap * k + i : (lap + 1) * k                   // …else snap to the next lap's first enabled index
+    var s = e, best = -1
+    while s < steps { if s < firstSlot.count && firstSlot[s] >= 0 { best = s; break }; s += 1 }   // the smallest real step AT/AFTER e within this lap…
+    let n = best >= 0 ? lap * columnsPerLap + firstSlot[best] : (lap + 1) * columnsPerLap          // …else snap to the next lap's first real slot
     return originBeat + Double(n) * rateBeats + withinCol
 }
 

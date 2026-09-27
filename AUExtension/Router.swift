@@ -3829,7 +3829,7 @@ final class Router {
                     // its "column" isn't the cell's grid step, so `S` here is ITS resolved rate, not the caller's.
                     let rate = p.killStepRateBeats
                     let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
-                    beat = killStepPhase(beat, enabled: p.killStepEnabled, steps: p.killStepCount, rateBeats: rate, periodBeats: period)
+                    beat = killStepPhase(beat, columnMap: p.killStepColumnMap, columnsPerLap: p.killStepColumnsPerLap, steps: p.killStepCount, rateBeats: rate, periodBeats: period)
                 }
             }
             j += 1
@@ -3864,7 +3864,7 @@ final class Router {
                     let rate = p.killStepRateBeats
                     let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
                     let origin = period > 0 ? columnStart(originRef, period) : 0
-                    beat = killStepPhase(beat, enabled: p.killStepEnabled, steps: p.killStepCount, rateBeats: rate,
+                    beat = killStepPhase(beat, columnMap: p.killStepColumnMap, columnsPerLap: p.killStepColumnsPerLap, steps: p.killStepCount, rateBeats: rate,
                                          periodBeats: period, originOverride: origin)
                 }
             }
@@ -3893,12 +3893,34 @@ final class Router {
                     let rate = p.killStepRateBeats
                     let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
                     let origin = period > 0 ? columnStart(originRef, period) : 0
-                    beat = killStepPhaseInverse(beat, originBeat: origin, enabled: p.killStepEnabled, steps: p.killStepCount, rateBeats: rate)
+                    beat = killStepPhaseInverse(beat, originBeat: origin, columnMap: p.killStepColumnMap, columnsPerLap: p.killStepColumnsPerLap, firstSlot: p.killStepFirstSlot, steps: p.killStepCount, rateBeats: rate)
                 }
             }
             j -= 1
         }
         return beat
+    }
+    /// KILL STEP MUTE (Paul 2026-09-27): unlike DROP/PAUSE (which are TRANSFORM behaviors — they change what local
+    /// beat a downstream driver reads, above), MUTE changes nothing about time — a muted step counts exactly like ON
+    /// for `killStepPhase`. Its whole effect is "this note doesn't sound," decided independently, at the note's own
+    /// REAL onset — the same per-note-fold shape EUCLID MASK's REST just shipped with. Mirrors `driverClockBeat`'s
+    /// own `0..<target` scan (so it composes across more than one preceding KILL STEP the same way the transform
+    /// already does), computing each one's OWN real step index directly from `m` (no inversion needed — MUTE doesn't
+    /// touch the transform, so the note's real onset already tells us which real step it fell in).
+    private func precedingKillStepMuted(_ cell: SnapCell, before target: Int, atRealBeat m: Double, cycleBeats: Double) -> Bool {
+        var j = 0
+        while j < target {
+            if !cell.slotBypass[j], cell.procs[j].type == .killStep {
+                let p = cell.procs[j]
+                let rate = p.killStepRateBeats
+                let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
+                let origin = period > 0 ? columnStart(m, period) : 0
+                let stepIdx = posMod(Int(((m - origin) / rate).rounded(.down)), max(1, p.killStepCount))
+                if stepIdx < p.killStepMode.count && p.killStepMode[stepIdx] == .mute { return true }
+            }
+            j += 1
+        }
+        return false
     }
     /// Widening driver retiming beyond ARP/RIFF/RATCHET-ALL (Paul 2026-09-26: "shouldn't all downstream processors
     /// read an upstream clock, defaulting to the real one if none is present?" — yes). Those three share
@@ -4361,6 +4383,10 @@ final class Router {
                                 onSample: Int64, offSample: Int64, windowEnd: Int64, velocity: UInt8,
                                 m: Double, S: Double, cycleBeats: Double, beatsPerSample: Double, pass: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard note >= 0 && note <= 127 else { return }
+        // KILL STEP MUTE (Paul 2026-09-27): checked FIRST, before even the driver-is-tail shortcut below — a bare
+        // [KILL STEP→ARP] chain (nothing after the driver) takes that shortcut straight to emitChop, so a fold check
+        // placed any later (alongside EUCLID MASK's, further down) would never see it.
+        if precedingKillStepMuted(cell, before: driver, atRealBeat: m, cycleBeats: cycleBeats) { return }
         // §7① [driver→GLIDE] v2: a downstream GLIDE slot consumes the driver's note as a target for its mono gliding
         // voice — RECORD it (post-tick emitGlideDriven anchors/bends) and SUPPRESS the note-on here. Keyed by the
         // emitting cell's grid index (currentCellIndex, set per-cell in emitTickRow). Multi-emitter fan-out is v2.

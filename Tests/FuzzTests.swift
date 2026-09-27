@@ -280,10 +280,19 @@ final class FuzzTests: XCTestCase {
     }
     // KILL STEP (Paul 2026-09-26, sibling to CLOCK) — random step count/row/rate/span, INCL. the all-disabled
     // fallback edge (r.chance(0.15) below skews toward a mostly-off row often enough to hit it across seeds).
+    // MUTE/PAUSE added (Paul 2026-09-27): random per-step mode incl. occasionally forcing the all-DROP fallback edge
+    // and hammering PAUSE (freezing local time is the one genuinely new way a driver's own tick search could
+    // misbehave — the case most worth fuzzing here).
     private func applyRandomKillStep(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         let n = 1 + r.int(32)
         p.killStepCount = n
-        p.killStepEnabled = (0..<n).map { _ in r.chance(0.15) ? false : r.chance(0.7) }
+        p.killStepMode = (0..<n).map { _ -> KillStepMode in
+            if r.chance(0.15) { return .drop }
+            if r.chance(0.15) { return .mute }
+            if r.chance(0.15) { return .pause }
+            return .on
+        }
+        p.killStepPauseLen = 1 + r.int(4)
         p.killStepRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
         p.killStepSpanN = [0, 1, 2, 3, 4, 6, 8, 16, 32][r.int(9)]
     }

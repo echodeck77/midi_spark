@@ -1107,39 +1107,49 @@ struct ProcessorBox: View {
             Text("Everything AFTER this stage in the chain ticks to its time; everything before keeps the part's. Position is meaning.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
-        case .killStep: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-26, sibling to
-            // CLOCK) — KILL STEP: a single row of ON/OFF steps with its own RATE + SPAN. A disabled step is removed
-            // from everything downstream's timeline; the enabled steps repeat to fill the pass (4-of-8 plays the
-            // first half twice; 3-of-8 rotates a sub-cycle that drifts against the bar — polymeter, "overriding the
-            // clock"). Shares CLOCK's own transform plumbing (Router.killStepPhase, detected alongside `.clock`).
+        case .killStep: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // TIME (Paul 2026-09-26, sibling
+            // to CLOCK; MUTE/PAUSE added 2026-09-27) — a row of per-step MODES with its own RATE + SPAN. DROP
+            // (today's original "disabled") is removed from everything downstream's timeline entirely — the
+            // surviving steps compact + repeat to refill the pass (4-of-8 ON/DROP plays the first half twice). MUTE
+            // keeps the downstream clock advancing through it normally — only its sound is suppressed (a per-note
+            // fold, not a timing change). PAUSE freezes the downstream clock at its current value for PAUSE LEN
+            // extra steps, then resumes — a hold/breath: nothing new triggers during the freeze, whatever's already
+            // sounding just rings on. Shares CLOCK's own transform plumbing (Router.killStepPhase, detected
+            // alongside `.clock`) via ONE shared table (`killStepResolveTable`, Derivations.swift) — the SAME
+            // function the engine resolves, so this live playhead and the audible step can't drift apart.
             let steps = max(1, min(32, p.killStepCount ?? 8))
-            let enabledArr: [Bool] = { var a = p.killStepEnabled ?? Array(repeating: true, count: steps); while a.count < steps { a.append(true) }; return Array(a.prefix(steps)) }()
-            // LIVE PLAYHEAD (Paul 2026-09-27): calls the SAME pure `killStepPhase` the engine folds through, so the
-            // lit cell and the audible step can't drift apart (the RATCHET PATTERN/DEST lesson — never derive the
-            // matrix's own clock separately from the one the render side actually reads). Highlights the ENABLED
-            // index currently in play — not the raw 0…steps-1 column — so watching it directly shows the repeat/
-            // rotate behaviour: for 4-of-8 it visibly bounces 0,1,2,3,0,1,2,3, never touching the disabled half.
+            let modes: [KillStepMode] = {
+                if let m = p.killStepMode, !m.isEmpty { var a = m; while a.count < steps { a.append(.on) }; return Array(a.prefix(steps)) }
+                if let e = p.killStepEnabled, !e.isEmpty { return (0..<steps).map { i in (i < e.count ? e[i] : true) ? .on : .drop } }   // legacy migration preview
+                return Array(repeating: .on, count: steps)
+            }()
+            let pauseLen = max(1, min(16, p.killStepPauseLen ?? 1))
+            let table = killStepResolveTable(modes, pauseLen: pauseLen)
             let rate = Swift.max(0.03125, (p.killStepRate ?? .r1_8).beats)
             let bar = 8.0 * Swift.max(0.0001, gridStepBeats)
             let period = (p.killStepSpanN ?? 8) > 0 ? Swift.max(0.03125, spanLadderBeats(p.killStepSpanN ?? 8, S: rate, row: bar)) : 0
             let killLive: ((Date) -> Int?)? = clockPlaying ? { date in
                 let b = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
                 let originBeat = period > 0 ? columnStart(b, period) : 0
-                let local = killStepPhase(b, enabled: enabledArr, steps: steps, rateBeats: rate, periodBeats: period, originOverride: originBeat)
+                let local = killStepPhase(b, columnMap: table.columnMap, columnsPerLap: table.columnsPerLap, steps: steps, rateBeats: rate, periodBeats: period, originOverride: originBeat)
                 return posMod(Int(((local - originBeat) / rate).rounded(.down)), steps)
             } : nil
             field("STEPS — the row's own length", \.killStepCount) {
                 numPair(steps, 1...32) { v in setParam { $0.killStepCount = v } } }
-            heroField("ON/OFF PER STEP — a disabled step is skipped; the enabled steps repeat to fill the pass") {
-                toggleLane(steps, on: { s in s < enabledArr.count && enabledArr[s] }, glyph: "xmark", live: killLive) { s, target in
-                    setParam { var a = $0.killStepEnabled ?? Array(repeating: true, count: steps); while a.count < steps { a.append(true) }; a[s] = target; $0.killStepEnabled = a } }
+            heroField("PER-STEP MODE — ON plays · MUTE silences it (clock still advances) · DROP is skipped (steps compact + repeat) · PAUSE freezes the clock for PAUSE LEN extra steps") {
+                stateMatrixRadio(KillStepMode.allCases, steps: steps, liveColOverride: killLive,
+                    header: { m in AnyView(Text(m.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))) },
+                    selected: { s in s < modes.count ? modes[s] : .on },
+                    set: { s, mode in setParam { var a = $0.killStepMode ?? modes; while a.count < steps { a.append(.on) }; a[s] = mode; $0.killStepMode = a; $0.killStepEnabled = nil } })
             }
+            field("PAUSE LEN — extra steps a PAUSE step holds", \.killStepPauseLen) {
+                numPair(pauseLen, 1...16) { v in setParam { $0.killStepPauseLen = v } } }
             field("RATE — this row's own clock", \.killStepRate) {
                 seg(ArpRate.allCases.map(\.rawValue), sel: (p.killStepRate ?? .r1_8).rawValue) { i in setParam { $0.killStepRate = ArpRate.allCases[i] } } }
             frameSpan(p.killStepSpanN ?? 8, free: true) { v in setParam { $0.killStepSpanN = v } }
-            let onCount = enabledArr.filter { $0 }.count
+            let onCount = modes.filter { $0 == .on }.count
             Text(onCount == steps ? "Every step is on — a no-op, nothing skipped." :
-                 "\(onCount) of \(steps) steps play, in order, repeating to fill the pass.")
+                 "\(onCount) of \(steps) play on — \(modes.filter { $0 == .mute }.count) muted, \(modes.filter { $0 == .drop }.count) dropped (compact + repeat), \(modes.filter { $0 == .pause }.count) paused.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
         case .muteMatrix: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // ROUTING (Paul 2026-08-25 §5) — the MUTE MATRIX: per-step PART-MUTING (A/B/C/D × 8 multi-select)
@@ -1516,7 +1526,15 @@ struct ProcessorBox: View {
     /// brush, no dead first touch). Row headers (left edge) carry the option's glyph + name — permanent and positional;
     /// the whole pattern reads as geometry. One reusable widget for LENGTH · RATCHET PATTERN · TUTTI PATTERN · … .
     @ViewBuilder private func stateMatrixRadio<Opt: Hashable>(
-        _ options: [Opt], steps: Int = 8, clock: StateMatrixClock? = nil, header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
+        _ options: [Opt], steps: Int = 8, clock: StateMatrixClock? = nil,
+        // BESPOKE LIVE COLUMN (Paul 2026-09-27, KILL STEP's MUTE/PAUSE rework): some processors' true live column
+        // ISN'T a simple rotate-clock (`StateMatrixClock`'s own fixed `floor(beat/rate) mod steps` math) — KILL
+        // STEP's own playhead must call `killStepPhase` itself (the skip/repeat/freeze table), or the lit cell would
+        // drift from what actually plays, same lesson `clock:` itself exists for. Mirrors `toggleLane`'s own `live:`
+        // shape exactly: a per-frame closure, re-invoked from inside this function's OWN TimelineView. nil (every
+        // other caller) ⇒ falls through to `clock`/`gridClock` unchanged.
+        liveColOverride: ((Date) -> Int?)? = nil,
+        header: @escaping (Opt) -> AnyView, eFill: Bool = false, onRotate: ((Int) -> Void)? = nil,
         dim: ((Int) -> Opt?)? = nil,   // optional FAINT layer (Paul 2026-09-15): a column with no bright `selected` cell can show a dimmer cell — e.g. CHORDS shows the chord an empty column CARRIES, so the matrix matches the audio. nil ⇒ unchanged.
         // EXTRA ROW (Paul 2026-09-26, CLOCK's GLIDE): an optional row sharing this SAME per-column geometry AND the
         // SAME live-column highlight — for a control that isn't a mutually-exclusive "pick one option" pick (like
@@ -1558,7 +1576,9 @@ struct ProcessorBox: View {
         // RATCHET PATTERN own-clock playhead: EXTRAPOLATE the beat every animation frame (the ~4 Hz poll aliases a fast rate —
         // a 1/8 sweep read at 4 Hz collapses to a 1↔5 jump). col = floor(beat ÷ RATE) mod STEPS (+ ROTATE). No clock → liveStep.
         let grid = Group {
-            if let c = clock ?? gridClock {   // bespoke ratchet clock, else the DEFAULT grid-column clock (Paul 2026-09-11) — both extrapolated per frame so NO per-step page re-render
+            if let ov = liveColOverride {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in makeGrid(ov(tl.date) ?? -1) }
+            } else if let c = clock ?? gridClock {   // bespoke ratchet clock, else the DEFAULT grid-column clock (Paul 2026-09-11) — both extrapolated per frame so NO per-step page re-render
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
                     let b = c.anchor + tl.date.timeIntervalSince(c.anchorAt) * c.tempo / 60.0
                     let localBeat = c.span > 0 ? (b - columnStart(b, c.span)) : b   // SPAN re-anchors every `span` beats; else free-run

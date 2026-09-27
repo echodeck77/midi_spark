@@ -278,10 +278,18 @@ struct SnapParams {
     var clockDrawnRatios: [Double] = [1, 1, 1, 1, 1, 1, 1, 1]
     var clockDrawnGlide: [Bool] = [false, false, false, false, false, false, false, false]
     var clockDrawnSteps: Int = 8
-    // KILL STEP (Paul 2026-09-26): resolved on/off row + this stage's own clock. killStepEnabled is fully resolved
-    // (length == killStepCount, no short-array reads needed render-side).
+    // KILL STEP (Paul 2026-09-26, MUTE/PAUSE added 2026-09-27): resolved per-step mode row + this stage's own clock.
+    // killStepMode is fully resolved (length == killStepCount). killStepColumnMap/ColumnsPerLap/FirstSlot are the
+    // PRECOMPUTED transform table (built once in SnapshotBuilder, off the render thread) that killStepPhase/…Inverse
+    // read instead of deriving the ON/DROP cycle live — see Derivations.swift's doc comment for why (PAUSE breaks
+    // the old closed-form "every real column maps to one local step" assumption). No SnapParams field is ever
+    // persisted (rebuilt fresh every publish from MachineParams), so none of this needs decode/migration care.
     var killStepCount: Int = 8
-    var killStepEnabled: [Bool] = [true, true, true, true, true, true, true, true]
+    var killStepMode: [KillStepMode] = Array(repeating: .on, count: 8)
+    var killStepPauseLen: Int = 1
+    var killStepColumnMap: [Int] = [0, 1, 2, 3, 4, 5, 6, 7]   // real-column-within-a-lap → local step index
+    var killStepColumnsPerLap: Int = 8                        // table length (replaces the old bare "k")
+    var killStepFirstSlot: [Int] = [0, 1, 2, 3, 4, 5, 6, 7]   // step index → its first table slot (inverse lookup); -1 = never occurs (DROP)
     var killStepRateBeats: Double = 0.5
     var killStepSpanN: Int = 8
     var muteSlices: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]      // MUTE MATRIX (Paul 2026-08-25 §5): per-onset-slice MUTED-emitter mask (bit i = emitter i muted); 0 ⇒ nothing muted
