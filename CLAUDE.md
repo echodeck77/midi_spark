@@ -199,6 +199,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FERRY ROW UNIFICATION — Stage 1: dead-code removal (2026-09-27, on `feature/ferry-row-unification`, `f689649`;
+  macOS 1109 green, iOS builds). Paul: background ferries should play polyphonically, not the mono reduction
+  `buildFlattenFerry` forces on them today — and questioned why the engine has a shared rows-0-7 concept at all.
+  Ratified target (plan `flickering-dazzling-floyd.md`): 8 ferries × 4 dedicated engine rows each, always live, no
+  active/background distinction, plus a per-ferry SINGLE/MULTI row-select toggle. Stage 1 clears the ground: deleted
+  three confirmed-dead layers, each traced to zero live producers before removal — the pre-ferry "PIECE" deployed-
+  arrangement grid (`performCells`/`buildPerformPart`, only ever written by snapshot/undo restore; no live gesture
+  reaches it since the Room enum dropped to SELECT/PART only), the superseded independent play-cell grid
+  (`playCells`/`playSel`), and the tap mute/solo/alt bitmask cluster (`tapMuteMask`/`soloCellMask`/`tapAltMask`,
+  structurally capped at 64 bits `col*8+row` and traced end-to-end — `applyTapOverlay` has zero callers, and the one
+  theoretical solo-mask path is defensively zeroed by `buildPublishScene`'s own `clearMachineSolo()` every publish).
+  `soloEmitterMask`/the live emitter-strip SOLO buttons are untouched — confirmed a separate, live feature despite
+  sharing call sites. Ported 5 BuildSceneLogicTests that used `performCells` as scaffolding for the still-live
+  chain-audition-fallback logic to use `stagingCells` instead, rather than losing that coverage. **NEXT: Stage 2
+  widens `Snap.rows` 16→32 (`Snap.ferries`×`Snap.rowsPerFerry`), Stage 3 replaces the active/background split with
+  one composer loop per ferry, Stage 4 adds `stagingMulti`/`selMulti` multi-row selection surfaced in the ferry
+  settings tab.**
 - **▶ FERRY COLOUR SWAP — closes the "invents a third colour" gap (2026-09-27, on `main`, `1c2d3b7`; iOS
   builds, macOS 1123 green; DEVICE eye owed). Paul described the intended model for select→ferry colour (pick a
   colour via a selector → the SELECT cell shows it → dragging it onto a ferry lands verbatim, regardless of that
