@@ -3350,11 +3350,11 @@ extension DiagView {
         input.stagingSel = buildStagingSel
         input.partEmitters = buildPartEmitters
         input.selReceiver = buildSelReceiver
-        input.rowReceiver = (0..<8).map { buildRowReceiverResolved($0) }     // per-row I/O, resolved (nil → part default)
-        input.rowEmitters = (0..<8).map { buildRowEmittersResolved($0) }
+        input.rowReceiver = (0..<Snap.rowsPerFerry).map { buildRowReceiverResolved($0) }     // per-row I/O, resolved (nil → part default)
+        input.rowEmitters = (0..<Snap.rowsPerFerry).map { buildRowEmittersResolved($0) }
         // RESOLVE the effective chain per STAGING row (same rule as PERFORM/CHAIN): the row's VARIATION if present, else
         // the row machine's OWN machine ([] for a no-machine machine → passthrough wire). (Paul 2026-08-23)
-        input.rowChain = (0..<8).map { r -> [ProcessorSlot] in
+        input.rowChain = (0..<Snap.rowsPerFerry).map { r -> [ProcessorSlot] in
             let v = r < buildRowChain.count ? buildRowChain[r] : []
             return v.isEmpty ? buildMachineChain(buildRowMachine(r) ?? "") : v
         }
@@ -3391,7 +3391,7 @@ extension DiagView {
         input.playColLen = buildPlayColLen
         input.playColSteps = buildPlayColSteps
         input.playColRate = buildPlayColRate
-        // PLAY-FERRY LAUNCH (Paul 2026-09-09): map each ON background ferry's per-ferry anchor to its play-layer row (8+t) —
+        // PLAY-FERRY LAUNCH (Paul 2026-09-09): map each ON background ferry's per-ferry anchor to its own dedicated row —
         // the anchor phases that row so it plays FROM COLUMN 0 at the launch beat.
         // The ACTIVE ferry is EXCLUDED (Paul 2026-09-13): it plays via the STAGING sequencer, whose VISIBLE sweep
         // (roomsPartPlayhead / roomsCardRowPlayhead) + buildProcessing are all TRANSPORT-LOCKED (raw beat, no anchor).
@@ -3400,7 +3400,7 @@ extension DiagView {
         // on-bench ferry must stay transport-locked so what you SEE sweeping is what you HEAR.
         var launchRows = [Double](repeating: 0, count: Snap.rows)
         for t in 0..<8 where t != buildActiveFerry && t < buildPlayColOn.count && buildPlayColOn[t] && t < launchAnchor.count && launchAnchor[t] != 0 {
-            launchRows[Snap.playLayerRowBase + t] = launchAnchor[t]
+            launchRows[Snap.ferryRowBase(t)] = launchAnchor[t]
         }
         input.rowLaunchAnchor = launchRows
         input.playColStepRecv = buildPlayColStepRecv
@@ -3736,12 +3736,12 @@ extension DiagView {
     // / buildSelectRow / buildPopulateTab / buildPasteChain / buildSeedTab1) index [c][r] UNGUARDED → a trap. Pad/clamp on the
     // load boundary so every downstream write is in-bounds (the read siblings were already ragged-safe).
     private func buildNormalizeStaging(_ cells: [[String?]], _ sel: [Int]) -> (cells: [[String?]], sel: [Int]) {
-        var c = cells                                       // §E: normalize to maxCols(16) COLUMNS × 8 visible ROWS (was 8×8 — truncated 16-wide parts)
+        var c = cells                                       // §E: normalize to maxCols(16) COLUMNS × Snap.rowsPerFerry visible ROWS (was 8×8 — truncated 16-wide parts)
         if c.count > Snap.maxCols { c = Array(c.prefix(Snap.maxCols)) }
-        while c.count < Snap.maxCols { c.append(Array(repeating: nil, count: 8)) }
+        while c.count < Snap.maxCols { c.append(Array(repeating: nil, count: Snap.rowsPerFerry)) }
         for i in c.indices {
-            if c[i].count > 8 { c[i] = Array(c[i].prefix(8)) }
-            while c[i].count < 8 { c[i].append(nil) }
+            if c[i].count > Snap.rowsPerFerry { c[i] = Array(c[i].prefix(Snap.rowsPerFerry)) }
+            while c[i].count < Snap.rowsPerFerry { c[i].append(nil) }
         }
         var s = sel
         if s.count > Snap.maxCols { s = Array(s.prefix(Snap.maxCols)) }
@@ -4135,10 +4135,10 @@ extension DiagView {
         .allowsHitTesting(false)
       }
     }
-    // The engine strike-feed indices for play column t: a single-cell column is (col 0, row 8+t); a multi-step pass strikes
-    // across (col step, row 8+t) for each step. (Paul 2026-08-30)
+    // The engine strike-feed indices for play column t: a single-cell column is (col 0, ferry t's row); a multi-step pass
+    // strikes across (col step, ferry t's row) for each step. (Paul 2026-08-30)
     private func buildPlayColSweepIndices(_ t: Int) -> [Int] {
-        let base = Snap.playLayerRowBase + t
+        let base = Snap.ferryRowBase(t)
         let len = BuildSceneLogic.passLen(buildPlayColLen, t)   // shared clamp (refactor 2026-08-30)
         return len <= 1 ? [base] : (0..<len).map { $0 * Snap.rows + base }
     }
@@ -4515,7 +4515,7 @@ extension DiagView {
             for s in 0..<steps.count {
                 guard let cid = steps[s] else { continue }
                 let em = s < stepEmit.count ? stepEmit[s] : (c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])
-                if em.contains(e) { add(cid, color: Color(hex: buildFerryHex(c)), idx: s * Snap.rows + (Snap.playLayerRowBase + c)) }   // the background ferry's OWN colour (Paul 2026-09-13)
+                if em.contains(e) { add(cid, color: Color(hex: buildFerryHex(c)), idx: s * Snap.rows + Snap.ferryRowBase(c)) }   // the background ferry's OWN colour (Paul 2026-09-13)
             }
         }
         return order.map { MeterBand(color: byCid[$0]!.color, energy: false, cellIdxs: byCid[$0]!.idxs) }

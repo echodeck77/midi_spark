@@ -17,11 +17,11 @@ enum FerryStart:    String, Codable, Equatable { case sync, instant, step, beat,
 struct BuildPart: Codable, Equatable {
     // §E 16-STEP (Paul 2026-09-02): the STAGING columns are now maxCols(16)-wide (was 8). `length` is the part's active
     // width/loop 1…16 (nil ⇒ the 8-wide default → byte-identical). Old 8-col saves decode short + are padded on restore.
-    var stagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)
+    var stagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: Snap.rowsPerFerry), count: Snap.maxCols)
     var stagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)
-    var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)
-    var rowShade: [Double] = Array(repeating: 0, count: 8)
-    var rowUnder: [String?] = Array(repeating: nil, count: 8)   // one-machine-per-row: what a row REVERTS to when its machine is stamped elsewhere
+    var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: Snap.rowsPerFerry)
+    var rowShade: [Double] = Array(repeating: 0, count: Snap.rowsPerFerry)
+    var rowUnder: [String?] = Array(repeating: nil, count: Snap.rowsPerFerry)   // one-machine-per-row: what a row REVERTS to when its machine is stamped elsewhere
     var selID: String? = nil          // the cast selection BY ID (supports ephemeral machines)
     var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global machine store
     var castSlots: [Int: String] = [:] // §2 explicit slot→machineID placements for NON-default machines (long-press lands a machine on its pressed cell)
@@ -182,11 +182,11 @@ struct BuildSceneSnapshot: Codable, Equatable {
 extension BuildPart {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        stagingCells = Snap.padCols(try c.decodeIfPresent([[String?]].self, forKey: .stagingCells) ?? [], Array(repeating: nil, count: 8))   // §E: pad an old 8-col save to 16
+        stagingCells = Snap.padCols(try c.decodeIfPresent([[String?]].self, forKey: .stagingCells) ?? [], Array(repeating: nil, count: Snap.rowsPerFerry))   // §E: pad an old 8-col save to 16
         stagingSel   = Snap.padCols(try c.decodeIfPresent([Int].self, forKey: .stagingSel) ?? [], -1)
-        rowChain     = try c.decodeIfPresent([[ProcessorSlot]].self, forKey: .rowChain) ?? Array(repeating: [], count: 8)
-        rowShade     = try c.decodeIfPresent([Double].self, forKey: .rowShade) ?? Array(repeating: 0, count: 8)
-        rowUnder     = try c.decodeIfPresent([String?].self, forKey: .rowUnder) ?? Array(repeating: nil, count: 8)
+        rowChain     = try c.decodeIfPresent([[ProcessorSlot]].self, forKey: .rowChain) ?? Array(repeating: [], count: Snap.rowsPerFerry)
+        rowShade     = try c.decodeIfPresent([Double].self, forKey: .rowShade) ?? Array(repeating: 0, count: Snap.rowsPerFerry)
+        rowUnder     = try c.decodeIfPresent([String?].self, forKey: .rowUnder) ?? Array(repeating: nil, count: Snap.rowsPerFerry)
         selID        = try c.decodeIfPresent(String.self, forKey: .selID)
         cast         = try c.decodeIfPresent([String].self, forKey: .cast) ?? []
         castSlots    = try c.decodeIfPresent([Int: String].self, forKey: .castSlots) ?? [:]

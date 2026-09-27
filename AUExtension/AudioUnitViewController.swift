@@ -194,12 +194,12 @@ struct DiagView: View {
     // I/O toggle LONG-PRESS → apply to EVERY row (Paul 2026-08-19): a "Hold to apply to all" hint shows a moment into the hold.
     @State var buildIOHoldMsg: String? = nil
     @State var buildIOHoldPressing = false
-    @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-machine-per-row: each row's revert-to machine when its machine relocates
+    @State var buildRowUnder: [String?] = Array(repeating: nil, count: Snap.rowsPerFerry)   // one-machine-per-row: each row's revert-to machine when its machine relocates
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
     @State var buildStagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)   // §E: 16-wide; the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
     @State var buildRowSelectRevert: (row: Int, prev: [Int])?   // left-rail row-select: the per-column selection BEFORE the last rail tap, so a 2nd tap on the same rail reverts an accidental whole-row select (Paul 2026-09-15)
-    @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
-    @State var buildRowShade: [Double] = Array(repeating: 0, count: 8)   // STAGE THE GRID: per-row shade of the selected machine (+lighter … −darker), by output complexity
+    @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: Snap.rowsPerFerry)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
+    @State var buildRowShade: [Double] = Array(repeating: 0, count: Snap.rowsPerFerry)   // STAGE THE GRID: per-row shade of the selected machine (+lighter … −darker), by output complexity
     @State var buildParts: [BuildPart] = [BuildPart()]   // the PARTS (workshop lifecycle); the CURRENT part's fields live in the working @State below, synced on switch
     @State var buildCurrentPart: Int = 0                 // index of the part currently on the build column
     @State var buildPartEmitters: Set<Bus> = [.a]        // the CURRENT part's output emitters (part-owned I/O; every machine follows)
@@ -999,8 +999,8 @@ struct DiagView: View {
             let cn = au.pollCellNotes()                    // NOTE-SWEEP: per-cell recent emitted notes (pitch/vel/count) — drained every tick
             if cn.count.contains(where: { $0 > 0 }) { meters.cellNotePitch = cn.pitch; meters.cellNoteVel = cn.vel; meters.cellNoteCount = cn.count }
             // FOCUS note-event feed (Paul 2026-08-31): the machine's cell → its REAL emitted notes + beats, for the chain-flow
-            // comets. The focus cell = a selected ferry's play cell (col 0, row 8+col), else the chain audition's engine row.
-            let focusIdx: Int = buildSelectedPlayCol.map { Snap.playLayerRowBase + $0 } ?? (buildDisplayVoice == .chain ? (buildChainAuditionRow ?? -1) : -1)
+            // comets. The focus cell = a selected ferry's play cell (col 0, its own dedicated row), else the chain audition's engine row.
+            let focusIdx: Int = buildSelectedPlayCol.map { Snap.ferryRowBase($0) } ?? (buildDisplayVoice == .chain ? (buildChainAuditionRow ?? -1) : -1)
             au.setFocusCell(focusIdx)
             let ff = au.pollFocusNotes()
             if ff.count > 0 || !buildFocusNotes.isEmpty {

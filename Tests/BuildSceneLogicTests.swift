@@ -193,9 +193,10 @@ final class BuildSceneLogicTests: XCTestCase {
         // SPAN-ONLY: AUTO 1 on slot 0's GATE, span start 0 length 3 → ramps LOW→HIGH across cols 0,1,2.
         i.partAuto = ["gold": PartAutoMachine(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", spanStart: 0, spanLen: 3)])]
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "rank 0 → the sub-range LOW")
-        XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 0.65, accuracy: 1e-6, "rank 1 → the midpoint")
-        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6, "rank 2 → the sub-range HIGH")
+        let row2 = Snap.stagingRowBase + 2   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertEqual(s.cellAt(0, row2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "rank 0 → the sub-range LOW")
+        XCTAssertEqual(s.cellAt(1, row2)?.processors?.first?.params.gate ?? -1, 0.65, accuracy: 1e-6, "rank 1 → the midpoint")
+        XCTAssertEqual(s.cellAt(2, row2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6, "rank 2 → the sub-range HIGH")
     }
 
     func testAutoNoneLaneIsByteIdentical() {
@@ -208,7 +209,7 @@ final class BuildSceneLogicTests: XCTestCase {
         // NONE (activeLane −1) even though a lane HAS a span → nothing bakes (byte-identical)
         i.partAuto = ["gold": PartAutoMachine(activeLane: -1, lanes: [AutoLane(slot: 0, param: "gate", spanStart: 0, spanLen: 1)])]
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "NONE → the base value untouched")
+        XCTAssertEqual(s.cellAt(0, Snap.stagingRowBase + 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "NONE → the base value untouched")
     }
 
     // SPAN-ONLY (Paul 2026-09-04): the span TILES — a length-2 span repeats [lo, hi, lo, hi] across the row.
@@ -221,10 +222,11 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
         i.partAuto = ["gold": PartAutoMachine(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", spanStart: 0, spanLen: 2)])]
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6)
-        XCTAssertEqual(s.cellAt(1, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
-        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "the length-2 span tiles → LOW again")
-        XCTAssertEqual(s.cellAt(3, 2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
+        let row2 = Snap.stagingRowBase + 2   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertEqual(s.cellAt(0, row2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6)
+        XCTAssertEqual(s.cellAt(1, row2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
+        XCTAssertEqual(s.cellAt(2, row2)?.processors?.first?.params.gate ?? -1, 0.3, accuracy: 1e-6, "the length-2 span tiles → LOW again")
+        XCTAssertEqual(s.cellAt(3, row2)?.processors?.first?.params.gate ?? -1, 1.0, accuracy: 1e-6)
     }
     // The lane's explicit FROM/TO (lo/hi) endpoints override the curated sub-range.
     func testAutoExplicitFromToOverridesTheSubRange() {
@@ -236,8 +238,9 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = (0..<8).map { $0 == 2 ? [base] : [] }
         i.partAuto = ["gold": PartAutoMachine(activeLane: 0, lanes: [AutoLane(slot: 0, param: "", lo: 0.5, hi: 0.9, spanStart: 0, spanLen: 3)])]
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "FROM overrides the gate sub-range low (0.3)")
-        XCTAssertEqual(s.cellAt(2, 2)?.processors?.first?.params.gate ?? -1, 0.9, accuracy: 1e-6, "TO overrides the sub-range high (1.0)")
+        let row2 = Snap.stagingRowBase + 2   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertEqual(s.cellAt(0, row2)?.processors?.first?.params.gate ?? -1, 0.5, accuracy: 1e-6, "FROM overrides the gate sub-range low (0.3)")
+        XCTAssertEqual(s.cellAt(2, row2)?.processors?.first?.params.gate ?? -1, 0.9, accuracy: 1e-6, "TO overrides the sub-range high (1.0)")
     }
     // HOUSEKEEPING: autoParamFullRange (the FROM/TO fader BOUNDS) returns the RAW range — distinct from autoSubRange's trim.
     func testAutoParamFullRangeIsRawNotTrimmed() {
@@ -316,8 +319,9 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = (0..<8).map { $0 == 3 ? [ProcessorSlot(type: .arp)] : [] }
         i.stagingLen = 16
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(12, 3)?.machineID, "gold", "a cell at column 12 composes (16-wide part)")
-        XCTAssertEqual(s.rowLen?[3], 16, "the row loops 16 columns")
+        let row3 = Snap.stagingRowBase + 3   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertEqual(s.cellAt(12, row3)?.machineID, "gold", "a cell at column 12 composes (16-wide part)")
+        XCTAssertEqual(s.rowLen?[row3], 16, "the row loops 16 columns")
     }
 
     func testPartHonoursSelectionAndIsSilentWhereDeselected() {
@@ -327,9 +331,10 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingSel = [2, -1, 2, -1, -1, -1, -1, -1]      // columns 0 and 2 play, column 1 silent
         i.rowChain = (0..<8).map { $0 == 2 ? [ProcessorSlot(type: .arp)] : [] }   // gold has a machine → it composes (Paul 2026-08-26: a machine-less part cell is silent)
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.machineID, "gold")
-        XCTAssertNil(s.cellAt(1, 2), "column 1 was deselected → no cell in the scene")
-        XCTAssertEqual(s.cellAt(2, 2)?.machineID, "gold")
+        let row2 = Snap.stagingRowBase + 2   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertEqual(s.cellAt(0, row2)?.machineID, "gold")
+        XCTAssertNil(s.cellAt(1, row2), "column 1 was deselected → no cell in the scene")
+        XCTAssertEqual(s.cellAt(2, row2)?.machineID, "gold")
     }
 
     // THE PLAY GRID (Paul 2026-08-29): each STARTED column is an INDEPENDENT, CONTINUOUS voice. It composes at engine
@@ -344,22 +349,22 @@ final class BuildSceneLogicTests: XCTestCase {
         i.playColRecv = [2, 1, 0, 0, 0, 0, 0, 0]                                 // per-column doors, derived from the ferry source
         i.playColEmit = [[.b], [.c, .d], [.a], [.a], [.a], [.a], [.a], [.a]]
         let s = BuildSceneLogic.composeScene(i)!
-        let base = Snap.playLayerRowBase                                // the hidden play layer starts at engine row 8
-        // play column 0 → engine (col 0, row 8) — the HIDDEN play layer, DISJOINT from the part's rows 0–7
-        XCTAssertEqual(s.cellAt(0, base + 0)?.machineID, "b1", "col 0's cell composes at engine row 8")
-        XCTAssertEqual(s.cellAt(0, base + 0)?.processors?.first?.type, .arp, "with its own machine")
-        XCTAssertEqual(s.cellAt(0, base + 0)?.buses, [.b], "its ferried emitter")
-        XCTAssertEqual(s.cellAt(0, base + 0)?.inputReceiver, 2, "its ferried door")
-        // play column 1 → engine (col 0, row 9)
-        XCTAssertEqual(s.cellAt(0, base + 1)?.machineID, "b2", "col 1's cell composes at engine row 9 (empty chain = passthrough)")
-        XCTAssertEqual(s.cellAt(0, base + 1)?.buses, [.c, .d], "carries its own ferried emitters")
-        XCTAssertNil(s.cellAt(0, base + 2), "col 2 is populated but NOT started → its engine row is empty")
-        XCTAssertNil(s.cellAt(0, 0), "the visible rows 0–7 stay free for the part (no play cell there)")
+        let base0 = Snap.ferryRowBase(0), base1 = Snap.ferryRowBase(1), base2 = Snap.ferryRowBase(2)   // each ferry's own dedicated row block
+        // play column 0 → engine (col 0, ferry 0's row) — DISJOINT from the part's rows 0–3
+        XCTAssertEqual(s.cellAt(0, base0)?.machineID, "b1", "col 0's cell composes at ferry 0's row")
+        XCTAssertEqual(s.cellAt(0, base0)?.processors?.first?.type, .arp, "with its own machine")
+        XCTAssertEqual(s.cellAt(0, base0)?.buses, [.b], "its ferried emitter")
+        XCTAssertEqual(s.cellAt(0, base0)?.inputReceiver, 2, "its ferried door")
+        // play column 1 → engine (col 0, ferry 1's row)
+        XCTAssertEqual(s.cellAt(0, base1)?.machineID, "b2", "col 1's cell composes at ferry 1's row (empty chain = passthrough)")
+        XCTAssertEqual(s.cellAt(0, base1)?.buses, [.c, .d], "carries its own ferried emitters")
+        XCTAssertNil(s.cellAt(0, base2), "col 2 is populated but NOT started → its engine row is empty")
+        XCTAssertNil(s.cellAt(0, Snap.stagingRowBase), "the reserved staging rows stay free (no part is playing in this test)")
         // CONTINUOUS: the started columns' play-layer rows loop column 0; the rest don't loop.
         let lane = try XCTUnwrap(s.rowLane, "the play grid sets a per-row lane")
-        XCTAssertEqual(lane[base + 0], 0b1, "row 8 loops column 0 → continuous")
-        XCTAssertEqual(lane[base + 1], 0b1, "row 9 loops column 0 → continuous")
-        XCTAssertEqual(lane[base + 2], 0, "col 2 not started → its row doesn't loop")
+        XCTAssertEqual(lane[base0], 0b1, "ferry 0's row loops column 0 → continuous")
+        XCTAssertEqual(lane[base1], 0b1, "ferry 1's row loops column 0 → continuous")
+        XCTAssertEqual(lane[base2], 0, "col 2 not started → its row doesn't loop")
     }
     func testPlayColumnMultiStepPassLaysStepsAndLoopsItsLength() throws {
         // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column with len > 1 lays its step machines across
@@ -377,7 +382,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.playColStepRecv = [[0, 0, 2], [], [], [], [], [], [], []]          // step 2 reads door C (2)
         i.playColSteps[1] = ["solo"]                                        // col 1's single cell
         let s = BuildSceneLogic.composeScene(i)!
-        let base = Snap.playLayerRowBase
+        let base = Snap.ferryRowBase(0), base1 = Snap.ferryRowBase(1)   // ferry 0's / ferry 1's own dedicated row block
         XCTAssertEqual(s.cellAt(0, base)?.machineID, "a", "step 0 at (col 0, play row)")
         XCTAssertNil(s.cellAt(1, base), "step 1 is a REST → no cell")
         XCTAssertEqual(s.cellAt(2, base)?.machineID, "c", "step 2 at (col 2, play row)")
@@ -390,9 +395,9 @@ final class BuildSceneLogicTests: XCTestCase {
         let lane = try XCTUnwrap(s.rowLane, "the play grid sets a per-row lane")
         XCTAssertEqual(lane[base], 0, "multi-step SWEEPS 0..len-1 → no col-0 pin")
         // column 1 stays the pinned single cell, byte-identical to today.
-        XCTAssertEqual(s.cellAt(0, base + 1)?.machineID, "solo", "the single-cell column is unchanged")
-        XCTAssertEqual(lane[base + 1], 0b1, "single cell → pinned to col 0 (continuous)")
-        XCTAssertNil(len[base + 1], "single cell sets no per-row length")
+        XCTAssertEqual(s.cellAt(0, base1)?.machineID, "solo", "the single-cell column is unchanged")
+        XCTAssertEqual(lane[base1], 0b1, "single cell → pinned to col 0 (continuous)")
+        XCTAssertNil(len[base1], "single cell sets no per-row length")
     }
     // P1 (2026-08-30): when NO row is fully empty, the chain audition (PLAY THIS MIDI CHAIN) lays across the
     // least-occupied row's FREE columns and must SWEEP. The old code unconditionally pinned col 0 of that row —
@@ -406,23 +411,26 @@ final class BuildSceneLogicTests: XCTestCase {
         i.chainActive = true; i.chainMachineID = "aud"; i.chainMachine = []
         let (sceneOpt, auditionRow) = BuildSceneLogic.composeSceneMeta(i)
         let s = try XCTUnwrap(sceneOpt)
-        XCTAssertEqual(auditionRow, 0, "the least-occupied row (all tie → row 0)")
-        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "p0", "col 0 stays the staging cell")
-        XCTAssertEqual(s.cellAt(1, 0)?.machineID, "aud", "the chain lays across the row's FREE columns")
-        XCTAssertEqual(try XCTUnwrap(s.rowLane)[0], 0, "P1: the fallback row is NOT pinned to col 0 → it sweeps (else the pin loops p0 and the audition is silent)")
+        let row0 = Snap.stagingRowBase + 0   // TRANSITIONAL (Stage 2 of 4): staging/the audition share the reserved block
+        XCTAssertEqual(auditionRow, row0, "the least-occupied row (all tie → the block's first row)")
+        XCTAssertEqual(s.cellAt(0, row0)?.machineID, "p0", "col 0 stays the staging cell")
+        XCTAssertEqual(s.cellAt(1, row0)?.machineID, "aud", "the chain lays across the row's FREE columns")
+        XCTAssertEqual(try XCTUnwrap(s.rowLane)[row0], 0, "P1: the fallback row is NOT pinned to col 0 → it sweeps (else the pin loops p0 and the audition is silent)")
 
         // CONTROL — a fully-empty row exists → the single-cell audition DOES pin col 0 (continuous, no re-strike).
+        // (Only 3 of the 4 reserved rows occupied, not 7 of 8 — a part has Snap.rowsPerFerry(4) rows now, not 8.)
         var j = BuildSceneLogic.Input()
         j.stagingPlaying = true
-        j.stagingCells = grid((0..<7).map { ($0, $0, "p\($0)") })   // rows 0–6 occupied, ROW 7 empty
-        j.stagingSel = Array(0..<7)                                 // columns 0–6 select rows 0–6; column 7 falls back to −1 (out of range)
+        j.stagingCells = grid((0..<3).map { ($0, $0, "p\($0)") })   // rows 0–2 occupied, ROW 3 empty
+        j.stagingSel = Array(0..<3) + [-1, -1, -1, -1, -1]          // columns 0–2 select rows 0–2; the rest silent
         j.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         j.chainActive = true; j.chainMachineID = "aud"; j.chainMachine = []
         let (s2Opt, aud2) = BuildSceneLogic.composeSceneMeta(j)
         let s2 = try XCTUnwrap(s2Opt)
-        XCTAssertEqual(aud2, 7, "the fully-empty row")
-        XCTAssertEqual(s2.cellAt(0, 7)?.machineID, "aud", "the single cell parks at col 0 of the empty row")
-        XCTAssertEqual(try XCTUnwrap(s2.rowLane)[7], 0b1, "the single-cell audition pins col 0 → continuous")
+        let row3 = Snap.stagingRowBase + 3
+        XCTAssertEqual(aud2, row3, "the fully-empty row")
+        XCTAssertEqual(s2.cellAt(0, row3)?.machineID, "aud", "the single cell parks at col 0 of the empty row")
+        XCTAssertEqual(try XCTUnwrap(s2.rowLane)[row3], 0b1, "the single-cell audition pins col 0 → continuous")
     }
     // A multi-step pass plays at its OWN captured rate (rowStepRate[8+c], not the scene default), and a step whose
     // per-step I/O is empty/short falls back to the column default. Neither is asserted by the layout test above.
@@ -440,9 +448,9 @@ final class BuildSceneLogicTests: XCTestCase {
         i.playColStepEmit = [[[], []], [], [], [], [], [], [], []]           // both steps EMPTY → fall back to the column default
         i.playColStepRecv = [[], [], [], [], [], [], [], []]                 // short → fall back to the column default
         let s = BuildSceneLogic.composeScene(i)!
-        let base = Snap.playLayerRowBase
-        XCTAssertEqual(s.rowStepRate?[base], .r1_8, "the pass plays at its OWN captured rate at rowStepRate[8+c]")
-        XCTAssertNil(s.rowStepRate?[base + 1], "a single-cell column sets no per-row rate")
+        let base = Snap.ferryRowBase(0), base1 = Snap.ferryRowBase(1)
+        XCTAssertEqual(s.rowStepRate?[base], .r1_8, "the pass plays at its OWN captured rate at rowStepRate[ferryRowBase(c)]")
+        XCTAssertNil(s.rowStepRate?[base1], "a single-cell column sets no per-row rate")
         XCTAssertEqual(s.cellAt(0, base)?.buses, [.b], "step 0's EMPTY per-step emitter falls back to the column default (B)")
         XCTAssertEqual(s.cellAt(1, base)?.buses, [.b], "step 1 too")
         XCTAssertEqual(s.cellAt(0, base)?.inputReceiver, 3, "the SHORT per-step door falls back to the column default (D)")
@@ -462,12 +470,12 @@ final class BuildSceneLogicTests: XCTestCase {
         i.playColEmit = [[.a], [.a], [.a], [.a], [.a], [.a], [.a], [.a]]        // the single-cell default is IGNORED for len>1 — the bug wrote only here
         i.playColRecv = [0, 0, 0, 0, 0, 0, 0, 0]
         let s = BuildSceneLogic.composeScene(i)!
-        let base = Snap.playLayerRowBase
+        let base = Snap.ferryRowBase(0), base1 = Snap.ferryRowBase(1)
         XCTAssertEqual(s.cellAt(0, base)?.machineID, "m")
-        XCTAssertEqual(s.cellAt(0, base + 1)?.machineID, "m", "both passes are the SAME machine")
+        XCTAssertEqual(s.cellAt(0, base1)?.machineID, "m", "both passes are the SAME machine")
         XCTAssertEqual(s.cellAt(0, base)?.buses, [.a], "pass 0 emits on A")
-        XCTAssertEqual(s.cellAt(0, base + 1)?.buses, [.c], "pass 1 emits on C (the re-pointed emitter) — NOT A → no collision")
-        XCTAssertNotEqual(s.cellAt(0, base)?.buses, s.cellAt(0, base + 1)?.buses, "distinct cables → both are audible")
+        XCTAssertEqual(s.cellAt(0, base1)?.buses, [.c], "pass 1 emits on C (the re-pointed emitter) — NOT A → no collision")
+        XCTAssertNotEqual(s.cellAt(0, base)?.buses, s.cellAt(0, base1)?.buses, "distinct cables → both are audible")
     }
     func testPlayGridAloneProducesASceneOnlyWhenAColumnIsStarted() {
         var i = BuildSceneLogic.Input()
@@ -495,24 +503,26 @@ final class BuildSceneLogicTests: XCTestCase {
         p.playColSteps = [["gold"], [], [], [], [], [], [], []]
         p.playColStepChain = [[[]], [], [], [], [], [], [], []]   // empty chain → still placed (no-machine passthrough)
         let sp = BuildSceneLogic.composeScene(p)!
-        XCTAssertEqual(sp.cellAt(0, Snap.playLayerRowBase)?.processors, [], "a no-machine PLAY-GRID cell is an explicit-empty passthrough too")
+        XCTAssertEqual(sp.cellAt(0, Snap.ferryRowBase(0))?.processors, [], "a no-machine PLAY-GRID cell is an explicit-empty passthrough too")
     }
 
     func testPerRowIOOverridesTheDefaultElseInherits() {
-        // PER-ROW I/O (Paul 2026-08-18): row 1 carries its OWN door + emitter; row 4 inherits the part default.
+        // PER-ROW I/O (Paul 2026-08-18): row 1 carries its OWN door + emitter; row 3 inherits the part default.
+        // (row 3, not the pre-Stage-2 example's row 4 — a part only has Snap.rowsPerFerry(4) rows, 0...3, now.)
         var i = BuildSceneLogic.Input()
         i.stagingPlaying = true
-        i.stagingCells = grid([(0, 1, "gold"), (1, 4, "teal")])
-        i.stagingSel = [1, 4, -1, -1, -1, -1, -1, -1]
+        i.stagingCells = grid([(0, 1, "gold"), (1, 3, "teal")])
+        i.stagingSel = [1, 3, -1, -1, -1, -1, -1, -1]
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the cells sound (a machine-less part cell is silent, Paul 2026-08-26)
         i.selReceiver = 0; i.partEmitters = [.a]                        // part DEFAULT: door R1 · emitter A
-        i.rowReceiver = [0, 2, 0, 0, 0, 0, 0, 0]                        // row 1 → door R3
-        i.rowEmitters = [[.a], [.c], [.a], [.a], [.a], [.a], [.a], [.a]] // row 1 → emitter C
+        i.rowReceiver = [0, 2, 0, 0]                                    // row 1 → door R3
+        i.rowEmitters = [[.a], [.c], [.a], [.a]]                        // row 1 → emitter C
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 1)?.inputReceiver, 2, "row 1 uses its OWN door")
-        XCTAssertEqual(s.cellAt(0, 1)?.buses, [.c], "row 1 uses its OWN emitter")
-        XCTAssertEqual(s.cellAt(1, 4)?.inputReceiver, 0, "row 4 inherits the part default door")
-        XCTAssertEqual(s.cellAt(1, 4)?.buses, [.a], "row 4 inherits the part default emitters")
+        let row1 = Snap.stagingRowBase + 1, row3 = Snap.stagingRowBase + 3   // TRANSITIONAL (Stage 2 of 4): the reserved block
+        XCTAssertEqual(s.cellAt(0, row1)?.inputReceiver, 2, "row 1 uses its OWN door")
+        XCTAssertEqual(s.cellAt(0, row1)?.buses, [.c], "row 1 uses its OWN emitter")
+        XCTAssertEqual(s.cellAt(1, row3)?.inputReceiver, 0, "row 3 inherits the part default door")
+        XCTAssertEqual(s.cellAt(1, row3)?.buses, [.a], "row 3 inherits the part default emitters")
     }
 
     func testChainAuditionIsAOneStepContinuousPass() throws {
@@ -523,11 +533,12 @@ final class BuildSceneLogicTests: XCTestCase {
         i.chainMachineID = "cyan"
         i.chainMachine = []                                // raw passthrough
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "cyan", "the audition parks at column 0 of the empty row 0")
-        XCTAssertNil(s.cellAt(1, 0), "NOT laid across the other columns — it's continuous, not re-struck each step")
-        XCTAssertEqual(s.cellAt(0, 0)?.processors, [], "explicit empty chain (born-audible passthrough), never nil")
+        let row0 = Snap.stagingRowBase + 0   // TRANSITIONAL (Stage 2 of 4): the audition parks in the reserved block
+        XCTAssertEqual(s.cellAt(0, row0)?.machineID, "cyan", "the audition parks at column 0 of the empty row")
+        XCTAssertNil(s.cellAt(1, row0), "NOT laid across the other columns — it's continuous, not re-struck each step")
+        XCTAssertEqual(s.cellAt(0, row0)?.processors, [], "explicit empty chain (born-audible passthrough), never nil")
         let lane = try XCTUnwrap(s.rowLane, "the audition sets a per-row lane")
-        XCTAssertEqual(lane[0], 0b1, "row 0 loops column 0 → continuous")
+        XCTAssertEqual(lane[row0], 0b1, "the row loops column 0 → continuous")
     }
 
     func testComposeSceneMetaReportsTheAuditionRow() {
@@ -540,7 +551,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         let m = BuildSceneLogic.composeSceneMeta(i)
         let ar = m.auditionRow
-        XCTAssertEqual(ar, 1, "the audition parks on the first free row (row 0 taken by staging)")
+        XCTAssertEqual(ar, Snap.stagingRowBase + 1, "the audition parks on the first free row (row 0 taken by staging)")
         XCTAssertEqual(m.scene?.cellAt(0, ar ?? -1)?.machineID, "cyan", "auditionRow points at the audition cell (col 0)")
         // No chain voice ⇒ no audition row.
         var j = BuildSceneLogic.Input(); j.stagingPlaying = true
@@ -575,8 +586,9 @@ final class BuildSceneLogicTests: XCTestCase {
         i.stagingSel = Array(0..<8)
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "gold", "the fallback row's own pre-existing cell survives")
-        XCTAssertEqual(s.cellAt(1, 0)?.machineID, "cyan", "the chain fills that row's OTHER free columns")
+        let row0 = Snap.stagingRowBase + 0   // TRANSITIONAL (Stage 2 of 4): staging/the audition share the reserved block
+        XCTAssertEqual(s.cellAt(0, row0)?.machineID, "gold", "the fallback row's own pre-existing cell survives")
+        XCTAssertEqual(s.cellAt(1, row0)?.machineID, "cyan", "the chain fills that row's OTHER free columns")
     }
 
     func testPartAndChainCoexist() {
@@ -588,8 +600,9 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the part cell sounds
         i.chainMachineID = "cyan"                           // chain finds a free row (not 3)
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 3)?.machineID, "teal", "part plays")
-        let chainRow = (0..<8).first { r in r != 3 && s.cellAt(0, r)?.machineID == "cyan" }
+        let row3 = Snap.stagingRowBase + 3   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertEqual(s.cellAt(0, row3)?.machineID, "teal", "part plays")
+        let chainRow = (Snap.stagingRowBase..<(Snap.stagingRowBase + Snap.rowsPerFerry)).first { r in r != row3 && s.cellAt(0, r)?.machineID == "cyan" }
         XCTAssertNotNil(chainRow, "the chain lands on some free row, coexisting with the part")
     }
     // MARK: composeScene — the PER-PART CLOCK + PER-ROW LAP mapping (Input → SceneState.rowStepRate/rowLen/rowLane)
@@ -603,8 +616,9 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         i.stagingRate = nil; i.stagingLen = 4                      // default rate, short length
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertNil(s.rowStepRate?[2], "the default rate lands as nil (scene default), not skipped")
-        XCTAssertEqual(s.rowLen?[2], 4, "the short length still lands alongside the default rate")
+        let row2 = Snap.stagingRowBase + 2   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertNil(s.rowStepRate?[row2], "the default rate lands as nil (scene default), not skipped")
+        XCTAssertEqual(s.rowLen?[row2], 4, "the short length still lands alongside the default rate")
     }
 
     func testUniformStagingLeavesPerRowClockNil() {
@@ -627,7 +641,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         i.stagingLane = 0b10
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.rowLane?[2], 0b10, "staging's lane lands on the row it occupies")
+        XCTAssertEqual(s.rowLane?[Snap.stagingRowBase + 2], 0b10, "staging's lane lands on the row it occupies")
         XCTAssertEqual(s.rowLane?[5] ?? 0, 0, "an untouched row carries no lane")
     }
 
@@ -677,11 +691,12 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = (0..<8).map { $0 == 2 ? [ProcessorSlot(type: .arp)] : [] }
         i.stagingLoopCols = [3, 1, 5]
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.machineID, "m3", "logical step 0 plays the FIRST added column (3), not the lowest")
-        XCTAssertEqual(s.cellAt(1, 2)?.machineID, "m1", "logical step 1 plays the SECOND added column (1)")
-        XCTAssertEqual(s.cellAt(2, 2)?.machineID, "m5", "logical step 2 plays the THIRD added column (5)")
-        XCTAssertNil(s.cellAt(3, 2), "columns beyond the selection's count are not written")
-        XCTAssertEqual(s.rowLen?[2], 3, "the row's effective length is the selection's count")
+        let row2 = Snap.stagingRowBase + 2   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertEqual(s.cellAt(0, row2)?.machineID, "m3", "logical step 0 plays the FIRST added column (3), not the lowest")
+        XCTAssertEqual(s.cellAt(1, row2)?.machineID, "m1", "logical step 1 plays the SECOND added column (1)")
+        XCTAssertEqual(s.cellAt(2, row2)?.machineID, "m5", "logical step 2 plays the THIRD added column (5)")
+        XCTAssertNil(s.cellAt(3, row2), "columns beyond the selection's count are not written")
+        XCTAssertEqual(s.rowLen?[row2], 3, "the row's effective length is the selection's count")
     }
 
     func testComposeSceneEmptyLoopSelectionIsByteIdenticalToUnset() {
@@ -694,9 +709,10 @@ final class BuildSceneLogicTests: XCTestCase {
         i.rowChain = (0..<8).map { $0 == 2 ? [ProcessorSlot(type: .arp)] : [] }
         // stagingLoopCols left at its default ([])
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.machineID, "a")
-        XCTAssertEqual(s.cellAt(1, 2)?.machineID, "b")
-        XCTAssertEqual(s.cellAt(2, 2)?.machineID, "c")
+        let row2 = Snap.stagingRowBase + 2   // TRANSITIONAL (Stage 2 of 4): staging composes into the reserved block
+        XCTAssertEqual(s.cellAt(0, row2)?.machineID, "a")
+        XCTAssertEqual(s.cellAt(1, row2)?.machineID, "b")
+        XCTAssertEqual(s.cellAt(2, row2)?.machineID, "c")
         XCTAssertNil(s.rowLen, "no rate/length/loop customisation at all ⇒ no per-row clock (fast path preserved)")
     }
 
@@ -872,7 +888,12 @@ final class BuildSceneLogicTests: XCTestCase {
     }
     func testAutoLaneMigratesLegacyCellsToASpan() throws {
         // an OLD lane persisted with a `cells` extent (cols 2…5, various rows) but no span fields → decode derives a span.
-        let legacy = #"{"slot":0,"param":"gate","cells":[34,49,80,95],"lo":0.1,"hi":0.9}"#   // 34=col2 · 49=col3 · 80=col5 · 95=col5 (Snap.rows=16)
+        // The encoding is col*Snap.rows+row (BuildModel.swift's AutoLane migration), so the raw indices depend on the
+        // CURRENT Snap.rows — build them from (col,row) pairs rather than hardcoding stale numbers from an earlier
+        // Snap.rows value (this migration is legacy-decode-only; only the column math is under test, not real old docs).
+        func idx(_ col: Int, _ row: Int) -> Int { col * Snap.rows + row }
+        let cells = [idx(2, 1), idx(3, 4), idx(5, 0), idx(5, 3)]
+        let legacy = #"{"slot":0,"param":"gate","cells":\#(cells),"lo":0.1,"hi":0.9}"#
         let lane = try JSONDecoder().decode(AutoLane.self, from: Data(legacy.utf8))
         XCTAssertEqual(lane.spanStart, 2, "derived from the min column")
         XCTAssertEqual(lane.spanLen, 4, "min…max column span = cols 2…5 → length 4")

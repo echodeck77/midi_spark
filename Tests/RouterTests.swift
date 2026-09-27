@@ -1296,26 +1296,27 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.count, 0, "the glide anchor sounded")
         assertNothingLeftSounding(e)   // no stop-flush ran → an orphaned anchor would show as a stuck ON
     }
-    // PLAY-LAYER ROWS 8…15 (Paul 2026-09-01): the hidden play layer occupies engine rows 8…15 (Snap.playLayerRowBase); the
-    // multi-clock loops iterate all 16 rows and the tap/mute masks exempt rows ≥8 — but no RouterTest had ever placed a cell
-    // there. A slow part cell (row 0, bus A) + a fast play-layer cell (row 8, bus B, its own fast rate) → the play row fires
-    // far more, no A↔B cross-leak, nothing stuck (guards any latent rows-0–7 `%8`/`<8` assumption in the 16-row loops).
+    // PLAY-LAYER ROWS (Paul 2026-09-01, addresses updated 2026-09-27 ferry-row-unification): each ferry occupies its own
+    // dedicated row block (Snap.ferryRowBase(t)); the multi-clock loops iterate all Snap.rows rows and the tap/mute masks
+    // exempt them — but no RouterTest had ever placed a cell there. A slow part cell (row 0, bus A) + a fast play-layer
+    // cell (ferry 0's row, bus B, its own fast rate) → the play row fires far more, no A↔B cross-leak, nothing stuck
+    // (guards any latent rows-0–3 `%8`/`<8` assumption in the 32-row loops).
     func testPlayLayerRowsRunOnTheirOwnClockWithoutLeak() {
         let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
         let b = box(machines: cs) { s in
-            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])                     // part cell — row 0, bus A
             while s.cells[0].count < Snap.rows { s.cells[0].append(nil) }           // extend the column so a play-layer row can hold a cell
-            s.cells[0][Snap.playLayerRowBase] = Cell(machineID: "azure", buses: [.b]) // play-layer cell — row 8, bus B
+            s.cells[0][Snap.stagingRowBase] = Cell(machineID: "gold", buses: [.a])   // an unrelated occupied row — bus A (Snap.stagingRowBase is disjoint from every ferryRowBase(t))
+            s.cells[0][Snap.ferryRowBase(0)] = Cell(machineID: "azure", buses: [.b]) // play-layer cell — ferry 0's row, bus B
             var rate = [StepRate?](repeating: nil, count: Snap.rows)
-            rate[0] = .r2_1                                                          // row 0 SLOW
-            rate[Snap.playLayerRowBase] = .r1_8                                      // row 8 FAST — its OWN clock
+            rate[Snap.stagingRowBase] = .r2_1                                        // the unrelated row SLOW
+            rate[Snap.ferryRowBase(0)] = .r1_8                                       // ferry 0's row FAST — its OWN clock
             s.rowStepRate = rate
         }
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 16, into: e)
         let a = e.ons.filter { $0.cable == 1 }.count, playRow = e.ons.filter { $0.cable == 2 }.count
-        XCTAssertGreaterThan(a, 0, "the part row (row 0) sounds on bus A")
-        XCTAssertGreaterThan(playRow, 0, "the play-layer row (row 8) RENDERS on its OWN bus B — a cell in engine rows 8…15 runs in the multi-clock loop (the gap: no RouterTest had ever placed a cell there)")
+        XCTAssertGreaterThan(a, 0, "the unrelated row sounds on bus A")
+        XCTAssertGreaterThan(playRow, 0, "the play-layer row (ferry 0's row) RENDERS on its OWN bus B — a cell in the play-layer rows runs in the multi-clock loop (the gap: no RouterTest had ever placed a cell there)")
         assertNothingLeftSounding(e)
     }
     // onlyRow LEGATO reconcile vs a surviving DRONE (Paul 2026-09-01): the multi-clock path scopes the hold reconcile per row

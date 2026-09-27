@@ -202,7 +202,7 @@ enum BuildSceneLogic {
                     var cell = Cell(machineID: cid, buses: sEmit)
                     cell.inputReceiver = sRecv
                     cell.processors = (c < i.playColStepChain.count && step < i.playColStepChain[c].count) ? i.playColStepChain[c][step] : []
-                    s.setCell(step, Snap.playLayerRowBase + c, cell)        // engine (col step, row 8+c) — the playhead sweeps 0..len-1 and loops
+                    s.setCell(step, Snap.ferryRowBase(c), cell)        // engine (col step, ferry c's row) — the playhead sweeps 0..len-1 and loops
                 }
             }
         }
@@ -217,7 +217,7 @@ enum BuildSceneLogic {
             for logical in 0..<stagingPlan.count {   // §E: 16-wide part, or the LOOP SELECTION's own length/order
                 let c = stagingPlan.physicalColumn(logical)         // read from the REAL part column…
                 let r = selectedRung(i.stagingSel, c)
-                guard r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, let cid = i.stagingCells[c][r] else { continue }
+                guard r >= 0, r < Snap.rowsPerFerry, c < i.stagingCells.count, r < i.stagingCells[c].count, let cid = i.stagingCells[c][r] else { continue }
                 let chain = r < i.rowChain.count ? i.rowChain[r] : []
                 // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only SELECTED it, they haven't
                 // set it up — no output until a machine is added. (The no-machine live-wire still monitors input when you're
@@ -228,39 +228,48 @@ enum BuildSceneLogic {
                 var cell = Cell(machineID: cid, buses: buses)
                 cell.inputReceiver = recv
                 cell.processors = applyAuto(chain, machineID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
-                s.setCell(logical, r, cell)                         // …write to the SEQUENTIAL scene column (the audition sits in front on a slot collision)
+                // TRANSITIONAL (Stage 2 of 4, ferry-row-unification): writes to the reserved Snap.stagingRowBase block,
+                // not its own ferry's block, until Stage 3 unifies the composer — see the Snap.stagingRowBase doc comment.
+                s.setCell(logical, Snap.stagingRowBase + r, cell)   // …write to the SEQUENTIAL scene column (the audition sits in front on a slot collision)
             }
         }
 
         if i.chainActive, let cid = i.chainMachineID {               // THE MIDI CHAIN / SELECT audition — a 1-step CONTINUOUS pass
             let buses: Set<Bus> = i.chainEmitters.isEmpty ? [.a] : i.chainEmitters   // the SELECTED machine's own I/O (Paul 2026-08-18)
             let recv = max(0, min(3, i.chainReceiver))
-            let occ = (0..<8).map { r in (0..<Snap.maxCols).filter { s.cellAt($0, r) != nil }.count }   // scan the full 16-wide part (Paul 2026-09-08) so a row busy only in cols 8–15 isn't treated as empty for the audition overlay
+            // TRANSITIONAL (Stage 2 of 4): the audition parks ALONGSIDE the staging pass, so it scans the SAME reserved
+            // Snap.stagingRowBase block the staging cell-placement block above writes into (4 rows, not every ferry's).
+            let stagingRows = Snap.stagingRowBase..<(Snap.stagingRowBase + Snap.rowsPerFerry)
+            let occ = stagingRows.map { r in (0..<Snap.maxCols).filter { s.cellAt($0, r) != nil }.count }   // scan the full 16-wide part (Paul 2026-09-08) so a row busy only in cols 8–15 isn't treated as empty for the audition overlay
             func mk() -> Cell { var c = Cell(machineID: cid, buses: buses); c.inputReceiver = recv; c.processors = i.chainMachine; return c }
-            if let emptyRow = (0..<8).first(where: { occ[$0] == 0 }) {
+            if let emptyIdx = occ.firstIndex(where: { $0 == 0 }) {
+                let emptyRow = Snap.stagingRowBase + emptyIdx
                 // NO RE-STRIKING (Paul 2026-08-29): park at COLUMN 0 of a FULLY-EMPTY row + loop that row to column 0 (below),
                 // so the audition plays CONTINUOUSLY — a 1-step pass, exactly like a play cell. (Was laid across all 8 columns
                 // → the grid clock re-triggered it every step, the "select page re-striking" Paul flagged.)
                 s.setCell(0, emptyRow, mk())
                 chainLaneRow = emptyRow; chainPinned = true            // a single cell at col 0 → pin col 0 (continuous, no re-strike)
-            } else if let row = (0..<8).min(by: { occ[$0] < occ[$1] }), occ[row] < 8 {
+            } else if let minIdx = occ.indices.min(by: { occ[$0] < occ[$1] }), occ[minIdx] < 8 {
+                let row = Snap.stagingRowBase + minIdx
                 for c in 0..<8 where s.cellAt(c, row) == nil { s.setCell(c, row, mk()) }   // FALLBACK (no empty row — every row already sounds): lay across (may re-strike)
                 chainLaneRow = row                                     // expose the row so the aimed ferry still has a live-strike index (Paul 2026-08-30; col 0 = a chain cell iff it was free)
             }
         }
 
         // PER-PART CLOCK (Paul 2026-08-19): each scene ROW takes its owning part's rate/length; a nil ⇒ the scene default (uniform = today).
-        var rowStepRate = [StepRate?](repeating: nil, count: Snap.rows)   // Snap.rows (16) so the PLAY layer (rows 8–15) can carry a per-column pass length too
+        var rowStepRate = [StepRate?](repeating: nil, count: Snap.rows)   // Snap.rows so every ferry's own play-layer row can carry a per-column pass length too
         var rowLen = [Int?](repeating: nil, count: Snap.rows)
         if i.stagingPlaying {
             for logical in 0..<stagingPlan.count {   // the SAME plan as the cell-placement block above (one source of truth)
                 let c = stagingPlan.physicalColumn(logical)
                 let r = selectedRung(i.stagingSel, c)
-                if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
+                if r >= 0, r < Snap.rowsPerFerry, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
                     // rowLen reflects the LOOP's own length only when it actually changes the count (byte-identical
                     // when the feature is unused — an unset loop resolves stagingPlan.count == partLen == i.stagingLen).
-                    rowStepRate[r] = i.stagingRate
-                    rowLen[r] = (stagingPlan.count == partLen) ? i.stagingLen : stagingPlan.count
+                    // TRANSITIONAL (Stage 2 of 4): claims the reserved Snap.stagingRowBase block — see composeSceneMeta's
+                    // cell-placement block above.
+                    rowStepRate[Snap.stagingRowBase + r] = i.stagingRate
+                    rowLen[Snap.stagingRowBase + r] = (stagingPlan.count == partLen) ? i.stagingLen : stagingPlan.count
                 }
             }
         }
@@ -269,8 +278,8 @@ enum BuildSceneLogic {
                 guard c < i.playColOn.count, i.playColOn[c] else { continue }
                 let len = passLen(i.playColLen, c)
                 if len > 1 {
-                    rowLen[Snap.playLayerRowBase + c] = len            // len ≤ 1 stays nil → the single cell is pinned via rowLane below
-                    if c < i.playColRate.count, let rate = i.playColRate[c] { rowStepRate[Snap.playLayerRowBase + c] = rate }   // the pass plays at the flattened part's tempo
+                    rowLen[Snap.ferryRowBase(c)] = len            // len ≤ 1 stays nil → the single cell is pinned via rowLane below
+                    if c < i.playColRate.count, let rate = i.playColRate[c] { rowStepRate[Snap.ferryRowBase(c)] = rate }   // the pass plays at the flattened part's tempo
                 }
             }
         }
@@ -286,23 +295,23 @@ enum BuildSceneLogic {
         // PER-ROW LAP (Paul 2026-08-19): each row takes the loop mask of whichever voice's cell landed on it, so the
         // staging grid and the play layer loop independently.
         if i.stagingLane != 0 || i.playLane != 0 || i.playPlaying || chainLaneRow != nil {
-            var rowLane = [UInt16](repeating: 0, count: Snap.rows)    // Snap.rows = 16 (rows 0–7 the visible grids, 8–15 the play layer)
+            var rowLane = [UInt16](repeating: 0, count: Snap.rows)    // Snap.rows — the visible grids' rows + every ferry's own dedicated block
             if let cr = chainLaneRow, chainPinned { rowLane[cr] = 0b0000_0001 }   // P1: pin ONLY the single-cell audition; the fallback laid chain cells across cols 1..7 → leave rowLane 0 so the row SWEEPS (else the pin loops col 0, often ANOTHER voice's cell → the audition is silent)
-            if i.playPlaying {                              // the PLAY grid: each STARTED column's HIDDEN row (8+c)
+            if i.playPlaying {                              // the PLAY grid: each STARTED column's own dedicated row
                 for c in 0..<8 {                            //   SINGLE-step pass → loops COLUMN 0 (pinned, continuous); MULTI-STEP pass → SWEEPS (rowLane 0, rowLen loops it)
                     guard c < i.playColOn.count, i.playColOn[c] else { continue }
                     let len = passLen(i.playColLen, c)
                     if len > 1 { continue }                 // multi-step sweeps 0..len-1 → leave rowLane 0 (no pin)
                     if c < i.playColSteps.count, !i.playColSteps[c].isEmpty, i.playColSteps[c][0] != nil {
-                        rowLane[Snap.playLayerRowBase + c] = 0b0000_0001
+                        rowLane[Snap.ferryRowBase(c)] = 0b0000_0001
                     }
                 }
             }
             if i.stagingPlaying {
                 for c in 0..<Snap.maxCols {   // §E: 16-wide part
                     let r = selectedRung(i.stagingSel, c)
-                    if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
-                        rowLane[r] = i.stagingLane                  // staging is in front → its loop wins the row
+                    if r >= 0, r < Snap.rowsPerFerry, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
+                        rowLane[Snap.stagingRowBase + r] = i.stagingLane   // TRANSITIONAL (Stage 2 of 4): the reserved block — staging is in front → its loop wins the row
                     }
                 }
             }

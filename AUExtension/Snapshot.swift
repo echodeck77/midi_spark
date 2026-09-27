@@ -14,17 +14,28 @@ import Foundation
 // MARK: - Fixed geometry
 
 enum Snap {
-    // rows = 16 (Paul 2026-08-29): the VISIBLE grids use ONLY rows 0–7 (their ForEach is hardcoded 8); rows 8–15 are the
-    // HIDDEN PLAY LAYER — 8 continuous "play cells" that need their own rows (a per-row lane pins each to a column, so they
-    // can't share a row with the sequenced part). This gives the play layer + the sequenced part DISJOINT engine rows on the
-    // part page (was: both crammed into 8 rows → they collided in column 0). Cell index stays `col * Snap.rows + row`.
+    // FERRY ROW UNIFICATION (Paul 2026-09-27): rows = ferries × rowsPerFerry. Every one of the 8 play ferries — the
+    // one currently open on the bench or playing quietly in the background, no distinction — owns a FIXED, DEDICATED
+    // block of `rowsPerFerry` engine rows (`ferryRowBase(t)..<ferryRowBase(t)+rowsPerFerry`), always live. This
+    // replaces the old model (rows 0–7 shared by whichever ferry was on the bench + a dead pre-ferry "PIECE"
+    // arrangement grid, rows 8–15 one mono row per background ferry via `playLayerRowBase`, now gone) — see
+    // Docs status log "FERRY ROW UNIFICATION" and the plan it landed from. Cell index stays `col * Snap.rows + row`.
     // §E 16-STEP FLIP (Paul 2026-09-02): `cols` is the DEFAULT/uniform BAR width (8 — one bar = 8 steps; the whole cycle
     // math + uniform fast path key on it, so it STAYS 8 and the default part is byte-identical). `maxCols` is the
     // ALLOCATION ceiling — the widest a part's loop can be (16). Cell storage + column loops + per-row loop-length CLAMPS
     // use maxCols; a part whose rowLength > cols is non-uniform → the proven multi-clock per-row path plays its 16 columns.
-    static let cols = 8, rows = 16, machines = 16, maxCols = 16
-    static var cells: Int { maxCols * rows }   // 256 — the per-cell array/feed size (index = col*rows + row, col 0…15)
-    static let playLayerRowBase = 8         // the hidden play layer occupies engine rows 8…15 (row 8+c = play column c)
+    static let cols = 8, machines = 16, maxCols = 16
+    static let ferries = 8, rowsPerFerry = 4
+    static func ferryRowBase(_ t: Int) -> Int { t * rowsPerFerry }   // ferry t's own dedicated row block — the PERMANENT addressing, unchanged from here through Stage 4
+    // TRANSITIONAL (Stage 2 of 4 — removed in Stage 3): until the composer is unified, the ferry open on the bench still
+    // renders through a SEPARATE shared block (today's stagingCells/stagingSel write path), not its own ferryRowBase
+    // block. Reserved PAST every ferry's block so it can never collide with one — colliding shared/per-voice rows is
+    // the exact bug class `playLayerRowBase` originally existed to avoid, and the naive relocation (ferryRowBase(0) = 0)
+    // reintroduced it by landing ferry 0's row on top of the still-live staging rows. Stage 3 deletes this constant + the
+    // extra rowsPerFerry rows once the active ferry also renders through its own ferryRowBase block.
+    static let stagingRowBase = ferries * rowsPerFerry   // 32
+    static let rows = stagingRowBase + rowsPerFerry      // 36 (temporary — 32 again from Stage 3 onward)
+    static var cells: Int { maxCols * rows }   // the per-cell array/feed size (index = col*rows + row, col 0…15)
     // delta §9 item 11: a source filter ≥17 matches no held note (NotePool.matches never sees chan ≥16),
     // so it is the render-free way to express a MUTED receiver — its subscribers read an empty pool.
     static let mutedSourceFilter: UInt8 = 17
