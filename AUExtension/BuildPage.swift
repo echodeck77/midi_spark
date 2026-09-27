@@ -1433,6 +1433,13 @@ extension DiagView {
             buildSelectID(cid)                                              // the SELECT audition target = the playing part cell's machine
             buildApplyWorkshopVoice(.chain)                                 // continue it as the SELECT chain audition (seamless)
         } else {
+            // RETURN-TO-SAME-CELL (Paul 2026-09-27): a plain part→select return (nothing carried from a playing part)
+            // restores whichever browse cell was picked before PART claimed the shared select-source — see
+            // buildGridSelLastPick's capture in roomsPartSetup. Only fires when nothing is already selected + the
+            // remembered position is still a real cell, so it can never clobber a fresher pick.
+            if buildGridSelSel == nil, let last = buildGridSelLastPick, buildGridSelPresent(last) {
+                buildGridSelSel = last
+            }
             // No startup randomization (Paul 2026-08-29): the corpus is split into deterministic PAGES via the left rail
             // (page 0 = row 1 default). A cell auditions only when the user taps it.
             roomsSyncVoice(.select)                                          // normal entry — chain iff a browse cell is selected, else none
@@ -2609,6 +2616,11 @@ extension DiagView {
         // FIRST entry (nothing focused yet); NEVER override the user's own pick on a re-entry. The side buttons are the sole
         // way focus changes (a plain tap selects any slot — populated or empty; long-press still copies).
         if buildGridSelStampSourceRow == nil {
+            // RETURN-TO-SAME-CELL (Paul 2026-09-27): buildRoomsSetActiveSide (below) always nils buildGridSelSel —
+            // the shared select-source is "one thing active" — so remember the outgoing browse-cell pick (nil
+            // included, so a deliberate deselect before leaving isn't resurrected) before it's claimed for this
+            // ferry row. roomsSelectSetup restores it on a plain return to SELECT.
+            buildGridSelLastPick = buildGridSelSel
             let focus = playingRow ?? (0..<8).first { buildRowMachine($0) != nil } ?? 0
             buildRoomsSetActiveSide(focus)
             if buildRowMachine(focus) != nil { buildTapMachineTab(focus) }

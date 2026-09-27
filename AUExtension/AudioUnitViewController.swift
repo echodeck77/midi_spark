@@ -335,6 +335,7 @@ struct DiagView: View {
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
     @State var buildGridSelPriorSel: String? = nil
     @State var buildGridSelLastSlot: [Int: Int] = [:]     // per SELECT-grid cell index → the last processor slot VIEWED there; leaving remembers it, returning re-opens it (Paul 2026-09-10)
+    @State var buildGridSelLastPick: Int? = nil           // RETURN-TO-SAME-CELL (Paul 2026-09-27): the browse-cell index active when PART last claimed the shared select-source (buildRoomsSetActiveSide always nils buildGridSelSel — "one thing active"); roomsSelectSetup restores it on a plain part→select return so the pick isn't lost. Synced (nil included) on every PART entry, so a deliberate deselect before leaving isn't resurrected.
     @State var ddStickyReceiver: Int = 0      // sticky: the LAST receiver chosen → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // sticky: the LAST emitters chosen → the default output for a fresh cell (Emitter A)
     // (the playhead beat anchor moved into `meters` — a @State-held class — so its 4 Hz re-anchor doesn't re-run the body)
