@@ -65,12 +65,6 @@ final class Kernel {
     // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
     private var laneMask: UInt16 = 0
     func setLaneMask(_ mask: UInt16) { laneMask = mask }
-    // EDIT PAGE "play this cell only" (user 2026-08-08): the solo SET (bits col*8+row). While non-empty, only these
-    // cells sound. Ephemeral like laneMask; the UI sets it from the edit selection and clears it on OFF / leaving EDIT.
-    private var soloCellMask: UInt64 = 0
-    func setSoloCellMask(_ mask: UInt64) { soloCellMask = mask }
-    private var soloColumn: Int32 = -1   // PLAY: THIS CELL — the column to freeze on (−1 = normal timeline)
-    func setSoloColumn(_ c: Int) { soloColumn = Int32(c) }
     // §9 item 1 ON HOLD: the grid cell (col*8+row, −1 = none) currently press-held in PERFORM. Ephemeral like
     // laneMask; the UI sets it while a cell is held and clears it on release / stop / EDIT switch.
     private var heldCell: Int32 = -1
@@ -78,14 +72,8 @@ final class Kernel {
     private var focusCell: Int32 = -1
     func setFocusCell(_ cell: Int) { focusCell = Int32(cell) }   // FOCUS note-event feed target (the machine's cell)
     func drainFocusNotes() -> (pitch: [UInt8], vel: [UInt8], beat: [Double], count: Int) { router.drainFocusNotes() }
-    // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell ALT flips (bit col*8+row). Set by the PERFORM
-    // tap; cleared on transport stop / mode switch. Never persisted — a tap is momentary now, not a doc write.
-    private var tapAltMask: UInt64 = 0
-    func setTapAltMask(_ mask: UInt64) { tapAltMask = mask }
-    // §9 item 1 ON TAP actions (4b), ephemeral: per-cell MUTE + the global emitter SOLO set (bits A–D).
-    private var tapMuteMask: UInt64 = 0
+    // emitter strip: the additive foot SOLO set (bits A–D).
     private var soloEmitterMask: UInt8 = 0
-    func setTapMuteMask(_ mask: UInt64) { tapMuteMask = mask }
     func setSoloEmitterMask(_ mask: UInt8) { soloEmitterMask = mask }
     // receiver strip: the additive input SOLO set (bits R1–R4), ephemeral. Cleared by the UI on stop / EDIT.
     private var soloReceiverMask: UInt8 = 0
@@ -1022,9 +1010,8 @@ final class Kernel {
                         playing: rPlaying, beatPos: rBeat, tempo: tempo,
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
-                        frameCount: frameCount, audition: audition, forceColumn: Int(soloColumn), laneMask: laneMask,
-                        velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
-                        tapMuteMask: tapMuteMask, soloCellMask: soloCellMask, soloEmitterMask: soloEmitterMask,
+                        frameCount: frameCount, audition: audition, laneMask: laneMask,
+                        velOverride: velOverride, heldCell: Int(heldCell), soloEmitterMask: soloEmitterMask,
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputSemitone: inputSemitone, inputVelOverride: inputVelOverride,
                         emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
                         velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,

@@ -6,19 +6,10 @@ import Foundation
 // that gathers @State into these inputs and publishes the result.
 enum BuildSceneLogic {
 
-    /// Everything `composeScene` needs, gathered from the BUILD @State by the shell. A `performActiveRung` CLOSURE is
-    /// passed (it reads the deployed parts' selection) so the composer stays pure over its data.
+    /// Everything `composeScene` needs, gathered from the BUILD @State by the shell.
     struct Input {
         var stagingPlaying = false          // PLAY THIS PART is the voice
-        var performPlaying = false           // the PLAY grid (THE PIECE) is running
         var chainActive = false              // PLAY THIS MIDI CHAIN is the voice (was `ddSolo`)
-        // THE PIECE (play grid)
-        var performCells: [[String?]] = []             // [col][row] → machineID
-        var performMute: Set<Int> = []                 // key c*8+r
-        var performActiveRung: (Int, Int) -> Bool = { _, _ in true }
-        var performEmit: [Set<Bus>] = []               // per perform-ROW emitters
-        var performRecv: [Int] = []                    // per perform-ROW input door
-        var performChain: [[[ProcessorSlot]]] = []     // [col][row] → per-cell variation chain ([] = the machine's own)
         // THE PART (staging grid)
         var stagingCells: [[String?]] = []             // [col][row] → machineID
         var stagingSel: [Int] = []                     // the ONE selected rung per column (-1 = silent)
@@ -33,23 +24,15 @@ enum BuildSceneLogic {
         var chainReceiver = 0                          // the SELECTED machine's input door (its row's, resolved) — Paul 2026-08-18
         var chainEmitters: Set<Bus> = []               // the SELECTED machine's output emitters (its row's, resolved)
         // PER-PART CLOCK (Paul 2026-08-19): each part is a TRACK with its own rate/length. nil ⇒ the scene default.
-        var performRate: [StepRate?] = []              // per play-grid ROW: its deployed part's rate
-        var performLen: [Int?] = []                    // per play-grid ROW: its deployed part's loop length
         var stagingRate: StepRate? = nil               // the CURRENT part's rate (the staging audition rows)
         var stagingLen: Int? = nil                     // the CURRENT part's loop length
         var stagingLoopCols: [Int] = []                // PART LOOP SELECTION (Paul 2026-09-26): the CURRENT part's ordered loop columns; empty ⇒ play the whole part
-        // PER-ROW LAP (Paul 2026-08-19): the two grids' column-loop masks, kept SEPARATE — staging (current part) rows
-        // lap `stagingLane`, piece rows lap `performLane`, so looping one grid never loops the other.
+        // PER-ROW LAP (Paul 2026-08-19): the staging grid's own column-loop mask.
         var stagingLane: UInt16 = 0                     // the CURRENT part's column-loop mask (staging grid)
-        var performLane: UInt16 = 0                     // the PIECE's column-loop mask (play grid)
-        // THE PLAY GRID (Paul 2026-08-29, "treat as new") — the independent 8×8 (buildPlayCells) with ONE rung per column
-        // (playSel). Each column is a FULLY INDEPENDENT voice: it starts/stops on its own (playColOn) and carries the I/O
-        // it was FERRIED WITH (playColRecv/playColEmit — the door + emitters the source was playing through). Cells arrive
-        // via the SELECT top-button ferry, which copies both the machine AND the source's I/O.
+        // THE PLAY GRID (Paul 2026-08-29, "treat as new") — each ferry's flattened play-layer line. Each column is a
+        // FULLY INDEPENDENT voice: it starts/stops on its own (playColOn) and carries the I/O it was FERRIED WITH
+        // (playColRecv/playColEmit — the door + emitters the source was playing through).
         var playPlaying = false                        // ANY play column is on (the composeScene guard)
-        var playCells: [[String?]] = []                // [col][row] → machineID
-        var playSel: [Int] = []                        // the ONE selected rung per column (-1 = silent)
-        var playColChain: [[ProcessorSlot]] = []       // per-column RESOLVED chain (the selected cell's machine; [] = passthrough wire)
         var playColOn: [Bool] = []                     // per-column play state — ONLY started columns sound
         var playColRecv: [Int] = []                    // per-column input door (derived from the ferry source)
         var playColEmit: [Set<Bus>] = []               // per-column output emitters (derived from the ferry source; empty → [.a])
@@ -78,7 +61,7 @@ enum BuildSceneLogic {
     /// the composer + BuildPage's sweep-index helper so the clamp lives in ONE place. (refactor 2026-08-30)
     static func passLen(_ arr: [Int], _ c: Int) -> Int { c < arr.count ? max(1, min(Snap.maxCols, arr[c])) : 1 }   // §E: a play pass can be up to 16 steps
     // POLY-PREP (Paul 2026-09-14): the ONE place that reads "which rung(s) speak in column `c`" of a per-column
-    // selection array. Mono today (`stagingSel`/`playSel` are a single Int per column, -1 = silent). When a column
+    // selection array. Mono today (`stagingSel` is a single Int per column, -1 = silent). When a column
     // can hold a SET of rungs (poly selections), only these two bodies change — every caller already asks here.
     /// The primary selected rung for column `c` (-1 = the column is silent / out of range). Poly's "lead" rung.
     static func selectedRung(_ sel: [Int], _ c: Int) -> Int { (c >= 0 && c < sel.count) ? sel[c] : -1 }
@@ -194,7 +177,7 @@ enum BuildSceneLogic {
     /// its LIVE strike feed at `idx = col0*Snap.rows + auditionRow` and drift the aimed ferry's real notes (Paul 2026-08-30,
     /// #5: the audition composes on a DYNAMIC row, so the ferry couldn't line up its strikes without knowing which).
     static func composeSceneMeta(_ i: Input) -> (scene: SceneState?, auditionRow: Int?) {
-        guard i.stagingPlaying || i.performPlaying || i.chainActive || i.playPlaying else { return (nil, nil) }
+        guard i.stagingPlaying || i.chainActive || i.playPlaying else { return (nil, nil) }
         var s = SceneState.empty()
         var chainLaneRow: Int? = nil                                // the SELECT audition's engine row → looped to column 0 (a 1-step continuous pass)
         var chainPinned = false                                     // P1 (2026-08-30): pin col 0 ONLY for the single-cell (empty-row) audition; the fallback lays across many cols and must SWEEP
@@ -208,42 +191,20 @@ enum BuildSceneLogic {
                 let own = c < i.playColEmit.count ? i.playColEmit[c] : []
                 let buses: Set<Bus> = own.isEmpty ? [.a] : own                  // per-column emitters, derived from the ferry source
                 let recv = max(0, min(3, c < i.playColRecv.count ? i.playColRecv[c] : 0))   // per-column door, derived from the ferry source
-                let len = passLen(i.playColLen, c)
-                if len <= 1 {                                                   // SINGLE CELL (today, byte-identical): pinned continuous at (col 0, row 8+c)
-                    let r = selectedRung(i.playSel, c)
-                    guard r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, let cid = i.playCells[c][r] else { continue }
-                    var cell = Cell(machineID: cid, buses: buses)
-                    cell.inputReceiver = recv
-                    cell.processors = c < i.playColChain.count ? i.playColChain[c] : []   // EXPLICIT resolved machine ([] = passthrough wire)
-                    s.setCell(0, Snap.playLayerRowBase + c, cell)               // engine (col 0, HIDDEN play-layer row 8+c) → a continuous voice, DISJOINT from the part's rows 0–7
-                } else {                                                        // MULTI-STEP PASS: the flattened part's step machines across cols 0..len-1, SWEPT + looped (rowLen below)
-                    for step in 0..<len {
-                        guard c < i.playColSteps.count, step < i.playColSteps[c].count, let cid = i.playColSteps[c][step] else { continue }   // nil ⇒ a rest step
-                        // PER-STEP I/O (Paul 2026-08-30): each step keeps the door + emitters of the part ROW it flattened from
-                        // (the rung's resolved I/O); short/empty ⇒ the column default (the part default). So a flattened part
-                        // whose columns route to different doors/emitters keeps that routing.
-                        let sEmit = (c < i.playColStepEmit.count && step < i.playColStepEmit[c].count && !i.playColStepEmit[c][step].isEmpty) ? i.playColStepEmit[c][step] : buses
-                        let sRecv = (c < i.playColStepRecv.count && step < i.playColStepRecv[c].count) ? max(0, min(3, i.playColStepRecv[c][step])) : recv
-                        var cell = Cell(machineID: cid, buses: sEmit)
-                        cell.inputReceiver = sRecv
-                        cell.processors = (c < i.playColStepChain.count && step < i.playColStepChain[c].count) ? i.playColStepChain[c][step] : []
-                        s.setCell(step, Snap.playLayerRowBase + c, cell)        // engine (col step, row 8+c) — the playhead sweeps 0..len-1 and loops
-                    }
+                let len = passLen(i.playColLen, c)                             // the flattened part's step count (1 = a single continuous cell — the general loop below handles it directly)
+                for step in 0..<len {
+                    guard c < i.playColSteps.count, step < i.playColSteps[c].count, let cid = i.playColSteps[c][step] else { continue }   // nil ⇒ a rest step
+                    // PER-STEP I/O (Paul 2026-08-30): each step keeps the door + emitters of the part ROW it flattened from
+                    // (the rung's resolved I/O); short/empty ⇒ the column default (the part default). So a flattened part
+                    // whose columns route to different doors/emitters keeps that routing.
+                    let sEmit = (c < i.playColStepEmit.count && step < i.playColStepEmit[c].count && !i.playColStepEmit[c][step].isEmpty) ? i.playColStepEmit[c][step] : buses
+                    let sRecv = (c < i.playColStepRecv.count && step < i.playColStepRecv[c].count) ? max(0, min(3, i.playColStepRecv[c][step])) : recv
+                    var cell = Cell(machineID: cid, buses: sEmit)
+                    cell.inputReceiver = sRecv
+                    cell.processors = (c < i.playColStepChain.count && step < i.playColStepChain[c].count) ? i.playColStepChain[c][step] : []
+                    s.setCell(step, Snap.playLayerRowBase + c, cell)        // engine (col step, row 8+c) — the playhead sweeps 0..len-1 and loops
                 }
             }
-        }
-
-        if i.performPlaying {                                        // THE PIECE — deployed cells, mute + active-rung honoured
-            for c in 0..<Snap.maxCols { for r in 0..<8 {   // §E: 16-wide part columns × 8 visible rows
-                guard c < i.performCells.count, r < i.performCells[c].count, let cid = i.performCells[c][r],
-                      !i.performMute.contains(c * 8 + r), i.performActiveRung(c, r) else { continue }
-                let emit: Set<Bus> = (r < i.performEmit.count && !i.performEmit[r].isEmpty) ? i.performEmit[r] : [.a]
-                var cell = Cell(machineID: cid, buses: emit)
-                cell.inputReceiver = max(0, min(3, r < i.performRecv.count ? i.performRecv[r] : 0))
-                let chain = (c < i.performChain.count && r < i.performChain[c].count) ? i.performChain[c][r] : []
-                cell.processors = applyAuto(chain, machineID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: i.partWidth)   // PART AUTOMATION bake
-                s.setCell(c, r, cell)
-            } }
         }
 
         // PART LOOP SELECTION (Paul 2026-09-26): computed once, shared by the cell-placement block below AND the
@@ -288,11 +249,9 @@ enum BuildSceneLogic {
             }
         }
 
-        // PER-PART CLOCK (Paul 2026-08-19): each scene ROW takes its owning part's rate/length. The STAGING (current
-        // part) rows win over the piece (they sit in front); a nil ⇒ the scene default (uniform = today).
+        // PER-PART CLOCK (Paul 2026-08-19): each scene ROW takes its owning part's rate/length; a nil ⇒ the scene default (uniform = today).
         var rowStepRate = [StepRate?](repeating: nil, count: Snap.rows)   // Snap.rows (16) so the PLAY layer (rows 8–15) can carry a per-column pass length too
         var rowLen = [Int?](repeating: nil, count: Snap.rows)
-        var clockClaimed = [Bool](repeating: false, count: 8)   // rows the STAGING (front) voice owns — the piece never overrides these
         if i.stagingPlaying {
             for logical in 0..<stagingPlan.count {   // the SAME plan as the cell-placement block above (one source of truth)
                 let c = stagingPlan.physicalColumn(logical)
@@ -302,14 +261,7 @@ enum BuildSceneLogic {
                     // when the feature is unused — an unset loop resolves stagingPlan.count == partLen == i.stagingLen).
                     rowStepRate[r] = i.stagingRate
                     rowLen[r] = (stagingPlan.count == partLen) ? i.stagingLen : stagingPlan.count
-                    clockClaimed[r] = true
                 }
-            }
-        }
-        if i.performPlaying {
-            for r in 0..<8 where !clockClaimed[r] {   // a staging row wins even when its rate/len are nil (scene default); else the piece fills
-                if r < i.performRate.count { rowStepRate[r] = i.performRate[r] }   // rate + length set INDEPENDENTLY: a default-rate part still applies its short LENGTH (bug fix Paul 2026-08-19)
-                if r < i.performLen.count { rowLen[r] = i.performLen[r] }
             }
         }
         if i.playPlaying {   // MULTI-STEP PASS (Paul 2026-08-30): a play column with len > 1 loops its own N columns on the play-layer row
@@ -331,25 +283,19 @@ enum BuildSceneLogic {
             s.rowLaunchAnchor = (0..<Snap.rows).map { $0 < i.rowLaunchAnchor.count ? i.rowLaunchAnchor[$0] : 0 }
         }
 
-        // PER-ROW LAP (Paul 2026-08-19): each row takes the loop mask of whichever voice's cell landed on it — mirroring
-        // the placement precedence above (piece first, staging overwrites), so the two grids' loops stay independent.
-        if i.stagingLane != 0 || i.performLane != 0 || i.playLane != 0 || i.playPlaying || chainLaneRow != nil {
+        // PER-ROW LAP (Paul 2026-08-19): each row takes the loop mask of whichever voice's cell landed on it, so the
+        // staging grid and the play layer loop independently.
+        if i.stagingLane != 0 || i.playLane != 0 || i.playPlaying || chainLaneRow != nil {
             var rowLane = [UInt16](repeating: 0, count: Snap.rows)    // Snap.rows = 16 (rows 0–7 the visible grids, 8–15 the play layer)
             if let cr = chainLaneRow, chainPinned { rowLane[cr] = 0b0000_0001 }   // P1: pin ONLY the single-cell audition; the fallback laid chain cells across cols 1..7 → leave rowLane 0 so the row SWEEPS (else the pin loops col 0, often ANOTHER voice's cell → the audition is silent)
-            if i.performPlaying {
-                for c in 0..<Snap.maxCols { for r in 0..<8 {   // §E: 16-wide part columns × 8 visible rows
-                    guard c < i.performCells.count, r < i.performCells[c].count, i.performCells[c][r] != nil,
-                          !i.performMute.contains(c * 8 + r), i.performActiveRung(c, r) else { continue }
-                    rowLane[r] = i.performLane
-                } }
-            }
             if i.playPlaying {                              // the PLAY grid: each STARTED column's HIDDEN row (8+c)
-                for c in 0..<8 {                            //   SINGLE cell → loops COLUMN 0 (pinned, continuous); MULTI-STEP pass → SWEEPS (rowLane 0, rowLen loops it)
+                for c in 0..<8 {                            //   SINGLE-step pass → loops COLUMN 0 (pinned, continuous); MULTI-STEP pass → SWEEPS (rowLane 0, rowLen loops it)
                     guard c < i.playColOn.count, i.playColOn[c] else { continue }
                     let len = passLen(i.playColLen, c)
                     if len > 1 { continue }                 // multi-step sweeps 0..len-1 → leave rowLane 0 (no pin)
-                    let r = selectedRung(i.playSel, c)
-                    if r >= 0, r < 8, c < i.playCells.count, r < i.playCells[c].count, i.playCells[c][r] != nil { rowLane[Snap.playLayerRowBase + c] = 0b0000_0001 }
+                    if c < i.playColSteps.count, !i.playColSteps[c].isEmpty, i.playColSteps[c][0] != nil {
+                        rowLane[Snap.playLayerRowBase + c] = 0b0000_0001
+                    }
                 }
             }
             if i.stagingPlaying {

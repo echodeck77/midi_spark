@@ -373,63 +373,6 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - ON TAP timing (§9 item 1, 4c) — quantized onset + duration expiry
 
-    func testTapOnsetQuantization() {
-        let step = 2.0   // cycle = 16 beats
-        XCTAssertEqual(tapOnsetBeat(tapBeat: 5.3, quant: .now,  stepBeats: step), 5.3, accuracy: 1e-9)
-        XCTAssertEqual(tapOnsetBeat(tapBeat: 5.3, quant: .step, stepBeats: step), 6.0, accuracy: 1e-9)   // next step (…4,6,8)
-        XCTAssertEqual(tapOnsetBeat(tapBeat: 5.3, quant: .pass, stepBeats: step), 16.0, accuracy: 1e-9)  // next pass (0,16)
-        XCTAssertEqual(tapOnsetBeat(tapBeat: 5.3, quant: .lap,  stepBeats: step), 16.0, accuracy: 1e-9)  // v1: LAP ≈ PASS
-        XCTAssertEqual(tapOnsetBeat(tapBeat: 4.0, quant: .step, stepBeats: step), 6.0, accuracy: 1e-9)   // on a boundary → the NEXT
-    }
-
-    func testTapExpiry() {
-        XCTAssertEqual(tapExpiryBeat(onsetBeat: 6.0, duration: .retap, stepBeats: 2.0), .infinity)
-        XCTAssertEqual(tapExpiryBeat(onsetBeat: 6.0, duration: .onePass, stepBeats: 2.0), 22.0, accuracy: 1e-9)  // 6 + 16
-        XCTAssertEqual(tapExpiryBeat(onsetBeat: 6.0, duration: .oneLap, stepBeats: 2.0), 22.0, accuracy: 1e-9)
-    }
-
-    // MARK: - ON-TAP overlay: apply (retap/replace) + live masks (expire/onset gate/solo union)
-
-    func testApplyTapReplacesPriorForSameCellAndKind() {
-        var a: [TapOverlay] = []
-        a = applyTapOverlay(a, cell: 5, kind: .alt, busMask: 1, onset: 0, expiry: .infinity, retap: false)
-        a = applyTapOverlay(a, cell: 5, kind: .alt, busMask: 1, onset: 8, expiry: .infinity, retap: false)  // re-tap same cell/kind
-        XCTAssertEqual(a.count, 1, "a second non-retap tap REPLACES, never stacks")
-        XCTAssertEqual(a.first?.onset, 8, "…with the fresh onset")
-    }
-
-    func testApplyTapRetapTogglesOffThenBackOn() {
-        var a: [TapOverlay] = []
-        a = applyTapOverlay(a, cell: 3, kind: .mute, busMask: 0, onset: 0, expiry: .infinity, retap: true)
-        XCTAssertEqual(a.count, 1, "first RETAP arms it")
-        a = applyTapOverlay(a, cell: 3, kind: .mute, busMask: 0, onset: 0, expiry: .infinity, retap: true)
-        XCTAssertTrue(a.isEmpty, "second RETAP toggles it off")
-        a = applyTapOverlay(a, cell: 3, kind: .mute, busMask: 0, onset: 0, expiry: .infinity, retap: true)
-        XCTAssertEqual(a.count, 1, "third RETAP arms again")
-    }
-
-    func testApplyTapKeepsDifferentKindsAndCellsSeparate() {
-        var a: [TapOverlay] = []
-        a = applyTapOverlay(a, cell: 5, kind: .alt,  busMask: 0, onset: 0, expiry: .infinity, retap: false)
-        a = applyTapOverlay(a, cell: 5, kind: .mute, busMask: 0, onset: 0, expiry: .infinity, retap: false)  // same cell, other kind
-        a = applyTapOverlay(a, cell: 6, kind: .alt,  busMask: 0, onset: 0, expiry: .infinity, retap: false)  // other cell
-        XCTAssertEqual(a.count, 3, "a tap only replaces the SAME cell+kind — others coexist")
-    }
-
-    func testTapOverlayMasksExpireDropOnsetGateAndSoloUnion() {
-        let acts: [TapOverlay] = [
-            TapOverlay(cell: 5, kind: .alt,  busMask: 0,    onset: 4,  expiry: 20),   // onset reached at now=10
-            TapOverlay(cell: 9, kind: .mute, busMask: 0,    onset: 12, expiry: .infinity),  // onset NOT yet reached
-            TapOverlay(cell: 0, kind: .solo, busMask: 0b10, onset: 0,  expiry: 8),    // EXPIRED by now=10
-            TapOverlay(cell: 1, kind: .solo, busMask: 0b01, onset: 0,  expiry: .infinity),
-        ]
-        let r = tapOverlayMasks(acts, now: 10, footSolo: 0b1000)
-        XCTAssertEqual(r.surviving.count, 3, "the expired solo action is dropped")
-        XCTAssertEqual(r.alt, 1 << 5, "the onset-reached alt contributes its cell bit")
-        XCTAssertEqual(r.mute, 0, "the not-yet-onset mute does NOT contribute")
-        XCTAssertEqual(r.solo, 0b1001, "live solo busMask ∪ footSolo; the expired one is gone")
-    }
-
     func testMpeLikelyNeedsTwoOrMoreChannels() {
         XCTAssertFalse(mpeLikely(channelMask: 0), "silence is not MPE")
         XCTAssertFalse(mpeLikely(channelMask: 1 << 0), "a chord all on ch 1 is a normal controller")
@@ -1614,27 +1557,6 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(chopSlice(1.0, columnBeats: 1), 0)      // wraps to the next column's slice 0
         XCTAssertEqual(chopSlice(-0.1, columnBeats: 1), 7)     // a negative onset folds into the prior column's last slice
         XCTAssertEqual(chopSlice(5.0, columnBeats: 0), 0)      // S <= 0 guard → slice 0, no divide-by-zero
-    }
-
-    // MARK: - tapOverlayMasks — only ARRIVED overlays contribute; future ones survive
-
-    /// An armed-but-future overlay (onset > now) is KEPT in `surviving` (it hasn't expired) yet contributes
-    /// NOTHING to alt/mute/solo until its onset arrives; an expired overlay is dropped entirely.
-    func testTapOverlayMasksFutureOnsetSurvivesButDoesNotContribute() {
-        var a: [TapOverlay] = []
-        a = applyTapOverlay(a, cell: 5, kind: .alt,  busMask: 0, onset: 0,  expiry: .infinity, retap: false)  // arrived
-        a = applyTapOverlay(a, cell: 6, kind: .mute, busMask: 0, onset: 10, expiry: .infinity, retap: false)  // future
-        a = applyTapOverlay(a, cell: 7, kind: .solo, busMask: 0b0010, onset: 0, expiry: 3, retap: false)      // will expire
-        let m = tapOverlayMasks(a, now: 5)
-        XCTAssertEqual(m.surviving.count, 2, "the future overlay survives; the expired one (expiry 3 < 5) is dropped")
-        XCTAssertEqual(m.alt, 1 << UInt64(5), "only the arrived alt contributes")
-        XCTAssertEqual(m.mute, 0, "the future mute (onset 10 > 5) contributes nothing yet")
-        XCTAssertEqual(m.solo, 0, "the expired solo is gone")
-    }
-
-    /// The foot SOLO seeds the solo union even with no overlays.
-    func testTapOverlayMasksSeedsFootSolo() {
-        XCTAssertEqual(tapOverlayMasks([], now: 0, footSolo: 0b0101).solo, 0b0101)
     }
 
     // (machineCensus empty-edge test removed 2026-08-27: dead helper, zero non-test callers.)

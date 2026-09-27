@@ -263,43 +263,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func reelCycleBeats() -> Double { kernel.reelCycleValue() }          // the pass length (piano-roll x-axis)
     func reelSetBrowsing(_ on: Bool) { kernel.reelSetBrowsing(on) }      // pop-up open → freeze the history tape
 
-    /// EDIT PAGE "play this cell only" (user 2026-08-08): solo the given cells while the transport plays — every
-    /// PLAY: THIS CELL (user 2026-08-09) — isolate ONE cell and freeze the timeline on its column, so ONLY that
-    /// cell's machine machine sounds, ungated by the grid sequence (the grid's active column is ignored). The full
-    /// chain renders (normal render path, just held on this column). `clearMachineSolo` restores normal play.
-    func setMachineSolo(col: Int, row: Int) {
-        guard col >= 0, col < 8, row >= 0, row < 8 else { clearMachineSolo(); return }
-        if previewSolo != nil { previewSolo = nil; scheduleRebuild() }   // switching from an unplaced preview to a real placed cell
-        kernel.setSoloCellMask(UInt64(1) << UInt64(col * 8 + row))
-        kernel.setSoloColumn(col)
-    }
-    func clearMachineSolo() {
-        kernel.setSoloCellMask(0); kernel.setSoloColumn(-1)
-        if previewSolo != nil { previewSolo = nil; scheduleRebuild() }   // drop the synthetic preview cell (republish the real document)
-    }
-
-    /// PLAY: THIS CELL for an UNPLACED machine (user 2026-08-10) — there's no grid cell to freeze on, so drop a
-    /// SYNTHETIC cell of the machine at an empty slot of the active scene into an EPHEMERAL snapshot (never the
-    /// document — encode/persist read `document`) and solo it. The REAL render path then plays the machine's full
-    /// machine (templateChain via `processors = nil`, its latch/live input, sustained under the frozen column).
-    /// Returns false if the grid is full. `clearMachineSolo` drops the synthetic cell. `inputReceiver`/`buses` are the
-    /// page STICKY (what a placed cell would inherit).
-    private var previewSolo: (col: Int, row: Int, cell: Cell)? = nil
-    @discardableResult
-    func setMachineSoloPreview(machineID: String, inputReceiver: Int, buses: [Bus]) -> Bool {
-        let scene = document.activeSceneState
-        var slot: (col: Int, row: Int)? = nil
-        search: for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r) == nil { slot = (c, r); break search } }
-        guard let (col, row) = slot else { return false }   // grid full → no room for the preview
-        var cell = Cell(machineID: machineID, buses: buses.isEmpty ? [.a] : Set(buses))
-        cell.inputReceiver = max(0, min(3, inputReceiver))
-        cell.processors = nil                                // inherit the machine's templateChain (its machine)
-        previewSolo = (col, row, cell)
-        scheduleRebuild()                                    // publishes the snapshot WITH the synthetic cell (renderDoc)
-        kernel.setSoloCellMask(UInt64(1) << UInt64(col * 8 + row))
-        kernel.setSoloColumn(col)
-        return true
-    }
     /// BUILD: when the STAGING voice is playing, the engine renders THIS scene (the staging grid) in place of the
     /// document's active scene — ephemeral, the document is NEVER touched (encode/persist read `document`). nil = off.
     private var stagingRenderScene: SceneState? = nil
@@ -309,16 +272,15 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private var stagingAuto: [String: PartAutoMachine]? = nil
     func setBuildAuto(_ a: [String: PartAutoMachine]?) { stagingAuto = a; scheduleRebuild() }
 
-    /// The document the snapshot renders from — the real `document`, plus the ephemeral PLAY: THIS CELL preview cell
-    /// (unplaced-machine audition) injected at its empty slot, or the BUILD staging grid override. Never used by
-    /// encode/persist (those read `document`).
+    /// The document the snapshot renders from — the real `document`, plus the BUILD staging grid override. Never
+    /// used by encode/persist (those read `document`).
     /// BUILD's EPHEMERAL machines (beyond the 16 document slots) — id → its machine. renderDoc appends them so cells /
     /// auditions referencing them resolve. Never persisted (encode/persist read `document`). (Paul 2026-08-15)
     private var buildEphemeralMachines: [(id: String, machine: [ProcessorSlot], transpose: Int)] = []
     func setBuildEphemeralMachines(_ cs: [(id: String, machine: [ProcessorSlot], transpose: Int)]) { buildEphemeralMachines = cs; scheduleRebuild() }
 
     private func renderDoc() -> PluginState {
-        if stagingRenderScene == nil, previewSolo == nil, buildEphemeralMachines.isEmpty, stagingAuto == nil { return document }
+        if stagingRenderScene == nil, buildEphemeralMachines.isEmpty, stagingAuto == nil { return document }
         var temp = document
         if let sa = stagingAuto { temp.partAuto = sa }   // PHASE 2: the LIVE AUTO lanes reach the box for render-time (×N / SMOOTH)
         for e in buildEphemeralMachines where !temp.machines.contains(where: { $0.machineID == e.id }) {   // append BUILD ephemeral machines
@@ -340,7 +302,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 scene.row8On = temp.scenes[si].row8On                          // ROW 8 (Paul 2026-08-24): preserve the lit action toggles (FREEZE/HALFTIME/REDIRECT/SWAP) — else the composed scene drops them + the engine never freezes/halftimes/redirects
                 temp.scenes[si] = scene
             }
-            if let p = previewSolo { temp.scenes[si].setCell(p.col, p.row, p.cell) }
         }
         return temp
     }
@@ -349,11 +310,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// treatment overlays while held. Ephemeral, never persisted; the UI clears it (−1) on release / stop / EDIT.
     func setHoldCell(_ cell: Int) { kernel.setHoldCell(cell) }
 
-    /// §9 item 1 ON TAP (unified ALT model): the ephemeral per-cell ALT flips (bit col*8+row). A PERFORM tap
-    /// toggles a bit; cleared (0) on transport stop / mode switch. Ephemeral, never persisted (audition's class).
-    func setTapAltMask(_ mask: UInt64) { kernel.setTapAltMask(mask) }
-    /// §9 item 1 ON TAP actions (4b): the ephemeral per-cell MUTE mask + the global emitter SOLO set (bits A–D).
-    func setTapMuteMask(_ mask: UInt64) { kernel.setTapMuteMask(mask) }
+    /// emitter strip: the additive foot SOLO set (bits A–D).
     func setSoloEmitterMask(_ mask: UInt8) { kernel.setSoloEmitterMask(mask) }
     func setSoloReceiverMask(_ mask: UInt8) { kernel.setSoloReceiverMask(mask) }   // receiver strip: input SOLO set
     func setInputOctave(_ recv: Int, _ oct: Int) { kernel.setInputOctave(recv, oct) }   // receiver strip: ±octave nudge

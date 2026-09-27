@@ -1034,17 +1034,12 @@ final class OnConfigTests: XCTestCase {
     }
     // The systemic guard: BuildSceneSnapshot had no decode-tolerant init — a future field going missing must not throw.
     func testBuildSceneSnapshotDecodesWithAMissingField() throws {
-        let s = BuildSceneSnapshot(performCells: Array(repeating: Array(repeating: nil, count: 8), count: 8),
-                                   performChain: Array(repeating: Array(repeating: [], count: 8), count: 8),
-                                   performRecv: Array(repeating: 0, count: 8), performEmit: Array(repeating: [.a], count: 8),
-                                   performPart: Array(repeating: -1, count: 8), performMute: [],
-                                   performStagingRow: Array(repeating: -1, count: 8), performLane: 0,
-                                   row8On: Array(repeating: false, count: 8))
+        let s = BuildSceneSnapshot(row8On: Array(repeating: false, count: 8), name: "verse")
         var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(s)) as! [String: Any]
         dict.removeValue(forKey: "row8On")                                     // simulate a pre-row8 snapshot
         let back = try JSONDecoder().decode(BuildSceneSnapshot.self, from: JSONSerialization.data(withJSONObject: dict))
         XCTAssertEqual(back.row8On.count, 8, "missing row8On ⇒ 8 defaults, not a throw")
-        XCTAssertEqual(back.performPart.count, 8)
+        XCTAssertEqual(back.name, "verse")
     }
     // Full round-trips stay lossless (the decode-tolerant init didn't change the happy path).
     func testBuildTypesRoundTripLosslessly() throws {
@@ -1098,7 +1093,6 @@ final class OnConfigTests: XCTestCase {
         let pg = try JSONDecoder().decode(BuildPlayGridData.self, from: json)
         XCTAssertTrue(pg.colOn[0], "the present key decodes")
         XCTAssertEqual(pg.colLen, Array(repeating: 1, count: 8), "a MISSING key falls back to its default, never throws")
-        XCTAssertEqual(pg.sel.count, 8)
         XCTAssertEqual(pg.idCounter, 0)
     }
     // CR-8 decode-tolerance (Paul 2026-09-08 housekeeping): Machine · ProcessorSlot · SceneState · Receiver now have

@@ -11,7 +11,7 @@ import Foundation
 enum FerryPlayback: String, Codable, Equatable { case loop, oneShot }   // stop at part end vs repeat (nil ⇒ .loop)
 enum FerryTrigger:  String, Codable, Equatable { case latch, spring }   // tap-on/tap-off vs hold-to-play (nil ⇒ .latch)
 // SYNC = stay locked to the transport (today's behaviour, NO launch anchor). The rest launch the part FROM ITS TOP at that
-// boundary via a per-ferry launch anchor (INSTANT = the tap moment = off-grid). Boundary math borrows Derivations.tapOnsetBeat.
+// boundary via a per-ferry launch anchor (INSTANT = the tap moment = off-grid; STEP/BEAT/PASS quantize to the next boundary).
 enum FerryStart:    String, Codable, Equatable { case sync, instant, step, beat, pass }
 
 struct BuildPart: Codable, Equatable {
@@ -96,13 +96,11 @@ struct BuildUnassignedData: Codable, Equatable {
     var idCounter: Int = 0              // the ephemeral "b<n>" counter high-water mark, so restored ids don't collide
 }
 
-// THE ROOMS PLAY GRID (Paul 2026-08-30) — the 8 INDEPENDENT play columns (buildPlayCells + their I/O + start state) plus
+// THE ROOMS PLAY GRID (Paul 2026-08-30) — the 8 INDEPENDENT play columns (their I/O + start state) plus
 // the MULTI-STEP PASSES a flattened part rides (colLen/colSteps/colRate + per-step I/O). Persisted like BuildUnassignedData:
 // it carries the EPHEMERAL machines it references (buildMachineReg is session-only) so a reload restores the passes AND their
 // machines. Before this the whole rooms play grid was in-memory → a fresh load lost it. Additive-Optional on PluginState.
 struct BuildPlayGridData: Codable, Equatable {
-    var cells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
-    var sel: [Int] = Array(repeating: 0, count: 8)
     var colOn: [Bool] = Array(repeating: false, count: 8)
     var colRecv: [Int] = Array(repeating: 0, count: 8)
     var colEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
@@ -136,8 +134,6 @@ struct BuildPlayGridData: Codable, Equatable {
 extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedData pattern) — a field added later never fails an older save
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        cells       = try c.decodeIfPresent([[String?]].self, forKey: .cells) ?? Array(repeating: Array(repeating: nil, count: 8), count: 8)
-        sel         = try c.decodeIfPresent([Int].self, forKey: .sel) ?? Array(repeating: 0, count: 8)
         colOn       = try c.decodeIfPresent([Bool].self, forKey: .colOn) ?? Array(repeating: false, count: 8)
         colRecv     = try c.decodeIfPresent([Int].self, forKey: .colRecv) ?? Array(repeating: 0, count: 8)
         colEmit     = try c.decodeIfPresent([Set<Bus>].self, forKey: .colEmit) ?? Array(repeating: [.a], count: 8)
@@ -172,14 +168,6 @@ extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedDat
 // doors + the master are SHARED across scenes (a scene arranges the same band; it never owns the musicians). v1 is an
 // IN-MEMORY switcher (not yet persisted with the document); switching is INSTANT (pass-quantized arm/blink = a follow-up).
 struct BuildSceneSnapshot: Codable, Equatable {
-    var performCells: [[String?]]
-    var performChain: [[[ProcessorSlot]]]
-    var performRecv: [Int]
-    var performEmit: [Set<Bus>]
-    var performPart: [Int]
-    var performMute: Set<Int>
-    var performStagingRow: [Int]
-    var performLane: UInt16
     var row8On: [Bool]                 // the scene's lit ROW 8 toggles (FREEZE/HALFTIME/… state)
     var name: String = ""
 }
@@ -230,14 +218,6 @@ extension BuildUnassignedData {
 extension BuildSceneSnapshot {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        performCells      = Snap.padCols(try c.decodeIfPresent([[String?]].self, forKey: .performCells) ?? [], Array(repeating: nil, count: 8))   // §E: 16-col part grid, old 8-col saves padded
-        performChain      = Snap.padCols(try c.decodeIfPresent([[[ProcessorSlot]]].self, forKey: .performChain) ?? [], Array(repeating: [], count: 8))
-        performRecv       = try c.decodeIfPresent([Int].self, forKey: .performRecv) ?? Array(repeating: 0, count: 8)
-        performEmit       = try c.decodeIfPresent([Set<Bus>].self, forKey: .performEmit) ?? Array(repeating: [.a], count: 8)
-        performPart       = try c.decodeIfPresent([Int].self, forKey: .performPart) ?? Array(repeating: -1, count: 8)
-        performMute       = try c.decodeIfPresent(Set<Int>.self, forKey: .performMute) ?? []
-        performStagingRow = try c.decodeIfPresent([Int].self, forKey: .performStagingRow) ?? Array(repeating: -1, count: 8)
-        performLane       = try c.decodeIfPresent(UInt16.self, forKey: .performLane) ?? 0
         row8On            = try c.decodeIfPresent([Bool].self, forKey: .row8On) ?? Array(repeating: false, count: 8)
         name              = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
     }

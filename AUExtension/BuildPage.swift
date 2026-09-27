@@ -103,16 +103,13 @@ struct BuildSnapshot {
     var partEmitters: Set<Bus>; var partRate: StepRate?; var partLen: Int?; var partLoopCols: [Int]
     var partCast: [String]; var castSlots: [Int: String]; var rowUnder: [String?]
     var rowReceiver: [Int?]; var rowEmitters: [Set<Bus>?]
-    var performCells: [[String?]]; var performChain: [[[ProcessorSlot]]]; var performRecv: [Int]
-    var performEmit: [Set<Bus>]; var performPart: [Int]; var performMute: Set<Int>
-    var performStagingRow: [Int]; var performLane: UInt16
     var scenes: [BuildSceneSnapshot]; var activeScene: Int; var row8Cells: [Row8Cell]; var row8On: [Bool]
     var selID: String?; var selReceiver: Int
     var machineReg: [String: [ProcessorSlot]]; var machineTranspose: [String: Int]; var hueOverride: [String: UInt32]
     var idCounter: Int
-    // THE ROOMS PLAY GRID (2026-08-31): the 10 parallel play-column arrays — added so play-grid edits (▲▼ swaps, ferries)
+    // THE ROOMS PLAY GRID (2026-08-31): the play-column arrays — added so play-grid edits (▲▼ swaps, ferries)
     // are undoable. Was omitted → the play grid had NO undo coverage. (Persistence via BuildPlayGridData is orthogonal.)
-    var playCells: [[String?]]; var playSel: [Int]; var playColOn: [Bool]; var playColRecv: [Int]; var playColEmit: [Set<Bus>]
+    var playColOn: [Bool]; var playColRecv: [Int]; var playColEmit: [Set<Bus>]
     var playColLen: [Int]; var playColSteps: [[String?]]; var playColRate: [StepRate?]; var playColStepRecv: [[Int]]; var playColStepEmit: [[Set<Bus>]]
     var doc: PluginState
 }
@@ -1137,7 +1134,7 @@ extension DiagView {
     // per-part-rate model + setter stay.)
     func buildSetPartRate(_ r: StepRate?) {
         buildPartRate = r
-        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative for performRate mapping
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative
         buildPublishScene()
     }
     // PART LOOP SELECTION (Paul 2026-09-26): the bottom-rail loop buttons — tap toggles a column's membership. Adding
@@ -1167,7 +1164,7 @@ extension DiagView {
                 if c < buildStagingSel.count, src < buildStagingSel.count { buildStagingSel[c] = buildStagingSel[src] }
             }
         }
-        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = n }   // keep buildParts authoritative for performLen mapping
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = n }   // keep buildParts authoritative
         buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)            // keep the selection valid across the new width
         buildPublishScene()
     }
@@ -1871,7 +1868,7 @@ extension DiagView {
         } else {
             if willOn { buildFlattenFerry(t) } else { buildClearFerryPlayback(t) }   // background → the play layer
         }
-        if willOn { au?.clearMachineSolo(); buildHostHalted = false }
+        if willOn { buildHostHalted = false }
         buildPublishScene()
     }
     // CHOKE GROUP (Paul 2026-09-09, Phase 3): launching ferry `t` stops every OTHER currently-ON ferry that shares its non-OFF
@@ -1917,7 +1914,6 @@ extension DiagView {
         if t < buildPlayColLen.count { buildPlayColLen[t] = 1 }
         if t < buildPlayColStepRecv.count { buildPlayColStepRecv[t] = [] }
         if t < buildPlayColStepEmit.count { buildPlayColStepEmit[t] = [] }
-        if t < buildPlayCells.count { for r in 0..<buildPlayCells[t].count { buildPlayCells[t][r] = nil } }   // no legacy single-cell either
     }
     // ── FERRY DRAG-AND-DROP (Paul 2026-09-12) — supersedes the long-press seed/copy. ──────────────────────────────────
     // The drag gesture: a SELECT cell or a populated ferry, tracked in the shared "rooms" space. Mirrors the chain-reorder
@@ -2655,14 +2651,10 @@ extension DiagView {
     // buildSelectPlayColumn RETIRED (Paul 2026-09-12 dead-code sweep — its callers were the removed play-column ferry paths).
     // The PLAY column currently selected — its selected-rung cell's machine == buildSelID. The play-grid analogue of
     // buildSelectedRow (which only searches STAGING rows), so the I/O toggles reflect + edit a ferried play cell's OWN
-    // receiver/emitters. nil unless buildSelID names a live play cell. (Paul 2026-08-30)
-    var buildSelectedPlayCol: Int? {
-        guard let id = buildSelID else { return nil }
-        return (0..<8).first { c in
-            let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
-            return r >= 0 && c < buildPlayCells.count && r < buildPlayCells[c].count && buildPlayCells[c][r] == id
-        }
-    }
+    // receiver/emitters. nil unless buildSelID names a live play cell. (Paul 2026-08-30) — the per-column rung this once
+    // searched (buildPlaySel/buildPlayCells) was dead storage (only ever written by snapshot restore); a real per-ferry
+    // "which column is selected" concept returns with the Stage 3 unified ferry composer.
+    var buildSelectedPlayCol: Int? { nil }
     // MASTER: start EVERY populated column (or stop all if any is on). The play room's big button.
     func buildTogglePlayGrid() {
         // ONE PATH (Paul 2026-09-13, Option A): route every ferry through buildSetFerryPlay so START-ALL actually flattens
@@ -2672,14 +2664,12 @@ extension DiagView {
             for c in 0..<8 where c < buildPlayColOn.count && buildPlayColOn[c] { buildSetFerryPlay(c, on: false) }
         } else {
             for c in 0..<8 where c < buildFerryParts.count && buildFerryParts[c] != nil { buildSetFerryPlay(c, on: true, choke: false) }   // choke:false — a master start must not have group members choke each other
-            au?.clearMachineSolo(); buildHostHalted = false                  // re-enable free-run after a host halt
+            buildHostHalted = false                  // re-enable free-run after a host halt
         }
     }
-    // Column c has a populated selected rung (something to sound).
-    func buildPlayColPopulated(_ c: Int) -> Bool {
-        let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
-        return r >= 0 && r < 8 && c < buildPlayCells.count && r < buildPlayCells[c].count && buildPlayCells[c][r] != nil
-    }
+    // Column c has a populated selected rung (something to sound) — dead per-cell storage removed (see
+    // buildSelectedPlayCol); the real signal today is buildPlayColHasContent's own playColLen check.
+    func buildPlayColPopulated(_ c: Int) -> Bool { false }
     // Column c has SOMETHING to sound — a populated selected rung OR a MULTI-STEP pass (Rooms2 fix, Paul 2026-08-30).
     // A pass plays independent of the rung (composeScene reads playColSteps, not playSel), so a deselected-rung pass
     // must still be startable/stoppable + count toward the grid transport — else it strands playing/unstartable.
@@ -3175,7 +3165,6 @@ extension DiagView {
         buildPublishScene()
     }
     private func buildSelectStagingVoice() {
-        au?.clearMachineSolo()                                    // CHAIN ⟂ PART: leaving the chain audition
         if buildVoiceOwner == .chain { buildVoiceOwner = .none }   // Option A: entering the bench only STOPS the chain audition — the part plays iff its ferry is ON (buildPlayColOn), never auto-started on open (Paul 2026-09-13)
         buildPublishScene()
     }
@@ -3227,7 +3216,6 @@ extension DiagView {
     }
     // Stop BOTH shop sections (the header's STOP action). The PIECE (play grid) is independent and keeps sounding.
     private func buildStopWorkshop() {
-        au?.clearMachineSolo()
         buildVoiceOwner = .none
         buildPublishScene()
     }
@@ -3252,15 +3240,9 @@ extension DiagView {
     // The SHELL: gather @State into a pure input, let BuildSceneLogic.composeScene do the work (testable), publish it.
     // SCENES V2 (Paul 2026-08-12): capture the current play-grid ARRANGEMENT (not the shared parts/machines) into a snapshot.
     func buildCaptureCurrentScene() -> BuildSceneSnapshot {   // internal: the reel poll (other file) captures per-pass state (#5)
-        BuildSceneSnapshot(performCells: buildPerformCells, performChain: buildPerformChain, performRecv: buildPerformRecv,
-                           performEmit: buildPerformEmit, performPart: buildPerformPart, performMute: buildPerformMute,
-                           performStagingRow: buildPerformStagingRow, performLane: buildPerformLane, row8On: buildRow8On)
+        BuildSceneSnapshot(row8On: buildRow8On)
     }
     func buildRestoreScene(_ s: BuildSceneSnapshot) {
-        buildPerformCells = s.performCells; buildPerformChain = s.performChain; buildPerformRecv = s.performRecv
-        buildPerformEmit = s.performEmit; buildPerformPart = s.performPart; buildPerformMute = s.performMute
-        buildPerformStagingRow = s.performStagingRow; buildPerformLane = s.performLane
-        buildPerformPlaying = buildPerformPart.contains { $0 >= 0 }
         for i in 0..<min(8, s.row8On.count) { au?.setRow8On(i, s.row8On[i]) }   // restore the scene's ROW 8 lit toggles
         buildRow8On = s.row8On
         buildPublishScene()                                     // reflect the new arrangement live (instant switch, v1)
@@ -3300,13 +3282,10 @@ extension DiagView {
                       partEmitters: buildPartEmitters, partRate: buildPartRate, partLen: buildPartLen, partLoopCols: buildPartLoopCols,
                       partCast: buildPartCast, castSlots: buildCastSlots, rowUnder: buildRowUnder,
                       rowReceiver: buildRowReceiver, rowEmitters: buildRowEmitters,
-                      performCells: buildPerformCells, performChain: buildPerformChain, performRecv: buildPerformRecv,
-                      performEmit: buildPerformEmit, performPart: buildPerformPart, performMute: buildPerformMute,
-                      performStagingRow: buildPerformStagingRow, performLane: buildPerformLane,
                       scenes: buildScenes, activeScene: buildActiveScene, row8Cells: buildRow8Cells, row8On: buildRow8On,
                       selID: buildSelID, selReceiver: buildSelReceiver, machineReg: buildMachineReg,
                       machineTranspose: buildMachineTranspose, hueOverride: machineHueOverride, idCounter: buildIDCounter,
-                      playCells: buildPlayCells, playSel: buildPlaySel, playColOn: buildPlayColOn, playColRecv: buildPlayColRecv,
+                      playColOn: buildPlayColOn, playColRecv: buildPlayColRecv,
                       playColEmit: buildPlayColEmit, playColLen: buildPlayColLen, playColSteps: buildPlayColSteps,
                       playColRate: buildPlayColRate, playColStepRecv: buildPlayColStepRecv, playColStepEmit: buildPlayColStepEmit,
                       doc: au?.documentSnapshot() ?? PluginState.makeInit())
@@ -3329,14 +3308,11 @@ extension DiagView {
         buildPartEmitters = s.partEmitters; buildPartRate = s.partRate; buildPartLen = s.partLen; buildPartLoopCols = s.partLoopCols
         buildPartCast = s.partCast; buildCastSlots = s.castSlots; buildRowUnder = s.rowUnder
         buildRowReceiver = s.rowReceiver; buildRowEmitters = s.rowEmitters
-        buildPerformCells = s.performCells; buildPerformChain = s.performChain; buildPerformRecv = s.performRecv
-        buildPerformEmit = s.performEmit; buildPerformPart = s.performPart; buildPerformMute = s.performMute
-        buildPerformStagingRow = s.performStagingRow; buildPerformLane = s.performLane
         buildScenes = s.scenes; buildActiveScene = s.activeScene; buildRow8Cells = s.row8Cells; buildRow8On = s.row8On
         buildSelID = s.selID; buildSelReceiver = s.selReceiver
         buildMachineReg = s.machineReg; buildMachineTranspose = s.machineTranspose; machineHueOverride = s.hueOverride
         buildIDCounter = s.idCounter
-        buildPlayCells = s.playCells; buildPlaySel = s.playSel; buildPlayColOn = s.playColOn; buildPlayColRecv = s.playColRecv
+        buildPlayColOn = s.playColOn; buildPlayColRecv = s.playColRecv
         buildPlayColEmit = s.playColEmit; buildPlayColLen = s.playColLen; buildPlayColSteps = s.playColSteps
         buildPlayColRate = s.playColRate; buildPlayColStepRecv = s.playColStepRecv; buildPlayColStepEmit = s.playColStepEmit
         au?.restoreDocumentFromUndo(s.doc)          // the document (document-machine chains / receivers / rack) restored WITHOUT recording
@@ -3364,27 +3340,12 @@ extension DiagView {
         // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the ACTIVE ferry plays via the STAGING sequencer, which composes
         // the LIVE bench each publish — so a selection/content edit is heard + swept at once, no flatten needed here. A
         // BACKGROUND ferry's play-layer line is (re)flattened only when it goes on / when it stops being the active one.
-        au?.clearMachineSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateMachine path, so the scene sweeps freely
         // (the loop keys now DRIVE the lap — same `laneMask` as the GRID tab; a held column-set laps the workshop. Paul 2026-08-19)
         var input = BuildSceneLogic.Input()
         // MUTE/SOLO (Paul 2026-09-09): gate the AUDIO by buildFerryAudible — the active ferry's staging voice is silenced
         // if the active ferry is muted / solo-excluded; the background play layer is gated below (input.playColOn).
         input.stagingPlaying = buildStagingPlaying && (buildActiveFerry.map { buildFerryAudible($0) } ?? true)
-        input.performPlaying = buildPerformPlaying
         input.chainActive = ddSolo
-        input.performCells = buildPerformCells
-        input.performMute = buildPerformMute
-        input.performActiveRung = { self.buildPerformActiveRung($0, $1) }
-        input.performEmit = buildPerformEmit
-        input.performRecv = buildPerformRecv
-        // RESOLVE the effective chain per PERFORM cell (Paul 2026-08-23): a per-cell VARIATION if it has one, else the
-        // machine's OWN machine (buildMachineChain → [] for a NO-MACHINE machine). composeScene then passes it EXPLICITLY,
-        // so a no-machine cell is a passthrough (live wire) in the play grid too — not only via PLAY THIS MIDI CHAIN.
-        input.performChain = (0..<Snap.maxCols).map { c in (0..<8).map { r -> [ProcessorSlot] in   // §E: 16 part columns × 8 rows
-            let v = (c < buildPerformChain.count && r < buildPerformChain[c].count) ? buildPerformChain[c][r] : []
-            let cid = (c < buildPerformCells.count && r < buildPerformCells[c].count) ? buildPerformCells[c][r] : nil
-            return v.isEmpty ? buildMachineChain(cid ?? "") : v
-        } }
         input.stagingCells = buildStagingCells
         input.stagingSel = buildStagingSel
         input.partEmitters = buildPartEmitters
@@ -3404,30 +3365,19 @@ extension DiagView {
         let selR = buildSelectedRow                                          // the chain audition takes the SELECTED machine's row I/O
         input.chainReceiver = selR.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         input.chainEmitters = selR.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters)
-        // PER-PART CLOCK (Paul 2026-08-19): each play-grid ROW takes its owning deployed part's rate/length; the STAGING
-        // audition takes the CURRENT part's. nil ⇒ the scene default (uniform = today). This is what makes deployed parts
-        // at different rates play at DIFFERENT tempos in one play grid.
-        input.performRate = (0..<8).map { r in let p = buildPerformPart[r]; return (p >= 0 && p < buildParts.count) ? buildParts[p].rate : nil }
-        input.performLen  = (0..<8).map { r in let p = buildPerformPart[r]; return (p >= 0 && p < buildParts.count) ? buildParts[p].length : nil }
+        // PER-PART CLOCK (Paul 2026-08-19): the STAGING audition takes the CURRENT part's rate/length. nil ⇒ the scene
+        // default (uniform = today).
         input.stagingRate = buildPartRate
         input.stagingLen  = buildPartLen
         input.stagingLoopCols = buildPartLoopCols   // PART LOOP SELECTION (Paul 2026-09-26)
-        input.stagingLane = buildStagingLane                     // PER-ROW LAP: the two grids loop independently
-        input.performLane = buildPerformLane
+        input.stagingLane = buildStagingLane                     // PER-ROW LAP: the staging grid's own loop
         // THE PLAY GRID (Paul 2026-08-29): each column an INDEPENDENT voice — only STARTED columns (buildPlayColOn) sound,
         // each carrying its ferried machine AND the I/O it was ferried with (buildPlayColRecv/Emit). No shared I/O toggles.
         let playColEffectiveOn = (0..<buildPlayColOn.count).map { buildPlayColOn[$0] && buildFerryAudible($0) }   // MUTE/SOLO gate (background ferries)
         input.playPlaying = playColEffectiveOn.contains(true) || input.stagingPlaying
-        input.playCells = buildPlayCells
-        input.playSel = buildPlaySel
         input.playColOn = playColEffectiveOn   // MUTE/SOLO: the ENGINE plays the effective set; the UI glyph still reads buildPlayColOn
         input.playColRecv = buildPlayColRecv
         input.playColEmit = buildPlayColEmit
-        input.playColChain = (0..<8).map { c -> [ProcessorSlot] in
-            let r = c < buildPlaySel.count ? buildPlaySel[c] : -1
-            guard r >= 0, r < 8, c < buildPlayCells.count, r < buildPlayCells[c].count, let cid = buildPlayCells[c][r] else { return [] }
-            return buildMachineChain(cid)
-        }
         // LIVE RE-FLATTEN, every publish (Paul 2026-09-26): a background ferry's play-layer line used to be a CACHE, only
         // refreshed at specific event boundaries (buildFlattenFerry called on activate/deactivate/play-toggle) — so an
         // edit to its stored BuildPart between those events (e.g. its RATE, changed while it happened to be active a
@@ -3474,7 +3424,7 @@ extension DiagView {
         // even while the host transport is stopped. HOST TRANSPORT SYNC (Paul 2026-09-02): a host-transport STOP does NOT
         // de-arm — it sets buildHostHalted, gating free-run OFF (halt/silence) while the cells stay armed; the host START
         // edge clears it so the armed voices RESUME in sync. An explicit BUILD play also clears it (audition while stopped).
-        au?.setFreeRunEnabled((ddSolo || buildStagingPlaying || buildPerformPlaying || buildPlayPlaying) && !buildHostHalted)   // halted (host stopped after playing) → NO free-run, the voices resume when the host does
+        au?.setFreeRunEnabled((ddSolo || buildStagingPlaying || buildPlayPlaying) && !buildHostHalted)   // halted (host stopped after playing) → NO free-run, the voices resume when the host does
     }
     // buildStopAllOnTransportStop RETIRED (Paul 2026-09-12): the OLD "host stop de-arms everything" handler. SUPERSEDED by
     // buildTransportEdge (wired at the poll) — which HALTS play but KEEPS cells armed so START resumes in sync (Paul
@@ -3544,7 +3494,7 @@ extension DiagView {
         ddMachineSel = machineIDs.firstIndex(of: id) ?? -1
         ddStickyReceiver = buildSelReceiver
         ddStickyBuses = buildDefaultEmitters
-        ddScopeToMachine(id, anchor: nil, engage: false)          // BUILD never uses the AU solo — the chain plays via the scene
+        ddScopeToMachine(id, anchor: nil)                         // BUILD never uses the AU solo — the chain plays via the scene
         if ddSolo {                                              // auditioning the chain → re-inject the newly-selected machine
             if d.playing { buildPendingReengage = true }         // SEAMLESS: swap on the next cell boundary
             else { buildPublishScene() }                         // stopped → immediate
@@ -3888,7 +3838,6 @@ extension DiagView {
         let hasContent = anyPart || !buildGridSelName.isEmpty || (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }   // committed SELECT cells are content too (Paul 2026-09-12)
         guard hasContent else { return nil }
         var ids = Set<String>()
-        for col in buildPlayCells { for cell in col { if let id = cell { ids.insert(id) } } }
         for col in buildPlayColSteps { for step in col { if let id = step { ids.insert(id) } } }
         for p in parts.compactMap({ $0 }) {                                  // every machine a ferry part references
             ids.formUnion(p.stagingCells.flatMap { $0.compactMap { $0 } }); ids.formUnion(p.cast)
@@ -3897,7 +3846,7 @@ extension DiagView {
         let ephemeral = ids.filter { buildMachineReg[$0] != nil }.sorted()
         let machines = ephemeral.map { id -> Machine in var c = Machine(machineID: id, type: .arp); c.defined = true; c.templateChain = buildMachineReg[id]; c.transpose = buildMachineTranspose[id] ?? 0; return c }
         var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = machineHueOverride[id] { hues[id] = h } }
-        var data = BuildPlayGridData(cells: buildPlayCells, sel: buildPlaySel, colOn: buildPlayColOn, colRecv: buildPlayColRecv,
+        var data = BuildPlayGridData(colOn: buildPlayColOn, colRecv: buildPlayColRecv,
                                      colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
                                      colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, machines: machines, hues: hues, idCounter: buildIDCounter)
         data.parts = parts
@@ -3917,9 +3866,9 @@ extension DiagView {
         buildFerryParts = d.partsResolved                                    // THE PLAY FERRIES ARE PARTS — restore/migrate the 8 slots (source of truth)
         // Restore the legacy arrays only when the shapes are exactly right; a malformed doc keeps the defaults (defensive).
         // (These are now derived playback state; the parts re-flatten below regardless, so `colOn` is what really matters.)
-        if d.cells.count == 8, d.cells.allSatisfy({ $0.count >= 8 }), d.sel.count == 8, d.colOn.count == 8, d.colRecv.count == 8,
+        if d.colOn.count == 8, d.colRecv.count == 8,
            d.colEmit.count == 8, d.colLen.count == 8, d.colSteps.count == 8, d.colRate.count == 8, d.colStepRecv.count == 8, d.colStepEmit.count == 8 {
-            buildPlayCells = d.cells; buildPlaySel = d.sel; buildPlayColOn = d.colOn; buildPlayColRecv = d.colRecv; buildPlayColEmit = d.colEmit
+            buildPlayColOn = d.colOn; buildPlayColRecv = d.colRecv; buildPlayColEmit = d.colEmit
             buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
         }
         for t in 0..<8 { buildFlattenFerry(t) }                              // regenerate each ferry's playback line from its part (canonical)
@@ -4000,17 +3949,6 @@ extension DiagView {
 
 
 
-
-    // How many play-grid rows a deployed part occupies (1 = single-rung lane · >1 = multi-rung ladder).
-    private func buildPerformPartRows(_ part: Int) -> Int { part < 0 ? 0 : (0..<8).filter { buildPerformPart[$0] == part }.count }
-    // A play-grid cell SOUNDS this column when it's the active rung: single-rung parts always; a multi-rung part only
-    // when its column's selection points at this rung's source staging row. (Paul 2026-08-15)
-    private func buildPerformActiveRung(_ c: Int, _ r: Int) -> Bool {
-        let part = buildPerformPart[r]
-        guard part >= 0, buildPerformPartRows(part) > 1 else { return true }   // single-rung / empty band → always
-        let sr = buildPerformStagingRow[r]
-        return sr >= 0 && part < buildParts.count && BuildSceneLogic.selectedRung(buildParts[part].stagingSel, c) == sr
-    }
 
 
 

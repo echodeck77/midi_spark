@@ -338,9 +338,8 @@ final class BuildSceneLogicTests: XCTestCase {
     func testPlayGridComposesStartedColumnsAsContinuousVoices() throws {
         var i = BuildSceneLogic.Input()
         i.playPlaying = true
-        i.playCells = grid([(0, 1, "b1"), (1, 3, "b2"), (2, 0, "b3")])
-        i.playSel = [1, 3, 0, -1, -1, -1, -1, -1]
-        i.playColChain = (0..<8).map { c in c == 0 ? [ProcessorSlot(type: .arp)] : [] }
+        i.playColSteps = [["b1"], ["b2"], ["b3"], [], [], [], [], []]
+        i.playColStepChain = [[[ProcessorSlot(type: .arp)]], [[]], [[]], [], [], [], [], []]
         i.playColOn = [true, true, false, false, false, false, false, false]   // col 2 is populated but NOT started
         i.playColRecv = [2, 1, 0, 0, 0, 0, 0, 0]                                 // per-column doors, derived from the ferry source
         i.playColEmit = [[.b], [.c, .d], [.a], [.a], [.a], [.a], [.a], [.a]]
@@ -376,7 +375,7 @@ final class BuildSceneLogicTests: XCTestCase {
         i.playColStepChain = [[[ProcessorSlot(type: .arp)], [], [ProcessorSlot(type: .harmonize)]], [], [], [], [], [], [], []]
         i.playColStepEmit = [[[.a], [], [.c]], [], [], [], [], [], [], []]   // PER-STEP I/O: step 0 → A, step 2 → C
         i.playColStepRecv = [[0, 0, 2], [], [], [], [], [], [], []]          // step 2 reads door C (2)
-        i.playCells = grid([(1, 0, "solo")]); i.playSel = [0, 0, -1, -1, -1, -1, -1, -1]   // col 1's single cell
+        i.playColSteps[1] = ["solo"]                                        // col 1's single cell
         let s = BuildSceneLogic.composeScene(i)!
         let base = Snap.playLayerRowBase
         XCTAssertEqual(s.cellAt(0, base)?.machineID, "a", "step 0 at (col 0, play row)")
@@ -400,20 +399,24 @@ final class BuildSceneLogicTests: XCTestCase {
     // which, when col 0 already holds another voice's cell, looped THAT cell and left the audition silent.
     func testChainAuditionFallbackSweepsInsteadOfPinningANonChainColumn() throws {
         var i = BuildSceneLogic.Input()
-        i.performPlaying = true
-        i.performCells = grid((0..<8).map { ($0, $0, "p\($0)") })   // a DIAGONAL → every row occupied (occ 1), none full, col 0 held by "p0"
+        i.stagingPlaying = true
+        i.stagingCells = grid((0..<8).map { ($0, $0, "p\($0)") })   // a DIAGONAL → every row occupied (occ 1), none full, col 0 held by "p0"
+        i.stagingSel = Array(0..<8)                                 // column c selects row c (the diagonal)
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → every diagonal cell sounds
         i.chainActive = true; i.chainMachineID = "aud"; i.chainMachine = []
         let (sceneOpt, auditionRow) = BuildSceneLogic.composeSceneMeta(i)
         let s = try XCTUnwrap(sceneOpt)
         XCTAssertEqual(auditionRow, 0, "the least-occupied row (all tie → row 0)")
-        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "p0", "col 0 stays the PIECE's cell")
+        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "p0", "col 0 stays the staging cell")
         XCTAssertEqual(s.cellAt(1, 0)?.machineID, "aud", "the chain lays across the row's FREE columns")
         XCTAssertEqual(try XCTUnwrap(s.rowLane)[0], 0, "P1: the fallback row is NOT pinned to col 0 → it sweeps (else the pin loops p0 and the audition is silent)")
 
         // CONTROL — a fully-empty row exists → the single-cell audition DOES pin col 0 (continuous, no re-strike).
         var j = BuildSceneLogic.Input()
-        j.performPlaying = true
-        j.performCells = grid((0..<7).map { ($0, $0, "p\($0)") })   // rows 0–6 occupied, ROW 7 empty
+        j.stagingPlaying = true
+        j.stagingCells = grid((0..<7).map { ($0, $0, "p\($0)") })   // rows 0–6 occupied, ROW 7 empty
+        j.stagingSel = Array(0..<7)                                 // columns 0–6 select rows 0–6; column 7 falls back to −1 (out of range)
+        j.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         j.chainActive = true; j.chainMachineID = "aud"; j.chainMachine = []
         let (s2Opt, aud2) = BuildSceneLogic.composeSceneMeta(j)
         let s2 = try XCTUnwrap(s2Opt)
@@ -468,7 +471,7 @@ final class BuildSceneLogicTests: XCTestCase {
     }
     func testPlayGridAloneProducesASceneOnlyWhenAColumnIsStarted() {
         var i = BuildSceneLogic.Input()
-        i.playPlaying = true; i.playCells = grid([(0, 0, "b1")]); i.playSel = [0, -1, -1, -1, -1, -1, -1, -1]
+        i.playPlaying = true; i.playColSteps = [["b1"], [], [], [], [], [], [], []]
         i.playColOn = [true, false, false, false, false, false, false, false]
         XCTAssertNotNil(BuildSceneLogic.composeScene(i), "a started play column alone produces a scene")
         i.playColOn = Array(repeating: false, count: 8)
@@ -479,7 +482,7 @@ final class BuildSceneLogicTests: XCTestCase {
 
     // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only selected it — no output until a
     // machine is added. (The deployed PERFORM/play grid keeps the explicit-empty passthrough — the no-machine live-wire.)
-    func testNoMachinePartCellIsSilentButPerformCellIsPassthrough() {
+    func testNoMachinePartCellIsSilentButPlayGridCellIsPassthrough() {
         var i = BuildSceneLogic.Input()
         i.stagingPlaying = true
         i.stagingCells = grid([(0, 2, "gold")]); i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
@@ -487,11 +490,12 @@ final class BuildSceneLogicTests: XCTestCase {
         let s = BuildSceneLogic.composeScene(i)!
         XCTAssertNil(s.cellAt(0, 2), "a MACHINE-LESS cell on the part grid is SILENT — the user hasn't set it up")
         var p = BuildSceneLogic.Input()
-        p.performPlaying = true
-        p.performCells = grid([(0, 0, "gold")]); p.performActiveRung = { c, r in c == 0 && r == 0 }
-        p.performChain = Array(repeating: Array(repeating: [], count: 8), count: 8)
+        p.playPlaying = true
+        p.playColOn = [true, false, false, false, false, false, false, false]
+        p.playColSteps = [["gold"], [], [], [], [], [], [], []]
+        p.playColStepChain = [[[]], [], [], [], [], [], [], []]   // empty chain → still placed (no-machine passthrough)
         let sp = BuildSceneLogic.composeScene(p)!
-        XCTAssertEqual(sp.cellAt(0, 0)?.processors, [], "a no-machine PERFORM cell is an explicit-empty passthrough too")
+        XCTAssertEqual(sp.cellAt(0, Snap.playLayerRowBase)?.processors, [], "a no-machine PLAY-GRID cell is an explicit-empty passthrough too")
     }
 
     func testPerRowIOOverridesTheDefaultElseInherits() {
@@ -509,18 +513,6 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s.cellAt(0, 1)?.buses, [.c], "row 1 uses its OWN emitter")
         XCTAssertEqual(s.cellAt(1, 4)?.inputReceiver, 0, "row 4 inherits the part default door")
         XCTAssertEqual(s.cellAt(1, 4)?.buses, [.a], "row 4 inherits the part default emitters")
-    }
-
-    func testPieceDropsMutedAndInactiveRungCells() {
-        var i = BuildSceneLogic.Input()
-        i.performPlaying = true
-        i.performCells = grid([(0, 0, "gold"), (1, 0, "gold"), (2, 0, "gold")])
-        i.performMute = [1 * 8 + 0]                        // column 1 muted
-        i.performActiveRung = { c, _ in c != 2 }           // column 2's rung inactive
-        let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "gold", "unmuted, active → plays")
-        XCTAssertNil(s.cellAt(1, 0), "muted → dropped")
-        XCTAssertNil(s.cellAt(2, 0), "inactive rung → dropped")
     }
 
     func testChainAuditionIsAOneStepContinuousPass() throws {
@@ -543,82 +535,76 @@ final class BuildSceneLogicTests: XCTestCase {
         // its LIVE strike feed at idx = col0*Snap.rows + auditionRow. It must equal where the audition cell actually lands.
         var i = BuildSceneLogic.Input()
         i.chainActive = true; i.chainMachineID = "cyan"
-        i.performPlaying = true
-        i.performCells = grid([(0, 0, "gold")])            // piece on row 0 → the audition takes the next free row (1)
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 0, "gold")]); i.stagingSel = [0, -1, -1, -1, -1, -1, -1, -1]   // staging on row 0 → the audition takes the next free row (1)
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         let m = BuildSceneLogic.composeSceneMeta(i)
         let ar = m.auditionRow
-        XCTAssertEqual(ar, 1, "the audition parks on the first free row (row 0 taken by the piece)")
+        XCTAssertEqual(ar, 1, "the audition parks on the first free row (row 0 taken by staging)")
         XCTAssertEqual(m.scene?.cellAt(0, ar ?? -1)?.machineID, "cyan", "auditionRow points at the audition cell (col 0)")
         // No chain voice ⇒ no audition row.
-        var j = BuildSceneLogic.Input(); j.performPlaying = true; j.performCells = grid([(0, 0, "gold")])
+        var j = BuildSceneLogic.Input(); j.stagingPlaying = true
+        j.stagingCells = grid([(0, 0, "gold")]); j.stagingSel = [0, -1, -1, -1, -1, -1, -1, -1]
+        j.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         XCTAssertNil(BuildSceneLogic.composeSceneMeta(j).auditionRow, "no chain voice → no audition row")
     }
 
     func testComposeSceneMetaFallbackStillExposesARow() {
-        // Paul 2026-08-30: when NO row is fully empty (a deployed piece fills col 0 of every row), the audition takes the
+        // Paul 2026-08-30: when NO row is fully empty (staging occupies every row), the audition takes the
         // FALLBACK branch — which must STILL expose a chainLaneRow, else the aimed ferry has no live-strike index and reads
         // as dead (the "subsequent copies didn't animate" bug locus).
         var i = BuildSceneLogic.Input()
         i.chainActive = true; i.chainMachineID = "cyan"
-        i.performPlaying = true
-        i.performCells = (0..<8).map { c in (0..<8).map { r in c == 0 ? "gold" : nil } }   // col 0 filled in EVERY row → no empty row
+        i.stagingPlaying = true
+        i.stagingCells = grid((0..<8).map { ($0, $0, "gold") })   // a DIAGONAL → every row occupied, none fully empty
+        i.stagingSel = Array(0..<8)
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         XCTAssertNotNil(BuildSceneLogic.composeSceneMeta(i).auditionRow, "the fallback still exposes a row for the ferry's live feed")
     }
 
     func testChainFallsBackToTheLeastOccupiedRowWhenPieceIsFull() {
+        // PIECE (many cells per row) is gone; staging places at most ONE cell per column, so "one row far MORE
+        // occupied than the rest, none empty" can no longer be constructed directly. The tied-occupancy diagonal
+        // (every row exactly 1) exercises the same fallback-fill mechanism instead: the chain fills every OTHER
+        // column of its landing row, leaving that row's own pre-existing cell untouched.
         var i = BuildSceneLogic.Input()
         i.chainActive = true
         i.chainMachineID = "cyan"
-        i.performPlaying = true
-        // Fill EVERY row and column with the piece EXCEPT one gap at (7, row 4) — row 4 is the least-occupied.
-        var cells: [[String?]] = Array(repeating: Array(repeating: "gold", count: 8), count: 8)
-        cells[7][4] = nil
-        i.performCells = cells
+        i.stagingPlaying = true
+        i.stagingCells = grid((0..<8).map { ($0, $0, "gold") })   // a DIAGONAL → every row occupied exactly once, none empty
+        i.stagingSel = Array(0..<8)
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(7, 4)?.machineID, "cyan", "the chain fills the one free cell on the least-occupied row")
-        XCTAssertEqual(s.cellAt(0, 4)?.machineID, "gold", "the piece's own cells in that row are untouched")
+        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "gold", "the fallback row's own pre-existing cell survives")
+        XCTAssertEqual(s.cellAt(1, 0)?.machineID, "cyan", "the chain fills that row's OTHER free columns")
     }
 
-    func testPartAndPieceAndChainCoexist() {
+    func testPartAndChainCoexist() {
+        // PIECE (the third voice this test originally coexisted with) is gone — this now covers the remaining
+        // two-voice coexistence: the part audition alongside the raw chain audition, on different rows.
         var i = BuildSceneLogic.Input()
-        i.performPlaying = true; i.stagingPlaying = true; i.chainActive = true
-        i.performCells = grid([(0, 0, "gold")])            // piece on row 0
+        i.stagingPlaying = true; i.chainActive = true
         i.stagingCells = grid([(0, 3, "teal")]); i.stagingSel = [3, -1, -1, -1, -1, -1, -1, -1]   // part on row 3
         i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the part cell sounds
-        i.chainMachineID = "cyan"                           // chain finds a free row (not 0 or 3)
+        i.chainMachineID = "cyan"                           // chain finds a free row (not 3)
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 0)?.machineID, "gold", "piece plays")
-        XCTAssertEqual(s.cellAt(0, 3)?.machineID, "teal", "part plays alongside")
-        let chainRow = (0..<8).first { r in r != 0 && r != 3 && s.cellAt(0, r)?.machineID == "cyan" }
-        XCTAssertNotNil(chainRow, "the chain lands on some free row, coexisting with both")
+        XCTAssertEqual(s.cellAt(0, 3)?.machineID, "teal", "part plays")
+        let chainRow = (0..<8).first { r in r != 3 && s.cellAt(0, r)?.machineID == "cyan" }
+        XCTAssertNotNil(chainRow, "the chain lands on some free row, coexisting with the part")
     }
     // MARK: composeScene — the PER-PART CLOCK + PER-ROW LAP mapping (Input → SceneState.rowStepRate/rowLen/rowLane)
 
-    func testPieceAppliesPerRowLengthEvenWhenRateIsDefault() {
-        // BUG (Paul 2026-08-19): the piece's per-row LENGTH was set only inside `if let rr = performRate[r]`, so a
-        // deployed part at the SCENE-DEFAULT rate (nil) silently lost its short loop — the common Stage-D case.
+    func testStagingAppliesItsOwnLengthEvenWhenRateIsDefault() {
+        // BUG (Paul 2026-08-19), preserved post-PIECE: a row's per-row LENGTH must land even when its rate is the
+        // SCENE-DEFAULT (nil) — both are set unconditionally together, never gated on the rate being non-nil.
         var i = BuildSceneLogic.Input()
-        i.performPlaying = true
-        i.performCells = grid([(0, 2, "gold")])
-        i.performActiveRung = { _, _ in true }
-        i.performRate = Array(repeating: nil, count: 8)            // scene-default rate
-        i.performLen = [nil, nil, 4, nil, nil, nil, nil, nil]      // row 2 loops 4 columns
-        let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.rowLen?[2], 4, "a default-rate part still applies its short loop length")
-    }
-
-    func testStagingClaimsRowSoThePieceNeverClobbersItsClock() {
-        // Staging OWNS a row it occupies even when its rate is the scene default (nil) — the piece must not override it.
-        var i = BuildSceneLogic.Input()
-        i.stagingPlaying = true; i.performPlaying = true
+        i.stagingPlaying = true
         i.stagingCells = grid([(0, 2, "gold")]); i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
-        i.stagingRate = nil; i.stagingLen = 4                      // staging: default rate, short length
-        i.performCells = grid([(1, 2, "teal")]); i.performActiveRung = { _, _ in true }   // piece also on row 2
-        i.performRate = [nil, nil, .r2_1, nil, nil, nil, nil, nil] // piece row-2 rate = 2/1
-        i.performLen = [nil, nil, 8, nil, nil, nil, nil, nil]
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
+        i.stagingRate = nil; i.stagingLen = 4                      // default rate, short length
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertNil(s.rowStepRate![2], "staging owns row 2 with its DEFAULT rate — the piece's 2/1 must not clobber it")
-        XCTAssertEqual(s.rowLen![2], 4, "staging's short length wins, not the piece's 8")
+        XCTAssertNil(s.rowStepRate?[2], "the default rate lands as nil (scene default), not skipped")
+        XCTAssertEqual(s.rowLen?[2], 4, "the short length still lands alongside the default rate")
     }
 
     func testUniformStagingLeavesPerRowClockNil() {
@@ -632,19 +618,17 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNil(s.rowLen)
     }
 
-    func testRowLaneStagingWinsAndAMutedPieceCellContributesNoLane() {
-        // A muted piece cell must NOT contribute its lane (mirrors the cell-placement guard); staging wins a shared row.
+    func testStagingLanePropagatesToItsOccupiedRow() {
+        // PIECE (the row-lane precedence this once tested) is gone; staging is now the sole contributor to a
+        // row's loop mask — confirms its own lane still lands on the row it occupies.
         var i = BuildSceneLogic.Input()
-        i.performPlaying = true; i.stagingPlaying = true
-        i.performCells = grid([(0, 2, "gold"), (0, 5, "gold")])
-        i.performMute = [0 * 8 + 5]                                // the row-5 piece cell is muted
-        i.performActiveRung = { _, _ in true }
-        i.performLane = 0b1
+        i.stagingPlaying = true
         i.stagingCells = grid([(1, 2, "teal")]); i.stagingSel = [-1, 2, -1, -1, -1, -1, -1, -1]  // staging on row 2
+        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)
         i.stagingLane = 0b10
         let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.rowLane?[5] ?? 0, 0, "a muted piece cell contributes no lane")
-        XCTAssertEqual(s.rowLane?[2], 0b10, "staging's lane wins the shared row over the piece's")
+        XCTAssertEqual(s.rowLane?[2], 0b10, "staging's lane lands on the row it occupies")
+        XCTAssertEqual(s.rowLane?[5] ?? 0, 0, "an untouched row carries no lane")
     }
 
     // MARK: loopColumnPlan + composeScene PART LOOP SELECTION (Paul 2026-09-26)
@@ -727,23 +711,6 @@ final class BuildSceneLogicTests: XCTestCase {
         var n = 0
         for _ in 0..<8 { guard let m = BuildSceneLogic.mutateChain(base, avoid: avoid, &rng) else { break }; avoid.append(Dice.fingerprint(m)); n += 1 }
         XCTAssertGreaterThanOrEqual(n, 5, "euclid must yield many distinct variants (was 1 — the unwired-param bug)")
-    }
-
-    // composeScene precedence: the PART audition "sits in front" of the PIECE on a shared (col,row), carrying the part's
-    // I/O. Every other composeScene test puts them on different rows, so this collision path was untested. (Paul 2026-08-19)
-    func testPartAuditionSitsInFrontOfThePieceOnASlotCollision() {
-        var i = BuildSceneLogic.Input()
-        i.performPlaying = true; i.stagingPlaying = true
-        i.performActiveRung = { _, _ in true }
-        i.performCells = grid([(0, 2, "gold")])            // the PIECE occupies (0,2)
-        i.performEmit = Array(repeating: [.a], count: 8)   // piece row 2 → emitter A
-        i.stagingCells = grid([(0, 2, "teal")])            // the PART occupies the SAME slot
-        i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
-        i.rowChain = Array(repeating: [ProcessorSlot(type: .arp)], count: 8)   // machined → the part cell sounds
-        i.selReceiver = 0; i.partEmitters = [.b]           // part default → emitter B
-        let s = BuildSceneLogic.composeScene(i)!
-        XCTAssertEqual(s.cellAt(0, 2)?.machineID, "teal", "the part/audition wins the shared slot (sits in front)")
-        XCTAssertEqual(s.cellAt(0, 2)?.buses, [.b], "and the surviving cell carries the PART's I/O, not the piece's")
     }
 
     // mutateNudge: each control KIND stays in-range and actually moves. Only covered transitively before. (Paul 2026-08-19)

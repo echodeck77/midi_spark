@@ -237,16 +237,6 @@ struct DiagView: View {
     @State var buildRowReceiver: [Int?] = Array(repeating: nil, count: 8)
     @State var buildRowEmitters: [Set<Bus>?] = Array(repeating: nil, count: 8)
     @State var buildPendingSource: [ProcessorSlot] = []  // the chain the pending tab was copied from — diverge = PLACED
-    // THE PIECE — the perform (play) grid: deployed parts, ONE ROW per part (deployment order). Each cell keeps its
-    // machineID + optional variation chain + the deploying part's I/O, so START/STOP THE PLAY GRID plays the assembly.
-    @State var buildPerformCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
-    @State var buildPerformChain: [[[ProcessorSlot]]] = Array(repeating: Array(repeating: [], count: 8), count: Snap.maxCols)
-    @State var buildPerformRecv: [Int] = Array(repeating: 0, count: 8)          // per perform-ROW input door
-    @State var buildPerformEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)  // per perform-ROW emitters
-    @State var buildPerformPlaying: Bool = false                                // the PIECE is the active voice
-    @State var buildPerformPart: [Int] = Array(repeating: -1, count: 8)         // which PART index sits in each perform row (§2 brightness: the current part's band lights bright)
-    @State var buildPerformMute: Set<Int> = []                                  // play grid: per-cell MUTE (key c*8+r) — single-rung parts only, drops a step from the mix (Paul 2026-08-15)
-    @State var buildPerformStagingRow: [Int] = Array(repeating: -1, count: 8)   // play grid: each MULTI-rung grid row ← its source staging row (−1 = single-rung/none). Maps play-grid rung selection back to the part's stagingSel (Paul 2026-08-15)
     @State var buildRow8Cells: [Row8Cell] = Row8Cell.factoryDeck   // ROW 8 (Paul 2026-08-22): the authored action cells (refreshed from the document)
     @State var buildRow8On: [Bool] = Array(repeating: false, count: 8)   // ROW 8: the active scene's lit TOGGLE state
     // SCENES V2 (Paul 2026-08-12): in-memory play-grid arrangements. buildScenes holds the SAVED arrangements; index 0 is
@@ -266,11 +256,6 @@ struct DiagView: View {
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → machineID; nil = blank). Not the real scene; the
     // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a machine here.
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
-    // THE PLAY GRID (Paul 2026-08-29) — its OWN arrangement, INDEPENDENT of the part's buildStagingCells so the SELECT
-    // top-button assign lands only on PLAY (was writing the shared staging → it wrongly lit the part-grid side buttons).
-    // [column][row]; one selected rung per column (buildPlaySel, default ROW 1 = 0). Populated by the top-button ferry.
-    @State var buildPlayCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
-    @State var buildPlaySel: [Int] = Array(repeating: 0, count: 8)   // per-column selected rung; 0 = ROW 1 default, −1 = none
     // buildPlayFerryRow RETIRED (Paul 2026-09-12 dead-code sweep — the ▲▼ ferry-row cursor is gone; never read/written).
     @State var buildSelectMode: Bool = false   // SELECT MODE (Paul 2026-08-31): a toggle under the machine play button — while on, every cell (select + ferry) lights white and a TAP only FOCUSES it into the machine (no start/stop), for editing/viewing
     // THE PLAY GRID — each column is a FULLY INDEPENDENT voice (Paul 2026-08-29): it starts/stops on its own and carries
@@ -486,11 +471,8 @@ struct DiagView: View {
     // MODELESS (2026-07-27): GRID CONTROLS — the verb palette. Radio-armed; INSPECT is functional in 1b, the
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
     @State var laneMask: UInt16 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
-    @State var buildStagingLane: UInt16 = 0   // PER-ROW LAP (Paul 2026-08-19): the BUILD STAGING grid's own column-loop (independent of the play grid)
-    @State var buildPerformLane: UInt16 = 0   // PER-ROW LAP: the BUILD PLAY grid's own column-loop (baked into the composed scene per-row)
-    @State var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
-    @State var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
-    @State var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set
+    @State var buildStagingLane: UInt16 = 0   // PER-ROW LAP (Paul 2026-08-19): the BUILD STAGING grid's own column-loop
+    @State var soloEmitterMask: UInt8 = 0  // the derived emitter solo set (mirrors emitterFootSolo)
     @State var emitterFootSolo: UInt8 = 0  // emitter strip: the foot SOLO button set (OR'd into the derived mask)
     @State var emitterOctave: [Int] = [0, 0, 0, 0]   // emitter strip: per-emitter output ±octave nudge (ephemeral)
     @State var showDevLoader = false                 // dev-build: the hidden MIDI self-test overlay is showing
@@ -506,10 +488,6 @@ struct DiagView: View {
     @State private var autoOn = false
     @State private var autoStatus = "OK"
     #endif
-    // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
-    // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
-    // ON-TAP overlay: TapKind/TapOverlay + the apply/mask logic are pure functions in Derivations (testable).
-    @State var tapActions: [TapOverlay] = []
     let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
     // A dedicated ~30 Hz drain for the peak METERS only (output + input velocity indicators), decoupled from the 4 Hz
     // poll so they track live input instead of lagging up to 250 ms (Paul 2026-08-21). Cheap read-and-clear; when idle
@@ -522,11 +500,8 @@ struct DiagView: View {
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
 
-    // §9 item 1 ON TAP: clear every ephemeral perform-tap overlay (timed actions + alt flips, mutes, emitter solo).
+    // emitter-strip foot SOLO: clear on transport stop.
     func clearOnTap() {
-        if !tapActions.isEmpty { tapActions.removeAll() }
-        if tapAltMask != 0 { tapAltMask = 0; au?.setTapAltMask(0) }
-        if tapMuteMask != 0 { tapMuteMask = 0; au?.setTapMuteMask(0) }
         if emitterFootSolo != 0 { emitterFootSolo = 0 }
         if soloEmitterMask != 0 { soloEmitterMask = 0; au?.setSoloEmitterMask(0) }
     }
@@ -553,12 +528,9 @@ struct DiagView: View {
     /// ACTIVE cell flashes to show it's about to DEACTIVATE (user 2026-08-07 — whether the touched cell is populated
     /// or empty); an incoming POPULATED rung also flashes to show where the column is going (an empty rung shows nothing).
 
+    // emitter-strip foot SOLO: push the union to the kernel whenever it changes.
     func refreshTapMasks() {
-        let r = tapOverlayMasks(tapActions, now: d.beat, footSolo: emitterFootSolo)   // pure: expire + build masks
-        if r.surviving.count != tapActions.count { tapActions = r.surviving }          // only mutate @State on real expiry
-        if r.alt  != tapAltMask      { tapAltMask = r.alt;        au?.setTapAltMask(r.alt) }
-        if r.mute != tapMuteMask     { tapMuteMask = r.mute;      au?.setTapMuteMask(r.mute) }
-        if r.solo != soloEmitterMask { soloEmitterMask = r.solo;  au?.setSoloEmitterMask(r.solo) }
+        if soloEmitterMask != emitterFootSolo { soloEmitterMask = emitterFootSolo; au?.setSoloEmitterMask(emitterFootSolo) }
     }
 
     let sceneAmberHue = UI.amber   // HOLD's latch hue
@@ -1022,7 +994,6 @@ struct DiagView: View {
             let nc = au.uiMachines();       if nc != docMachines { docMachines = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
-            if !tapActions.isEmpty { refreshTapMasks() }   // §9 ON TAP 4c: fire quantized onsets + expire durations
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
             let cn = au.pollCellNotes()                    // NOTE-SWEEP: per-cell recent emitted notes (pitch/vel/count) — drained every tick

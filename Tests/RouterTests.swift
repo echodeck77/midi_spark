@@ -43,7 +43,7 @@ final class RouterTests: XCTestCase {
     /// Drive the render engine across `beats` musical beats of PLAYING windows, then one STOP window
     /// (the transport edge flushes every voice). Mirrors how the Kernel calls it each render.
     private func run(_ box: SnapshotBox, _ pool: NotePool, beats: Double, into emitter: RecordingEmitter,
-                     laneMask: UInt16 = 0, soloCellMask: UInt64 = 0, releaseAtEnd: Bool = true,
+                     laneMask: UInt16 = 0, releaseAtEnd: Bool = true,
                      forceColumn: Int = -1,   // PLAY: THIS CELL (−1 = normal, unaffected) — bypasses the column-lap gate so a bare cell keeps ticking as real time advances past its own grid column's real-time span
                      tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) {
         let router = Router()
@@ -53,13 +53,13 @@ final class RouterTests: XCTestCase {
         while beat < beats {
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: forceColumn,
-                           laneMask: laneMask, soloCellMask: soloCellMask, out: emitter, diag: &diag)
+                           laneMask: laneMask, out: emitter, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
         if releaseAtEnd {   // release the lap (laneMask 0) then stop — must return to the true timeline, no stuck notes
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0,
-                           soloCellMask: soloCellMask, out: emitter, diag: &diag)
+                           out: emitter, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
         router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo,   // stop edge → flush
@@ -91,25 +91,6 @@ final class RouterTests: XCTestCase {
         run(b, chord([60, 64, 67]), beats: 16, into: e)          // S=2 → one full cycle
         XCTAssertGreaterThan(e.ons.count, 0, "the arp should have sounded during column 0's window")
         assertNothingLeftSounding(e)
-    }
-
-    func testPlayCellOnlySilencesEveryOtherCell() {
-        // EDIT "play this cell only" (user 2026-08-08): two ARP cells in the SAME column, rows 0 (bus A/cable 1)
-        // and 1 (bus B/cable 2). Solo the (col0,row1) cell → only cable 2 lights; the other falls silent.
-        let b = box(machines: arpMachines()) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])
-            $0.cells[0][1] = Cell(machineID: "orange", buses: [.b])
-        }
-        let soloed = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 16, into: soloed, soloCellMask: UInt64(1) << UInt64(0 * 8 + 1))
-        XCTAssertGreaterThan(soloed.ons.filter { $0.cable == 2 }.count, 0, "the solo'd cell sounds")
-        XCTAssertEqual(soloed.ons.filter { $0.cable == 1 }.count, 0, "the non-solo'd cell is silenced")
-        assertNothingLeftSounding(soloed)
-        // sanity: with NO solo, both buses light — so the silence above is the solo, not the fixture
-        let both = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 16, into: both)
-        XCTAssertGreaterThan(both.ons.filter { $0.cable == 1 }.count, 0, "no solo → the other cell sounds")
-        XCTAssertGreaterThan(both.ons.filter { $0.cable == 2 }.count, 0)
     }
 
     // GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE render integration.
@@ -2023,28 +2004,6 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(snap[0].isEmpty, "emitter A (bucket 0) is sounding")
         XCTAssertFalse(snap[2].isEmpty, "emitter C (bucket 2) is sounding")
         XCTAssertTrue(snap[1].isEmpty && snap[3].isEmpty, "B and D are silent (no cross-bucket smear)")
-    }
-    // PLAY: THIS CELL overrides MUTE (user 2026-08-10): a MUTED cell that is the solo target must still play — the
-    // feature isolates and previews the cell's machine regardless of grid mute/dormant. (The muted orange cell that
-    // "PLAY: THIS CELL did nothing on".) A non-target muted cell stays silent (mute enforced when not soloed).
-    func testForceColumnPlaysAMutedSoloedCell() {
-        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold
-        let b = box(machines: cs) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])                                   // unmuted cell above
-            $0.cells[0][1] = { var c = Cell(machineID: "gold", buses: [.a]); c.muted = true; return c }()   // MUTED cell (the solo target)
-        }
-        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
-        let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        let soloMask = UInt64(1) << UInt64(0 * 8 + 1)   // solo the MUTED cell at (0,1)
-        while beat < 16.0 {
-            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, forceColumn: 0, soloCellMask: soloMask, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67], "the MUTED soloed cell still plays its chord under PLAY: THIS CELL")
-        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
     }
     // PLAY: THIS CELL for a HARMONIZE cell (user 2026-08-10: "works on gold, not on orange"): harmonize is a HOLD
     // mode whose emitHarmony path wasn't adoptable, so under the frozen column it played one column then rested.
@@ -6178,30 +6137,10 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(passOns(2), 0, "pass 3 — the cell enters and sounds")
     }
 
-    // §9 item 1 ON TAP (4a, integration): the ephemeral tapAltMask flips a cell's effective ALT (unified model)
-    // — a swap pair (A = open passgate, B = closed) goes silent when its tap bit is set.
     // (testTapAltMaskFlipsCellEphemerally removed 2026-08-27: A/B MORPH dropped → the tap-ALT flip no longer swaps the
-    //  processor face, so both assertions are `ons > 0` (the head always sounds) — vacuous. The real tap-mute path is
-    //  covered by testTapMuteSilencesCell below.)
-
-    // §9 item 1 ON TAP = MUTE (4b): a cell whose tapMuteMask bit is set falls silent (momentary).
-    func testTapMuteSilencesCell() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // grid (0,0) = bit 0
-        func ons(_ mute: UInt64) -> Int {
-            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-            let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-            while beat < 2.0 {
-                router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                               timestampSample: ts, frameCount: frames, tapMuteMask: mute, out: e, diag: &diag)
-                beat += wb; ts += Double(frames)
-            }
-            return e.ons.count
-        }
-        XCTAssertGreaterThan(ons(0), 0, "un-muted → the cell sounds")
-        XCTAssertEqual(ons(1 << 0), 0, "ON TAP = MUTE (bit 0) → the cell is silent")
-    }
+    //  processor face, so both assertions are `ons > 0` (the head always sounds) — vacuous.
+    //  testTapMuteSilencesCell removed 2026-09-27: the whole ON-TAP overlay cluster (tapAltMask/tapMuteMask/
+    //  soloCellMask + applyTapOverlay/tapOverlayMasks) had zero live producers — confirmed dead, removed.)
 
     // §9 item 1 ON TAP = SOLO EMITTERS (4b): a solo set silences sibling emitters (cell on A + cell on B;
     // solo = {A} → B falls silent). Solo bypasses previewMode elsewhere; here two real cells on two buses.

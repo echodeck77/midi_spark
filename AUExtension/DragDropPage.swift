@@ -1,8 +1,9 @@
 import SwiftUI
 // The DRAG&DROP page (and all its drag/palette/grid/machinery/dice code) was REMOVED (user 2026-08-13) — the BUILD
 // page superseded it. This file now holds ONLY the machine-management cluster still shared with BUILD (ddSelectMachine/
-// ddCreateMachine/ddMachineShown/ddMachineIsPlaced/ddRepresentativeCell/ddEngageSolo/ddEnsureSelection/ddSelectedMachineID
-// + their internals). (The `ddZone`/`DDZonePref` drop-frame plumbing went with the flowDiagram, 2026-09-01.)
+// ddCreateMachine/ddMachineShown/ddMachineIsPlaced/ddRepresentativeCell/ddEnsureSelection/ddSelectedMachineID
+// + their internals). (The `ddZone`/`DDZonePref` drop-frame plumbing went with the flowDiagram, 2026-09-01; the
+// PLAY: THIS CELL solo mechanism — `ddEngageSolo`/`setMachineSolo` — was removed 2026-09-27, confirmed dead.)
 
 extension DiagView {
     var ddSelectedMachineID: String? {
@@ -37,25 +38,16 @@ extension DiagView {
     /// THE PER-MACHINE MODEL (user 2026-08-09): a machine IS a machine — selecting one scopes the edit to EVERY cell of
     /// that machine, so every machinery edit (add/remove/params/split) applies machine-wide. The anchor cell just drives
     /// what the flow diagram DISPLAYS. `editPointedCell`/`editChop`/`{add,edit,remove}SlotCells` all fan out to `sel`.
-    func ddScopeToMachine(_ id: String, anchor: (Int, Int)?, engage: Bool = true) {   // internal: shared with BUILD's buildSelectID
+    func ddScopeToMachine(_ id: String, anchor: (Int, Int)?) {   // internal: shared with BUILD's buildSelectID
         let cells = ddMachineCells(id)
         sel.reset(); for p in cells { sel.add(p) }
         if let a = anchor { selCol = a.0; selRow = a.1 }
         else if let first = cells.first { selCol = first.col; selRow = first.row }
         else { selCol = -1; selRow = -1 }
-        if engage && ddSolo { ddEngageSolo() }   // PLAY: THIS CELL follows the selection (BUILD defers this to the cell boundary)
         ddCaptureStickyRouting()   // remember the last-chosen receiver + emitters (the default for the next fresh cell)
     }
     /// STICKY ROUTING (user 2026-08-10): a fresh cell inherits the LAST receiver + emitters chosen on the page (else
     /// the model default R1 + Emitter A). Captured from the anchor cell on select + after a routing edit.
-    /// Engage PLAY: THIS CELL for the current selection. A PLACED cell freezes on its grid slot; an UNPLACED machine
-    /// (no cell yet) plays via a SYNTHETIC preview cell at an empty slot (its sticky receiver + emitters + machine).
-    /// If neither is possible (no machine selected, or the grid is full for a preview) the toggle springs back off.
-    func ddEngageSolo() {
-        if selCol >= 0, selRow >= 0 { au?.setMachineSolo(col: selCol, row: selRow); return }
-        if let cid = ddSelectedMachineID, au?.setMachineSoloPreview(machineID: cid, inputReceiver: ddStickyReceiver, buses: Array(ddStickyBuses)) == true { return }
-        buildVoiceOwner = .none; au?.clearMachineSolo()
-    }
     func ddCaptureStickyRouting() {
         guard let c = editingCell else { return }
         ddStickyReceiver = c.inputReceiver ?? 0

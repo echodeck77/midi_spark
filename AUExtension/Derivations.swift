@@ -1752,28 +1752,6 @@ func holdOctaveShift(on: OnConfig, held: Bool) -> Int {
     (held && on.hold == .oct) ? (on.octUp ? 12 : -12) : 0
 }
 
-// MARK: - ON TAP timing (§9 item 1, 4c) — quantized onset + duration expiry (pure functions of the beat)
-
-/// The musical beat at which a tapped action TAKES EFFECT: NOW = immediately; STEP / PASS = the next step /
-/// pass boundary strictly after the tap. (LAP ≈ PASS in v1 — the true §5b lap boundary is deferred.)
-func tapOnsetBeat(tapBeat: Double, quant: OnTapWhen, stepBeats: Double) -> Double {
-    let step = max(0.01, stepBeats), cycle = step * 8
-    switch quant {
-    case .now:          return tapBeat
-    case .step:         return (floor(tapBeat / step) + 1) * step
-    case .pass, .lap:   return (floor(tapBeat / cycle) + 1) * cycle
-    }
-}
-
-/// The musical beat at which a tapped action EXPIRES: RETAP = never (held until re-tap); 1-PASS / 1-LAP = one
-/// pass after onset. (1-LAP ≈ 1-PASS in v1.)
-func tapExpiryBeat(onsetBeat: Double, duration: OnTapFor, stepBeats: Double) -> Double {
-    switch duration {
-    case .retap:            return .infinity
-    case .onePass, .oneLap: return onsetBeat + max(0.01, stepBeats) * 8
-    }
-}
-
 /// PLAY-FERRY LAUNCH (Paul 2026-09-09, Docs/PLAN-play-ferry-launch.md): the beat a launched ferry ANCHORS to for its
 /// START mode. SYNC ⇒ 0 (no anchor — the row stays transport-locked, today's behaviour). INSTANT ⇒ the tap beat itself
 /// (off-grid, from the part's top on tap). STEP/BEAT/PASS ⇒ the NEXT such boundary at or after the tap (quantized launch).
@@ -1793,40 +1771,6 @@ private func ferryNextBoundary(_ b: Double, _ unit: Double) -> Double {
     guard unit > 0 else { return b }
     let floorB = (b / unit).rounded(.down) * unit
     return floorB >= b - 1e-9 ? floorB : floorB + unit
-}
-
-/// One ON-TAP overlay: a timed, ephemeral flip on a cell (never a document write). `cell` = col*8+row;
-/// `busMask` carries the emitter bits (used by SOLO). Pure value type so the overlay logic stays testable.
-enum TapKind { case alt, mute, solo }
-struct TapOverlay: Equatable { let cell: Int; let kind: TapKind; let busMask: UInt8; let onset: Double; let expiry: Double }
-
-/// Apply a tap to the live overlay list. RETAP toggles OFF an existing same-cell+kind overlay; otherwise the
-/// tap REPLACES any prior for that cell+kind with a fresh one (re-tap re-arms). Pure — returns the new list.
-func applyTapOverlay(_ overlays: [TapOverlay], cell: Int, kind: TapKind, busMask: UInt8,
-                     onset: Double, expiry: Double, retap: Bool) -> [TapOverlay] {
-    if retap, let i = overlays.firstIndex(where: { $0.cell == cell && $0.kind == kind }) {
-        var a = overlays; a.remove(at: i); return a      // RETAP: a second tap toggles it off
-    }
-    var a = overlays.filter { !($0.cell == cell && $0.kind == kind) }
-    a.append(TapOverlay(cell: cell, kind: kind, busMask: busMask, onset: onset, expiry: expiry))
-    return a
-}
-
-/// The live ON-TAP masks at beat `now`: expired overlays dropped; only overlays whose onset has arrived
-/// contribute. alt/mute are per-cell bitmasks (bit = col*8+row); solo is a per-emitter busMask union
-/// (seeded with `footSolo`, the emitter-strip foot SOLO). Pure — drives `refreshTapMasks` each poll + tap.
-func tapOverlayMasks(_ overlays: [TapOverlay], now: Double, footSolo: UInt8 = 0)
-    -> (surviving: [TapOverlay], alt: UInt64, mute: UInt64, solo: UInt8) {
-    let surviving = overlays.filter { now < $0.expiry }
-    var alt: UInt64 = 0, mute: UInt64 = 0, solo: UInt8 = footSolo
-    for a in surviving where a.onset <= now {
-        switch a.kind {
-        case .alt:  alt  |= 1 << UInt64(a.cell)
-        case .mute: mute |= 1 << UInt64(a.cell)
-        case .solo: solo |= a.busMask
-        }
-    }
-    return (surviving, alt, mute, solo)
 }
 
 // MARK: - MPE detection (§ receiver property) — auto-detect the MPE controller for the cog-page indicator

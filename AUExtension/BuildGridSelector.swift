@@ -178,7 +178,7 @@ extension DiagView {
         buildMachineReg[buildGridSelAudID] = nil; machineHueOverride[buildGridSelAudID] = nil; buildMachineTranspose[buildGridSelAudID] = nil
         if buildVoiceOwner == .chain { buildVoiceOwner = .none }
         buildSelID = buildGridSelPriorSel; ddMachineSel = machineIDs.firstIndex(of: buildGridSelPriorSel ?? "") ?? -1
-        au?.clearMachineSolo(); buildSyncMachines(); buildPublishScene()
+        buildSyncMachines(); buildPublishScene()
     }
 
     // HOLD-TO-STAMP (Paul 2026-08-26): while a browse CELL auditions, HOLDING a part-row stamps the auditioning chain onto

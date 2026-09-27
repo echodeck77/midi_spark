@@ -560,24 +560,7 @@ final class Router {
     // On a column's FIRST window it differs from the current step → scan from colStart so the DOWNBEAT (and any pulse
     // in [colStart, mWinStart)) fires once instead of being dropped at the boundary. (Paul 2026-08-18)
     private var lastGenStep = [Int64](repeating: Int64.min, count: Snap.rows)
-    // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell ALT flips (bit col*8+row). Set each process()
-    // from the param; XORed into a cell's base ALT so a PERFORM tap is momentary, never a document write.
-    private var tapAltMask: UInt64 = 0
-    // tap/solo masks are the VISIBLE grid's own 64-bit space (index col*8+row, rows 0–7). The hidden PLAY LAYER (rows 8–15)
-    // is EXEMPT (Paul 2026-08-29) — else col*8+row would alias a play cell onto a visible cell's tap bit. It plays regardless.
-    private func tapFlipped(_ col: Int, _ row: Int) -> Bool { row < Snap.playLayerRowBase && (tapAltMask >> UInt64(col * 8 + row)) & 1 == 1 }
-    // §9 item 1 ON TAP actions (4b), ephemeral: MUTE = a per-cell momentary silence (bit col*8+row);
-    // SOLO EMITTERS = a global emitter solo set (bits A–D; 0 = no solo → siblings fall silent at emission).
-    private var tapMuteMask: UInt64 = 0
     private var soloEmitterMask: UInt8 = 0
-    private func tapMuted(_ col: Int, _ row: Int) -> Bool { row < Snap.playLayerRowBase && (tapMuteMask >> UInt64(col * 8 + row)) & 1 == 1 }
-    // EDIT PAGE "play this cell only" (user 2026-08-08): an ephemeral solo SET (bits col*8+row). While non-empty,
-    // every cell whose bit is UNSET falls silent (like muted/dormant) — so only the edited cell(s) sound. 0 = off.
-    private var soloCellMask: UInt64 = 0
-    private func cellSoloedOut(_ col: Int, _ row: Int) -> Bool { row < Snap.playLayerRowBase && soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 0 }
-    /// PLAY: THIS CELL — is THIS cell an explicit solo target? A target plays REGARDLESS of mute / dormant / tap-mute
-    /// (the feature isolates and previews one cell's machine, so grid state must not silence it). (user 2026-08-10)
-    private func cellSoloForced(_ col: Int, _ row: Int) -> Bool { row < Snap.playLayerRowBase && soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 1 }
     // receiver strip: the additive input SOLO set (bits R1–R4). While non-empty, a cell whose receiver is
     // NOT a member falls silent — `audible = ¬muted ∧ (soloSet=∅ ∨ member)`. Row-fed cells (recv −1) reach
     // this through their root MIDI-IN cell in parentSoundingNote. Ephemeral (cleared on stop / EDIT).
@@ -1636,7 +1619,7 @@ final class Router {
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, heldCell: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
             var cell = box.cells[effColumn * Snap.rows + r]
-            if cell.machineIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { return }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
+            if cell.machineIndex < 0 || cell.muted || cell.dormant { return }   // LADDER dormant
             applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
             if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: musicalOf(beatPos, stepBeats: S, a: a), S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp
             if box.hasParamLFO { applyParamLFO(&cell, box: box, r: r, beat: musicalOf(beatPos, stepBeats: S, a: a), S: S, column: effColumn) }   // PER-PARAM LFO (Docs/PLAN-param-lfo.md): swing scalar params around their base
@@ -1819,7 +1802,7 @@ final class Router {
         if pool.count > 0 || latchMask != 0 {
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {   // PER-PART CLOCK: one row, or all (no per-call allocation)
             var cell = box.cells[column * Snap.rows + r]
-            if cell.machineIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
+            if cell.machineIndex < 0 || cell.busMask == 0 || cell.muted || cell.dormant { continue }   // LADDER dormant
             if cell.passthrough && cell.resolvedReceiver >= 0 { continue }   // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected passthrough passes its input straight through in REALTIME (reconcileBypass), NOT on the grid's step clock. (A door-less passthrough — no receiver to source from in the per-door bypass pass — stays a gridded hold.)
             if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: mNow, S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp (a hold samples the value at the column-entry beat)
             applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
@@ -1839,7 +1822,7 @@ final class Router {
             // (drops each note by probability), and HARMONIZE (expands each note to voices).
             // Arp/ratchet/strum and a closed passgate do not chord-hold.
             if !onSceneAudible(machine.on, pass: pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
-            let altFlag = cell.alt != tapFlipped(column, r)          // §9 ON TAP flip — this cell's voice-identity face
+            let altFlag = cell.alt                                   // this cell's voice-identity face
             currentAlt = altFlag                                     // §2 stamp fresh voices' face identity
             // CELL MACHINE: a HOLD-TAIL chain holds the TAIL slot's transform of every upstream stage's composed
             // set; a plain cell holds its head-only treatment of the source.
@@ -2021,7 +2004,7 @@ final class Router {
                                 windowStart: windowStart, S: S, a: a)
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.machineIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }
+            if cell.machineIndex < 0 || cell.busMask == 0 || cell.muted || cell.dormant { continue }
             if soloSilenced(cell) { continue }
             let ci = Int(cell.machineIndex)
             let machine = box.machines[ci]
@@ -2348,9 +2331,6 @@ final class Router {
                  laneMask: UInt16 = 0,
                  velOverride: UInt32 = 0,
                  heldCell: Int = -1,
-                 tapAltMask: UInt64 = 0,
-                 tapMuteMask: UInt64 = 0,
-                 soloCellMask: UInt64 = 0,
                  soloEmitterMask: UInt8 = 0,
                  soloReceiverMask: UInt8 = 0,
                  inputOctave: UInt32 = 0,
@@ -2370,9 +2350,7 @@ final class Router {
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
-        self.tapAltMask = tapAltMask   // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell alt flips
-        self.tapMuteMask = tapMuteMask; self.soloEmitterMask = soloEmitterMask   // §9 item 1 ON TAP actions (4b)
-        self.soloCellMask = soloCellMask           // EDIT "play this cell only" — silence every cell outside the set
+        self.soloEmitterMask = soloEmitterMask     // emitter strip: additive foot SOLO set (bits A–D)
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
         self.inputSemitone = inputSemitone         // receiver strip: per-receiver ±semitone NOTE nudge
@@ -2875,8 +2853,8 @@ final class Router {
         let bEnd = beatPos + windowBeats
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r) { continue }
-            if !cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r)) { continue }   // PLAY: THIS CELL overrides mute/dormant/tap
+            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) { continue }
+            if cell.muted || cell.dormant { continue }
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
                 let p = cell.procs[si]
                 if p.modFree { continue }   // FREE / LFO cell (§16): emitted every window by emitFreeMod, regardless of the active column — skip here to avoid double-emit
@@ -2924,8 +2902,7 @@ final class Router {
             let cell = box.cells[idx]
             if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) { continue }
             let col = idx / Snap.rows, row = idx % Snap.rows
-            if cellSoloedOut(col, row) { continue }
-            if !cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row)) { continue }
+            if cell.muted || cell.dormant { continue }
             let rowS = box.rowStep[row], rowCyc = Double(box.rowLength[row]) * rowS   // CLOCK (Stage 3): this row's own clock, for the transform below
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modFree && cell.procs[si].modTarget == .cc {
                 let p = cell.procs[si]
@@ -3085,8 +3062,7 @@ final class Router {
             let ci = column * Snap.rows + r
             let cell = box.cells[ci]
             guard let rs = recorderSlot(cell) else { continue }
-            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
-               || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }
+            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cell.muted || cell.dormant { continue }
             let rp = cell.procs[rs]
             let w = recWindow(rp, passBeats: passBeats, stepBeats: S)
             let unit = Int((mStart / w.unitBeats).rounded(.down))
@@ -3208,8 +3184,7 @@ final class Router {
             // unchanged — column-exit is already handled by the glideLastColumn block above), then leave it to the tick.
             let dr = chainDriverIndex(cell)
             if dr >= 0, downstreamGlideIndex(cell, after: dr) != nil {
-                let inactive = cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
-                    || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r)))
+                let inactive = cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cell.muted || cell.dormant
                     || effectivePool(for: cell, live: pool).count == 0
                     || (cell.busMask != 0 && !glideBusAvailable(Int(cell.busMask.trailingZeroBitCount)))   // R2: a disabled/soloed-out emitter silences the driven glide
                 if inactive { glidePhraseEnd(cellIdx, atSample: windowStart, out: out) }
@@ -3217,8 +3192,7 @@ final class Router {
             }
             // SINGLE-SLOT GLIDE (the soloist): its mono voice is picked from the held pool below.
             guard cell.procs.count == 1, cell.procs[0].type == .glide, !cell.slotBypass[0] else { continue }
-            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
-               || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) {   // PLAY: THIS CELL overrides mute/dormant/tap
+            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cell.muted || cell.dormant {
                 glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue
             }
             let p = cell.procs[0]
@@ -3322,8 +3296,7 @@ final class Router {
         let cell = box.cells[cellIdx]
         let dr = chainDriverIndex(cell)
         guard dr >= 0, let gi = downstreamGlideIndex(cell, after: dr), !cell.slotBypass[gi] else { return }
-        if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
-           || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { return }   // inactive → emitColumnGlide already phrase-ended it
+        if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cell.muted || cell.dormant { return }   // inactive → emitColumnGlide already phrase-ended it
         let p = cell.procs[gi]
         let bus = Int(cell.busMask.trailingZeroBitCount)
         guard glideBusAvailable(bus) else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); return }   // R2: a disabled/soloed-out emitter silences the driven glide (self-correcting → no stuck note)
@@ -5119,7 +5092,7 @@ final class Router {
             let ci = Int(cell.machineIndex)
             let machine = box.machines[ci]
             let p = cell.proc   // the RESOLVED ratchet-pattern params (templateChain/processors head), NOT machine.a (which is the machine's own face — a passgate/other for a chain cell)
-            let audible = !(cell.busMask == 0 || cellSoloedOut(col, row) || (!cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row))) || soloSilenced(cell) || !onSceneAudible(machine.on, pass: diag.pass))
+            let audible = !(cell.busMask == 0 || cell.muted || cell.dormant || soloSilenced(cell) || !onSceneAudible(machine.on, pass: diag.pass))
             guard (col == effCol) && audible else { continue }
             currentMachineIndex = Int16(ci); currentCellIndex = idx; currentAlt = false
             let cellPool = effectivePool(for: cell, live: livePool)
