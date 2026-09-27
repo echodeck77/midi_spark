@@ -26,15 +26,10 @@ enum Snap {
     // use maxCols; a part whose rowLength > cols is non-uniform → the proven multi-clock per-row path plays its 16 columns.
     static let cols = 8, machines = 16, maxCols = 16
     static let ferries = 8, rowsPerFerry = 4
-    static func ferryRowBase(_ t: Int) -> Int { t * rowsPerFerry }   // ferry t's own dedicated row block — the PERMANENT addressing, unchanged from here through Stage 4
-    // TRANSITIONAL (Stage 2 of 4 — removed in Stage 3): until the composer is unified, the ferry open on the bench still
-    // renders through a SEPARATE shared block (today's stagingCells/stagingSel write path), not its own ferryRowBase
-    // block. Reserved PAST every ferry's block so it can never collide with one — colliding shared/per-voice rows is
-    // the exact bug class `playLayerRowBase` originally existed to avoid, and the naive relocation (ferryRowBase(0) = 0)
-    // reintroduced it by landing ferry 0's row on top of the still-live staging rows. Stage 3 deletes this constant + the
-    // extra rowsPerFerry rows once the active ferry also renders through its own ferryRowBase block.
-    static let stagingRowBase = ferries * rowsPerFerry   // 32
-    static let rows = stagingRowBase + rowsPerFerry      // 36 (temporary — 32 again from Stage 3 onward)
+    static func ferryRowBase(_ t: Int) -> Int { t * rowsPerFerry }   // ferry t's own dedicated row block — the PERMANENT addressing
+    static let rows = ferries * rowsPerFerry   // 32 — the transitional Stage-2 stagingRowBase reservation is gone: the
+    // active ferry now composes through its own ferryRowBase block like every other ferry (Stage 3), so nothing needs a
+    // block reserved PAST the ferries' own rows anymore.
     static var cells: Int { maxCols * rows }   // the per-cell array/feed size (index = col*rows + row, col 0…15)
     // delta §9 item 11: a source filter ≥17 matches no held note (NotePool.matches never sees chan ≥16),
     // so it is the render-free way to express a MUTED receiver — its subscribers read an empty pool.

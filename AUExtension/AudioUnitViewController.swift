@@ -258,32 +258,23 @@ struct DiagView: View {
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: Snap.maxCols)   // §E: 16-wide part grid
     // buildPlayFerryRow RETIRED (Paul 2026-09-12 dead-code sweep — the ▲▼ ferry-row cursor is gone; never read/written).
     @State var buildSelectMode: Bool = false   // SELECT MODE (Paul 2026-08-31): a toggle under the machine play button — while on, every cell (select + ferry) lights white and a TAP only FOCUSES it into the machine (no start/stop), for editing/viewing
-    // THE PLAY GRID — each column is a FULLY INDEPENDENT voice (Paul 2026-08-29): it starts/stops on its own and carries
-    // the I/O it was FERRIED WITH (no separate I/O toggles). buildPlayColOn = per-column play state; buildPlayColRecv /
-    // buildPlayColEmit = the door + emitters copied from the source at ferry time. (buildPlayPlaying is now a computed
-    // "any column on", in the BuildPage extension.)
+    // THE PLAY GRID — each column is a FULLY INDEPENDENT voice (Paul 2026-08-29): it starts/stops on its own.
+    // buildPlayColOn = per-column play state. (buildPlayPlaying is now a computed "any column on", in the BuildPage
+    // extension.) FERRY ROW UNIFICATION (Paul 2026-09-27): the old buildPlayColRecv/Emit/Len/Steps/Rate/StepRecv/
+    // StepEmit "flatten cache" is GONE — every ferry now composes straight from its own BuildPart (buildFerryParts,
+    // below) every publish, so there's no separate derived-playback representation left to keep in sync.
     @State var buildPlayColOn: [Bool] = Array(repeating: false, count: 8)
     @State var buildPlayColMute: [Bool] = Array(repeating: false, count: 8)   // per-ferry MUTE (Paul 2026-09-09) — the M button; ephemeral like buildPlayColOn
     @State var buildPlayColSolo: [Bool] = Array(repeating: false, count: 8)   // per-ferry SOLO — the S button; if any is set, only soloed ferries sound
     // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-FERRY launch anchor beat (8-wide; 0 = no anchor). Stamped on launch
-    // (buildToggleFerryPlay), cleared on stop; buildPublishScene maps each ON ferry to its engine row(s) — active → rows
-    // 0–7, background t → row 8+t — so the anchor FOLLOWS the ferry across activation. Runtime only (not persisted).
-    // `launchBeat` mirrors the un-anchored launch beat (for the Phase-2b one-shot expiry).
+    // (buildToggleFerryPlay), cleared on stop; buildPublishScene fans each ON BACKGROUND ferry's anchor across all of
+    // its own dedicated engine rows (Snap.ferryRowBase(t)..<+rowsPerFerry) — the active ferry is excluded (stays
+    // transport-locked). Runtime only (not persisted). `launchBeat` mirrors the un-anchored launch beat (Phase-2b one-shot).
     @State var launchAnchor: [Double] = Array(repeating: 0, count: 8)
     @State var launchBeat: [Double] = Array(repeating: 0, count: 8)
-    @State var buildPlayColRecv: [Int] = Array(repeating: 0, count: 8)
-    @State var buildPlayColEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
-    // MULTI-STEP PASS (Paul 2026-08-30, "flatten the part"): a play column can hold an N-step pass. len[c] = 1 ⇒ the single
-    // ferried cell (today); len[c] > 1 ⇒ steps[c] (the flattened part's per-column machines) swept + looped at rate[c].
-    @State var buildPlayColLen: [Int] = Array(repeating: 1, count: 8)
-    @State var buildPlayColSteps: [[String?]] = Array(repeating: [], count: 8)
-    @State var buildPlayColRate: [StepRate?] = Array(repeating: nil, count: 8)
-    @State var buildPlayColStepRecv: [[Int]] = Array(repeating: [], count: 8)      // per-step door (from the flattened part row)
-    @State var buildPlayColStepEmit: [[Set<Bus>]] = Array(repeating: [], count: 8) // per-step emitters (from the flattened part row)
-    // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts) — Phase 2: each of the 8
-    // ferries owns ONE full BuildPart (nil = empty). This is the SOURCE OF TRUTH; the buildPlayCol* arrays above are the
-    // derived PLAYBACK representation (flattened from a part when it plays). buildActiveFerry = the ferry whose part is
-    // loaded on the bench (nil = browsing the SELECT grid, no part active).
+    // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts): each of the 8 ferries
+    // owns ONE full BuildPart (nil = empty) — the SOLE source of truth for what a ferry plays, active or background
+    // alike (buildActiveFerry = the ferry whose part is loaded on the bench; nil = browsing the SELECT grid).
     @State var buildFerryParts: [BuildPart?] = Array(repeating: nil, count: 8)
     @State var buildActiveFerry: Int? = 0   // a selector is ALWAYS selected (Paul 2026-09-12): defaults to 0 so its pre-allocated colour is the "selected colour" from launch
     // ROW-CREATOR CONFIRM (Paul 2026-09-11): after MUTATE/RANDOM generates a row's machine, that row shows KEEP | TRY AGAIN

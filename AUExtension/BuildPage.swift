@@ -107,10 +107,12 @@ struct BuildSnapshot {
     var selID: String?; var selReceiver: Int
     var machineReg: [String: [ProcessorSlot]]; var machineTranspose: [String: Int]; var hueOverride: [String: UInt32]
     var idCounter: Int
-    // THE ROOMS PLAY GRID (2026-08-31): the play-column arrays — added so play-grid edits (▲▼ swaps, ferries)
+    // THE ROOMS PLAY GRID (2026-08-31): the play-column ON/OFF state — added so play-grid edits (▲▼ swaps, ferries)
     // are undoable. Was omitted → the play grid had NO undo coverage. (Persistence via BuildPlayGridData is orthogonal.)
-    var playColOn: [Bool]; var playColRecv: [Int]; var playColEmit: [Set<Bus>]
-    var playColLen: [Int]; var playColSteps: [[String?]]; var playColRate: [StepRate?]; var playColStepRecv: [[Int]]; var playColStepEmit: [[Set<Bus>]]
+    // FERRY ROW UNIFICATION (Paul 2026-09-27): the other 7 arrays were the flatten cache's undo shadow — every ferry
+    // now composes straight from `parts` (above), which already carries its own undo coverage, so only `playColOn`
+    // (real, independent state) is left here.
+    var playColOn: [Bool]
     var doc: PluginState
 }
 private let buildRollLife = 1.6   // seconds a note takes to cross the cell
@@ -1718,17 +1720,20 @@ extension DiagView {
                     .contentShape(Rectangle())
                     .onTapGesture { buildActivateFerry(t) }
                 // ── THE PLAY BUTTON (bottom ⅔): start/stop this part; long-press an EMPTY ferry (on SELECT) seeds one ──
-                // PLAYHEAD RATE (Paul 2026-09-26): the ACTIVE (bench-open) ferry plays via the live STAGING sequencer, so
-                // its true rate is the LIVE `buildPartRate` (updates the instant the RATE menu changes it — matches
-                // roomsPartPlayhead); a BACKGROUND ferry plays via its flattened play-layer line, so it reads the stored
-                // `buildPlayColRate[t]` (was: this button always read the scene-default `stepBeats`, so a per-ferry rate
-                // change was invisible here even though the part grid's own playhead updated at once).
-                let ferryRate: StepRate? = focused ? buildPartRate : (t < buildPlayColRate.count ? buildPlayColRate[t] : nil)
-                // PART LOOP SELECTION (Paul 2026-09-26): the ACTIVE ferry's effective step count is the live loop plan
-                // (BuildSceneLogic.loopColumnPlan over buildPartLoopCols — the same plan roomsPartPlayhead reads); a
-                // BACKGROUND ferry's is already loop-adjusted in buildPlayColLen[t] by buildFlattenFerry.
-                let ferrySteps = focused ? BuildSceneLogic.loopColumnPlan(buildPartLoopCols, length: buildPartCols).count
-                                         : (t < buildPlayColLen.count ? buildPlayColLen[t] : Snap.cols)
+                // PLAYHEAD RATE (Paul 2026-09-26; FERRY ROW UNIFICATION 2026-09-27): the ACTIVE (bench-open) ferry plays
+                // via the LIVE bench @State, so its true rate is `buildPartRate` (updates the instant the RATE menu
+                // changes it — matches roomsPartPlayhead); a BACKGROUND ferry now reads straight off its own stored
+                // BuildPart (no more flatten cache) — `buildPartRate`/`buildFerryParts[t]?.rate` are the SAME field,
+                // just live-bench vs at-rest.
+                let ferryRate: StepRate? = focused ? buildPartRate : buildFerryParts[t]?.rate
+                // PART LOOP SELECTION (Paul 2026-09-26): the effective step count is the SAME loopColumnPlan for every
+                // ferry — the live bench's own state for the active one, its stored part's for a background one.
+                let ferrySteps: Int = {
+                    if focused { return BuildSceneLogic.loopColumnPlan(buildPartLoopCols, length: buildPartCols).count }
+                    guard let p = buildFerryParts[t] else { return Snap.cols }
+                    let partLen = max(1, min(Snap.maxCols, p.length ?? Snap.cols))
+                    return BuildSceneLogic.loopColumnPlan(p.loopCols ?? [], length: partLen).count
+                }()
                 RoundedRectangle(cornerRadius: 4).fill(buildCell)            // DARK STAGE
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(mHue.opacity(set ? (on ? 0.24 : 0.10) : 0)))   // faint MACHINE wash (deeper while playing)
                     .overlay { if set { roomsCellPlayhead(active: on, dim: focused, rate: ferryRate, steps: ferrySteps).padding(2) } }   // PER-CELL PLAYHEAD — the SELECTED/open ferry sweeps too (so it reads as playing) but DIMMED, to set it apart from the other, un-opened ferries at full brightness (Paul 2026-09-13)
@@ -1789,32 +1794,11 @@ extension DiagView {
     }
     // buildPlayFerryStep (the ▲▼ cursor mover) + buildPlayFerryDuplicate (the faint-copy) are RETIRED (Paul 2026-09-08,
     // Phase 3) — a ferry is one PART now, not a column of per-row cells.
-    // ── THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts) — Phase 2 operations ──
-    // Flatten ferry `t`'s stored part into the per-column PLAYBACK arrays (the SAME representation the engine already
-    // plays, so up to 8 ferries sound at once). Mono line = the SELECTED RUNG per column (poly is future). If `t` is the
-    // ACTIVE (on-bench) ferry, its live edits are captured first so what plays matches what you're editing.
-    func buildFlattenFerry(_ t: Int) {
-        guard t >= 0, t < 8 else { return }
-        if buildActiveFerry == t, buildFerryParts[t] != nil { buildFerryParts[t] = buildCaptureBenchPart() }   // capture live edits only for a POPULATED active ferry — never populate an empty one (Paul 2026-09-12)
-        guard let p = buildFerryParts[t] else {
-            if t < buildPlayColSteps.count { buildPlayColSteps[t] = [] }
-            if t < buildPlayColLen.count { buildPlayColLen[t] = 1 }
-            if t < buildPlayColStepRecv.count { buildPlayColStepRecv[t] = [] }
-            if t < buildPlayColStepEmit.count { buildPlayColStepEmit[t] = [] }
-            return
-        }
-        let len = max(1, min(Snap.maxCols, p.length ?? Snap.cols))
-        // PART LOOP SELECTION (Paul 2026-09-26): the SAME plan the staging sequencer uses (BuildSceneLogic.loopColumnPlan)
-        // — a background ferry with a loop selection flattens ONLY those columns, in their chosen order, into the
-        // sequential play line (physicalColumn(i) = identity when no loop is set → byte-identical to today).
-        let plan = BuildSceneLogic.loopColumnPlan(p.loopCols ?? [], length: len)
-        let rungAt: (Int) -> Int = { c in BuildSceneLogic.selectedRung(p.stagingSel, c) }
-        buildPlayColSteps[t]     = (0..<plan.count).map { i in let c = plan.physicalColumn(i); let r = rungAt(c); return (r >= 0 && c < p.stagingCells.count && r < p.stagingCells[c].count) ? p.stagingCells[c][r] : nil }
-        buildPlayColLen[t]       = plan.count
-        buildPlayColRate[t]      = p.rate
-        buildPlayColStepRecv[t]  = (0..<plan.count).map { i in let c = plan.physicalColumn(i); let r = rungAt(c); return r >= 0 ? (p.rowReceiver.flatMap { r < $0.count ? $0[r] : nil } ?? p.receiver) : p.receiver }
-        buildPlayColStepEmit[t]  = (0..<plan.count).map { i in let c = plan.physicalColumn(i); let r = rungAt(c); return r >= 0 ? (p.rowEmitters.flatMap { r < $0.count ? $0[r] : nil } ?? p.emitters) : p.emitters }
-    }
+    // ── THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts) ──
+    // FERRY ROW UNIFICATION (Paul 2026-09-27, Stage 3): `buildFlattenFerry`/`buildClearFerryPlayback` are GONE — every
+    // ferry now composes straight from its own BuildPart into its own dedicated engine rows every publish (see
+    // buildPublishScene), active or background alike, so there's no separate "playback line" to flatten/clear at
+    // activate/deactivate/play-toggle boundaries anymore.
     // SELECTOR tap: bring ferry `t`'s part onto the bench (empty ferry → the SELECT grid). The ferry is a LIVE VIEW of its
     // part, so the outgoing ferry's bench edits are written back first.
     // PER-FERRY MUTE / SOLO (Paul 2026-09-09) — the M/S buttons below each play cell. Gate the AUDIO only (buildPlayColOn,
@@ -1835,12 +1819,10 @@ extension DiagView {
             if buildFerryParts[t] != nil { buildFerryParts[t] = buildCaptureBenchPart() }
         } else if let a = buildActiveFerry, a >= 0, a < 8 {                    // the OUTGOING active ferry
             if buildFerryParts[a] != nil { buildFerryParts[a] = buildCaptureBenchPart() }   // write back ONLY a POPULATED ferry's bench edits — an EMPTY selector must NOT be captured into a part (Paul 2026-09-12: navigating away from an empty selector was populating it)
-            if a < buildPlayColOn.count, buildPlayColOn[a] { buildFlattenFerry(a) } else { buildClearFerryPlayback(a) }   // if it's still ON it keeps sounding in the BACKGROUND (the play layer); its STAGING voice ends because it stops being the active ferry (derived — Option A)
         }
         if let p = buildFerryParts[t] {
             buildLoadBenchPart(p); buildActiveFerry = t; roomsRoom = .part
             if buildVoiceOwner == .chain { buildVoiceOwner = .none }          // leaving the chain audition; the part plays iff its ferry is ON (Option A — never auto-play on open)
-            if t < buildPlayColOn.count, buildPlayColOn[t] { buildClearFerryPlayback(t) }   // active + ON → the STAGING sequencer (derived from buildPlayColOn[t]); never ALSO on the play layer
             roomsPartSetup()                                                  // same per-grid setup the retired toggle ran (rolls + focus default)
         } else {
             buildActiveFerry = t; roomsRoom = .select; buildVoiceOwner = .none   // an empty ferry opens the browser but STAYS SELECTED — its pre-allocated colour becomes the selected colour (Paul 2026-09-12: always one selected, never back to grey)
@@ -1848,9 +1830,8 @@ extension DiagView {
         }
         buildPublishScene()
     }
-    // PLAY-button tap: start/stop ferry `t`. The ACTIVE (on-bench) ferry plays via the STAGING step-sequencer — the part
-    // grid sweeps, each column's SELECTED rung fires, edits respond live. A BACKGROUND ferry plays via the play-layer
-    // flatten (its mono line). Several may be on at once: one staging (the active) + up to seven play-layer.
+    // PLAY-button tap: start/stop ferry `t`. Every ferry composes from its own BuildPart every publish, active or
+    // background — several may be on at once, each into its own dedicated rows.
     func buildToggleFerryPlay(_ t: Int) {
         guard t >= 0, t < 8, buildFerryParts[t] != nil else { return }
         buildSetFerryPlay(t, on: !(t < buildPlayColOn.count && buildPlayColOn[t]))
@@ -1863,11 +1844,6 @@ extension DiagView {
         if willOn && choke { buildChokeGroup(t) }   // PLAY-FERRY LAUNCH (Phase 3): launching one ferry stops the others in its choke group (a bulk START-ALL passes choke:false so members don't choke each other)
         if t < buildPlayColOn.count { buildPlayColOn[t] = willOn }
         buildStampFerryLaunch(t, on: willOn)                                  // PLAY-FERRY LAUNCH: anchor (from-top/quantized) on start, clear on stop
-        if t == buildActiveFerry {
-            buildClearFerryPlayback(t)                                        // active → the STAGING sequencer (derived from buildPlayColOn[t]); never ALSO on the play layer (no double-audition)
-        } else {
-            if willOn { buildFlattenFerry(t) } else { buildClearFerryPlayback(t) }   // background → the play layer
-        }
         if willOn { buildHostHalted = false }
         buildPublishScene()
     }
@@ -1905,15 +1881,6 @@ extension DiagView {
         } else {
             launchAnchor[t] = 0; launchBeat[t] = 0
         }
-    }
-    // Clear ferry `t`'s play-layer playback line — when it stops, OR when it becomes the ACTIVE ferry (then it plays via
-    // the staging sequencer, so its play-layer row must be empty). Resets the pass to the inert single-cell default.
-    func buildClearFerryPlayback(_ t: Int) {
-        guard t >= 0, t < 8 else { return }
-        if t < buildPlayColSteps.count { buildPlayColSteps[t] = [] }
-        if t < buildPlayColLen.count { buildPlayColLen[t] = 1 }
-        if t < buildPlayColStepRecv.count { buildPlayColStepRecv[t] = [] }
-        if t < buildPlayColStepEmit.count { buildPlayColStepEmit[t] = [] }
     }
     // ── FERRY DRAG-AND-DROP (Paul 2026-09-12) — supersedes the long-press seed/copy. ──────────────────────────────────
     // The drag gesture: a SELECT cell or a populated ferry, tracked in the shared "rooms" space. Mirrors the chain-reorder
@@ -2026,7 +1993,6 @@ extension DiagView {
         if t < launchAnchor.count     { launchAnchor[t] = 0 }
         if t < launchBeat.count       { launchBeat[t] = 0 }
         buildFerryHueAlloc[t] = nil                                                   // a freshly-emptied slot returns to its positional base colour
-        buildClearFerryPlayback(t)                                                    // steps/len/recv/emit/playCells
     }
     // Activate ferry `t` with a FRESH load — clear any stale active-ferry pointer first so buildActivateFerry doesn't write
     // the OLD bench back over the new/moved part (the source slot is already emptied by the caller). (Paul 2026-09-12)
@@ -2053,7 +2019,7 @@ extension DiagView {
     }
     // roomsAssignPlayColumn / roomsFlattenPartToPlay / roomsStampSourceIO (the old SELECT-top-button + part-flatten play-column
     // ferry, long-press-driven) are RETIRED (Paul 2026-09-12) — the ferry-is-a-part model + drag-and-drop (buildPopulateFerry /
-    // buildMoveFerry / buildFlattenFerry) replaced them; they had no call site left.
+    // buildMoveFerry) replaced them; they had no call site left.
     // ── THE SELECT GRID UNIT — the library grid + its edge selectors + the ▲PLAY sliver, in ONE box. The part↔select
     // SEAM has moved OUT to the far side of the page (roomsSeamColumn); the grid reflows to use the full width. (Paul 2026-08-28)
     // §MERGE (Paul 2026-09-08): the SELECT browser is now FOUR rows (was 8) — the left rail's 4 categories (ARP·RIFF·
@@ -2139,8 +2105,8 @@ extension DiagView {
     }
     // THE PART GRID'S LOOP FOOTER (Paul 2026-09-26) — same shell/sizing as roomsGridFooter (so the button never changes
     // size), but each cell is a REAL toggle: a "repeat" glyph that restricts playback to the SELECTED columns, in the
-    // order they were tapped (BuildSceneLogic.loopColumnPlan is the single source of truth both the audio — composeScene/
-    // buildFlattenFerry — and the two playheads below read, so the lit button and what plays can't disagree).
+    // order they were tapped (BuildSceneLogic.loopColumnPlan is the single source of truth both the audio — composeScene,
+    // per ferry — and the two playheads below read, so the lit button and what plays can't disagree).
     @ViewBuilder private func roomsPartLoopFooter(cols: Int, railW: CGFloat, gap: CGFloat, h: CGFloat) -> some View {
         HStack(spacing: gap) {
             Color.clear.frame(width: railW, height: h)
@@ -2667,17 +2633,9 @@ extension DiagView {
             buildHostHalted = false                  // re-enable free-run after a host halt
         }
     }
-    // Column c has a populated selected rung (something to sound) — dead per-cell storage removed (see
-    // buildSelectedPlayCol); the real signal today is buildPlayColHasContent's own playColLen check.
-    func buildPlayColPopulated(_ c: Int) -> Bool { false }
-    // Column c has SOMETHING to sound — a populated selected rung OR a MULTI-STEP pass (Rooms2 fix, Paul 2026-08-30).
-    // A pass plays independent of the rung (composeScene reads playColSteps, not playSel), so a deselected-rung pass
-    // must still be startable/stoppable + count toward the grid transport — else it strands playing/unstartable.
-    func buildPlayColHasContent(_ c: Int) -> Bool {
-        buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1)
-    }
-    // The play grid has at least one column with content (a rung OR a pass).
-    var buildPlayPopulated: Bool { (0..<8).contains { buildPlayColHasContent($0) } }
+    // buildPlayColPopulated / buildPlayColHasContent / buildPlayPopulated RETIRED (Paul 2026-09-27, ferry row
+    // unification dead-code sweep) — zero remaining callers; a ferry's own `buildFerryParts[c] != nil` is the whole
+    // "does it have something to sound" question now (see buildTogglePlayGrid above, which already asks exactly that).
 
     // (The GRID-WIDE play-grid playhead was removed 2026-08-29. The PER-CELL playhead below replaces it.)
     // PER-CELL PLAYHEAD (Paul 2026-08-29) — a thin line sweeping LEFT→RIGHT over one bar, BEAT-LOCKED, on each ACTIVE play
@@ -2750,7 +2708,7 @@ extension DiagView {
     // play-ferry icon + the focused machine's play button via flashingIcon, and the grid body no longer flashes at all.)
 
     // (The play-grid I/O toggles were REMOVED 2026-08-29 — Paul: the play grid has NO I/O toggles. Each ferried cell
-    // DERIVES its door + emitters from the source it was copied from, stored per-column in buildPlayColRecv/Emit.)
+    // DERIVES its door + emitters from the source it was copied from — its own BuildPart's receiver/emitters.)
 
 
     @ViewBuilder private func buildChainBtn(_ label: String, enabled: Bool = true, fill: Bool = false, h: CGFloat? = nil, action: @escaping () -> Void) -> some View {
@@ -2782,9 +2740,7 @@ extension DiagView {
         // default). So read exactly that: the selected row's RESOLVED door, else buildSelReceiver — never a `?? false`
         // (which used to blank the chip when no row was selected) and never a mismatched buildGridSelOpen branch (which
         // read buildSelReceiver while the write went to the row → the toggle looked dead/incorrect).
-        // A selected PLAY cell (buildSelectedPlayCol) reads its OWN receiver, between the staging row and the part default (Paul 2026-08-30).
         let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i }
-            ?? buildSelectedPlayCol.map { ($0 < buildPlayColRecv.count ? buildPlayColRecv[$0] : buildSelReceiver) == i }
             ?? (buildSelReceiver == i)
         // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
         // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
@@ -2801,7 +2757,6 @@ extension DiagView {
                 // RESOLVED emitters, else the part default (buildPartEmitters, [.a] when empty). Was a mismatched
                 // buildGridSelOpen branch + a `?? false` that blanked the chips when no row was selected.
                 let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) }
-                    ?? buildSelectedPlayCol.map { ($0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a]).contains(b) }
                     ?? ((buildDefaultEmitters).contains(b))
                 buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildIONullPending ? false : on, accent: emitterHue(b), pulse: buildIONullPending, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE machine (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
             }
@@ -2897,9 +2852,7 @@ extension DiagView {
     }
     // The LIVE held chord at the chain's input door — the notes ACTUALLY coming through (empty ⇒ no comets). (Paul 2026-08-31)
     private var buildChainLiveChord: [Int] {
-        let door: Int
-        if let pc = buildSelectedPlayCol, pc >= 0, pc < buildPlayColRecv.count { door = buildPlayColRecv[pc] }   // a selected FERRY reads ITS door
-        else { door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver }
+        let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         guard door >= 0, door < recvHeldNotes.count else { return [] }
         return recvHeldNotes[door].map(Int.init).sorted()
     }
@@ -3075,14 +3028,6 @@ extension DiagView {
         buildIONullPending = false                               // Paul 2026-09-05: picking the door dismisses the fresh-cell null/pulse invitation
         buildClearPendingOnEdit()                                // a RECEIVER change ends the fresh-row flash (Paul 2026-08-25)
         if let r = buildSelectedRow, r < buildRowReceiver.count { buildRowReceiver[r] = i }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
-        else if let pc = buildSelectedPlayCol, pc < buildPlayColRecv.count {   // a selected PLAY cell edits its OWN door (Paul 2026-08-30)
-            buildPlayColRecv[pc] = i
-            // FLATTENED-PASS FIX (Paul 2026-09-10): mirror the emitter fix — a multi-step pass plays from the PER-STEP door,
-            // so update every step + persist onto the ferry part, else the door change is silent for a flattened ferry.
-            if pc < buildPlayColStepRecv.count, !buildPlayColStepRecv[pc].isEmpty { buildPlayColStepRecv[pc] = buildPlayColStepRecv[pc].map { _ in max(0, min(3, i)) } }
-            if pc < buildFerryParts.count, buildFerryParts[pc] != nil { buildEditFerry(pc, publish: false) { $0.receiver = i; $0.rowReceiver = nil } }
-            buildPublishScene()
-        }
         else { buildSelReceiver = i }                            // nothing on a row → set the part DEFAULT
         ddStickyReceiver = i                                     // a new row inherits the LAST-USED
         receivers = au?.uiReceivers() ?? receivers               // mirror so the source toggle/keyboard reflect the newly-selected door at once
@@ -3100,22 +3045,10 @@ extension DiagView {
         let wasNull = buildIONullPending; buildIONullPending = false   // Paul 2026-09-05: the first emitter pick WIRES the fresh cell — build from EMPTY, not the [.a] default
         buildClearPendingOnEdit()                                // an EMITTER change ends the fresh-row flash (Paul 2026-08-25)
         let selR = buildSelectedRow
-        let selPC = selR == nil ? buildSelectedPlayCol : nil       // a selected PLAY cell edits its OWN emitters (Paul 2026-08-30)
-        var buses = wasNull ? [] : (selR.map { buildRowEmittersResolved($0) }
-            ?? selPC.map { $0 < buildPlayColEmit.count ? buildPlayColEmit[$0] : [.a] }
-            ?? (buildDefaultEmitters))
+        var buses = wasNull ? [] : (selR.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters))
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
         if buses.isEmpty { buses = [bus] }                        // never leave a row with no output
         if let r = selR, r < buildRowEmitters.count { buildRowEmitters[r] = buses }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
-        else if let pc = selPC, pc < buildPlayColEmit.count {     // the selected play column
-            buildPlayColEmit[pc] = buses
-            // FLATTENED-PASS FIX (Paul 2026-09-10): a play ferry / multi-step pass (len>1) plays from the PER-STEP emitters,
-            // NOT buildPlayColEmit — composeScene ignores the latter there — so re-pointing a play ferry's emitter was SILENT
-            // (both same-source ferries stayed on the ORIGINAL emitter → identical output collided into one voice). Re-point
-            // EVERY step of this column, and persist onto the ferry part (nil per-row overrides) so a re-flatten keeps it.
-            if pc < buildPlayColStepEmit.count, !buildPlayColStepEmit[pc].isEmpty { buildPlayColStepEmit[pc] = buildPlayColStepEmit[pc].map { _ in buses } }
-            if pc < buildFerryParts.count, buildFerryParts[pc] != nil { buildEditFerry(pc, publish: false) { $0.emitters = buses; $0.rowEmitters = nil } }
-        }
         else { buildPartEmitters = buses }                        // nothing on a row → the part DEFAULT
         ddStickyBuses = buses                                     // a new row inherits the LAST-USED
         buildPublishScene()                                       // apply the row's output LIVE to whatever's sounding
@@ -3123,7 +3056,6 @@ extension DiagView {
     // LONG-PRESS → apply the door to EVERY row (Paul 2026-08-19).
     private func buildSelectDoorAll(_ i: Int) {
         buildKeepRowGen()   // a toggle acts as KEEP
-        if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildSelectDoor(i); return }   // a play cell has no "all rows" — edit just its door (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the door to every row (U7 fix 2026-08-27 — the single-row sibling records; this didn't)
         buildIONullPending = false                               // Paul 2026-09-05: dismiss the fresh-cell invitation
         buildClearPendingOnEdit()                                // a RECEIVER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
@@ -3135,7 +3067,6 @@ extension DiagView {
     // LONG-PRESS → toggle the emitter on EVERY row (all rows take the reference row's toggled set). (Paul 2026-08-19)
     private func buildToggleBusAll(_ bus: Bus) {
         buildKeepRowGen()   // a toggle acts as KEEP
-        if buildSelectedRow == nil, buildSelectedPlayCol != nil { buildToggleBus(bus); return }   // a play cell has no "all rows" — edit just its emitters (Paul 2026-08-30)
         buildRecordUndo()   // BUILD UNDO: blanket-apply the emitter to every row (U7 fix 2026-08-27)
         let wasNull = buildIONullPending; buildIONullPending = false   // Paul 2026-09-05: dismiss the fresh-cell invitation, build from EMPTY
         buildClearPendingOnEdit()                                // an EMITTER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
@@ -3285,9 +3216,7 @@ extension DiagView {
                       scenes: buildScenes, activeScene: buildActiveScene, row8Cells: buildRow8Cells, row8On: buildRow8On,
                       selID: buildSelID, selReceiver: buildSelReceiver, machineReg: buildMachineReg,
                       machineTranspose: buildMachineTranspose, hueOverride: machineHueOverride, idCounter: buildIDCounter,
-                      playColOn: buildPlayColOn, playColRecv: buildPlayColRecv,
-                      playColEmit: buildPlayColEmit, playColLen: buildPlayColLen, playColSteps: buildPlayColSteps,
-                      playColRate: buildPlayColRate, playColStepRecv: buildPlayColStepRecv, playColStepEmit: buildPlayColStepEmit,
+                      playColOn: buildPlayColOn,
                       doc: au?.documentSnapshot() ?? PluginState.makeInit())
     }
     /// Record the pre-action state. Call at the START of any authoring action. `coalesce` collapses a continuous gesture
@@ -3312,9 +3241,7 @@ extension DiagView {
         buildSelID = s.selID; buildSelReceiver = s.selReceiver
         buildMachineReg = s.machineReg; buildMachineTranspose = s.machineTranspose; machineHueOverride = s.hueOverride
         buildIDCounter = s.idCounter
-        buildPlayColOn = s.playColOn; buildPlayColRecv = s.playColRecv
-        buildPlayColEmit = s.playColEmit; buildPlayColLen = s.playColLen; buildPlayColSteps = s.playColSteps
-        buildPlayColRate = s.playColRate; buildPlayColStepRecv = s.playColStepRecv; buildPlayColStepEmit = s.playColStepEmit
+        buildPlayColOn = s.playColOn
         au?.restoreDocumentFromUndo(s.doc)          // the document (document-machine chains / receivers / rack) restored WITHOUT recording
         buildSyncMachines()                          // push the ephemeral registry to the render
         buildPublishScene()                         // re-publish the composed scene
@@ -3337,27 +3264,12 @@ extension DiagView {
     var buildCanRedo: Bool { !buildRedoStack.isEmpty }
 
     func buildPublishScene() {
-        // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the ACTIVE ferry plays via the STAGING sequencer, which composes
-        // the LIVE bench each publish — so a selection/content edit is heard + swept at once, no flatten needed here. A
-        // BACKGROUND ferry's play-layer line is (re)flattened only when it goes on / when it stops being the active one.
-        // (the loop keys now DRIVE the lap — same `laneMask` as the GRID tab; a held column-set laps the workshop. Paul 2026-08-19)
+        // FERRY ROW UNIFICATION (Paul 2026-09-27, Stage 3): every one of the 8 play ferries — the one open on the bench
+        // or playing quietly in the background, no distinction — composes from its OWN BuildPart into its OWN dedicated
+        // engine rows (Snap.ferryRowBase), every publish. The active ferry's entry is captured fresh from the live bench
+        // @State (buildCaptureBenchPart, exactly as before); every other entry is its stored part. No flatten/cache step.
         var input = BuildSceneLogic.Input()
-        // MUTE/SOLO (Paul 2026-09-09): gate the AUDIO by buildFerryAudible — the active ferry's staging voice is silenced
-        // if the active ferry is muted / solo-excluded; the background play layer is gated below (input.playColOn).
-        input.stagingPlaying = buildStagingPlaying && (buildActiveFerry.map { buildFerryAudible($0) } ?? true)
         input.chainActive = ddSolo
-        input.stagingCells = buildStagingCells
-        input.stagingSel = buildStagingSel
-        input.partEmitters = buildPartEmitters
-        input.selReceiver = buildSelReceiver
-        input.rowReceiver = (0..<Snap.rowsPerFerry).map { buildRowReceiverResolved($0) }     // per-row I/O, resolved (nil → part default)
-        input.rowEmitters = (0..<Snap.rowsPerFerry).map { buildRowEmittersResolved($0) }
-        // RESOLVE the effective chain per STAGING row (same rule as PERFORM/CHAIN): the row's VARIATION if present, else
-        // the row machine's OWN machine ([] for a no-machine machine → passthrough wire). (Paul 2026-08-23)
-        input.rowChain = (0..<Snap.rowsPerFerry).map { r -> [ProcessorSlot] in
-            let v = r < buildRowChain.count ? buildRowChain[r] : []
-            return v.isEmpty ? buildMachineChain(buildRowMachine(r) ?? "") : v
-        }
         if ddSolo, let cid = ddSelectedMachineID {
             input.chainMachineID = cid
             input.chainMachine = buildMachineChain(cid)
@@ -3365,53 +3277,37 @@ extension DiagView {
         let selR = buildSelectedRow                                          // the chain audition takes the SELECTED machine's row I/O
         input.chainReceiver = selR.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         input.chainEmitters = selR.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters)
-        // PER-PART CLOCK (Paul 2026-08-19): the STAGING audition takes the CURRENT part's rate/length. nil ⇒ the scene
-        // default (uniform = today).
-        input.stagingRate = buildPartRate
-        input.stagingLen  = buildPartLen
-        input.stagingLoopCols = buildPartLoopCols   // PART LOOP SELECTION (Paul 2026-09-26)
-        input.stagingLane = buildStagingLane                     // PER-ROW LAP: the staging grid's own loop
-        // THE PLAY GRID (Paul 2026-08-29): each column an INDEPENDENT voice — only STARTED columns (buildPlayColOn) sound,
-        // each carrying its ferried machine AND the I/O it was ferried with (buildPlayColRecv/Emit). No shared I/O toggles.
-        let playColEffectiveOn = (0..<buildPlayColOn.count).map { buildPlayColOn[$0] && buildFerryAudible($0) }   // MUTE/SOLO gate (background ferries)
-        input.playPlaying = playColEffectiveOn.contains(true) || input.stagingPlaying
-        input.playColOn = playColEffectiveOn   // MUTE/SOLO: the ENGINE plays the effective set; the UI glyph still reads buildPlayColOn
-        input.playColRecv = buildPlayColRecv
-        input.playColEmit = buildPlayColEmit
-        // LIVE RE-FLATTEN, every publish (Paul 2026-09-26): a background ferry's play-layer line used to be a CACHE, only
-        // refreshed at specific event boundaries (buildFlattenFerry called on activate/deactivate/play-toggle) — so an
-        // edit to its stored BuildPart between those events (e.g. its RATE, changed while it happened to be active a
-        // moment before) left the cache stale until the next transition (the play-ferry-playhead bug). The ACTIVE ferry
-        // was always PURE in this sense — the staging sequencer recomposes it from the live bench on every publish. Every
-        // OTHER on-air ferry now gets the same treatment: re-derive its flattened line from buildFerryParts[t] (its one
-        // source of truth) right here, so "every ferry is a live part grid, only the selected one is visible on the
-        // bench" holds structurally, not just as a mental model. Cheap (≤7 ferries × ≤16 columns, UI-thread only).
-        for t in 0..<8 where t != buildActiveFerry && t < buildPlayColOn.count && buildPlayColOn[t] { buildFlattenFerry(t) }
-        // MULTI-STEP PASS (Paul 2026-08-30): a flattened part rides a play column as N steps — resolve each step's chain here.
-        input.playColLen = buildPlayColLen
-        input.playColSteps = buildPlayColSteps
-        input.playColRate = buildPlayColRate
-        // PLAY-FERRY LAUNCH (Paul 2026-09-09): map each ON background ferry's per-ferry anchor to its own dedicated row —
-        // the anchor phases that row so it plays FROM COLUMN 0 at the launch beat.
-        // The ACTIVE ferry is EXCLUDED (Paul 2026-09-13): it plays via the STAGING sequencer, whose VISIBLE sweep
+
+        input.activeFerry = buildActiveFerry ?? -1
+        input.ferryOn = (0..<Snap.ferries).map { $0 < buildPlayColOn.count ? buildPlayColOn[$0] : false }
+        input.ferryAudible = (0..<Snap.ferries).map { buildFerryAudible($0) }   // MUTE/SOLO gate — uniform for active + background
+        input.ferryParts = (0..<Snap.ferries).map { t in
+            t == buildActiveFerry ? buildCaptureBenchPart() : (t < buildFerryParts.count ? buildFerryParts[t] : nil)
+        }
+        // RESOLVE the effective chain per ferry-ROW (same rule as before): the row's VARIATION if present, else the row's
+        // OWN machine's chain ([] for a no-machine machine → passthrough wire). Needs buildMachineChain (AU-backed), so
+        // it's resolved here rather than in the Foundation-only BuildSceneLogic. (Paul 2026-08-23; generalized 2026-09-27)
+        input.ferryRowChain = input.ferryParts.map { part -> [[ProcessorSlot]] in
+            guard let part else { return [] }
+            return (0..<Snap.rowsPerFerry).map { r -> [ProcessorSlot] in
+                let v = r < part.rowChain.count ? part.rowChain[r] : []
+                return v.isEmpty ? buildMachineChain(BuildSceneLogic.rowMachine(part, r) ?? "") : v
+            }
+        }
+        input.stagingLane = buildStagingLane                     // PER-ROW LAP: the ACTIVE ferry's own manual "hold columns" loop
+        // PLAY-FERRY LAUNCH (Paul 2026-09-09): fan a background ferry's launch anchor across ALL of its own dedicated
+        // rows (not just its first) so a non-SYNC start phases every row of a now-multi-row-capable ferry together.
+        // The ACTIVE ferry is EXCLUDED (Paul 2026-09-13): it plays via the bench composition, whose VISIBLE sweep
         // (roomsPartPlayhead / roomsCardRowPlayhead) + buildProcessing are all TRANSPORT-LOCKED (raw beat, no anchor).
         // Anchoring only the AUDIO there phase-shifts the sound off the visible sweep + the column selection — the bug where
         // a non-SYNC start made the wrong row play per column. "Start from column 0" is a background-ferry-only nicety; the
         // on-bench ferry must stay transport-locked so what you SEE sweeping is what you HEAR.
         var launchRows = [Double](repeating: 0, count: Snap.rows)
         for t in 0..<8 where t != buildActiveFerry && t < buildPlayColOn.count && buildPlayColOn[t] && t < launchAnchor.count && launchAnchor[t] != 0 {
-            launchRows[Snap.ferryRowBase(t)] = launchAnchor[t]
+            for r in 0..<Snap.rowsPerFerry { launchRows[Snap.ferryRowBase(t) + r] = launchAnchor[t] }
         }
         input.rowLaunchAnchor = launchRows
-        input.playColStepRecv = buildPlayColStepRecv
-        input.playColStepEmit = buildPlayColStepEmit
-        input.playColStepChain = (0..<8).map { c -> [[ProcessorSlot]] in
-            let len = c < buildPlayColLen.count ? buildPlayColLen[c] : 1
-            guard len > 1, c < buildPlayColSteps.count else { return [] }
-            return buildPlayColSteps[c].map { cid in cid.map { buildMachineChain($0) } ?? [] }
-        }
         input.partAuto = buildAutoLanes                                       // PART AUTOMATION (Paul 2026-09-02): bake the active AUTO lanes per cell
-        input.partWidth = buildPartCols                                       // SPAN-ONLY (Paul 2026-09-04): the part's active width = the default span + tile reference
         au?.setBuildAuto(buildAutoLanes.isEmpty ? nil : buildAutoLanes)        // PHASE 2: push the LIVE lanes so the box carries render-time (×N/SMOOTH) descriptors
         let composed = BuildSceneLogic.composeSceneMeta(input)
         au?.setBuildStagingScene(composed.scene)
@@ -3835,10 +3731,9 @@ extension DiagView {
         var parts = buildFerryParts                                          // THE PLAY FERRIES ARE PARTS — the source of truth
         if let a = buildActiveFerry, a >= 0, a < 8, buildFerryParts[a] != nil { parts[a] = buildCaptureBenchPart() }   // fold in a POPULATED active ferry's live bench edits — never persist an empty selector as a part (Paul 2026-09-12)
         let anyPart = parts.contains { $0 != nil }
-        let hasContent = anyPart || !buildGridSelName.isEmpty || (0..<8).contains { c in buildPlayColPopulated(c) || (c < buildPlayColLen.count && buildPlayColLen[c] > 1) }   // committed SELECT cells are content too (Paul 2026-09-12)
+        let hasContent = anyPart || !buildGridSelName.isEmpty   // committed SELECT cells are content too (Paul 2026-09-12)
         guard hasContent else { return nil }
         var ids = Set<String>()
-        for col in buildPlayColSteps { for step in col { if let id = step { ids.insert(id) } } }
         for p in parts.compactMap({ $0 }) {                                  // every machine a ferry part references
             ids.formUnion(p.stagingCells.flatMap { $0.compactMap { $0 } }); ids.formUnion(p.cast)
             ids.formUnion(p.rowUnder.compactMap { $0 }); if let s = p.selID { ids.insert(s) }
@@ -3846,9 +3741,10 @@ extension DiagView {
         let ephemeral = ids.filter { buildMachineReg[$0] != nil }.sorted()
         let machines = ephemeral.map { id -> Machine in var c = Machine(machineID: id, type: .arp); c.defined = true; c.templateChain = buildMachineReg[id]; c.transpose = buildMachineTranspose[id] ?? 0; return c }
         var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = machineHueOverride[id] { hues[id] = h } }
-        var data = BuildPlayGridData(colOn: buildPlayColOn, colRecv: buildPlayColRecv,
-                                     colEmit: buildPlayColEmit, colLen: buildPlayColLen, colSteps: buildPlayColSteps, colRate: buildPlayColRate,
-                                     colStepRecv: buildPlayColStepRecv, colStepEmit: buildPlayColStepEmit, machines: machines, hues: hues, idCounter: buildIDCounter)
+        // FERRY ROW UNIFICATION (Paul 2026-09-27): colRecv/colEmit/colLen/colSteps/colRate/colStepRecv/colStepEmit were
+        // the flatten cache's on-disk shadow — every ferry now composes straight from `parts` (below), so only `colOn`
+        // (the ON/OFF state) is real content; the rest keep their struct defaults (BuildPlayGridData stays decode-safe).
+        var data = BuildPlayGridData(colOn: buildPlayColOn, machines: machines, hues: hues, idCounter: buildIDCounter)
         data.parts = parts
         if !buildGridSelOverride.isEmpty {   // COMMITTED SELECT cells — persist the pinned chain + colour (Paul 2026-09-12)
             data.gridSelChains = buildGridSelOverride.mapValues { $0.chain }
@@ -3864,14 +3760,10 @@ extension DiagView {
         buildIDCounter = max(buildIDCounter, d.idCounter)
         buildSyncMachines()
         buildFerryParts = d.partsResolved                                    // THE PLAY FERRIES ARE PARTS — restore/migrate the 8 slots (source of truth)
-        // Restore the legacy arrays only when the shapes are exactly right; a malformed doc keeps the defaults (defensive).
-        // (These are now derived playback state; the parts re-flatten below regardless, so `colOn` is what really matters.)
-        if d.colOn.count == 8, d.colRecv.count == 8,
-           d.colEmit.count == 8, d.colLen.count == 8, d.colSteps.count == 8, d.colRate.count == 8, d.colStepRecv.count == 8, d.colStepEmit.count == 8 {
-            buildPlayColOn = d.colOn; buildPlayColRecv = d.colRecv; buildPlayColEmit = d.colEmit
-            buildPlayColLen = d.colLen; buildPlayColSteps = d.colSteps; buildPlayColRate = d.colRate; buildPlayColStepRecv = d.colStepRecv; buildPlayColStepEmit = d.colStepEmit
-        }
-        for t in 0..<8 { buildFlattenFerry(t) }                              // regenerate each ferry's playback line from its part (canonical)
+        // FERRY ROW UNIFICATION (Paul 2026-09-27): `colOn` is the only legacy array still real (the ON/OFF state) —
+        // every ferry composes straight from `buildFerryParts` every publish now, so there's nothing left to
+        // regenerate/flatten here.
+        if d.colOn.count == 8 { buildPlayColOn = d.colOn }
         // COMMITTED SELECT cells (Paul 2026-09-12): restore the pinned chain + colour + name so an edited cell survives reload.
         if let chains = d.gridSelChains {
             let hues = d.gridSelHues ?? [:]
@@ -4137,25 +4029,23 @@ extension DiagView {
     }
     // The engine strike-feed indices for play column t: a single-cell column is (col 0, ferry t's row); a multi-step pass
     // strikes across (col step, ferry t's row) for each step. (Paul 2026-08-30)
-    private func buildPlayColSweepIndices(_ t: Int) -> [Int] {
-        let base = Snap.ferryRowBase(t)
-        let len = BuildSceneLogic.passLen(buildPlayColLen, t)   // shared clamp (refactor 2026-08-30)
-        return len <= 1 ? [base] : (0..<len).map { $0 * Snap.rows + base }
-    }
-    // The engine cell indices whose strike velocity drives ferry `t`'s play-button (+ selector) flash. The ACTIVE (bench)
-    // ferry plays via the STAGING sequencer (rows 0–7), so its strikes land on the selected-rung cells (col·rows + rung),
-    // NOT the play-layer flatten — feed the flash from those so it still flashes velocity when playing from the grid. A
-    // BACKGROUND ferry plays via the play-layer flatten → its own sweep indices. (Paul 2026-09-13)
+    // The engine cell indices whose strike velocity drives ferry `t`'s play-button (+ selector) flash. FERRY ROW
+    // UNIFICATION (Paul 2026-09-27): every ferry composes into its own dedicated rows now (Snap.ferryRowBase), active
+    // or background alike, so this is ONE computation — each of its columns' selected rung, at its own row block. The
+    // active ferry reads the LIVE bench (buildStagingSel/buildPartCols); a background ferry reads its stored part.
+    // (Was two separate paths through 2026-09-13's flatten-based model.)
     private func buildFerryFlashIndices(_ t: Int) -> [Int] {
-        if buildActiveFerry == t && (buildStagingPlaying || (t < buildPlayColOn.count && buildPlayColOn[t])) {
-            var idxs: [Int] = []
-            for c in 0..<buildPartCols {
-                let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
-                if r >= 0 { idxs.append(c * Snap.rows + r) }
-            }
-            return idxs
+        let base = Snap.ferryRowBase(t)
+        let focused = buildActiveFerry == t
+        let part = focused ? nil : buildFerryParts[t]
+        let sel = focused ? buildStagingSel : (part?.stagingSel ?? [])
+        let cols = focused ? buildPartCols : (part.map { max(1, min(Snap.maxCols, $0.length ?? Snap.cols)) } ?? Snap.cols)
+        var idxs: [Int] = []
+        for c in 0..<cols {
+            let r = c < sel.count ? sel[c] : -1
+            if r >= 0, r < Snap.rowsPerFerry { idxs.append(c * Snap.rows + base + r) }
         }
-        return buildPlayColSweepIndices(t)
+        return idxs
     }
 
 
@@ -4506,16 +4396,19 @@ extension DiagView {
         }
         // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette machine. (Paul 2026-08-31)
         if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedMachineID, color: buildMachineHue(roomsRoom), idx: buildChainAuditionRow) }
-        // BACKGROUND ferries (Paul 2026-09-08): a non-active "on" ferry plays via the FLATTEN on play-layer row (base+c) —
-        // map EVERY non-nil step's machine that emits on e (its index = step·rows + (base+c)), so a multi-machine part shows
-        // all its bands and every step reflects, not just step 0. (The active ferry is on the STAGING branch above.)
-        for c in 0..<8 where c != buildActiveFerry && c < buildPlayColOn.count && buildPlayColOn[c] {
-            let steps = c < buildPlayColSteps.count ? buildPlayColSteps[c] : []
-            let stepEmit = c < buildPlayColStepEmit.count ? buildPlayColStepEmit[c] : []
-            for s in 0..<steps.count {
-                guard let cid = steps[s] else { continue }
-                let em = s < stepEmit.count ? stepEmit[s] : (c < buildPlayColEmit.count ? buildPlayColEmit[c] : [.a])
-                if em.contains(e) { add(cid, color: Color(hex: buildFerryHex(c)), idx: s * Snap.rows + Snap.ferryRowBase(c)) }   // the background ferry's OWN colour (Paul 2026-09-13)
+        // BACKGROUND ferries (Paul 2026-09-08; FERRY ROW UNIFICATION 2026-09-27 — reads its own BuildPart directly, no
+        // more flatten cache): map every column's selected rung's machine that emits on e — the same resolution
+        // composeSceneMeta itself uses — tinted by the ferry's OWN colour. (The active ferry is on the STAGING branch above.)
+        for t in 0..<8 where t != buildActiveFerry && t < buildPlayColOn.count && buildPlayColOn[t] {
+            guard let part = buildFerryParts[t] else { continue }
+            let base = Snap.ferryRowBase(t)
+            for c in 0..<Snap.maxCols {
+                let r = BuildSceneLogic.selectedRung(part.stagingSel, c)
+                guard r >= 0, r < Snap.rowsPerFerry, c < part.stagingCells.count, r < part.stagingCells[c].count,
+                      let cid = part.stagingCells[c][r] else { continue }
+                if BuildSceneLogic.partRowEmitters(part, r).contains(e) {
+                    add(cid, color: Color(hex: buildFerryHex(t)), idx: c * Snap.rows + base + r)
+                }
             }
         }
         return order.map { MeterBand(color: byCid[$0]!.color, energy: false, cellIdxs: byCid[$0]!.idxs) }

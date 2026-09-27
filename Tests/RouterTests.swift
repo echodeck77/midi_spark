@@ -1298,17 +1298,17 @@ final class RouterTests: XCTestCase {
     }
     // PLAY-LAYER ROWS (Paul 2026-09-01, addresses updated 2026-09-27 ferry-row-unification): each ferry occupies its own
     // dedicated row block (Snap.ferryRowBase(t)); the multi-clock loops iterate all Snap.rows rows and the tap/mute masks
-    // exempt them — but no RouterTest had ever placed a cell there. A slow part cell (row 0, bus A) + a fast play-layer
-    // cell (ferry 0's row, bus B, its own fast rate) → the play row fires far more, no A↔B cross-leak, nothing stuck
+    // exempt them — but no RouterTest had ever placed a cell there. A slow cell on ferry 1's row (bus A) + a fast cell
+    // on ferry 0's row (bus B, its own fast rate) → the fast row fires far more, no A↔B cross-leak, nothing stuck
     // (guards any latent rows-0–3 `%8`/`<8` assumption in the 32-row loops).
     func testPlayLayerRowsRunOnTheirOwnClockWithoutLeak() {
         let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
         let b = box(machines: cs) { s in
             while s.cells[0].count < Snap.rows { s.cells[0].append(nil) }           // extend the column so a play-layer row can hold a cell
-            s.cells[0][Snap.stagingRowBase] = Cell(machineID: "gold", buses: [.a])   // an unrelated occupied row — bus A (Snap.stagingRowBase is disjoint from every ferryRowBase(t))
+            s.cells[0][Snap.ferryRowBase(1)] = Cell(machineID: "gold", buses: [.a])   // an unrelated occupied row — bus A (ferry 1's row is disjoint from ferry 0's)
             s.cells[0][Snap.ferryRowBase(0)] = Cell(machineID: "azure", buses: [.b]) // play-layer cell — ferry 0's row, bus B
             var rate = [StepRate?](repeating: nil, count: Snap.rows)
-            rate[Snap.stagingRowBase] = .r2_1                                        // the unrelated row SLOW
+            rate[Snap.ferryRowBase(1)] = .r2_1                                       // the unrelated row SLOW
             rate[Snap.ferryRowBase(0)] = .r1_8                                       // ferry 0's row FAST — its OWN clock
             s.rowStepRate = rate
         }
