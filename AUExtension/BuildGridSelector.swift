@@ -213,7 +213,14 @@ extension DiagView {
         // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
         let selGrey = greyUnlessSel && sel && !committed
         let fill = present ? (sel ? (selGrey ? buildSelectGrey : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)   // selGrey ALTERNATES two bright shades per selection (matches the machine box; Paul 2026-09-01)
-        let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
+        // THE SELECTED COLOUR (Paul 2026-09-27): a picked-but-uncommitted cell's notes now wear whichever ferry is
+        // currently active (buildFerryHex(buildActiveFerry)) — the same "selected colour" the ferry-row selector glow
+        // already reads (roomsPlayFerry, "LIGHT EMANATES from the SELECTED ferry... a strong tint of the selected
+        // colour") — instead of the old dark-grey INVERSION of the unselected face. Tapping a DIFFERENT, unselected
+        // ferry's own selector (buildActivateFerry) re-points buildActiveFerry live, so the notes recolour with it;
+        // picking a different SELECT cell (or deselecting) falls out of the `sel`/`selGrey` branch entirely, reverting
+        // to the plain grey face exactly as before.
+        let rollTint: Color = selGrey ? (buildActiveFerry.map { Color(hex: buildFerryHex($0)) } ?? Color(white: 0.22)) : (unselGrey ? Color(white: 0.78) : .white)
         // TASTEFUL CHEQUER (Paul 2026-08-31): the SELECT grid reads as a BOARD — a faint two-tone parity wash on every
         // non-selected cell (the classic chessboard), subtle enough not to fight the roll. SELECT grid only (greyUnlessSel);
         // the bright selected/focus cell stays clean.
