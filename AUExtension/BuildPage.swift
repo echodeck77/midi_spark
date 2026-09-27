@@ -98,7 +98,7 @@ struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Dou
 // BUILD UNDO (Paul 2026-08-27): one complete snapshot of the BUILD page's authoring @State + the document — every field a
 // user action can change, so a restore is whole (never partial). Value types only (cheap COW copies).
 struct BuildSnapshot {
-    var stagingCells: [[String?]]; var stagingSel: [Int]; var stagingLane: UInt16
+    var stagingCells: [[String?]]; var stagingSel: [Int]; var stagingMulti: [UInt8]; var stagingLane: UInt16
     var parts: [BuildPart]; var currentPart: Int
     var partEmitters: Set<Bus>; var partRate: StepRate?; var partLen: Int?; var partLoopCols: [Int]
     var partCast: [String]; var castSlots: [Int: String]; var rowUnder: [String?]
@@ -1164,10 +1164,12 @@ extension DiagView {
                 let src = c % old
                 if src < buildStagingCells.count { buildStagingCells[c] = buildStagingCells[src] }
                 if c < buildStagingSel.count, src < buildStagingSel.count { buildStagingSel[c] = buildStagingSel[src] }
+                if c < buildStagingMulti.count, src < buildStagingMulti.count { buildStagingMulti[c] = buildStagingMulti[src] }
             }
         }
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = n }   // keep buildParts authoritative
         buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)            // keep the selection valid across the new width
+        buildStagingMulti = BuildSceneLogic.reconcileStagingMulti(buildStagingMulti, cells: buildStagingCells)
         buildPublishScene()
     }
 
@@ -1609,6 +1611,12 @@ extension DiagView {
                             VStack(alignment: .leading, spacing: 12) {   // STEPS 8 | 16 (the part width / loop length)
                                 launchInline("STEPS", ["8", "16"], sel: buildPartCols == 16 ? 1 : 0, minChip: 54) { i in
                                     buildSetPartLen(i == 1 ? 16 : nil) }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            // MULTI-SELECT (Paul 2026-09-27): SINGLE = today's exactly-one-rung-per-column; MULTI lets a
+                            // column sound more than one of this ferry's rows at once (tap toggles instead of replaces).
+                            VStack(alignment: .leading, spacing: 12) {
+                                launchInline("MODE", ["SINGLE", "MULTI"], sel: p.selMultiResolved ? 1 : 0, minChip: 62) { i in
+                                    buildEditFerry(t) { $0.selMulti = i == 1 } }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }.padding(12)
@@ -2385,7 +2393,7 @@ extension DiagView {
     // the selection. Selected = a bright WHITE outline (works for empty OR populated). Punch mode keeps its amber extent look.
     @ViewBuilder private func roomsPartCell(_ c: Int, _ r: Int, w: CGFloat, h: CGFloat) -> some View {
         let id = (c < buildStagingCells.count && r < buildStagingCells[c].count) ? buildStagingCells[c][r] : nil   // Rooms4: bounds-safe against a ragged decoded doc
-        let selected = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r   // the ONE selected rung for column c
+        let selected = buildActiveRungs(c).contains(r)   // the rung(s) sounding in column c — [lead] in SINGLE mode, the mask's bits in MULTI
         let idx = c * Snap.rows + r
         // When an AUTO tab is selected, every cell that ISN'T the selected rung loses its face machine (drops to the
         // background) but keeps its border — so the sweep's target rung stands out. (Paul 2026-09-04)
@@ -2428,7 +2436,7 @@ extension DiagView {
     // the selected one) and subsequent dragged cells paint-select. (buildPartDragLast @State lives in the VC struct.)
     func buildPartGridDrag(_ loc: CGPoint, cw: CGFloat, ch: CGFloat, gap: CGFloat, cols: Int) {
         let c = Int(loc.x / (cw + gap)), r = Int(loc.y / (ch + gap))
-        guard c >= 0, c < cols, r >= 0, r < 8 else { return }
+        guard c >= 0, c < cols, r >= 0, r < Snap.rowsPerFerry else { return }
         if buildRowGenConfirm?.row == r { return }   // this row shows KEEP | TRY AGAIN, not cells — its buttons own the touch
         buildKeepRowGen()                            // touching any OTHER row's cells acts as KEEP (Paul 2026-09-11)
         let key = c * 100 + r
@@ -2439,20 +2447,42 @@ extension DiagView {
         let cur = c < buildStagingSel.count ? buildStagingSel[c] : -1
         // ONE pure decision (BuildSceneLogic.partGridTap) — rung selection / SELECT-mode focus; empty cells stay selectable.
         switch BuildSceneLogic.partGridTap(col: c, row: r, currentRung: cur, cid: cid, selectedMachineID: ddSelectedMachineID,
-                                           selectMode: buildSelectMode, firstTapOfGesture: first) {
+                                           selectMode: buildSelectMode, firstTapOfGesture: first, multi: buildSelMultiActive) {
         case .focus(let fid): buildSelectID(fid); buildSelectMode = false
         case .exitSelectMode: buildSelectMode = false
         case .deselect:
             buildPartTouched = true; if c < buildStagingSel.count { buildStagingSel[c] = -1 }; buildStagingSyncIfPlaying()
         case .selectRung(let row):
             buildPartTouched = true; if c < buildStagingSel.count { buildStagingSel[c] = row }; buildStagingSyncIfPlaying()
+        case .toggleRung(let row):
+            // MULTI-SELECT (Paul 2026-09-27): XOR this row's bit. Seed the mask from today's lead the first time this
+            // column is touched in MULTI (so switching modes never silently drops the existing selection). The lead
+            // (buildStagingSel[c]) follows the most recently toggled-ON row, or the first survivor when the lead itself
+            // is toggled off — it only drives the playhead/focus now, playback reads the mask exclusively once non-zero.
+            buildPartTouched = true
+            if c < buildStagingMulti.count {
+                var mask = buildStagingMulti[c]
+                if mask == 0, cur >= 0 { mask = UInt8(1 << cur) }
+                let bit = UInt8(1 << row)
+                if mask & bit != 0 {
+                    mask &= ~bit
+                    if c < buildStagingSel.count, buildStagingSel[c] == row {
+                        buildStagingSel[c] = (0..<Snap.rowsPerFerry).first { mask & UInt8(1 << $0) != 0 } ?? -1
+                    }
+                } else {
+                    mask |= bit
+                    if c < buildStagingSel.count { buildStagingSel[c] = row }
+                }
+                buildStagingMulti[c] = mask
+            }
+            buildStagingSyncIfPlaying()
         }
     }
     // The RIGHT rail — selects the ENTIRE row (every column → this row), like the old gui's row-select. Lights when the
     // whole row is the current per-column selection. (Paul 2026-08-28)
     @ViewBuilder private func roomsPartRightRail(_ n: Int) -> some View {
         let rowSel = buildStagingSel.allSatisfy { $0 == n }
-        let rowSelectedAny = buildStagingSel.prefix(buildPartCols).contains(n)   // row n is the active rung in AT LEAST ONE column (Paul 2026-09-10)
+        let rowSelectedAny = (0..<buildPartCols).contains { buildActiveRungs($0).contains(n) }   // row n sounds in AT LEAST ONE column (Paul 2026-09-10; MULTI-aware 2026-09-27)
         // THE LEFT RAIL = the DARK VERSION of the right rail (Paul 2026-09-09): plain dark unless the whole row is
         // selected for playback, then a DARK shade of the row's ferry colour (same hue family as the right rail, darker).
         RoundedRectangle(cornerRadius: 5).fill(rowSel ? Color(hex: mixHex(partFerryHue(n), 0x0E1116, 0.68)) : Color.white.opacity(0.05))
@@ -2536,7 +2566,7 @@ extension DiagView {
     private func roomsSelectionRuns(row r: Int, cols: Int) -> [Range<Int>] {
         var runs: [Range<Int>] = []; var start: Int? = nil
         for c in 0..<cols {
-            let sel = (c < buildStagingSel.count ? buildStagingSel[c] : -1) == r
+            let sel = buildActiveRungs(c).contains(r)
             if sel { if start == nil { start = c } }
             else if let s = start { runs.append(s..<c); start = nil }
         }
@@ -2814,6 +2844,7 @@ extension DiagView {
         buildSetRow(n, to: y)                                    // placed on part-grid row n
         if n < buildRowReceiver.count { buildRowReceiver[n] = ddStickyReceiver; buildRowEmitters[n] = ddStickyBuses }   // DEFAULT the new row's I/O to the LAST-USED receivers/emitters (Paul 2026-08-18/25)
         for c in 0..<Snap.maxCols { buildStagingSel[c] = n }   // §E: the 16-col staging storage (width governs view/play)
+        buildStagingMulti = Array(repeating: 0, count: Snap.maxCols)   // a fresh row placement REPLACES any prior multi-selection (Paul 2026-09-27)
         buildSelectID(y)
         buildPendingTab = n
         buildPendingSource = selectedMachineChain()               // == [] here; buildApplyChain clears the flash once the chain diverges
@@ -3121,6 +3152,18 @@ extension DiagView {
     // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08): the bench shows the ACTIVE ferry's part; playback happens on the play
     // layer, so the part-grid playhead follows the active ferry's own on/off (not the old staging voice).
     var buildActiveFerryPlaying: Bool { if let a = buildActiveFerry, a >= 0, a < buildPlayColOn.count { return buildPlayColOn[a] }; return false }
+    // MULTI-SELECT (Paul 2026-09-27): whether the ACTIVE ferry is in MULTI mode — read straight from buildFerryParts
+    // (the ferry-settings-tab MODE toggle writes there directly via buildEditFerry, the same live-read pattern CHOKE/
+    // RATE already use; no bench @State mirror needed since this isn't part of the live grid-editing flow).
+    var buildSelMultiActive: Bool {
+        guard let a = buildActiveFerry, a >= 0, a < buildFerryParts.count else { return false }
+        return buildFerryParts[a]?.selMultiResolved ?? false
+    }
+    // The rungs actually sounding in staging column `c` right now — [lead] in SINGLE mode (or an untouched column),
+    // the full mask's bits in MULTI mode. The ONE place the grid/playhead/rail ask, mirroring how the engine composes.
+    func buildActiveRungs(_ c: Int) -> [Int] {
+        BuildSceneLogic.activeRungs(buildStagingSel, buildSelMultiActive ? buildStagingMulti : nil, c)
+    }
     // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADERS read this so
     // they highlight the new state IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
     var buildDisplayVoice: BuildWorkshopVoice { buildPendingWorkshopVoice ?? buildWorkshopVoice }
@@ -3208,7 +3251,7 @@ extension DiagView {
 
     // ── BUILD UNDO (Paul 2026-08-27) — snapshot the WHOLE authoring @State + the document, so a restore is complete ────
     func buildCaptureSnapshot() -> BuildSnapshot {
-        BuildSnapshot(stagingCells: buildStagingCells, stagingSel: buildStagingSel, stagingLane: buildStagingLane,
+        BuildSnapshot(stagingCells: buildStagingCells, stagingSel: buildStagingSel, stagingMulti: buildStagingMulti, stagingLane: buildStagingLane,
                       parts: buildParts, currentPart: buildCurrentPart,
                       partEmitters: buildPartEmitters, partRate: buildPartRate, partLen: buildPartLen, partLoopCols: buildPartLoopCols,
                       partCast: buildPartCast, castSlots: buildCastSlots, rowUnder: buildRowUnder,
@@ -3232,7 +3275,7 @@ extension DiagView {
     private func buildApplySnapshot(_ s: BuildSnapshot) {
         buildApplyingSnapshot = true
         defer { buildApplyingSnapshot = false }
-        buildStagingCells = s.stagingCells; buildStagingSel = s.stagingSel; buildStagingLane = s.stagingLane
+        buildStagingCells = s.stagingCells; buildStagingSel = s.stagingSel; buildStagingMulti = s.stagingMulti; buildStagingLane = s.stagingLane
         buildParts = s.parts; buildCurrentPart = s.currentPart
         buildPartEmitters = s.partEmitters; buildPartRate = s.partRate; buildPartLen = s.partLen; buildPartLoopCols = s.partLoopCols
         buildPartCast = s.partCast; buildCastSlots = s.castSlots; buildRowUnder = s.rowUnder
@@ -3583,6 +3626,7 @@ extension DiagView {
         if roomsRoom == .part {
             for r in 0..<8 where buildRowMachine(r) == cid { buildSetRow(r, to: nil) }          // remove the machine's presence on the part grid (its row)
             buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)
+            buildStagingMulti = BuildSceneLogic.reconcileStagingMulti(buildStagingMulti, cells: buildStagingCells)
             if (0..<8).allSatisfy({ buildRowMachine($0) == nil }), let a = buildActiveFerry, a >= 0, a < 8 {   // the whole part is now empty → clear the ferry cell
                 buildResetFerrySlot(a)                                    // FULL reset — parts + on + MUTE/SOLO + launch + hue-alloc (Paul 2026-09-12: was leaving solo/mute STALE, so a soloed ferry cleared to empty silenced every OTHER ferry with no UI path back)
                 buildVoiceOwner = .none; roomsRoom = .select              // → the SELECT browser; ferry `a` STAYS SELECTED (now empty) so a selector is always selected (Paul 2026-09-12)
@@ -3609,6 +3653,7 @@ extension DiagView {
         buildSetRow(row, to: newID)
         buildSelectID(newID)                               // focus the pasted machine
         for c in 0..<Snap.maxCols { buildStagingSel[c] = row }        // select the whole new row (like PLACE/MUTATE) — §E 16-col
+        buildStagingMulti = Array(repeating: 0, count: Snap.maxCols)   // REPLACES any prior multi-selection (Paul 2026-09-27)
         buildStagingSyncIfPlaying()
     }
 
@@ -3653,6 +3698,7 @@ extension DiagView {
     // and PLAY-GRID UNPACK (a play cell's stored part). Does NOT set buildCurrentPart — the caller owns that. (Paul 2026-09-05)
     func buildLoadBenchPart(_ p: BuildPart) {
         let ns = buildNormalizeStaging(p.stagingCells, p.stagingSel); buildStagingCells = ns.cells; buildStagingSel = ns.sel
+        buildStagingMulti = Snap.padCols(p.stagingMulti ?? [], 0)   // MULTI-SELECT (2026-09-27); nil/short ⇒ no mask (falls back to the lead)
         buildRowChain = p.rowChain; buildRowShade = p.rowShade; buildRowUnder = p.rowUnder
         buildSelID = p.selID; ddMachineSel = p.selID.flatMap { machineIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast; buildCastSlots = p.castSlots
         buildRowReceiver = p.rowReceiver ?? Array(repeating: nil, count: 8)   // PER-ROW I/O — old parts have nil → all rows inherit (Paul 2026-08-18)
@@ -3672,6 +3718,7 @@ extension DiagView {
     func buildCaptureBenchPart() -> BuildPart {
         var p = BuildPart()
         p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel; p.rowChain = buildRowChain
+        p.stagingMulti = buildStagingMulti.contains(where: { $0 != 0 }) ? buildStagingMulti : nil   // MULTI-SELECT (2026-09-27)
         p.rowShade = buildRowShade; p.rowUnder = buildRowUnder; p.selID = buildSelID
         p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots
         p.rowReceiver = buildRowReceiver; p.rowEmitters = buildRowEmitters
@@ -3684,6 +3731,7 @@ extension DiagView {
             p.ferryName = cur.ferryName; p.ferryHue = cur.ferryHue
             p.launchPlayback = cur.launchPlayback; p.launchTrigger = cur.launchTrigger
             p.launchStart = cur.launchStart; p.chokeGroup = cur.chokeGroup
+            p.selMulti = cur.selMulti   // MULTI-SELECT (2026-09-27): the MODE toggle is a ferry setting too, edited in-place via buildEditFerry — never bench @State
         }
         return p
     }
@@ -3697,6 +3745,7 @@ extension DiagView {
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count, !buildParts[buildCurrentPart].deployed {
             var p = BuildPart()                                 // the live workshop IS the unassigned part — freshest from @State
             p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel; p.rowChain = buildRowChain
+            p.stagingMulti = buildStagingMulti.contains(where: { $0 != 0 }) ? buildStagingMulti : nil   // MULTI-SELECT (2026-09-27)
             p.rowShade = buildRowShade; p.rowUnder = buildRowUnder; p.selID = buildSelID
             p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots; p.deployed = false
             p.rate = buildPartRate; p.length = buildPartLen         // PER-PART CLOCK (Paul 2026-08-19)
@@ -3815,6 +3864,7 @@ extension DiagView {
     private func buildSeedTab1() {
         buildPartCast = []; buildCastSlots = [:]
         for c in 0..<Snap.maxCols { buildStagingSel[c] = -1 }                 // nothing selected → nothing plays until a machine is added (§E 16-col)
+        buildStagingMulti = Array(repeating: 0, count: Snap.maxCols)
         buildSelID = nil; ddMachineSel = -1
         buildPartTouched = false                                             // a fresh part re-defaults its row to the playing one on PART entry
     }
@@ -3905,6 +3955,9 @@ extension DiagView {
     private func buildSelectRow(_ row: Int) {
         guard row >= 0, row < 8 else { return }
         for c in 0..<Snap.maxCols { buildStagingSel[c] = row }   // §E 16-col
+        // MULTI-SELECT (Paul 2026-09-27): "select this whole row" REPLACES a column's active set with {row}, even in
+        // MULTI mode — it's a "this row is now the thing" gesture, not an addition to whatever else was sounding.
+        buildStagingMulti = Array(repeating: 0, count: Snap.maxCols)
         buildStagingSyncIfPlaying()
     }
     // THE LEFT RAIL TAP (Paul 2026-09-15): tapping a row rail selects the WHOLE row for playback; tapping the SAME rail a
@@ -3915,11 +3968,12 @@ extension DiagView {
         // Revert only if the last rail tap was THIS row AND its whole-row select is still standing untouched.
         if let rv = buildRowSelectRevert, rv.row == row, buildStagingSel.allSatisfy({ $0 == row }) {
             buildStagingSel = rv.prev
+            buildStagingMulti = rv.prevMulti
             buildRowSelectRevert = nil
             buildStagingSyncIfPlaying()
             return
         }
-        buildRowSelectRevert = (row: row, prev: buildStagingSel)   // snapshot BEFORE the select, so the 2nd tap can restore it
+        buildRowSelectRevert = (row: row, prev: buildStagingSel, prevMulti: buildStagingMulti)   // snapshot BEFORE the select, so the 2nd tap can restore it
         buildSelectRow(row)
     }
 
@@ -4039,11 +4093,13 @@ extension DiagView {
         let focused = buildActiveFerry == t
         let part = focused ? nil : buildFerryParts[t]
         let sel = focused ? buildStagingSel : (part?.stagingSel ?? [])
+        // MULTI-SELECT (Paul 2026-09-27): every ACTIVE rung flashes, not just the lead — mirrors what composeSceneMeta
+        // actually sounds (activeRungs), so the flash never under-represents a multi-row column.
+        let multi: [UInt8]? = focused ? (buildSelMultiActive ? buildStagingMulti : nil) : ((part?.selMultiResolved ?? false) ? part?.stagingMulti : nil)
         let cols = focused ? buildPartCols : (part.map { max(1, min(Snap.maxCols, $0.length ?? Snap.cols)) } ?? Snap.cols)
         var idxs: [Int] = []
         for c in 0..<cols {
-            let r = c < sel.count ? sel[c] : -1
-            if r >= 0, r < Snap.rowsPerFerry { idxs.append(c * Snap.rows + base + r) }
+            for r in BuildSceneLogic.activeRungs(sel, multi, c) where r >= 0 && r < Snap.rowsPerFerry { idxs.append(c * Snap.rows + base + r) }
         }
         return idxs
     }
@@ -4388,11 +4444,11 @@ extension DiagView {
         // when buildStagingPlaying (a shared-voice mirror) is set — so its band never falls through the gap between here and
         // the background branch below (which excludes the active ferry). Fixes the strip going blank on some ferry passes.
         let activeOn = buildActiveFerry.map { $0 >= 0 && $0 < buildPlayColOn.count && buildPlayColOn[$0] } ?? false
-        if buildStagingPlaying || activeOn {                                                         // PART: the selected rungs that emit on e
-            for c in 0..<Snap.maxCols { let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
+        if buildStagingPlaying || activeOn {                                                         // PART: the active rungs that emit on e
+            for c in 0..<Snap.maxCols { for r in buildActiveRungs(c) {
                 // Tint by the CELL's OWN displayed colour (partFerryHue(r) — the row shade you SEE), not machineHue(cid) (the
                 // machine's stored palette hue, the OLD pre-P2b row colour). "ask the playing cell what colour it is." (Paul 2026-09-13)
-                if r >= 0, buildRowMachine(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowMachine(r), color: Color(hex: partFerryHue(r)), idx: c * Snap.rows + r) } }
+                if buildRowMachine(r) != nil, buildRowEmittersResolved(r).contains(e) { add(buildRowMachine(r), color: Color(hex: partFerryHue(r)), idx: c * Snap.rows + r) } } }
         }
         // CHAIN audition → the STANDARDIZED machine hue (LIGHT GREY on SELECT), not the old palette machine. (Paul 2026-08-31)
         if ddSolo, buildDefaultEmitters.contains(e) { add(ddSelectedMachineID, color: buildMachineHue(roomsRoom), idx: buildChainAuditionRow) }
@@ -4527,7 +4583,7 @@ extension DiagView {
         case .part:
             guard let r = buildFocusedPartRow else { return false }
             let c = buildPartColumnNow(at: now)
-            return c >= 0 && c < buildStagingSel.count && buildStagingSel[c] == r
+            return c >= 0 && buildActiveRungs(c).contains(r)
         case .none: return false
         }
     }

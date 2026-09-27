@@ -19,6 +19,12 @@ struct BuildPart: Codable, Equatable {
     // width/loop 1…16 (nil ⇒ the 8-wide default → byte-identical). Old 8-col saves decode short + are padded on restore.
     var stagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: Snap.rowsPerFerry), count: Snap.maxCols)
     var stagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)
+    // MULTI-SELECT (Paul 2026-09-27, ferry-row-unification Stage 4): when `selMulti` is on, a column can sound more
+    // than one of the ferry's `Snap.rowsPerFerry` rows at once. `stagingMulti[c]` bits 0..<rowsPerFerry mark which rows
+    // sound in column c; nil/absent-per-column ⇒ derive as just the lead (`stagingSel[c]`) bit, so switching a ferry to
+    // MULTI never silences a column that hasn't been touched since. See `BuildSceneLogic.activeRungs`.
+    var stagingMulti: [UInt8]? = nil
+    var selMulti: Bool? = nil   // nil/false = SINGLE (today's exactly-one-rung-per-column) · true = MULTI
     var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: Snap.rowsPerFerry)
     var rowShade: [Double] = Array(repeating: 0, count: Snap.rowsPerFerry)
     var rowUnder: [String?] = Array(repeating: nil, count: Snap.rowsPerFerry)   // one-machine-per-row: what a row REVERTS to when its machine is stamped elsewhere
@@ -52,6 +58,7 @@ struct BuildPart: Codable, Equatable {
     var launchTriggerResolved:  FerryTrigger  { launchTrigger  ?? .latch }
     var launchStartResolved:    FerryStart    { launchStart    ?? .sync }
     var chokeGroupResolved: Int { chokeGroup ?? 0 }   // 0 = OFF
+    var selMultiResolved: Bool { selMulti ?? false }   // MULTI-SELECT (2026-09-27); nil = SINGLE
 }
 
 // PART AUTOMATION (Paul 2026-09-02) — the AUTO lanes. Per machine, FIVE lanes; one is ACTIVE at a time (activeLane,
@@ -184,6 +191,8 @@ extension BuildPart {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         stagingCells = Snap.padCols(try c.decodeIfPresent([[String?]].self, forKey: .stagingCells) ?? [], Array(repeating: nil, count: Snap.rowsPerFerry))   // §E: pad an old 8-col save to 16
         stagingSel   = Snap.padCols(try c.decodeIfPresent([Int].self, forKey: .stagingSel) ?? [], -1)
+        stagingMulti = try c.decodeIfPresent([UInt8].self, forKey: .stagingMulti)   // MULTI-SELECT (2026-09-27); nil = today (derive from stagingSel)
+        selMulti     = try c.decodeIfPresent(Bool.self, forKey: .selMulti)
         rowChain     = try c.decodeIfPresent([[ProcessorSlot]].self, forKey: .rowChain) ?? Array(repeating: [], count: Snap.rowsPerFerry)
         rowShade     = try c.decodeIfPresent([Double].self, forKey: .rowShade) ?? Array(repeating: 0, count: Snap.rowsPerFerry)
         rowUnder     = try c.decodeIfPresent([String?].self, forKey: .rowUnder) ?? Array(repeating: nil, count: Snap.rowsPerFerry)

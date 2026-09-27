@@ -48,6 +48,15 @@ enum BuildSceneLogic {
     // can hold a SET of rungs (poly selections), only these two bodies change — every caller already asks here.
     /// The primary selected rung for column `c` (-1 = the column is silent / out of range). Poly's "lead" rung.
     static func selectedRung(_ sel: [Int], _ c: Int) -> Int { (c >= 0 && c < sel.count) ? sel[c] : -1 }
+    /// POLY LANDS (Paul 2026-09-27): every rung sounding in column `c` — the plural half of the seam above. SINGLE mode
+    /// (`multi` nil/out-of-range/that column's byte is 0) degenerates to exactly `[lead]` (or `[]` when silent) — byte-
+    /// identical to `selectedRung` everywhere multi-select is unused. Once a column's mask is non-zero it's read
+    /// EXCLUSIVELY (the mask IS the selection, not an addition to the lead) — bit `r` set ⇒ row `r` sounds.
+    static func activeRungs(_ sel: [Int], _ multi: [UInt8]?, _ c: Int) -> [Int] {
+        let lead = selectedRung(sel, c)
+        guard let m = multi, c >= 0, c < m.count, m[c] != 0 else { return lead >= 0 ? [lead] : [] }
+        return (0..<Snap.rowsPerFerry).filter { m[c] & (1 << $0) != 0 }
+    }
     // FERRY ROW UNIFICATION (Paul 2026-09-27): pure per-BuildPart equivalents of the bench's `buildRowMachine`/
     // `buildRowReceiverResolved`/`buildRowEmittersResolved`, so every ferry — not just whichever is on the bench —
     // resolves its own rows the same way. `rowMachine` finds the row's own machine (the first populated column in it,
@@ -204,21 +213,26 @@ enum BuildSceneLogic {
             var rowOccupied = [Bool](repeating: false, count: Snap.rowsPerFerry)   // which of this ferry's rows actually sounded — feeds the clock-claim + rowLane blocks below without a second scan
             for logical in 0..<plan.count {   // §E: 16-wide part, or the LOOP SELECTION's own length/order
                 let c = plan.physicalColumn(logical)         // read from the REAL part column…
-                let r = selectedRung(part.stagingSel, c)
-                guard r >= 0, r < Snap.rowsPerFerry, c < part.stagingCells.count, r < part.stagingCells[c].count,
-                      let cid = part.stagingCells[c][r] else { continue }
-                let chain = r < rowChain.count ? rowChain[r] : []
-                // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only SELECTED it, they
-                // haven't set it up — no output until a machine is added. (The no-machine live-wire still monitors
-                // input when you're BUILDING a chain — PLAY THIS MIDI CHAIN / the chain branch below.)
-                guard !chain.isEmpty else { continue }
-                rowOccupied[r] = true
-                let buses = partRowEmitters(part, r)
-                let recv = partRowReceiver(part, r)
-                var cell = Cell(machineID: cid, buses: buses.isEmpty ? dfltBuses : buses)
-                cell.inputReceiver = recv
-                cell.processors = applyAuto(chain, machineID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: partLen)   // PART AUTOMATION bake
-                s.setCell(logical, base + r, cell)           // …write to the SEQUENTIAL scene column (the audition sits in front on a slot collision)
+                // MULTI-SELECT (Paul 2026-09-27): the mask is only consulted when the ferry's own selMulti is ON — a
+                // ferry switched back to SINGLE plays just its lead rung even if a stale mask survives from before
+                // (activeRungs degenerates to [selectedRung] whenever `multi` is nil, byte-identical to the old
+                // single-`r` loop everywhere multi-select is unused).
+                for r in activeRungs(part.stagingSel, part.selMultiResolved ? part.stagingMulti : nil, c) {
+                    guard r >= 0, r < Snap.rowsPerFerry, c < part.stagingCells.count, r < part.stagingCells[c].count,
+                          let cid = part.stagingCells[c][r] else { continue }
+                    let chain = r < rowChain.count ? rowChain[r] : []
+                    // A MACHINE-LESS cell on the PART GRID is SILENT (Paul 2026-08-26): the user only SELECTED it, they
+                    // haven't set it up — no output until a machine is added. (The no-machine live-wire still monitors
+                    // input when you're BUILDING a chain — PLAY THIS MIDI CHAIN / the chain branch below.)
+                    guard !chain.isEmpty else { continue }
+                    rowOccupied[r] = true
+                    let buses = partRowEmitters(part, r)
+                    let recv = partRowReceiver(part, r)
+                    var cell = Cell(machineID: cid, buses: buses.isEmpty ? dfltBuses : buses)
+                    cell.inputReceiver = recv
+                    cell.processors = applyAuto(chain, machineID: cid, col: c, row: r, partAuto: i.partAuto, partWidth: partLen)   // PART AUTOMATION bake
+                    s.setCell(logical, base + r, cell)           // …write to the SEQUENTIAL scene column (the audition sits in front on a slot collision)
+                }
             }
             for r in 0..<Snap.rowsPerFerry where rowOccupied[r] {
                 // rowLen reflects the LOOP's own length only when it actually changes the count (byte-identical when
@@ -399,6 +413,18 @@ enum BuildSceneLogic {
             return r
         }
     }
+    /// MULTI-SELECT (Paul 2026-09-27): the `stagingMulti` sibling of `reconcileStagingSel` — after an edit, drop any bit
+    /// that now points at a missing/empty cell (mirrors the single-select fallback: a positive pick surviving only if
+    /// its cell still exists). All-zero (like `stagingSel`'s -1) is the sentinel for "no mask" — no Optional needed.
+    static func reconcileStagingMulti(_ multi: [UInt8], cells: [[String?]]) -> [UInt8] {
+        (0..<Snap.maxCols).map { c -> UInt8 in
+            guard c < multi.count, multi[c] != 0, c < cells.count else { return 0 }
+            let col = cells[c]
+            var mask: UInt8 = 0
+            for r in 0..<Snap.rowsPerFerry where multi[c] & (1 << r) != 0 && r < col.count && col[r] != nil { mask |= (1 << r) }
+            return mask
+        }
+    }
 
     // ── THE MACHINE BINDING (Paul 2026-09-01, the state-unification refactor) ─────────────────────────────────────────
     // The machine (box + MIDI chain + play button) ALWAYS represents exactly ONE thing, and its play/stop drives THAT
@@ -458,13 +484,18 @@ enum BuildSceneLogic {
         case focus(machineID: String)   // SELECT MODE: focus this machine (populated cell)
         case exitSelectMode            // SELECT MODE tap on an empty cell: just leave select mode
         case deselect                  // tapped the currently-selected rung → the column goes silent
-        case selectRung(row: Int)      // select (or drag-paint) this rung — POPULATED OR NOT
+        case selectRung(row: Int)      // select (or drag-paint) this rung — POPULATED OR NOT (SINGLE mode)
+        case toggleRung(row: Int)      // MULTI mode: XOR this rung's bit in the column's mask — POPULATED OR NOT
     }
     // The rung/select decision when NO AUTO lane is armed. (When a lane IS armed the drag DRAWS the automation span
     // instead — that's UI-side in buildPartGridDrag, since it needs the drag anchor. Paul 2026-09-04, span-only.)
+    // MULTI-SELECT (Paul 2026-09-27): `multi` off reproduces today's behaviour exactly (unchanged branches below); `multi`
+    // on always toggles — there's no "first tap of gesture deselects" special case, since a column can have more than
+    // one rung active and a tap should only ever affect the ONE rung tapped.
     static func partGridTap(col: Int, row: Int, currentRung: Int, cid: String?, selectedMachineID: String?,
-                            selectMode: Bool, firstTapOfGesture: Bool) -> PartGridTap {
+                            selectMode: Bool, firstTapOfGesture: Bool, multi: Bool = false) -> PartGridTap {
         if selectMode { return cid.map { .focus(machineID: $0) } ?? .exitSelectMode }
+        if multi { return .toggleRung(row: row) }
         if firstTapOfGesture && currentRung == row { return .deselect }
         return .selectRung(row: row)   // EMPTY cells ARE selectable — the contract, locked by test
     }

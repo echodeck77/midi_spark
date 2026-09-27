@@ -23,7 +23,8 @@ final class BuildSceneLogicTests: XCTestCase {
     private func ferryPart(cells: [[String?]] = [], sel: [Int] = [], rowChain: [[ProcessorSlot]] = [],
                             rate: StepRate? = nil, length: Int? = nil, loopCols: [Int] = [],
                             receiver: Int = 0, emitters: Set<Bus> = [.a],
-                            rowReceiver: [Int?]? = nil, rowEmitters: [Set<Bus>?]? = nil) -> BuildPart {
+                            rowReceiver: [Int?]? = nil, rowEmitters: [Set<Bus>?]? = nil,
+                            multi: [UInt8]? = nil, selMulti: Bool = false) -> BuildPart {
         var p = BuildPart()
         if !cells.isEmpty { p.stagingCells = cells }
         if !sel.isEmpty { p.stagingSel = sel }
@@ -32,6 +33,7 @@ final class BuildSceneLogicTests: XCTestCase {
         p.loopCols = loopCols.isEmpty ? nil : loopCols
         p.receiver = receiver; p.emitters = emitters
         p.rowReceiver = rowReceiver; p.rowEmitters = rowEmitters
+        p.stagingMulti = multi; p.selMulti = selMulti   // MULTI-SELECT (2026-09-27)
         return p
     }
     // A SINGLE active ferry (ferry 0) — the direct replacement for the old "i.stagingPlaying = true; i.stagingCells =
@@ -39,9 +41,11 @@ final class BuildSceneLogicTests: XCTestCase {
     private func stagingInput(cells: [[String?]] = [], sel: [Int] = [], rowChain: [[ProcessorSlot]] = [],
                                rate: StepRate? = nil, length: Int? = nil, loopCols: [Int] = [],
                                receiver: Int = 0, emitters: Set<Bus> = [.a],
-                               rowReceiver: [Int?]? = nil, rowEmitters: [Set<Bus>?]? = nil) -> BuildSceneLogic.Input {
+                               rowReceiver: [Int?]? = nil, rowEmitters: [Set<Bus>?]? = nil,
+                               multi: [UInt8]? = nil, selMulti: Bool = false) -> BuildSceneLogic.Input {
         let part = ferryPart(cells: cells, sel: sel, rowChain: rowChain, rate: rate, length: length, loopCols: loopCols,
-                              receiver: receiver, emitters: emitters, rowReceiver: rowReceiver, rowEmitters: rowEmitters)
+                              receiver: receiver, emitters: emitters, rowReceiver: rowReceiver, rowEmitters: rowEmitters,
+                              multi: multi, selMulti: selMulti)
         var i = BuildSceneLogic.Input()
         i.activeFerry = 0
         i.ferryOn = Array(repeating: false, count: Snap.ferries); i.ferryOn[0] = true
@@ -86,6 +90,81 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(out[4], -1, "col 4 (empty) pick falls back to silent, no trap")
     }
 
+
+    // MARK: MULTI-SELECT (Paul 2026-09-27) — activeRungs is the plural sibling of selectedRung: SINGLE mode (multi nil,
+    // or that column's byte 0) degenerates to exactly [lead], byte-identical everywhere multi-select is unused; once a
+    // column's mask is non-zero it's read EXCLUSIVELY (the mask IS the selection, not an addition to the lead).
+
+    func testActiveRungsDegeneratesToTheLeadWhenMultiIsNil() {
+        XCTAssertEqual(BuildSceneLogic.activeRungs([2, -1, 0, 3], nil, 0), [2])
+        XCTAssertEqual(BuildSceneLogic.activeRungs([2, -1, 0, 3], nil, 1), [], "a silent (-1) lead → no rungs at all")
+    }
+    func testActiveRungsDegeneratesToTheLeadWhenThatColumnsMaskIsUntouched() {
+        let multi: [UInt8] = [0b0000_0000, 0b0000_1010]   // column 0 untouched (0) even though multi is non-nil overall
+        XCTAssertEqual(BuildSceneLogic.activeRungs([2, 3], multi, 0), [2], "column 0's own byte is 0 → falls back to its lead")
+    }
+    func testActiveRungsReadsTheMaskExclusivelyOnceNonZero() {
+        let multi: [UInt8] = [0b0000_1010]   // bits 1 and 3 set — rows 1 and 3
+        XCTAssertEqual(BuildSceneLogic.activeRungs([2], multi, 0), [1, 3], "the lead (2) is IGNORED once the mask is non-zero — the mask IS the selection")
+    }
+    func testActiveRungsOutOfRangeColumnIsSilent() {
+        XCTAssertEqual(BuildSceneLogic.activeRungs([2, 3], nil, 5), [])
+        XCTAssertEqual(BuildSceneLogic.activeRungs([2, 3], [0b0001], 5), [])
+    }
+
+    func testReconcileStagingMultiDropsBitsPointingAtEmptyCells() {
+        let cells = partGrid([(0, 1, "gold"), (0, 3, "gold")])   // column 0 stocked at rows 1 and 3 only
+        let multi: [UInt8] = [0b0000_1011]   // bits 0, 1, 3 — bit 0 points at an EMPTY cell
+        let out = BuildSceneLogic.reconcileStagingMulti(multi, cells: cells)
+        XCTAssertEqual(out[0], 0b0000_1010, "bit 0 (empty cell) is dropped; bits 1 and 3 (stocked) survive")
+    }
+    func testReconcileStagingMultiAllBitsDroppedRevertsToZero() {
+        let out = BuildSceneLogic.reconcileStagingMulti([0b0001], cells: partGrid([]))   // nothing stocked anywhere
+        XCTAssertEqual(out[0], 0, "no surviving bit → the sentinel for 'no mask' (falls back to the lead)")
+    }
+
+    // partGridTap: `multi` off reproduces every existing SINGLE-mode assertion above unchanged (the default parameter
+    // value); `multi` on always toggles, regardless of firstTapOfGesture — a column can have more than one rung active,
+    // so a tap should only ever affect the ONE rung tapped, never exclusively deselect/select like SINGLE mode does.
+    func testPartGridTapMultiModeAlwaysToggles() {
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 0, row: 1, currentRung: 1, cid: "gold", selectedMachineID: "gold",
+                                                   selectMode: false, firstTapOfGesture: true, multi: true),
+                       .toggleRung(row: 1), "even tapping the CURRENT lead on the first tap of a gesture toggles in MULTI, never deselects the whole column")
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 0, row: 3, currentRung: 1, cid: nil, selectedMachineID: "gold",
+                                                   selectMode: false, firstTapOfGesture: true, multi: true),
+                       .toggleRung(row: 3), "an EMPTY cell still toggles — populated or not")
+    }
+    func testPartGridTapSelectModeStillWinsOverMulti() {
+        XCTAssertEqual(BuildSceneLogic.partGridTap(col: 0, row: 1, currentRung: 1, cid: "gold", selectedMachineID: "gold",
+                                                   selectMode: true, firstTapOfGesture: true, multi: true),
+                       .focus(machineID: "gold"), "SELECT mode intercepts before MULTI ever gets a say")
+    }
+
+    // A composeScene-level check that MULTI actually sounds more than one row: ferry 0, MULTI on, column 0's mask has
+    // rows 0 AND 2 set — both machines must land in the scene at ferry 0's own row block, simultaneously.
+    func testComposeSceneSoundsEveryActiveRungInMultiMode() {
+        let cells = partGrid([(0, 0, "gold"), (0, 2, "cyan")])
+        let rowChain: [[ProcessorSlot]] = [[ProcessorSlot(type: .arp)], [], [ProcessorSlot(type: .arp)], []]
+        let multi: [UInt8] = [0b0000_0101]   // bits 0 and 2
+        let i = stagingInput(cells: cells, sel: [0, -1, -1, -1, -1, -1, -1, -1], rowChain: rowChain, length: 1,
+                              multi: multi, selMulti: true)
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, Snap.ferryRowBase(0) + 0)?.machineID, "gold", "row 0 sounds")
+        XCTAssertEqual(s.cellAt(0, Snap.ferryRowBase(0) + 2)?.machineID, "cyan", "row 2 ALSO sounds, simultaneously")
+        XCTAssertNil(s.cellAt(0, Snap.ferryRowBase(0) + 1), "row 1 was never in the mask — stays silent")
+    }
+    // The same ferry with selMulti OFF plays ONLY its lead (row 0), even though the mask still has bit 2 set — a
+    // ferry switched back to SINGLE never sounds a stale mask (composeSceneMeta gates the mask on selMultiResolved).
+    func testComposeSceneIgnoresTheMaskWhenSelMultiIsOff() {
+        let cells = partGrid([(0, 0, "gold"), (0, 2, "cyan")])
+        let rowChain: [[ProcessorSlot]] = [[ProcessorSlot(type: .arp)], [], [ProcessorSlot(type: .arp)], []]
+        let multi: [UInt8] = [0b0000_0101]
+        let i = stagingInput(cells: cells, sel: [0, -1, -1, -1, -1, -1, -1, -1], rowChain: rowChain, length: 1,
+                              multi: multi, selMulti: false)
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, Snap.ferryRowBase(0) + 0)?.machineID, "gold", "the lead still sounds")
+        XCTAssertNil(s.cellAt(0, Snap.ferryRowBase(0) + 2), "row 2's bit is ignored while selMulti is off")
+    }
 
     // MARK: mutateChain (the MUTATE row action — value-only, guaranteed distinct + audible)
 

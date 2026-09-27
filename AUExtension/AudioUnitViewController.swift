@@ -197,7 +197,8 @@ struct DiagView: View {
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: Snap.rowsPerFerry)   // one-machine-per-row: each row's revert-to machine when its machine relocates
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
     @State var buildStagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)   // §E: 16-wide; the ONE selected (playing) row per staging COLUMN (white outline); -1 = none
-    @State var buildRowSelectRevert: (row: Int, prev: [Int])?   // left-rail row-select: the per-column selection BEFORE the last rail tap, so a 2nd tap on the same rail reverts an accidental whole-row select (Paul 2026-09-15)
+    @State var buildStagingMulti: [UInt8] = Array(repeating: 0, count: Snap.maxCols)   // MULTI-SELECT (2026-09-27): bits 0..<rowsPerFerry = which rows ALSO sound per column, when the active ferry's selMulti is on; 0 = no mask (falls back to buildStagingSel's lead)
+    @State var buildRowSelectRevert: (row: Int, prev: [Int], prevMulti: [UInt8])?   // left-rail row-select: the per-column selection (+ multi mask) BEFORE the last rail tap, so a 2nd tap on the same rail reverts an accidental whole-row select (Paul 2026-09-15; multi mask added 2026-09-27)
     @State var buildRowChain: [[ProcessorSlot]] = Array(repeating: [], count: Snap.rowsPerFerry)   // STAGE THE GRID: the generated machine (chain) for each row (empty = not a staged row)
     @State var buildRowShade: [Double] = Array(repeating: 0, count: Snap.rowsPerFerry)   // STAGE THE GRID: per-row shade of the selected machine (+lighter … −darker), by output complexity
     @State var buildParts: [BuildPart] = [BuildPart()]   // the PARTS (workshop lifecycle); the CURRENT part's fields live in the working @State below, synced on switch
@@ -928,7 +929,7 @@ struct DiagView: View {
             // reads the fresh input; the offline render reads the live pool + current box, so the notes are always current.
             if activeTab == .build && roomsRoom == .part {
                 let cyc = Double(max(1, buildPartCols)) * (buildPartRate?.beats ?? stepBeats)
-                let sig = "\(recvHeldNotes)|\(buildStagingSel)|\(cyc)|\(buildPartRollGen)"
+                let sig = "\(recvHeldNotes)|\(buildStagingSel)|\(buildStagingMulti)|\(cyc)|\(buildPartRollGen)"
                 // OFF-MAIN (Paul 2026-09-11, perf): offlinePartRoll runs a fresh Router ~188× (a full part render). Doing that
                 // synchronously on the main thread stalled the UI on every held-chord/selection/edit change. Run it on a
                 // large-stack thread (deep enough for Router.process); marshal the result back. One at a time (partRollComputing);
