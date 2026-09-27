@@ -996,18 +996,18 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(BuildSceneLogic.ferryZoneAt(CGPoint(x: 70, y: 10), zones: zones), .trash, "trash wins the overlap")
         XCTAssertNil(BuildSceneLogic.ferryZoneAt(CGPoint(x: 200, y: 200), zones: zones), "a miss → nil")
     }
-    /// EMPTY-FERRY COLOUR REALLOCATION (Paul 2026-09-12): overwriting populated ferry `target` (oldHex) with a cell whose
-    /// colour is held by an EMPTY ferry → that empty ferry index is returned (to receive oldHex). nil when not applicable.
+    /// FERRY COLOUR SWAP (Paul 2026-09-12, generalised 2026-09-27): overwriting ferry `target` (oldHex) with a cell whose
+    /// colour is held by some OTHER ferry — empty placeholder OR populated, the function no longer distinguishes — that
+    /// ferry's index is returned (to receive oldHex). nil when not applicable.
     func testFerryColourDisplacement() {
         let old: UInt32 = 0xAAAAAA, cell: UInt32 = 0xBBBBBB
-        var empty = [false, true, true, true, true, true, true, true]   // slot 0 = the populated target
-        var hex: [UInt32] = [old, 0x111111, 0x222222, cell, 0x444444, 0x555555, 0x666666, 0x777777]   // slot 3 (empty) holds the incoming colour
-        XCTAssertEqual(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, empty: empty, hex: hex), 3)
-        XCTAssertNil(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: old, oldHex: old, empty: empty, hex: hex), "no move when the displaced colour == the incoming colour")
+        var hex: [UInt32] = [old, 0x111111, 0x222222, cell, 0x444444, 0x555555, 0x666666, 0x777777]   // slot 3 holds the incoming colour
+        XCTAssertEqual(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, hex: hex), 3)
+        XCTAssertNil(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: old, oldHex: old, hex: hex), "no move when the displaced colour == the incoming colour")
         hex[3] = 0x333333
-        XCTAssertNil(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, empty: empty, hex: hex), "no empty ferry holds the incoming colour → nil")
-        hex[3] = cell; empty[3] = false
-        XCTAssertNil(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, empty: empty, hex: hex), "a POPULATED ferry holding the colour is not chosen")
+        XCTAssertNil(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, hex: hex), "no other ferry holds the incoming colour → nil")
+        hex[3] = cell
+        XCTAssertEqual(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, hex: hex), 3, "a POPULATED ferry holding the colour is chosen too — swapping doesn't care whether the other slot is empty or populated")
     }
 
     // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): the per-ferry name/hue/launch fields round-trip through the document,

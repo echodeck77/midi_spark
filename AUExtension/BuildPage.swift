@@ -1957,35 +1957,34 @@ extension DiagView {
         buildPopulateFerry(t, chain: hit.chain, transpose: hit.transpose, hue: hit.hex, name: name)
     }
     // The shared populate core: mint a part carrying `chain` across a full 16-step row, inheriting `hue`/`name`, store it in
-    // ferry `t`, open it. COLOUR REALLOCATION (Paul 2026-09-12): if this overwrites a populated ferry of a DIFFERENT colour
-    // whose incoming colour is currently allocated to an EMPTY ferry, that empty ferry is re-allocated the DISPLACED colour
-    // (so the palette never doubles up).
+    // ferry `t`, open it. COLOUR SWAP (Paul 2026-09-12, generalised 2026-09-27): the dropped cell's colour always wins at
+    // the target, regardless of what was predetermined there. If that colour is already worn by some OTHER ferry —
+    // populated or still an empty placeholder — that ferry takes the target's OLD colour instead: a true two-slot swap,
+    // never an invented third colour, so the SELECT grid (which fed `hue`) and the ferry can never disagree.
     func buildPopulateFerry(_ t: Int, chain: [ProcessorSlot], transpose: Int, hue: UInt32? = nil, name: String? = nil) {
         guard t >= 0, t < 8 else { return }
         buildRecordUndo()
-        if let cellHex = hue, t < buildFerryParts.count, buildFerryParts[t] != nil {   // overwriting a populated ferry
+        if let cellHex = hue {
             let oldHex = buildFerryHex(t)
-            let empty = (0..<8).map { buildFerryParts[$0] == nil }
-            let hex = (0..<8).map { buildFerryHex($0) }
-            if let u = BuildSceneLogic.ferryColourDisplacement(target: t, cellHex: cellHex, oldHex: oldHex, empty: empty, hex: hex) {
-                buildFerryHueAlloc[u] = oldHex                                        // the displaced colour moves to the empty ferry that held the incoming colour
+            if oldHex != cellHex {
+                let hex = (0..<8).map { buildFerryHex($0) }
+                if let u = BuildSceneLogic.ferryColourDisplacement(target: t, cellHex: cellHex, oldHex: oldHex, hex: hex) {
+                    if buildFerryParts[u] != nil {
+                        buildFerryParts[u]?.ferryHue = oldHex                             // a populated ferry keeps its chain, just wears the displaced colour
+                        if let uid = buildFerryParts[u]?.selID { machineHueOverride[uid] = oldHex }   // …and its own machine box stays in step with it
+                    } else {
+                        buildFerryHueAlloc[u] = oldHex                                    // an empty ferry's placeholder takes the displaced colour
+                    }
+                }
             }
         }
-        // FERRY HUE UNIQUENESS (Paul 2026-09-13): a machine's colour STICKS to it, seeded from where it's placed — but two
-        // populated ferries must never wear the SAME colour (a real "which is which" confusion). Only reassign on an ACTUAL
-        // clash with another populated ferry (so a clean inherited palette colour is kept when it's already distinct);
-        // buildDistinctHue avoids every live hue, so it can't re-collide.
-        var effHue = hue
-        if let h = hue, (0..<8).contains(where: { $0 != t && buildFerryParts[$0] != nil && buildFerryHex($0) == h }) {
-            effHue = buildDistinctHue()
-        }
-        let y = buildNewTabMachine(t, machine: chain, transpose: transpose, hex: effHue)   // a fresh part machine carrying the chain, in the CELL's (distinct) hue (nil ⇒ the vivid part hue)
+        let y = buildNewTabMachine(t, machine: chain, transpose: transpose, hex: hue)   // a fresh part machine carrying the chain, in the CELL's own hue (any clash was resolved by the swap above)
         var p = BuildPart()
         p.length = Snap.maxCols                                                       // a full 16-step part (the grid defaults to 16)
         for c in 0..<Snap.maxCols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }   // the chain across the WHOLE first row → a full sequence, not one cell
         p.selID = y; p.cast = [y]
         p.receiver = buildSelReceiver; p.emitters = buildDefaultEmitters
-        p.ferryHue = effHue                                                           // the ferry inherits the cell's colour, made distinct from other ferries (Paul 2026-09-13)
+        p.ferryHue = hue                                                              // the ferry inherits the cell's colour, exactly
         p.ferryName = name                                                            // …and its name
         buildFerryParts[t] = p
         buildFerryHueAlloc[t] = nil                                                   // a populated ferry's colour comes from its part now, not the empty-slot alloc

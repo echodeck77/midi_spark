@@ -199,6 +199,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FERRY COLOUR SWAP — closes the "invents a third colour" gap (2026-09-27, on `main`, commit pending; iOS
+  builds, macOS 1123 green; DEVICE eye owed). Paul described the intended model for select→ferry colour (pick a
+  colour via a selector → the SELECT cell shows it → dragging it onto a ferry lands verbatim, regardless of that
+  ferry's own predetermined colour → a clash swaps the two slots' colours, never invents a new one → the SELECT
+  cell and the ferry can never disagree) and confirmed it should ALSO hold when the clash is against an
+  ALREADY-POPULATED ferry, not just an empty placeholder — the one case the 2026-09-12/13 ferry drag-and-drop work
+  didn't cover (`buildPopulateFerry`'s "FERRY HUE UNIQUENESS" block fell back to `buildDistinctHue()` there,
+  silently diverging from the SELECT cell that fed it — the exact class of bug the whole ferry-colour-review
+  session flagged as still-open). FIX: `BuildSceneLogic.ferryColourDisplacement` dropped its `empty` filter — it
+  now matches ANY other ferry currently wearing the incoming colour, populated or not; `buildPopulateFerry` applies
+  the swap by recolouring the OTHER ferry's `.ferryHue` (+ mirroring into its own `machineHueOverride`, so its
+  machine box can't fall out of step with its own ferry swatch) when populated, or its `ferryHueAlloc` placeholder
+  when empty — `buildDistinctHue()` is never called on this path anymore, so the dropped cell's colour always lands
+  verbatim at the target. Rewrote `testFerryColourDisplacement` to the new signature (no more `empty:` array) and
+  flipped its last assertion (a populated clash is now chosen for the swap, not rejected). **RESIDUAL, flagged not
+  fixed:** the DISPLACED ferry's colour change doesn't propagate to any SELECT-grid cell that may have committed
+  with that OLD colour — there's no persisted link from a ferry back to whichever cell(s) seeded it (colour capture
+  on SELECT is already one-shot-at-commit by design, per the 2026-09-12 model, not a live binding); closing that
+  fully would need a new bond and is out of scope for this fix. Also NOT touched: the broader Refactor 2
+  (`Docs/PLAN-ferry-colour-unification.md`) — one accessor across all ~12 hue-reading surfaces — which is a
+  separate, larger, still-open decision.**
 - **▶ CLOCK — GLIDE "elastic landing", in sync whether or not a step glides (2026-09-26, on `main`, on fix/clock-
   glide-sync; macOS 1120 green incl. fuzz, iOS builds; DEVICE ear owed). Paul: "when it lands on a target, whether
   it got there with or without glide, it should be in sync." Confirmed real: a plain linear GLIDE ramp only

@@ -569,13 +569,14 @@ extension BuildSceneLogic {
         for t in 0..<ferries { if let r = zones[.ferry(t)], r.contains(p) { return .ferry(t) } }
         return nil
     }
-    /// EMPTY-FERRY COLOUR REALLOCATION (Paul 2026-09-12): a SELECT cell of colour `cellHex` is overwriting populated ferry
-    /// `target` (current colour `oldHex`). If the incoming colour is the current colour of some EMPTY ferry, that empty
-    /// ferry should be re-allocated the DISPLACED colour `oldHex` (so the 8-slot palette never doubles up). Returns the
-    /// empty-ferry index to reassign (the first match, ≠ target), or nil when no reassignment is needed. Pure.
-    static func ferryColourDisplacement(target: Int, cellHex: UInt32, oldHex: UInt32, empty: [Bool], hex: [UInt32]) -> Int? {
+    /// FERRY COLOUR SWAP (Paul 2026-09-12, generalised 2026-09-27): a SELECT cell of colour `cellHex` is landing on
+    /// ferry `target` (current colour `oldHex`) — the dropped colour always wins at the target, regardless of what
+    /// was predetermined there. If `cellHex` is already worn by some OTHER ferry — an empty placeholder OR a
+    /// populated one — that ferry takes the DISPLACED colour `oldHex` instead: a true two-slot swap, so the palette
+    /// never doubles up and the target never has to fall back to an invented third colour. Returns the other
+    /// ferry's index (the first match, ≠ target), or nil when no swap is needed. Pure.
+    static func ferryColourDisplacement(target: Int, cellHex: UInt32, oldHex: UInt32, hex: [UInt32]) -> Int? {
         guard oldHex != cellHex else { return nil }
-        let n = min(empty.count, hex.count)
-        return (0..<n).first { u in u != target && empty[u] && hex[u] == cellHex }
+        return hex.indices.first { u in u != target && hex[u] == cellHex }
     }
 }
