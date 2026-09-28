@@ -199,6 +199,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PART GRID — the multi-select playhead now sweeps every active row, not just the lead (2026-09-28, on `main`,
+  `9232edf`; iOS builds). Paul: with MULTI selected, the playhead "doesn't always sweep over active cells when more
+  than one is selected in a column" — three rows selected somewhere on the part, only two ever shown. ROOT CAUSE: a
+  documented v1 shortcut from when multi-select shipped (2026-09-27) — the per-cell highlight (dimming + the white
+  selection ring) already correctly used `buildActiveRungs` for every active row, but BOTH playhead renderers
+  (`roomsPartPlayhead`, the grid's own sweep, and `roomsCardRowPlayhead`, the card/rail row selectors' mini-sweep)
+  still read only the column's single "lead" rung. Since the lead is whichever row was MOST RECENTLY toggled per
+  column, different columns can easily land on different leads — so sweeping across several multi-selected columns
+  shows only whichever rows happened to be lead somewhere, never the full set together, exactly the reported symptom.
+  FIX: both now read the same `buildActiveRungs(c)` the highlight already relied on — `roomsPartPlayhead` draws one
+  bar per active row at the column's sweep position (a `ForEach`, was a single conditional bar); `roomsCardRowPlayhead`
+  lights row `n` whenever `buildActiveRungs(c).contains(n)`, not only `r == n`. DEVICE-eye owed, as always.**
 - **▶ ARP — the embedded Euclid mask removed, superseded by the standalone processor (2026-09-28, on `main`,
   `2063381`; macOS 1146 green, iOS builds). The arp-only `arpMask*` controls (HITS K/N, GAPS REST/TIE/CHORD, ROTATE,
   the CHORD-gap stab's OCT/LEN/VEL) were fully superseded by the newer standalone EUCLID MASK processor (`mask*`,
