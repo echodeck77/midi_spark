@@ -337,6 +337,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setFocusCell(_ cell: Int) { kernel.setFocusCell(cell) }   // FOCUS note-event feed: the machine's cell
     func pollFocusNotes() -> (pitch: [UInt8], vel: [UInt8], beat: [Double], count: Int) { kernel.drainFocusNotes() }
     func pollCellSoundingVel() -> [UInt8] { kernel.pollCellSoundingVel() }   // per-cell SOUNDING velocity — the emitter fader's per-machine held floor (Paul 2026-09-07)
+    func pollCellSoundingNotes(_ cellIndex: Int) -> [UInt8] { kernel.cellSoundingNotes(cellIndex) }   // the processor editor's OUTPUT piano (Paul 2026-09-28)
     // PART ROLL (Paul 2026-09-02): the live per-part-cycle emitted-note capture for the part-page piano roll.
     func setPartRoll(active: Bool, cycleBeats: Double) { kernel.setPartRoll(active: active, cycleBeats: cycleBeats) }
     func pollPartRoll() -> [PartRollDeck.Note] { kernel.pollPartRoll() }

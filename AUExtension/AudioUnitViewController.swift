@@ -438,7 +438,8 @@ struct DiagView: View {
     @State var recvDragVel: [Int?] = [nil, nil, nil, nil]     // BUILD receiver fader: the live drag input-velocity override per door (nil = not dragging)
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1) — the MIDI-IN length bar reads this
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
-    @State var buildOutRoll: [OutMark] = []                   // §1 TRUTH STRIPS: emitted note-ons drifting in the editor's OUT mini-roll (editor-open only)
+    @State var buildOutRoll: [OutMark] = []                   // Stage Eye OUTPUT lane only now (Paul 2026-09-28: the truth strips' own OUT roll became a piano)
+    @State var buildOutHeld: [Int] = []                       // §1 TRUTH STRIPS: the focused processor instance's currently-SOUNDING output pitches (editor-open only)
     @State var buildFocusNotes: [BuildFocusNote] = []         // the focused machine cell's REAL emitted notes (+ beats) — drives the real chain-flow comets (Paul 2026-08-31)
     @State var buildStageEye = false                          // §4 STAGE EYE: the expanded 3-lane (input · mechanism · output) view is open
     @State var buildStageEyeDoor = -1                         // the door the eye watches (set on open) — drives the INPUT-onset accumulation below
@@ -1021,6 +1022,14 @@ struct DiagView: View {
                 let out = buildOutRoll.filter { mnow.timeIntervalSince($0.born) < 2.5 }   // last notes drift out + gray (never a different row's live output)
                 if out != buildOutRoll { buildOutRoll = out }
             } else if !buildOutRoll.isEmpty { buildOutRoll = [] }
+            // §1 TRUTH STRIPS — OUT piano (Paul 2026-09-28: replaces the mini-roll above): the currently-SOUNDING
+            // pitches for the focused instance's own cell — a genuine held snapshot (on until off, from the live
+            // voice pool), not an onset trail. buildOutputCellIndex mirrors buildProcessing's own cell resolution.
+            if editorOpen {
+                let idx = buildOutputCellIndex(at: mnow)
+                let held = idx >= 0 ? au.pollCellSoundingNotes(idx).map { Int($0) } : []
+                if held != buildOutHeld { buildOutHeld = held }
+            } else if !buildOutHeld.isEmpty { buildOutHeld = [] }
             // §4 STAGE EYE — INPUT roll: while the eye is open, accumulate the watched door's note ONSETS (diff the held set)
             // so the top lane scrolls what arrives. recvHeldNotes is already updated above (editor open ⊇ eye open).
             if buildStageEye, buildStageEyeDoor >= 0, buildStageEyeDoor < recvHeldNotes.count {

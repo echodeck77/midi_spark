@@ -4607,6 +4607,20 @@ extension DiagView {
         }
     }
     var buildProcessingNow: Bool { buildProcessing(at: Date()) }
+    // The SAME instance `buildProcessing` gates, but as a Snap.cells INDEX (col*Snap.rows+row) instead of a bool — the
+    // exact cell whose OUTPUT the truth strips' OUT piano polls. -1 = no live cell right now (mirrors buildProcessing's
+    // false). Chain audition always parks at column 0 (so the row IS the index); a part row that isn't this column's
+    // active rung has no cell of its own to show (matches buildProcessing returning false in the same case).
+    func buildOutputCellIndex(at now: Date) -> Int {
+        switch buildDisplayVoice {
+        case .chain: return buildChainAuditionRow ?? -1
+        case .part:
+            guard let r = buildFocusedPartRow else { return -1 }
+            let c = buildPartColumnNow(at: now)
+            return (c >= 0 && buildActiveRungs(c).contains(r)) ? c * Snap.rows + r : -1
+        case .none: return -1
+        }
+    }
     @ViewBuilder private func buildTruthStrips() -> some View {
         let door = buildFocusedPartRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver   // the FOCUSED rung's input door (Paul 2026-09-13)
         let held = (door >= 0 && door < recvHeldNotes.count) ? recvHeldNotes[door].map { Int($0) } : []
@@ -4623,11 +4637,11 @@ extension DiagView {
                 VStack(alignment: .leading, spacing: 4) {
                     buildStripLabel("IN")
                     if !held.isEmpty {
-                        buildInKeyboard(held, hue: hue).opacity(proc ? 1 : 0.4)   // BRIGHT when MIDI reaches this instance; GRAYED (notes still shown) when the playhead isn't on this rung's column (Paul 2026-09-12)
+                        buildKeyboardStrip(held, hue: hue).opacity(proc ? 1 : 0.4)   // BRIGHT when MIDI reaches this instance; GRAYED (notes still shown) when the playhead isn't on this rung's column (Paul 2026-09-12)
                     } else if inGrace {
-                        buildInKeyboard(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
+                        buildKeyboardStrip(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
                     } else {
-                        buildInKeyboard([], hue: hue).opacity(0.25)             // truly empty — a blank keyboard, no teach text (Paul 2026-09-13)
+                        buildKeyboardStrip([], hue: hue).opacity(0.25)             // truly empty — a blank keyboard, no teach text (Paul 2026-09-13)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }   // tap → the STAGE EYE (§4)
@@ -4637,7 +4651,7 @@ extension DiagView {
                         Text(outLabel).font(.system(size: 9, weight: .heavy, design: .monospaced))   // §2: what's driving OUT right now
                             .foregroundColor(proc ? hue.opacity(0.9) : buildDim).lineLimit(1)
                     }
-                    buildOutStrip(hue: hue).opacity(proc ? 1 : 0.4)        // §2: dim when the OUT isn't this rung
+                    buildKeyboardStrip(buildOutHeld, hue: hue).opacity(proc ? 1 : 0.4)   // §2: dim when the OUT isn't this rung (Paul 2026-09-28: a piano, not a roll)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }
             }
@@ -4845,55 +4859,16 @@ extension DiagView {
             return pattern == .altLo ? loPos : (cyc - 1 - loPos)
         }
     }
-    // The IN silhouette: a compact C1–C7 piano (proper white/black keys), held notes filled the machine hue.
-    private func buildInKeyboard(_ held: [Int], hue: Color) -> some View {
+    // A compact C1–C7 piano silhouette (proper white/black keys), held notes filled the machine hue. Shared by the
+    // truth strips' IN piano (input door) and OUT piano (Paul 2026-09-28: was a scrolling roll — see buildTruthStrips).
+    private func buildKeyboardStrip(_ held: [Int], hue: Color) -> some View {
         let set = Set(held)
         return pianoKeysCanvas(lo: 24, hi: 96) { midi in set.contains(midi) ? hue : nil }   // C1..C7
             .frame(height: 30)
             .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
     }
-    // The OUT mini-roll: emitted note-ons drift right→left over ~2.5s, lane = pitch, opacity by velocity + age. A "—" when
-    // idle. TOUCH-TO-DIFF (idea 24): while a control is being edited, the notes the NEW settings produce (born after the
-    // gesture started) draw bright + ringed, the OLD ones dim, and the box glows — so your edit's effect stands out live.
-    @ViewBuilder private func buildOutStrip(hue: Color) -> some View {
-        let editStart = buildEditStartedAt
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || (buildOutRoll.isEmpty && editStart == nil))) { tl in
-            let now = tl.date
-            let glow = editStart == nil ? 0.0 : max(0.0, 1 - (buildLastEditAt.map { now.timeIntervalSince($0) } ?? 1) / 0.6)
-            buildRollCanvas(buildOutRoll, hue: hue, now: now, editStart: editStart)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(hue.opacity(glow), lineWidth: 2))
-        }
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.25)))
-        .overlay(alignment: .leading) {
-            if buildOutRoll.isEmpty {
-                Text("—").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).padding(.leading, 8)
-            }
-        }
-    }
-    // Shared note-roll drawing (OUT strip + Stage Eye lanes). `editStart` non-nil ⇒ TOUCH-TO-DIFF: marks born at/after it
-    // are the NEW behaviour (bright + white ring), earlier ones dim to a "before" ghost. nil ⇒ a plain roll (input lane).
-    private func buildRollCanvas(_ marks: [OutMark], hue: Color, now: Date, editStart: Date?) -> some View {
-        let lo = 24.0, span = 72.0
-        return Canvas { ctx, size in
-            for m in marks {
-                let age = now.timeIntervalSince(m.born)
-                if age < 0 || age > 2.5 { continue }
-                let x = size.width * CGFloat(1 - age / 2.5)
-                let lane = CGFloat(min(1, max(0, (Double(m.note) - lo) / span)))
-                let y = size.height * (1 - lane)
-                let isNew = editStart.map { m.born >= $0 } ?? false
-                let base = 0.45 + 0.55 * m.vel
-                let op = (1 - age / 2.5) * (isNew ? 1.0 : base * (editStart == nil ? 1.0 : 0.35))   // dim the "before" while editing
-                let r = CGRect(x: x - 3, y: y - 2, width: 6, height: 4)
-                ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(hue.opacity(op)))
-                if isNew {
-                    ctx.stroke(Path(roundedRect: r.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 3),
-                               with: .color(.white.opacity(0.9 * (1 - age / 2.5))), lineWidth: 1)
-                }
-            }
-        }
-    }
+    // buildOutStrip/buildRollCanvas RETIRED (Paul 2026-09-28: the truth strips' OUT roll became a piano — see
+    // buildKeyboardStrip/buildOutHeld above). buildOutRoll/OutMark stay — the Stage Eye's OUTPUT lane still uses them.
 
     // ProcessorBox for a BUILD machine-template slot — mirrors DiagView.slotBox but writes MACHINE-scoped (the selected
     // machine's templateChain via withChainMachine). Our own header carries Delete/Bypass, so the box's chrome is hidden.

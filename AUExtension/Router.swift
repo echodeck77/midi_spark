@@ -1037,6 +1037,17 @@ final class Router {
         return out
     }
 
+    /// UI-poll read: the PITCHES currently sounding (active, non-silent voices) for ONE cell — a genuine held-note
+    /// snapshot (on until off, via `voices[].cellIndex`/`.active`), not an onset trail. Scanned on demand (128 voices,
+    /// no persistent state) — race-safe like `cellSoundingVelSnapshot` (a torn read is benign, one stale frame).
+    /// Feeds the processor editor's OUTPUT piano (Paul 2026-09-28: replaces the OUT mini-roll).
+    func cellSoundingNotes(_ cellIndex: Int) -> [UInt8] {
+        guard cellIndex >= 0 else { return [] }
+        var out: [UInt8] = []
+        for v in voices where v.active && !v.silent && Int(v.cellIndex) == cellIndex { out.append(v.note) }
+        return out
+    }
+
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
     /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source machine) set.
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] {

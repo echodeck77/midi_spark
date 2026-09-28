@@ -469,6 +469,7 @@ final class Kernel {
     func drainCellStrikes() -> [UInt8] { router.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity
     func drainCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { router.drainCellNotes() }   // NOTE-SWEEP: per-cell recent note-ons
     func pollCellSoundingVel() -> [UInt8] { router.cellSoundingVelSnapshot() }   // per-cell SOUNDING velocity — the emitter fader's per-machine held floor (Paul 2026-09-07)
+    func cellSoundingNotes(_ cellIndex: Int) -> [UInt8] { router.cellSoundingNotes(cellIndex) }   // the processor editor's OUTPUT piano (Paul 2026-09-28)
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
