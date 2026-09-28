@@ -199,6 +199,36 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FERRY DRAG-AND-DROP — a DEALT cell's transpose now bakes into the chain, not a machine field (2026-09-28/29, on
+  `main`, `9272248`; iOS builds; DEVICE-ear owed). Paul asked me to investigate circumstances where dragging a SELECT-
+  grid cell onto a play ferry changes its output. Traced the whole path (`buildFerryDrop` → `buildPopulateFerry-
+  FromSelect` → `buildPopulateFerry` → `buildNewTabMachine`) against what the SELECT-grid audition actually plays
+  (`buildGridSelLoadChain`, `composeSceneMeta`). **ROOT CAUSE:** a DEALT (tab 0, "RE-DEAL" bank) cell carries a per-
+  archetype REGISTER transpose (`Dice.transposeFor`: bass −12, arp/sparkle +12, pad/wild ±12 — a full octave, not a
+  rare amount). The SELECT-grid audition bakes this as a LEADING `.transpose` UTILITY PROCESSOR inserted at chain
+  position 0 (`buildGridSelLoadChain`) — so it shifts the notes BEFORE the rest of the chain runs. `buildPopulateFerry`
+  instead handed the same number to `buildNewTabMachine` as a MACHINE-LEVEL `transpose` field, which `Router.
+  machineTranspose` applies AFTER the whole chain has already composed (added directly to the chain's already-composed
+  OUTPUT — confirmed e.g. at the ECHO-tail sites, Router.swift ~2071/2100). Pre-chain vs. post-chain transpose is only
+  mathematically identical for a chain that's pitch-shift-transparent throughout; it diverges the moment any stage's
+  result depends on ABSOLUTE register rather than a relative offset (chiefly the hard 0–127 clamp, "out-of-range notes
+  drop" — Router.swift:4366 — or a chain that layers its own further octave movement on top of the archetype's own
+  ±12) — so the exact notes that come out could differ between what was previewed and what plays from the ferry, same
+  chain, same transpose number. **SCOPE:** only an UNEDITED bank-0 DEALT cell — the moment any processor-card param is
+  touched, `buildApplyChain`'s existing "EDIT = COMMIT" path (2026-09-12) bakes the chain into `buildGridSelOverride`
+  WITH the transpose already inserted as a real chain slot, so both paths agree from then on. MY LIBRARY cells (tab 1)
+  and cell-to-cell copies always carry transpose 0 (`buildGridSelChainAt`), so they were never affected. **TWO
+  THEORIES CHECKED AND RULED OUT** (traced, not assumed): a receiver/emitter "sticky" mismatch — doesn't exist, both
+  paths read `buildSelReceiver`/`buildDefaultEmitters` live and `buildPublishScene` re-resolves the audition's door on
+  every edit; a stale/un-committed live edit — already covered by the 2026-09-12 EDIT = COMMIT fix. **FIX:**
+  `buildPopulateFerry` now bakes `transpose` into `chain` the SAME way `buildGridSelLoadChain` does (a leading
+  `ProcessorSlot(type: .transpose)`, clamped ±24, inserted at index 0) before calling `buildNewTabMachine` with no
+  machine-level transpose — so the dropped ferry's chain sees exactly what the SELECT-grid preview's chain saw.
+  `buildNewTabMachine`'s `transpose:` param/machine-level path is untouched (its only other caller already passes the
+  default 0). UI-glue code (BuildPage.swift, not in the macOS test target) — no new unit test, matching every prior
+  GridUI-only fix in this file. **DEVICE-OWED:** a BASS/ARP/SPARKLE/PAD/WILD DEALT cell with a register-sensitive chain
+  (near the keyboard extremes, or with its own octave-shifting stage) actually sounding identical before/after the
+  drop now.**
 - **▶ ROOMS WORKBENCH — the machine column moved LEFT of the grid; its trash/verb-button flanks swapped (2026-09-28,
   on `main`, `1c902c6`; iOS builds; DEVICE-eye owed). Paul: move the whole right column (receiver toggles · machine ·
   emitter toggles) to the left instead of the right, and swap the LIBRARY/MUTATE/RANDOMIZE/CLEAR verb-button stack
