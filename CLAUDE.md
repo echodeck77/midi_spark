@@ -221,6 +221,36 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   grid↔machine order moved. **DEVICE-OWED:** the whole re-arranged layout on a real screen, and that dragging a chain
   box to the NOW-right-side trash still deletes it (the hit-test math is unit-untestable — GridUI has no test-target
   reach, same as every prior playhead/layout fix in this file).**
+- **▶ PROCESSOR EDITOR — the OUT piano: latency cut to ~30fps + a stop/restart freeze fix (2026-09-29, on `main`,
+  `cf14cdc`; iOS builds; NEITHER symptom is off-device reproducible — DEVICE-owed, best-effort root cause). Paul: "is
+  there a way to get rid of the latency on the piano that represents a processor's output? Also, the piano animation
+  stops working when I stop then restart the host transport." **LATENCY:** `buildOutHeld`/`buildRiffDrunkPos`
+  (`AudioUnitViewController.swift`) were polled inside the 4 Hz diagnostic `.onReceive(timer)` — a real, quantifiable
+  250ms worst-case lag behind the actual audio. Moved both to the existing ~30fps `.onReceive(meterTimer)` (the SAME
+  timer the emitter/receiver peak meters already use for "low latency", per its own standing comment) — cuts the
+  worst case to ~33ms. `cellSoundingNotes`/`riffDrunkPosAt` are plain live reads (a `voices[]` scan / array index, no
+  draining queue — confirmed in Router.swift before relying on it), so polling them 8× more often is safe, no
+  double-consumption risk. **THE FREEZE:** root-caused by reading, not an empirical device trace (neither symptom is
+  reproducible off-device) — flagged as best-effort. `buildTruthStrips` (the IN/OUT piano view) computed its OWN
+  "is MIDI reaching this instance" flag (`proc`) inside a `TimelineView(paused: animationsPaused || !dynamic)`, where
+  `dynamic` required `buildDisplayVoice == .part && d.effectivePlaying && (…playing…)` — the ONE paused-gate in the
+  whole file keyed on transport/effectivePlaying-derived state (every other `TimelineView` pause condition is either
+  app-visibility (`animationsPaused` alone) or a plain `!d.playing`, not this specific compound). A TimelineView
+  paused by transport state is a plausible spot to wedge across a stop→restart cycle, since its OWN schedule is
+  exactly the mechanism that would need to notice the restart to resume ticking — and this mechanism was BRAND NEW
+  (shipped alongside the OUT piano itself, `25dc00f`, earlier the same day), never exercised against a stop/restart
+  cycle before now. **FIX:** `proc` is now `buildOutProcessing`, a plain `@State` computed in the SAME 30fps poll as
+  `buildOutHeld` (`buildProcessing(at:)`, unconditional on `dynamic`) — `buildTruthStrips` reads it directly, no
+  TimelineView of its own anymore. A plain `@State` write always forces a re-render (no schedule to get stuck);
+  same 30fps refresh rate as before (no responsiveness regression) — and CHAIN-audition mode now gets the same fast
+  treatment `dynamic`'s part-only gate never gave it. UI-only, no test-target reach (GridUI, as always).
+  **DEVICE-OWED, both fronts:** the latency actually reads as fixed: and — the one I can't fully stand behind without
+  a device trace — that a stop→restart cycle no longer freezes the piano. If it still does, the next place to look is
+  `buildTransportEdge`'s `buildHostHalted` guard (`if buildHostHalted { …; buildPublishScene() }` on resume) — three
+  OTHER call sites (`buildSetFerryPlay`, `buildTogglePlayGrid`, `buildRequestWorkshopVoice`) can clear
+  `buildHostHalted` to false WHILE the transport is still stopped, which would skip the resume republish entirely if
+  one of them fires between a stop and the next start; ruled less likely only because it should affect audible
+  playback too (not just this display), which Paul didn't report — flagging in case the piano fix alone doesn't hold.**
 - **▶ SELECT GRID — the picked-cell recolour reverted; the selected colour moved to a border + a play badge (2026-09-28,
   on `main`, `cbb3bb2`; iOS builds; DEVICE eye owed). Paul: revert the 2026-09-27 change where a picked-but-uncommitted
   SELECT cell's notes wore the active ferry's colour — back to plain grey ink — and carry that "selected colour" on the
