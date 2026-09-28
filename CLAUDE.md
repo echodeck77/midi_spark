@@ -199,6 +199,39 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROCESSOR GRIDS — missing/wrong live sweeps fixed across 6 processors; the sweep redesigned as a pulse glow
+  (2026-09-28, on `main`, `dce2d9c`; macOS 1141 green, iOS builds; DEVICE-eye owed on the whole look). Paul: "the
+  processors have grids and many of them don't show the sweep... one important example is riff," plus "I don't like
+  the appearance of the current sweep" — asked for an audit + visual proposals first (an artifact mockup: column
+  wash · needle · pulse glow · header tick, against the honest current baseline), then picked **pulse glow**, and
+  separately said not to bother with MUTE MATRIX's own (correct, just 4Hz-choppy) sweep. **AUDIT, then FIX (each
+  reusing the ENGINE'S OWN resolve formula directly — spot-checked in Router.swift/Derivations.swift line by line
+  before writing the UI clock, this project's own standing rule, not re-derived from the UI's own comments):**
+  **RIFF** had ZERO live-sync anywhere (rank matrix, OCT lane, ACCENT/TIE/SLIDE all raw/static) — now calls
+  `riffStepAt` directly, the SAME pure function `Router.emitRiffRow` calls, across all 5 non-stateful direction
+  modes; DRUNK stays deliberately unlit — its true position is per-cell RENDER-THREAD state (`riffDrunkPos`) this UI
+  layer has no access to and can't safely replay (a transport-edge reset it can't observe), the same "can't derive a
+  truthful column, so show none" precedent RATCHET PATTERN's own unknown-driver-rate NOTE case already set, rather
+  than ship a plausible-looking wrong one. **VELOCITY** (both its lanes), **BURST** pattern, **TUTTI** pattern, and
+  **CHORDS** degree matrix all had a sweep, but it always read the generic scene grid clock despite each having its
+  own independently configurable rate/span (CHORDS' own code comment says it outright: "a chord per rate-tick, not
+  per grid column") — each now gets a bespoke `StateMatrixClock` matching its real engine math (VELOCITY mirrors
+  RATCHET's exact `driverNoteRate`-unknown guard for its NOTE clock mode; BURST's ROTATE is NEGATED relative to
+  every other processor's convention — confirmed by reading `burstSliceAt`'s `(i − rotate)`, not assumed). **MOD's
+  STEPS lane — found only while implementing, NOT in the original audit** — same gap, fixed by factoring the exact
+  period math `modLiveCC` already used into a shared `modPeriodBeatsUI`, so the lane and the existing live CC marker
+  can't disagree. **THE VISUAL:** the old thin top-edge line + faint background bump is replaced everywhere by ONE
+  shared `pulseGlowOverlay` (a breathing white stroke + glow, ~1.67Hz, independent of tempo) — always plain white,
+  never a second hue, so it reads consistently over whichever colour a processor's own cells happen to be; threaded
+  through `stateMatrixRadio`, `sliderLane` (which also gained the same `clock:`/`liveColOverride:` bespoke-clock
+  capability `stateMatrixRadio` already had), `toggleLane`, and a new `riffToggleLane` live hook. A new shared
+  `liveCol(from:at:)` factors the "clock → live column" arithmetic that was previously hand-duplicated across
+  `stateMatrixRadio` and `sliderLane` into one function, so a bespoke clock fed to two different widgets (VELOCITY's
+  lane + its BYPASS toggle) can't disagree by construction. UI-only — no engine/render change, no new tests (nothing
+  NEW to test; the engine formulas being matched are already covered, this is display code with no test-target
+  reach, same as every prior playhead fix in this file). **DEVICE-OWED:** the pulse-glow legibility/rate on a real
+  screen, RIFF's 5 direction modes actually tracking what's heard, and BURST's negated-rotate sweep against a real
+  ROTATE drag.**
 - **▶ PROCESSOR EDITOR — the OUT truth strip is now a second piano, not a scrolling roll (2026-09-28, on `main`,
   `25dc00f`; macOS 1140 green, iOS builds; DEVICE-owed). Paul: IN/OUT were mismatched widgets (IN a piano of held
   pitches, OUT a piano-ROLL of drifting recent onsets) for what's really the same idea; make OUT a second piano.
