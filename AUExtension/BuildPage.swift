@@ -1200,7 +1200,7 @@ extension DiagView {
     // The part's DEFAULT output emitters — its chosen set, or emitter A when none. A row/cell/ferry inherits this when
     // it has no emitters of its own. (refactor 2026-08-30: was `buildPartEmitters.isEmpty ? [.a] : buildPartEmitters`
     // inlined at ~10 sites.)
-    var buildDefaultEmitters: Set<Bus> { buildIONullPending ? [] : (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters) }   // Paul 2026-09-05: null-pending ⇒ NO emitter (busMask 0 → the fresh cell is SILENT until wired)
+    var buildDefaultEmitters: Set<Bus> { buildIONullPending ? [] : buildPartEmitters }   // Paul 2026-09-05: null-pending ⇒ NO emitter (busMask 0 → the fresh cell is SILENT until wired). Paul 2026-09-29: dropped the old `.isEmpty ? [.a] : …` fallback — buildPartEmitters can now ALSO be genuinely empty (every MIDI OUT toggled off deliberately); zero emitters is a real, silent, selectable state, not just the null-pending one.
     // Two BRIGHT shades that alternate each new SELECT pick (buildSelectGreyAlt flips on selection) so the machine section
     // visibly shifts even though the audition machine is always the same transient "gsAud" (Paul 2026-09-01).
     var buildSelectGrey: Color { Color(white: buildSelectGreyAlt ? 0.90 : 0.80) }
@@ -1787,22 +1787,16 @@ extension DiagView {
                     .onLongPressGesture(minimumDuration: .infinity, maximumDistance: 44,
                                         pressing: { p in if set && spring { buildSetFerryPlay(t, on: p) } }, perform: {})
                     .saturation(silenced ? 0.12 : 1).opacity(silenced ? 0.5 : 1)   // SILENCED (on but muted / solo-excluded): grey + dim so a lit-glyph ferry that makes no sound reads as such (Paul 2026-09-17)
-                // ── M / S (Paul 2026-09-09): mute · solo THIS ferry's part, below the play cell, equal height to the selector ──
-                let muted = t < buildPlayColMute.count && buildPlayColMute[t]
+                // ── SOLO (Paul 2026-09-29, replaces the earlier M/S pair — mute stays reachable via buildFerryAudible's
+                // own logic/ferry-move carry-over, just not from a button here) — same footprint the M+S pair filled,
+                // equal height to the selector.
                 let soloed = t < buildPlayColSolo.count && buildPlayColSolo[t]
-                HStack(spacing: 3) {
-                    Text("M").font(.system(size: min(11, selH * 0.5), weight: .heavy, design: .monospaced))
-                        .foregroundColor(muted ? .white : (set ? .white.opacity(0.55) : buildDim.opacity(0.5)))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(muted ? Color(hex: 0xC0392B) : Color.white.opacity(0.06)))
-                        .contentShape(Rectangle()).onTapGesture { if set { buildToggleFerryMute(t) } }
-                    Text("S").font(.system(size: min(11, selH * 0.5), weight: .heavy, design: .monospaced))
-                        .foregroundColor(soloed ? .black : (set ? .white.opacity(0.55) : buildDim.opacity(0.5)))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(soloed ? roomsAmber : Color.white.opacity(0.06)))
-                        .contentShape(Rectangle()).onTapGesture { if set { buildToggleFerrySolo(t) } }
-                }
-                .frame(height: selH)
+                Text("SOLO").font(.system(size: min(10, selH * 0.42), weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+                    .foregroundColor(soloed ? .black : (set ? .white.opacity(0.55) : buildDim.opacity(0.5)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(soloed ? roomsAmber : Color.white.opacity(0.06)))
+                    .contentShape(Rectangle()).onTapGesture { if set { buildToggleFerrySolo(t) } }
+                    .frame(height: selH)
             }
             // DRAG-AND-DROP (Paul 2026-09-12): register this ferry's frame in the shared "rooms" space (a drop target), and
             // make a POPULATED ferry a drag SOURCE (move it to another ferry, or to the machine-box trash to delete it). The
@@ -2802,22 +2796,37 @@ extension DiagView {
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every machine follows). (Paul 2026-08-18)
     @ViewBuilder private func buildEmitterToggles(castW: CGFloat) -> some View {
+        // RELIABILITY FIX (Paul 2026-08-29): read from the SAME place buildToggleBus writes — the selected row's
+        // RESOLVED emitters, else the part default. Computed ONCE (was per-chip) so the ALL-OFF check below can't
+        // disagree with what each chip shows.
+        let resolved: Set<Bus> = buildSelectedRow.map { buildRowEmittersResolved($0) } ?? buildDefaultEmitters
+        // ZERO EMITTERS (Paul 2026-09-29): now a real, selectable state — toggling every MIDI OUT off no longer
+        // snaps one back on. When it happens (and this ISN'T the separate fresh-cell null-pending invite, which
+        // already shows its own static keyline), chase-pulse all four in order to invite picking one.
+        let allOff = !buildIONullPending && resolved.isEmpty
         HStack(spacing: 4) {
-            ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
-                // RELIABILITY FIX (Paul 2026-08-29): read from the SAME place buildToggleBus writes — the selected row's
-                // RESOLVED emitters, else the part default (buildPartEmitters, [.a] when empty). Was a mismatched
-                // buildGridSelOpen branch + a `?? false` that blanked the chips when no row was selected.
-                let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) }
-                    ?? ((buildDefaultEmitters).contains(b))
-                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildIONullPending ? false : on, accent: emitterHue(b), pulse: buildIONullPending, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE machine (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
+            ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in
+                let on = resolved.contains(b)
+                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildIONullPending ? false : on, accent: emitterHue(b), pulse: buildIONullPending, chaseIndex: allOff ? i : nil, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE machine (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05); all-off ⇒ chase (Paul 2026-09-29)
             }
         }
         .frame(width: castW)
     }
+    // The IN-ORDER chase invite (Paul 2026-09-29): each toggle's own brightness sweeps A→B→C→D→…, ~1.2s per lap,
+    // tempo-independent (matches pulseGlowOverlay's own "independent of tempo" convention elsewhere in the UI) —
+    // cubing the raw cosine bump sharpens the peak so it reads as ONE toggle lit at a time, not four half-lit at
+    // once; a 0.15 floor keeps the other three visible as a dim invite rather than vanishing between their turns.
+    private func emitterChaseLevel(_ date: Date, index: Int, count: Int) -> Double {
+        guard count > 0 else { return 0 }
+        let period = 1.2
+        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+        let bump = 0.5 + 0.5 * cos(2 * .pi * (t - Double(index) / Double(count)))
+        return 0.15 + 0.85 * pow(bump, 3)
+    }
     // The shared two-line I/O chip: a small top label over a big A/B/C/D, styled like the centre column's emitter A–D
     // chips (cyan-when-on, muted idle, height 48). Used by BOTH the MIDI-IN receiver selector and the MIDI-OUT
     // emitter toggles so they read identically. (Paul 2026-08-18)
-    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, pulse: Bool = false, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
+    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, pulse: Bool = false, chaseIndex: Int? = nil, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
         // Paul 2026-08-30: HALF height (48→24) + only the LARGER line (the letter) — the small "MIDI IN"/"MIDI OUT" caption dropped.
         Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         .foregroundColor(on ? Color.black : buildDim)
@@ -2825,9 +2834,19 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature machine for MIDI OUT); idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
         // NULL invite — a STATIC cyan keyline on every unset toggle (Paul 2026-09-08: the breathe strobed; a steady mark instead).
-        .overlay(Group { if pulse {
-            RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.7), lineWidth: 2).allowsHitTesting(false)
-        } })
+        // ALL-OFF invite (Paul 2026-09-29) — a DIFFERENT, deliberately-animated "in order" chase; see emitterChaseLevel.
+        .overlay(Group {
+            if let ci = chaseIndex {
+                TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in
+                    let lvl = emitterChaseLevel(tl.date, index: ci, count: 4)
+                    RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(lvl), lineWidth: 2)
+                        .shadow(color: buildCyan.opacity(lvl * 0.6), radius: 4)
+                        .allowsHitTesting(false)
+                }
+            } else if pulse {
+                RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.7), lineWidth: 2).allowsHitTesting(false)
+            }
+        })
         .contentShape(Rectangle())
         .onTapGesture(perform: action)                                       // TAP = this row (or the part default)
         .onLongPressGesture(minimumDuration: 0.75, perform: {               // HOLD = apply to EVERY row (Paul 2026-08-19)
@@ -3101,7 +3120,8 @@ extension DiagView {
         let selR = buildSelectedRow
         var buses = wasNull ? [] : (selR.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters))
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
-        if buses.isEmpty { buses = [bus] }                        // never leave a row with no output
+        // Paul 2026-09-29: zero emitters is now a real, selectable state (was forced back to `[bus]` here) — toggling
+        // off the last one leaves the row genuinely silent; buildEmitterToggles chase-pulses the invite to pick one.
         if let r = selR, r < buildRowEmitters.count { buildRowEmitters[r] = buses }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
         else { buildPartEmitters = buses }                        // nothing on a row → the part DEFAULT
         ddStickyBuses = buses                                     // a new row inherits the LAST-USED
@@ -3126,7 +3146,7 @@ extension DiagView {
         buildClearPendingOnEdit()                                // an EMITTER change (all rows) ends the fresh-row flash (Paul 2026-08-25)
         var buses = wasNull ? [] : (buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters))
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
-        if buses.isEmpty { buses = [bus] }
+        // Paul 2026-09-29: zero emitters is now a real, selectable state (was forced back to `[bus]` here) — see buildToggleBus.
         for r in 0..<min(8, buildRowEmitters.count) { buildRowEmitters[r] = buses }
         buildPartEmitters = buses; ddStickyBuses = buses
         buildPublishScene()
@@ -3412,9 +3432,11 @@ extension DiagView {
         ((r >= 0 && r < buildRowReceiver.count) ? buildRowReceiver[r] : nil) ?? buildSelReceiver
     }
     func buildRowEmittersResolved(_ r: Int) -> Set<Bus> {
-        let own = (r >= 0 && r < buildRowEmitters.count) ? buildRowEmitters[r] : nil
-        if let own, !own.isEmpty { return own }
-        return buildDefaultEmitters
+        // Paul 2026-09-29: an explicit per-row override returns AS-IS now, including an EXPLICITLY EMPTY set (zero
+        // emitters — a real, silent state the toggles can now reach, not "unset"). nil (no override at all, the row
+        // was never touched) is still what falls through to the part default.
+        guard r >= 0, r < buildRowEmitters.count, let own = buildRowEmitters[r] else { return buildDefaultEmitters }
+        return own
     }
 
     // A machine's OWN machine (templateChain), audible slots only.
