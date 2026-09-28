@@ -133,7 +133,6 @@ enum RiffDir: String, Codable, CaseIterable {
 // ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): non-hit steps are silence (REST) or sustain the previous
 // note (TIE); the walk marches through rests (MARCH — holes) or steps only on hits (WAIT — the sequence re-spaced).
 enum ArpMaskGap: String, Codable, CaseIterable { case rest = "REST", tie = "TIE", chord = "CHORD" }   // non-hit steps: rest (silence) · tie (sustain the prior note) · chord (strike the full held chord) — Paul 2026-09-14
-enum ArpMaskWalk: String, Codable, CaseIterable { case march = "MARCH", wait = "WAIT" }
 // KILL STEP per-step MODE (Paul 2026-09-27): a step is exactly one of these four — ON (plays normally) · MUTE (the
 // downstream clock still advances through it, only its sound is suppressed — a pure per-note fold, no timing
 // change) · DROP (today's original "disabled": removed from the downstream timeline entirely, the surviving steps
@@ -281,21 +280,11 @@ struct MachineParams: Codable, Equatable {
     var arpOctDown: Bool? = false  // OCT DIRECTION (Paul 2026-08-22): laps descend the octaves (top octave first) — "up the chord, down the octaves". Orthogonal to PATTERN (which orders WITHIN a lap).
     var arpRandomAnchor: Int? = 0  // RANDOM ANCHOR (Paul 2026-08-22): 0 OFF · 1 LOW-first · 2 HIGH-first — when PATTERN=RANDOM, each cycle (a full pool×oct traversal) OPENS on the lowest/highest note, the rest shuffle (seeded).
     var arpSeed: Int? = nil        // RANDOM ONCE seed (Paul 2026-09-16): additive-Optional; PERSISTED with the machine so its fixed shuffled order survives save/load. Rolled fresh each time RANDOM ONCE is picked; unused by every other pattern.
-    // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): ONE Bjorklund K-of-N mask on the arp. K = N ⇒ OFF (today's
-    // arp byte-identical). K < N gates the line — GAPS · WALK · ROTATE. All Optional/additive; nil ⇒ untouched.
-    var arpMaskN: Int? = nil          // the mask window (steps). nil ⇒ 8
-    var arpMaskK: Int? = nil          // hits (K of N). nil ⇒ = N (OFF). K < N animates the kit in.
-    var arpMaskGap: ArpMaskGap? = nil    // non-hit steps: REST (silence) | TIE (sustain the previous note) | CHORD (strike the full held chord). nil ⇒ REST
-    var arpMaskWalk: ArpMaskWalk? = nil  // MARCH (walk advances through rests) | WAIT (walk advances only on hits). nil ⇒ MARCH
-    var arpMaskRotate: Int? = 0       // rotate the Bjorklund figure (0…N−1)
-    // GAPS = CHORD gap-stab controls (Docs/PLAN-param-lfo.md, Paul 2026-09-15) — all additive-Optional (nil ⇒ identity):
-    var arpMaskChordGate: Double? = nil   // the gap stab's own LENGTH (fraction of step); nil ⇒ follow the arp gate (byte-identical)
-    var arpMaskChordOct: Int? = nil       // the gap stab's OCTAVE shift −2…+2; nil ⇒ 0
-    var arpMaskChordVel: Double? = nil     // the gap stab's VELOCITY scale 0…1; nil ⇒ 1
-    // EUCLID MASK, standalone processor (Paul 2026-09-27): the SAME Bjorklund K-of-N idea as arpMask* above, pulled
-    // out as its own downstream FOLD stage (isModifierFoldable) so it gates ANY driver's notes, not just ARP's own —
-    // reuses euclidMaskHit/euclidMaskTieRun unchanged. WALK/WAIT is deliberately NOT here (Paul: "happy to drop wait
-    // as an option" — it needs the driver's own phase-index, which a downstream fold can't reach; see pending-tasks.md).
+    // EUCLID MASK, standalone processor (Paul 2026-09-27): the SAME Bjorklund K-of-N idea once embedded directly on
+    // the arp (now removed, Paul 2026-09-28 — fully superseded by this), pulled out as its own downstream FOLD stage
+    // (isModifierFoldable) so it gates ANY driver's notes, not just ARP's own — reuses euclidMaskHit/euclidMaskTieRun
+    // unchanged. WALK/WAIT is deliberately NOT here (Paul: "happy to drop wait as an option" — it needs the driver's
+    // own phase-index, which a downstream fold can't reach; see pending-tasks.md).
     var maskN: Int? = nil             // the mask window (steps). nil ⇒ 8
     var maskK: Int? = nil             // hits (K of N). nil ⇒ = N (OFF/pass-through)
     var maskRotate: Int? = 0          // rotate the Bjorklund figure (0…N−1)

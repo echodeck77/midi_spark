@@ -2190,25 +2190,6 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(has67(spanN: nil), "FREE: the UP arp climbs to index 2 → 67 sounds")
         XCTAssertFalse(has67(spanN: 2), "SPAN=2: the pattern re-anchors before reaching index 2 → 67 never sounds")
     }
-    // ARP EUCLID MASK — GAPS = CHORD (Paul 2026-09-14): a non-hit (gap) step strikes the FULL held chord instead of
-    // resting. A 1-of-2 mask (4 hits, 4 gaps over 8 columns) at one tick/column: REST plays 4 single arp notes; CHORD
-    // adds a 3-note chord on each of the 4 gaps → 4 + 4×3 = 16 ons.
-    func testArpEuclidGapChordStrikesTheHeldChord() {
-        func ons(_ gap: ArpMaskGap) -> Int {
-            var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
-            cs[gi].paramsA.pattern = .up; cs[gi].paramsA.phase = .free; cs[gi].paramsA.rate = .r1_8
-            cs[gi].paramsA.arpMaskK = 1; cs[gi].paramsA.arpMaskN = 2; cs[gi].paramsA.arpMaskGap = gap
-            let b = box(machines: cs) { s in
-                s.stepRate = .r1_8                                       // one tick per column
-                for col in 0..<8 { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
-            }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e)   // exactly 8 columns
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.count
-        }
-        XCTAssertEqual(ons(.rest), 4, "REST: only the 4 euclid hits play a single arp note")
-        XCTAssertEqual(ons(.chord), 16, "CHORD: the 4 hits (1 note) + 4 gaps (3-note chord) = 4 + 12")
-    }
     // CHANCE → WEIGHT/tilt RENDERED (not just the pure fn): with prob 0.5, +tilt drives the TOP note's p→1 (always
     // sounds) and the BOTTOM's p→0 (dropped); −tilt reverses. Proves the router READS chanceTilt at the hold path.
     func testChanceWeightBiasesEmittedNotes() {
@@ -5151,37 +5132,10 @@ final class RouterTests: XCTestCase {
         let dieB = notesOf(EuclidLine(target: 0, pulses: 5, steps: 8, pick: .random, die: 5))
         XCTAssertNotEqual(dieA, dieB, "a different per-line DIE reseeds the RANDOM scatter → a different note sequence")
     }
-    // ARP EUCLID MASK (SPEC-arp-euclid-mask): K=N is byte-identical (mask OFF); a 4-of-8 mask drops steps to the
-    // Bjorklund hits; TIE keeps the same ONSET count as REST (non-hits sustain, they don't add notes) but lengthens
-    // them; WAIT re-spaces the walk vs MARCH. Pure per-step Bjorklund — deterministic, off-device provable.
-    func testArpEuclidMaskGatesRestsTiesAndWalk() {
-        func run4(_ setup: (inout MachineParams) -> Void) -> (count: Int, notes: [Int], span: Int) {
-            var c = Machine(machineID: "gold", type: .arp)
-            c.paramsA.pattern = .up; c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.gate = 0.5
-            setup(&c.paramsA)
-            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
-            let ons = e.ons.filter { $0.cable == 1 }
-            var firstDur = 0
-            if let on = ons.first, let off = e.offs.first(where: { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }) {
-                firstDur = Int(off.sample - on.sample)
-            }
-            return (ons.count, ons.map { Int($0.note) }, firstDur)
-        }
-        let full = run4 { _ in }                                              // no mask
-        let explicit = run4 { $0.arpMaskN = 8; $0.arpMaskK = 8 }              // K = N ⇒ OFF
-        let rest = run4 { $0.arpMaskN = 8; $0.arpMaskK = 4 }                  // 4-of-8, MARCH, REST
-        let tie  = run4 { $0.arpMaskN = 8; $0.arpMaskK = 4; $0.arpMaskGap = .tie }
-        let wait = run4 { $0.arpMaskN = 8; $0.arpMaskK = 4; $0.arpMaskWalk = .wait }
-        XCTAssertEqual(explicit.count, full.count, "K = N is byte-identical to no mask (mask OFF)")
-        XCTAssertEqual(explicit.notes, full.notes, "K = N leaves the walk untouched")
-        XCTAssertLessThan(rest.count, full.count, "a 4-of-8 mask drops steps to the euclidean hits")
-        XCTAssertGreaterThan(rest.count, 0, "the mask still sounds its hits")
-        XCTAssertEqual(tie.count, rest.count, "TIE keeps the same ONSET count as REST — non-hits sustain, not new notes")
-        XCTAssertGreaterThan(tie.span, rest.span, "a TIE note is LONGER than a rest-gated one (it holds through the gap)")
-        XCTAssertNotEqual(wait.notes, rest.notes, "WAIT re-spaces the walk (advances only on hits) vs MARCH (holes punched)")
-    }
+    // ARP EUCLID MASK (SPEC-arp-euclid-mask) is REMOVED (Paul 2026-09-28) — fully superseded by the standalone EUCLID
+    // MASK processor; see testEuclidMaskFold*/testEuclidMask* above for the surviving REST/TIE/CHORD/ROTATE coverage.
+    // WAIT-vs-MARCH had no replacement (Paul: "happy to drop wait as an option" — a downstream fold can't reach a
+    // driver's own phase-index) and is not tested anywhere anymore.
     // PER-PARAM LFO (Docs/PLAN-param-lfo.md, Stage 1): a gate LFO oscillates ARP note LENGTH over time; a depth-0 LFO
     // resolves away (byte-identical); the stream is replay-exact (beat-derived); nothing is left stuck across the stop.
     func testGateLFOSwingsNoteLengthAndIsByteIdenticalAtZeroDepth() {
@@ -5211,59 +5165,45 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan((dLFO.max() ?? 0) - (dLFO.min() ?? 0), (dNone.first ?? 0) / 2, "the LFO swing is substantial")
         XCTAssertEqual(lfo.events, runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, from: 0.05, to: 1.0)]).events, "the LFO stream is replay-exact (beat-derived)")
     }
-    // PER-PARAM LFO (Docs/PLAN-param-lfo.md): the new ARP EUCLID-MASK targets. An arpMaskK LFO modulates the HIT COUNT (K)
-    // → the euclidean density breathes over time; depth 0 resolves away (byte-identical); nothing left stuck.
-    func testArpMaskKLFOModulatesEuclidDensity() {
-        func runLFO(_ lfos: [ParamLFO]) -> RecordingEmitter {
-            var c = Machine(machineID: "gold", type: .arp)
-            c.paramsA.pattern = .up; c.paramsA.rate = .r1_16; c.paramsA.octaves = 1; c.paramsA.gate = 0.5; c.paramsA.phase = .free
-            c.paramsA.arpMaskN = 8; c.paramsA.arpMaskK = 2                 // a BITING euclid mask (2 of 8)
-            c.paramsA.paramLFOs = lfos
-            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e); assertNothingLeftSounding(e)
-            return e
-        }
-        let none = runLFO([])
-        let zero = runLFO([ParamLFO(target: "arpMaskK")])
-        let lfo  = runLFO([ParamLFO(target: "arpMaskK", shape: .square, period: .r1, from: 2, to: 8)])   // sweep density: sparse (2 of 8) ↔ full (8 of 8)
-        XCTAssertEqual(none.events, zero.events, "an endpoint-less arpMaskK LFO resolves away → byte-identical")
-        XCTAssertGreaterThan(lfo.ons.count, none.ons.count, "an arpMaskK LFO opens the euclid density (more hits when K swings up)")
-    }
+    // The arp-embedded HIT-COUNT LFO target (arpMaskK) is REMOVED along with the arp-embedded mask (Paul 2026-09-28).
+    // FLAGGED GAP, not silently dropped: the standalone EUCLID MASK processor has NO param-LFO targets registered at
+    // all (its GridUI case never passes an `lfo:` argument) — this is a genuine capability loss, not just a rename;
+    // restoring it is a separate, real feature addition if wanted, not part of this removal.
     // EUCLID MASK GAPS = CHORD gap-stab controls (Docs/PLAN-param-lfo.md): the gap chord strike gets its own OCTAVE + VELOCITY
-    // (LENGTH mirrors the arp off formula). OCT −2 drops the stab two octaves (a pitch the arp hits never produce); VEL scales it.
-    func testEuclidChordGapStabControls() {
+    // (LENGTH mirrors the driver's own gate formula). OCT −2 drops the stab two octaves (a pitch the driver's own hits never
+    // produce); VEL scales it. Ported (Paul 2026-09-28) from the removed arp-embedded version to the standalone EUCLID MASK
+    // processor, chained after an ARP driver — same assertions, the standalone processor's own params.
+    func testEuclidMaskChordGapStabControls() {
         func run4(_ setup: (inout MachineParams) -> Void) -> RecordingEmitter {
-            var c = Machine(machineID: "gold", type: .arp)
-            c.paramsA.pattern = .up; c.paramsA.rate = .r1_8; c.paramsA.octaves = 1; c.paramsA.gate = 0.5; c.paramsA.phase = .free
-            c.paramsA.arpMaskN = 8; c.paramsA.arpMaskK = 2; c.paramsA.arpMaskGap = .chord   // 6 of 8 steps strike the held chord
-            setup(&c.paramsA)
-            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            var arp = ProcessorSlot(type: .arp); arp.params.pattern = .up; arp.params.rate = .r1_8; arp.params.octaves = 1; arp.params.gate = 0.5; arp.params.phase = .free
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 2; mask.params.maskGap = .chord   // 6 of 8 steps strike the held chord
+            setup(&mask.params)
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
             return e
         }
         let base = run4 { _ in }
         XCTAssertTrue(Set(base.ons.map { Int($0.note) }).contains(60), "default CHORD gap strikes the held chord at pitch")
         XCTAssertFalse(Set(base.ons.map { Int($0.note) }).contains(36), "no octave shift by default")
-        let shifted = run4 { $0.arpMaskChordOct = -2; $0.arpMaskChordVel = 0.4 }
+        let shifted = run4 { $0.maskChordOct = -2; $0.maskChordVel = 0.4 }
         let low = shifted.ons.filter { $0.note == 36 }    // 60 − 24 = the gap stab dropped two octaves (never an arp HIT here)
         XCTAssertFalse(low.isEmpty, "CHORD OCT −2 drops the gap stab two octaves (60 → 36)")
         XCTAssertTrue(low.allSatisfy { $0.vel == 40 }, "CHORD VEL 0.4 scales the gap stab velocity (100 → 40)")
     }
-    // CHORD LEN (arpMaskChordGate, Paul 2026-09-16): the gap stab has its OWN note length, distinct from the arp gate.
-    func testEuclidChordGapLengthIsIndependentOfArpGate() {
+    // CHORD LEN (maskChordGate): the gap stab has its OWN note length, distinct from the driver's own gate. Ported
+    // (Paul 2026-09-28) from the removed arp-embedded version to the standalone EUCLID MASK processor.
+    func testEuclidMaskChordGapLengthIsIndependentOfDriverGate() {
         func runLen(_ g: Double) -> RecordingEmitter {
-            var c = Machine(machineID: "gold", type: .arp)
-            c.paramsA.pattern = .up; c.paramsA.rate = .r1_8; c.paramsA.octaves = 1; c.paramsA.gate = 0.5; c.paramsA.phase = .free
-            c.paramsA.arpMaskN = 8; c.paramsA.arpMaskK = 2; c.paramsA.arpMaskGap = .chord
-            c.paramsA.arpMaskChordGate = g
-            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            var arp = ProcessorSlot(type: .arp); arp.params.pattern = .up; arp.params.rate = .r1_8; arp.params.octaves = 1; arp.params.gate = 0.5; arp.params.phase = .free
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 2; mask.params.maskGap = .chord
+            mask.params.maskChordGate = g
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
             return e
         }
-        XCTAssertNotEqual(runLen(1.0).events, runLen(0.1).events, "CHORD LEN changes the gap-stab note length (it's not just the arp gate)")
+        XCTAssertNotEqual(runLen(1.0).events, runLen(0.1).events, "CHORD LEN changes the gap-stab note length (it's not just the driver's own gate)")
     }
     // arpRate LFO wiring (Paul 2026-09-16): the rate sweeps over the ALLOWED-family ladder; the IGNORE mask is honoured.
     func testArpRateLFOSweepsAndHonoursIgnore() {

@@ -4970,11 +4970,6 @@ final class Router {
         // tick/beat leaves RETRIG unchanged (it already resets per column) and re-anchors FREE per span window.
         let arpSpanBeats = machine.a.arpSpanN > 0 ? spanLadderBeats(machine.a.arpSpanN, S: S, row: cycleBeats) : 0
         if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = arpBeats }
-        // EUCLID MASK (SPEC-arp-euclid-mask): K == N ⇒ OFF (byte-identical). K < N gates the walk per the Bjorklund
-        // mask — REST/TIE on non-hits, MARCH (walk through rests) / WAIT (advance on hits), ROTATE. Resolved once.
-        let mN = machine.a.arpMaskN, mK = machine.a.arpMaskK, mRot = machine.a.arpMaskRotate
-        let mActive = mK < mN, mTie = machine.a.arpMaskGap == .tie, mWait = machine.a.arpMaskWalk == .wait
-        let mChordGap = machine.a.arpMaskGap == .chord   // GAPS = CHORD (Paul 2026-09-14): a non-hit step strikes the full held/composed chord instead of resting
         // RANDOM is FREE-running (Paul 2026-08-25 fix): a random walk gains nothing from RETRIG's per-column reset — it just
         // re-anchors + repeats the same shuffle every column (so RANDOM ANCHOR pedalled the low note instead of "anchor then
         // shuffle until the next pool cycle"). Using the free `tick` makes the anchor fire once per pool traversal + the
@@ -4985,46 +4980,6 @@ final class Router {
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded())),
                      clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cycleBeats) { tick, mTickBeat, onTime, offTime in
-            let onT = onTime; var offT = offTime; var maskWalk: Int64? = nil
-            if mActive {
-                let g = Int((mTickBeat / arpBeats).rounded(.down))          // global tick index (replay-exact)
-                if !euclidMaskHit(g, k: mK, n: mN, rotate: mRot) {           // GAP step
-                    if mChordGap {                                          // GAPS = CHORD: strike the WHOLE held/composed chord in the gap
-                        // The gap stab's own LENGTH · OCTAVE · VELOCITY (Docs/PLAN-param-lfo.md). chordGate mirrors the arp's
-                        // off formula (min(m + sub·gate, colEnd)) → byte-identical when it equals the arp gate; oct 0 / vel 1 = identity.
-                        let cOct = machine.a.arpMaskChordOct * 12
-                        let cVelScale = machine.a.arpMaskChordVel
-                        let mOffChord = min(mTickBeat + arpBeats * machine.a.arpMaskChordGate, columnStart(mTickBeat, S) + S)
-                        let offC = sampleOf(musical: mOffChord, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                        func striker(_ base: Int, _ vel: UInt8) {
-                            let nv = base + transpose + cOct
-                            guard nv >= 0 && nv <= 127 else { return }
-                            let cvel = UInt8(max(1, min(127, Int((Double(vel) * cVelScale).rounded()))))
-                            storeArtic(row: r, on: onTime, off: offC, note: UInt8(nv), beat: mTickBeat)
-                            guard emits else { return }
-                            if chainDriver >= 0 {
-                                emitDriverNote(nv, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offC,
-                                               windowEnd: windowEnd, velocity: cvel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                            } else {
-                                emitChop(nv, cell: cell, bm: bm, onSample: onTime, offSample: offC, windowEnd: windowEnd,
-                                         velocity: cvel, m: mTickBeat, S: S, out: out, diag: &diag)
-                            }
-                        }
-                        if chainDriver >= 0 {   // [X → ARP]: the composed upstream set (OMNI), same source the arp walk reads
-                            composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
-                            for k in 0..<chainScratch.srcCount(filter: 0) { let b = Int(chainScratch.srcAscending(k, filter: 0)); striker(b, max(1, chainScratch.velocity(UInt8(b)))) }
-                        } else {
-                            for k in 0..<pool.srcCount(for: cell) { let b = Int(pool.srcAscending(k, for: cell)); striker(b, max(1, pool.velocity(UInt8(b)))) }
-                        }
-                    }
-                    return                                                  // REST/TIE ⇒ silent here (TIE sustains via the prior hit's extended off); CHORD already struck
-                }
-                if mWait { maskWalk = Int64(euclidMaskHitsBefore(g, k: mK, n: mN, rotate: mRot)) }   // WAIT: the walk advances only on hits
-                if mTie {                                                    // TIE: hold this hit through the following non-hit steps (gated)
-                    let ties = euclidMaskTieRun(g, k: mK, n: mN, rotate: mRot)
-                    offT = onTime + Int64((Double(ties + 1) * arpBeats * gate / beatsPerSample).rounded())
-                }
-            }
             // SPAN re-anchor: shift the tick + beat back to the span-window origin so the pattern re-syncs to index 0
             // every N columns (spanN 0 ⇒ no shift ⇒ byte-identical). RETRIG cancels out (its per-column reset is
             // preserved); FREE counts from the span origin; RANDOM re-shuffles from the span origin.
@@ -5034,9 +4989,9 @@ final class Router {
                 pTick = tick - Int64((origin / arpBeats).rounded())
                 pBeat = mTickBeat - origin
             }
-            let pIdx = maskWalk ?? (arpIsRandom ? pTick : phaseIndex(tick: pTick, mTickBeat: pBeat, arpBeats: arpBeats, S: S,
+            let pIdx = arpIsRandom ? pTick : phaseIndex(tick: pTick, mTickBeat: pBeat, arpBeats: arpBeats, S: S,
                                   cycleBeats: cycleBeats, phase: machine.a.phase,
-                                  runStartColumn: cell.runStartColumn))
+                                  runStartColumn: cell.runStartColumn)
             let base: Int
             let srcVel: UInt8   // velocity inherited from the picked source note (user 2026-08-09)
             if chainDriver >= 0 {
@@ -5057,14 +5012,14 @@ final class Router {
             }
             let noteValue = base + transpose
             guard noteValue >= 0 && noteValue <= 127 else { return }
-            storeArtic(row: r, on: onT, off: offT, note: UInt8(noteValue), beat: mTickBeat)
+            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
             if emits {
                 // §cell-edit F CHOP + the chain's post-driver stages fold onto each arp note (e.g. a downstream passgate).
                 if chainDriver >= 0 {
-                    emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT,
+                    emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
                                    windowEnd: windowEnd, velocity: srcVel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else {
-                    emitChop(noteValue, cell: cell, bm: bm, onSample: onT, offSample: offT, windowEnd: windowEnd,
+                    emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                              velocity: srcVel, m: mTickBeat, S: S, out: out, diag: &diag)
                 }
             }

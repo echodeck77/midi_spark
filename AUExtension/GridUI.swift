@@ -438,27 +438,6 @@ struct ProcessorBox: View {
             // SPAN (Paul 2026-09-13, replaces FIT): the universal span-ladder — FREE runs the global grid, N re-anchors
             // the pattern to index 0 every N columns (polymeter), same behaviour as riff/euclid/etc.
             frameSpan(p.arpSpanN ?? 0, free: true) { v in setParam { $0.arpSpanN = v } }
-            // EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26): HITS ◀K▶ of ◀N▶. K < N gates the line and reveals the
-            // kit — GAPS (rest/tie/chord) · WALK (march/wait) · ROTATE. (Defaults-recede dimming removed — Paul 2026-09-14.)
-            let mN = max(2, min(16, p.arpMaskN ?? 8))
-            let mK = max(1, min(mN, p.arpMaskK ?? mN))
-            field("EUCLID MASK — HITS  ◀K▶ of ◀N▶  (K < N gates the line)", lfo: "arpMaskK") {   // ∿ LFO modulates the HIT COUNT K (density)
-                HStack(spacing: 10) {
-                    numPair(mK, 1...mN) { v in setParam { $0.arpMaskK = v; if $0.arpMaskN == nil { $0.arpMaskN = mN } } }
-                    Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    numPair(mN, 2...16) { v in setParam { $0.arpMaskN = v; if let k = $0.arpMaskK, k > v { $0.arpMaskK = v } } }
-                }
-            }
-            if mK < mN {                                                    // the kit animates in only when the mask bites
-                row2({ field("GAPS", \.arpMaskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.arpMaskGap ?? .rest).rawValue) { i in setParam { $0.arpMaskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
-                     { field("WALK", \.arpMaskWalk) { seg(["MARCH", "WAIT"], sel: (p.arpMaskWalk ?? .march) == .wait ? "WAIT" : "MARCH") { i in setParam { $0.arpMaskWalk = (i == 1 ? .wait : .march) } } } })
-                field("ROTATE", \.arpMaskRotate, lfo: "arpMaskRotate") { numPair(p.arpMaskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.arpMaskRotate = v } } }
-                if (p.arpMaskGap ?? .rest) == .chord {   // GAPS = CHORD gap-stab controls: give the chord strike its own OCTAVE · LENGTH · VELOCITY (Docs/PLAN-param-lfo.md)
-                    row2({ field("CHORD OCT", \.arpMaskChordOct, lfo: "arpMaskChordOct") { numPair(p.arpMaskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.arpMaskChordOct = v } } } },
-                         { field("CHORD LEN  \(Int((p.arpMaskChordGate ?? (p.gate ?? 0.6)) * 100))%", \.arpMaskChordGate, lfo: "arpMaskChordGate") { slider(bind(p.arpMaskChordGate ?? (p.gate ?? 0.6)) { v in setParam { $0.arpMaskChordGate = v } }, in: 0.05...1) } })
-                    field("CHORD VEL  \(Int((p.arpMaskChordVel ?? 1) * 100))%", \.arpMaskChordVel) { slider(bind(p.arpMaskChordVel ?? 1) { v in setParam { $0.arpMaskChordVel = v } }, in: 0...1) }
-                }
-            }
         })
         case .ratchet: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
             let rmode = p.rtcMode ?? .all      // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
@@ -1357,10 +1336,10 @@ struct ProcessorBox: View {
             Text(avoidBlurb(input: refIsInput, letter: letters[idx], lock: md == .lock, clash: clashSemis, move: (p.avoidAction ?? .remove) == .move))
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         })
-        case .euclidMask: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // DYNAMICS (Paul 2026-09-27): the
-            // arp-only euclid mask pulled out as its own downstream FOLD — gates ANY driver's notes with a K-of-N
-            // Bjorklund pattern. Same GAPS/ROTATE/CHORD-stab math as the ARP-embedded mask (arpMask*); WALK/WAIT is
-            // dropped here (it needs the driver's own phase-index, which a downstream fold can't reach).
+        case .euclidMask: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // DYNAMICS (Paul 2026-09-27): a
+            // downstream FOLD stage — gates ANY driver's notes with a K-of-N Bjorklund pattern (GAPS · ROTATE ·
+            // CHORD-stab). WALK/WAIT is dropped here (it needs the driver's own phase-index, which a downstream fold
+            // can't reach).
             let mN = max(2, min(16, p.maskN ?? 8))
             let mK = max(1, min(mN, p.maskK ?? mN))
             field("HITS  ◀K▶ of ◀N▶  (K < N gates the rhythm; K = N passes through)", \.maskK) {
@@ -1827,8 +1806,6 @@ struct ProcessorBox: View {
         switch target {
         case "gate": return "LENGTH"; case "rtcChance": return "CHANCE"
         case "arpRate": return "RATE"
-        case "arpMaskK": return "HITS"; case "arpMaskRotate": return "ROTATE"
-        case "arpMaskChordOct": return "CHORD OCT"; case "arpMaskChordGate": return "CHORD LEN"
         default: return target.uppercased()
         }
     }
@@ -1954,12 +1931,6 @@ struct ProcessorBox: View {
             TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !clockPlaying)) { tl in   // the live swept rung, on BOTH FROM and TO
                 lfoRateGrid(sel: max(0, min(17, Int(value.rounded()))), ignore: lfo.rateIgnoreResolved, live: lfoLiveRateIndex(lfo, date: tl.date), set)
             }
-        case "arpMaskK":
-            numPair(max(1, min(16, Int(value.rounded()))), 1...16) { set(Double($0)) }
-        case "arpMaskRotate":
-            numPair(max(0, min(15, Int(value.rounded()))), 0...15, wrap: true) { set(Double($0)) }
-        case "arpMaskChordOct":
-            numPair(max(-2, min(2, Int(value.rounded()))), -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { set(Double($0)) }
         default:
             lfoSlider(value, (target == "rtcChance") ? 0...1 : 0.05...1, lfo: lfo, set)   // gate / chord-len / chance
         }
@@ -2097,8 +2068,6 @@ struct ProcessorBox: View {
     private func lfoFmt(_ target: String, _ v: Double) -> String {
         switch target {
         case "arpRate":         return ArpRate.allCases[max(0, min(17, Int(v.rounded())))].rawValue
-        case "arpMaskChordOct": let n = Int(v.rounded()); return n > 0 ? "+\(n)" : "\(n)"
-        case "arpMaskK", "arpMaskRotate": return "\(Int(v.rounded()))"
         default:                return "\(Int((v * 100).rounded()))%"
         }
     }
@@ -2106,10 +2075,6 @@ struct ProcessorBox: View {
     private func lfoSeedFrom(_ target: String) -> Double {
         switch target {
         case "arpRate":            return Double(ArpRate.allCases.firstIndex(of: p.rate ?? .r1_16) ?? 3)
-        case "arpMaskK":           return Double(max(1, min(16, p.arpMaskK ?? (p.arpMaskN ?? 8))))
-        case "arpMaskRotate":      return Double(max(0, min(15, p.arpMaskRotate ?? 0)))
-        case "arpMaskChordOct":    return Double(max(-2, min(2, p.arpMaskChordOct ?? 0)))
-        case "arpMaskChordGate":   return p.arpMaskChordGate ?? (p.gate ?? 0.6)
         case "rtcChance":          return p.rtcChance ?? 0.5
         default:                   return p.gate ?? 0.6
         }
@@ -2121,10 +2086,6 @@ struct ProcessorBox: View {
     private func lfoSetBase(_ target: String, _ v: Double) {
         switch target {
         case "arpRate":            setParam { $0.rate = ArpRate.allCases[max(0, min(17, Int(v.rounded())))] }
-        case "arpMaskK":           setParam { $0.arpMaskK = max(1, min(16, Int(v.rounded()))) }
-        case "arpMaskRotate":      setParam { $0.arpMaskRotate = max(0, min(15, Int(v.rounded()))) }
-        case "arpMaskChordOct":    setParam { $0.arpMaskChordOct = max(-2, min(2, Int(v.rounded()))) }
-        case "arpMaskChordGate":   setParam { $0.arpMaskChordGate = v }
         case "rtcChance":          setParam { $0.rtcChance = v }
         default:                   setParam { $0.gate = v }
         }
