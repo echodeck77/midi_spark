@@ -1936,6 +1936,47 @@ func riffDrunkDelta(tick: Int64, bias: Double, seed: UInt64) -> Int {
     return u < wLo ? -1 : (u < wLo + 1 ? 0 : 1)
 }
 
+/// RIFF TIE LOOKAHEAD FIX (Paul 2026-09-28): the stencil step a non-DRUNK direction mode plays at absolute tick
+/// `raw` — the SAME formula `emitRiffRow` uses for the CURRENT tick, factored out so a caller can also ask about
+/// `raw+1`, `raw+2`, … and be guaranteed to agree with what will actually play (one formula, not two that could
+/// drift — the RATCHET/DEST class of bug this project keeps finding when a lookup and its lookahead diverge).
+/// RIFF's TIE run used to always check `step+1, step+2, …` (array-index order) regardless of which way the
+/// playhead was actually moving — already wrong for REVERSE (whose true next step is `step-1`), and meaningless
+/// for RANDOM/PENDULUM/PING-PONG once direction stopped being a fixed ±1. This function is pure in `raw`, so
+/// "what plays next" is just this same formula one tick further on — exact, not a guess. DRUNK isn't a function
+/// of `raw` (it's stateful, keyed on `tick`) — see `riffDrunkPeek` below for that mode's lookahead instead.
+@inline(__always)
+func riffStepAt(_ dir: RiffDir, raw: Int, steps: Int, seed: UInt64) -> Int {
+    let fwd = ((raw % steps) + steps) % steps
+    switch dir {
+    case .forward:  return fwd
+    case .reverse:  return steps - 1 - fwd
+    case .pendulum: let per = max(1, 2 * (steps - 1)); let t = ((raw % per) + per) % per; return t < steps ? t : per - t
+    case .pingpong: let per = 2 * steps; let t = ((raw % per) + per) % per; return t < steps ? t : per - 1 - t
+    case .random:   return Int(splitmix64Mix(seed &+ UInt64(bitPattern: Int64(raw))) % UInt64(steps))
+    case .drunk:    return fwd   // never actually reached — the caller branches to riffDrunkPeek before calling this; kept exhaustive rather than force-unwrapped
+    }
+}
+
+/// RIFF TIE LOOKAHEAD FIX, the DRUNK case: a NON-MUTATING simulation of the walk `aheadBy` ticks past `fromPos`
+/// (the already-resolved CURRENT position) — lets TIE ask "what does DRUNK actually play next" without touching
+/// the real persisted walk state (`riffDrunkPos`/`riffDrunkLastTick` in Router.swift). Exact, not approximate:
+/// since `riffDrunkDelta` is itself a pure function of `tick`, replaying it for `tick+1…tick+aheadBy` from the
+/// walk's own current position reproduces PRECISELY the steps the real walk will take when it actually reaches
+/// those ticks (holding bias/steps/seed constant, which TIE's own short lookahead window always does in practice).
+@inline(__always)
+func riffDrunkPeek(fromPos: Int, tick: Int64, aheadBy: Int, steps: Int, bias: Double, seed: UInt64) -> Int {
+    var pos = fromPos
+    guard aheadBy > 0 else { return pos }
+    for k in 1...aheadBy {
+        var np = pos + riffDrunkDelta(tick: tick &+ Int64(k), bias: bias, seed: seed)
+        if np < 0 { np = -np }
+        if np > steps - 1 { np = 2 * (steps - 1) - np }
+        pos = max(0, min(steps - 1, np))
+    }
+    return pos
+}
+
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
 
 /// Whether a step is TUTTI (the whole set passes) vs SOLO (one note). DETERMINISTIC per STEP — a pure hash of the

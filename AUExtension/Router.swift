@@ -4867,16 +4867,13 @@ final class Router {
             // the span constant — no accumulated phase), so replay-exact.
             let phaseBeat = p.riffSpanN > 0 ? (mTickBeat - columnStart(mTickBeat, spanLadderBeats(p.riffSpanN, S: S, row: cycleBeats))) : mTickBeat
             let raw = Int((phaseBeat / riffBeats).rounded(.down))
-            let fwd = ((raw % steps) + steps) % steps
-            let step: Int                                          // DIRECTION (Paul 2026-09-16, widened to 6 modes Paul 2026-09-28): the stencil playback order
-            switch p.riffDir {
-            case .forward:  step = fwd
-            case .reverse:  step = steps - 1 - fwd
-            case .pendulum: let per = max(1, 2 * (steps - 1)); let t = ((raw % per) + per) % per; step = t < steps ? t : per - t   // bounces, each end ONCE (this was the old .pingpong math — same formula, corrected name)
-            case .pingpong: let per = 2 * steps; let t = ((raw % per) + per) % per; step = t < steps ? t : per - 1 - t             // bounces, each end TWICE — the genuinely new mode
-            case .random:   step = Int(splitmix64Mix(p.riffDirSeed &+ UInt64(bitPattern: Int64(raw))) % UInt64(steps))            // pure fn of (seed, raw) — stateless, re-syncs at SPAN boundaries like every mode above
-            case .drunk:    step = riffDrunkStep(ci: effColumn * Snap.rows + r, tick: tick, steps: steps, bias: p.riffDirBias, seed: p.riffDirSeed)   // keyed on `tick`, NOT `raw` — SPAN-oblivious by construction; the one stateful mode (see riffDrunkPos)
-            }
+            // DIRECTION (Paul 2026-09-16, widened to 6 modes Paul 2026-09-28): the stencil playback order. DRUNK is
+            // the one stateful mode (keyed on `tick`, NOT `raw` — SPAN-oblivious by construction, see riffDrunkPos);
+            // every other mode is `riffStepAt`, the SAME pure formula the TIE lookahead below calls for `raw+k` —
+            // one formula, so the current step and "what plays next" can never disagree.
+            let step: Int = p.riffDir == .drunk
+                ? riffDrunkStep(ci: effColumn * Snap.rows + r, tick: tick, steps: steps, bias: p.riffDirBias, seed: p.riffDirSeed)
+                : riffStepAt(p.riffDir, raw: raw, steps: steps, seed: p.riffDirSeed)
             if step < p.riffTie.count && p.riffTie[step] { return }   // §5 TIE — no new attack; the striking step's off was EXTENDED to cover this step (a held ⌒)
             // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask bits) — a chord that follows the held chord;
             // MONO strikes the single riffRanks[step]. Both share the per-step §5 modifiers.
@@ -4886,10 +4883,17 @@ final class Router {
             let oct = step < p.riffOct.count ? p.riffOct[step] : 0        // §5 OCT lane (−1·0·+1) — per step (all ranks)
             let accent = step < p.riffAccent.count ? p.riffAccent[step] : 0   // §5 ACCENT lane
             let vel = clampVel(baseVel + accent)
-            // §5 TIE: extend the off through the following TIE steps (they skip their own strike above).
+            // §5 TIE: extend the off through the following TIE steps (they skip their own strike above). DIRECTION-
+            // AWARE lookahead (Paul 2026-09-28, fixing a bug that predates the 6-mode widening): "the following
+            // step" means whatever this RIFF actually plays next — `step+1` only for FORWARD; REVERSE's true next
+            // step is `step-1`, and PENDULUM/PING-PONG alternate depending which leg of the bounce we're on. Asking
+            // `riffStepAt`/`riffDrunkPeek` for `raw+k`/`tick+k` (the SAME formula the current step above just used,
+            // one tick further on) is exact for every mode, not a direction-specific patch bolted onto FORWARD's.
             var tieRun = 0
             while tieRun < steps {
-                let ss = (((step + 1 + tieRun) % steps) + steps) % steps
+                let ss = p.riffDir == .drunk
+                    ? riffDrunkPeek(fromPos: step, tick: tick, aheadBy: tieRun + 1, steps: steps, bias: p.riffDirBias, seed: p.riffDirSeed)
+                    : riffStepAt(p.riffDir, raw: raw + tieRun + 1, steps: steps, seed: p.riffDirSeed)
                 if ss < p.riffTie.count && p.riffTie[ss] { tieRun += 1 } else { break }
             }
             var effOff = offTime + Int64((Double(tieRun) * riffBeats / beatsPerSample).rounded())

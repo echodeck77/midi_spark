@@ -5057,6 +5057,25 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertLessThan(onCount(tie: true), onCount(tie: false), "a TIE step suppresses its own attack — fewer note-ons")
     }
+    // §5 TIE, DIRECTION-AWARE (Paul 2026-09-28): regression for a bug predating the 6-mode DIRECTION widening — the
+    // TIE lookahead always checked array-index `step+1` regardless of playback direction, so a tie painted on
+    // REVERSE's TRUE next-played step (step-1, not step+1) was silently ignored. n=4 REVERSE plays step 3,2,1,0,
+    // repeating — tying step 2 (what REVERSE actually plays right after step 3) must suppress step 2's own attack;
+    // the pre-fix bug would have checked step 0 instead (found no tie there) and struck step 2 regardless.
+    func testRiffTieRespectsReverseDirection() {
+        func onCount(tie: Bool) -> Int {
+            var c = Machine(machineID: "gold", type: .riff)
+            c.paramsA.riffSteps = 4; c.paramsA.riffRate = .r1_4; c.paramsA.riffWrap = .fold
+            c.paramsA.riffRanks = [1, 2, 3, 4]; c.paramsA.riffDir = .reverse
+            if tie { c.paramsA.riffTie = [false, false, true, false] }
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 62, 64, 66]), beats: 4, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertLessThan(onCount(tie: true), onCount(tie: false),
+                           "tying REVERSE's true next-played step (step 2, reached right after step 3) suppresses its attack")
+    }
     // §5 SLIDE: a slide step arms the synth portamento (CC65=127); the next non-slide step clears it (CC65=0).
     func testRiffSlideArmsAndClearsPortamento() {
         var c = Machine(machineID: "gold", type: .riff)
