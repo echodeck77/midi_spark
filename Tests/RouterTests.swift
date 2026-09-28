@@ -492,7 +492,7 @@ final class RouterTests: XCTestCase {
     // makes 15 of 16 ticks chord-stabs and only 1 the arp's own hit (which may land on any chord tone) — tolerate
     // that ONE non-mask-controlled note when checking pitch content.
     func testEuclidMaskChordPickStrikesOnlyTheRequestedNote() {
-        func notes(_ pick: EuclidPick) -> [UInt8] {
+        func notes(_ pick: MaskChordPick) -> [UInt8] {
             var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
             var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 16; mask.params.maskK = 1; mask.params.maskGap = .chord; mask.params.maskChordPick = pick
             let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
@@ -509,6 +509,30 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(all.count, low.count, "ALL strikes the whole 3-note chord per gap — far more note-ons than LOW's one-per-gap")
         let cycle = notes(.cycle)
         XCTAssertGreaterThan(Set(cycle).count, 1, "CYCLE rotates through the chord — visits more than one distinct pitch across many gaps")
+        // BOTTOM2/TOP2 (Paul 2026-09-28): the two lowest/highest chord tones, twice as many note-ons per gap as LOW/HIGH.
+        let bottom2 = notes(.bottom2)
+        XCTAssertLessThanOrEqual(bottom2.filter { $0 != 60 && $0 != 64 }.count, 1, "BOTTOM2 strikes only the two lowest chord tones on every gap (at most the one arp hit differs)")
+        XCTAssertTrue(Set(bottom2).isSuperset(of: [60, 64]), "BOTTOM2 actually strikes BOTH lowest tones, not just one")
+        XCTAssertGreaterThan(bottom2.count, low.count, "BOTTOM2 fires twice per gap — more note-ons than LOW's once per gap")
+        let top2 = notes(.top2)
+        XCTAssertLessThanOrEqual(top2.filter { $0 != 64 && $0 != 67 }.count, 1, "TOP2 strikes only the two highest chord tones on every gap (at most the one arp hit differs)")
+        XCTAssertTrue(Set(top2).isSuperset(of: [64, 67]), "TOP2 actually strikes BOTH highest tones, not just one")
+        XCTAssertGreaterThan(top2.count, high.count, "TOP2 fires twice per gap — more note-ons than HIGH's once per gap")
+    }
+    // BOTTOM2/TOP2 must degrade gracefully (one note, not a crash or an out-of-range read) against a single-note
+    // "chord" — this is exactly the kind of off-by-one a ClosedRange(lo > hi) would trap on if unguarded.
+    func testEuclidMaskChordPickBottomTopTwoCollapseToOneNoteOnASingleHeldNote() {
+        func notes(_ pick: MaskChordPick) -> [UInt8] {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 4; mask.params.maskGap = .chord; mask.params.maskChordPick = pick
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.note }
+        }
+        XCTAssertTrue(notes(.bottom2).allSatisfy { $0 == 60 }, "BOTTOM2 against a single held note is just that one note, no crash")
+        XCTAssertTrue(notes(.top2).allSatisfy { $0 == 60 }, "TOP2 against a single held note is just that one note, no crash")
     }
     // A chain whose ONLY driver is a fold-ratchet (COIN pass-through) must still DRIVE: chainDriverIndex skips isRatchetFold
     // but falls back to the last driver when there's no non-fold driver, so a lone [RATCHET COIN rtcFold] generates.

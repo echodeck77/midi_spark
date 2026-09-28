@@ -591,7 +591,7 @@ enum SnapshotBuilder {
         out.maskAccentRotate = (((p.maskAccentRotate ?? 0) % out.maskAccentN) + out.maskAccentN) % out.maskAccentN
         out.maskAccentAmount = clamp(p.maskAccentAmount ?? 20, 0, 127)
         out.maskFillEvery = max(0, p.maskFillEvery ?? 0)
-        out.maskChordPick = p.maskChordPick ?? .all
+        out.maskChordPick = p.maskChordPick ?? .all   // MaskChordPick (Paul 2026-09-28) — a dedicated enum, not EuclidPick
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
             out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),

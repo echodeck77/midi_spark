@@ -1373,9 +1373,9 @@ struct ProcessorBox: View {
                     row2({ field("CHORD OCT", \.maskChordOct) { numPair(p.maskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.maskChordOct = v } } } },
                          { field("CHORD LEN  \(Int((p.maskChordGate ?? 0.6) * 100))%", \.maskChordGate) { slider(bind(p.maskChordGate ?? 0.6) { v in setParam { $0.maskChordGate = v } }, in: 0.05...1) } })
                     field("CHORD VEL  \(Int((p.maskChordVel ?? 1) * 100))%", \.maskChordVel) { slider(bind(p.maskChordVel ?? 1) { v in setParam { $0.maskChordVel = v } }, in: 0...1) }
-                    // CHORD PICK (Paul 2026-09-28): which note(s) of the composed chord a gap strikes — reuses
-                    // EUCLID's own PICK vocabulary. ALL = today's whole-chord stab.
-                    field("CHORD PICK", \.maskChordPick) { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.maskChordPick ?? .all).rawValue) { i in setParam { $0.maskChordPick = EuclidPick.allCases[i] } } }
+                    // CHORD PICK (Paul 2026-09-28): which note(s) of the composed chord a gap strikes. ALL = today's
+                    // whole-chord stab; BOT2/TOP2 strike the two lowest/highest tones.
+                    field("CHORD PICK", \.maskChordPick) { seg(MaskChordPick.allCases.map(\.rawValue), sel: (p.maskChordPick ?? .all).rawValue) { i in setParam { $0.maskChordPick = MaskChordPick.allCases[i] } } }
                 }
             }
             // SPAN (Paul 2026-09-28): re-anchor the K-of-N pattern to ordinal 0 every N notes — the same universal

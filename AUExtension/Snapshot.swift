@@ -139,7 +139,7 @@ struct SnapParams {
     var maskAccentRotate: Int = 0
     var maskAccentAmount: Int = 20
     var maskFillEvery: Int = 0
-    var maskChordPick: EuclidPick = .all
+    var maskChordPick: MaskChordPick = .all
     var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
     var harmUnits: PitchUnits = .semitones              // §2: harmonize intervals in semitones or pool degrees
     var utilTransposeUnits: PitchUnits = .semitones     // §2: TRANSPOSE in semitones or pool degrees

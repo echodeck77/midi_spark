@@ -318,7 +318,7 @@ final class FuzzTests: XCTestCase {
         p.maskAccentRotate = r.int(an)
         p.maskAccentAmount = r.int(61)
         p.maskFillEvery = r.chance(0.3) ? 1 + r.int(4) : 0
-        p.maskChordPick = EuclidPick.allCases[r.int(EuclidPick.allCases.count)]
+        p.maskChordPick = MaskChordPick.allCases[r.int(MaskChordPick.allCases.count)]
     }
     private func applyRandomRtc(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.rtcMode = RatchetMode.allCases[r.int(RatchetMode.allCases.count)]   // ALL · COIN · PATTERN

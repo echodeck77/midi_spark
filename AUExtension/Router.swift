@@ -4526,7 +4526,7 @@ final class Router {
         // driver's own composeChainSet call just before it invoked this function — no separate pool needed here).
         var maskDropAll = false
         var maskChordP: SnapParams? = nil
-        var maskChordPickIdx: Int? = nil   // nil ⇒ ALL (strike everyone); else one specific chainScratch index
+        var maskChordPickRange: (lo: Int, hi: Int)? = nil   // nil ⇒ ALL (strike everyone); else an INCLUSIVE range of chainScratch indices (BOTTOM2/TOP2 span two; everything else collapses to lo==hi, one note)
         var maskTieOffBeats = 0.0
         var maskAccentBoost = 0
         if let mi = downstreamMaskFoldIndex(cell, after: driver) {
@@ -4566,14 +4566,20 @@ final class Router {
                         let count = chainScratch.srcCount(filter: 0)
                         if count > 0 {
                             switch mp.maskChordPick {
-                            case .all: maskChordPickIdx = nil
-                            case .low: maskChordPickIdx = 0
-                            case .high: maskChordPickIdx = count - 1
+                            case .all: maskChordPickRange = nil
+                            case .low: maskChordPickRange = (0, 0)
+                            case .high: maskChordPickRange = (count - 1, count - 1)
+                            // BOTTOM2/TOP2 (Paul 2026-09-28): the two lowest/highest chord tones. Collapses to a
+                            // single note when the composed pool is too small (a 1-note "chord") rather than
+                            // repeating it or reading out of range.
+                            case .bottom2: maskChordPickRange = (0, min(1, count - 1))
+                            case .top2: maskChordPickRange = (max(0, count - 2), count - 1)
                             case .cycle, .random:
                                 let gapsBefore = g - euclidMaskHitsBefore(g, k: mK, n: mN, rotate: rot)
-                                maskChordPickIdx = mp.maskChordPick == .cycle
+                                let idx = mp.maskChordPick == .cycle
                                     ? posMod(gapsBefore, count)
                                     : Int(splitmix64Mix(UInt64(bitPattern: Int64(gapsBefore)) &+ 0x9E3779B97F4A7C15) % UInt64(count))
+                                maskChordPickRange = (idx, idx)
                             }
                         }
                     } else { maskDropAll = true }                                  // REST or TIE
@@ -4601,8 +4607,11 @@ final class Router {
                 let cvel = UInt8(max(1, min(127, Int(Double(max(1, chainScratch.velocity(UInt8(b)))) * cVelScale))))
                 emitChop(nv, cell: cell, bm: echoBM, onSample: onSample, offSample: offC, windowEnd: windowEnd, velocity: cvel, m: m, S: S, out: out, diag: &diag, clockFrom: driver + 1, cycleBeats: cycleBeats)
             }
-            if let idx = maskChordPickIdx {
-                if idx >= 0 && idx < chainScratch.srcCount(filter: 0) { stab(Int(chainScratch.srcAscending(idx, filter: 0))) }
+            if let range = maskChordPickRange {
+                let count = chainScratch.srcCount(filter: 0)
+                if count > 0 {   // guard BEFORE constructing the ClosedRange — it traps if lo > hi (e.g. count somehow 0 here)
+                    for idx in max(0, range.lo)...min(count - 1, range.hi) { stab(Int(chainScratch.srcAscending(idx, filter: 0))) }
+                }
             } else {
                 for k in 0..<chainScratch.srcCount(filter: 0) { stab(Int(chainScratch.srcAscending(k, filter: 0))) }
             }

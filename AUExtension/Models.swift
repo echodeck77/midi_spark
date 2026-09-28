@@ -179,6 +179,10 @@ enum Bus: String, Codable, CaseIterable { case a = "A", b = "B", c = "C", d = "D
 enum StrumDir: String, Codable, CaseIterable { case up = "UP", down = "DOWN", alternate = "ALT" }   // §3 STRUM
 // EUCLID PICK (Paul 2026-08-22) — what each euclidean hit strikes (the TUTTI vocabulary on euclid's hits).
 enum EuclidPick: String, Codable, CaseIterable { case all = "ALL", cycle = "CYCLE", low = "LOW", high = "HIGH", random = "RANDOM" }
+// EUCLID MASK's own CHORD PICK (Paul 2026-09-28): a DEDICATED enum, not a reuse of EuclidPick above — BOTTOM2/TOP2
+// strike a PAIR of notes, which the driver's own `strikeChord(onlyIndex:)` mechanism (one pool-rank at a time) can't
+// express, so extending the shared enum would have forced an unrelated change onto the standalone EUCLID driver.
+enum MaskChordPick: String, Codable, CaseIterable { case all = "ALL", low = "LOW", high = "HIGH", bottom2 = "BOT2", top2 = "TOP2", cycle = "CYCLE", random = "RANDOM" }
 // CHANCE MODE (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = 8 per-step odds (the odds SLIDER LANE).
 enum ChanceMode: String, Codable, CaseIterable { case single = "SINGLE", pattern = "PATTERN" }
 // TUTTI (working name; Paul 2026-08-13) — set-level chance, CHANCE's correlated cousin. MODE = COIN | PATTERN.
@@ -294,7 +298,7 @@ struct MachineParams: Codable, Equatable {
     var maskAccentRotate: Int? = nil     // accent layer rotate. nil ⇒ 0
     var maskAccentAmount: Int? = nil     // velocity BOOST on an accent hit — additive, like RIFF's ACCENT lane. nil ⇒ 20
     var maskFillEvery: Int? = nil        // every Nth pass plays every step, ignoring the mask entirely (a euclidean turnaround). nil/0 ⇒ off
-    var maskChordPick: EuclidPick? = nil // which note(s) of the composed chord a GAPS=CHORD stab strikes (reuses EUCLID's own PICK vocabulary). nil ⇒ ALL (today)
+    var maskChordPick: MaskChordPick? = nil // which note(s) of the composed chord a GAPS=CHORD stab strikes. nil ⇒ ALL (today)
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]
