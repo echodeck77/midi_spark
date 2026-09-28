@@ -199,6 +199,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ OUT PIANO — fixed showing nothing, TWO bugs found chasing one report (2026-09-28, on `main`, `2eea46c`; macOS
+  1141 green, iOS builds; DEVICE-owed). Paul, on the piano-swap feature above: "it doesn't work, I'm seeing nothing
+  output," then "never showing, whichever method I use to get to the processor" — confirmed via a ferry actually
+  playing. **BUG 1 (real, but not the actual cause here):** `Router.auditionRender` (press-and-hold single-cell
+  preview, transport stopped) never tagged its emitted voices with `currentCellIndex`/`currentMachineIndex` at
+  all — every audition voice inherited whatever a PRIOR real scene render last left in those globals (or -1). SEAL
+  comet/`cellSoundVel`/`cellNoteHead`/the new `cellSoundingNotes` all key off `voices[].cellIndex`, so an audition
+  was invisible (or misattributed) to every one of them, not just the new piano — fixed with the same save/set/
+  defer-restore idiom `emitColumnRatchetPattern` already uses for the identical need. **BUG 2, THE ACTUAL CAUSE:**
+  `buildPartColumnNow` (reused for the new `buildOutputCellIndex`) and its two playhead call sites
+  (`roomsPartPlayhead`, `roomsCardRowPlayhead`) + `buildTruthStrips`' own `dynamic` flag ALL gated on `d.playing` —
+  which `Diag.swift` documents explicitly as "the HOST transport flag (raw)". A ferry playing via FREE-RUN (no host
+  transport running) made all four think nothing was playing. `d.effectivePlaying` ("host OR free-run — the UI's
+  'is anything really playing' tell") already exists for exactly this distinction; these four just never used it —
+  fixed together so the visible part-grid playhead, the card-header row playhead, and the OUT piano can no longer
+  disagree about whether a free-run-only ferry is "playing." **DEVICE-OWED:** confirm the OUT piano lights up during
+  a free-run ferry AND host-transport playback, and that the part-grid/card-header playheads now sweep during
+  free-run instead of sitting frozen (a pre-existing symptom of bug 2 that predates this piano feature entirely —
+  may explain other "the playhead doesn't move" reports if any were ever filed against free-run specifically).**
 - **▶ PROCESSOR EDITOR — a one-shot cross-fade when the shown type changes (2026-09-28, on `main`, `b36026d`; iOS
   builds; DEVICE-owed). Paul: picking a different chain box (ARP→RATCHET) swaps the controls with nothing marking
   that it happened. ROOT CAUSE: the controls panel carries NO type identity of its own — the old header (emblem ·
