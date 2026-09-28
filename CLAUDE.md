@@ -199,6 +199,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROCESSOR EDITOR — the OUT truth strip is now a second piano, not a scrolling roll (2026-09-28, on `main`,
+  `25dc00f`; macOS 1140 green, iOS builds; DEVICE-owed). Paul: IN/OUT were mismatched widgets (IN a piano of held
+  pitches, OUT a piano-ROLL of drifting recent onsets) for what's really the same idea; make OUT a second piano.
+  The existing OUT feed (`buildOutRoll`, an onset-only ring with no note-off tracking) structurally can't answer
+  "what's held right now" — fixed by reading the render engine's OWN voice pool instead of re-purposing the onset
+  trail: new `Router.cellSoundingNotes(cellIndex:)`, a same-shape sibling to the existing `cellSoundingVelSnapshot()`
+  — a snapshot scan of `voices[].cellIndex`/`.active` (already tracking genuine hold-duration for note-off
+  bookkeeping; no new render-side state, just a new read of what's already there). Threaded through Kernel/
+  MidiSparkAudioUnit as `pollCellSoundingNotes`, polled into a new `buildOutHeld` array on the SAME `editorOpen` gate
+  and cadence as the existing OUT-roll poll. **Needed its own cell resolution:** the existing focus-cell mechanism
+  (the chain-flow comets) only covers chain audition, not a part row's processor — so `buildOutputCellIndex(at:)`
+  mirrors `buildProcessing(at:)`'s own chain/part/none switch exactly (same rung/column gating), returning the
+  `Snap.cells` index instead of a bool, so the OUT piano and the existing "is this instance processing" gate can
+  never disagree about which cell is live. `buildInKeyboard` renamed `buildKeyboardStrip` (now serves both IN and
+  OUT, 4 call sites); `buildOutStrip`/`buildRollCanvas` deleted (their only caller) — `buildOutRoll`/`OutMark` kept,
+  the Stage Eye's separate OUTPUT lane still uses them. **DEVICE-OWED:** confirm the OUT piano lights the right keys
+  against real playback (chain audition AND a part row), and dims/empties correctly when the editor's instance isn't
+  the one currently sounding.**
 - **▶ PART GRID — the multi-select playhead now sweeps every active row, not just the lead (2026-09-28, on `main`,
   `9232edf`; iOS builds). Paul: with MULTI selected, the playhead "doesn't always sweep over active cells when more
   than one is selected in a column" — three rows selected somewhere on the part, only two ever shown. ROOT CAUSE: a
