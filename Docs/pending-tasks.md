@@ -39,10 +39,9 @@ OPEN:
   fields/editor are untouched. +7 RouterTests + fuzz coverage. Plan: `~/.claude/plans/stateless-tickling-flask.md`.
   **✅ THE REMINDER THIS TRIGGERED WAS ACTIONED (2026-09-27):** KILL STEP DROP/MUTE/PAUSE — see the KILL STEP entry
   above and CLAUDE.md's status log; the memory file `euclid-mask-then-killstep-followup.md` can be deleted.
-- **★ ACCENT LAYER (the next euclid-mask feature — pencilled in, Paul 2026-09-15):** a SECOND euclidean pattern (own
-  K-of-N + ROTATE) that BOOSTS velocity on the steps it hits — the classic two-euclid technique (one pattern for
-  notes, one for accents). Medium-sized; makes the mask genuinely generative. Do after the CHORD-stab work.
-- **FILL (secondary):** every N bars play ALL steps (a euclidean fill/turnaround). Small.
+- **✅ ACCENT LAYER + FILL + INVERT + SPAN + PROBABILITY + CHORD PICK — ALL LANDED (2026-09-28, `2a54d5d`; macOS
+  1140 green incl. fuzz).** See CLAUDE.md's status log for the full writeup. ACCENT is a second, independent K-of-N
+  pattern boosting velocity on its own hits, exactly as pencilled in here. DEVICE ear/eye owed on the whole set.
 - **∿ LFO roll-out:** RIFF RATE (the rate-grid endpoint is arpRate-specific — generalise it), WEAVE LENGTH + OCTAVES,
   and other processors' continuous params (RIFF GATE LENGTH already has it).
 - **DEVICE-EYE owed:** the ∿ buttons + the popover editor; the CHORD-stab controls; the long HITS label row not

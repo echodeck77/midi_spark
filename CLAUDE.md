@@ -199,6 +199,35 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID MASK — INVERT, SPAN, ACCENT LAYER, FILL, PROBABILITY, CHORD PICK (2026-09-28, on `main`, `2a54d5d`;
+  macOS 1140 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Asked what else the design space supported; Paul
+  picked six to build now, in the priority order agreed: INVERT + SPAN first (cheap, closed a real consistency gap),
+  then ACCENT LAYER (pencilled in since 2026-09-15), then FILL, PROBABILITY, CHORD PICK. All six are additive-
+  Optional fields on the SAME processor — no new chain position. **INVERT** mirrors the sibling EUCLID driver's own
+  toggle exactly. **SPAN** re-anchors the K-of-N ordinal to 0 every N notes, sized by the DRIVER's own step (mirrors
+  KILL STEP sizing its own span ladder by its own rate) — EUCLID MASK was the one pattern processor in the whole
+  codebase (RIFF/EUCLID/RATCHET PATTERN/KILL STEP/CLOCK all already had this) that had shipped without it. **FILL**
+  overrides the mask for a whole pass every N passes, reusing `pass` — already a parameter of `emitDriverNote`, the
+  SAME authoritative lap counter PASSGATE gates on — no new counter needed. **PROBABILITY (CHANCE)** is an Elektron-
+  style trig condition layered on the deterministic skeleton: it can only DEMOTE a hit to a gap, never promote a gap
+  to a hit (seeded on the ordinal `g` alone, mirroring HUMANIZE's own inline `splitmix64Mix` idiom — replay-exact, no
+  accumulated state), and is skipped entirely on a fill pass. **ACCENT LAYER** is a second, fully independent K/N/
+  ROTATE test sharing the SAME `g` as the gate (so a SPAN re-anchor keeps both patterns' relative phase stable) —
+  boosts velocity additively on its own hits, like RIFF's own ACCENT lane; K=N (off) by default, matching the gate's
+  own no-op convention. **CHORD PICK** restricts a GAPS=CHORD stab to specific chord note(s) — reuses `EuclidPick`
+  (ALL/CYCLE/LOW/HIGH/RANDOM) and mirrors the sibling EUCLID driver's own PICK resolution (down to the same RANDOM
+  seed constant), keyed on "gaps before `g`" — derived from the ALREADY-TESTED `euclidMaskHitsBefore` via simple
+  arithmetic (`g − hitsBefore(g)`), so no new pure function was needed. Ordering inside the fold, precisely: SPAN
+  re-anchors `g` → INVERT flips the base pattern → FILL overrides everything for the pass → CHANCE can only demote a
+  hit → GAP/HIT resolves as before (now PICK-aware) → ACCENT applies independently in the final emit loop, right
+  where TIE's own gate-extension already lands. +6 RouterTests, one per feature, each an inequality/property
+  (INVERT's output is the exact complement of the non-inverted run; SPAN < the pattern's own N changes the onset set
+  vs FREE; an active ACCENT strictly raises peak velocity; FILL strictly increases note count over several passes;
+  CHANCE never increases note count and is provably unreachable with the gate off; CHORD PICK's LOW/HIGH strike only
+  one note per gap while ALL strikes the whole chord) + fuzz coverage hammering FILL/CHANCE against TIE/CHORD (the
+  paths most likely to leak a stuck voice). Plan: `~/.claude/plans/stateless-tickling-flask.md`. **DEVICE-OWED:**
+  CHANCE's feel at various probabilities, ACCENT audibly popping against the base hits, FILL reading as a turnaround
+  not a glitch, CHORD PICK's CYCLE/RANDOM actually rotating through a real chord.**
 - **▶ KILL STEP — MUTE + PAUSE step behaviors alongside the original DROP (2026-09-27, on `main`, `f35b595`; macOS
   1134 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Direct follow-through on the reminder set the day EUCLID
   MASK landed: Paul asked to plan whether KILL STEP's one boolean ON/OFF row could grow MUTE ("the step advances but
