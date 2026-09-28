@@ -209,10 +209,8 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   before writing the UI clock, this project's own standing rule, not re-derived from the UI's own comments):**
   **RIFF** had ZERO live-sync anywhere (rank matrix, OCT lane, ACCENT/TIE/SLIDE all raw/static) — now calls
   `riffStepAt` directly, the SAME pure function `Router.emitRiffRow` calls, across all 5 non-stateful direction
-  modes; DRUNK stays deliberately unlit — its true position is per-cell RENDER-THREAD state (`riffDrunkPos`) this UI
-  layer has no access to and can't safely replay (a transport-edge reset it can't observe), the same "can't derive a
-  truthful column, so show none" precedent RATCHET PATTERN's own unknown-driver-rate NOTE case already set, rather
-  than ship a plausible-looking wrong one. **VELOCITY** (both its lanes), **BURST** pattern, **TUTTI** pattern, and
+  modes; DRUNK initially shipped deliberately unlit (its true position is per-cell RENDER-THREAD state this UI layer
+  has no access to) — **fixed same day, see the DRUNK addendum below.** **VELOCITY** (both its lanes), **BURST** pattern, **TUTTI** pattern, and
   **CHORDS** degree matrix all had a sweep, but it always read the generic scene grid clock despite each having its
   own independently configurable rate/span (CHORDS' own code comment says it outright: "a chord per rate-tick, not
   per grid column") — each now gets a bespoke `StateMatrixClock` matching its real engine math (VELOCITY mirrors
@@ -231,7 +229,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   NEW to test; the engine formulas being matched are already covered, this is display code with no test-target
   reach, same as every prior playhead fix in this file). **DEVICE-OWED:** the pulse-glow legibility/rate on a real
   screen, RIFF's 5 direction modes actually tracking what's heard, and BURST's negated-rotate sweep against a real
-  ROTATE drag.**
+  ROTATE drag. **DRUNK ADDENDUM (2026-09-28, same day, `5cea4db`; macOS 1141 green, iOS builds): Paul asked what it'd
+  take to cover DRUNK too.** Checked the actual mechanism before proposing anything: `LiveTelemetry.beatAnchor`
+  (`AudioUnitViewController.swift`) RE-SYNCS to the host's real beat position on a transport edge — it does NOT reset
+  to zero — so a UI-side replay of the walk from an inferred restart point would silently diverge from the true one
+  after the very first tick (the seed hash is tick-EXACT; being one tick off sends the whole subsequent walk down an
+  uncorrelated path). That ruled out faking it client-side, confirming the earlier "can't safely replay" call was
+  right, not just cautious. **FIX: read the true value instead.** `Router.riffDrunkPosAt(cellIndex)` — a plain array
+  read of the existing `riffDrunkPos` state, mirroring `cellSoundingNotes`'s exact shape (the SAME UI-poll precedent
+  the OUTPUT-piano entry below this one just established) — threaded through Kernel/`MidiSparkAudioUnit` as
+  `pollRiffDrunkPos`, polled in `AudioUnitViewController`'s existing `editorOpen` block at the SAME cadence and SAME
+  `buildOutputCellIndex` as the OUTPUT piano, into a new `buildRiffDrunkPos` → `ProcessorBox.riffDrunkPosLive`.
+  RIFF's live-sweep closure reads it directly for DRUNK instead of computing a step. **Honestly capped, not
+  shortcut:** the indicator jumps between columns at the diagnostic poll rate (~4Hz) rather than sweeping — the same
+  ceiling MUTE MATRIX hit — because DRUNK's position genuinely isn't a predictable function of wall-clock time, so
+  there's nothing smoother to extrapolate. No new tests (a UI-poll passthrough, same class as `cellSoundingNotes`
+  itself, which also shipped untested — no test-target reach). DEVICE-OWED: confirm the jump reads as "the true
+  position, updating slower" rather than as broken.**
 - **▶ PROCESSOR EDITOR — the OUT truth strip is now a second piano, not a scrolling roll (2026-09-28, on `main`,
   `25dc00f`; macOS 1140 green, iOS builds; DEVICE-owed). Paul: IN/OUT were mismatched widgets (IN a piano of held
   pitches, OUT a piano-ROLL of drifting recent onsets) for what's really the same idea; make OUT a second piano.
