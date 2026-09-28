@@ -257,7 +257,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   ceiling MUTE MATRIX hit — because DRUNK's position genuinely isn't a predictable function of wall-clock time, so
   there's nothing smoother to extrapolate. No new tests (a UI-poll passthrough, same class as `cellSoundingNotes`
   itself, which also shipped untested — no test-target reach). DEVICE-OWED: confirm the jump reads as "the true
-  position, updating slower" rather than as broken.**
+  position, updating slower" rather than as broken. **VISUAL FOLLOW-UP, same day (`31c88a1`; iOS builds): Paul —
+  "I need only the selected cell to animate, not the entire column. I also want a playhead on the header of the
+  column."** The per-cell glow lit every row at the live column (a `stateMatrixRadio` matrix is radio-per-column, so
+  every OTHER row's cell there is off, but it still glowed) — narrowed to `live && on`, so only the actually-
+  selected/sounding cell animates; applied to `stateMatrixRadio`'s main rows, CLOCK's GLIDE `extraRowCell` (shares
+  the same live-column highlight, so it follows the same rule), and RIFF's own rank matrix (POLY mode can still
+  glow several ranks at once — correctly, since several genuinely sound together there). OCT/ACCENT/TIE/SLIDE and
+  the `sliderLane`/`toggleLane` lanes are untouched: one row = one cell already, nothing to narrow. New
+  `playheadHeaderRow`: a thin strip above the grid reusing the SAME `liveCol`/`date` the cell glow reads (so the
+  two can never disagree), showing a small chevron at the live column — SNAPS exactly, no fractional glide, since a
+  RANDOM/DRUNK-class jump has no meaningful in-between position to interpolate through. One shared function, wired
+  into `stateMatrixRadio` (covers RATCHET PATTERN/DEST/CLOCK/KILL STEP/BURST/TUTTI/LENGTH/CHORDS at once) and
+  RIFF's rank matrix. **CAUGHT BEFORE SHIPPING, not after:** the first build of this actually FAILED — a
+  `.frame(maxWidth:, height:)` call mixed two incompatible SwiftUI `.frame` overloads (this codebase's own
+  convention is two chained `.frame()` calls, not one combined call) — a stale-looking background-task notification
+  claimed success while the real log said `BUILD FAILED`; caught by tailing the actual log instead of trusting the
+  notification, fixed, rebuilt clean before pushing. DEVICE-OWED: the header chevron's legibility/size, and whether
+  a POLY-mode multi-cell glow at one column still reads clearly now that MONO's is down to one.**
 - **▶ PROCESSOR EDITOR — the OUT truth strip is now a second piano, not a scrolling roll (2026-09-28, on `main`,
   `25dc00f`; macOS 1140 green, iOS builds; DEVICE-owed). Paul: IN/OUT were mismatched widgets (IN a piano of held
   pitches, OUT a piano-ROLL of drifting recent onsets) for what's really the same idea; make OUT a second piano.
