@@ -440,6 +440,7 @@ struct DiagView: View {
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     @State var buildOutRoll: [OutMark] = []                   // Stage Eye OUTPUT lane only now (Paul 2026-09-28: the truth strips' own OUT roll became a piano)
     @State var buildOutHeld: [Int] = []                       // §1 TRUTH STRIPS: the focused processor instance's currently-SOUNDING output pitches (editor-open only)
+    @State var buildRiffDrunkPos: Int = -1                     // RIFF's DRUNK walk position for the focused cell (editor-open only); −1 = unknown/not this mode (Paul 2026-09-28)
     @State var buildFocusNotes: [BuildFocusNote] = []         // the focused machine cell's REAL emitted notes (+ beats) — drives the real chain-flow comets (Paul 2026-08-31)
     @State var buildStageEye = false                          // §4 STAGE EYE: the expanded 3-lane (input · mechanism · output) view is open
     @State var buildStageEyeDoor = -1                         // the door the eye watches (set on open) — drives the INPUT-onset accumulation below
@@ -1029,7 +1030,15 @@ struct DiagView: View {
                 let idx = buildOutputCellIndex(at: mnow)
                 let held = idx >= 0 ? au.pollCellSoundingNotes(idx).map { Int($0) } : []
                 if held != buildOutHeld { buildOutHeld = held }
-            } else if !buildOutHeld.isEmpty { buildOutHeld = [] }
+                // RIFF DRUNK sweep (Paul 2026-09-28): genuine per-cell render-thread state with no closed form —
+                // polled at this same cadence/index rather than extrapolated, so it jumps between columns instead
+                // of sweeping (the honest ceiling for this one mode, not a shortcut).
+                let drunk = idx >= 0 ? au.pollRiffDrunkPos(idx) : -1
+                if drunk != buildRiffDrunkPos { buildRiffDrunkPos = drunk }
+            } else {
+                if !buildOutHeld.isEmpty { buildOutHeld = [] }
+                if buildRiffDrunkPos != -1 { buildRiffDrunkPos = -1 }
+            }
             // §4 STAGE EYE — INPUT roll: while the eye is open, accumulate the watched door's note ONSETS (diff the held set)
             // so the top lane scrolls what arrives. recvHeldNotes is already updated above (editor open ⊇ eye open).
             if buildStageEye, buildStageEyeDoor >= 0, buildStageEyeDoor < recvHeldNotes.count {

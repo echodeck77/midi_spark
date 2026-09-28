@@ -4900,6 +4900,7 @@ extension DiagView {
             // @State (which re-rendered the page every step → the per-step playhead stutter). Left at their -1 defaults.
             beatAnchor: meters.beatAnchor, beatAnchorAt: meters.beatAnchorAt, tempo: meters.tempo, clockPlaying: d.playing,   // RATCHET PATTERN extrapolates its OWN-clock playhead (Paul 2026-09-07)
             driverNoteRate: driverNoteRate,   // NOTE clock: the upstream driver's note rate → the playhead sweeps per-note
+            riffDrunkPosLive: buildRiffDrunkPos,   // RIFF DRUNK's true walk position, polled (Paul 2026-09-28) — see AudioUnitViewController's editorOpen poll
             gridStepBeats: stepBeats,   // the DEFAULT grid-column clock for the generic matrices/lanes (Paul 2026-09-11)
 
             onBypass: { buildChainToggleBypass(i) },

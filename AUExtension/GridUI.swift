@@ -183,6 +183,7 @@ struct ProcessorBox: View {
     var tempo: Double = 120
     var clockPlaying: Bool = false
     var driverNoteRate: Double = 0                       // RATCHET PATTERN NOTE clock: the upstream driver's note rate in beats (0 = unknown/standalone → the playhead can't sweep per-note)
+    var riffDrunkPosLive: Int = -1                       // RIFF DRUNK's true walk position, polled from the render thread (−1 = unknown/not this mode/cell) — Paul 2026-09-28
     var gridStepBeats: Double = 0.25                     // the SCENE step in beats → the DEFAULT (grid-column) matrix/lane playhead clock (Paul 2026-09-11)
     // A self-clock for a state matrix's playhead — extrapolated per frame so it can sweep faster than the diag poll.
     // `span` = the loop period in BEATS (0 = free-run over all STEPS); the playhead re-anchors every `span`.
@@ -1181,21 +1182,25 @@ struct ProcessorBox: View {
             let mask = p.riffMask ?? []
             // LIVE SWEEP (Paul 2026-09-28, closing the audit gap RIFF was named for): calls the SAME pure `riffStepAt`
             // the engine calls (Router.emitRiffRow) directly — not a re-derived approximation — so the lit cell and
-            // the sounding step can never disagree, across all 5 non-stateful direction modes. DRUNK's true position
-            // is genuine per-cell RENDER-THREAD state (riffDrunkPos, Router.swift) this UI layer has no access to
-            // and can't safely replay (the walk resets on transport edges this layer can't observe) — left unlit,
-            // the same "can't derive a truthful column, so show none" precedent RATCHET PATTERN's own NOTE-mode-
-            // with-unknown-driver-rate case already established, rather than ship a plausible-looking wrong one.
+            // the sounding step can never disagree, across all 5 non-stateful direction modes. DRUNK is the
+            // exception — its true position is genuine per-cell RENDER-THREAD state (`riffDrunkPos`, Router.swift)
+            // with no closed form this UI layer could extrapolate between frames (Paul confirmed the ceiling and
+            // asked for it anyway): `riffDrunkPosLive` is the actual value, POLLED from the render thread at the
+            // diagnostic cadence (`AudioUnitViewController`'s `editorOpen` block → `pollRiffDrunkPos`), so it jumps
+            // between columns rather than sweeping — the honest cost of showing the real position instead of a
+            // plausible-looking wrong one.
             let riffDirNow = p.riffDir ?? .forward
             let riffRateBeatsNow = Swift.max(0.03125, (p.riffRate ?? .r1_16).beats)
             let riffSpanBeatsNow = (p.riffSpanN ?? 0) > 0 ? spanLadderBeats(p.riffSpanN ?? 0, S: gridStepBeats, row: 8 * gridStepBeats) : 0
             let riffSeedNow = UInt64(bitPattern: Int64(p.riffDirSeed ?? 0))
-            let riffLive: ((Date) -> Int?)? = (clockPlaying && riffDirNow != .drunk) ? { date in
-                let b = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
-                let phase = riffSpanBeatsNow > 0 ? (b - columnStart(b, riffSpanBeatsNow)) : b
-                let raw = Int((phase / riffRateBeatsNow).rounded(.down))
-                return riffStepAt(riffDirNow, raw: raw, steps: steps, seed: riffSeedNow)
-            } : nil
+            let riffLive: ((Date) -> Int?)? = clockPlaying ? (riffDirNow == .drunk
+                ? { _ in (riffDrunkPosLive >= 0 && riffDrunkPosLive < steps) ? riffDrunkPosLive : nil }
+                : { date in
+                    let b = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+                    let phase = riffSpanBeatsNow > 0 ? (b - columnStart(b, riffSpanBeatsNow)) : b
+                    let raw = Int((phase / riffRateBeatsNow).rounded(.down))
+                    return riffStepAt(riffDirNow, raw: raw, steps: steps, seed: riffSeedNow)
+                }) : nil
             heroField("") {   // label removed (Paul 2026-09-13)
                 liveClockWrap(riffLive) { liveCol, date in
                 VStack(spacing: 2) {

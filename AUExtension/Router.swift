@@ -1048,6 +1048,17 @@ final class Router {
         return out
     }
 
+    /// UI-poll read: a RIFF cell's own DRUNK walk position (Paul 2026-09-28, closing the last named sweep gap) —
+    /// −1 = not yet started / not a RIFF cell / out of range. A plain array read (no scanning), same shape as
+    /// `cellSoundingNotes` above. This is genuine accumulated render-thread state with no closed form the UI could
+    /// extrapolate between polls (unlike every other RIFF direction, which reads `riffStepAt` directly) — the editor
+    /// polls this at the diagnostic cadence and shows it as a discrete jump, not a smooth sweep. That ceiling is
+    /// real, not a shortcut: this IS the true position, just not continuously knowable off the render thread.
+    func riffDrunkPosAt(_ cellIndex: Int) -> Int {
+        guard cellIndex >= 0 && cellIndex < riffDrunkPos.count else { return -1 }
+        return riffDrunkPos[cellIndex]
+    }
+
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
     /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source machine) set.
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] {
