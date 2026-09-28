@@ -199,6 +199,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ROOMS WORKBENCH — the machine column moved LEFT of the grid; its trash/verb-button flanks swapped (2026-09-28,
+  on `main`, `1c902c6`; iOS builds; DEVICE-eye owed). Paul: move the whole right column (receiver toggles · machine ·
+  emitter toggles) to the left instead of the right, and swap the LIBRARY/MUTATE/RANDOMIZE/CLEAR verb-button stack
+  with the trash/row-rail flank around it. **PAGE LAYOUT:** `RoomsPage.roomsWorkbench`'s HStack order flipped —
+  `chainPanel` (the receiver strip · machine box · emitter strip) now renders FIRST (1/3, LEFT), the active grid
+  (SELECT or PART, 2/3) now RIGHT — was grid-left/chain-right since the 2026-09-08 workbench merge. **MACHINE-BOX
+  FLANKS:** inside `roomsMachineStrip` (BuildPage.swift), the two flanks either side of the MIDI-chain block swapped
+  — `buildChainButtonStack` (LIBRARY/MUTATE/RANDOMIZE/CLEAR) now LEFT, the `ZStack{roomsMachineRowRail (PART only) ·
+  roomsChainTrash}` now RIGHT — in both the populated-chain branch and the faded empty-part-row placeholder branch, so
+  the two stay visually consistent. **HIT-TEST FOLLOWED THE MOVE:** `buildProcBox`'s drag-to-delete gesture detected
+  "over the trash" via `drag.location.x < -6` in the chain block's own "chainBlock" coordinate space (the trash sat at
+  negative x, the LEFT flank) — now `drag.location.x > blockW + 6` (positive x past the block's own right edge,
+  `blockW = w·2 + gap` computed locally from the per-box width already in scope), matching the trash's new RIGHT-flank
+  position. The ferry-drag trash hit-test needed no change — `roomsChainTrash` registers its drop zone via real
+  on-screen geometry (`FerryZoneKey`/`.named("rooms")`), so it tracks wherever the view actually renders. The chain's
+  own IN/OUT velocity-meter overlay (`buildChainFlowOverlay`, left circle = input door, right circle = emitted output)
+  is untouched — it reads MIDI flow direction through the chain, independent of which flank the buttons/trash occupy.
+  **NOT TOUCHED:** the PART grid's own internal row-select rails (chevron rail left / numbered rail right, inside
+  `roomsPartGrid` itself) — a separate, unrequested feature; only the machine-box's own flanks and the page-level
+  grid↔machine order moved. **DEVICE-OWED:** the whole re-arranged layout on a real screen, and that dragging a chain
+  box to the NOW-right-side trash still deletes it (the hit-test math is unit-untestable — GridUI has no test-target
+  reach, same as every prior playhead/layout fix in this file).**
 - **▶ OUT PIANO — fixed showing nothing, TWO bugs found chasing one report (2026-09-28, on `main`, `2eea46c`; macOS
   1141 green, iOS builds; DEVICE-owed). Paul, on the piano-swap feature above: "it doesn't work, I'm seeing nothing
   output," then "never showing, whichever method I use to get to the processor" — confirmed via a ferry actually
