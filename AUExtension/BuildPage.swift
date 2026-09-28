@@ -1955,7 +1955,21 @@ extension DiagView {
                 }
             }
         }
-        let y = buildNewTabMachine(t, machine: chain, transpose: transpose, hex: hue)   // a fresh part machine carrying the chain, in the CELL's own hue (any clash was resolved by the swap above)
+        // BAKE THE REGISTER HOME INTO THE CHAIN (Paul 2026-09-28), not the machine-level transpose field — mirrors
+        // buildGridSelLoadChain's own bake exactly. A DEALT cell's archetype transpose (bass −12, arp/sparkle +12 —
+        // Dice.transposeFor) was previously handed to buildNewTabMachine as a MACHINE-level field, which Router applies
+        // AFTER the whole chain composes (machineTranspose, added to the already-composed output) — not equivalent to
+        // the audition's PRE-chain bake for any chain stage whose result depends on ABSOLUTE pitch (the 0–127 clamp, a
+        // further octave-shifting stage): the two could drop/keep different notes even though the transpose amount is
+        // identical. Baking it as a leading TRANSPOSE utility here instead means the dropped ferry's chain sees the
+        // SAME shifted input every other downstream stage saw during the SELECT-grid preview.
+        var bakedChain = chain
+        if transpose != 0 {
+            var tp = ProcessorSlot(type: .transpose)
+            tp.params.utilTranspose = max(-24, min(24, transpose))
+            bakedChain.insert(tp, at: 0)
+        }
+        let y = buildNewTabMachine(t, machine: bakedChain, hex: hue)   // a fresh part machine carrying the chain, in the CELL's own hue (any clash was resolved by the swap above)
         var p = BuildPart()
         p.length = Snap.maxCols                                                       // a full 16-step part (the grid defaults to 16)
         for c in 0..<Snap.maxCols { p.stagingCells[c][0] = y; p.stagingSel[c] = 0 }   // the chain across the WHOLE first row → a full sequence, not one cell
