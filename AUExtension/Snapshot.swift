@@ -346,6 +346,7 @@ enum AutoParamField: Equatable {
     case octaves, count, rtcChance, rtcCountLo, rtcCountHi, rtcRotate
     case euclidPulses, euclidSteps, euclidRot, glideRange, modMin, modMax
     case lenShort, lenLong, lenRotate, weaveSpan, weaveEuclidSteps
+    case maskK, maskRotate, maskChordGate, maskChordOct   // EUCLID MASK (standalone processor): HITS density · ROTATE · the CHORD-gap stab's LENGTH · OCTAVE — LFO targets (Paul 2026-09-28, restoring parity with the removed arp-embedded mask's own LFO targets)
     /// nil ⇒ this param is NOT render-time automatable (nested/complex) → its lane stays step-bake only.
     init?(key: String) {
         switch key {
@@ -357,6 +358,8 @@ enum AutoParamField: Equatable {
         case "euclidRot": self = .euclidRot;  case "glideRange": self = .glideRange; case "modMin": self = .modMin
         case "modMax": self = .modMax;        case "lenShort": self = .lenShort;  case "lenLong": self = .lenLong
         case "lenRotate": self = .lenRotate;  case "weaveSpan": self = .weaveSpan; case "weaveEuclidSteps": self = .weaveEuclidSteps
+        case "maskK": self = .maskK;          case "maskRotate": self = .maskRotate
+        case "maskChordGate": self = .maskChordGate; case "maskChordOct": self = .maskChordOct
         default: return nil
         }
     }
@@ -393,6 +396,10 @@ extension SnapParams {
         case .lenRotate:    s.lenRotate = ci(0, 7)
         case .weaveSpan:    s.weaveSpan = ci(1, 8)
         case .weaveEuclidSteps: s.weaveEuclidSteps = ci(2, 16)
+        case .maskK:            s.maskK = ci(1, 16)          // the engine reads min(K, N) — K ≥ N just = mask OFF for that window
+        case .maskRotate:       s.maskRotate = ci(0, 15)
+        case .maskChordGate:    s.maskChordGate = cd(0.05, 1)
+        case .maskChordOct:     s.maskChordOct = ci(-2, 2)
         }
         return s
     }
@@ -408,6 +415,8 @@ extension SnapParams {
         case .euclidRot: return Double(euclidRot); case .glideRange: return Double(glideRange); case .modMin: return Double(modMin)
         case .modMax: return Double(modMax);  case .lenShort: return lenShort;        case .lenLong: return lenLong
         case .lenRotate: return Double(lenRotate); case .weaveSpan: return Double(weaveSpan); case .weaveEuclidSteps: return Double(weaveEuclidSteps)
+        case .maskK: return Double(maskK); case .maskRotate: return Double(maskRotate)
+        case .maskChordGate: return maskChordGate; case .maskChordOct: return Double(maskChordOct)
         }
     }
 }
@@ -424,6 +433,8 @@ extension AutoParamField {
         case .euclidRot: return (0, 15); case .glideRange: return (1, 48); case .modMin: return (0, 127)
         case .modMax: return (0, 127);  case .lenShort: return (0.05, 0.95); case .lenLong: return (0, 1)
         case .lenRotate: return (0, 7); case .weaveSpan: return (1, 8);   case .weaveEuclidSteps: return (2, 16)
+        case .maskK: return (1, 16); case .maskRotate: return (0, 15)
+        case .maskChordGate: return (0.05, 1); case .maskChordOct: return (-2, 2)
         }
     }
 }

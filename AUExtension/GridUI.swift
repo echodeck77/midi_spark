@@ -1315,7 +1315,7 @@ struct ProcessorBox: View {
             // can't reach).
             let mN = max(2, min(16, p.maskN ?? 8))
             let mK = max(1, min(mN, p.maskK ?? mN))
-            field("HITS  ◀K▶ of ◀N▶  (K < N gates the rhythm; K = N passes through)", \.maskK) {
+            field("HITS  ◀K▶ of ◀N▶  (K < N gates the rhythm; K = N passes through)", \.maskK, lfo: "maskK") {   // ∿ LFO modulates the HIT COUNT K (density)
                 HStack(spacing: 10) {
                     numPair(mK, 1...mN) { v in setParam { $0.maskK = v; if $0.maskN == nil { $0.maskN = mN } } }
                     Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
@@ -1324,15 +1324,15 @@ struct ProcessorBox: View {
             }
             if mK < mN {
                 row2({ field("GAPS", \.maskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.maskGap ?? .rest).rawValue) { i in setParam { $0.maskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
-                     { field("ROTATE", \.maskRotate) { numPair(p.maskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.maskRotate = v } } } })
+                     { field("ROTATE", \.maskRotate, lfo: "maskRotate") { numPair(p.maskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.maskRotate = v } } } })
                 // INVERT + CHANCE (Paul 2026-09-28): INVERT plays the N−K rests instead (mirrors EUCLID's own
                 // toggle); CHANCE thins the deterministic skeleton with a per-hit coin-flip (can only drop a hit,
                 // never add one) — 100% = today's exact behaviour.
                 row2({ field("PATTERN", \.maskInvert) { seg(["NORMAL", "INVERT"], sel: (p.maskInvert ?? false) ? "INVERT" : "NORMAL") { i in setParam { $0.maskInvert = (i == 1) } } } },
                      { field("CHANCE  \(Int((p.maskChance ?? 1) * 100))%", \.maskChance) { slider(bind(p.maskChance ?? 1) { v in setParam { $0.maskChance = v } }, in: 0...1) } })
                 if (p.maskGap ?? .rest) == .chord {   // GAPS = CHORD gap-stab controls, mirroring the ARP mask's own (Docs/PLAN-param-lfo.md)
-                    row2({ field("CHORD OCT", \.maskChordOct) { numPair(p.maskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.maskChordOct = v } } } },
-                         { field("CHORD LEN  \(Int((p.maskChordGate ?? 0.6) * 100))%", \.maskChordGate) { slider(bind(p.maskChordGate ?? 0.6) { v in setParam { $0.maskChordGate = v } }, in: 0.05...1) } })
+                    row2({ field("CHORD OCT", \.maskChordOct, lfo: "maskChordOct") { numPair(p.maskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.maskChordOct = v } } } },
+                         { field("CHORD LEN  \(Int((p.maskChordGate ?? 0.6) * 100))%", \.maskChordGate, lfo: "maskChordGate") { slider(bind(p.maskChordGate ?? 0.6) { v in setParam { $0.maskChordGate = v } }, in: 0.05...1) } })
                     field("CHORD VEL  \(Int((p.maskChordVel ?? 1) * 100))%", \.maskChordVel) { slider(bind(p.maskChordVel ?? 1) { v in setParam { $0.maskChordVel = v } }, in: 0...1) }
                     // CHORD PICK (Paul 2026-09-28): which note(s) of the composed chord a gap strikes. ALL = today's
                     // whole-chord stab; BOT2/TOP2 strike the two lowest/highest tones.
@@ -1779,6 +1779,8 @@ struct ProcessorBox: View {
         switch target {
         case "gate": return "LENGTH"; case "rtcChance": return "CHANCE"
         case "arpRate": return "RATE"
+        case "maskK": return "HITS"; case "maskRotate": return "ROTATE"
+        case "maskChordOct": return "CHORD OCT"; case "maskChordGate": return "CHORD LEN"
         default: return target.uppercased()
         }
     }
@@ -1904,6 +1906,12 @@ struct ProcessorBox: View {
             TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !clockPlaying)) { tl in   // the live swept rung, on BOTH FROM and TO
                 lfoRateGrid(sel: max(0, min(17, Int(value.rounded()))), ignore: lfo.rateIgnoreResolved, live: lfoLiveRateIndex(lfo, date: tl.date), set)
             }
+        case "maskK":
+            numPair(max(1, min(16, Int(value.rounded()))), 1...16) { set(Double($0)) }
+        case "maskRotate":
+            numPair(max(0, min(15, Int(value.rounded()))), 0...15, wrap: true) { set(Double($0)) }
+        case "maskChordOct":
+            numPair(max(-2, min(2, Int(value.rounded()))), -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { set(Double($0)) }
         default:
             lfoSlider(value, (target == "rtcChance") ? 0...1 : 0.05...1, lfo: lfo, set)   // gate / chord-len / chance
         }
@@ -2041,6 +2049,8 @@ struct ProcessorBox: View {
     private func lfoFmt(_ target: String, _ v: Double) -> String {
         switch target {
         case "arpRate":         return ArpRate.allCases[max(0, min(17, Int(v.rounded())))].rawValue
+        case "maskChordOct":    let n = Int(v.rounded()); return n > 0 ? "+\(n)" : "\(n)"
+        case "maskK", "maskRotate": return "\(Int(v.rounded()))"
         default:                return "\(Int((v * 100).rounded()))%"
         }
     }
@@ -2048,6 +2058,10 @@ struct ProcessorBox: View {
     private func lfoSeedFrom(_ target: String) -> Double {
         switch target {
         case "arpRate":            return Double(ArpRate.allCases.firstIndex(of: p.rate ?? .r1_16) ?? 3)
+        case "maskK":              return Double(max(1, min(16, p.maskK ?? (p.maskN ?? 8))))
+        case "maskRotate":         return Double(max(0, min(15, p.maskRotate ?? 0)))
+        case "maskChordOct":       return Double(max(-2, min(2, p.maskChordOct ?? 0)))
+        case "maskChordGate":      return p.maskChordGate ?? 0.6
         case "rtcChance":          return p.rtcChance ?? 0.5
         default:                   return p.gate ?? 0.6
         }
@@ -2059,6 +2073,10 @@ struct ProcessorBox: View {
     private func lfoSetBase(_ target: String, _ v: Double) {
         switch target {
         case "arpRate":            setParam { $0.rate = ArpRate.allCases[max(0, min(17, Int(v.rounded())))] }
+        case "maskK":              setParam { $0.maskK = max(1, min(16, Int(v.rounded()))) }
+        case "maskRotate":         setParam { $0.maskRotate = max(0, min(15, Int(v.rounded()))) }
+        case "maskChordOct":       setParam { $0.maskChordOct = max(-2, min(2, Int(v.rounded()))) }
+        case "maskChordGate":      setParam { $0.maskChordGate = v }
         case "rtcChance":          setParam { $0.rtcChance = v }
         default:                   setParam { $0.gate = v }
         }

@@ -5153,10 +5153,26 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan((dLFO.max() ?? 0) - (dLFO.min() ?? 0), (dNone.first ?? 0) / 2, "the LFO swing is substantial")
         XCTAssertEqual(lfo.events, runLFO([ParamLFO(target: "gate", shape: .square, period: .r1, from: 0.05, to: 1.0)]).events, "the LFO stream is replay-exact (beat-derived)")
     }
-    // The arp-embedded HIT-COUNT LFO target (arpMaskK) is REMOVED along with the arp-embedded mask (Paul 2026-09-28).
-    // FLAGGED GAP, not silently dropped: the standalone EUCLID MASK processor has NO param-LFO targets registered at
-    // all (its GridUI case never passes an `lfo:` argument) — this is a genuine capability loss, not just a rename;
-    // restoring it is a separate, real feature addition if wanted, not part of this removal.
+    // EUCLID MASK HIT-COUNT LFO (Paul 2026-09-28): restores parity with the removed arp-embedded mask's own LFO
+    // target (the old testArpMaskKLFOModulatesEuclidDensity) — a maskK LFO on the standalone processor modulates
+    // the HIT COUNT (K) so the euclidean density breathes over time; an endpoint-less LFO resolves away (byte-
+    // identical); nothing left stuck. Chained after an ARP driver, same pattern as the ported chord-gap test below.
+    func testEuclidMaskKLFOModulatesDensity() {
+        func runLFO(_ lfos: [ParamLFO]) -> RecordingEmitter {
+            var arp = ProcessorSlot(type: .arp); arp.params.pattern = .up; arp.params.rate = .r1_16; arp.params.octaves = 1; arp.params.gate = 0.5; arp.params.phase = .free
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 2   // a BITING euclid mask (2 of 8)
+            mask.params.paramLFOs = lfos
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e); assertNothingLeftSounding(e)
+            return e
+        }
+        let none = runLFO([])
+        let zero = runLFO([ParamLFO(target: "maskK")])
+        let lfo  = runLFO([ParamLFO(target: "maskK", shape: .square, period: .r1, from: 2, to: 8)])   // sweep density: sparse (2 of 8) ↔ full (8 of 8)
+        XCTAssertEqual(none.events, zero.events, "an endpoint-less maskK LFO resolves away → byte-identical")
+        XCTAssertGreaterThan(lfo.ons.count, none.ons.count, "a maskK LFO opens the euclid density (more hits when K swings up)")
+    }
     // EUCLID MASK GAPS = CHORD gap-stab controls (Docs/PLAN-param-lfo.md): the gap chord strike gets its own OCTAVE + VELOCITY
     // (LENGTH mirrors the driver's own gate formula). OCT −2 drops the stab two octaves (a pitch the driver's own hits never
     // produce); VEL scales it. Ported (Paul 2026-09-28) from the removed arp-embedded version to the standalone EUCLID MASK

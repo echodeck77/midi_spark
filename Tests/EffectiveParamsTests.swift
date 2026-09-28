@@ -516,21 +516,22 @@ final class EffectiveParamsTests: XCTestCase {
 
     /// `AutoParamField(key:)` must recognise EXACTLY the render-time-automatable scalar keys and reject anything else —
     /// a typo in the string table silently makes a param non-automatable at render time (the builder just skips it), with
-    /// no crash and no other test failing. This locks the 24-key table.
+    /// no crash and no other test failing. This locks the 28-key table.
     func testAutoParamFieldRecognisesEveryAutomatableKey() {
         let keys = ["gate", "ramp", "spread", "curve", "velTilt", "probability", "harmVelScale",
                     "octaves", "count", "rtcChance", "rtcCountLo", "rtcCountHi", "rtcRotate",
                     "euclidPulses", "euclidSteps", "euclidRot", "glideRange", "modMin", "modMax",
-                    "lenShort", "lenLong", "lenRotate", "weaveSpan", "weaveEuclidSteps"]
+                    "lenShort", "lenLong", "lenRotate", "weaveSpan", "weaveEuclidSteps",
+                    "maskK", "maskRotate", "maskChordGate", "maskChordOct"]
         for k in keys { XCTAssertNotNil(AutoParamField(key: k), "\(k) must be render-time automatable") }
-        XCTAssertEqual(keys.count, 24, "the render-time scalar set is 24 fields")
+        XCTAssertEqual(keys.count, 28, "the render-time scalar set is 28 fields")
         for bogus in ["", "nope", "euclidPuls", "bypass", "pattern", "harm0", "passMask"] {
             XCTAssertNil(AutoParamField(key: bogus), "\(bogus) is NOT a render-time scalar (nested/enum/typo)")
         }
     }
 
     /// `SnapParams.settingAuto` must clamp each field to the SAME bounds `applyProcessorValues` uses (its documented
-    /// contract). This locks all 24 bounds — a wrong bound would ship silently otherwise. The `readAuto` switch is
+    /// contract). This locks all 28 bounds — a wrong bound would ship silently otherwise. The `readAuto` switch is
     /// exhaustive, so a NEW AutoParamField case forces this table to be extended.
     func testSettingAutoClampsEveryFieldToItsBound() {
         // (field, expected low clamp, expected high clamp) — copied from applyProcessorValues (MacroAuthoring.swift).
@@ -540,8 +541,9 @@ final class EffectiveParamsTests: XCTestCase {
             (.rtcChance, 0, 1), (.rtcCountLo, 1, 8), (.rtcCountHi, 1, 8), (.rtcRotate, 0, 7),
             (.euclidPulses, 1, 16), (.euclidSteps, 2, 16), (.euclidRot, 0, 15), (.glideRange, 1, 48),
             (.modMin, 0, 127), (.modMax, 0, 127), (.lenShort, 0.05, 0.95), (.lenLong, 0, 1),
-            (.lenRotate, 0, 7), (.weaveSpan, 1, 8), (.weaveEuclidSteps, 2, 16)]
-        XCTAssertEqual(table.count, 24, "every AutoParamField case is covered")
+            (.lenRotate, 0, 7), (.weaveSpan, 1, 8), (.weaveEuclidSteps, 2, 16),
+            (.maskK, 1, 16), (.maskRotate, 0, 15), (.maskChordGate, 0.05, 1), (.maskChordOct, -2, 2)]
+        XCTAssertEqual(table.count, 28, "every AutoParamField case is covered")
         for (f, lo, hi) in table {
             XCTAssertEqual(readAuto(SnapParams().settingAuto(f, -9_999), f), lo, accuracy: 1e-9, "\(f) clamps below to \(lo)")
             XCTAssertEqual(readAuto(SnapParams().settingAuto(f, 9_999), f), hi, accuracy: 1e-9, "\(f) clamps above to \(hi)")
@@ -558,6 +560,8 @@ final class EffectiveParamsTests: XCTestCase {
         case .euclidRot: return Double(s.euclidRot); case .glideRange: return Double(s.glideRange); case .modMin: return Double(s.modMin)
         case .modMax: return Double(s.modMax);     case .lenShort: return s.lenShort;         case .lenLong: return s.lenLong
         case .lenRotate: return Double(s.lenRotate); case .weaveSpan: return Double(s.weaveSpan); case .weaveEuclidSteps: return Double(s.weaveEuclidSteps)
+        case .maskK: return Double(s.maskK); case .maskRotate: return Double(s.maskRotate)
+        case .maskChordGate: return s.maskChordGate; case .maskChordOct: return Double(s.maskChordOct)
         }
     }
 }
