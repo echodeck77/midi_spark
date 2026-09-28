@@ -221,6 +221,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   grid↔machine order moved. **DEVICE-OWED:** the whole re-arranged layout on a real screen, and that dragging a chain
   box to the NOW-right-side trash still deletes it (the hit-test math is unit-untestable — GridUI has no test-target
   reach, same as every prior playhead/layout fix in this file).**
+- **▶ ROOMS WORKBENCH — the left/right layout swap REVERTED (2026-09-29, on `main`, `28641fb`; iOS builds). Paul: back
+  to the original layout. A clean `git revert` of `1c902c6` (same-day, "move the machine column to the left, swap its
+  trash/verb-button flanks") — applied with no conflicts against this session's other BuildPage.swift edits (all in
+  unrelated regions). Restores: `roomsWorkbench`'s top-level HStack back to GRID (2/3, LEFT) · MACHINE BOX (1/3,
+  RIGHT); within the machine box, TRASH/row-rail flank LEFT · verb buttons (LIBRARY/MUTATE/CLEAR) flank RIGHT, for
+  both the populated and the faded-empty-row layouts; the chain-box drag-to-delete hit-test back to `drag.location.x
+  < -6` (was `> blockW + 6`). Net: `1c902c6` is now fully undone, nothing else changed.**
 - **▶ PLAY FERRIES — M/S collapsed to a single SOLO button (2026-09-29, on `main`; iOS builds; DEVICE eye owed). Paul:
   replace the mute+solo pair under each play ferry with one "SOLO" button, same size. `roomsPlayFerry`'s `HStack { M;
   S }` (each half-width) is now one full-width `Text("SOLO")` calling `buildToggleFerrySolo(t)` — same amber-when-
