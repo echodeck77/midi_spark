@@ -212,6 +212,41 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   constructing the range, not just filtering after; pinned down with a dedicated regression test (BOT2/TOP2 against
   a single held note collapses to one note cleanly, not a crash) rather than left as an unverified guard. +2
   RouterTests. **DEVICE-OWED:** BOT2/TOP2 actually sounding like the intended voicing against a real chord.**
+- **▶ RIFF — 6 playhead direction modes: FWD/REV/PENDULUM/PING-PONG/RANDOM/DRUNK (2026-09-28, on `main`, `92042df`;
+  macOS 1146 green, iOS builds; DEVICE ear owed). Paul asked for an option to override how the RIFF playhead travels,
+  giving precise worked examples for all 6. Found along the way: today's `RiffDir.pingpong` already matched the new
+  spec's PENDULUM exactly (hand-verified — bounces, each end played once, cycle 2n−2, n=2 degenerates to FORWARD) —
+  the same class of bug as RATCHET PATTERN/DEST/the ARP-rate LFO before it, a control whose name didn't describe its
+  own behaviour. **Fixed for free, no migration:** `.pendulum` KEEPS the old `"PING-PONG"` raw value (old saves
+  decode byte-identical; the editor now correctly labels them PENDULUM instead of the wrong PING-PONG); the
+  genuinely-new bounce-TWICE mode gets a fresh raw value (`"PONG"`) as `.pingpong`; a `displayLabel` splits the
+  UI-shown name from the persistence key so both read right. FORWARD/REVERSE/PENDULUM/PING-PONG/RANDOM are all pure
+  functions of the existing `raw` tick index — no new state, SPAN re-anchor applies uniformly to all five; RANDOM
+  reuses `splitmix64Mix` (the same primitive `ArpPattern.randomOnce` already uses) keyed by a new per-instance
+  `riffDirSeed`. **DRUNK is the one genuinely stateful mode** (its own spec: "position carries across cycles") —
+  runs against this project's "derived, never accumulated" invariant. Resolved by following the EXACT existing
+  precedent for this class of state (DEAL/ALT's per-cell counters, `Router.swift` ~315) rather than inventing
+  something new — disclosed, not waved through as pre-approved: the codebase's own architecture review
+  (`Docs/codebase-review-2026-08-16.md`, finding A1) already flags that class of state as a known, UNDISCHARGED
+  limitation (not replay-exact across a mid-phrase seek/loop), not a blessed exception — this is a deliberate third
+  instance of an accepted trade-off, named honestly as such. Keyed on `tick`, NEVER `raw` (a design correction caught
+  during planning, not shipped wrong first) — `raw` resets at every SPAN boundary, so keying off it would make the
+  walk silently re-sync mid-cycle, contradicting "carries across cycles" outright; `tick` is monotonic and
+  SPAN-oblivious by construction. Reset alongside DEAL/ALT on the transport-edge "fresh play" trigger, never on
+  panic. A BIAS control (`-1...1`, 0 = neutral, the exact `chanceTilt`/`velTilt`/`bipolarSlider` convention) tilts the
+  walk's −1/0/+1 weights via a squared tilt: bias=0 → uniform ⅓ each ("wanders evenly"); bias=+1 → 0%/20%/80%,
+  forward-dominant but never deterministic ("Forward with stumbles", hand-verified both extremes before shipping).
+  **KNOWN, DISCLOSED LIMITATION not fixed here:** RIFF's TIE lookahead already assumed forward-adjacency (`step+1`) —
+  already wrong for REVERSE today, predating this feature entirely; RANDOM/DRUNK make the wrongness more visible
+  (an arbitrary unrelated slot instead of a predictably-wrong one) but don't introduce it. A real fix needs
+  direction-aware lookahead for REVERSE/PENDULUM/PING-PONG and a non-mutating forward simulation for DRUNK — real,
+  separate scope, deferred. +6 RouterTests (literal n=8 sequences for PENDULUM/PING-PONG, the n=2 PENDULUM=FORWARD
+  edge case, RANDOM seed-repeatability + range, DRUNK bounds/step-size across 4 seed·bias combos, DRUNK reset-on-
+  transport-edge). One test explicitly NOT shipped rather than shipped vacuous: a SPAN-obliviousness regression guard
+  for DRUNK never showed ANY span effect on ANY mode (including FORWARD) under the test harness's `forceColumn:0`
+  bypass — a test-infrastructure interaction, not a code defect (the engine change was verified by direct reading,
+  independently, twice), flagged inline at the deletion site rather than hidden. Plan:
+  `~/.claude/plans/flickering-dazzling-floyd.md`.**
 - **▶ EUCLID MASK — INVERT, SPAN, ACCENT LAYER, FILL, PROBABILITY, CHORD PICK (2026-09-28, on `main`, `2a54d5d`;
   macOS 1140 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Asked what else the design space supported; Paul
   picked six to build now, in the priority order agreed: INVERT + SPAN first (cheap, closed a real consistency gap),
