@@ -199,6 +199,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROCESSOR EDITOR — a one-shot cross-fade when the shown type changes (2026-09-28, on `main`, `b36026d`; iOS
+  builds; DEVICE-owed). Paul: picking a different chain box (ARP→RATCHET) swaps the controls with nothing marking
+  that it happened. ROOT CAUSE: the controls panel carries NO type identity of its own — the old header (emblem ·
+  name · BYPASS/DELETE/CANCEL/DONE) was removed entire on 2026-09-10 as too heavy; the only surviving "ARP" vs
+  "RATCHET" signal is a small tab label in a horizontal scroll strip above the panel, easy to miss once your eye is
+  in the controls. Paul picked the transition over reviving a header. **FIX:** `ProcessorBox.body`'s one call to
+  `typeParams(ft)` gained `.id(ft)` (a type change is a fresh view identity, not an in-place diff) +
+  `.transition(.opacity)` + `.animation(.easeInOut(duration: 0.18), value: ft)` — a brief cross-fade catches the
+  MOMENT the controls change. Lives in the shared component (not BUILD-specific), so it applies everywhere
+  `ProcessorBox` renders. Explicitly NOT the same class of thing as the looping/strobing chain-box focus indicator
+  Paul ruled out on 2026-09-08 — this is one-shot, tied to a real state change, not a resting-state animation.
+  **DEVICE-OWED:** whether 0.18s reads as "caught it" without feeling laggy when tapping quickly between boxes.**
 - **▶ PROCESSOR GRIDS — missing/wrong live sweeps fixed across 6 processors; the sweep redesigned as a pulse glow
   (2026-09-28, on `main`, `dce2d9c`; macOS 1141 green, iOS builds; DEVICE-eye owed on the whole look). Paul: "the
   processors have grids and many of them don't show the sweep... one important example is riff," plus "I don't like
