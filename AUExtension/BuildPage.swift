@@ -1297,16 +1297,18 @@ extension DiagView {
                     // EMPTY part row selected (Paul 2026-09-10): the row-creator MENU is gone (creation is now the 4 in-row
                     // buttons). The machine box instead shows a FADED, EMPTY, UNSELECTABLE chain — same layout + footprint as
                     // a real chain (blockH, no scale change), just dimmed + inert so it clearly reads "nothing here yet".
-                    AnyView(HStack(alignment: .center, spacing: 0) {           // TRASH flank LEFT · chain centred · LIBRARY/MUTATE/CLEAR RIGHT — matches the populated layout (Paul 2026-09-10)
-                        AnyView(roomsChainTrash(width: sideW, height: blockH))
-                        AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue, chainOverride: [])).frame(width: blockW)
+                    AnyView(HStack(alignment: .center, spacing: 0) {           // LIBRARY/MUTATE/CLEAR flank LEFT · chain centred · TRASH RIGHT — matches the populated layout (Paul 2026-09-28, swapped from the trash-left layout)
                         AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                        AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue, chainOverride: [])).frame(width: blockW)
+                        AnyView(roomsChainTrash(width: sideW, height: blockH))
                     }
                     .opacity(0.35)
                     .allowsHitTesting(false))
                 } else {
-                    AnyView(HStack(alignment: .center, spacing: 0) {           // LEFT flank: ROW RAIL (part room) ↔ trash · MIDI CHAIN centred · verb buttons (LIBRARY/MUTATE/CLEAR) RIGHT (Paul 2026-09-10)
-                        AnyView(ZStack {                                        // LEFT — the 4 part-row selectors (another view of the selected/playing row), swapped for the trash while dragging (Paul 2026-09-13)
+                    AnyView(HStack(alignment: .center, spacing: 0) {           // LEFT flank: verb buttons (LIBRARY/MUTATE/CLEAR) · MIDI CHAIN centred · ROW RAIL (part room) ↔ trash RIGHT (Paul 2026-09-28, swapped from the trash-left layout)
+                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // LEFT — LIBRARY / MUTATE / CLEAR (always the left, both rooms)
+                        AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
+                        AnyView(ZStack {                                        // RIGHT — the 4 part-row selectors (another view of the selected/playing row), swapped for the trash while dragging (Paul 2026-09-13)
                             if roomsRoom == .part && !buildTrashVisible {
                                 // Match the row buttons to the INPUT circle that feeds the chain (drawn by buildChainFlowOverlay
                                 // directly above them): its radius = the SAME formula, with the overlay's boxH = (cell+cgap)*1.5.
@@ -1316,8 +1318,6 @@ extension DiagView {
                             }
                             AnyView(roomsChainTrash(width: sideW, height: blockH))   // the DELETE trash (drawn only mid-drag; keeps registering its drop zone)
                         }.frame(width: sideW, height: blockH))
-                        AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
-                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // RIGHT — LIBRARY / MUTATE / CLEAR (always the right, both rooms)
                     }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedMachineChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
                 }
                 Spacer(minLength: 8)
@@ -1354,10 +1354,12 @@ extension DiagView {
     // readers are now a dormant cluster — flagged in pending-tasks for a follow-up, not removed here.)
     // THE CHAIN TRASH (Paul 2026-09-10) — replaces the PLAY + SELECT flank. INVISIBLE + non-interactive at rest (it
     // renders nothing and never intercepts touch). While a MIDI-chain processor box is HELD (buildChainDragFrom set) a big
-    // red garbage-can box appears here; dragging the box over it (detected via the chainBlock x — the trash is the left
-    // flank, at x < 0) turns it EVEN REDDER, and dropping there deletes the processor from the chain (handled in buildProcBox).
+    // red garbage-can box appears here; dragging the box over it (detected via the chainBlock x — the trash is the RIGHT
+    // flank, past the block's right edge — Paul 2026-09-28) turns it EVEN REDDER, and dropping there deletes the processor
+    // from the chain (handled in buildProcBox).
     // Is the DELETE trash currently on screen? (a chain-box drag that has MOVED, or a ferry drag). When it's NOT, the
-    // machine box's left flank shows the 4 row selectors instead (Paul 2026-09-13). One source of truth for both.
+    // machine box's right flank shows the 4 row selectors instead (Paul 2026-09-13; moved from the left, 2026-09-28). One
+    // source of truth for both.
     var buildTrashVisible: Bool {
         let chainDrag = chainDragActive && buildChainDragMoved
         let ferryDrag = ferryDragActive && buildFerryDragMoved && (buildFerryDrag.map { if case .ferry = $0 { return true } else { return false } } ?? false)
@@ -3038,8 +3040,9 @@ extension DiagView {
         // IMMEDIATE DRAG (Paul 2026-09-12): a populated box enters drag mode as soon as the finger MOVES — NO long-press first.
         // The red TRASH + the droppable destination rings appear at once (gated on chainDragActive && buildChainDragMoved,
         // both set on the first move). minimumDistance 8 keeps a stationary TAP falling through to the editor (onTapGesture).
-        // Drop on the trash (chainBlock x < 0) = DELETE; drop on another box = REORDER. BYPASS moved to the hold below now
-        // that the drag no longer needs a hold. Empty boxes are not sources (`including: .none`) → their tap/hold reach ADD.
+        // Drop on the trash (chainBlock x past the block's right edge) = DELETE; drop on another box = REORDER. BYPASS
+        // moved to the hold below now that the drag no longer needs a hold. Empty boxes are not sources (`including: .none`)
+        // → their tap/hold reach ADD.
         .highPriorityGesture(
             DragGesture(minimumDistance: 8, coordinateSpace: .named("chainBlock"))
                 // AUTO-RESETTING "actively dragging" flag — true while the drag is live; SwiftUI resets it when the gesture
@@ -3050,7 +3053,8 @@ extension DiagView {
                     if buildChainDragFrom == nil { buildChainDragFrom = i }   // drag just started → lift this box
                     buildChainDragMoved = true                                // a real drag is underway → reveal the trash + targets
                     buildChainDragLoc = drag.location
-                    let overTrash = drag.location.x < -6                      // the trash is the LEFT flank (negative x in the box-grid space)
+                    let blockW = w * 2 + gap                                  // the chain block's own width (2 boxes + the gap between them)
+                    let overTrash = drag.location.x > blockW + 6              // the trash is the RIGHT flank now (past the block's right edge) — Paul 2026-09-28
                     buildChainOverTrash = overTrash
                     buildChainDropTo = overTrash ? nil : buildChainTargetIndex(drag.location, boxW: w, boxH: h, gap: gap, count: chain.count)
                 }

@@ -149,9 +149,9 @@ extension DiagView {
 
     // ── THE ROOMS ─────────────────────────────────────────────────────────────────────────────────
     // THE MERGED WORKBENCH (Paul 2026-09-08) — SELECT and PART are now ONE page. The SELECT GRID | PART GRID toggle now
-    // lives in the HEADER (buildHeaderControls); this body is just the active GRID (2/3, LEFT) + the fixed machine column
-    // (1/3, RIGHT). roomsRoom still holds which grid is active (.select or .part), so every existing per-grid path
-    // (setup, voice sync, ferries, the docked card) is reused verbatim.
+    // lives in the HEADER (buildHeaderControls); this body is just the fixed machine column (1/3, LEFT) + the active GRID
+    // (2/3, RIGHT — moved from the left, Paul 2026-09-28). roomsRoom still holds which grid is active (.select or .part),
+    // so every existing per-grid path (setup, voice sync, ferries, the docked card) is reused verbatim.
     @ViewBuilder private func roomsWorkbench(_ size: CGSize) -> some View {
         GeometryReader { g in
             let avail = g.size.width - 16 - 6                             // page padding (16) + 1 HStack gap (6)
@@ -160,10 +160,10 @@ extension DiagView {
             let bodyH = g.size.height - 16                                // no in-body toggle bar now — the body fills the page (Paul 2026-09-08)
             let m = RoomsMetrics(height: bodyH)                           // the ONE lattice for the grid body
             HStack(alignment: .top, spacing: 6) {
+                chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box (1/3, LEFT — fixed; moved from the right, Paul 2026-09-28)
                 Group {
                     if roomsRoom == .part { roomsPartGrid(m: m) } else { roomsSelectGridUnit(m: m) }
-                }.frame(width: gridW, height: bodyH)                      // the active GRID (2/3, LEFT — same side for both)
-                chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box (1/3, RIGHT — fixed)
+                }.frame(width: gridW, height: bodyH)                      // the active GRID (2/3, RIGHT — same side for both)
             }.padding(8)
             // FERRY DRAG-AND-DROP (Paul 2026-09-12): ONE shared coordinate space spanning the grid + the machine box, so a
             // SELECT cell / ferry drag can hit-test the ferries AND the machine-box trash. Drop-zone frames flow up via
