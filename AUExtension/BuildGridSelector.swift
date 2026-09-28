@@ -213,14 +213,14 @@ extension DiagView {
         // view (a LIGHT-grey button with a DARK roll), NOT the chain's own hue (Paul 2026-08-30). Non-SELECT grids keep the hue.
         let selGrey = greyUnlessSel && sel && !committed
         let fill = present ? (sel ? (selGrey ? buildSelectGrey : hue.opacity(0.85)) : (unselGrey ? Color(white: 0.16) : hue.opacity(0.42))) : Color.white.opacity(0.03)   // selGrey ALTERNATES two bright shades per selection (matches the machine box; Paul 2026-09-01)
-        // THE SELECTED COLOUR (Paul 2026-09-27): a picked-but-uncommitted cell's notes now wear whichever ferry is
-        // currently active (buildFerryHex(buildActiveFerry)) — the same "selected colour" the ferry-row selector glow
-        // already reads (roomsPlayFerry, "LIGHT EMANATES from the SELECTED ferry... a strong tint of the selected
-        // colour") — instead of the old dark-grey INVERSION of the unselected face. Tapping a DIFFERENT, unselected
-        // ferry's own selector (buildActivateFerry) re-points buildActiveFerry live, so the notes recolour with it;
-        // picking a different SELECT cell (or deselecting) falls out of the `sel`/`selGrey` branch entirely, reverting
-        // to the plain grey face exactly as before.
-        let rollTint: Color = selGrey ? (buildActiveFerry.map { Color(hex: buildFerryHex($0)) } ?? Color(white: 0.22)) : (unselGrey ? Color(white: 0.78) : .white)
+        // NOTES BACK TO PLAIN GREY (Paul 2026-09-28): reverts the 2026-09-27 change above — the picked-but-uncommitted
+        // cell's roll goes back to dark ink on the light selGrey face, not the active ferry's hue.
+        let rollTint: Color = selGrey ? Color(white: 0.22) : (unselGrey ? Color(white: 0.78) : .white)
+        // THE SELECTED COLOUR (Paul 2026-09-28): moved off the notes onto the FRAME + a play badge instead — still
+        // whichever ferry is currently active (buildFerryHex(buildActiveFerry)), the same "selected colour" the
+        // ferry-row selector glow reads (roomsPlayFerry, "LIGHT EMANATES from the SELECTED ferry... a strong tint of
+        // the selected colour"); falls back to the same grey as the notes when nothing's active yet.
+        let selectedHue: Color = buildActiveFerry.map { Color(hex: buildFerryHex($0)) } ?? Color(white: 0.22)
         // TASTEFUL CHEQUER (Paul 2026-08-31): the SELECT grid reads as a BOARD — a faint two-tone parity wash on every
         // non-selected cell (the classic chessboard), subtle enough not to fight the roll. SELECT grid only (greyUnlessSel);
         // the bright selected/focus cell stays clean.
@@ -237,8 +237,15 @@ extension DiagView {
                     .foregroundColor(.black.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
                     .shadow(color: .white.opacity(0.25), radius: 1)
             }
-            if sel {       // THE ACTIVE CELL — a STATIC strong frame (Paul 2026-09-08: was a breathing strobe)
-                RoundedRectangle(cornerRadius: 6).stroke(selGrey ? Color.black : Color.white, lineWidth: 3)
+            if sel {       // THE ACTIVE CELL — a STATIC strong frame (Paul 2026-09-08: was a breathing strobe; Paul
+                           // 2026-09-28: the selGrey border now carries the selected colour, was plain black)
+                RoundedRectangle(cornerRadius: 6).stroke(selGrey ? selectedHue : Color.white, lineWidth: 3)
+            }
+            if selGrey {   // A PLAY BADGE (Paul 2026-09-28) — identical in style to the play-ferry buttons' own PLAY
+                           // icon, incl. the same velocity flash (flashingIcon), tinted in the selected colour.
+                flashingIcon("play.fill", size: min(10, h * 0.34), tint: selectedHue, baseOpacity: 0.9, indices: buildChainAuditionRow.map { [$0] } ?? [])
+                    .frame(width: w, height: h, alignment: .bottomTrailing)
+                    .padding(4)
             }
             if buildSelectMode && present { RoundedRectangle(cornerRadius: 6).stroke(Color.white, lineWidth: 2.5) }   // SELECT MODE: every cell lights white — tap to focus (Paul 2026-08-31)
         }

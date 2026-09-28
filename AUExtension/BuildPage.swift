@@ -2747,7 +2747,7 @@ extension DiagView {
     // An SF-symbol ICON that FLASHES its velocity on each strike across `indices` (brighten + a subtle pulse) — used for the
     // play/stop icon on a running play ferry AND the focused machine's play button (Paul 2026-09-11: flash the ICON, not the
     // cell body). One TimelineView; reads the live strike feed (meters, off @State).
-    @ViewBuilder private func flashingIcon(_ systemName: String, size: CGFloat, tint: Color, baseOpacity: Double, indices: [Int]) -> some View {
+    @ViewBuilder func flashingIcon(_ systemName: String, size: CGFloat, tint: Color, baseOpacity: Double, indices: [Int]) -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
             let lvl = buildFlashLevel(indices, now: tl.date)
             Image(systemName: systemName).font(.system(size: size, weight: .black))
