@@ -199,6 +199,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ARP — the embedded Euclid mask removed, superseded by the standalone processor (2026-09-28, on `main`,
+  `2063381`; macOS 1146 green, iOS builds). The arp-only `arpMask*` controls (HITS K/N, GAPS REST/TIE/CHORD, ROTATE,
+  the CHORD-gap stab's OCT/LEN/VEL) were fully superseded by the newer standalone EUCLID MASK processor (`mask*`,
+  landed 2026-09-27/28), which gates ANY driver — including ARP, via `[ARP → EUCLID MASK]` — and has since grown
+  well past parity (INVERT, SPAN, CHANCE, ACCENT LAYER, FILL, CHORD PICK, none of which the arp-embedded version
+  ever had). Paul asked for the redundant original removed. The one capability lost is WALK/WAIT (the walk advancing
+  only on hits instead of marching through rests) — already an accepted, disclosed trade-off from when the
+  standalone processor was built (a downstream fold can't reach a driver's own phase-index the way an embedded mask
+  could) — nothing new lost by this cleanup. Removed: the `MachineParams`/`SnapParams` fields, `SnapshotBuilder`'s
+  resolve, the `ArpMaskWalk` enum (confirmed zero other users), the engine block in `emitArpRow`, the ARP editor's
+  UI controls, and the `AutoParamField` LFO-target cases — Swift's own exhaustive switches caught every call site
+  that needed a matching removal. Two tests genuinely covering capability the standalone processor ALSO has (the
+  chord-gap stab's OCT/VEL/GATE independence) were PORTED to chain `[ARP → EUCLID MASK]` instead of deleted, passing
+  unmodified on first run — confirming the standalone fold's chord-gap math matches the removed version exactly;
+  tests covering only the arp-embedded wiring itself (including one exercising WAIT, which has no replacement) were
+  removed outright. **FLAGGED, not fixed here:** the standalone EUCLID MASK processor has NO param-LFO targets
+  registered anywhere, unlike the version it replaces (which exposed HITS/ROTATE/CHORD-OCT/CHORD-LEN to the `∿`
+  modulation system) — a real capability gap, found while removing the old version, separate scope to restore.**
 - **▶ CHAIN EDITOR — fixed a stale edit-slot showing an empty box's PASSGATE identity after a drag-reorder
   (2026-09-28, on `main`, `1585c28`; iOS builds, macOS 1147 green). Paul: "a pass gate processor sometimes shows
   when it's not part of the MIDI chain." Root-caused, not guessed: an empty/placeholder chain box is INTERNALLY
