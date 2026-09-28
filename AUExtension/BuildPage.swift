@@ -2528,14 +2528,15 @@ extension DiagView {
                 let logical = min(cols - 1, max(0, Int(pcol)))              // the CURRENT logical step
                 let fract = min(1.0, max(0.0, pcol - Double(logical)))     // progress ALONG that step's active cell, [0,1)
                 let c = plan.physicalColumn(logical)                       // the REAL column this step plays
-                let r = c < buildStagingSel.count ? buildStagingSel[c] : -1 // the ACTIVE cell = this column's selected rung
                 // (The per-cell VELOCITY FLASH on the grid body was removed 2026-09-11 — Paul: no flashing on the main grid.
                 // Velocity now flashes only on the play-ferry icons + the focused machine's play button.)
-                if r >= 0 && r < rows {
-                    let sweepX = CGFloat(c) * (colW + gap) + colW * CGFloat(fract)
-                    let cellY = CGFloat(r) * (rowH + gap)
+                // MULTI-SELECT (Paul 2026-09-28): sweep EVERY rung sounding in this column, not just the lead — a column
+                // with 2+ rows multi-selected was silently only ever showing the lead's bar, dropping the others (the
+                // v1 gap flagged when MULTI shipped). buildActiveRungs already degenerates to [lead] in SINGLE mode.
+                let sweepX = CGFloat(c) * (colW + gap) + colW * CGFloat(fract)
+                ForEach(buildActiveRungs(c).filter { $0 >= 0 && $0 < rows }, id: \.self) { r in
                     Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: rowH)
-                        .offset(x: sweepX, y: cellY).allowsHitTesting(false)
+                        .offset(x: sweepX, y: CGFloat(r) * (rowH + gap)).allowsHitTesting(false)
                 }
             }
         }
@@ -2557,12 +2558,13 @@ extension DiagView {
                 let logical = min(cols - 1, max(0, Int(pcol)))
                 let fract = min(1.0, max(0.0, pcol - Double(logical)))
                 let c = plan.physicalColumn(logical)
-                let r = c < buildStagingSel.count ? buildStagingSel[c] : -1   // the current column's ACTIVE rung
                 // LEADING-anchored in a FULL box-sized frame so the bar actually sweeps edge→edge (an offset inside a
                 // content-sized view collapses the layout → the old version got clipped to a mid-box flash). Paul 2026-09-12.
                 ZStack(alignment: .leading) {
                     Color.clear
-                    if r == n {
+                    // MULTI-SELECT (Paul 2026-09-28): row n sweeps whenever it's ANY active rung of this column, not
+                    // only the lead — was silently dark for a multi-selected non-lead row (same v1 gap as roomsPartPlayhead).
+                    if buildActiveRungs(c).contains(n) {
                         Rectangle().fill(Color.white.opacity(0.9)).frame(width: 2, height: h)
                             .offset(x: max(0, min(w - 2, w * CGFloat(fract))))   // leading edge → x = w·fract, over one step
                     }
