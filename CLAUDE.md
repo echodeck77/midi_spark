@@ -199,6 +199,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID MASK — CHORD PICK gains BOTTOM2/TOP2 (2026-09-28, on `main`, `9d38406`; macOS 1141 green incl. fuzz,
+  iOS builds; DEVICE ear/eye owed). Paul: add bottom-two/top-two to CHORD PICK. Judgment call, flagged rather than
+  asked: rather than extend the SHARED `EuclidPick` enum (also used by the standalone EUCLID driver's own PICK),
+  introduced a DEDICATED `MaskChordPick` enum (ALL·LOW·HIGH·BOT2·TOP2·CYCLE·RANDOM) — BOT2/TOP2 strike a PAIR of
+  notes, which the driver's own `strikeChord(onlyIndex:)` (one pool-rank at a time) can't express, so reusing the
+  enum would have forced an unrelated change onto the driver for a feature Paul didn't ask to touch. Generalized the
+  fold's single optional pick index into an INCLUSIVE RANGE (`lo...hi`) — ALL/LOW/HIGH/CYCLE/RANDOM are a range of
+  one, BOT2/TOP2 a range of two, one application path for all seven. **CAUGHT WHILE WRITING THE FIX, not by a test:**
+  the naive range construction (`max(0,lo)...min(count-1,hi)`) can build an INVALID `ClosedRange` (Swift traps on
+  lower > upper) if `count` were ever 0 by the time the range is applied — guarded by checking `count > 0` BEFORE
+  constructing the range, not just filtering after; pinned down with a dedicated regression test (BOT2/TOP2 against
+  a single held note collapses to one note cleanly, not a crash) rather than left as an unverified guard. +2
+  RouterTests. **DEVICE-OWED:** BOT2/TOP2 actually sounding like the intended voicing against a real chord.**
 - **▶ EUCLID MASK — INVERT, SPAN, ACCENT LAYER, FILL, PROBABILITY, CHORD PICK (2026-09-28, on `main`, `2a54d5d`;
   macOS 1140 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Asked what else the design space supported; Paul
   picked six to build now, in the priority order agreed: INVERT + SPAN first (cheap, closed a real consistency gap),

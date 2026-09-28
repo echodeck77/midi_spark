@@ -42,6 +42,8 @@ OPEN:
 - **✅ ACCENT LAYER + FILL + INVERT + SPAN + PROBABILITY + CHORD PICK — ALL LANDED (2026-09-28, `2a54d5d`; macOS
   1140 green incl. fuzz).** See CLAUDE.md's status log for the full writeup. ACCENT is a second, independent K-of-N
   pattern boosting velocity on its own hits, exactly as pencilled in here. DEVICE ear/eye owed on the whole set.
+  **✅ CHORD PICK extended with BOTTOM2/TOP2 (2026-09-28, `9d38406`; macOS 1141 green)** — a new dedicated
+  `MaskChordPick` enum, not a reuse of `EuclidPick` (see CLAUDE.md status).
 - **∿ LFO roll-out:** RIFF RATE (the rate-grid endpoint is arpRate-specific — generalise it), WEAVE LENGTH + OCTAVES,
   and other processors' continuous params (RIFF GATE LENGTH already has it).
 - **DEVICE-EYE owed:** the ∿ buttons + the popover editor; the CHORD-stab controls; the long HITS label row not
