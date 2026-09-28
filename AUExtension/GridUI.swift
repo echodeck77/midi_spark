@@ -243,6 +243,9 @@ struct ProcessorBox: View {
                         }
                     }
                     typeParams(ft)
+                        .id(ft)                                    // a type change is a fresh identity, not an in-place diff — lets the transition below actually fire
+                        .transition(.opacity)                      // ONE-SHOT cross-fade on swap (Paul 2026-09-28): catches the moment the controls change, not a resting-state marker
+                        .animation(.easeInOut(duration: 0.18), value: ft)
                     if !slotMode && isB && glides {      // morph glides A↔B; only meaningful for a FULL B
                         field("MORPH \(Int(machine.morph * 100))%  → B") {
                             slider(Binding(get: { machine.morph }, set: { onMorph($0) }), in: 0...1)
