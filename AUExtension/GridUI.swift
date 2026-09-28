@@ -1071,7 +1071,7 @@ struct ProcessorBox: View {
                                 .frame(maxWidth: .infinity).frame(height: 26)
                                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: on ? 1.5 : 1))
                                 .overlay { if on { Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .black)).foregroundColor(.black) } }
-                                .overlay { pulseGlowOverlay(live, date) }
+                                .overlay { pulseGlowOverlay(live && on, date) }   // Paul 2026-09-28: only the SELECTED cell animates
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     setParam {
@@ -1207,6 +1207,7 @@ struct ProcessorBox: View {
             heroField("") {   // label removed (Paul 2026-09-13)
                 liveClockWrap(riffLive) { liveCol, date in
                 VStack(spacing: 2) {
+                    playheadHeaderRow(cols: steps, liveCol: liveCol, date: date, spacing: 2, leading: 16, trailing: 30)
                     ForEach(Array((1...8).reversed()), id: \.self) { rank in
                         let bit = 1 << (rank - 1)
                         let allThis = poly ? (0..<steps).allSatisfy { ((($0 < mask.count ? mask[$0] : 0)) & bit) != 0 }
@@ -1218,7 +1219,7 @@ struct ProcessorBox: View {
                                 RoundedRectangle(cornerRadius: 3).fill(on ? accent : Color.white.opacity(0.06))
                                     .frame(maxWidth: .infinity).frame(height: 16)
                                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(on ? 0.9 : 0.1), lineWidth: on ? 1.5 : 1))
-                                    .overlay { pulseGlowOverlay(s == liveCol, date, corner: 3) }
+                                    .overlay { pulseGlowOverlay(s == liveCol && on, date, corner: 3) }   // Paul 2026-09-28: only the SELECTED cell animates
                                     .contentShape(Rectangle()).onTapGesture {
                                         setParam {
                                             if poly { var a = $0.riffMask ?? []; while a.count < steps { a.append(0) }; a[s] ^= bit; $0.riffMask = a }   // POLY: toggle the rank's bit
@@ -1617,6 +1618,32 @@ struct ProcessorBox: View {
         let localBeat = c.span > 0 ? (b - columnStart(b, c.span)) : b
         return (((Int((localBeat / Swift.max(0.0001, c.rate)).rounded(.down)) + c.rotate) % c.steps) + c.steps) % c.steps
     }
+    // COLUMN-HEADER PLAYHEAD (Paul 2026-09-28: "only the selected cell should animate, not the entire column... I
+    // also want a playhead on the header of the column"): a small marker in a thin strip ABOVE the grid, at the
+    // live column — separate from the per-cell glow (which now marks only the ONE selected/sounding cell, so a
+    // live column with nothing selected there, or a tall multi-row matrix, still reads clearly as sweeping).
+    // `leading`/`trailing` mirror whatever gutter the caller's own rows reserve (the row-header width, RIFF's
+    // trailing SET button…) so the marker's columns line up with the real cells exactly — the alignment lesson
+    // CLOCK's GLIDE row already learned. Snaps to `liveCol` exactly, no fractional glide: RANDOM/DRUNK-class jumps
+    // have no meaningful in-between position to interpolate through, so every direction/mode gets the same honest,
+    // discrete motion (the same reasoning behind `pulseGlowLevel` being an independent breathe, not beat-synced).
+    @ViewBuilder private func playheadHeaderRow(cols: Int, liveCol: Int, date: Date, spacing: CGFloat = 3, leading: CGFloat, trailing: CGFloat = 0) -> some View {
+        HStack(spacing: spacing) {
+            Color.clear.frame(width: leading, height: 11)
+            ForEach(0..<cols, id: \.self) { step in
+                ZStack {
+                    if step == liveCol {
+                        Image(systemName: "arrowtriangle.down.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(.white.opacity(pulseGlowLevel(date)))
+                            .shadow(color: Color.white.opacity(0.8), radius: 3)
+                    }
+                }
+                .frame(maxWidth: .infinity).frame(height: 11)
+            }
+            if trailing > 0 { Color.clear.frame(width: trailing, height: 11) }
+        }
+    }
     // For a raw/bespoke grid (no stateMatrixRadio/sliderLane underneath, e.g. RIFF's rank matrix) that has its own
     // live-column function: runs it in a TimelineView and hands the body (liveCol, date) — -1/Date() when `live` is
     // nil, so `s == liveCol` is simply always false and nothing pulses. Avoids duplicating the grid body per-branch.
@@ -1658,6 +1685,7 @@ struct ProcessorBox: View {
         // so both branches type-match.
         let makeGrid: (Int, Date) -> AnyView = { liveCol, date in AnyView(
             VStack(spacing: 3) {
+                playheadHeaderRow(cols: cols, liveCol: liveCol, date: date, leading: 64)
                 ForEach(Array(options.enumerated()), id: \.offset) { (_, opt) in
                     HStack(spacing: 3) {
                         if eFill { EBrushButton(steps: cols, accent: accent) { pat in for s in 0..<cols { set(s, pat[s] ? opt : options[0]) } } }   // §5 E-BRUSH: fill this state on K columns, rest = the default (options[0])
@@ -1669,7 +1697,7 @@ struct ProcessorBox: View {
                             RoundedRectangle(cornerRadius: 4).fill(on ? accent : (dimOn ? accent.opacity(0.28) : Color.white.opacity(0.06)))
                                 .frame(maxWidth: .infinity).frame(height: 26)
                                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : (dimOn ? 0.4 : 0.12)), lineWidth: on ? 1.5 : 1))
-                                .overlay { pulseGlowOverlay(live, date) }
+                                .overlay { pulseGlowOverlay(live && on, date) }   // Paul 2026-09-28: only the SELECTED cell animates, not the whole live column
                                 .contentShape(Rectangle()).onTapGesture { set(step, opt) }
                         }
                     }
