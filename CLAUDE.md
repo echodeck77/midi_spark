@@ -238,6 +238,50 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (~80 references in `RouterTests.swift` alone, most nothing to do with PASSGATE's own feature). Removing the
   user-facing card is a small, safe change; removing the TYPE itself would need a replacement sentinel mechanism and
   touch dozens of call sites plus most of the test suite — asked Paul which he actually means before touching either.**
+- **▶ PASSGATE — REMOVED ENTIRELY, the whole type (2026-09-28, on branch `refactor/remove-passgate`, `2839240`; macOS
+  1142 green, iOS builds). Direct follow-through on the entry above: Paul answered the three-way flag — "the whole
+  type, engine included"; cut factory scene 9 from the sixteen, don't replace; delete test session T13 outright.
+  **DECODE SAFETY:** `ProcessorType.passgate` → `.empty`, raw string `"PASSGATE"` KEPT — an old saved cell of that
+  type still decodes, landing on `.empty`, now a plain inert passthrough (exactly right: the gating it used to do no
+  longer exists to preserve). **DELETED, not renamed (the feature itself):** `MachineParams.passes` ·
+  `SnapParams.passMask` / `effectivePassMask` · `cellMode`'s pass-mod-4 branch (`.empty` now just joins the
+  always-`.identity` bucket; `cellMode`'s signature dropped its now-pointless `passMask`/`pass` params — 8 call
+  sites in Router.swift/Kernel.swift simplified) · the GridUI "PLAY ON PASS" editor row + its self-clocked playhead
+  (`livePass`/the dead `passHead` field, found and removed in passing) · the storefront "PASSES" card ·
+  MacroAuthoring's dedicated PLAY-ON-PASS binding (folded into the existing bypass-only catch-all bucket every other
+  discrete-param type already uses). **RENAMED (sentinel + generic-fixture uses, compiler-driven sweep across ~25
+  files):** `buildPassthroughSlot`/`buildIsEmptySlot` and their AU-side/EditPage.swift/Dice.swift twins,
+  `isHoldTailChain`'s tail-type list, ~20+ "give me an inert machine" test fixtures. Roster lists that used PASSGATE
+  as one of several types to hammer/exclude (FuzzTests' type roster, ChaosDriver's edit-fuzz roster, Dice's factory-
+  chain generator's "NO PASSGATE" exclusion, BuildSelfTest's no-stuck-notes roster) had the entry DROPPED rather than
+  renamed — `.empty` isn't a real processor a user or generator would ever produce, so it doesn't belong in a "hammer
+  every real type" list either. **SCOPE SURPRISE, caught mid-implementation, not pre-planned:** the plan assumed
+  only scene 9 used the `pass()` scene-builder DSL helper; grep found THREE more call sites (UNDERTOW, THE LOOP THAT
+  ISN'T, PACIFIC) — two used it only in its default all-open state (a plain sustain in musical terms, so converting
+  to the new `thru()` helper — same helper, `.empty`-typed, no mask param since none exists anymore — is
+  byte-identical), but PACIFIC's "wine" voice genuinely alternated every 2nd pass as a deliberate texture (documented
+  in `factory-scenes.md`'s own COLOURS line). No replacement mechanism exists for that alternation now — `wine` was
+  converted to a continuous sustain, an honest degradation flagged here and in the scene's own doc entry rather than
+  silently absorbed. **ROUTERTESTS.SWIFT (~38 references across 36 functions) forked out** rather than swept blind —
+  many asserted the pass-mod-4 gating mechanism as their actual subject, not just used PASSGATE as a fixture. Per-test
+  triage: 2 DELETED (`testArpThenPassgateGatesPassZero`, `testPassgateGatesByPassInThePlayingPath` — nothing left to
+  assert once the mechanism is gone); 13 SUBSTITUTED `.chance` at `probability: 1.0`/`0.0` for PASSGATE's open/closed
+  states (verified exact, not seed-dependent, against `Derivations.chancePasses`'s own hard clamp at the
+  probability extremes, before relying on it — not assumed); ~20 mechanical `.empty` renames incl. a shared
+  `passgateMachine` fixture helper renamed `holdMachine`. **FACTORY SCENES renumbered 10-16→9-15** in both
+  `SceneFactory.swift` (code) and `Docs/factory-scenes.md` (every cross-reference re-derived from the actual
+  old→new mapping, not just the headers — caught ALT EGO's own device-test procedure in `Docs/test-procedures.md`
+  still citing its OLD scene number 14, now 13, a real cross-doc drift that a header-only renumbering would have
+  missed). `Docs/pending-tasks.md` and `Docs/manual/manual-skeleton.md` had their own PASSGATE mentions fixed
+  (a stale future-task example list, a manual glossary entry for a feature that no longer exists). **FLAGGED, not
+  touched:** `midispark-spec-v2.8.md`/`v3.0-delta.md` still describe PASSGATE's pass-mask behaviour in several
+  places — treated as a separate, larger spec-contract editorial pass rather than surgery-by-the-way; `feature-
+  status.md` is a self-described already-stale redirect notice, left alone; `status-log-archive.md`/`codebase-
+  review-2026-08-16.md`/`router-design.md`/`migration-tree-routing.md` are established-historical and never
+  retroactively edited by this project's own convention. **DEVICE-OWED:** confirm no chain anywhere still shows a
+  "PASSES" card; an old saved doc with a real PASSGATE cell opens as a silent inert passthrough, not a factory-reset
+  or a decode error; PACIFIC's wine sustaining continuously instead of alternating every 2nd pass reads as an
+  acceptable finale-scene change, not a loss.**
 - **▶ EUCLID MASK — CHORD PICK gains BOTTOM2/TOP2 (2026-09-28, on `main`, `9d38406`; macOS 1141 green incl. fuzz,
   iOS builds; DEVICE ear/eye owed). Paul: add bottom-two/top-two to CHORD PICK. Judgment call, flagged rather than
   asked: rather than extend the SHARED `EuclidPick` enum (also used by the standalone EUCLID driver's own PICK),

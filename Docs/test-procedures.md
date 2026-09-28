@@ -132,7 +132,7 @@ historical record only. **P5
 (audition) STANDS and is not part of the gating premise** — it is a transport-STOPPED
 press-and-hold, independent of any mode; run it as written.
 
-Interaction tests, not canned grids — build on any occupied scene (scene 14 ALT
+Interaction tests, not canned grids — build on any occupied scene (scene 13 ALT
 EGO is designed for P2). Header carries the EDIT·PERFORM toggle; in PERFORM a cell
 TAP flips it to/from its B-state (ALT). (The ALT/BYP/MUTE tap-action selector and
 column-key mute were REMOVED pending the perform spec — see P3/P4.)
@@ -142,7 +142,7 @@ headers open popovers, long-press opens the clear/copy menu. Toggle to PERFORM
 (chip goes cyan): the whole pad is ONE tap target — no popovers, no menu. Toggle
 back: EDIT behaviours return intact.
 
-**P2 — live ALT flip.** Load scene 14, chord held, transport playing, mode PERFORM.
+**P2 — live ALT flip.** Load scene 13, chord held, transport playing, mode PERFORM.
 Tap a cell → it flips to its B-state (breathing ring activates) and the sound
 changes (e.g. gold B rate). Tap again → back to A. No stuck notes across flips.
 
@@ -153,13 +153,12 @@ verbatim if the controls are re-added — do not re-number around them.
 
 **P5 — audition (§6.4 / delta §5), ALL types.** Transport **STOPPED**, hold a chord.
 Press-and-hold (~0.3s) a cell → its processor sounds **ALONE** against the held chord on its
-lit buses, ignoring its FROM wiring (source-forced), passgate all-open; the **raw chord
+lit buses, ignoring its FROM wiring (source-forced); the **raw chord
 passthrough stops** while held. Release → no stuck notes. By type:
 - **ARP** → arpeggiates at host tempo, phase from the press. **RATCHET** → re-strikes the chord.
 - **HARMONIZE** → the added voices sound (hear the chord it builds). **CHANCE** → the passed
-  subset sounds (deterministic — same notes for the whole hold). **PASSGATE** → the chord
-  sustains (all-open). **STRUM** → the chord **rolls in** over the spread, then sustains (hold a
-  wide voicing to hear the roll clearly).
+  subset sounds (deterministic — same notes for the whole hold). **STRUM** → the chord **rolls
+  in** over the spread, then sustains (hold a wide voicing to hear the roll clearly).
 - **Chord-hold + strum track the keys LIVE**: add a key while holding → it joins; release one →
   it drops, the rest keep sounding (the "patch-and-listen" loop).
 Press **play** while holding → audition auto-releases, sequencing takes over. Hold with **no
@@ -224,9 +223,7 @@ exactly where it would have been (verify against a counting loop in AUM).
 against 8: the downbeat column CHANGES each pass — the intended polymeter;
 verify it rotates rather than resetting).
 (c) hold a contiguous 5–8 → the old loop-brace behaviour.
-(d) with a PASSGATE scene (9): during any hold, the every-2nd/4th-pass cells
-keep their TRUE schedule.
-(e) hammer holds on/off across bar lines → zero stuck notes, arrow always on
+(d) hammer holds on/off across bar lines → zero stuck notes, arrow always on
 the sounding column.
 
 ## UI size checkpoints (GUI reconciliation gate)

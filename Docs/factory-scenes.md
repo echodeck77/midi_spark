@@ -1,6 +1,6 @@
-# Factory scenes 1–16 — the scene selector's contents
+# Factory scenes 1–15 — the scene selector's contents
 
-PURPOSE: the scene strip's sixteen slots ship with these scenes. They are a
+PURPOSE: the scene strip's fifteen slots ship with these scenes. They are a
 curriculum disguised as a record: each slot is a PIECE first and a lesson
 second, and routing enters the story progressively — Part I never routes,
 Part II goes vertical, Part III plays the whole graph. They replace the
@@ -9,18 +9,18 @@ CANNED grids `BuildSelfTest.runAll()` exercises in the DEV — MIDI SELF-TESTS o
 DEBUG builds only — the old one-tap in-strip T-loader + diagnostic panel are gone;
 these scenes are NOT those; never merge).
 
-IMPLEMENTATION: `SceneFactory.swift` returning the sixteen documents. Field
+IMPLEMENTATION: `SceneFactory.swift` returning the fifteen documents. Field
 names per Models.swift; numbering below is 1-based for humans (C1–C8, R1–R8) —
 convert to 0-based in code. Notation: `⇐MIDI` inputRow=nil, `⇐MIDI ch5`
 +inputChannel=5, `⇐R2` inputRow=row2, `→A B` buses, `(B: …)` the ALT state,
 `Tn` transpose. Unlisted params take type defaults. Bus channels default
 [1,2,3,4] unless stated. Every scene loads with zero warnings except where a
-warning is the lesson (slot 15). EAR-VERIFY every LISTEN line before
+warning is the lesson (slot 14). EAR-VERIFY every LISTEN line before
 shipping — scenes are content, and content ships tested.
 
 ## THE STANDING RIG (patch once, play everything)
 
-Four sounds, four jobs. Patch these in AUM and all sixteen scenes work;
+Four sounds, four jobs. Patch these in AUM and all fifteen scenes work;
 scenes note deviations only where one earns its keep.
 
 - **A — THE VOICE.** Polyphonic pluck or keys: medium-fast attack, medium
@@ -34,10 +34,10 @@ scenes note deviations only where one earns its keep.
   bell into a long tail). C is always the part you'd mix quietest and miss most.
 - **D — THE PULSE.** Percussive: a drum synth/sampler listening omni, or a
   plucked perc patch with almost no sustain. D is texture and punctuation,
-  not melody — until scene 16 argues otherwise.
+  not melody — until scene 15 argues otherwise.
 
 Multitimbral alternative: point ONE multitimbral synth (or a recorder) at
-the **All** cable — channels 1–4 arrive pre-separated. Scene 13 makes this
+the **All** cable — channels 1–4 arrive pre-separated. Scene 12 makes this
 a set-piece.
 
 ---
@@ -94,7 +94,7 @@ the ratchet stutters drag their heels — a strut. Ride the SWING slider live
 from 50 to 70 and back: the whole room changes gait. TEACHES: swing as
 step-phase warp; RATCHET; the desk as a performance surface.
 
-# PART II — GOING VERTICAL (scenes 6–10: cells start listening to cells)
+# PART II — GOING VERTICAL (scenes 6–9: cells start listening to cells)
 
 ## 6 · CHAIN OF COMMAND
 GLOBAL: step 1/2, swing 50. SOUNDS: A voice.
@@ -131,21 +131,7 @@ depth now, not just direction). Mute R1: the whole family falls silent back
 to your raw chord in one gesture. TEACHES: fan-out; generations; one source
 of truth feeding a section.
 
-## 9 · EVERY OTHER TIME
-GLOBAL: step 1/2, swing 50. SOUNDS: A voice, B air, C floor (the toll wants
-weight — swap C to a sub-heavy patch, or send it to B's synth on ch2).
-COLOURS: gold = ARP UP 1/16 · teal = PASS (every 2nd pass) ·
-wine = PASS (every 4th pass) T−12, gate 100.
-GRID: C1–C8 R1 gold ⇐MIDI →A · C1,C5 R2 teal ⇐R1 →B ·
-C1 R3 wine **⇐R1** →C.
-PLAY: minor 9, held across four full passes — patience is the instrument here.
-LISTEN: the constant stream on A; every second pass, B briefly doubles the
-ARP (not the chord — teal taps row 1 now); once every four bars, C tolls the
-arp's own notes an octave down like a bell remembering the melody. A 1-bar
-grid composing 4-bar form. TEACHES: the pass dimension; PASSGATE on a
-ROUTED source — structure and routing in one gesture.
-
-## 10 · DICE MUSIC
+## 9 · DICE MUSIC
 GLOBAL: step 1/2, swing 54. SOUNDS: A voice, B air (octave ghosts), D pulse.
 COLOURS: magenta = CHANCE 70% · blush = CHANCE 35% T+12 ·
 gold = ARP RANDOM 1/16 (no buses) · vermilion = RATCHET ×4 1/16.
@@ -158,9 +144,9 @@ what already survived one coin-flip. Generative, but never random-sounding:
 the harmony is still your held hand. TEACHES: probability as arrangement;
 chained chance (a gamble on a gamble).
 
-# PART III — THE GRAPH (scenes 11–16: any row, any direction, the whole board)
+# PART III — THE GRAPH (scenes 10–15: any row, any direction, the whole board)
 
-## 11 · LONG WALK
+## 10 · LONG WALK
 GLOBAL: step 1/2, swing 50. SOUNDS: A voice, B voice-dark (RETRIG contrast
 line — same patch family as A, darker preset), C air.
 COLOURS: violet = ARP UP 1/16, 2 oct, **LEGATO** · teal = ARP UP-DN 1/8T,
@@ -175,10 +161,10 @@ Then the teal triplets drift in on the far side, FREE, catching a different
 slice every pass. Three relationships with time, audibly side by side.
 TEACHES: RETRIG vs LEGATO vs FREE; processing a phrase (reference to a run).
 
-## 12 · UNDERTOW
+## 11 · UNDERTOW
 GLOBAL: step 1/1, swing 50. SOUNDS: A voice, B floor, C air.
 COLOURS: indigo = ARP UP 1/8, 2 oct (no buses) · magenta = CHANCE 80% ·
-vermilion = RATCHET ×2 1/16 · wine = PASS gate 100 T−12 ·
+vermilion = RATCHET ×2 1/16 · wine = HOLD, T−12 ·
 chartreuse = ARP UP 1/32, 1 oct, T+12.
 GRID: C1–C8: R1 indigo ⇐MIDI · R2 magenta ⇐R1 · R3 vermilion ⇐R2 →A ·
 R4 wine ⇐R1 →B · R5 chartreuse ⇐R3 →C.
@@ -190,7 +176,7 @@ great-grandchild running at ×4 the speed of anything else, spray off the
 top of the wave. Every stream is the same chord at a different depth.
 TEACHES: chain depth; tapping every stage; TIME as arrangement (step 1/1).
 
-## 13 · TWO ROOMS
+## 12 · TWO ROOMS
 GLOBAL: step 1/2, swing 50. BUS CHANNELS: A=1, B=2, C=3, D=10.
 SOUNDS: the full rig, plus D explicitly = a DRUM synth listening on ch10.
 COLOURS: gold = ARP UP 1/16 · wine = ARP AS-PLAYED 1/4 T−24 gate 100
@@ -207,9 +193,9 @@ THEN the set-piece: patch ONE multitimbral synth (or a recorder) omni to the
 channel. TEACHES: emitters/channels/cables; the All output; the wire as a
 place music lives.
 
-## 14 · ALT EGO
+## 13 · ALT EGO
 > ⚠ NOTE (2026-08): A/B-state morph was REMOVED from the render — an ALT flip now only
-> re-strikes the voice, selecting no parameters. This scene's B-state lesson (and scene 16's)
+> re-strikes the voice, selecting no parameters. This scene's B-state lesson (and scene 15's)
 > is currently INERT until/unless a morph layer returns. Kept as authored for the round-trip.
 GLOBAL: step 1/2, swing 50. SOUNDS: A voice, B pulse-adjacent (the CHANCE
 cells on B want a patch that speaks fast — a plucked perc or muted stab).
@@ -228,11 +214,11 @@ RATCHET — flip the ratchet to ×4 and its child gets busier too: ALT states
 propagate DOWN the graph. TEACHES: A/B as composition; the tap layer;
 inheritance of character through references.
 
-## 15 · THE LOOP THAT ISN'T
+## 14 · THE LOOP THAT ISN'T
 GLOBAL: step 1/2, swing 50. SOUNDS: A voice, B floor, C anything — C will
 never sound, and that's the lesson.
 COLOURS: gold = ARP UP 1/16 · azure = ARP DOWN 1/8 T−12 · purple = RATCHET
-×3 1/8 · teal = PASS.
+×3 1/8 · teal = HOLD.
 GRID: C1–C4: R2 gold ⇐MIDI →A · **R1 azure ⇐R2 →B** (a BACKWARD tap — the
 child lives ABOVE its parent) · C6,C7: **R3 purple ⇐R5 →C · R5 teal ⇐R3 →C**
 (a two-cell CYCLE: both lit, both silent, forever).
@@ -244,15 +230,15 @@ and the grid is honest about it (the dead-loop indication, when designed,
 points here). TEACHES: any-row references; why cycles are silent; trust
 the grid, not your assumptions.
 
-## 16 · PACIFIC
+## 15 · PACIFIC
 GLOBAL: step 1/2, swing 57. BUS CHANNELS: A=1 B=2 C=3 D=4.
 SOUNDS: the standing rig at full attention — A voice bright, B floor deep,
 C air with the longest tail you own, D a warm pad or vibraphone-ish poly
 (D graduates from percussion to HARMONY for the finale).
 COLOURS: violet = ARP UP 1/16, 2 oct, LEGATO (no buses) ·
 gold = ARP UP 1/16 (B: 1/32) · vermilion = RATCHET ×3 1/16 (B: ×4) ·
-magenta = CHANCE 60% · wine = PASS every 2nd, T−12, gate 100 ·
-azure = ARP UP-DN 1/16T, T+12, FREE · teal = PASS gate 100 ·
+magenta = CHANCE 60% · wine = HOLD, T−12 ·
+azure = ARP UP-DN 1/16T, T+12, FREE · teal = HOLD ·
 mint = HARMONIZE +4/+7 (a major-triad pad), T+7.
 GRID:
 C1–C4 R1 violet ⇐MIDI — the LEGATO lead engine, one phrase over four columns
@@ -273,15 +259,15 @@ this is the demo, the tutorial's diploma, and track one.
 ---
 
 ## Acceptance for this document
-- All sixteen load without code changes beyond SceneFactory; all six
+- All fifteen load without code changes beyond SceneFactory; all six
   processors are available (v0.6).
-- Slot 15's cycle and backward tap are INTENTIONAL — any "fix" is a bug.
+- Slot 14's cycle and backward tap are INTENTIONAL — any "fix" is a bug.
 - The routing arc is structural: Part I contains ZERO references; the first
   routed sound in the curriculum is scene 6's ratchet. Keep it that way
   through any future edits.
 - Ear-verify every LISTEN line with the STANDING RIG patched as described;
   scenes are content, and content ships tested.
-- Strip = SIXTEEN slots (delta §6; the 8-slot mockup strip predates this).
+- Strip = FIFTEEN slots (delta §6; the 8-slot mockup strip predates this).
 - Scene LISTEN lines that invoke column MUTE (6, 8) assume mute's
   reintroduction via the perform-v2/TOUCH pass (removed at `3e816ee`);
   they are release-content instructions, not current-build ones.

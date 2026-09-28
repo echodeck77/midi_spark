@@ -70,7 +70,6 @@ _The CHAIN footer opens the selected colour's stages. Editing a stage edits the 
 - Per-type params (each its own anchor):
   - **ARP** {#arp} — pattern · rate · oct · phase · gate. _Why: The pattern engine: it walks the held pool in an order, at a rate, across octaves. It's the instrument's oldest sentence — you hold the WHAT, the arp decides the WHEN and the ORDER — and every other stage is a modifier of its walk._
   - **RATCHET** {#ratchet} — repeats · ramp. _Why: Repeats within the step: one note becomes a burst. Drama in small doses — a ratchet stage is usually the difference between a pattern and a performance._
-  - **PASSGATE** {#passgate} — which of 1–4 passes open. _Why: The lap-scale gate: which of the four passes this machine speaks on. Silence on a schedule is arrangement — the cell that only plays every fourth lap is a hook, not a hole._
   - **STRUM** {#strum} — direction · spread · tilt. _Why: The pool fanned in time, like a hand across strings — direction, width, and tilt. Chords stop being blocks and start being gestures._
   - **CHANCE** {#chance} — per-note probability. _Why: The dice: each would-be note plays or rests by probability. The pattern never breaks — it breathes; and because the dice are derived, the same seed always rolls the same weather when replayed._
   - **HARMONIZE** {#harmonize} — added voice intervals. _Why: Added voices at fixed intervals — the machine's own backing singers. They derive from each note as it happens, so the harmony follows your chord without ever knowing your song._

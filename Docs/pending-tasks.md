@@ -5,6 +5,18 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ PASSGATE — REMOVED ENTIRELY (2026-09-28; LANDED on `refactor/remove-passgate`, `2839240`, macOS 1142 green, iOS
+builds). The processor + its engine plumbing are gone; `ProcessorType.empty` is now purely the internal empty-chain-
+slot sentinel (never user-addable). Factory scenes renumbered 10-16→9-15 (scene 9 cut, not replaced). Full story in
+CLAUDE.md's status log.
+- [ ] DEVICE: confirm no chain anywhere still shows a "PASSES" card.
+- [ ] DEVICE: an old saved doc with a real PASSGATE cell opens as a silent inert passthrough (not a factory-reset/
+      decode error).
+- [ ] DEVICE: factory scene 15 PACIFIC — "wine" now sustains continuously instead of alternating every 2nd pass
+      (its old mechanism no longer exists); confirm this reads as acceptable, not a regression.
+- [ ] FLAGGED, not done: `midispark-spec-v2.8.md`/`v3.0-delta.md` still describe PASSGATE's pass-mask behaviour in
+      several places — a separate spec-contract reconciliation pass, if wanted.
+
 ## ★ KILL STEP — a new TIME processor, sibling to CLOCK (2026-09-26; LANDED on `main`, engine+UI+tests, macOS 1121
 green, iOS builds) — see CLAUDE.md's status log for the full writeup (the shape: reuses CLOCK's driver-retiming
 plumbing, generalized to detect `.killStep` slots too, so it reaches the WHOLE generator roster CLOCK already does
@@ -1180,7 +1192,7 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
       - [x] **TICK cells** (off-device): `chopSlice(mBeat, columnBeats:)` → each ARP tick / RATCHET repeat routes
         MAIN/ALT/MUTE by its slice within the column (`chopBusMask`); MUTE-slice = silent. Tests cover both pure
         fns. (Reverted the earlier wrong pass-column indexing.)
-      - [ ] **HOLD cells** (identity/passgate/chance/harmonize) — the trance-GATE: sub-articulate the sustained
+      - [ ] **HOLD cells** (identity/chance/harmonize) — the trance-GATE: sub-articulate the sustained
         chord into 8 slices (note-off at MUTE edges, ALT redirect), interacting with legato/harmonize/adoption.
         The bigger piece.
       - [ ] **STRUM + row-fed MIRROR** chop (thread the onset slice in).
