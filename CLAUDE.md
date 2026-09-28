@@ -221,6 +221,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   grid↔machine order moved. **DEVICE-OWED:** the whole re-arranged layout on a real screen, and that dragging a chain
   box to the NOW-right-side trash still deletes it (the hit-test math is unit-untestable — GridUI has no test-target
   reach, same as every prior playhead/layout fix in this file).**
+- **▶ SELECT GRID — the picked-cell recolour reverted; the selected colour moved to a border + a play badge (2026-09-28,
+  on `main`, `cbb3bb2`; iOS builds; DEVICE eye owed). Paul: revert the 2026-09-27 change where a picked-but-uncommitted
+  SELECT cell's notes wore the active ferry's colour — back to plain grey ink — and carry that "selected colour" on the
+  cell's FRAME instead, plus a PLAY BADGE styled identically to the play-ferry buttons' own PLAY icon, including the
+  same velocity-flash animation. `BuildGridSelector.swift`'s `buildGridSelCell`: `rollTint` for the `selGrey` case is
+  back to the unconditional `Color(white: 0.22)` (no `buildActiveFerry` read); a new `selectedHue` (same
+  `buildActiveFerry.map { Color(hex: buildFerryHex($0)) } ?? Color(white: 0.22)` expression the notes used to read) now
+  colours the `sel` frame stroke (was plain black for `selGrey`) AND drives a new play badge — `flashingIcon("play.fill",
+  …)` (the SAME shared helper `roomsPlayFerry`'s own running-ferry icon uses, incl. its real-time velocity flash via
+  `buildFlashLevel`/`meters.cellHitVel`), fed the cell's own `buildChainAuditionRow` strike index, bottom-trailing corner,
+  shown only for `selGrey`. **ENGINEERING NOTE:** `flashingIcon` was `private func` in `BuildPage.swift` — Swift's
+  `private` is file-scoped, so a same-type call from a different file (`BuildGridSelector.swift`, both extend `DiagView`)
+  wouldn't compile; opened it to `internal` (dropped `private`) since it's now a cross-file shared helper, no behaviour
+  change for its existing caller. UI-only, no test-target reach (GridUI, as always). **DEVICE-OWED:** the badge's size/
+  corner placement at real grid-cell dimensions, and whether the border-recolour reads clearly against the light
+  `buildSelectGrey` face it sits on.**
 - **▶ OUT PIANO — fixed showing nothing, TWO bugs found chasing one report (2026-09-28, on `main`, `2eea46c`; macOS
   1141 green, iOS builds; DEVICE-owed). Paul, on the piano-swap feature above: "it doesn't work, I'm seeing nothing
   output," then "never showing, whichever method I use to get to the processor" — confirmed via a ferry actually
