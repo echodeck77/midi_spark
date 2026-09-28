@@ -199,6 +199,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CHAIN EDITOR — fixed a stale edit-slot showing an empty box's PASSGATE identity after a drag-reorder
+  (2026-09-28, on `main`, `1585c28`; iOS builds, macOS 1147 green). Paul: "a pass gate processor sometimes shows
+  when it's not part of the MIDI chain." Root-caused, not guessed: an empty/placeholder chain box is INTERNALLY
+  represented as a bypassed PASSGATE slot (`buildPassthroughSlot`, `buildIsEmptySlot` — this is load-bearing
+  plumbing, not incidental). `buildChainMoveSlot` (drag-to-reorder) vacates the DRAGGED-FROM box into exactly that
+  placeholder, but never updated `buildEditSlot` — so if the user was editing the box they then dragged elsewhere,
+  `buildEditSlot` kept pointing at the now-empty original position. The main processor panel's render guard
+  (`roomsProcessorCardAt`) only checked array bounds, not emptiness — unlike every OTHER reader of a chain slot (the
+  tab strip, the chain-box grid, the drag ghost), which already guard with `buildIsEmptySlot` — so the panel (and
+  "the eye" diagnostic view, the same gap) showed that empty box's PASSGATE identity as if it were a real processor,
+  purely because the user reordered a DIFFERENT (the moved) processor. **FIX:** `buildChainMoveSlot` now follows
+  `buildEditSlot` to the moved processor's new position; added the missing `buildIsEmptySlot` guard to both
+  previously-unguarded readers as defense in depth, matching the convention every other call site already follows.
+  UI-only; DEVICE-eye owed to confirm the reorder-while-editing flow now keeps the right card open. **SEPARATE ASK,
+  NOT YET ACTED ON:** Paul also asked to remove the PASSGATE processor entirely. Flagged back to him rather than
+  done blind: PASSGATE is BOTH a user-facing storefront card (the "PASSES" card — pass-gated laps 1–4) AND the
+  engine's internal "this chain slot is empty" sentinel (`buildPassthroughSlot`/`buildIsEmptySlot`, `isHoldTailChain`,
+  `cellMode`'s pass-based silent/identity logic) AND a generic "identity hold" utility used throughout the test suite
+  (~80 references in `RouterTests.swift` alone, most nothing to do with PASSGATE's own feature). Removing the
+  user-facing card is a small, safe change; removing the TYPE itself would need a replacement sentinel mechanism and
+  touch dozens of call sites plus most of the test suite — asked Paul which he actually means before touching either.**
 - **▶ EUCLID MASK — CHORD PICK gains BOTTOM2/TOP2 (2026-09-28, on `main`, `9d38406`; macOS 1141 green incl. fuzz,
   iOS builds; DEVICE ear/eye owed). Paul: add bottom-two/top-two to CHORD PICK. Judgment call, flagged rather than
   asked: rather than extend the SHARED `EuclidPick` enum (also used by the standalone EUCLID driver's own PICK),
