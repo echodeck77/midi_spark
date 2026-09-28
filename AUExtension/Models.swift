@@ -282,6 +282,19 @@ struct MachineParams: Codable, Equatable {
     var maskChordOct: Int? = nil      // the gap stab's OCTAVE shift −2…+2; nil ⇒ 0
     var maskChordGate: Double? = nil  // the gap stab's own LENGTH (fraction of the driver's own step); nil ⇒ 0.6
     var maskChordVel: Double? = nil   // the gap stab's VELOCITY scale 0…1; nil ⇒ 1
+    // EUCLID MASK options (Paul 2026-09-28): six additions to the same standalone processor, all additive-Optional,
+    // nil ⇒ today's exact behaviour. See Router.swift's fold block for the ordering (SPAN re-anchors g → INVERT
+    // flips the base pattern → FILL overrides everything for the whole pass → CHANCE can only demote a hit to a
+    // gap → GAP/HIT resolves as before → ACCENT is independent, sharing the same g).
+    var maskInvert: Bool? = nil          // play the N−K rests instead of the K hits (mirrors EUCLID's own euclidInvert). nil ⇒ false
+    var maskSpanN: Int? = nil            // re-anchor the K-of-N pattern to ordinal 0 every N notes (spanLadderValues). nil/0 ⇒ FREE
+    var maskChance: Double? = nil        // 0…1 probability a HIT survives; a GAP is never promoted to a hit. nil ⇒ 1 (no-op)
+    var maskAccentK: Int? = nil          // ACCENT LAYER: a second, independent K-of-N boosting velocity on ITS OWN hits. nil ⇒ = accentN (OFF)
+    var maskAccentN: Int? = nil          // accent layer window. nil ⇒ 8
+    var maskAccentRotate: Int? = nil     // accent layer rotate. nil ⇒ 0
+    var maskAccentAmount: Int? = nil     // velocity BOOST on an accent hit — additive, like RIFF's ACCENT lane. nil ⇒ 20
+    var maskFillEvery: Int? = nil        // every Nth pass plays every step, ignoring the mask entirely (a euclidean turnaround). nil/0 ⇒ off
+    var maskChordPick: EuclidPick? = nil // which note(s) of the composed chord a GAPS=CHORD stab strikes (reuses EUCLID's own PICK vocabulary). nil ⇒ ALL (today)
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]

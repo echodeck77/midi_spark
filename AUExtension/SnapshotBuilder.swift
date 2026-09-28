@@ -582,6 +582,16 @@ enum SnapshotBuilder {
         out.maskChordGate = clamp(p.maskChordGate ?? 0.6, 0.05, 1)
         out.maskChordOct = clamp(p.maskChordOct ?? 0, -2, 2)
         out.maskChordVel = clamp(p.maskChordVel ?? 1, 0, 1)
+        // EUCLID MASK options (Paul 2026-09-28): all additive-Optional, nil ⇒ today's exact behaviour.
+        out.maskInvert = p.maskInvert ?? false
+        out.maskSpanN = max(0, p.maskSpanN ?? 0)
+        out.maskChance = clamp(p.maskChance ?? 1, 0, 1)
+        out.maskAccentN = max(1, min(64, p.maskAccentN ?? 8))
+        out.maskAccentK = max(1, min(out.maskAccentN, p.maskAccentK ?? out.maskAccentN))
+        out.maskAccentRotate = (((p.maskAccentRotate ?? 0) % out.maskAccentN) + out.maskAccentN) % out.maskAccentN
+        out.maskAccentAmount = clamp(p.maskAccentAmount ?? 20, 0, 127)
+        out.maskFillEvery = max(0, p.maskFillEvery ?? 0)
+        out.maskChordPick = p.maskChordPick ?? .all
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
             out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),

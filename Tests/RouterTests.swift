@@ -407,6 +407,109 @@ final class RouterTests: XCTestCase {
                        "a lone EUCLID MASK has no driver to fold onto — it's a no-op, exactly like an empty chain")
         assertNothingLeftSounding(e)
     }
+    // EUCLID MASK options (Paul 2026-09-28): INVERT/SPAN/PROBABILITY/ACCENT/FILL/CHORD PICK, all additive on the
+    // same standalone fold processor.
+    // INVERT plays the COMPLEMENT of the base pattern — every tick is either a hit under the normal pattern OR
+    // under its invert, never both, and together they cover every tick the arp alone would produce.
+    func testEuclidMaskInvertPlaysTheComplementSteps() {
+        func onsetTicks(_ invert: Bool?) -> Set<Int64> {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var procs = [arp]
+            if let invert { var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 3; mask.params.maskInvert = invert; procs.append(mask) }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { $0.sample })
+        }
+        let normal = onsetTicks(false), inverted = onsetTicks(true), all = onsetTicks(nil)
+        XCTAssertTrue(normal.isDisjoint(with: inverted), "INVERT plays the COMPLEMENT steps — never the same tick as the non-inverted run")
+        XCTAssertEqual(normal.union(inverted), all, "together, a pattern and its invert cover every tick the arp alone would")
+    }
+    // SPAN re-anchors the pattern's own ordinal to 0 every N notes — a span SHORTER than the mask's own window (N=8,
+    // SPAN=4) forces the SAME first-4-ticks' hit/gap decision to repeat instead of continuing into the pattern's
+    // natural second half, so it must differ from FREE (which just lets the pattern run its full natural length).
+    func testEuclidMaskSpanReanchorsEveryNNotes() {
+        func onsetTicks(_ spanN: Int) -> Set<Int64> {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 3; mask.params.maskSpanN = spanN
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3, into: e)
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { $0.sample })
+        }
+        XCTAssertNotEqual(onsetTicks(0), onsetTicks(4), "a SPAN shorter than the mask's own N-window changes which ticks gate through vs FREE")
+    }
+    // ACCENT is a second, independent K/N/ROTATE pattern that only ever RAISES velocity on its own hits — with the
+    // GATE off (K=N, a passthrough) an active accent layer must still push the peak velocity above the unaccented run.
+    func testEuclidMaskAccentBoostsVelocityOnItsOwnHits() {
+        func peakVel(_ accentOn: Bool) -> Int {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 8   // gate OFF — passthrough
+            if accentOn { mask.params.maskAccentN = 8; mask.params.maskAccentK = 4; mask.params.maskAccentAmount = 40 }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.vel) }.max() ?? 0
+        }
+        XCTAssertGreaterThan(peakVel(true), peakVel(false), "an active accent layer boosts velocity on its own hits above the un-accented baseline")
+    }
+    // FILL overrides the mask entirely on its own passes — over a window spanning several passes, "fill every 2"
+    // must let through MORE notes than the plain 3-of-8 mask alone (the filled passes add back the gapped steps).
+    func testEuclidMaskFillPlaysEveryStepOnTheFillPass() {
+        func noteCount(_ fillEvery: Int) -> Int {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 3
+            if fillEvery > 0 { mask.params.maskFillEvery = fillEvery }
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 24, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertGreaterThan(noteCount(2), noteCount(0), "FILL every 2 passes plays extra steps the plain 3-of-8 mask would otherwise gate out")
+    }
+    // PROBABILITY can only DEMOTE a hit to a gap, never promote a gap to a hit — chance 0 must never produce MORE
+    // notes than chance 1, and on an active K<N mask it genuinely removes hits (not a no-op). With the gate OFF
+    // (K=N) chance must have NO effect at all — it's unreachable outside an active gate, checked structurally.
+    func testEuclidMaskChanceCanOnlyReduceHits() {
+        func noteCount(_ chance: Double, k: Int, n: Int) -> Int {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = n; mask.params.maskK = k; mask.params.maskChance = chance
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let full = noteCount(1.0, k: 4, n: 8), zero = noteCount(0.0, k: 4, n: 8)
+        XCTAssertLessThan(zero, full, "chance 0 on an active K<N mask removes hits — strictly fewer notes than chance 1")
+        XCTAssertEqual(noteCount(0.0, k: 8, n: 8), noteCount(1.0, k: 8, n: 8), "with the gate OFF (K=N) CHANCE has no effect at all — it's unreachable outside an active gate")
+    }
+    // CHORD PICK restricts a gap-stab to specific chord note(s) instead of always striking the whole chord. K=1-of-16
+    // makes 15 of 16 ticks chord-stabs and only 1 the arp's own hit (which may land on any chord tone) — tolerate
+    // that ONE non-mask-controlled note when checking pitch content.
+    func testEuclidMaskChordPickStrikesOnlyTheRequestedNote() {
+        func notes(_ pick: EuclidPick) -> [UInt8] {
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 16; mask.params.maskK = 1; mask.params.maskGap = .chord; mask.params.maskChordPick = pick
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.note }
+        }
+        let low = notes(.low)
+        XCTAssertLessThanOrEqual(low.filter { $0 != 60 }.count, 1, "LOW strikes only the chord's lowest note on every gap (at most the one arp hit differs)")
+        let high = notes(.high)
+        XCTAssertLessThanOrEqual(high.filter { $0 != 67 }.count, 1, "HIGH strikes only the chord's highest note on every gap (at most the one arp hit differs)")
+        let all = notes(.all)
+        XCTAssertGreaterThan(all.count, low.count, "ALL strikes the whole 3-note chord per gap — far more note-ons than LOW's one-per-gap")
+        let cycle = notes(.cycle)
+        XCTAssertGreaterThan(Set(cycle).count, 1, "CYCLE rotates through the chord — visits more than one distinct pitch across many gaps")
+    }
     // A chain whose ONLY driver is a fold-ratchet (COIN pass-through) must still DRIVE: chainDriverIndex skips isRatchetFold
     // but falls back to the last driver when there's no non-fold driver, so a lone [RATCHET COIN rtcFold] generates.
     func testLoneFoldableRatchetStillDrives() {

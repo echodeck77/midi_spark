@@ -4526,19 +4526,66 @@ final class Router {
         // driver's own composeChainSet call just before it invoked this function — no separate pool needed here).
         var maskDropAll = false
         var maskChordP: SnapParams? = nil
+        var maskChordPickIdx: Int? = nil   // nil ⇒ ALL (strike everyone); else one specific chainScratch index
         var maskTieOffBeats = 0.0
+        var maskAccentBoost = 0
         if let mi = downstreamMaskFoldIndex(cell, after: driver) {
             let mp = cell.procs[mi]
             let mN = max(2, min(16, mp.maskN ?? 8)), mK = max(1, min(mN, mp.maskK ?? mN))
+            let driverStep = max(0.03125, Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))])
+            // SPAN (Paul 2026-09-28): re-anchor the pattern's own ordinal to 0 every N notes, sized by the DRIVER's
+            // own step (mirrors KILL STEP sizing its own span ladder by its own rate, not the cell's grid step).
+            // FREE (0, default) ⇒ g is the raw absolute tick count, byte-identical to before this feature.
+            let spanBeats = mp.maskSpanN > 0 ? spanLadderBeats(mp.maskSpanN, S: driverStep, row: cycleBeats) : 0
+            let origin = spanBeats > 0 ? columnStart(m, spanBeats) : 0
+            let g = Int(((m - origin) / driverStep).rounded(.down))
+            let rot = mp.maskRotate ?? 0
             if mK < mN {
-                let driverStep = max(0.03125, Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))])
-                let g = Int((m / driverStep).rounded(.down))
-                let rot = mp.maskRotate ?? 0
-                if !euclidMaskHit(g, k: mK, n: mN, rotate: rot) {                 // GAP
-                    if (mp.maskGap ?? .rest) == .chord { maskChordP = mp } else { maskDropAll = true }   // REST or TIE
+                // INVERT (Paul 2026-09-28): play the N−K rests instead — mirrors EUCLID's own euclidInvert exactly.
+                var hit = euclidMaskHit(g, k: mK, n: mN, rotate: rot)
+                if mp.maskInvert { hit = !hit }
+                // FILL (Paul 2026-09-28): every Nth pass overrides the mask entirely — everything plays, no
+                // exceptions (bypasses INVERT's own result too, and CHANCE below). `pass` is the SAME authoritative
+                // lap counter a stand-alone passgate gates on.
+                let isFill = mp.maskFillEvery > 0 && pass % mp.maskFillEvery == 0
+                if isFill { hit = true }
+                // CHANCE (Paul 2026-09-28): a coin-flip that can only DEMOTE a hit to a gap, never promote a gap to
+                // a hit — the deterministic skeleton keeps its shape, chance just thins it (an Elektron-style trig
+                // condition). Skipped on a fill pass (fill means "everything, no exceptions"). Seeded on `g` alone —
+                // replay-exact, no accumulated state — mirroring HUMANIZE's own inline splitmix64Mix idiom.
+                if !isFill && hit && mp.maskChance < 1 {
+                    let roll = Double(splitmix64Mix(UInt64(bitPattern: Int64(g)) &+ 0xC2B2AE3D27D4EB4F) & 0xFFFF) / 65535.0
+                    if roll >= mp.maskChance { hit = false }
+                }
+                if !hit {                                                          // GAP
+                    if (mp.maskGap ?? .rest) == .chord {
+                        maskChordP = mp
+                        // CHORD PICK (Paul 2026-09-28): which note(s) of the composed chord this gap strikes —
+                        // mirrors the sibling EUCLID driver's own PICK resolution, keyed on "gaps before g" (derived
+                        // from the already-tested euclidMaskHitsBefore — no new pure function needed).
+                        let count = chainScratch.srcCount(filter: 0)
+                        if count > 0 {
+                            switch mp.maskChordPick {
+                            case .all: maskChordPickIdx = nil
+                            case .low: maskChordPickIdx = 0
+                            case .high: maskChordPickIdx = count - 1
+                            case .cycle, .random:
+                                let gapsBefore = g - euclidMaskHitsBefore(g, k: mK, n: mN, rotate: rot)
+                                maskChordPickIdx = mp.maskChordPick == .cycle
+                                    ? posMod(gapsBefore, count)
+                                    : Int(splitmix64Mix(UInt64(bitPattern: Int64(gapsBefore)) &+ 0x9E3779B97F4A7C15) % UInt64(count))
+                            }
+                        }
+                    } else { maskDropAll = true }                                  // REST or TIE
                 } else if (mp.maskGap ?? .rest) == .tie {                          // HIT, TIE: cover the following gap run
                     maskTieOffBeats = Double(euclidMaskTieRun(g, k: mK, n: mN, rotate: rot)) * driverStep
                 }
+            }
+            // ACCENT LAYER (Paul 2026-09-28): fully independent of the gate above — a second K/N/ROTATE test
+            // sharing the SAME g (so a SPAN re-anchor keeps both patterns' relative phase stable). K=N (default)
+            // ⇒ off, matching the gate's own no-op convention. Applied to the surviving note in the final emit loop.
+            if mp.maskAccentK < mp.maskAccentN && euclidMaskHit(g, k: mp.maskAccentK, n: mp.maskAccentN, rotate: mp.maskAccentRotate) {
+                maskAccentBoost = mp.maskAccentAmount
             }
         }
         if maskDropAll { return }
@@ -4548,12 +4595,16 @@ final class Router {
             let chordGateBeats = max(0.01, mp.maskChordGate ?? 0.6) * S
             let offC = onSample + Int64((chordGateBeats / beatsPerSample).rounded())
             let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
-            for k in 0..<chainScratch.srcCount(filter: 0) {
-                let b = Int(chainScratch.srcAscending(k, filter: 0))
+            func stab(_ b: Int) {
                 let nv = b + cOct
-                guard nv >= 0 && nv <= 127 else { continue }
+                guard nv >= 0 && nv <= 127 else { return }
                 let cvel = UInt8(max(1, min(127, Int(Double(max(1, chainScratch.velocity(UInt8(b)))) * cVelScale))))
                 emitChop(nv, cell: cell, bm: echoBM, onSample: onSample, offSample: offC, windowEnd: windowEnd, velocity: cvel, m: m, S: S, out: out, diag: &diag, clockFrom: driver + 1, cycleBeats: cycleBeats)
+            }
+            if let idx = maskChordPickIdx {
+                if idx >= 0 && idx < chainScratch.srcCount(filter: 0) { stab(Int(chainScratch.srcAscending(idx, filter: 0))) }
+            } else {
+                for k in 0..<chainScratch.srcCount(filter: 0) { stab(Int(chainScratch.srcAscending(k, filter: 0))) }
             }
             return
         }
@@ -4661,6 +4712,8 @@ final class Router {
             // EUCLID MASK TIE (Paul 2026-09-27): a hit note covers the following gap run — extend its own gate,
             // mirroring the ARP-embedded mask's identical `off = on + (ties+1)×step×gate` shape.
             if maskTieOffBeats > 0 { offN += Int64((maskTieOffBeats / beatsPerSample).rounded()) }
+            // EUCLID MASK ACCENT (Paul 2026-09-28): an additive boost on the surviving note, exactly like RIFF's own ACCENT lane.
+            if maskAccentBoost != 0 { baseVel = Int(clampVel(baseVel + maskAccentBoost)) }
             // STRIKE 0 = the driver note itself, at its OWN length (offOut = LENGTH-overridden gate). Then, if the fold
             // ratchet calls for N>1, register N−1 more COPIES spaced over the gap to the next note — via the ECHO ring so
             // they spread across render blocks (each copy keeps the note's own length; overlaps re-articulate cleanly).

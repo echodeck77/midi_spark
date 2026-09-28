@@ -307,6 +307,18 @@ final class FuzzTests: XCTestCase {
         p.maskChordOct = r.int(5) - 2
         p.maskChordGate = 0.05 + Double(r.int(96)) / 100.0
         p.maskChordVel = Double(r.int(101)) / 100.0
+        // EUCLID MASK options (Paul 2026-09-28): hammer FILL/CHANCE especially — they interact directly with the
+        // TIE/CHORD paths, the ones most likely to leak a stuck voice if an edge is missed.
+        p.maskInvert = r.chance(0.4)
+        p.maskSpanN = [0, 1, 2, 3, 4, 6, 8, 16, 32][r.int(9)]
+        p.maskChance = Double(r.int(101)) / 100.0
+        let an = 2 + r.int(15)
+        p.maskAccentN = an
+        p.maskAccentK = r.chance(0.3) ? an : 1 + r.int(an)
+        p.maskAccentRotate = r.int(an)
+        p.maskAccentAmount = r.int(61)
+        p.maskFillEvery = r.chance(0.3) ? 1 + r.int(4) : 0
+        p.maskChordPick = EuclidPick.allCases[r.int(EuclidPick.allCases.count)]
     }
     private func applyRandomRtc(_ p: inout MachineParams, _ r: inout FuzzRNG) {
         p.rtcMode = RatchetMode.allCases[r.int(RatchetMode.allCases.count)]   // ALL · COIN · PATTERN

@@ -1364,11 +1364,41 @@ struct ProcessorBox: View {
             if mK < mN {
                 row2({ field("GAPS", \.maskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.maskGap ?? .rest).rawValue) { i in setParam { $0.maskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
                      { field("ROTATE", \.maskRotate) { numPair(p.maskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.maskRotate = v } } } })
+                // INVERT + CHANCE (Paul 2026-09-28): INVERT plays the N−K rests instead (mirrors EUCLID's own
+                // toggle); CHANCE thins the deterministic skeleton with a per-hit coin-flip (can only drop a hit,
+                // never add one) — 100% = today's exact behaviour.
+                row2({ field("PATTERN", \.maskInvert) { seg(["NORMAL", "INVERT"], sel: (p.maskInvert ?? false) ? "INVERT" : "NORMAL") { i in setParam { $0.maskInvert = (i == 1) } } } },
+                     { field("CHANCE  \(Int((p.maskChance ?? 1) * 100))%", \.maskChance) { slider(bind(p.maskChance ?? 1) { v in setParam { $0.maskChance = v } }, in: 0...1) } })
                 if (p.maskGap ?? .rest) == .chord {   // GAPS = CHORD gap-stab controls, mirroring the ARP mask's own (Docs/PLAN-param-lfo.md)
                     row2({ field("CHORD OCT", \.maskChordOct) { numPair(p.maskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.maskChordOct = v } } } },
                          { field("CHORD LEN  \(Int((p.maskChordGate ?? 0.6) * 100))%", \.maskChordGate) { slider(bind(p.maskChordGate ?? 0.6) { v in setParam { $0.maskChordGate = v } }, in: 0.05...1) } })
                     field("CHORD VEL  \(Int((p.maskChordVel ?? 1) * 100))%", \.maskChordVel) { slider(bind(p.maskChordVel ?? 1) { v in setParam { $0.maskChordVel = v } }, in: 0...1) }
+                    // CHORD PICK (Paul 2026-09-28): which note(s) of the composed chord a gap strikes — reuses
+                    // EUCLID's own PICK vocabulary. ALL = today's whole-chord stab.
+                    field("CHORD PICK", \.maskChordPick) { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.maskChordPick ?? .all).rawValue) { i in setParam { $0.maskChordPick = EuclidPick.allCases[i] } } }
                 }
+            }
+            // SPAN (Paul 2026-09-28): re-anchor the K-of-N pattern to ordinal 0 every N notes — the same universal
+            // span-ladder model every other pattern processor (RIFF/EUCLID/RATCHET PATTERN/KILL STEP/CLOCK) already has.
+            frameSpan(p.maskSpanN ?? 0, free: true) { v in setParam { $0.maskSpanN = v } }
+            // FILL (Paul 2026-09-28): every Nth pass overrides the mask entirely — everything plays (a turnaround/
+            // release), ignoring GATE/INVERT/CHANCE for that one pass. 0 = off.
+            field("FILL — every ▶N◀ passes plays every step (0 = off)", \.maskFillEvery) {
+                numPair(p.maskFillEvery ?? 0, 0...16) { v in setParam { $0.maskFillEvery = v } } }
+            // ACCENT LAYER (Paul 2026-09-28): a SECOND, independent K-of-N pattern (own window/rotate) that boosts
+            // velocity on its own hits — the classic two-euclid technique. K = N (default) leaves it off.
+            let aN = max(2, min(16, p.maskAccentN ?? 8))
+            let aK = max(1, min(aN, p.maskAccentK ?? aN))
+            heroField("ACCENT LAYER — a second pattern that boosts velocity on its own hits") {
+                HStack(spacing: 10) {
+                    numPair(aK, 1...aN) { v in setParam { $0.maskAccentK = v; if $0.maskAccentN == nil { $0.maskAccentN = aN } } }
+                    Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    numPair(aN, 2...16) { v in setParam { $0.maskAccentN = v; if let k = $0.maskAccentK, k > v { $0.maskAccentK = v } } }
+                }
+            }
+            if aK < aN {
+                row2({ field("ACCENT ROTATE", \.maskAccentRotate) { numPair(p.maskAccentRotate ?? 0, 0...(aN - 1), wrap: true) { v in setParam { $0.maskAccentRotate = v } } } },
+                     { field("ACCENT AMOUNT +\(p.maskAccentAmount ?? 20)", \.maskAccentAmount) { numPair(p.maskAccentAmount ?? 20, 0...60) { v in setParam { $0.maskAccentAmount = v } } } })
             }
             Text("Downstream of a driver only — gates its notes by a K-of-N euclidean pattern. No driver upstream, no effect.")
                 .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
