@@ -221,6 +221,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   grid↔machine order moved. **DEVICE-OWED:** the whole re-arranged layout on a real screen, and that dragging a chain
   box to the NOW-right-side trash still deletes it (the hit-test math is unit-untestable — GridUI has no test-target
   reach, same as every prior playhead/layout fix in this file).**
+- **▶ SELECT GRID — the play badge left-aligned + vertically centred (2026-09-29, on `main`, `2276dcb`; iOS builds;
+  DEVICE eye owed). Paul: match `roomsPlayFerry`'s own icon placement. `buildGridSelCell`'s play badge (added
+  2026-09-28) moved from `.frame(alignment: .bottomTrailing)` + a same-order `.padding(4)` — which padded OUTSIDE an
+  already-full-size frame rather than insetting the icon, a minor pre-existing mis-order — to `.padding(.leading, 4)`
+  THEN `.frame(width: w, height: h, alignment: .leading)`: pads the icon first, then places the padded icon at
+  `.leading` (horizontal-leading + vertical-CENTER, SwiftUI's `Alignment.leading`), mirroring the ferry button's own
+  `HStack { icon; …; Spacer() }` inside a full-bleed `.overlay` (left-hugging content, vertically centred by the
+  overlay since the HStack's natural height is shorter than the button).**
 - **▶ PROCESSOR EDITOR — the OUT piano: latency cut to ~30fps + a stop/restart freeze fix (2026-09-29, on `main`,
   `cf14cdc`; iOS builds; NEITHER symptom is off-device reproducible — DEVICE-owed, best-effort root cause). Paul: "is
   there a way to get rid of the latency on the piano that represents a processor's output? Also, the piano animation
