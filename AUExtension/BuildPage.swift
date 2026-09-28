@@ -1474,7 +1474,12 @@ extension DiagView {
         VStack(spacing: 0) {
             buildProcCardTabs(chain: chain)
             Group {
-                if let slot = buildEditSlot, slot < chain.count, let cid = ddSelectedMachineID {
+                // DEFENSE IN DEPTH (2026-09-28): every OTHER reader of `chain[slot]` (the tab strip, the chain-box
+                // grid, the drag ghost) already guards with `!buildIsEmptySlot` before treating a slot as a real,
+                // user-visible processor — this was the one call site that didn't, so a stale `buildEditSlot` (e.g.
+                // left behind by a drag-reorder before the fix above) could show an empty passthrough box's
+                // PASSGATE identity as if it were really in the chain. Falls through to the placeholder below.
+                if let slot = buildEditSlot, slot < chain.count, !buildIsEmptySlot(chain[slot]), let cid = ddSelectedMachineID {
                     buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
                 } else if let a = buildActiveFerry, a >= 0, a < buildFerryParts.count, buildFerryParts[a] != nil {
                     // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): the CELL tab (no processor selected) shows the selected
@@ -4654,7 +4659,7 @@ extension DiagView {
     // column-aligned sweep (output tagged by its emitting step) is v2. EUCLID draws its pulse pattern; others a step lane.
     @ViewBuilder func buildStageEyeView(slot: Int, size: CGSize) -> some View {
         let chain = selectedMachineChain()
-        if slot < chain.count {
+        if slot < chain.count, !buildIsEmptySlot(chain[slot]) {   // 2026-09-28: same defense as roomsProcessorCardAt — never show an empty passthrough box's PASSGATE identity
             let proc = chain[slot]
             let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
             let door = buildStageEyeDoor
@@ -5006,6 +5011,11 @@ extension DiagView {
         c[to] = moved                                              // land at the target box (overwrite it)
         c[from] = buildPassthroughSlot()                           // vacate the original box (trailing empties are trimmed on read)
         buildApplyChain(c)
+        // BUG FIX (2026-09-28): if the box being dragged was the one currently open in the editor, FOLLOW it to its
+        // new position. Without this, buildEditSlot kept pointing at `from` — now an empty passthrough box — so the
+        // editor (and "the eye") kept showing that placeholder's PASSGATE identity as if it were a real processor
+        // the user had added, purely because they'd reordered a DIFFERENT (the moved) processor.
+        if buildEditSlot == from { buildEditSlot = to }
     }
     // The 2×4 processor grid: map a finger location (in the "chainBlock" space) to the box index under it (any of the 8,
     // incl. empty ones — a processor can be dropped onto an empty box).
