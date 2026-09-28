@@ -278,7 +278,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (`testRiffTieRespectsReverseDirection`, asserting fewer note-ons with the tie painted on REVERSE's real next step
   vs. without it — would have failed under the pre-fix code). SLIDE's own `prevStep = step - 1` lookup (Router.swift,
   a few lines below TIE) has the EXACT same forward-adjacency assumption, in the other direction — noticed while
-  fixing TIE, NOT fixed here (Paul asked specifically about TIE), flagged as a likely next ask.**
+  fixing TIE, NOT fixed here (Paul asked specifically about TIE), flagged as a likely next ask.
+  **SLIDE FIX (2026-09-28, `9561d16`; macOS 1149 green): Paul asked for the flagged SLIDE bug too.** The mirror image
+  of the TIE fix: SLIDE's "was the PREVIOUS step a slide" check always looked at array-index `step-1` — already
+  wrong for REVERSE (whose true previous step is `step+1`) — so a slide armed at one step could go un-cleared once
+  the real next note struck, leaving portamento wrongly armed into a later, unrelated note. Non-DRUNK modes reuse
+  `riffStepAt(raw-1)` — the identical pure formula one tick EARLIER, so it can't disagree with the current step by
+  construction. DRUNK can't be algebraically un-walked (a reflected random walk isn't invertible from its current
+  position alone, unlike TIE's forward case which could reuse `riffDrunkPeek`) — so its previous position is simply
+  REMEMBERED instead: new `riffDrunkPrevPos` (Router.swift, beside `riffDrunkPos`), written by `riffDrunkStep` right
+  before it moves, reset alongside the walk's other state on a fresh play. Hand-verified against the same REVERSE
+  shape as the TIE fix before writing the test: steps=4, slide on step 1 — REVERSE's true next step (0) now
+  correctly detects it and clears the portamento; the old lookup checked step 3, found nothing tied, left it armed.
+  +1 RouterTest (`testRiffSlideRespectsReverseDirection`).**
 - **▶ EUCLID MASK — INVERT, SPAN, ACCENT LAYER, FILL, PROBABILITY, CHORD PICK (2026-09-28, on `main`, `2a54d5d`;
   macOS 1140 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Asked what else the design space supported; Paul
   picked six to build now, in the priority order agreed: INVERT + SPAN first (cheap, closed a real consistency gap),
