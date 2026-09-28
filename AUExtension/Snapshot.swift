@@ -314,6 +314,8 @@ struct SnapParams {
     var riffSlide: [Bool] = []                           // per-step slide (empty ⇒ none)
     var riffWrap: RiffWrap = .fold
     var riffDir: RiffDir = .forward                      // DIRECTION: the stencil playback order (Paul 2026-09-16)
+    var riffDirSeed: UInt64 = 0                          // RANDOM/DRUNK shared seed (mirrors arpSeed); 0 = unset (still deterministic)
+    var riffDirBias: Double = 0                          // DRUNK only: −1…1, 0 = neutral
     var riffSpanN: Int = 0                               // SPAN re-anchor: 0 = FREE (free-run, today) · >0 = re-sync the stencil every N columns
     var strikePerSpan: Bool = false                      // STRIKE PER SPAN (Paul 2026-08-27): a DRONE re-articulates only at each span origin, holds between
     var strikeSpanN: Int = 8                             // the re-articulation cadence in columns (spanLadder, ≥1); 8 = once per row lap

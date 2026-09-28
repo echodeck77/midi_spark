@@ -516,6 +516,8 @@ enum SnapshotBuilder {
         if let v = p.riffSlide { out.riffSlide = v }
         if let v = p.riffWrap { out.riffWrap = v }
         if let v = p.riffDir { out.riffDir = v }
+        if let v = p.riffDirSeed { out.riffDirSeed = UInt64(bitPattern: Int64(v)) }   // RANDOM/DRUNK shared seed (mirrors arpSeed, line 566)
+        if let v = p.riffDirBias { out.riffDirBias = clamp(v, -1, 1) }                // DRUNK bias
         if let v = p.riffSpanN { out.riffSpanN = max(0, min(32, v)) }   // SPAN re-anchor: 0 = FREE, else re-sync every N columns
         if let v = p.strikePerSpan { out.strikePerSpan = v }            // STRIKE PER SPAN (Paul 2026-08-27): DRONE re-articulates per span
         out.strikeSpanN = max(1, min(32, p.strikeSpanN ?? 8))           // re-articulation cadence in columns (≥1; 8 = once per row lap)

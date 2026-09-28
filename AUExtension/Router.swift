@@ -320,6 +320,14 @@ final class Router {
     private var dealNoteInMoment = [Int](repeating: 0, count: Snap.cells)   // rank within the current moment (WITHIN CHORD)
     private var dealLastOnset = [Int64](repeating: .min, count: Snap.cells) // last onset sample per cell (moment detection)
     private var dealGlobal = [Int](repeating: 0, count: Snap.cells)         // running note count (EVERY NOTE)
+    // RIFF DIRECTION = DRUNK (Paul 2026-09-28): the walk position persists per grid cell — same class as DEAL/ALT
+    // above (a genuinely accumulated value; the codebase's architecture review, Docs/codebase-review-2026-08-16.md
+    // finding A1, already flags this class as a known, disclosed limitation — not replay-exact across a mid-phrase
+    // seek/loop — rather than a blessed exception; this is a deliberate third instance, not a free pass). Keyed on
+    // `tick` (never `raw`, which resets at every SPAN boundary) so the walk is SPAN-oblivious by construction. Reset
+    // on a fresh play, same trigger as DEAL/ALT, never on panic. Fixed storage → no render-path allocation.
+    private var riffDrunkPos = [Int](repeating: -1, count: Snap.cells)           // −1 ⇒ not yet started (first strike parks at step 0)
+    private var riffDrunkLastTick = [Int64](repeating: .min, count: Snap.cells)  // last tick this cell's walk advanced on
     // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18) — the looper-in-a-chain. STAGE 1: LOOP · PASSES|STEPS ·
     // ON PLAY|AFTER N · REPLACE|LAYER · CAPTURE ONCE, fed by an UPSTREAM DRIVER (captured in the driver fold). Per-cell
     // render-side buffer (persistence + FREEZE/CANON/REFRESH/CLEAR are later stages). Sanctioned accumulated-state
@@ -2469,6 +2477,7 @@ final class Router {
             prevEffColumn = -1
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
+            for i in riffDrunkPos.indices { riffDrunkPos[i] = -1; riffDrunkLastTick[i] = .min }   // RIFF DRUNK: a fresh play restarts the walk (Paul 2026-09-28)
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
@@ -4815,6 +4824,25 @@ final class Router {
     /// 303. Per tick (at riffRate), the step's RANK resolves to a pool note (`riffResolve` — chord-following), REST for
     /// rank 0; WRAP/OCT applied; ACCENT boosts the played-chord's peak velocity. Mirrors emitArpRow's tick lifecycle so it
     /// composes as a chain driver + folds through CHOP/downstream stages. v1: no TIE/SLIDE (the §5 lanes are stage 2).
+    /// RIFF DIRECTION = DRUNK: the stateful step lookup. Advances the per-cell walk AT MOST ONCE per distinct `tick`
+    /// (so a render window spanning several new ticks advances once per tick, in order — not once per render call),
+    /// reflecting at the walls (a single reflection always suffices since the delta is always ±1/0 and position is
+    /// always kept in range). `steps` is a LIVE 1…32 param, so a stored position from a wider stencil is defensively
+    /// re-clamped if it's since shrunk. Gated on `!previewMode`, matching DEAL's own "auditioning must not perturb
+    /// persisted playback state" convention — an audition reads the current position without advancing it.
+    private func riffDrunkStep(ci: Int, tick: Int64, steps: Int, bias: Double, seed: UInt64) -> Int {
+        guard ci >= 0, ci < riffDrunkPos.count else { return 0 }
+        if previewMode { return riffDrunkPos[ci] < 0 ? 0 : min(steps - 1, riffDrunkPos[ci]) }
+        if riffDrunkPos[ci] < 0 { riffDrunkPos[ci] = 0; riffDrunkLastTick[ci] = tick; return 0 }
+        if tick != riffDrunkLastTick[ci] {
+            riffDrunkLastTick[ci] = tick
+            var np = riffDrunkPos[ci] + riffDrunkDelta(tick: tick, bias: bias, seed: seed)
+            if np < 0 { np = -np }
+            if np > steps - 1 { np = 2 * (steps - 1) - np }
+            riffDrunkPos[ci] = max(0, min(steps - 1, np))
+        }
+        return riffDrunkPos[ci]
+    }
     private func emitRiffRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                              emits: Bool, box: SnapshotBox, pool: NotePool,
                              effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
@@ -4840,11 +4868,14 @@ final class Router {
             let phaseBeat = p.riffSpanN > 0 ? (mTickBeat - columnStart(mTickBeat, spanLadderBeats(p.riffSpanN, S: S, row: cycleBeats))) : mTickBeat
             let raw = Int((phaseBeat / riffBeats).rounded(.down))
             let fwd = ((raw % steps) + steps) % steps
-            let step: Int                                          // DIRECTION (Paul 2026-09-16): the stencil playback order
+            let step: Int                                          // DIRECTION (Paul 2026-09-16, widened to 6 modes Paul 2026-09-28): the stencil playback order
             switch p.riffDir {
             case .forward:  step = fwd
             case .reverse:  step = steps - 1 - fwd
-            case .pingpong: let per = max(1, 2 * (steps - 1)); let t = ((raw % per) + per) % per; step = t < steps ? t : per - t
+            case .pendulum: let per = max(1, 2 * (steps - 1)); let t = ((raw % per) + per) % per; step = t < steps ? t : per - t   // bounces, each end ONCE (this was the old .pingpong math — same formula, corrected name)
+            case .pingpong: let per = 2 * steps; let t = ((raw % per) + per) % per; step = t < steps ? t : per - 1 - t             // bounces, each end TWICE — the genuinely new mode
+            case .random:   step = Int(splitmix64Mix(p.riffDirSeed &+ UInt64(bitPattern: Int64(raw))) % UInt64(steps))            // pure fn of (seed, raw) — stateless, re-syncs at SPAN boundaries like every mode above
+            case .drunk:    step = riffDrunkStep(ci: effColumn * Snap.rows + r, tick: tick, steps: steps, bias: p.riffDirBias, seed: p.riffDirSeed)   // keyed on `tick`, NOT `raw` — SPAN-oblivious by construction; the one stateful mode (see riffDrunkPos)
             }
             if step < p.riffTie.count && p.riffTie[step] { return }   // §5 TIE — no new attack; the striking step's off was EXTENDED to cover this step (a held ⌒)
             // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask bits) — a chord that follows the held chord;

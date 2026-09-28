@@ -1242,7 +1242,16 @@ struct ProcessorBox: View {
             row2({ field("STEPS", \.riffSteps) { numPair(steps, 1...32) { v in setParam { $0.riffSteps = v } } } },
                  { field("VOICING", \.riffPoly) { seg(["MONO", "POLY"], sel: poly ? "POLY" : "MONO") { i in setParam { $0.riffPoly = (i == 1) } } } })
             row2({ field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } },
-                 { field("DIRECTION", \.riffDir) { seg(RiffDir.allCases.map(\.rawValue), sel: (p.riffDir ?? .forward).rawValue) { i in setParam { $0.riffDir = RiffDir.allCases[i] } } } })   // stencil playback order (Paul 2026-09-16)
+                 { field("DIRECTION", \.riffDir) { seg(RiffDir.allCases.map(\.displayLabel), sel: (p.riffDir ?? .forward).displayLabel) { i in
+                     setParam {
+                         let d = RiffDir.allCases[i]; $0.riffDir = d
+                         // RANDOM + DRUNK (Paul 2026-09-28): each pick rolls a FRESH persisted seed, mirroring RANDOM
+                         // ONCE's own idiom above — a re-tap = re-roll; every other pick leaves the stored seed untouched.
+                         if d == .random || d == .drunk { $0.riffDirSeed = Int.random(in: Int.min...Int.max) }
+                     } } } })   // stencil playback order (Paul 2026-09-16, widened to 6 modes Paul 2026-09-28)
+            if (p.riffDir ?? .forward) == .drunk {   // BIAS only matters for DRUNK's random walk
+                bipolarSlider("BIAS \(Int((p.riffDirBias ?? 0) * 100))  (−rev · +fwd)", p.riffDirBias ?? 0) { v in setParam { $0.riffDirBias = v } }
+            }
             // GATE LENGTH — the per-note length (the standard gate, which the riff already honours), with the ∿ LFO (Paul 2026-09-16).
             field("GATE LENGTH  \(Int((p.gate ?? 0.6) * 100))%", \.gate, lfo: "gate") { slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) }
             // RATE + SPAN — roomy, each on its OWN line (riff has a per-step RATE and a separate SPAN, not one DURATION — Paul 2026-09-16).

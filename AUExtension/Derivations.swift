@@ -1921,6 +1921,21 @@ func chancePassesPool(beat: Double, note: Int, rank: Int, count: Int, probabilit
     return chancePasses(beat: beat, note: note, probability: p)
 }
 
+// MARK: - RIFF DIRECTION = DRUNK (Paul 2026-09-28): the per-tick random-walk delta. Pure — a hash of (seed, tick), NOT
+// a live RNG — so the SAME tick always draws the SAME delta (replay-safe at the draw level; only the WALK POSITION
+// that accumulates these deltas needs render-side memory, kept in Router.swift alongside DEAL's own counters).
+// `bias` (−1…1, 0 = neutral) tilts the {−1,0,+1} weights via a squared tilt: bias=0 → uniform 1/3 each ("wanders
+// evenly"); bias=+1 → weights (0,1,4) → 0%/20%/80% (forward-dominant but never deterministic — "Forward with
+// stumbles", never plain Forward); bias=−1 mirrors exactly. Continuous, no branching beyond the two thresholds.
+@inline(__always)
+func riffDrunkDelta(tick: Int64, bias: Double, seed: UInt64) -> Int {
+    let b = clamp(bias, -1, 1)
+    let wLo = max(0, 1 - b) * max(0, 1 - b), wHi = max(0, 1 + b) * max(0, 1 + b)
+    let h = splitmix64Mix(seed &+ UInt64(bitPattern: tick) &* 0x9E3779B97F4A7C15)
+    let u = Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) * (wLo + 1 + wHi)
+    return u < wLo ? -1 : (u < wLo + 1 ? 0 : 1)
+}
+
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
 
 /// Whether a step is TUTTI (the whole set passes) vs SOLO (one note). DETERMINISTIC per STEP — a pure hash of the

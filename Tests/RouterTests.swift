@@ -4919,6 +4919,97 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(rev.first, 65, "REVERSE opens on the LAST step (rank 4 = 65)")
         XCTAssertNotEqual(fwd, rev, "the playback order is reversed")
     }
+    // RIFF DIRECTION widened to 6 modes (Paul 2026-09-28): an 8-step, 8-note stencil so the played RANK is
+    // directly readable off the emitted note (rank r → note 59+r).
+    private func riffDirNotes(_ dir: RiffDir, seed: Int? = nil, bias: Double? = nil, spanN: Int? = nil,
+                              steps: Int = 8, beats: Double = 6) -> [Int] {
+        var c = Machine(machineID: "gold", type: .riff)
+        c.paramsA.riffRanks = Array(1...steps); c.paramsA.riffSteps = steps; c.paramsA.riffRate = .r1_16
+        c.paramsA.riffWrap = .clamp; c.paramsA.riffDir = dir; c.paramsA.riffDirSeed = seed; c.paramsA.riffDirBias = bias
+        c.paramsA.riffSpanN = spanN
+        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let notes = (0..<steps).map { UInt8(60 + $0) }
+        // forceColumn: 0 — a bare test cell only ticks within its OWN grid column's real-time span otherwise (the
+        // "PLAY: THIS CELL" bypass, needed here because these tests run many beats to capture a full bounce period).
+        let e = RecordingEmitter(); run(b, chord(notes), beats: beats, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        return e.ons.filter { $0.cable == 1 }.map { Int($0.note) - 59 }   // → rank 1...steps
+    }
+    func testRiffPendulumBouncesEachEndOnce() {
+        // n=8, cycle 2n-2=14: 1,2,3,4,5,6,7,8,7,6,5,4,3,2, then repeats. `.r1_16` = 0.25 beat/tick; 6 beats = 24
+        // ticks, comfortably more than one period.
+        let seq = riffDirNotes(.pendulum)
+        XCTAssertEqual(Array(seq.prefix(14)), [1, 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 2],
+                       "PENDULUM bounces, each end played once, cycle 2n-2")
+    }
+    func testRiffPendulumWithTwoStepsDegeneratesToForward() {
+        XCTAssertEqual(riffDirNotes(.pendulum, steps: 2, beats: 4), riffDirNotes(.forward, steps: 2, beats: 4),
+                       "PENDULUM with n=2 behaves exactly like FORWARD")
+    }
+    func testRiffPingPongBouncesEachEndTwice() {
+        // cycle 2n=16: 1,2,3,4,5,6,7,8,8,7,6,5,4,3,2,1, then repeats.
+        let seq = riffDirNotes(.pingpong)
+        XCTAssertEqual(Array(seq.prefix(16)), [1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1],
+                       "PING-PONG bounces, each end played twice, cycle 2n")
+    }
+    func testRiffRandomIsSeedRepeatableAndStaysInRange() {
+        let a1 = riffDirNotes(.random, seed: 111), a2 = riffDirNotes(.random, seed: 111), b1 = riffDirNotes(.random, seed: 222)
+        XCTAssertEqual(a1, a2, "the SAME seed draws the SAME sequence — replay-exact")
+        XCTAssertNotEqual(a1, b1, "a DIFFERENT seed draws a different sequence")
+        XCTAssertTrue(a1.allSatisfy { (1...8).contains($0) }, "every RANDOM draw lands on a real stencil step")
+    }
+    func testRiffDrunkStaysInBoundsAndMovesAtMostOneStepAtATime() {
+        for (seed, bias) in [(7, 0.0), (13, 0.6), (99, -0.6), (1, 1.0)] {
+            let seq = riffDirNotes(.drunk, seed: seed, bias: bias, beats: 16)
+            XCTAssertTrue(seq.allSatisfy { (1...8).contains($0) }, "DRUNK never wanders outside the stencil (seed \(seed))")
+            for i in 1..<seq.count {
+                XCTAssertLessThanOrEqual(abs(seq[i] - seq[i - 1]), 1, "DRUNK moves at most one step at a time (seed \(seed), index \(i))")
+            }
+        }
+    }
+    // NOTE (Paul 2026-09-28): a SPAN-obliviousness regression test (comparing DRUNK's sequence across riffSpanN
+    // values, guarding the tick-vs-raw design decision) was attempted here and dropped — riffSpanN produced no
+    // observable effect on ANY direction mode (including FORWARD, which the span mechanism unambiguously affects
+    // in production) under this test's forceColumn:0 harness, an interaction not tracked down in this pass. Not a
+    // gap in the feature itself (the engine code correctly keys the walk on `tick`, never `raw` — see riffDrunkStep/
+    // the switch case in Router.swift) — a gap in this test's coverage of it, flagged rather than shipped vacuous.
+    func testRiffDrunkResetsOnATransportStopStartEdge() {
+        var c = Machine(machineID: "gold", type: .riff)
+        c.paramsA.riffRanks = Array(1...8); c.paramsA.riffSteps = 8; c.paramsA.riffRate = .r1_16
+        c.paramsA.riffWrap = .clamp; c.paramsA.riffDir = .drunk; c.paramsA.riffDirBias = 0; c.paramsA.riffDirSeed = 55
+        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let pool = chord((0..<8).map { UInt8(60 + $0) })
+        let tempo = 120.0, sr = 48_000.0; let frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+
+        // ONE router: play a while, STOP (the reset edge), then play again — capture only the SECOND play's notes.
+        let router = Router(); var diag = KernelDiag(); let scratch = RecordingEmitter(); let e2 = RecordingEmitter()
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<8 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, forceColumn: 0, out: scratch, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, forceColumn: 0, out: scratch, diag: &diag)   // STOP → resets the walk
+        beat = 0; ts = 0   // a real replay restarts the transport clock too
+        for _ in 0..<4 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, forceColumn: 0, out: e2, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, forceColumn: 0, out: e2, diag: &diag)
+
+        // A totally fresh session, the same 4-window play — must match if the stop/start edge truly restarted the walk.
+        let e1 = RecordingEmitter(); run(b, pool, beats: 4 * windowBeats, into: e1, forceColumn: 0)
+
+        let seq1 = e1.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        let seq2 = e2.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        XCTAssertEqual(seq1, seq2, "a transport stop/start restarts DRUNK's walk from the same fresh state as a brand-new play")
+    }
     // DEAL (Paul 2026-09-16): a note-transparent output dealer — OVERRIDE the emitters, deal N1 → emitter 1, N2 → emitter 2.
     func testDealOverridesEmittersAndSplitsAChord() {
         var deal = ProcessorSlot(type: .deal)
