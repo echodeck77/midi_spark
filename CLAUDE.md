@@ -216,7 +216,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   tests covering only the arp-embedded wiring itself (including one exercising WAIT, which has no replacement) were
   removed outright. **FLAGGED, not fixed here:** the standalone EUCLID MASK processor has NO param-LFO targets
   registered anywhere, unlike the version it replaces (which exposed HITS/ROTATE/CHORD-OCT/CHORD-LEN to the `∿`
-  modulation system) — a real capability gap, found while removing the old version, separate scope to restore.**
+  modulation system) — a real capability gap, found while removing the old version, separate scope to restore.
+  **LFO RESTORED (2026-09-28, `0b41225`; macOS 1147 green): Paul asked for the flagged gap fixed.** ROOT CAUSE of why
+  this wasn't a one-line UI wire-up: `applyParamLFO` (the `∿` engine) resolves every non-`"arpRate"` target through
+  `AutoParamField` — the SAME enum the removal above correctly stripped its old `arpMask*` cases from. So restoring
+  the control needed NEW `AutoParamField` cases (`.maskK`/`.maskRotate`/`.maskChordGate`/`.maskChordOct`) pointing at
+  the standalone processor's own fields, plus the five GridUI switches that seed/format/edit an LFO's FROM/TO value
+  by target-name string (`lfoLabelText`/`lfoEndpointControl`/`lfoFmt`/`lfoSeedFrom`/`lfoSetBase`), plus `lfo:` wired
+  into the four `field()` calls themselves. **Caught by the compiler, not a hand-check:** two more exhaustive
+  switches in `Tests/EffectiveParamsTests.swift` locking `AutoParamField`'s key list and clamp bounds needed the
+  same 4 cases — the build failed until both were extended, exactly the safety net exhaustive switches exist for.
+  +1 RouterTest (`testEuclidMaskKLFOModulatesDensity`, restoring the coverage the removed
+  `testArpMaskKLFOModulatesEuclidDensity` had, chained after an ARP driver on the standalone processor's own `maskK`).**
 - **▶ CHAIN EDITOR — fixed a stale edit-slot showing an empty box's PASSGATE identity after a drag-reorder
   (2026-09-28, on `main`, `1585c28`; iOS builds, macOS 1147 green). Paul: "a pass gate processor sometimes shows
   when it's not part of the MIDI chain." Root-caused, not guessed: an empty/placeholder chain box is INTERNALLY
