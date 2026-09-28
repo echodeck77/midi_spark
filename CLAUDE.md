@@ -257,17 +257,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   panic. A BIAS control (`-1...1`, 0 = neutral, the exact `chanceTilt`/`velTilt`/`bipolarSlider` convention) tilts the
   walk's −1/0/+1 weights via a squared tilt: bias=0 → uniform ⅓ each ("wanders evenly"); bias=+1 → 0%/20%/80%,
   forward-dominant but never deterministic ("Forward with stumbles", hand-verified both extremes before shipping).
-  **KNOWN, DISCLOSED LIMITATION not fixed here:** RIFF's TIE lookahead already assumed forward-adjacency (`step+1`) —
-  already wrong for REVERSE today, predating this feature entirely; RANDOM/DRUNK make the wrongness more visible
-  (an arbitrary unrelated slot instead of a predictably-wrong one) but don't introduce it. A real fix needs
-  direction-aware lookahead for REVERSE/PENDULUM/PING-PONG and a non-mutating forward simulation for DRUNK — real,
-  separate scope, deferred. +6 RouterTests (literal n=8 sequences for PENDULUM/PING-PONG, the n=2 PENDULUM=FORWARD
-  edge case, RANDOM seed-repeatability + range, DRUNK bounds/step-size across 4 seed·bias combos, DRUNK reset-on-
-  transport-edge). One test explicitly NOT shipped rather than shipped vacuous: a SPAN-obliviousness regression guard
-  for DRUNK never showed ANY span effect on ANY mode (including FORWARD) under the test harness's `forceColumn:0`
-  bypass — a test-infrastructure interaction, not a code defect (the engine change was verified by direct reading,
-  independently, twice), flagged inline at the deletion site rather than hidden. Plan:
-  `~/.claude/plans/flickering-dazzling-floyd.md`.**
+  +6 RouterTests (literal n=8 sequences for PENDULUM/PING-PONG, the n=2 PENDULUM=FORWARD edge case, RANDOM seed-
+  repeatability + range, DRUNK bounds/step-size across 4 seed·bias combos, DRUNK reset-on-transport-edge). One test
+  explicitly NOT shipped rather than shipped vacuous: a SPAN-obliviousness regression guard for DRUNK never showed
+  ANY span effect on ANY mode (including FORWARD) under the test harness's `forceColumn:0` bypass — a test-
+  infrastructure interaction, not a code defect (the engine change was verified by direct reading, independently,
+  twice), flagged inline at the deletion site rather than hidden. Plan: `~/.claude/plans/flickering-dazzling-floyd.md`.
+  **TIE LOOKAHEAD FIX (2026-09-28, `04459d3`; macOS 1148 green): Paul asked to fix the disclosed TIE limitation
+  above.** RIFF's TIE run always checked array-index `step+1` for "what plays next" — already wrong for REVERSE
+  (whose true next step is `step-1`), meaningless once PENDULUM/PING-PONG/RANDOM/DRUNK made "next" stop being a
+  fixed offset at all. FIX: factored the 5 non-DRUNK modes' step formula out of `emitRiffRow`'s inline switch into a
+  pure `riffStepAt(dir:raw:steps:seed:)` (Derivations.swift) — used for BOTH the current tick's step and the TIE
+  lookahead's `raw+1, raw+2, …`, so the two can never disagree (the RATCHET/DEST class of bug: a lookup and its
+  lookahead drifting apart). DRUNK gets `riffDrunkPeek` — a NON-MUTATING simulation of the walk forward from its
+  current position using the SAME pure per-tick `riffDrunkDelta`, exact (not a guess) since replaying the identical
+  future tick indices later reproduces precisely what the real walk will do. Hand-verified against the exact REVERSE
+  bug before writing the fix or the test: steps=4, tie on step 2 (REVERSE's true next step after step 3) — the old
+  formula checked step 0 (untied, no extension), the new one correctly finds step 2 tied; FORWARD's formula is
+  provably byte-identical (same arithmetic, `s ≡ raw (mod steps)` either way). +1 RouterTest
+  (`testRiffTieRespectsReverseDirection`, asserting fewer note-ons with the tie painted on REVERSE's real next step
+  vs. without it — would have failed under the pre-fix code). SLIDE's own `prevStep = step - 1` lookup (Router.swift,
+  a few lines below TIE) has the EXACT same forward-adjacency assumption, in the other direction — noticed while
+  fixing TIE, NOT fixed here (Paul asked specifically about TIE), flagged as a likely next ask.**
 - **▶ EUCLID MASK — INVERT, SPAN, ACCENT LAYER, FILL, PROBABILITY, CHORD PICK (2026-09-28, on `main`, `2a54d5d`;
   macOS 1140 green incl. fuzz, iOS builds; DEVICE ear/eye owed). Asked what else the design space supported; Paul
   picked six to build now, in the priority order agreed: INVERT + SPAN first (cheap, closed a real consistency gap),
