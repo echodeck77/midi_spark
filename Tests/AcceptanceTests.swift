@@ -21,8 +21,8 @@ enum Accept {
 
     /// Emitter-A note-ONs for `chain` holding `chord`, as (note, vel, onset-bucket), sorted by (onset, note).
     static func onsA(_ chain: [ProcessorSlot], chord: [(UInt8, UInt8)] = chordCEG) -> [AcceptEvent] {
-        var st = PluginState(machines: [Machine(machineID: "gold", type: .passgate)], scenes: [SceneState.empty()])
-        st.machines[0].templateChain = chain.isEmpty ? [{ var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }()] : chain
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .empty)], scenes: [SceneState.empty()])
+        st.machines[0].templateChain = chain.isEmpty ? [{ var s = ProcessorSlot(type: .empty); s.bypassed = true; return s }()] : chain
         var s = SceneState.empty()
         var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 0
         s.cells[0][0] = cell

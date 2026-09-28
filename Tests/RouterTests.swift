@@ -2114,7 +2114,7 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
     func testForceColumnSustainsAHoldCell() {
-        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold (all-open, .retrig = non-legato)
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .empty   // identity hold (all-open, .retrig = non-legato)
         let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
@@ -2264,8 +2264,8 @@ final class RouterTests: XCTestCase {
     // one on emitter C land in buckets 0 and 2, B/D empty — no smear across the flat buffer.
     func testEmitterSoundingFeedBucketsByBus() {
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!].type = .passgate   // identity holds → sustained voices to snapshot
-        cs[machineIDs.firstIndex(of: "cyan")!].type = .passgate
+        cs[machineIDs.firstIndex(of: "gold")!].type = .empty   // identity holds → sustained voices to snapshot
+        cs[machineIDs.firstIndex(of: "cyan")!].type = .empty
         let b = box(machines: cs) {
             $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])
             $0.cells[0][1] = Cell(machineID: "cyan", buses: [.c])
@@ -2436,22 +2436,22 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e3); assertNothingLeftSounding(e4)
     }
     // GENERATORS AS CHAIN DRIVERS (user 2026-08-09): the driver drives, downstream slots fold; upstream composes.
-    func testEuclidThenOpenPassgateStillGenerates() {
+    func testEuclidThenOpenGateStillGenerates() {
         let b = box(machines: arpMachines()) {
             var c = Cell(machineID: "gold", buses: [.a])
             var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
-            var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+            var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic full pass (PASSGATE removed 2026-09-28)
             c.processors = [eu, gate]; $0.cells[0][0] = c
         }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "euclid drives; the open gate folds through → 4 pulses × 3 notes")
         assertNothingLeftSounding(e)
     }
-    func testEuclidThenClosedPassgateIsSilent() {
+    func testEuclidThenClosedGateIsSilent() {
         let b = box(machines: arpMachines()) {
             var c = Cell(machineID: "gold", buses: [.a])
             var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
-            var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+            var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic silence (PASSGATE removed 2026-09-28)
             c.processors = [eu, gate]; $0.cells[0][0] = c
         }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
@@ -3003,8 +3003,8 @@ final class RouterTests: XCTestCase {
 
     func testAuditionChordHoldTracksHeldKeysLive() {
         // The sustained preview must FOLLOW the keys: add one mid-hold → it sounds; release one → it
-        // stops, while the rest keep sounding. (passgate is forced all-open, so it's an identity hold.)
-        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .passgate
+        // stops, while the rest keep sounding. (an identity hold — nothing gates it.)
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .empty
         let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
@@ -3316,11 +3316,10 @@ final class RouterTests: XCTestCase {
 
     // MARK: - CLAIM (§6a) — one-claimant exclusivity, suppression against the live voice table
 
-    /// A PASSGATE all-open machine (sustains the chord to the column boundary = the claimant "holds" a
+    /// An identity-hold machine (sustains the chord to the column boundary = the claimant "holds" a
     /// pitch), optionally transposed so a second emitter can hold a DIFFERENT pitch (the residue case).
-    private func passgateMachine(_ id: String, transpose: Int = 0) -> Machine {
-        var c = Machine(machineID: id, type: .passgate)
-        c.paramsA.passes = [true, true, true, true]
+    private func holdMachine(_ id: String, transpose: Int = 0) -> Machine {
+        var c = Machine(machineID: id, type: .empty)
         c.paramsA.gate = 1.0
         c.transpose = transpose
         return c
@@ -3328,8 +3327,8 @@ final class RouterTests: XCTestCase {
     /// Machines with gold → held on A (transpose 0) and cyan → held on B (transposeB); the rest are arps.
     private func claimMachines(transposeB: Int) -> [Machine] {
         machineIDs.map { id in
-            if id == "gold" { return passgateMachine(id, transpose: 0) }
-            if id == "cyan" { return passgateMachine(id, transpose: transposeB) }
+            if id == "gold" { return holdMachine(id, transpose: 0) }
+            if id == "cyan" { return holdMachine(id, transpose: transposeB) }
             return Machine(machineID: id, type: .arp)
         }
     }
@@ -3345,7 +3344,7 @@ final class RouterTests: XCTestCase {
         // cell whose machine index ≥33, so over(2+ci) read PAST the table end → out-of-bounds trap on the render thread.
         // A machine beyond the 16 automatable slots has no param override → it must fall back to its own transpose.
         var machines = machineIDs.map { Machine(machineID: $0, type: .arp) }        // the canonical 16
-        for i in 0..<24 { machines.append(passgateMachine("x\(i)", transpose: 0)) }   // 40 total → last index 39 ≫ 33
+        for i in 0..<24 { machines.append(holdMachine("x\(i)", transpose: 0)) }   // 40 total → last index 39 ≫ 33
         machines[machines.count - 1].transpose = 7                                 // the high-index machine transposes +7
         let hi = machines[machines.count - 1].machineID
         var s = SceneState.empty()
@@ -3702,12 +3701,12 @@ final class RouterTests: XCTestCase {
     // MARK: - COVERAGE HARDENING — device topologies (T-series) with no prior unit coverage
 
     func testCollisionRefcountKeepsSustainedNoteAliveThroughArpRestrikes() {
-        // §7 collision policy + WIRE ARTICULATION = RESTRIKE (user 2026-08-09): a PASSGATE hold and a same-pitch ARP
+        // §7 collision policy + WIRE ARTICULATION = RESTRIKE (user 2026-08-09): an identity hold and a same-pitch ARP
         // on the SAME bus + channel. The arp re-strikes 60 every tick; each strike is now a clean OFF→ON re-attack
         // (retriggering), so ons and offs pace together. The refcount still keeps the hold alive across the strikes
         // (it never hits 0 mid-column) and pairs the final release exactly — nothing stuck.
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!] = passgateMachine("gold")   // hold
+        cs[machineIDs.firstIndex(of: "gold")!] = holdMachine("gold")   // hold
         cs[machineIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_16      // arp, same pitch pool
         let b = box(machines: cs) {
             $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // col 0, row 0 → holds 60 on A (ch 1)
@@ -3759,8 +3758,8 @@ final class RouterTests: XCTestCase {
         // Two cells subscribe to two receivers filtering different channels — the T6 routing, but the
         // filter now lives on the shared receiver rather than the cell.
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!] = passgateMachine("gold")
-        cs[machineIDs.firstIndex(of: "cyan")!] = passgateMachine("cyan")
+        cs[machineIDs.firstIndex(of: "gold")!] = holdMachine("gold")
+        cs[machineIDs.firstIndex(of: "cyan")!] = holdMachine("cyan")
         var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
             s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()  // R1 = ch 1
             s.cells[0][1] = { var c = Cell(machineID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()  // R2 = ch 2
@@ -3846,9 +3845,9 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
     // The BUILD-workshop shape: a machine whose chain resolves to ALL-BYPASSED (an ephemeral empty machine carries a
-    // bypassed-passgate placeholder), a nil-processors cell reading a door — must ALSO take the realtime wire.
+    // bypassed-empty placeholder), a nil-processors cell reading a door — must ALSO take the realtime wire.
     func testAllBypassedTemplateIsAlsoARealtimeWire() {
-        var gold = Machine(machineID: "gold", type: .passgate)
+        var gold = Machine(machineID: "gold", type: .empty)
         gold.templateChain = [{ var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]   // all-bypassed ≡ empty
         var st = PluginState(machines: [gold] + arpMachines().dropFirst(), scenes: [{ var s = SceneState.empty()
             s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()   // nil processors → follows the all-bypassed template
@@ -3893,11 +3892,11 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(ep)
     }
 
-    // CELL MACHINE stage-2 (serial execution, tick-tail slice): a 2-slot chain [open passgate → ARP] arps the
-    // held chord — the intra-cell echo of the grid PASS→ARP routing (cf. testOpenPassgateParentFeedsArpChild).
+    // CELL MACHINE stage-2 (serial execution, tick-tail slice): a 2-slot chain [open gate → ARP] arps the
+    // held chord — the intra-cell echo of the grid GATE→ARP routing.
     func testChainGateToArpArpsTheHeldChord() {
         let cs = arpMachines()
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic open gate (PASSGATE removed 2026-09-28)
         let arp = ProcessorSlot(type: .arp)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -3906,29 +3905,29 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    // MODE ROW (device round 2): the tick DRIVER need not be the TAIL. [ARP → open passgate] keeps ARPEGGIATING —
-    // the arp drives the rhythm and the passgate folds onto each arp note — instead of the arp collapsing to one
-    // held note (the pre-fix bug). An OPEN passgate after the arp is transparent.
-    func testArpThenOpenPassgateStillArpeggiates() {
+    // MODE ROW (device round 2): the tick DRIVER need not be the TAIL. [ARP → open gate] keeps ARPEGGIATING —
+    // the arp drives the rhythm and the gate folds onto each arp note — instead of the arp collapsing to one
+    // held note (the pre-fix bug). An OPEN gate after the arp is transparent.
+    func testArpThenOpenGateStillArpeggiates() {
         let cs = arpMachines()
         let arp = ProcessorSlot(type: .arp)
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic open gate (PASSGATE removed 2026-09-28)
         let plain = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp]; return c }() }
         let e0 = RecordingEmitter(); run(plain, chord([60, 64, 67]), beats: 16, into: e0)
         let chained = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
         let e1 = RecordingEmitter(); run(chained, chord([60, 64, 67]), beats: 16, into: e1)
-        XCTAssertGreaterThan(e1.ons.count, 3, "arp → open passgate arpeggiates (many onsets), not one held note")
-        XCTAssertEqual(Set(e0.ons.map { $0.note }), Set(e1.ons.map { $0.note }), "an open passgate after the arp is transparent")
+        XCTAssertGreaterThan(e1.ons.count, 3, "arp → open gate arpeggiates (many onsets), not one held note")
+        XCTAssertEqual(Set(e0.ons.map { $0.note }), Set(e1.ons.map { $0.note }), "an open gate after the arp is transparent")
         assertNothingLeftSounding(e1)
     }
-    // A CLOSED passgate after the arp gates every arp note → silence (the fold empties the set each tick).
-    func testArpThenClosedPassgateIsSilent() {
+    // A CLOSED gate after the arp gates every arp note → silence (the fold empties the set each tick).
+    func testArpThenClosedGateIsSilent() {
         let cs = arpMachines()
         let arp = ProcessorSlot(type: .arp)
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the arp gates every arp note → silence")
+        XCTAssertTrue(e.ons.isEmpty, "a closed gate after the arp gates every arp note → silence")
         assertNothingLeftSounding(e)
     }
     // AVOID/LOCK (unified 2026-08-31): a per-note pitch filter placeable anywhere. It works the SAME before or after a
@@ -4162,17 +4161,6 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(avoidRunE([mkAvoid(lock: true, move: true)], input: [60, 62], refs: [(1, [0, 7])]))
         assertNothingLeftSounding(avoidRunE([ProcessorSlot(type: .arp), mkAvoid(move: true)], input: [60, 64, 67], refs: [(1, [4])]))
         assertNothingLeftSounding(avoidRunE([mkAvoid(kind: .sounding, what: .clash2)], input: [60, 61, 62], refs: [(1, [0]), (2, [5])]))
-    }
-    // The downstream passgate gates on the PASS the user sees (diag.pass): pass 0 closed (passes[0]=false) → the
-    // whole first lap is silent even though later passes are open.
-    func testArpThenPassgateGatesPassZero() {
-        let cs = arpMachines()
-        let arp = ProcessorSlot(type: .arp)
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, true, true, true]   // pass 0 closed
-        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 14, into: e)   // stay within the first lap (pass 0; cycle = 16 beats)
-        XCTAssertTrue(e.ons.isEmpty, "pass 0 closed gates the arp for the whole first lap")
-        assertNothingLeftSounding(e)
     }
     // HARMONIZE after the arp adds its interval voice to EACH arp note (the +7 of 64 = 71 is not a chord note).
     func testArpThenHarmonizeAddsVoiceToEachArpNote() {
@@ -4806,8 +4794,8 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ccStream(), ccStream(), "the MOD CC stream is replay-safe (same beats → identical)")
     }
 
-    // MODE ROW: the driver-not-tail fold also covers RATCHET. [ratchet → closed passgate] gates every re-strike →
-    // silence; [ratchet → open passgate] re-strikes as a plain ratchet (the gate is transparent).
+    // MODE ROW: the driver-not-tail fold also covers RATCHET. [ratchet → closed gate] gates every re-strike →
+    // silence; [ratchet → open gate] re-strikes as a plain ratchet (the gate is transparent).
     // COIN — SHAPING THE DICE (Paul 2026-08-26): SIZE WEIGHTS change the audible burst length (size-8 bursts more notes
     // than size-2); QUOTA caps the fires per row; replay-exact. Proves the engine reads the new fields end-to-end.
     func testRatchetCoinSizeWeightsAndQuota() {
@@ -5298,33 +5286,33 @@ final class RouterTests: XCTestCase {
             let e2 = RecordingEmitter(); run(b2, chord([60, 64, 67]), beats: 2, into: e2); return e2 }()
         XCTAssertTrue(noTap.ons.filter { $0.cable == 2 }.isEmpty, "without TAP, nothing on wire B")
     }
-    func testRatchetThenClosedPassgateIsSilent() {
+    func testRatchetThenClosedGateIsSilent() {
         let cs = arpMachines()
         let rat = ProcessorSlot(type: .ratchet)
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the ratchet gates every re-strike")
+        XCTAssertTrue(e.ons.isEmpty, "a closed gate after the ratchet gates every re-strike")
         assertNothingLeftSounding(e)
     }
-    func testRatchetThenOpenPassgateStillRatchets() {
+    func testRatchetThenOpenGateStillRatchets() {
         let cs = arpMachines()
         let rat = ProcessorSlot(type: .ratchet)
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic open gate (PASSGATE removed 2026-09-28)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 64, 67]), "an open passgate after the ratchet is transparent")
+        XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 64, 67]), "an open gate after the ratchet is transparent")
         XCTAssertGreaterThan(e.ons.count, 3, "the ratchet re-strikes (more than one hit)")
         assertNothingLeftSounding(e)
     }
-    // …and STRUM as a non-tail driver: a closed passgate after the strum silences every strummed note.
-    func testStrumThenClosedPassgateIsSilent() {
+    // …and STRUM as a non-tail driver: a closed gate after the strum silences every strummed note.
+    func testStrumThenClosedGateIsSilent() {
         let cs = arpMachines()
         let strum = ProcessorSlot(type: .strum)
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [strum, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the strum gates every strummed note")
+        XCTAssertTrue(e.ons.isEmpty, "a closed gate after the strum gates every strummed note")
         assertNothingLeftSounding(e)
     }
     // §cell-edit F CHOP render path: a cell whose every slice is MUTED emits nothing (the render reads muteMask).
@@ -5417,11 +5405,11 @@ final class RouterTests: XCTestCase {
             case .chance: s.params.probability = 1.0            // always passes
             case .harmonize: s.params.harmIntervals = [0, 0, 0] // identity (root only)
             case .echo: s.params.echoDelayDiv = 2; s.params.echoRepeats = 1; s.params.echoThru = true
-            default: break                                      // passgate: default passMask 0b1111 = open
+            default: break
             }
             return s
         }
-        for mid in [ProcessorType.passgate, .chance, .harmonize, .echo] {
+        for mid in [ProcessorType.chance, .harmonize, .echo] {
             let b = box(machines: arpMachines()) { $0.cells[0][0] = {
                 var c = Cell(machineID: "gold", buses: [.a])
                 var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
@@ -5663,7 +5651,7 @@ final class RouterTests: XCTestCase {
 
     func testChainGateToRatchetRestrikesChord() {
         let cs = arpMachines()
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic open gate (PASSGATE removed 2026-09-28)
         let rat = ProcessorSlot(type: .ratchet)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, rat]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -5676,7 +5664,7 @@ final class RouterTests: XCTestCase {
     // set that flowed through the open gate.
     func testChainThreeSlotGateHarmonizeArp() {
         let cs = arpMachines()
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic open gate (PASSGATE removed 2026-09-28)
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         let arp = ProcessorSlot(type: .arp)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, harm, arp]; return c }() }
@@ -5689,7 +5677,7 @@ final class RouterTests: XCTestCase {
     // CELL MACHINE stage-2: a CLOSED gate mid-chain empties the set — the tail falls silent.
     func testChainClosedGateSilencesTail() {
         let cs = arpMachines()
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
         let arp = ProcessorSlot(type: .arp)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -5701,7 +5689,7 @@ final class RouterTests: XCTestCase {
     // harmonize +7] HOLDS the harmonized chord (source + the +7 voice) rather than arping it.
     func testChainHoldTailGateToHarmonize() {
         let cs = arpMachines()
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic open gate (PASSGATE removed 2026-09-28)
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, harm]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
@@ -5714,7 +5702,7 @@ final class RouterTests: XCTestCase {
     func testChainHoldTailClosedGateSilent() {
         let cs = arpMachines()
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm, gate]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a closed gate TAIL → the chain is silent")
@@ -5737,7 +5725,7 @@ final class RouterTests: XCTestCase {
     func testTemplateChainSoundsForFollowingCell() {
         var cs = arpMachines()
         let gi = machineIDs.firstIndex(of: "gold")!
-        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic open gate (PASSGATE removed 2026-09-28)
         cs[gi].templateChain = [gate, ProcessorSlot(type: .arp)]                       // template = gate → arp
         let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // FOLLOWING (no override)
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -5746,17 +5734,17 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    // A per-cell OVERRIDE diverges from the template: template = arp, but this cell overrides with a bypassed
-    // passgate (identity) → holds the raw chord instead of arping.
+    // A per-cell OVERRIDE diverges from the template: template = arp, but this cell overrides with an
+    // identity hold → holds the raw chord instead of arping.
     func testCellOverrideDivergesFromTemplate() {
         var cs = arpMachines()
         let gi = machineIDs.firstIndex(of: "gold")!
         cs[gi].templateChain = [ProcessorSlot(type: .arp)]
-        var idle = ProcessorSlot(type: .passgate); idle.params.passes = [true, true, true, true]
+        let idle = ProcessorSlot(type: .empty)
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [idle]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
-                       "the OVERRIDE (open passgate = identity hold) ignores the arp TEMPLATE")
+                       "the OVERRIDE (identity hold) ignores the arp TEMPLATE")
         assertNothingLeftSounding(e)
     }
 
@@ -5765,8 +5753,8 @@ final class RouterTests: XCTestCase {
         // filtering IN CH 1 → Emit A, the other IN CH 2 → Emit B. A note on wire ch 0 sounds only through
         // A; a note on wire ch 1 only through B. No origin channel survives — each is re-stamped on its bus.
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!] = passgateMachine("gold")
-        cs[machineIDs.firstIndex(of: "cyan")!] = passgateMachine("cyan")
+        cs[machineIDs.firstIndex(of: "gold")!] = holdMachine("gold")
+        cs[machineIDs.firstIndex(of: "cyan")!] = holdMachine("cyan")
         let b = box(machines: cs) {
             $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputChannel = 1; return c }()  // IN CH 1 = wire 0
             $0.cells[0][1] = { var c = Cell(machineID: "cyan", buses: [.b]); c.inputChannel = 2; return c }()  // IN CH 2 = wire 1
@@ -5780,19 +5768,6 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.filter { $0.cable == 1 && $0.note == 64 }.isEmpty, "64 (ch 2) does not leak onto A")
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 && $0.note == 64 }.count, 0, "ch-2 note 64 sounds on Emit B")
         XCTAssertTrue(e.ons.filter { $0.cable == 2 && $0.note == 60 }.isEmpty, "60 (ch 1) does not leak onto B")
-        assertNothingLeftSounding(e)
-    }
-
-    func testPassgateGatesByPassInThePlayingPath() {
-        // A PASSGATE at MIDI IN, open every 2nd pass. Over two full cycles column 0 is entered on pass 0
-        // (open → the chord sounds) and pass 1 (closed → silent): the held chord sounds exactly ONCE.
-        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
-        cs[gi].type = .passgate; cs[gi].paramsA.passes = [true, false, true, false]; cs[gi].paramsA.gate = 1.0
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 20, into: e)   // through pass 0 (open) + pass 1 (closed), before pass 2
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67])
-        XCTAssertEqual(e.ons.filter { $0.cable == 0 }.count, 3, "sounds on pass 0 only — closed pass 1 stays silent")
         assertNothingLeftSounding(e)
     }
 
@@ -5977,7 +5952,7 @@ final class RouterTests: XCTestCase {
     func testFrozenPoolOmniReadPlaysRegardlessOfCellChannelFilter() {
         var s = SceneState.empty()
         s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .passgate   // an identity HOLD → reads via srcCount(for:) = inputChanMask
+        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .empty   // an identity HOLD → reads via srcCount(for:) = inputChanMask
         var st = PluginState(machines: cs, scenes: [s])
         var r1 = Receiver(name: "1"); r1.channelMask = 0x0001        // the door now hears ONLY channel 1 (the user disabled ch4)
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
@@ -6378,15 +6353,14 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(eNone.ons.count, 0, "chance p=0 previews to silence")
     }
 
-    // 1c: an all-open PASSGATE (= identity chord-hold) sustains the held chord on the staged bus, releasing clean.
+    // 1c: an identity chord-hold sustains the held chord on the staged bus, releasing clean.
     func testPreviewIdentityChordHoldSustains() {
         let gold = machineIDs.firstIndex(of: "gold")!
-        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .passgate)
-        cs[gold].paramsA.passes = [true, true, true, true]   // all-open → identity chord-hold
+        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .empty)
         let b = box(machines: cs) { _ in }
         let e = RecordingEmitter()
         let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67], "an all-open passgate sustains the held chord on bus B")
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67], "an identity hold sustains the held chord on bus B")
         var diag = KernelDiag()
         router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
                        timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
@@ -6418,8 +6392,8 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(receiverHears(filter: b.receiverChannels[0], channel: 0), "match-nothing → hears no channel")
     }
 
-    // §9 item 1 ON ARRIVE (integration): ALT-ALTERNATE on a swap pair (A = open passgate → sounds,
-    // B = closed passgate → silent) flips the cell's sounding every pass. Proves the derivation is wired
+    // §9 item 1 ON ARRIVE (integration): ALT-ALTERNATE on a swap pair (A = open gate → sounds,
+    // B = closed gate → silent) flips the cell's sounding every pass. Proves the derivation is wired
     // into the render (pass 0 = base A, pass 1 = flipped B).
     // (testArriveAltAlternateFlipsSoundingAcrossPasses removed 2026-08-27: A/B MORPH dropped → ON.arrive=.altAlternate no
     //  longer flips the sounding face, so both passes only assert `ons > 0` (the head always sounds) — vacuous.)
@@ -6794,7 +6768,7 @@ final class RouterTests: XCTestCase {
     private func flattenBox(_ flattenMask: UInt8, _ amount: [Int]) -> SnapshotBox {
         var cs = arpMachines()
         let gi = machineIDs.firstIndex(of: "gold")!
-        cs[gi].type = .passgate; cs[gi].paramsA.passes = [true, true, true, true]   // A holds the chord (sounds)
+        cs[gi].type = .empty   // A holds the chord (sounds)
         var s = SceneState.empty()
         s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // → Emit A (cable 1): the sounding held chord
         s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // → Emit B (cable 2): an arp of NEW note-ons
@@ -6818,7 +6792,7 @@ final class RouterTests: XCTestCase {
     }
 
     func testFlattenDucksOtherEmittersWhileSounding() {
-        // A (passgate, holds) FLATTENs at 50%; B's new arp notes arrive velocity-scaled to 50 (100·50%).
+        // A (identity hold) FLATTENs at 50%; B's new arp notes arrive velocity-scaled to 50 (100·50%).
         // (Natural velocity is now the SOURCE velocity 100, not a flat 96 — user 2026-08-09.)
         XCTAssertTrue(velsForCable(flattenBox(0b0001, [50, 0, 0, 0]), cable: 2).contains(50),
                       "A flatten 50% ⇒ B's new notes duck to 50")
@@ -6981,9 +6955,9 @@ final class RouterTests: XCTestCase {
     }
 
     func testFaderKillClosesASustainedNote() {
-        // A passgate HOLD (all-open) sustains the chord on A → the kill edge must send its note-offs (the DJ drop).
+        // An identity HOLD sustains the chord on A → the kill edge must send its note-offs (the DJ drop).
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; return c }()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .empty); return c }()
         let b = box(machines: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -7005,10 +6979,10 @@ final class RouterTests: XCTestCase {
 
     // MARK: - §2 CONTINUITY (the design's verification ask) — drone flow vs re-strike at the column boundary
 
-    /// A drone of identical adjacent PASS-class cells. Two boundaries crossed → count note-offs on the wire.
+    /// A drone of identical adjacent identity-hold cells. Two boundaries crossed → count note-offs on the wire.
     private func droneOffs(phase: ArpPhase, windows: Int = 48) -> (offs: Int, ons: Int, e: RecordingEmitter) {
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = phase; return c }()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .empty); c.paramsA.phase = phase; return c }()
         let b = box(machines: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -7036,8 +7010,8 @@ final class RouterTests: XCTestCase {
     /// (fenced) sounding voice, and re-strikes every boundary (machine-guns). Regression lock for that.
     private func fencedDroneOffs(policy: Int, lo: Int, hi: Int) -> (offs: Int, ons: Int) {
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate)
-            c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .empty)
+            c.paramsA.phase = .legato; return c }()
         var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
             for c in 0..<8 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }; return s }()])
         st.busChannels = [1, 2, 3, 4]
@@ -7072,7 +7046,7 @@ final class RouterTests: XCTestCase {
     private func partialDrone() -> (router: Router, box: SnapshotBox, pool: NotePool, e: RecordingEmitter,
                                     tempo: Double, sr: Double, frames: UInt32, wb: Double) {
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .empty); c.paramsA.phase = .legato; return c }()
         let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // ONLY column 0
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         return (Router(), b, chord([60, 64, 67]), RecordingEmitter(), tempo, sr, frames, Double(frames) * tempo / 60.0 / sr)
@@ -7097,7 +7071,7 @@ final class RouterTests: XCTestCase {
         // §2 invariant 4: an IMMORTAL (offSample .max) legato drone is not a stuck note — a transport-stop
         // edge closes it like any other voice, leaving silence.
         var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
+        cs[machineIDs.firstIndex(of: "gold")!] = { var c = Machine(machineID: "gold", type: .empty); c.paramsA.phase = .legato; return c }()
         let b = box(machines: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -7201,8 +7175,8 @@ final class RouterTests: XCTestCase {
         // A/B simultaneously (count 1 previously played both at once). The turn advances per onset MOMENT, so a
         // single moment picks a single emitter.
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // passgate hold → A
-        s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // passgate hold → B
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // identity hold → A
+        s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // identity hold → B
         var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.altMask = 0b0011; st.altCount = [1, 1, 1, 1]
         let box = SnapshotBuilder.build(from: st)
@@ -7258,7 +7232,7 @@ final class RouterTests: XCTestCase {
 
     private func curveBox(amount: Int, on: Bool = true, rack: UInt8? = nil) -> SnapshotBox {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // passgate hold → A (one note-on at the source velocity)
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // identity hold → A (one note-on at the source velocity)
         var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.curveMask = on ? 0b0001 : 0
         st.curveAmount = [amount, 0, 0, 0]
@@ -7281,10 +7255,10 @@ final class RouterTests: XCTestCase {
 
     // MARK: - THE RACK — FENCE (per-emitter note-range policy)
 
-    /// The set of output notes on A when a passgate holds note 60 → A under a FENCE window/policy.
+    /// The set of output notes on A when an identity hold holds note 60 → A under a FENCE window/policy.
     private func fenceOut(policy: Int, lo: Int, hi: Int, on: Bool = true, rack: UInt8? = nil) -> Set<UInt8> {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // passgate hold → A, note 60
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // identity hold → A, note 60
         var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.fenceMask = on ? 0b0001 : 0
         st.fencePolicy = [policy, 0, 0, 0]; st.fenceLo = [lo, 0, 0, 0]; st.fenceHi = [hi, 127, 127, 127]
@@ -7338,7 +7312,7 @@ final class RouterTests: XCTestCase {
     /// The notes left SOUNDING on A (last event = note-on) after ONE window holding a chord under MONO/priority.
     private func monoSounding(priority: Int, _ notes: [UInt8] = [60, 64]) -> [UInt8] {
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // passgate hold → A holds the whole chord
+        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // identity hold → A holds the whole chord
         var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.monoMask = 0b0001; st.monoPriority = [priority, 0, 0, 0]
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
@@ -7436,7 +7410,7 @@ final class RouterTests: XCTestCase {
     func testSingleColumnLapReleaseClosesDrone() {
         var s = SceneState.empty()
         s.cells[0][0] = Cell(machineID: "gold", buses: [.a])       // a LEGATO drone → A (immortal hold, offSample .max)
-        var gold = passgateMachine("gold"); gold.paramsA.phase = .legato
+        var gold = holdMachine("gold"); gold.paramsA.phase = .legato
         let cs = machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }
         let box = SnapshotBuilder.build(from: PluginState(machines: cs, scenes: [s]))
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
@@ -7635,10 +7609,10 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(cut.ons.count, 0, "CUT still emits within the column")
         assertNothingLeftSounding(cut); assertNothingLeftSounding(ring)
     }
-    /// ECHO via the REAL creation path: a cell whose MACHINE A-face is passgate, carrying an explicit single-slot
+    /// ECHO via the REAL creation path: a cell whose MACHINE A-face is empty, carrying an explicit single-slot
     /// [ECHO] processor chain (what addSlotCells builds) — must still dry + repeat (guards the chain→proc resolution).
     func testEchoViaExplicitSingleSlotChainStillRepeats() {
-        let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+        let b = box(machines: [Machine(machineID: "gold", type: .empty)]) {
             var c = Cell(machineID: "gold", buses: [.a])
             var s = ProcessorSlot(type: .echo); s.params.echoDelayDiv = 1; s.params.echoRepeats = 4; s.params.echoFeedDelay = 0.5; s.params.echoDecay = 0.5
             c.processors = [s]
@@ -7650,14 +7624,14 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(strikes.count, 5, "single-slot [ECHO] via cell.processors should dry + repeat")
         assertNothingLeftSounding(e)
     }
-    /// ECHO as a chain TAIL (user 2026-08-08 bug): `[PASSGATE(bypassed) → ECHO]` must echo the upstream hold set, not
+    /// ECHO as a chain TAIL (user 2026-08-08 bug): `[bypassed-empty → ECHO]` must echo the upstream hold set, not
     /// fall through to a silent passthrough (emitEchoColumn read the HEAD, so echo-as-tail did nothing).
     func testEchoThenHarmonizeEchoesTheHarmonizedSet() {
         // [ECHO → HARMONIZE]: echo in the FIRST slot of a HOLD-tail chain. Bug (user 2026-08-10): the echo was dropped
         // (composeChainSet folded it as pass-through); it now registers tails for the fully-processed (harmonized) set.
         var s0 = ProcessorSlot(type: .echo); s0.params.echoDelayDiv = 1; s0.params.echoRepeats = 4; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
         var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
-        let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+        let b = box(machines: [Machine(machineID: "gold", type: .empty)]) {
             var c = Cell(machineID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c
         }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e)
@@ -7671,7 +7645,7 @@ final class RouterTests: XCTestCase {
         // ECHO mid-chain limit fix (Paul 2026-08-26): FREE (ms) delay in a HOLD chain now registers tails (was synced-only → silent).
         var s0 = ProcessorSlot(type: .echo); s0.params.echoSync = false; s0.params.echoDelayMs = 120; s0.params.echoRepeats = 4; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
         var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
-        let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+        let b = box(machines: [Machine(machineID: "gold", type: .empty)]) {
             var c = Cell(machineID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c
         }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e)
@@ -7683,7 +7657,7 @@ final class RouterTests: XCTestCase {
         func run2(thru: Bool) -> RecordingEmitter {
             var s0 = ProcessorSlot(type: .echo); s0.params.echoThru = thru; s0.params.echoDelayDiv = 1; s0.params.echoRepeats = 3; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
             var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
-            let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+            let b = box(machines: [Machine(machineID: "gold", type: .empty)]) {
                 var c = Cell(machineID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e); assertNothingLeftSounding(e); return e
         }
@@ -7692,9 +7666,9 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(mute.ons.count, thru.ons.count, "MUTE drops the dry hold → fewer note-ons than THRU")
     }
     func testEchoAsChainTailEchoesUpstreamSet() {
-        let b = box(machines: [Machine(machineID: "gold", type: .passgate)]) {
+        let b = box(machines: [Machine(machineID: "gold", type: .empty)]) {
             var c = Cell(machineID: "gold", buses: [.a])
-            var s0 = ProcessorSlot(type: .passgate); s0.bypassed = true         // passthrough upstream
+            var s0 = ProcessorSlot(type: .empty); s0.bypassed = true         // passthrough upstream
             var s1 = ProcessorSlot(type: .echo); s1.params.echoDelayDiv = 1; s1.params.echoRepeats = 4; s1.params.echoFeedDelay = 0.5; s1.params.echoDecay = 0.5
             c.processors = [s0, s1]
             $0.cells[0][0] = c

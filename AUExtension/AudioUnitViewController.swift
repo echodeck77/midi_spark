@@ -849,7 +849,7 @@ struct DiagView: View {
             // `d` drives the BODY (effColumn highlight, pass, etc.). DON'T update it on `beat` alone — that fired every
             // tick while playing (→ a full BuildPage recompute at 4 Hz just to move a beat the playheads extrapolate).
             // The beat now lives in `meters`. FURTHER (Paul 2026-09-11): the STEP index (effColumn/absoluteStep) is NO LONGER
-            // folded into `d` at all — every per-step playhead (the processor-editor matrices/lanes/passgate + the stage-eye)
+            // folded into `d` at all — every per-step playhead (the processor-editor matrices/lanes + the stage-eye)
             // now SELF-CLOCKS from the free-running beat anchor, so re-rendering the whole page each step is pure waste that
             // dropped a frame per step and hitched every playhead. `d` now updates only on the SLOW fields (playing/tempo/pass);
             // the beat-derived playheads stay smooth. The quantized voice switch rides the poll's own step detector (below).

@@ -56,7 +56,7 @@ final class PresetStoreTests: XCTestCase {
     // CELL MACHINE stage-4 — the CELL LIBRARY store: a saved Cell round-trips through the codec.
     func testCellLibraryRoundTripsThroughTheCodec() {
         var cell = Cell(machineID: "gold", buses: [.a])
-        cell.processors = [ProcessorSlot(type: .passgate), { var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]
+        cell.processors = [ProcessorSlot(type: .empty), { var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]
         cell.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.b])   // all slices → alt
         guard let data = CellLibraryStore.encode(cell), let back = CellLibraryStore.decode(data) else {
             return XCTFail("encode/decode produced nil")

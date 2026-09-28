@@ -1,13 +1,12 @@
 //  AcceptanceGatesSpecialTests.swift
-//  ACCEPTANCE tests (independent oracle) for the GATE / SEEDED / TAIL / TRANSLATOR / CC family:
-//  PASSGATE · CHANCE · HUMANIZE · ECHO · GLIDE · MOD.
+//  ACCEPTANCE tests (independent oracle) for the SEEDED / TAIL / TRANSLATOR / CC family:
+//  CHANCE · HUMANIZE · ECHO · GLIDE · MOD.
 //
 //  Same law as AcceptanceTests.swift: the EXPECTED output is reasoned FROM THE CONCEPT (spec §3 / the processor's
 //  stated meaning / music sense), NEVER read off the engine, then checked against the REAL Router via the shared
 //  `Accept` probe (120 BPM · 48 kHz · column frozen · ~3 beats · emitter-A note-ONs only).
 //
 //  ⚠ STRENGTH VARIES BY PROCESSOR — flagged inline and in the file's report:
-//    · PASSGATE — an exact set/emptiness oracle (a pure boolean gate on the held chord).
 //    · CHANCE   — PROPERTIES only: it is a SEEDED per-note-on hash, not concept-derivable exactly. p=1 / p=0 are
 //                 exact; p=0.5 is asserted as a deterministic proper subset (seed-dependent membership).
 //    · HUMANIZE — set-invariance + determinism are SOLID; "spread>0 perturbs timing/velocity" is a property.
@@ -18,38 +17,6 @@
 //                 needs a CC-capturing probe (out of scope here).
 
 import XCTest
-
-// MARK: - PASSGATE — an exact SET / EMPTINESS oracle
-
-final class AcceptancePassgateTests: XCTestCase {
-    /// CONCEPT: PASSGATE is a boolean gate on the HELD chord — a 4-bit mask indexed by the lap counter (mod 4). On a
-    /// lap whose bit is TRUE the whole chord passes unchanged; on a FALSE lap the chord is silent. So:
-    ///   · all-true  → every lap passes  → the chord always sounds → notesA == {60,64,67}
-    ///   · all-false → no lap passes      → total silence          → onsA empty
-    ///   · a mixed mask with bit 0 TRUE   → at least the lap-0 evaluation passes → the chord sounds over the run,
-    ///     so notesA == {60,64,67} (the DISTINCT set is the whole chord; we deliberately do NOT assert exact lap
-    ///     timing, which depends on how the frozen run advances the lap counter).
-    private func passgate(_ passes: [Bool]) -> ProcessorSlot {
-        var s = ProcessorSlot(type: .passgate); s.params.passes = passes; return s
-    }
-
-    func testAllTruePassesTheWholeChord() {
-        XCTAssertEqual(Accept.notesA([passgate([true, true, true, true])]), [60, 64, 67],
-                       "PASSGATE all-true must pass the held chord unchanged")
-    }
-
-    func testAllFalseIsTotalSilence() {
-        XCTAssertTrue(Accept.onsA([passgate([false, false, false, false])]).isEmpty,
-                      "PASSGATE all-false must emit nothing on emitter A")
-    }
-
-    func testMixedMaskWithAnOpenLapStillSoundsTheChord() {
-        // [true,false,false,false] — the bit-0 lap passes, so over the run the chord is heard (never continuously,
-        // but its DISTINCT pitch set is the whole chord). Robust to whether the frozen run walks the lap counter.
-        XCTAssertEqual(Accept.notesA([passgate([true, false, false, false])]), [60, 64, 67],
-                       "PASSGATE with an open lap must let the chord sound (distinct set == chord)")
-    }
-}
 
 // MARK: - CHANCE — SEEDED per-note-on probability gate: PROPERTIES only
 

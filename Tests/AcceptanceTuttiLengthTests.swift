@@ -212,7 +212,7 @@ final class AcceptanceTuttiPatternLengthChainTests: XCTestCase {
 // MARK: - [<hold> → LENGTH] — LENGTH after ANY non-driver hold now re-articulates the composed set (Paul 2026-08-17)
 
 final class AcceptanceHoldToLengthChainTests: XCTestCase {
-    // A downstream LENGTH after a NON-driver hold (TUTTI COIN / HARMONIZE / CHANCE / SPLIT / PASSGATE) was silently
+    // A downstream LENGTH after a NON-driver hold (TUTTI COIN / HARMONIZE / CHANCE / SPLIT / an empty passthrough) was silently
     // dropped — no driver to fold it per-note, and LENGTH re-articulates so it can't be a plain hold-tail. Now the
     // composed upstream set is re-articulated through LENGTH's gate. MUTE-all proves the gate bites; PASS-all proves
     // it's duration-only (the composed pitch set is preserved).
@@ -255,7 +255,7 @@ final class AcceptanceHoldToLengthChainTests: XCTestCase {
 // MARK: - [<hold> → SPLIT] · [<hold> → TUTTI COIN] — a set-FILTER tail after a non-driver hold now composes (Paul 2026-08-17)
 
 final class AcceptanceHoldToSetFilterChainTests: XCTestCase {
-    // A SPLIT or TUTTI-COIN TAIL after a non-driver hold was ignored — isHoldTailChain only knew passgate/chance/
+    // A SPLIT or TUTTI-COIN TAIL after a non-driver hold was ignored — isHoldTailChain only knew empty/chance/
     // harmonize, so the transform keyed off the HEAD and the tail did nothing. Now they compose: the upstream hold
     // is built (composeChainSet), then the tail filters/rolls that set.
 

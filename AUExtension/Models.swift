@@ -7,7 +7,7 @@ import Foundation
 // MARK: - Vocabulary
 
 enum ProcessorType: String, Codable, CaseIterable {
-    case arp = "ARP", ratchet = "RATCHET", passgate = "PASSGATE"
+    case arp = "ARP", ratchet = "RATCHET", empty = "PASSGATE"   // EMPTY (Paul 2026-09-28, was PASSGATE): the pass-per-lap gating FEATURE is removed entirely; this case survives ONLY as the engine's internal "this chain slot has nothing in it" sentinel (buildPassthroughSlot/buildIsEmptySlot and equivalents) — never user-addable, never shown as a labeled card. Raw string kept as "PASSGATE" so an old saved cell of that type still decodes (landing here, now a plain inert passthrough — exactly right, since the gating it used to do no longer exists).
     case strum = "STRUM", chance = "CHANCE", harmonize = "HARMONIZE"
     case echo = "ECHO"   // the first TAIL stage — repeats a note at delayed beats (reuses rate=TIME · count=REPEATS · ramp=DECAY)
     case euclid = "EUCLID"     // GENERATOR — a K-of-N euclidean rhythm; strikes the chord on the evenly-spread pulses
@@ -264,7 +264,6 @@ struct MachineParams: Codable, Equatable {
     var phase: ArpPhase? = .legato   // FLOW default (Paul 2026-09-14): LEGATO (was RETRIG) — arps sit connected by default
     var count: Int? = 3            // ratchet
     var ramp: Double? = 0.5        // ratchet
-    var passes: [Bool]? = [true, true, true, true]  // passgate
     var strumDir: StrumDir? = .up  // strum
     var spread: Double? = 0.1      // strum: chord stagger in BEATS (0…1)
     var curve: Double? = 0         // strum: timing curve −1…1 (0 = linear)
@@ -1801,7 +1800,7 @@ struct PluginState: Codable, Equatable {
         machines[idx("gold")].paramsA.octaves = 2
         machines[idx("cyan")].type = .ratchet
         machines[idx("cyan")].paramsA.count = 4
-        machines[idx("vermilion")].type = .passgate
+        machines[idx("vermilion")].type = .empty
         machines[idx("magenta")].transpose = 12
 
         var scene = SceneState.empty()
@@ -1906,7 +1905,7 @@ struct PluginState: Codable, Equatable {
     }
     private static func lPass(_ gate: Double, legato: Bool = true) -> ProcessorSlot {
         var p = MachineParams(); p.gate = gate; if legato { p.phase = .legato }
-        return ProcessorSlot(type: .passgate, params: p)
+        return ProcessorSlot(type: .empty, params: p)
     }
     private static func lHarm12() -> ProcessorSlot { var p = MachineParams(); p.harmIntervals = [12, 0, 0]; return ProcessorSlot(type: .harmonize, params: p) }
     private static func lRtc(_ count: Int) -> ProcessorSlot { var p = MachineParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }

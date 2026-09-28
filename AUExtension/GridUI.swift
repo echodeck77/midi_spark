@@ -174,7 +174,6 @@ struct ProcessorBox: View {
     var slotMode: Bool = false
     var slotBypassed: Bool = false
     var accentOverride: Color? = nil                     // MODE ROW: force the control accent (blue, to match the emitters)
-    var passHead: Int = -1                               // MODE ROW: the live PASS index (0…3) for the passgate playhead; -1 = stopped
     var liveStep: Int = -1                               // PLAYHEAD (idea 15): the live GRID COLUMN (0…7) lit in the matrices/lanes; -1 = stopped
     // RATCHET PATTERN own-clock playhead (Paul 2026-09-07): the matrix highlight must sweep at the ratchet's OWN rate,
     // which is faster than the ~4 Hz diag poll — so we EXTRAPOLATE the beat in a TimelineView (the app's pattern), never
@@ -184,7 +183,7 @@ struct ProcessorBox: View {
     var tempo: Double = 120
     var clockPlaying: Bool = false
     var driverNoteRate: Double = 0                       // RATCHET PATTERN NOTE clock: the upstream driver's note rate in beats (0 = unknown/standalone → the playhead can't sweep per-note)
-    var gridStepBeats: Double = 0.25                     // the SCENE step in beats → the DEFAULT (grid-column) matrix/lane/passgate playhead clock (Paul 2026-09-11)
+    var gridStepBeats: Double = 0.25                     // the SCENE step in beats → the DEFAULT (grid-column) matrix/lane playhead clock (Paul 2026-09-11)
     // A self-clock for a state matrix's playhead — extrapolated per frame so it can sweep faster than the diag poll.
     // `span` = the loop period in BEATS (0 = free-run over all STEPS); the playhead re-anchors every `span`.
     struct StateMatrixClock { let anchor: Double; let anchorAt: Date; let tempo: Double; let rate: Double; let steps: Int; let rotate: Int; let span: Double }
@@ -206,20 +205,13 @@ struct ProcessorBox: View {
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
     private var isB: Bool { face == .b }
-    // DEFAULT grid-column clock (0…7 over one bar) for the matrices/lanes/passgate that DON'T carry a bespoke clock
+    // DEFAULT grid-column clock (0…7 over one bar) for the matrices/lanes that DON'T carry a bespoke clock
     // (Paul 2026-09-11): these used to light the live column from the ~4 Hz polled `d.effColumn`, folded into the whole-page
     // @State — which re-rendered the entire page every step and hitched every playhead. Self-animating from the free-running
     // beat anchor (the RATCHET matrix's pattern) frees the page from the per-step re-render. span 0 = free-run over all STEPS.
     private var gridClock: StateMatrixClock? {
         clockPlaying ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo,
                                         rate: Swift.max(0.0001, gridStepBeats), steps: 8, rotate: 0, span: 0) : nil
-    }
-    // The live pass index (0…3) extrapolated from the anchor — the passgate playhead, self-clocked like gridClock.
-    private func livePass(at date: Date) -> Int {
-        guard clockPlaying else { return -1 }
-        let bar = 8.0 * Swift.max(0.0001, gridStepBeats)
-        let b = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
-        return ((Int((b / bar).rounded(.down)) % 4) + 4) % 4
     }
     private var accent: Color { accentOverride ?? (machineHue(machine.machineID) ?? .gray) }
     private var faceType: ProcessorType? { isB ? machine.typeB : machine.type }   // B may be nil = B-less
@@ -348,7 +340,7 @@ struct ProcessorBox: View {
         switch t {
         case .arp:       return "arpeggiate the held chord"
         case .ratchet:   return "re-trigger in bursts per step"
-        case .passgate:  return "a gate the sound passes through"
+        case .empty:     return "an empty chain slot"
         case .strum:     return "roll the chord in over a spread"
         case .chance:    return "let notes through by probability"
         case .harmonize: return "add tuned voices to each note"
@@ -398,6 +390,7 @@ struct ProcessorBox: View {
 
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
         switch ft {
+        case .empty: EmptyView()   // the sentinel — buildIsEmptySlot filters this out before the editor ever opens on one
         case .arp: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
             // PATTERN (Paul 2026-09-13): ALL options on ONE line, no highlight bar. The last two (RND HI / RND LO FIRST)
             // are the RANDOM anchor — which note each cycle opens on — folded in from the retired RANDOM ANCHOR control.
@@ -510,26 +503,6 @@ struct ProcessorBox: View {
                          rotate: { EmptyView() },   // ROTATE dropped — no per-step pattern to rotate in the RIFF-shaped model (Paul 2026-09-06)
                          span:   { frameSpan(p.rtcSpanN ?? 0, free: true) { v in setParam { $0.rtcSpanN = v } } },
                          pairs: .ratchet)
-            }
-        })
-        case .passgate: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
-            field("PLAY ON PASS") {
-              TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in   // SELF-CLOCKED pass playhead (Paul 2026-09-11): extrapolated from the anchor, no per-step page re-render
-                let head = livePass(at: tl.date)
-                HStack(spacing: 6) {
-                ForEach(0..<4, id: \.self) { i in
-                    let pv = p.passes ?? [true,true,true,true]
-                    let on = i < pv.count ? pv[i] : true                    // bounds-safe: a ragged/short decoded array won't trap
-                    Text("\(i+1)").font(.system(size: 16, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.6))
-                        .frame(maxWidth: .infinity).frame(height: 42)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.1)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(i == head ? Color.white : .clear, lineWidth: 3))   // the playhead ring
-                        .contentShape(Rectangle())
-                        .onTapGesture { setParam { var pp = $0.passes ?? [true,true,true,true]; while pp.count <= i { pp.append(true) }; pp[i].toggle(); $0.passes = pp } }
-                }
-                }
-              }
             }
         })
         case .strum: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
@@ -1723,7 +1696,7 @@ struct ProcessorBox: View {
     }
 
     // ---- small controls ----
-    private func typeShort(_ t: ProcessorType) -> String { t == .passgate ? "PASSES" : t.rawValue }   // FULL name (user 2026-07-30 — no abbreviations); PASSGATE panel display name → PASSES (friendly labels, enum rawValue untouched)
+    private func typeShort(_ t: ProcessorType) -> String { t.rawValue }   // FULL name (user 2026-07-30 — no abbreviations)
     private func bind(_ v: Double, _ set: @escaping (Double) -> Void) -> Binding<Double> {
         Binding(get: { v }, set: set)
     }

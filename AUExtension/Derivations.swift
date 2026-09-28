@@ -1494,7 +1494,7 @@ func chordSplitWindow(count: Int, split: ChordSplit, noteAt: (Int) -> Int) -> (s
 /// COLUMN-SUBSET LAP (delta §5b) — the whole perform-v2 feature in one function. With `laneMask` the
 /// held columns (bit i set ⇒ column i is held), the EFFECTIVE column at global step `absoluteStep` is
 /// the (absoluteStep mod k)-th held column, ordered left→right (k = held count). Only column SELECTION
-/// is warped; the true timeline is untouched (pass/passgate/swing all run off it). `laneMask == 0`
+/// is warped; the true timeline is untouched (pass/swing all run off it). `laneMask == 0`
 /// (nothing held) passes `trueColumn` through unchanged. k∤8 gives the INTENDED polymeter rotation —
 /// the mapping is never reset at pass boundaries, so a k-cycle phases against the 8-step timeline.
 func lapColumn(laneMask: UInt16, absoluteStep: Int, trueColumn: Int) -> Int {
@@ -1668,7 +1668,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 // MARK: - Processor dispatch (§3/§4)
 
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
-/// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
+/// fall back to identity; an implemented processor gets its own mode.
 /// Adding a processor = one case here + its branch in the loop.
 enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, riff, hocket, avoid, chords, identity, silent }
 
@@ -1834,7 +1834,7 @@ func umpToLegacy(_ w0: UInt32, _ w1: UInt32) -> (b0: UInt8, b1: UInt8, b2: UInt8
 }
 
 @inline(__always)
-func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
+func cellMode(type: ProcessorType, bypassed: Bool) -> CellMode {
     if bypassed { return .identity }                       // §3: bypass = identity processor
     switch type {
     case .arp:       return .arp
@@ -1863,9 +1863,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
     case .channel, .nudge, .dest, .muteMatrix, .tap, .velocity, .deal, .clock, .killStep, .euclidMask: return .identity   // UTILITY/ROUTING/DYNAMICS/TIME — note-transparent; the emit-side effect (channel/timing/emitter/VELOCITY override · TAP's mid-chain send · DEAL's emitter deal · CLOCK/KILL STEP's beat transform · EUCLID MASK's per-note fold) applies elsewhere
     case .recorder:  return .identity                       // RECORDER (Stage 0, inert): note-transparent for now; record/playback lands in the engine stage
-    case .passgate:                                        // §3/§4: gated by pass (mod 4)
-        let bit = ((pass % 4) + 4) % 4
-        return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
+    case .empty:     return .identity                       // the "nothing here" sentinel — always a no-op passthrough
     }                                                      // roster complete — every type handled
 }
 
@@ -2079,7 +2077,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     switch t {
     case .arp:       return "chart.line.uptrend.xyaxis"   // the climb
     case .ratchet:   return "bolt.fill"                   // the burst
-    case .passgate:  return "rectangle.split.3x1"         // the gate
+    case .empty:     return "square.dashed"               // the sentinel — never shown as a real card
     case .strum:     return "fanblades.fill"              // the fan
     case .chance:    return "die.face.5.fill"             // the die
     case .tutti:     return "die.face.6.fill"             // the set-die (SOLO vs the whole band)
@@ -2280,7 +2278,7 @@ func resolvedCellChain(_ cell: Cell, machines: [Machine]) -> [ProcessorSlot] {
     if let p = cell.processors { return p }                              // per-cell OVERRIDE (incl. an explicit [] passthrough)
     let c = machines.first { $0.machineID == cell.machineID }
     if let t = c?.templateChain, !t.isEmpty { return t }                 // machine TEMPLATE
-    return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? MachineParams())]   // legacy A face
+    return [ProcessorSlot(type: c?.type ?? .empty, params: c?.paramsA ?? MachineParams())]   // legacy A face
 }
 /// A 32-bit FNV-1a over the JSON (sorted keys) of the behavioural config. Same config ⇒ same value on every
 /// device (document-visible truth); config-twins (regardless of machine) share it. Pure/testable. §1 contract.

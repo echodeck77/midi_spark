@@ -131,7 +131,7 @@ final class ChaosDriver {
     // EDIT-SCREEN fuzz — the cell identity/chain/routing operations the edit page invokes, on random cells/machines.
     // This is the config-changes-mid-pass surface (invariant I8): the engine must never stop or corrupt under it.
     private func fireEdit(_ au: MidiSparkAudioUnit) {
-        let types: [ProcessorType] = [.arp, .ratchet, .passgate, .strum, .chance, .harmonize]
+        let types: [ProcessorType] = [.arp, .ratchet, .strum, .chance, .harmonize]
         let ci = rng.int(max(1, au.uiMachines().count)), slot = rng.int(4), t = types[rng.int(types.count)]
         let cell = randomOccupiedCell(au)
         switch rng.int(12) {
@@ -238,7 +238,7 @@ final class ChaosDriver {
     // THE ORACLE — does the OUTPUT match the STATE? Reads the live diag and flags a mismatch on screen + in the log.
     //  • STUCK (precise): transport stopped + NO notes held, yet notes still SOUNDING → a hung note.
     //  • SILENT (heuristic): playing + notes HELD, yet NOTHING out for a while → maybe silent-when-it-should-sound
-    //    (soft "?" — legitimately silent if every routed cell is currently gated, e.g. a closed passgate).
+    //    (soft "?" — legitimately silent if every routed cell is currently gated, e.g. a rolled-false chance or a mod/glide head).
     private func checkOracle() {
         guard let au = au else { return }
         let d = au.kernelDiagnostics()

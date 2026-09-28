@@ -97,9 +97,6 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "harm1", label: "VOICE 2", kind: .stepper(lo: -24, hi: 24)),
                 MacroControlParam(key: "harm2", label: "VOICE 3", kind: .stepper(lo: -24, hi: 24)),
                 MacroControlParam(key: "harmVelScale", label: "VOICE VEL", kind: .continuous(lo: 0.1, hi: 1))]
-    case .passgate:
-        return [bypass,
-                MacroControlParam(key: "passMask", label: "PLAY ON PASS", kind: .mask(bits: 4))]
     case .echo:
         return [bypass,
                 MacroControlParam(key: "rate", label: "TIME", kind: .option(ArpRate.allCases.map(\.rawValue))),
@@ -162,8 +159,8 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "splitHigh", label: "SIDE", kind: .toggle),
                 MacroControlParam(key: "splitVFloor", label: "VEL MIN", kind: .stepper(lo: 1, hi: 127)),
                 MacroControlParam(key: "splitVCeil", label: "VEL MAX", kind: .stepper(lo: 1, hi: 127))]
-    case .octave, .transpose, .channel, .nudge, .dest, .muteMatrix, .riff, .tap, .hocket, .avoid, .chords, .velocity, .deal, .recorder, .clock, .killStep, .euclidMask:
-        return [bypass]   // UTILITY/ROUTING/RIFF/TAP/HOCKET/AVOID/CHORDS/VELOCITY/RECORDER/CLOCK/KILL STEP/EUCLID MASK: edited directly (per-step lanes / discrete params — no simple macro-foldable scalar)
+    case .octave, .transpose, .channel, .nudge, .dest, .muteMatrix, .riff, .tap, .hocket, .avoid, .chords, .velocity, .deal, .recorder, .clock, .killStep, .euclidMask, .empty:
+        return [bypass]   // UTILITY/ROUTING/RIFF/TAP/HOCKET/AVOID/CHORDS/VELOCITY/RECORDER/CLOCK/KILL STEP/EUCLID MASK/EMPTY: edited directly (per-step lanes / discrete params — no simple macro-foldable scalar); EMPTY has nothing to bind at all (the sentinel)
     }
 }
 
@@ -207,8 +204,6 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "harm0":        v[param.key] = Double(p.harmIntervals?[safe: 0] ?? 0)
         case "harm1":        v[param.key] = Double(p.harmIntervals?[safe: 1] ?? 0)
         case "harm2":        v[param.key] = Double(p.harmIntervals?[safe: 2] ?? 0)
-        case "passMask":     v[param.key] = Double((p.passes ?? [true, true, true, true]).enumerated()
-                                                     .reduce(0) { $0 | ($1.element ? (1 << $1.offset) : 0) })
         case "modCC":        v[param.key] = Double(p.modCC ?? 74)
         case "modShape":     v[param.key] = optionIndex(p.modShape)
         case "modRate":      v[param.key] = optionIndex(p.modRate)
@@ -275,8 +270,6 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
             let idx = Int(param.key.suffix(1)) ?? 0
             var h = s.params.harmIntervals ?? [0, 0, 0]; while h.count < 3 { h.append(0) }
             h[idx] = clamp(Int(val.rounded()), -24, 24); s.params.harmIntervals = h
-        case "passMask":
-            let m = clamp(Int(val.rounded()), 0, 15); s.params.passes = (0..<4).map { (m >> $0) & 1 == 1 }
         case "modCC":        s.params.modCC = clamp(Int(val.rounded()), 0, 127)
         case "modShape":     s.params.modShape = caseAt(val, ModShape.self)
         case "modRate":      s.params.modRate = caseAt(val, ModRate.self)

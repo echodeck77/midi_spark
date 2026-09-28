@@ -94,7 +94,6 @@ struct SnapParams {
     var phase: ArpPhase = .legato   // arp FLOW default (Paul 2026-09-14): LEGATO (was RETRIG) — matches MachineParams so a nil-phase arp reads + plays legato
     var count: UInt8 = 3             // ratchet
     var ramp: Double = 0.5
-    var passMask: UInt8 = 0b1111     // passgate
     var strumDir: StrumDir = .up     // strum
     var spread: Double = 0.1         // strum stagger, beats
     var curve: Double = 0            // strum timing curve −1…1
@@ -723,9 +722,6 @@ func applyModChainOffset(_ p: SnapParams, param: MacroParam, offset: Double) -> 
 // were REMOVED 2026-09-16 and are FREE to reuse.)
 @inline(__always)
 func effectiveType(_ c: SnapMachine) -> ProcessorType { c.a.type }
-
-@inline(__always)
-func effectivePassMask(_ c: SnapMachine) -> UInt8 { c.a.passMask }
 
 @inline(__always)
 func effectiveRateBeats(_ c: SnapMachine) -> Double {

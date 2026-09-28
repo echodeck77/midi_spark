@@ -20,7 +20,7 @@ final class AcceptanceFactoryLibraryTests: XCTestCase {
     }
 
     // THE REGENERATED RANGE (Paul 2026-09-11): chains of up to 4 processors, EQUAL weighting on lengths 1/2/3/4, with
-    // euclid/arp/ratchet/riff/cc prominent, consonant (no clashing intervals), non-chaotic, and NO PASSGATE.
+    // euclid/arp/ratchet/riff/cc prominent, consonant (no clashing intervals), non-chaotic.
     func testRegeneratedFactorySetMatchesTheSpec() {
         let set = Dice.factorySet
         // Diversity — no two structurally identical chains.
@@ -32,8 +32,6 @@ final class AcceptanceFactoryLibraryTests: XCTestCase {
         let byLen = Dictionary(grouping: set, by: { $0.chain.count }).mapValues { $0.count }
         XCTAssertEqual(set.count, 200, "expected 4×50 = 200 machines, got \(set.count)")
         for len in 1...4 { XCTAssertEqual(byLen[len], 50, "length \(len): expected 50, got \(byLen[len] ?? 0)") }
-        // NO PASSGATE anywhere (Paul's hard exclusion).
-        for fc in set { XCTAssertFalse(fc.chain.contains { $0.type == .passgate }, "\(fc.name): contains PASSGATE") }
         // The prominent types are all well represented.
         for t in [ProcessorType.euclid, .arp, .ratchet, .riff, .mod] {
             let n = set.filter { $0.chain.contains { s in s.type == t } }.count

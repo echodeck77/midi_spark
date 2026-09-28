@@ -41,8 +41,7 @@ struct DiceRNG: RandomNumberGenerator {
 
 enum Dice {
     // Note-affecting processor types only (the rationale for every pool below). MOD/GLIDE emit CC/pitch-bend, not notes
-    // → the note-signature can't see them, so they'd always read as "non-contributing"; excluded. PASSGATE is excluded
-    // too — open = no-op (never contributes), closed = silence (kills the chain); both degenerate.
+    // → the note-signature can't see them, so they'd always read as "non-contributing"; excluded.
     // WEIGHTED pick (user 2026-08-10): lean HARD into the rhythmic / swelling processors (arp · ratchet · euclid ·
     // burst · cascade · drone), and pull HARMONIZE right down — its fixed intervals drift out of key and there's no
     // scale-correction yet (raise it once a KEY-LOCK processor lands). Weights = repeats in the pool.
@@ -131,9 +130,9 @@ enum Dice {
     /// on the column, run the REAL Router for 3 beats, and return the recorder. It's the actual engine's output for the
     /// chain against a STANDARD input (so two chains compare on equal footing), not a capture of live playing.
     static func runRecorder(_ chain: [ProcessorSlot], chord: [UInt8] = [60, 64, 67]) -> DiceRecorder {
-        var st = PluginState(machines: [Machine(machineID: "gold", type: .passgate)], scenes: [SceneState.empty()])
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .empty)], scenes: [SceneState.empty()])
         st.machines[0].templateChain = chain.isEmpty
-            ? [{ var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }()] : chain
+            ? [{ var s = ProcessorSlot(type: .empty); s.bypassed = true; return s }()] : chain
         var s = SceneState.empty()
         var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 0
         s.cells[0][0] = cell
@@ -539,7 +538,7 @@ enum Dice {
 
     static func shortName(_ t: ProcessorType) -> String {
         switch t {
-        case .arp: return "ARP"; case .ratchet: return "RTC"; case .strum: return "STR"; case .passgate: return "GATE"
+        case .arp: return "ARP"; case .ratchet: return "RTC"; case .strum: return "STR"
         case .chance: return "CHN"; case .harmonize: return "HRM"; case .echo: return "ECHO"; case .euclid: return "EUC"
         case .burst: return "BST"; case .cascade: return "CSC"; case .drone: return "DRN"; case .shift: return "SHF"
         case .humanize: return "HUM"; case .tutti: return "TUT"; case .length: return "LEN"; case .weave: return "WVE"; case .split: return "SPL"
@@ -553,7 +552,7 @@ enum Dice {
 // A DETERMINISTIC, seeded set of 200 chains, EQUALLY split across lengths 1/2/3/4 (50 each). Prominent drivers: EUCLID ·
 // ARP · RATCHET · RIFF (+ CC/MOD as an appended, note-transparent layer). CONSONANT by construction (every note derives
 // from the held chord — subset/octave/perfect-interval shapes only, never a 3rd/clash) and NON-CHAOTIC (one driver per
-// chain · calm rates · moderate density). NO PASSGATE. Ordered SHAPER→DRIVER→FOLD→TAIL→CC. Deduped by a STRUCTURAL key.
+// chain · calm rates · moderate density). Ordered SHAPER→DRIVER→FOLD→TAIL→CC. Deduped by a STRUCTURAL key.
 // Named <driver> <SOLO|PAIR|TRIO|QUAD> NN. Paul auditions + renames + prunes keepers via the SELECT pick grid.
 extension Dice {
     struct FactoryChain { let name: String; let chain: [ProcessorSlot]; let transpose: Int; let tag: String }
@@ -568,7 +567,7 @@ extension Dice {
         case .cascade: return "CASCADE"; case .drone: return "DRONE"; case .shift: return "SHIFT"; case .humanize: return "HUMANIZE"
         case .tutti: return "TUTTI"; case .length: return "GATE"; case .weave: return "WEAVE"; case .split: return "SPLIT"
         case .glide: return "GLIDE"; case .riff: return "RIFF"; case .hocket: return "HOCKET"; case .tap: return "TAP"
-        case .mod: return "MOD"; case .passgate: return "PASS"; default: return "CHAIN"
+        case .mod: return "MOD"; default: return "CHAIN"
         }
     }
     // fRole RETIRED (Paul 2026-09-12 dead-code sweep — no caller).
@@ -590,7 +589,7 @@ extension Dice {
         // CONSONANT by construction: every note derives from the HELD chord (drivers strike it; shapers only subset it, shift
         // it by octaves, or add perfect 4ths/5ths/octaves) — no fixed-key filter, no 3rds/clashing intervals. NON-CHAOTIC:
         // exactly ONE driver per chain · rates weighted to 1/8–1/16 · moderate density · at most one loose stochastic element.
-        // NO PASSGATE. ORDER LAW: SHAPER(s) [upstream re-pool] → one DRIVER → FOLD(s) [downstream] → TAIL (echo/glide) →
+        // ORDER LAW: SHAPER(s) [upstream re-pool] → one DRIVER → FOLD(s) [downstream] → TAIL (echo/glide) →
         // CC (mod · transparent · always last). Naming: <driver> <SOLO|PAIR|TRIO|QUAD> NN; deduped by structure.
         func pick<T>(_ xs: [T], _ rng: inout DiceRNG) -> T { xs.randomElement(using: &rng)! }
         let rateFast: [ArpRate] = [.r1_16, .r1_16, .r1_8, .r1_8, .r1_16t, .r1_8t]   // weighted to 1/8–1/16; triplets seldom; never 1/32

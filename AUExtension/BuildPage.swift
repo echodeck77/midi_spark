@@ -1478,7 +1478,7 @@ extension DiagView {
                 // grid, the drag ghost) already guards with `!buildIsEmptySlot` before treating a slot as a real,
                 // user-visible processor — this was the one call site that didn't, so a stale `buildEditSlot` (e.g.
                 // left behind by a drag-reorder before the fix above) could show an empty passthrough box's
-                // PASSGATE identity as if it were really in the chain. Falls through to the placeholder below.
+                // sentinel identity as if it were really in the chain. Falls through to the placeholder below.
                 if let slot = buildEditSlot, slot < chain.count, !buildIsEmptySlot(chain[slot]), let cid = ddSelectedMachineID {
                     buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: w)
                 } else if let a = buildActiveFerry, a >= 0, a < buildFerryParts.count, buildFerryParts[a] != nil {
@@ -3684,9 +3684,9 @@ extension DiagView {
         return chain
     }
     // buildFocusedChain RETIRED (Paul 2026-09-12 dead-code sweep — the AUTO-flow focused-chain reader, no caller).
-    // An EMPTY processor box = a passthrough placeholder (a bypassed PASSGATE — a true no-op the engine passes through).
-    private func buildIsEmptySlot(_ s: ProcessorSlot) -> Bool { s.type == .passgate && s.bypassed }
-    private func buildPassthroughSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }
+    // An EMPTY processor box = a passthrough placeholder (a bypassed .empty slot — a true no-op the engine passes through).
+    private func buildIsEmptySlot(_ s: ProcessorSlot) -> Bool { s.type == .empty && s.bypassed }
+    private func buildPassthroughSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .empty); s.bypassed = true; return s }
 
     // Normalise a decoded staging grid to EXACTLY 8×8 (Paul 2026-09-01 bug-hunt Finding 3): a corrupt / truncated / hand-
     // edited saved doc can decode stagingCells/Sel with < 8 columns or short columns (BuildPart.init only substitutes the
@@ -3861,7 +3861,7 @@ extension DiagView {
         au?.setPartAuto(buildCaptureAuto())                                      // …and the AUTO lanes
     }
     // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter machines, one per processor type (arp/ratchet/euclid/echo
-    // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in
+    // named + strum/chance/harmonize/drone). They open the palette as 2 rows of 4 and are present in
     // every part's cast. Each carries a single-processor machine at that type's default settings.
     static let buildDefaultTypes: [ProcessorType] = [.arp, .ratchet, .euclid, .weave, .echo, .strum, .chance, .split, .tutti, .length, .harmonize, .drone]
     // Mint a TAB machine: an ephemeral machine carrying `machine` with tab n's FIXED hue (machineHexes[n]), verbatim
@@ -4659,7 +4659,7 @@ extension DiagView {
     // column-aligned sweep (output tagged by its emitting step) is v2. EUCLID draws its pulse pattern; others a step lane.
     @ViewBuilder func buildStageEyeView(slot: Int, size: CGSize) -> some View {
         let chain = selectedMachineChain()
-        if slot < chain.count, !buildIsEmptySlot(chain[slot]) {   // 2026-09-28: same defense as roomsProcessorCardAt — never show an empty passthrough box's PASSGATE identity
+        if slot < chain.count, !buildIsEmptySlot(chain[slot]) {   // 2026-09-28: same defense as roomsProcessorCardAt — never show an empty passthrough box's sentinel identity
             let proc = chain[slot]
             let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
             let door = buildStageEyeDoor
@@ -4918,12 +4918,12 @@ extension DiagView {
             onSetTypeA: { t in buildChainSetType(i, t) },
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
             accentOverride: buildCardHue,   // the ONE machine/card hue (grey on the SELECT audition) — matches the machine box
-            // PLAYHEADS (Paul 2026-09-11): the matrix/lane/passgate playheads now SELF-CLOCK inside ProcessorBox from the beat
+            // PLAYHEADS (Paul 2026-09-11): the matrix/lane playheads now SELF-CLOCK inside ProcessorBox from the beat
             // anchor below (gridStepBeats = the scene step), so `liveStep`/`passHead` no longer fold the step into the whole-page
             // @State (which re-rendered the page every step → the per-step playhead stutter). Left at their -1 defaults.
             beatAnchor: meters.beatAnchor, beatAnchorAt: meters.beatAnchorAt, tempo: meters.tempo, clockPlaying: d.playing,   // RATCHET PATTERN extrapolates its OWN-clock playhead (Paul 2026-09-07)
             driverNoteRate: driverNoteRate,   // NOTE clock: the upstream driver's note rate → the playhead sweeps per-note
-            gridStepBeats: stepBeats,   // the DEFAULT grid-column clock for the generic matrices/lanes/passgate (Paul 2026-09-11)
+            gridStepBeats: stepBeats,   // the DEFAULT grid-column clock for the generic matrices/lanes (Paul 2026-09-11)
 
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
@@ -4960,7 +4960,7 @@ extension DiagView {
         }
         // FERRY MIRROR (Paul 2026-08-30): a SELECT-grid ferry aim edits the transient gsAud (so the audition stays quantized-
         // swappable). Card edits were auditioned but never written back — an ARP change was HEARD in the audition so it read
-        // as "working", a PASSGATE change wasn't obvious → "not applied", and NEITHER persisted to the part row. Mirror the
+        // as "working", a processor change wasn't obvious → "not applied", and NEITHER persisted to the part row. Mirror the
         // edited chain (minus its baked register-home) straight to the aimed row's REAL machine so the part row updates too.
         if cid == buildGridSelAudID, let mr = buildFerryMirrorRow, let real = buildRowMachine(mr) {
             let t = buildMachineTranspose[real] ?? 0
@@ -5013,7 +5013,7 @@ extension DiagView {
         buildApplyChain(c)
         // BUG FIX (2026-09-28): if the box being dragged was the one currently open in the editor, FOLLOW it to its
         // new position. Without this, buildEditSlot kept pointing at `from` — now an empty passthrough box — so the
-        // editor (and "the eye") kept showing that placeholder's PASSGATE identity as if it were a real processor
+        // editor (and "the eye") kept showing that placeholder's sentinel identity as if it were a real processor
         // the user had added, purely because they'd reordered a DIFFERENT (the moved) processor.
         if buildEditSlot == from { buildEditSlot = to }
     }
@@ -5075,7 +5075,6 @@ extension DiagView {
                 C("WEAVE HARMONIC", "Note speeds follow the harmonic series: 1×, 2×, 3×…", .weave) { $0.weaveMode = .harmonic },
                 C("WEAVE DRAWN", "You set each note's pulse speed by hand.", .weave) { $0.weaveMode = .drawn },
                 C("WEAVE EUCLID", "Each note gets its own euclidean rhythm, denser on top.", .weave) { $0.weaveMode = .euclid },
-                C("PASSES", "Plays only on the laps you choose (1–4).", .passgate),
                 C("CHANCE", "Lets notes through by dice roll — the same roll every loop.", .chance),
                 C("HOCKET GAPS", "Plays your notes in another synth's silences — call and response.", .hocket) { $0.hocketMode = .gaps },
                 C("HOCKET TRADE", "Trades hits with another synth — one line split across two.", .hocket) { $0.hocketMode = .trade },
@@ -5118,7 +5117,7 @@ extension DiagView {
     private func buildProcLabel(_ s: ProcessorSlot) -> String {
         // AVOID/LOCK self-names by its MODE (Paul §7): the slot reads "LOCK A MIXO" / "AVOID CLASHES".
         let avoidBase = (s.params.avoidMode ?? .avoid) == .lock ? "LOCK" : "AVOID"
-        let base = s.type == .passgate ? "PASSES" : (s.type == .muteMatrix ? "MUTE MTX" : (s.type == .killStep ? "KILL STEP" : (s.type == .euclidMask ? "EUCLID MASK" : (s.type == .avoid ? avoidBase : s.type.rawValue))))
+        let base = s.type == .muteMatrix ? "MUTE MTX" : (s.type == .killStep ? "KILL STEP" : (s.type == .euclidMask ? "EUCLID MASK" : (s.type == .avoid ? avoidBase : s.type.rawValue)))
         let m: String
         let letters = ["A", "B", "C", "D"]
         switch s.type {
@@ -5280,7 +5279,7 @@ extension DiagView {
         case .tutti, .chance, .split, .avoid, .length, .velocity:           return 60    // set / dynamics shapers
         case .drone, .shift, .humanize:                                     return 50    // texture generators
         case .echo, .glide, .mod:                                          return 40
-        default:                                                           return 20    // octave/transpose/channel/nudge/dest/muteMatrix/tap/passgate — utility & routing
+        default:                                                           return 20    // octave/transpose/channel/nudge/dest/muteMatrix/tap/empty — utility & routing
         }
     }
     // Make the side button the ONE active source (clear the library-cell source) — "one thing is active". (Paul 2026-08-28)

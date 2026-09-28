@@ -110,7 +110,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     func setSlotTypeCells(_ targets: [(col: Int, row: Int)], slot: Int, _ type: ProcessorType) { editSlotCells(targets, slot: slot) { $0.type = type } }
     func toggleSlotBypassCells(_ targets: [(col: Int, row: Int)], slot: Int) { editSlotCells(targets, slot: slot) { $0.bypassed.toggle() } }
-    func addSlotCells(_ targets: [(col: Int, row: Int)], type: ProcessorType = .passgate) { withChainCells(targets) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
+    func addSlotCells(_ targets: [(col: Int, row: Int)], type: ProcessorType = .empty) { withChainCells(targets) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
     /// Remove a chain slot — ANY slot, incl. the head and the LAST one (user 2026-08-09: all processors are deletable).
     /// Deleting the final slot leaves an EMPTY chain `[]` = the born-audible passthrough (the source flows untreated).
     func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count { $0.remove(at: slot) } } }
@@ -121,9 +121,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private func machineTemplateChain(_ machineID: String) -> [ProcessorSlot] {
         let c = document.machines.first { $0.machineID == machineID }
         if let t = c?.templateChain, !t.isEmpty { return t }
-        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? MachineParams())]   // materialise the legacy A face on first edit
+        return [ProcessorSlot(type: c?.type ?? .empty, params: c?.paramsA ?? MachineParams())]   // materialise the legacy A face on first edit
     }
-    private func passthroughTemplateSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }   // all-bypassed ≡ empty ≡ passthrough
+    private func passthroughTemplateSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .empty); s.bypassed = true; return s }   // all-bypassed ≡ empty ≡ passthrough
     /// Does this machine carry its OWN stored chain? A nil templateChain falls back to the legacy A-face (an arp, for
     /// the default machines) — BUILD reads this straight off `document` (NOT the polled `docMachines` mirror, which is
     /// empty on first appear) to convert a bare machine to an explicit passthrough at load. (user 2026-08-12)
@@ -143,7 +143,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
         return machineTemplateChain(machineID)
     }
-    /// Store a machine's chain on its template (empty → a bypassed-passgate passthrough) + drop every matching cell's
+    /// Store a machine's chain on its template (empty → a bypassed-EMPTY passthrough) + drop every matching cell's
     /// per-cell override so all inherit the template — ONE editDocument = one undo record. (shared, 2026-08-15)
     private func storeMachineChainClearingOverrides(_ machineID: String, _ chain: [ProcessorSlot]) {
         let stored: [ProcessorSlot] = chain.isEmpty ? [passthroughTemplateSlot()] : chain
@@ -163,9 +163,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         mutate(&chain)
         storeMachineChainClearingOverrides(machineID, chain)
     }
-    /// Set a machine's chain to EXACTLY `chain` (empty → a bypassed-passgate passthrough) + clear every cell's override.
+    /// Set a machine's chain to EXACTLY `chain` (empty → a bypassed-EMPTY passthrough) + clear every cell's override.
     /// The UI computes `chain` from what's DISPLAYED (cellChain(editingCell)), so an edit never operates on a stale
-    /// representative cell → deleting the first of two slots leaves the other, not a passgate. (user 2026-08-10 bug.)
+    /// representative cell → deleting the first of two slots leaves the other, not an empty box. (user 2026-08-10 bug.)
     func setMachineChain(_ machineID: String, _ chain: [ProcessorSlot]) {
         storeMachineChainClearingOverrides(machineID, chain)
     }
@@ -287,7 +287,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             var col = Machine(machineID: e.id, type: .arp)
             col.defined = true
             col.transpose = max(-24, min(24, e.transpose))              // REGISTER HOME (ensemble roll 2026-08-19): the row's octave offset
-            // An EMPTY machine is a born-audible PASSTHROUGH, not "no chain": store the bypassed-passgate placeholder,
+            // An EMPTY machine is a born-audible PASSTHROUGH, not "no chain": store the bypassed-EMPTY placeholder,
             // else the builder collapses [] → nil and falls to the legacy A-face (an ARP) — a seeded empty tab-1 machine
             // played as an arp despite showing an empty chain. (Paul 2026-08-17)
             col.templateChain = e.machine.isEmpty ? [passthroughTemplateSlot()] : e.machine

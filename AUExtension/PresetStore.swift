@@ -125,7 +125,7 @@ enum CellLibraryStore {
         var c = Cell(machineID: machineID); c.processors = slots; c.buses = []; c.stars = stars; return c
     }
     // — THE GENERATED RANGE (Paul 2026-09-11): Dice.factorySet = 200 seeded chains, EQUAL across lengths 1/2/3/4, prominent
-    //   euclid/arp/ratchet/riff/cc, consonant, no passgate. Register home baked as a leading TRANSPOSE; machines cycle the
+    //   euclid/arp/ratchet/riff/cc, consonant. Register home baked as a leading TRANSPOSE; machines cycle the
     //   canonical palette. Pure struct construction (no offline Router) → cheap to build. Paul renames/prunes via the grid. —
     private static func buildDice() -> [(name: String, cell: Cell)] {
         let palette = ["gold", "cyan", "vermilion", "teal", "magenta", "indigo", "violet", "chartreuse", "orange", "wine", "blush", "purple", "mint", "azure", "green", "slate"]

@@ -52,7 +52,7 @@ final class FuzzTests: XCTestCase {
 
     // MARK: random document (I12 exercises the builder; the run exercises the Router)
     private func randomDoc(_ r: inout FuzzRNG) -> PluginState {
-        let types: [ProcessorType] = [.arp, .ratchet, .passgate, .strum, .chance, .harmonize, .echo,   // echo exercises the tail ring across edges
+        let types: [ProcessorType] = [.arp, .ratchet, .strum, .chance, .harmonize, .echo,   // echo exercises the tail ring across edges
                                       .euclid, .burst, .cascade, .drone, .shift, .humanize,   // the generators — hammered for no-stuck-notes across every edge
                                       .mod,   // the CC generator — emits CC (no notes); its column-exit resets ride every edge
                                       .glide,   // notes→pitch-bend — its mono sustained voice must close on every flush (no stuck notes)

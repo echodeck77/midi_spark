@@ -1,13 +1,13 @@
 //  SceneFactoryTests.swift
-//  Off-device sanity for the sixteen factory scenes (Docs/factory-scenes.md): they construct, are
-//  v3, reference only occupied rows (no accidental warnings) — EXCEPT slot 15's INTENTIONAL cycle.
+//  Off-device sanity for the fifteen factory scenes (Docs/factory-scenes.md): they construct, are
+//  v3, reference only occupied rows (no accidental warnings) — EXCEPT slot 14's INTENTIONAL cycle.
 
 import XCTest
 
 final class SceneFactoryTests: XCTestCase {
 
-    func testSixteenScenes() {
-        XCTAssertEqual(SceneFactory.scenes.count, 16)
+    func testFifteenScenes() {
+        XCTAssertEqual(SceneFactory.scenes.count, 15)
     }
 
     func testAllLoadAsV3WithMachinesAndCells() {
@@ -36,10 +36,10 @@ final class SceneFactoryTests: XCTestCase {
         }
     }
 
-    // Slot 15 intentionally contains a two-cell cycle and a backward tap — the reference target IS
+    // Slot 14 intentionally contains a two-cell cycle and a backward tap — the reference target IS
     // occupied, so it still resolves; the "dead loop" is a runtime silence, not a build warning.
-    func testSlot15CycleIsPresentAndResolves() {
-        let cells = SceneFactory.load(14).scenes[0].cells   // 0-based index 14 = slot 15
+    func testSlot14CycleIsPresentAndResolves() {
+        let cells = SceneFactory.load(13).scenes[0].cells   // 0-based index 13 = slot 14
         // C6 (index 5): R3 (index 2) ⇐ R5 (index 4) and R5 ⇐ R3 — mutual references.
         XCTAssertEqual(cells[5][2]?.inputRow, 4)
         XCTAssertEqual(cells[5][4]?.inputRow, 2)
@@ -48,7 +48,7 @@ final class SceneFactoryTests: XCTestCase {
     }
 
     func testPacificUsesHarmonizeAndAltStates() {
-        let doc = SceneFactory.load(15)   // slot 16 PACIFIC
+        let doc = SceneFactory.load(14)   // slot 15 PACIFIC
         func machine(_ id: String) -> Machine { doc.machines[machineIDs.firstIndex(of: id)!] }
         XCTAssertEqual(machine("mint").type, .harmonize)
         // delta item 8: the alt* helpers now author a LIVE procB (typeB set ⇒ FULL glide), not an inert paramsB.

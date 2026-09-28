@@ -80,13 +80,13 @@ extension DiagView {
         else {
             let c = docMachines.first { $0.machineID == cell.machineID }
             if let t = c?.templateChain, !t.isEmpty { resolved = t }  // machine TEMPLATE (the per-machine machine — matches the builder)
-            else { return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? MachineParams())] }   // legacy A face (a real slot)
+            else { return [ProcessorSlot(type: c?.type ?? .empty, params: c?.paramsA ?? MachineParams())] }   // legacy A face (a real slot)
         }
-        // A DELETED-EMPTY chain is stored as the passthrough representation — a single BYPASSED PASSGATE — because an
+        // A DELETED-EMPTY chain is stored as the passthrough representation — a single BYPASSED EMPTY slot — because an
         // empty `templateChain` would be read as "no template" and fall back to the machine's A-face (the arp would
         // reappear). For DISPLAY/editing, unwrap that placeholder to EMPTY so the flow diagram invites "+ ADD
-        // PROCESSOR" instead of showing a stray passgate. (user 2026-08-10: "delete an arp → replaced with a passgate")
-        if resolved.count == 1, resolved[0].type == .passgate, resolved[0].bypassed { return [] }
+        // PROCESSOR" instead of showing a stray empty box. (user 2026-08-10: "delete an arp → replaced with a passgate")
+        if resolved.count == 1, resolved[0].type == .empty, resolved[0].bypassed { return [] }
         return resolved
     }
     func deleteLibraryCellNamed(_ name: String) {   // CellBrowser onDelete (live)

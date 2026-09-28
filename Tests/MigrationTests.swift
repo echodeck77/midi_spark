@@ -116,9 +116,9 @@ final class MigrationTests: XCTestCase {
             }
             XCTAssertNotEqual(st.scenes[0].activeRow, st.scenes[2].activeRow, "\(name): scenes paint different rung curves")
         }
-        // the flagship's specific shape (R1 = PASS · R8 = harmonize → arp → chance) + Codable round-trip of the new fields
+        // the flagship's specific shape (R1 = a plain sustain · R8 = harmonize → arp → chance) + Codable round-trip of the new fields
         let l = PluginState.makeLadder()
-        XCTAssertEqual(l.scenes[0].cells[0][0]?.processors?.map { $0.type }, [.passgate])
+        XCTAssertEqual(l.scenes[0].cells[0][0]?.processors?.map { $0.type }, [.empty])
         XCTAssertEqual(l.scenes[0].cells[0][7]?.processors?.map { $0.type }, [.harmonize, .arp, .chance])
         let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(l))
         XCTAssertTrue(back.ladderModeResolved)
@@ -432,7 +432,7 @@ final class MigrationTests: XCTestCase {
         // CELL MACHINE stage-3: the shared TEMPLATE chain on the Machine is an additive Optional — round-trips,
         // and an old machine without the key decodes nil (the builder then falls back to type+paramsA).
         var cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-        cs[0].templateChain = [ProcessorSlot(type: .passgate), ProcessorSlot(type: .arp)]
+        cs[0].templateChain = [ProcessorSlot(type: .empty), ProcessorSlot(type: .arp)]
         let rt = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(PluginState(machines: cs, scenes: [SceneState.empty()])))
         XCTAssertEqual(rt.machines[0].templateChain?.count, 2, "the machine template chain round-trips")
         XCTAssertEqual(rt.machines[0].templateChain?[1].type, .arp)

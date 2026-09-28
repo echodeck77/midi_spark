@@ -609,21 +609,13 @@ final class DerivationsTests: XCTestCase {
     // MARK: cellMode dispatch (§3/§4)
 
     func testCellModeBasics() {
-        XCTAssertEqual(cellMode(type: .arp, bypassed: false, passMask: 0, pass: 0), .arp)
-        XCTAssertEqual(cellMode(type: .ratchet, bypassed: false, passMask: 0, pass: 0), .ratchet)
-        XCTAssertEqual(cellMode(type: .strum, bypassed: false, passMask: 0, pass: 0), .strum)
-        XCTAssertEqual(cellMode(type: .chance, bypassed: false, passMask: 0, pass: 0), .chance)
-        XCTAssertEqual(cellMode(type: .harmonize, bypassed: false, passMask: 0, pass: 0), .harmonize)
-        XCTAssertEqual(cellMode(type: .harmonize, bypassed: true, passMask: 0, pass: 0), .identity)  // bypass wins
-    }
-
-    func testPassgateGating() {
-        let mask: UInt8 = 0b0101   // open on pass 0 and 2
-        XCTAssertEqual(cellMode(type: .passgate, bypassed: false, passMask: mask, pass: 0), .identity)
-        XCTAssertEqual(cellMode(type: .passgate, bypassed: false, passMask: mask, pass: 1), .silent)
-        XCTAssertEqual(cellMode(type: .passgate, bypassed: false, passMask: mask, pass: 2), .identity)
-        XCTAssertEqual(cellMode(type: .passgate, bypassed: false, passMask: mask, pass: 3), .silent)
-        XCTAssertEqual(cellMode(type: .passgate, bypassed: false, passMask: mask, pass: 4), .identity) // wraps mod 4
+        XCTAssertEqual(cellMode(type: .arp, bypassed: false), .arp)
+        XCTAssertEqual(cellMode(type: .ratchet, bypassed: false), .ratchet)
+        XCTAssertEqual(cellMode(type: .strum, bypassed: false), .strum)
+        XCTAssertEqual(cellMode(type: .chance, bypassed: false), .chance)
+        XCTAssertEqual(cellMode(type: .harmonize, bypassed: false), .harmonize)
+        XCTAssertEqual(cellMode(type: .harmonize, bypassed: true), .identity)  // bypass wins
+        XCTAssertEqual(cellMode(type: .empty, bypassed: false), .identity)     // the sentinel is always a no-op
     }
 
     // MARK: ratchet velocity (§3)

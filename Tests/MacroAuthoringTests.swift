@@ -46,7 +46,6 @@ final class MacroAuthoringTests: XCTestCase {
         var str = ProcessorSlot(type: .strum); str.params.strumDir = .alternate; str.params.spread = 0.4; str.params.curve = -0.5; str.params.velTilt = 0.6; slots.append(str)
         var chn = ProcessorSlot(type: .chance); chn.params.probability = 0.33; slots.append(chn)
         var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [3, 7, -12]; harm.params.harmVelScale = 0.5; slots.append(harm)
-        var pass = ProcessorSlot(type: .passgate); pass.params.passes = [true, false, true, false]; slots.append(pass)
         for s in slots {
             let back = applyProcessorValues(processorValues(s), to: ProcessorSlot(type: s.type))
             XCTAssertEqual(back.bypassed, s.bypassed, "\(s.type) bypass round-trips")
@@ -105,7 +104,6 @@ final class MacroAuthoringTests: XCTestCase {
 
     // Each processor type exposes its own kinds (mask · steppers) so the generic renderer picks the right widget.
     func testProcessorParamKindsPerType() {
-        XCTAssertTrue(macroParamsForProcessor(.passgate).contains { $0.key == "passMask" && $0.kind == .mask(bits: 4) })
         XCTAssertTrue(macroParamsForProcessor(.ratchet).contains { $0.key == "count" && $0.kind == .stepper(lo: 2, hi: 8) })
         XCTAssertTrue(macroParamsForProcessor(.harmonize).contains { $0.key == "harm0" && $0.kind == .stepper(lo: -24, hi: 24) })
         XCTAssertTrue(macroParamsForProcessor(.arp).contains { $0.key == "octaves" && $0.kind == .stepper(lo: 1, hi: 4) })
@@ -117,7 +115,5 @@ final class MacroAuthoringTests: XCTestCase {
         let arp = applyProcessorValues(v, to: ProcessorSlot(type: .arp))
         XCTAssertEqual(arp.params.octaves, 4, "octaves clamp 1…4")
         XCTAssertEqual(arp.params.pattern, ArpPattern.allCases.last, "an out-of-range option index clamps to the last case")
-        var pv = processorValues(ProcessorSlot(type: .passgate)); pv["passMask"] = 5               // 0b0101
-        XCTAssertEqual(applyProcessorValues(pv, to: ProcessorSlot(type: .passgate)).params.passes, [true, false, true, false])
     }
 }

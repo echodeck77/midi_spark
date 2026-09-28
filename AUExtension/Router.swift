@@ -1648,8 +1648,7 @@ final class Router {
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             // CELL MACHINE: the per-cell HEAD treatment (cell.proc) drives the render (morph + grid-chaining retired).
             var treat = machine; treat.a = cell.proc
-            let mode = cellMode(type: effectiveType(treat), bypassed: cell.bypassed,
-                                passMask: effectivePassMask(treat), pass: diag.pass)
+            let mode = cellMode(type: effectiveType(treat), bypassed: cell.bypassed)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
             // DRONE = a legato chord-hold (user 2026-08-10): a SINGLE-SLOT drone sustains via emitColumnHolds (adopts
             // across adjacent drone columns, closes where no drone re-holds it), NOT the per-tick generator — skip it
@@ -1707,7 +1706,7 @@ final class Router {
                                  pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                                  beatsPerSample: beatsPerSample, S: S, a: a, chainDriver: driver, out: out, diag: &diag)
                 case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:   // GENERATORS as chain drivers (user 2026-08-09; HOCKET 2026-08-27)
-                    let dm = cellMode(type: driveP.type, bypassed: false, passMask: driveP.passMask, pass: diag.pass)
+                    let dm = cellMode(type: driveP.type, bypassed: false)
                     emitGeneratorRow(mode: dm, cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                      pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
@@ -1778,7 +1777,7 @@ final class Router {
                               pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                               windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
             case .silent:
-                break   // closed passgate → nothing this window
+                break   // a silenced downstream stage → nothing this window
             }
     }
 
@@ -1827,9 +1826,9 @@ final class Router {
             dealSetup(cell)   // DEAL: this cell's emitter-deal state (Paul 2026-09-16)
             let ci = Int(cell.machineIndex)
             let machine = box.machines[ci]
-            // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
+            // Cells that chord-hold their MIDI-IN source: identity, CHANCE
             // (drops each note by probability), and HARMONIZE (expands each note to voices).
-            // Arp/ratchet/strum and a closed passgate do not chord-hold.
+            // Arp/ratchet/strum do not chord-hold.
             if !onSceneAudible(machine.on, pass: pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
             let altFlag = cell.alt                                   // this cell's voice-identity face
             currentAlt = altFlag                                     // §2 stamp fresh voices' face identity
@@ -1841,8 +1840,7 @@ final class Router {
             var treat = machine; let treatP = holdChain ? cell.procs[tailIdx] : cell.proc
             treat.a = treatP
             let mode = cellMode(type: effectiveType(treat),
-                                bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
-                                passMask: effectivePassMask(treat), pass: pass)
+                                bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed)
             guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split || mode == .avoid || mode == .octave || mode == .transpose || mode == .chords else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT/AVOID = SET/pitch filters; OCTAVE/TRANSPOSE = pitch SHIFTS (Paul 2026-08-22); CHORDS = a diatonic SET-REPLACE (a lone/tail hold sounds the derived chord — Paul 2026-09-01)
             if mode == .tutti && !holdChain && treat.a.tuttiMode == .pattern { continue }   // PATTERN standalone re-articulates per slice in the tick loop, not here
             // CHORDS (Paul 2026-09-01): the stage REPLACES the set with a derived diatonic chord. Compose it INTO
@@ -2082,7 +2080,7 @@ final class Router {
         currentInputRecv = cell.resolvedReceiver; currentMachineIndex = cell.machineIndex
         currentCellIndex = column * Snap.rows + r
         chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // the echo DRY uses THIS cell's UTILITY CHANNEL/NUDGE (not a stale neighbour's); tails reset to wire before drain (review 2026-08-23)
-        // SOURCE: a hold-upstream chain echoes its upstream stages' composed set ([PASSGATE→ECHO] the gated chord,
+        // SOURCE: a hold-upstream chain echoes its upstream stages' composed set ([HARMONIZE→ECHO] the widened chord,
         // [HARMONIZE→ECHO] the harmonised set); a single [ECHO] echoes the cell's source directly.
         let cellPool = effectivePool(for: cell, live: pool)
         let multi = cell.procs.count >= 2
@@ -2166,7 +2164,7 @@ final class Router {
         let cell = box.cells[e.cellIdx]
         guard e.echoSlot >= 0 && e.echoSlot < cell.procs.count, cell.procs[e.echoSlot].type == .echo else { flat(); return }
         let cycleBeats = Double(Snap.cols) * S
-        let pass = cycleBeats > 0 ? Int((tau / cycleBeats).rounded(.down)) : 0   // the lap the repeat lands in (for passgate-after-echo, chance seeds)
+        let pass = cycleBeats > 0 ? Int((tau / cycleBeats).rounded(.down)) : 0   // the lap the repeat lands in (for chance seeds)
         var cur = chainA, nxt = chainB
         cur.reset(); cur.noteOn(UInt8(min(127, max(0, n))), velocity: UInt8(min(127, max(1, v))), channel: 0); cur.rebuildSorted()
         var lenP: SnapParams? = nil
@@ -2178,7 +2176,7 @@ final class Router {
                 } else if t == .length {
                     lenP = cell.procs[j]                            // gate override applied to the emit below (last-writer)
                 } else {
-                    let mode = cellMode(type: t, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
+                    let mode = cellMode(type: t, bypassed: false)
                     nxt.reset()
                     applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: tau, S: S, cycleBeats: cycleBeats)
                     swap(&cur, &nxt)
@@ -2591,7 +2589,7 @@ final class Router {
 
         // ---- derived column (§7). Musical space, so swing warps the beat→column map consistently
         //      with the arp ticks below. The COLUMN-SUBSET LAP (§5b) warps WHICH column is effective
-        //      (held keys); the TRUE timeline — pass, passgate, swing — is unwarped (all off mNow). ----
+        //      (held keys); the TRUE timeline — pass, swing — is unwarped (all off mNow). ----
         let mNow = musicalOf(beatPos, stepBeats: S, a: a)
         let govBeat = Int(beatPos.rounded(.down))                  // FLOOD GOVERNOR: reset the per-emitter budget each beat
         if govBeat != lastGovBeat { lastGovBeat = govBeat; for i in 0..<4 { noteOnsThisBeat[i] = 0 } }
@@ -3542,7 +3540,7 @@ final class Router {
                 let vel = clampVel(Int((Double(max(1, sn.vel)) * velScale).rounded()))   // inherited velocity × envelope
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
                 if !emits { continue }
-                if hasDownstream {   // fold the post-driver stages onto each generated note (a downstream passgate/harmonize/…)
+                if hasDownstream {   // fold the post-driver stages onto each generated note (a downstream harmonize/chance/…)
                     emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT,
                                    windowEnd: windowEnd, velocity: vel, m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else if tbm != 0 {
@@ -3763,9 +3761,9 @@ final class Router {
 
     /// The chain's TICK DRIVER — the index of the LAST non-bypassed rhythm-generating slot (arp/ratchet/strum + the
     /// generators euclid/burst/cascade/drone/shift/humanize, user 2026-08-09). It sets the rhythm: slots BEFORE it
-    /// compose as its source; slots AFTER it FOLD onto each note it emits (a per-tick hold — a passgate gates the
+    /// compose as its source; slots AFTER it FOLD onto each note it emits (a per-tick hold — a downstream stage gates the
     /// pass, chance drops, harmonize expands). -1 = no tick generator (a hold/plain cell). This is what makes
-    /// `[arp → passgate]` or `[euclid → harmonize]` keep generating (the driver drives, the tail folds).
+    /// `[arp → chance]` or `[euclid → harmonize]` keep generating (the driver drives, the tail folds).
     private func chainDriverIndex(_ cell: SnapCell) -> Int {
         guard cell.procs.count >= 2 else { return -1 }
         // The driver = the LAST non-bypassed driver that ISN'T a foldable ratchet. A RATCHET PATTERN (always) or a COIN
@@ -4030,7 +4028,7 @@ final class Router {
         guard cell.procs.count >= 2, let last = cell.procs.last else { return false }
         if cell.slotBypass.last ?? false { return true }                 // bypassed tail = held passthrough
         switch last.type {
-        case .passgate, .chance, .harmonize: return true
+        case .empty, .chance, .harmonize: return true
         case .split: return true                                         // SPLIT tail = a set-membership FILTER over the composed hold ([HARMONIZE → SPLIT] keeps a subset)
         case .avoid: return true                                         // AVOID/LOCK tail = a per-note pitch FILTER over the composed hold ([HARMONIZE → AVOID] drops/snaps clashes)
         case .octave, .transpose: return true                            // UTILITY pitch-shift tail = a per-note SHIFT of the composed hold ([HARMONIZE → OCTAVE])
@@ -4041,7 +4039,7 @@ final class Router {
         }
     }
     /// A NO-DRIVER chain whose last non-bypassed slot is LENGTH, sitting after a composable (hold) upstream —
-    /// `[TUTTI COIN → LENGTH]`, `[HARMONIZE → LENGTH]`, `[CHANCE → LENGTH]`, `[SPLIT → LENGTH]`, `[PASSGATE → LENGTH]`.
+    /// `[TUTTI COIN → LENGTH]`, `[HARMONIZE → LENGTH]`, `[CHANCE → LENGTH]`, `[SPLIT → LENGTH]`.
     /// Returns the LENGTH slot index; such a cell re-articulates its composed upstream set through LENGTH's gate
     /// (emitLengthComposedRow), so BOTH the standalone tick-loop switch and emitColumnHolds must defer to it. LENGTH
     /// re-articulates, so it can't be a plain hold-tail (isHoldTailChain). A TUTTI-PATTERN head is EXCLUDED —
@@ -4059,7 +4057,7 @@ final class Router {
         return hasUpstream ? last : nil
     }
     /// A cell whose chain TAIL is ECHO and is NOT tick-driven: single-slot `[ECHO]`, or a hold-upstream chain like
-    /// `[PASSGATE→ECHO]` / `[HARMONIZE→ECHO]`. `emitEchoColumn` registers its tail from the composed upstream set;
+    /// `[HARMONIZE→ECHO]` / `[CHANCE→ECHO]`. `emitEchoColumn` registers its tail from the composed upstream set;
     /// `emitColumnHolds` + the tick loop leave it alone. (An `[ARP→ECHO]` tick echo stays Phase-2 — isCoveredChain.)
     private func isEchoTail(_ cell: SnapCell) -> Bool {
         guard !isCoveredChain(cell), let last = cell.procs.last, !(cell.slotBypass.last ?? false) else { return false }
@@ -4185,7 +4183,7 @@ final class Router {
     }
 
     /// LENGTH after a non-driver, composable upstream — `[TUTTI COIN → LENGTH]`, `[HARMONIZE → LENGTH]`,
-    /// `[CHANCE → LENGTH]`, `[SPLIT → LENGTH]`, `[PASSGATE → LENGTH]`. LENGTH isn't a note-DRIVER, so its gate never
+    /// `[CHANCE → LENGTH]`, `[SPLIT → LENGTH]`. LENGTH isn't a note-DRIVER, so its gate never
     /// reached the per-note fold (emitDriverNote) and was silently dropped. Re-articulate the COMPOSED upstream set
     /// (composeChainSet up to the slot before LENGTH) through LENGTH's 8-slice gate — recomposed at each column start
     /// so per-step-seeded upstreams (TUTTI COIN / CHANCE) stay loop-consistent. Same emitArtic lifecycle + step-capped
@@ -4242,7 +4240,7 @@ final class Router {
                             cell: SnapCell, m: Double, S: Double, cycleBeats: Double, clockFrom: Int = -1, atSlot: Int = -1) {
         switch mode {
         case .silent:
-            break                                              // closed passgate → empty
+            break                                              // a silenced downstream stage → empty
         case .arp:
             var arpBeats = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
             if arpBeats <= 0 { arpBeats = 0.25 }
@@ -4354,7 +4352,7 @@ final class Router {
                 let n = transPool ? poolStepMask(Int(sn), steps: Int(p.utilTranspose), pcMask: transMask) : Int(sn) + sh
                 if n >= 0 && n <= 127 { dst.noteOn(UInt8(n), velocity: max(1, src.velocity(sn)), channel: 0) }
             }
-        default:                                               // identity / open passgate / ratchet / strum → pass through
+        default:                                               // identity / ratchet / strum → pass through
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) { let n = src.srcAscending(k, filter: 0, cableMask: 0b1111); dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
         }
         dst.rebuildSorted()   // srcAscending reads `sorted`; noteOn doesn't maintain it
@@ -4372,7 +4370,7 @@ final class Router {
         var j = 0
         while j <= upto {
             if !cell.slotBypass[j] && cell.procs[j].type != .mod && cell.procs[j].type != .glide {   // true-bypass + MOD/GLIDE (their output is separate) pass untouched
-                let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
+                let mode = cellMode(type: cell.procs[j].type, bypassed: false)
                 nxt.reset()
                 applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
                 swap(&cur, &nxt)
@@ -4386,7 +4384,7 @@ final class Router {
 
     /// Emit one note that the chain's DRIVER produced (at tick beat `m`), routed through the chain's POST-driver
     /// stages: when the driver is the tail it emits directly; otherwise the note is folded through slots
-    /// driver+1…tail (passgate gates the pass → silence, chance drops, harmonize expands, bypassed passes) and
+    /// driver+1…tail (chance drops, harmonize expands, bypassed passes) and
     /// each surviving note is emitted. Reuses chainA/chainB (fixed pools — no render-thread alloc); safe to call
     /// after composeChainSet has produced the driver's source (chainScratch is no longer needed by this tick).
     private func emitDriverNote(_ note: Int, cell: SnapCell, driver: Int, bm: UInt8,
@@ -4456,8 +4454,8 @@ final class Router {
             emitChop(note, cell: cell, bm: bm, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, m: m, S: S, out: out, diag: &diag)
             return
         }
-        // `pass` is the authoritative lap counter (diag.pass) — the SAME one a stand-alone passgate gates on, so a
-        // downstream passgate opens/closes on the lap the user sees (not a beat-derived recomputation that can drift).
+        // `pass` is the authoritative lap counter (diag.pass) — the SAME one a stand-alone chance gate reads, so a
+        // downstream gate opens/closes on the lap the user sees (not a beat-derived recomputation that can drift).
         var cur = chainA, nxt = chainB
         cur.reset(); cur.noteOn(UInt8(note), velocity: velocity, channel: 0); cur.rebuildSorted()
         // ECHO in a chain repeats the cell's FULLY-PROCESSED output (user 2026-08-09): it passes through the fold as
@@ -4517,7 +4515,7 @@ final class Router {
                 } else if cell.procs[j].type == .velocity {
                     velP = cell.procs[j]; velIdx = j   // per-step velocity OVERRIDE; note-transparent to the set, applied at the final emit
                 } else {
-                    let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
+                    let mode = cellMode(type: cell.procs[j].type, bypassed: false)
                     nxt.reset()
                     // CLOCK (Paul 2026-09-26, Stage 3): threads into applyStage's ONE self-clocked case (.tutti) —
                     // every other mode here ignores clockFrom/atSlot entirely, so this is a no-op elsewhere.
@@ -4556,7 +4554,7 @@ final class Router {
                 if mp.maskInvert { hit = !hit }
                 // FILL (Paul 2026-09-28): every Nth pass overrides the mask entirely — everything plays, no
                 // exceptions (bypasses INVERT's own result too, and CHANCE below). `pass` is the SAME authoritative
-                // lap counter a stand-alone passgate gates on.
+                // lap counter a stand-alone chance gate reads.
                 let isFill = mp.maskFillEvery > 0 && pass % mp.maskFillEvery == 0
                 if isFill { hit = true }
                 // CHANCE (Paul 2026-09-28): a coin-flip that can only DEMOTE a hit to a gap, never promote a gap to
@@ -5014,7 +5012,7 @@ final class Router {
             guard noteValue >= 0 && noteValue <= 127 else { return }
             storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
             if emits {
-                // §cell-edit F CHOP + the chain's post-driver stages fold onto each arp note (e.g. a downstream passgate).
+                // §cell-edit F CHOP + the chain's post-driver stages fold onto each arp note (e.g. a downstream chance/harmonize).
                 if chainDriver >= 0 {
                     emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
                                    windowEnd: windowEnd, velocity: srcVel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
@@ -5229,7 +5227,7 @@ final class Router {
             let sRow = uniformFast ? S : rowSBuf[row]
             let ci = Int(cell.machineIndex)
             let machine = box.machines[ci]
-            let p = cell.proc   // the RESOLVED ratchet-pattern params (templateChain/processors head), NOT machine.a (which is the machine's own face — a passgate/other for a chain cell)
+            let p = cell.proc   // the RESOLVED ratchet-pattern params (templateChain/processors head), NOT machine.a (which is the machine's own face — moot for a chain cell)
             let audible = !(cell.busMask == 0 || cell.muted || cell.dormant || soloSilenced(cell) || !onSceneAudible(machine.on, pass: diag.pass))
             guard (col == effCol) && audible else { continue }
             currentMachineIndex = Int16(ci); currentCellIndex = idx; currentAlt = false
@@ -5342,7 +5340,7 @@ final class Router {
             let onT = max(onsetSample, windowStart)
             storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), beat: onsetMusical)
             if emits {
-                if chainDriver >= 0 {   // fold each strummed note through the stages AFTER the strum (e.g. a downstream passgate)
+                if chainDriver >= 0 {   // fold each strummed note through the stages AFTER the strum (e.g. a downstream chance/harmonize)
                     emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offSample,
                                    windowEnd: windowEnd, velocity: vel, m: onsetMusical, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else {
@@ -5399,8 +5397,7 @@ final class Router {
         let vr = 0                                        // virtual tick-dedup row (grid-chaining retired: always source-fed)
         let f = UInt8(clamping: filter)
         previewMode = true; defer { previewMode = false }
-        let mode = cellMode(type: effectiveType(machine), bypassed: false,
-                            passMask: effectivePassMask(machine), pass: diag.pass)
+        let mode = cellMode(type: effectiveType(machine), bypassed: false)
 
         // Virtual-cell COLUMN TRANSITION: truncate its voices at the boundary, reset per-column state, and
         // (chord-hold types on SOURCE input) emit the treated held chord sustained to the column boundary.
@@ -5475,11 +5472,11 @@ final class Router {
                 }
             }
         default:
-            break   // chord-hold handled at the transition above; a closed passgate is silent; fed-mirror = later cut
+            break   // chord-hold handled at the transition above; a rolled-false chance is silent; fed-mirror = later cut
         }
     }
 
-    /// The virtual cell's CHORD-HOLD (identity / open-passgate / CHANCE / HARMONIZE on SOURCE input): the
+    /// The virtual cell's CHORD-HOLD (identity / CHANCE / HARMONIZE on SOURCE input): the
     /// per-cell body of `emitColumnHolds`, emitted once at the column transition, sustained to the boundary.
     private func previewChordHold(isChance: Bool, isHarmonize: Bool, machine: SnapMachine, transpose: Int,
                                   filter: UInt8, busMask: UInt8, mNow: Double, beatPos: Double, beatsPerSample: Double,
@@ -5510,11 +5507,11 @@ final class Router {
 
     /// Sound the held cell's processor ALONE against the live source while the transport is stopped.
     /// §6.4: phase zeroed, input FORCED to source (the `inputRow` reference is ignored), the cell's
-    /// active A/B state, its lit letters, passgates all-open, an internal phase clock at host tempo.
+    /// active A/B state, its lit letters, an internal phase clock at host tempo.
     /// A change of `target` (new cell, switched cell, or release → −1) flushes and restarts the clock;
     /// transport start flushes via the process() transport edge (auto-release). Handles the
     /// time-varying processors ARP and RATCHET here; STRUM rolls via `auditionStrum` and the chord-hold
-    /// types (identity/passgate/chance/harmonize) sustain via `auditionChordHold` — all shipped.
+    /// types (identity/chance/harmonize) sustain via `auditionChordHold` — all shipped.
     private func auditionRender(box: SnapshotBox, pool: NotePool, target: Int,
                                 tempo: Double, sampleRate: Double, timestampSample: Double,
                                 frameCount: UInt32, S: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
@@ -5582,7 +5579,7 @@ final class Router {
             auditionStrum(cell: cell, machine: treat, pool: pool, transpose: transpose,
                           auditionBeat: auditionBeat, windowEnd: windowEnd, out: out, diag: &diag)
         default:
-            // chord-hold types (passgate all-open / chance / harmonize): sustain the treated chord,
+            // chord-hold types (identity / chance / harmonize): sustain the treated chord,
             // reconciled to the live held source each window (v2).
             auditionChordHold(cell: cell, machine: treat, pool: pool, transpose: transpose,
                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
@@ -5592,7 +5589,7 @@ final class Router {
     /// Sustain the held source chord through a chord-hold treatment (§6.4), tracking the keys LIVE:
     /// build the note-set the source should sound through the treatment, then reconcile against what is
     /// currently sounding — close departed notes, open new ones (sustained; released by allNotesOff on
-    /// hold-change / transport-start). passgate is forced all-open; chance seeds on the hold (beat 0) so
+    /// hold-change / transport-start). chance seeds on the hold (beat 0) so
     /// each note is deterministically in or out for the whole hold; harmonize expands to its voices.
     private func auditionChordHold(cell: SnapCell, machine: SnapMachine, pool: NotePool,
                                    transpose: Int, windowStart: Int64, windowEnd: Int64,
@@ -5618,7 +5615,7 @@ final class Router {
                 }
             case .chance:
                 if chancePasses(beat: 0, note: base, probability: prob) { auditionDesired[base] = true; auditionVel[base] = bv }
-            default:                                                 // passgate all-open (sustain the chord)
+            default:                                                 // identity (sustain the chord)
                 auditionDesired[base] = true; auditionVel[base] = bv
             }
         }

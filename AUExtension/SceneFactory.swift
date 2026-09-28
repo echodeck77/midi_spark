@@ -1,7 +1,7 @@
 //  SceneFactory.swift
-//  MidiSpark — the sixteen FACTORY SCENES that ship in the scene strip (Docs/factory-scenes.md).
-//  A curriculum, slot 1 → 16: each is musical alone and introduces one capability; 16 uses nearly
-//  everything. DISTINCT from TestSessions T1–T17 (engine coverage) — never merge the two.
+//  MidiSpark — the fifteen FACTORY SCENES that ship in the scene strip (Docs/factory-scenes.md).
+//  A curriculum, slot 1 → 15: each is musical alone and introduces one capability; the last uses
+//  nearly everything. DISTINCT from TestSessions T1–T17 (engine coverage) — never merge the two.
 //
 //  Foundation-only (seam rule: engine-adjacent, no AudioToolbox). Each scene is a complete
 //  PluginState (formatVersion 3, one scene). Doc notation is 1-based (columns C1–C8, rows R1–R8,
@@ -52,8 +52,12 @@ enum SceneFactory {
             edit(id) { c in c.type = .ratchet; c.transpose = t; c.paramsA.count = count }
         }
         func altRatchet(_ id: String, count: Int) { edit(id) { $0.typeB = .ratchet; $0.paramsB.count = count } }
-        func pass(_ id: String, _ passes: [Bool] = [true, true, true, true], gate: Double = 0.6, t: Int = 0) {
-            edit(id) { c in c.type = .passgate; c.transpose = t; c.paramsA.passes = passes; c.paramsA.gate = gate }
+        /// A plain sustained passthrough voice (PASSGATE removed 2026-09-28 — was also an alternating-lap gate;
+        /// every surviving caller here only ever used it in its all-open state, so a plain identity passthrough
+        /// is byte-identical for them). See CLAUDE.md's PASSGATE REMOVAL entry for the one caller (PACIFIC's
+        /// "wine") that loses a genuine every-2nd-pass alternation as a result — flagged there, not silent.
+        func thru(_ id: String, gate: Double = 0.6, t: Int = 0) {
+            edit(id) { c in c.type = .empty; c.transpose = t; c.paramsA.gate = gate }
         }
         func chance(_ id: String, _ prob: Double, t: Int = 0) {
             edit(id) { c in c.type = .chance; c.transpose = t; c.paramsA.probability = prob }
@@ -83,7 +87,7 @@ enum SceneFactory {
         }
     }
 
-    // MARK: - the sixteen scenes
+    // MARK: - the fifteen scenes
 
     static let scenes: [Scene] = [
 
@@ -161,17 +165,6 @@ enum SceneFactory {
             return b.build()
         },
 
-        Scene(name: "EVERY OTHER TIME") {
-            let b = B(); b.global()
-            b.arp("gold", .up, .r1_16)
-            b.pass("teal", [true, false, true, false])                       // every 2nd
-            b.pass("wine", [true, false, false, false], gate: 1.0, t: -12)   // every 4th
-            for col in 1...8 { b.put(col, 1, "gold", to: [.a]) }
-            for col in [1, 5] { b.put(col, 2, "teal", from: 1, to: [.b]) }   // teal taps the ARP (⇐R1)
-            b.put(1, 3, "wine", from: 1, to: [.c])                           // wine tolls the ARP an 8ve down
-            return b.build()
-        },
-
         Scene(name: "DICE MUSIC") {
             let b = B(); b.global(swing: 54)
             b.chance("magenta", 0.70); b.chance("blush", 0.35, t: 12)
@@ -199,7 +192,7 @@ enum SceneFactory {
         Scene(name: "UNDERTOW") {
             let b = B(); b.global(step: .r1_1)
             b.arp("indigo", .up, .r1_8, oct: 2); b.chance("magenta", 0.80)
-            b.ratchet("vermilion", count: 2); b.pass("wine", gate: 1.0, t: -12)
+            b.ratchet("vermilion", count: 2); b.thru("wine", gate: 1.0, t: -12)
             b.arp("chartreuse", .up, .r1_32, oct: 1, t: 12)
             for col in 1...8 {
                 b.put(col, 1, "indigo", to: [])
@@ -239,7 +232,7 @@ enum SceneFactory {
         Scene(name: "THE LOOP THAT ISN'T") {
             let b = B(); b.global()
             b.arp("gold", .up, .r1_16); b.arp("azure", .down, .r1_8, t: -12)
-            b.ratchet("purple", count: 3); b.pass("teal")
+            b.ratchet("purple", count: 3); b.thru("teal")
             for col in 1...4 {
                 b.put(col, 2, "gold", to: [.a])
                 b.put(col, 1, "azure", from: 2, to: [.b])     // backward tap: child above parent
@@ -257,9 +250,9 @@ enum SceneFactory {
             b.arp("gold", .up, .r1_16); b.altArp("gold", rate: .r1_32)
             b.ratchet("vermilion", count: 3); b.altRatchet("vermilion", count: 4)
             b.chance("magenta", 0.60)
-            b.pass("wine", [true, false, true, false], gate: 1.0, t: -12)   // every 2nd
+            b.thru("wine", gate: 1.0, t: -12)   // PASSGATE removed 2026-09-28: was "every 2nd", now sustains (flagged)
             b.arp("azure", .upDown, .r1_16t, phase: .free, t: 12)
-            b.pass("teal", gate: 1.0)
+            b.thru("teal", gate: 1.0)
             b.harmonize("mint", [4, 7, 0], t: 7)   // intervals unlisted in doc → a major-triad pad (chosen)
             for col in 1...4 {
                 b.put(col, 1, "violet", to: [])              // LEGATO lead engine

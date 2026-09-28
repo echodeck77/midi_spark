@@ -618,9 +618,9 @@ final class Kernel {
         }
         if (c.busMask & box.busEnabledMask) == 0 { return "no enabled emitter" }
         if pool.srcCount(for: c) == 0 { return "admits 0" }
-        let m = c.proc   // the head machine, gated on THIS pass exactly as the router decides (a closed passgate is silent this pass)
-        if cellMode(type: m.type, bypassed: c.slotBypass.first ?? false, passMask: m.passMask, pass: diag.pass) == .silent {
-            return "passgate closed this pass (pass%4=\(((diag.pass % 4) + 4) % 4))"
+        let m = c.proc   // the head machine, gated on THIS pass exactly as the router decides
+        if cellMode(type: m.type, bypassed: c.slotBypass.first ?? false) == .silent {
+            return "\(m.type) is a silent-type processor (sounds nothing at the head of a chain)"
         }
         if m.type == .chance && m.probability <= 0 { return "chance prob 0 (drops all)" }
         return nil
@@ -640,11 +640,11 @@ final class Kernel {
         l.append("  roles: claim=0b\(String(box.claimMask, radix: 2)) leak=\(box.claimLeak) duck=0b\(String(box.flattenMask, radix: 2)) alt=0b\(String(box.altMask, radix: 2)) altCount=\(box.altCount)")
         for (i, c) in box.cells.enumerated() where c.machineIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
             let block = cellRouteBlock(c, box), m = c.proc
-            let mdesc = "\(m.type)" + (m.type == .passgate ? " pass=0b\(String(m.passMask, radix: 2))" : m.type == .chance ? " prob=\(m.probability)" : "") + (c.procs.count > 1 ? " +chain\(c.procs.count)" : "")
+            let mdesc = "\(m.type)" + (m.type == .chance ? " prob=\(m.probability)" : "") + (c.procs.count > 1 ? " +chain\(c.procs.count)" : "")
             let here = (i / Snap.rows) == diag.effColumn ? " ◀playhead" : ""
             l.append("  cell \(i / Snap.rows),\(i % Snap.rows) col=\(c.machineIndex) [\(mdesc)] recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)") + here)
         }
-        l.append(diag.routedPath ? "VERDICT: a routed path exists → SILENCE IS SUSPICIOUS (a machine may be gating: closed passgate / chance / arp tick — or a real bug)"
+        l.append(diag.routedPath ? "VERDICT: a routed path exists → SILENCE IS SUSPICIOUS (a machine may be gating: mod/glide head / chance / arp tick — or a real bug)"
                                  : "VERDICT: no routed path → silence is EXPECTED")
         return l.joined(separator: "\n")
     }

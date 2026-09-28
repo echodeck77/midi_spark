@@ -409,10 +409,6 @@ enum SnapshotBuilder {
         if let v = p.phase { out.phase = v }
         if let v = p.count { out.count = UInt8(clamp(v, 2, 16)) }   // CR-6: BURST reads up to 16 (Router min(16,·)); RATCHET re-snaps ≤8 via effectiveRepeats, so widening the clamp only unlocks BURST's HITS 12/16 (were both silently = 8)
         if let v = p.ramp { out.ramp = clamp(v, 0, 1) }
-        if let v = p.passes {
-            out.passMask = 0
-            for (i, on) in v.prefix(4).enumerated() where on { out.passMask |= UInt8(1 << i) }
-        }
         if let v = p.strumDir { out.strumDir = v }
         if let v = p.spread { out.spread = clamp(v, 0, 1) }
         if let v = p.curve { out.curve = clamp(v, -1, 1) }

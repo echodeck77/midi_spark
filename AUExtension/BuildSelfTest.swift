@@ -47,7 +47,7 @@ enum BuildSelfTest {
     /// A RAW passthrough machine — explicit empty chain = born-audible identity (holds the chord unprocessed), exactly
     /// what a BUILD machine with no machine sounds like.
     static func rawMachine(_ id: String, transpose: Int = 0) -> Machine {
-        var c = Machine(machineID: id, type: .passgate); c.templateChain = []; c.transpose = transpose; return c
+        var c = Machine(machineID: id, type: .empty); c.templateChain = []; c.transpose = transpose; return c
     }
     static func cell(_ id: String, buses: Set<Bus> = [.a]) -> Cell {
         var c = Cell(machineID: id, buses: buses); c.inputReceiver = 0; return c
@@ -140,7 +140,7 @@ enum BuildSelfTest {
         // 7 — an ALL-BYPASSED chain collapses to the born-audible passthrough (holds the chord raw).
         do {
             var slot = ProcessorSlot(type: .arp); slot.bypassed = true
-            var c = Machine(machineID: "gold", type: .passgate); c.templateChain = [slot]
+            var c = Machine(machineID: "gold", type: .empty); c.templateChain = [slot]
             let e = render([c], chord: [60]) { $0.cells[0][0] = cell("gold") }
             out.append(check("A fully-bypassed chain is a passthrough", Set(e.onsA) == [60] && e.noStuck,
                              "expected {60}, got \(Set(e.onsA).sorted())"))
@@ -174,7 +174,6 @@ enum BuildSelfTest {
                 ("chance", machine("gold", .chance)),
                 ("harmonize", machine("gold", .harmonize) { $0.harmIntervals = [12, 0, 0] }),
                 ("drone", machine("gold", .drone) { $0.gate = 0.8 }),
-                ("passgate", machine("gold", .passgate) { $0.passes = [true, true, true, true]; $0.gate = 1.0 }),
             ]
             var stuck: [String] = []
             for (name, col) in roster {
@@ -194,7 +193,6 @@ enum BuildSelfTest {
                 ("strum", machine("gold", .strum) { $0.spread = 0.5 }),
                 ("harmonize", machine("gold", .harmonize) { $0.harmIntervals = [12, 0, 0] }),
                 ("drone", machine("gold", .drone) { $0.gate = 0.8 }),
-                ("passgate", machine("gold", .passgate) { $0.passes = [true, true, true, true]; $0.gate = 1.0 }),
             ]
             var silent: [String] = []
             for (name, col) in roster {

@@ -222,24 +222,6 @@ enum TestSessions {
             })
         },
 
-        Session(id: "T13", title: "PASSGATE",
-                expect: "§3/§4: gated per PASS (mod 4). Every column: row 0 gold ARP feeds row 1 "
-                      + "cyan PASSGATE (bus A, mask [open, closed, open, closed]). Hold a chord: a "
-                      + "CONTINUOUS arp for a whole cycle on pass 0, then full SILENCE for pass 1, "
-                      + "arp again pass 2, silent pass 3 — repeating every 4 cycles (1 cycle = 16 "
-                      + "beats at 1/2). Panel: 'pass' counts up; EMIT rises only on even passes. "
-                      + "Click-safe — no stuck notes when it closes each cycle.") {
-            var c = baseMachines()
-            c[idx("cyan")].type = .passgate
-            c[idx("cyan")].paramsA.passes = [true, false, true, false]     // open on pass 0 & 2
-            return doc(c, scene { s in
-                for col in 0..<8 {
-                    s.cells[col][0] = Cell(machineID: "gold", buses: [])                     // arp parent, no bus
-                    s.cells[col][1] = Cell(machineID: "cyan", buses: [.a], inputRow: 0)      // PASSGATE references row 0
-                }
-            })
-        },
-
         Session(id: "T14", title: "ARP patterns",
                 expect: "Hold a 3–4 note chord. Each column arps it a different way on bus A: "
                       + "col 0 UP (ascending), col 1 DOWN (descending), col 2 UP-DN (up then back "
