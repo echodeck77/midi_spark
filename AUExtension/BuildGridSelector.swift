@@ -243,9 +243,11 @@ extension DiagView {
             }
             if selGrey {   // A PLAY BADGE (Paul 2026-09-28) — identical in style to the play-ferry buttons' own PLAY
                            // icon, incl. the same velocity flash (flashingIcon), tinted in the selected colour.
+                           // LEFT-ALIGNED + VERTICALLY CENTRED (Paul 2026-09-29), matching roomsPlayFerry's own
+                           // icon placement (a leading HStack, vertically centred in the button by its overlay).
                 flashingIcon("play.fill", size: min(10, h * 0.34), tint: selectedHue, baseOpacity: 0.9, indices: buildChainAuditionRow.map { [$0] } ?? [])
-                    .frame(width: w, height: h, alignment: .bottomTrailing)
-                    .padding(4)
+                    .padding(.leading, 4)
+                    .frame(width: w, height: h, alignment: .leading)
             }
             if buildSelectMode && present { RoundedRectangle(cornerRadius: 6).stroke(Color.white, lineWidth: 2.5) }   // SELECT MODE: every cell lights white — tap to focus (Paul 2026-08-31)
         }
