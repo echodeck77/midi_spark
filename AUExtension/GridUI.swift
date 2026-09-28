@@ -653,8 +653,20 @@ struct ProcessorBox: View {
             }
             if bmode == .pattern {   // a STATE MATRIX — rows = B/C/R, cols = the 8 steps
                 let defBurst: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]
+                // LIVE SWEEP (Paul 2026-09-28): mirrors the engine's own read exactly (Router.swift layBurst/.pattern) —
+                // FIXED 8 divides the span into 8 slices; RATE walks it at burstRateBeats instead, both tiled mod-8
+                // by `burstSliceAt` — so the matrix's fixed 8-column width is always right, only the SLICE WIDTH
+                // (and re-anchor span) changes with the mode. ROTATE is NEGATED: `burstSliceAt` reads slot
+                // `(i − rotate) mod 8`, the opposite sign from stateMatrixRadio's own `(g + rotate)` convention —
+                // confirmed by reading the engine, not assumed (BURST is the one processor in this file where the
+                // two conventions run backwards from each other).
+                let burstSpanBeats = spanLadderBeats(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1), S: gridStepBeats, row: 8 * gridStepBeats)
+                let burstSliceW = (p.burstRateOn ?? false) ? Swift.max(0.03125, (p.burstRate ?? .r1_8).beats) : Swift.max(0.03125, burstSpanBeats / 8)
+                let burstClock = clockPlaying
+                    ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo, rate: burstSliceW, steps: 8, rotate: -(p.burstRotate ?? 0), span: burstSpanBeats)
+                    : nil
                 field("BURST SHAPE PER STEP — tap a cell  (B launch · C carry · R rest)") {
-                    stateMatrixRadio(BurstSlice.allCases,
+                    stateMatrixRadio(BurstSlice.allCases, clock: burstClock,
                         header: { st in AnyView(Text(burstSliceName(st)).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 46, alignment: .leading)) },
                         eFill: true, onRotate: { d in setParam { $0.burstRotate = ((($0.burstRotate ?? 0) + d) % 8 + 8) % 8 } },
                         selected: { i in let s = p.burstSlices ?? defBurst; return i < s.count ? s[i] : .rest },
@@ -721,7 +733,15 @@ struct ProcessorBox: View {
                 let n = sspan.stepCount
                 let base = [0, 18, 36, 54, 72, 90, 108, 127]
                 let shown = (0..<n).map { i -> Int in let s = p.modSteps ?? base; return s[i % s.count] }   // pad the stored steps to N for drawing
-                heroField("STEPS  (drag to draw · \(n))") { sliderLane(shown, count: n, eFill: true) { i, v in
+                // LIVE SWEEP (Paul 2026-09-28, found while fixing the audit's named cases — MOD's own STEPS lane has
+                // the identical "always reads the generic grid clock" gap): shares modLiveCC's own period exactly
+                // (GRID STEPS override, else PERIOD/ROW/×2/×4), so the sweep and the live CC marker above can't disagree.
+                let modStepsPeriod = modPeriodBeatsUI(src: .steps)
+                let modStepsLive: ((Date) -> Int?)? = clockPlaying ? { date in
+                    let beat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+                    return Int(positiveFract(beat / modStepsPeriod) * Double(n)) % Swift.max(1, n)
+                } : nil
+                heroField("STEPS  (drag to draw · \(n))") { sliderLane(shown, count: n, eFill: true, liveColOverride: modStepsLive) { i, v in
                     setParam { var s = $0.modSteps ?? base; let orig = s; while s.count < n { s.append(orig[s.count % orig.count]) }; s[i] = v; $0.modSteps = s } } }
                 field("SPAN", \.modStepSpan) { seg(ModStepSpan.allCases.map(\.rawValue), sel: sspan.rawValue) { i in setParam { $0.modStepSpan = ModStepSpan.allCases[i] } } }   // STEPS keeps its coupled step-span (PERIOD/ROW/×2/×4)
                 if sspan == .period { field("CYCLE  (beats / cycle)", \.modRate) { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } } }   // the rate period only drives PERIOD span
@@ -795,9 +815,17 @@ struct ProcessorBox: View {
                 field("SOLO NOTE  (which note carries a SOLO step)", \.tuttiPick) { seg(TuttiPick.allCases.map(\.rawValue), sel: (p.tuttiPick ?? .low).rawValue) { i in
                     setParam { $0.tuttiPick = TuttiPick.allCases[i] } } }
             } else {
+                // LIVE SWEEP (Paul 2026-09-28): mirrors the engine's own standalone-driver read exactly
+                // (Router.emitTuttiPatternRow) — the pattern walks at its own tuttiRate, re-anchoring every
+                // tuttiSpanN columns when set (0 = free-running), never the scene's default grid clock.
+                let tuttiSub = Swift.max(0.03125, (p.tuttiRate ?? .r1_8).beats)
+                let tuttiSpanBeats = (p.tuttiSpanN ?? 0) > 0 ? spanLadderBeats(p.tuttiSpanN ?? 0, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+                let tuttiClock = clockPlaying
+                    ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo, rate: tuttiSub, steps: 8, rotate: p.tuttiRotate ?? 0, span: tuttiSpanBeats)
+                    : nil
                 // An 8×8 STATE MATRIX — rows = the chord shapes, columns = the 8 steps; tap a cell to set that step.
                 heroField("CHORD SHAPE PER STEP — tap a cell (dots = which notes sound)") {
-                    stateMatrixRadio(TuttiSlice.allCases,
+                    stateMatrixRadio(TuttiSlice.allCases, clock: tuttiClock,
                         header: { st in AnyView(HStack(spacing: 4) {
                             tuttiShapeIcon(st, tint: accent).frame(width: 16)
                             Text(st.rawValue).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
@@ -915,12 +943,23 @@ struct ProcessorBox: View {
             let steps = max(1, min(32, p.velSteps ?? 8))
             let lane: [Int] = { var a = p.velLane ?? Array(repeating: 100, count: steps); while a.count < steps { a.append(100) }; return Array(a.prefix(steps)) }()
             let pass: [Int] = { var a = p.velPass ?? Array(repeating: 0, count: steps); while a.count < steps { a.append(0) }; return Array(a.prefix(steps)) }()
+            // LIVE SWEEP (Paul 2026-09-28): mirrors RATCHET PATTERN's own NOTE-clock guard exactly (`driverNoteRate`,
+            // fed by the diagnostic poll) — TIME advances at velRate; NOTE advances one column per upstream driver
+            // note (no known driver rate ⇒ leave the playhead static, same as RATCHET, rather than show a wrong one).
+            // ONE clock feeds BOTH lanes below (the velocity lane's own sliderLane clock AND the BYPASS toggleLane's
+            // liveColOverride, via the shared `liveCol(from:at:)`), so they can't disagree with each other either.
+            let velClockMode = p.velClock ?? .time
+            let velAdvance = velClockMode == .note ? driverNoteRate : Swift.max(0.03125, (p.velRate ?? .r1_8).beats)
+            let velSpanBeats = (p.velSpanN ?? 0) > 0 ? Double(p.velSpanN ?? 0) * velAdvance : 0
+            let velLiveClock = (clockPlaying && !(velClockMode == .note && driverNoteRate <= 0))
+                ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo, rate: velAdvance, steps: steps, rotate: 0, span: velSpanBeats)
+                : nil
             heroField("VELOCITY PER STEP  (drag ACROSS the bars to draw · 1–127)") {
-                sliderLane(lane, count: steps, max: 127, eFill: false) { i, v in   // no euclid brush (Paul 2026-09-07) — draw the lane by hand
+                sliderLane(lane, count: steps, max: 127, eFill: false, clock: velLiveClock) { i, v in   // no euclid brush (Paul 2026-09-07) — draw the lane by hand
                     setParam { var a = $0.velLane ?? Array(repeating: 100, count: steps); while a.count < steps { a.append(100) }; a[i] = Swift.max(1, v); $0.velLane = a } }
             }
             field("BYPASS PER STEP  (drag across to pass steps through — keep the note's OWN velocity)") {
-                toggleLane(steps, on: { s in s < pass.count && pass[s] != 0 }, glyph: "arrow.right") { s, target in
+                toggleLane(steps, on: { s in s < pass.count && pass[s] != 0 }, glyph: "arrow.right", live: { date in liveCol(from: velLiveClock, at: date) }) { s, target in
                     setParam { var a = $0.velPass ?? Array(repeating: 0, count: steps); while a.count < steps { a.append(0) }; a[s] = target ? 1 : 0; $0.velPass = a } }
             }
             field("STEPS — pattern length  (1–32)") { numPair(p.velSteps ?? 8, 1...32) { v in setParam { $0.velSteps = v } } }
@@ -1021,14 +1060,14 @@ struct ProcessorBox: View {
                 stateMatrixRadio(Array((-1...8)), steps: steps, clock: clockLive,
                     header: { opt in AnyView(Text(opt < 0 ? "···" : clockRatioLabels[opt]).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))) },
                     extraRowHeader: AnyView(Text("GLIDE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))),
-                    extraRowCell: { step, live in
+                    extraRowCell: { step, live, date in
                         let on = step < glideArr.count && glideArr[step]
                         return AnyView(
-                            RoundedRectangle(cornerRadius: 4).fill(on ? accent.opacity(0.85) : Color.white.opacity(live ? 0.14 : 0.06))
+                            RoundedRectangle(cornerRadius: 4).fill(on ? accent.opacity(0.85) : Color.white.opacity(0.06))
                                 .frame(maxWidth: .infinity).frame(height: 26)
                                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: on ? 1.5 : 1))
                                 .overlay { if on { Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .black)).foregroundColor(.black) } }
-                                .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
+                                .overlay { pulseGlowOverlay(live, date) }
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     setParam {
@@ -1140,7 +1179,25 @@ struct ProcessorBox: View {
             let dr = [1, 2, 3, 0, 2, 3, 4, 0, 1, 2, 3, 0, 5, 4, 3, 0]   // the default figure (matches SnapParams)
             let ranks = p.riffRanks ?? dr
             let mask = p.riffMask ?? []
+            // LIVE SWEEP (Paul 2026-09-28, closing the audit gap RIFF was named for): calls the SAME pure `riffStepAt`
+            // the engine calls (Router.emitRiffRow) directly — not a re-derived approximation — so the lit cell and
+            // the sounding step can never disagree, across all 5 non-stateful direction modes. DRUNK's true position
+            // is genuine per-cell RENDER-THREAD state (riffDrunkPos, Router.swift) this UI layer has no access to
+            // and can't safely replay (the walk resets on transport edges this layer can't observe) — left unlit,
+            // the same "can't derive a truthful column, so show none" precedent RATCHET PATTERN's own NOTE-mode-
+            // with-unknown-driver-rate case already established, rather than ship a plausible-looking wrong one.
+            let riffDirNow = p.riffDir ?? .forward
+            let riffRateBeatsNow = Swift.max(0.03125, (p.riffRate ?? .r1_16).beats)
+            let riffSpanBeatsNow = (p.riffSpanN ?? 0) > 0 ? spanLadderBeats(p.riffSpanN ?? 0, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+            let riffSeedNow = UInt64(bitPattern: Int64(p.riffDirSeed ?? 0))
+            let riffLive: ((Date) -> Int?)? = (clockPlaying && riffDirNow != .drunk) ? { date in
+                let b = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+                let phase = riffSpanBeatsNow > 0 ? (b - columnStart(b, riffSpanBeatsNow)) : b
+                let raw = Int((phase / riffRateBeatsNow).rounded(.down))
+                return riffStepAt(riffDirNow, raw: raw, steps: steps, seed: riffSeedNow)
+            } : nil
             heroField("") {   // label removed (Paul 2026-09-13)
+                liveClockWrap(riffLive) { liveCol, date in
                 VStack(spacing: 2) {
                     ForEach(Array((1...8).reversed()), id: \.self) { rank in
                         let bit = 1 << (rank - 1)
@@ -1153,6 +1210,7 @@ struct ProcessorBox: View {
                                 RoundedRectangle(cornerRadius: 3).fill(on ? accent : Color.white.opacity(0.06))
                                     .frame(maxWidth: .infinity).frame(height: 16)
                                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(on ? 0.9 : 0.1), lineWidth: on ? 1.5 : 1))
+                                    .overlay { pulseGlowOverlay(s == liveCol, date, corner: 3) }
                                     .contentShape(Rectangle()).onTapGesture {
                                         setParam {
                                             if poly { var a = $0.riffMask ?? []; while a.count < steps { a.append(0) }; a[s] ^= bit; $0.riffMask = a }   // POLY: toggle the rank's bit
@@ -1174,23 +1232,27 @@ struct ProcessorBox: View {
                         }
                     }
                 }
+                }
             }
             // §5 MODIFIER LANES (Paul 2026-08-26): OCT (−·0·+) · ACCENT (louder) · TIE (⌒ hold) · SLIDE (↝ 303 glide).
             let octA = p.riffOct ?? [], accA = p.riffAccent ?? [], tieA = p.riffTie ?? [], slA = p.riffSlide ?? []
             field("OCT  −·0·+") {
+                liveClockWrap(riffLive) { liveCol, date in
                 HStack(spacing: 2) { Color.clear.frame(width: 16, height: 14)
                     ForEach(0..<steps, id: \.self) { s in
                         let v = s < octA.count ? octA[s] : 0
                         RoundedRectangle(cornerRadius: 3).fill(v == 0 ? Color.white.opacity(0.06) : accent.opacity(0.5)).frame(maxWidth: .infinity).frame(height: 15)
                             .overlay(Text(v > 0 ? "+" : (v < 0 ? "−" : "·")).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(v == 0 ? 0.35 : 0.95)))
+                            .overlay { pulseGlowOverlay(s == liveCol, date, corner: 3) }
                             .contentShape(Rectangle()).onTapGesture { setParam { var a = $0.riffOct ?? []; while a.count < steps { a.append(0) }; a[s] = a[s] >= 1 ? -1 : a[s] + 1; $0.riffOct = a } }
                     }
                     Color.clear.frame(width: 30, height: 14)
                 }
+                }
             }
-            riffToggleLane("ACCENT", steps: steps, on: { $0 < accA.count && accA[$0] > 0 }, accent: accent, glyph: "▲") { s in setParam { var a = $0.riffAccent ?? []; while a.count < steps { a.append(0) }; a[s] = a[s] > 0 ? 0 : 40; $0.riffAccent = a } }
-            riffToggleLane("TIE  ⌒", steps: steps, on: { $0 < tieA.count && tieA[$0] }, accent: accent, glyph: "⌒") { s in setParam { var a = $0.riffTie ?? []; while a.count < steps { a.append(false) }; a[s].toggle(); $0.riffTie = a } }
-            riffToggleLane("SLIDE  ↝", steps: steps, on: { $0 < slA.count && slA[$0] }, accent: accent, glyph: "↝") { s in setParam { var a = $0.riffSlide ?? []; while a.count < steps { a.append(false) }; a[s].toggle(); $0.riffSlide = a } }
+            riffToggleLane("ACCENT", steps: steps, on: { $0 < accA.count && accA[$0] > 0 }, accent: accent, glyph: "▲", live: riffLive) { s in setParam { var a = $0.riffAccent ?? []; while a.count < steps { a.append(0) }; a[s] = a[s] > 0 ? 0 : 40; $0.riffAccent = a } }
+            riffToggleLane("TIE  ⌒", steps: steps, on: { $0 < tieA.count && tieA[$0] }, accent: accent, glyph: "⌒", live: riffLive) { s in setParam { var a = $0.riffTie ?? []; while a.count < steps { a.append(false) }; a[s].toggle(); $0.riffTie = a } }
+            riffToggleLane("SLIDE  ↝", steps: steps, on: { $0 < slA.count && slA[$0] }, accent: accent, glyph: "↝", live: riffLive) { s in setParam { var a = $0.riffSlide ?? []; while a.count < steps { a.append(false) }; a[s].toggle(); $0.riffSlide = a } }
             row2({ field("STEPS", \.riffSteps) { numPair(steps, 1...32) { v in setParam { $0.riffSteps = v } } } },
                  { field("VOICING", \.riffPoly) { seg(["MONO", "POLY"], sel: poly ? "POLY" : "MONO") { i in setParam { $0.riffPoly = (i == 1) } } } })
             row2({ field("WRAP — a rank past the chord", \.riffWrap) { seg(RiffWrap.allCases.map(\.rawValue), sel: (p.riffWrap ?? .fold).rawValue) { i in setParam { $0.riffWrap = RiffWrap.allCases[i] } } } },
@@ -1243,9 +1305,15 @@ struct ProcessorBox: View {
                     numPair(steps, 1...16) { n in setParam { $0.chordsSteps = n } }
                     seg(rateNames, sel: (p.chordsRate ?? .r1_1).rawValue) { i in setParam { $0.chordsRate = StepRate.allCases[i] } }
                 } }
+                // LIVE SWEEP (Paul 2026-09-28): mirrors chordSeqNotes exactly — "a chord per rate-tick, not per grid
+                // column" (the comment above is the engine's own words) — free-running (no SPAN concept here at all).
+                let chordsRateBeatsNow = Swift.max(0.03125, (p.chordsRate ?? .r1_1).beats)
+                let chordsClock = clockPlaying
+                    ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo, rate: chordsRateBeatsNow, steps: steps, rotate: p.chordsRotate ?? 0, span: 0)
+                    : nil
                 // THE DEGREE MATRIX (width = STEPS): rows I…vii + REST · radio-per-column. Headers use a major reference for
                 // POSITION (the real quality follows the SCALE-FROM door's scale at play time — the editor can't see it).
-                stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7], steps: steps,
+                stateMatrixRadio([0, 1, 2, 3, 4, 5, 6, 7], steps: steps, clock: chordsClock,
                     header: { (opt: Int) in AnyView(Text(opt == 7 ? "REST" : degreeLabel(degree: opt, scaleTones: ScaleType.major.intervals)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))) },
                     onRotate: { d in setParam { $0.chordsRotate = ((($0.chordsRotate ?? 0) + d) % steps + steps) % steps } },
                     // BRIGHT = an AUTHORED degree/REST; a carry/unset column lights NOTHING bright (BUGFIX Paul 2026-09-15: it
@@ -1512,6 +1580,46 @@ struct ProcessorBox: View {
         .padding(.horizontal, 4)
     }
 
+    // PULSE GLOW (Paul 2026-09-28): the live-column indicator across every matrix/lane in this file — a soft white
+    // bloom that breathes, replacing the old static top-edge line + background-opacity bump. ALWAYS plain white,
+    // never a second hue, so it reads consistently over whichever colour this processor's own cells happen to be
+    // (accent varies per machine) — the shared constraint the redesign review was built around. `date` comes from
+    // the caller's OWN already-running TimelineView (stateMatrixRadio/sliderLane/toggleLane/riffToggleLane, or
+    // RIFF's bespoke matrix) so every lit cell in one grid breathes in lockstep off ONE clock, not N independent ones.
+    private func pulseGlowLevel(_ date: Date) -> Double {
+        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.6) / 0.6
+        return 0.55 + 0.45 * (0.5 - 0.5 * cos(2 * .pi * t))   // smooth 0.55↔1.0 breathe, ~1.67 Hz — independent of tempo
+    }
+    @ViewBuilder private func pulseGlowOverlay(_ active: Bool, _ date: Date, corner: CGFloat = 4) -> some View {
+        if active {
+            let lvl = pulseGlowLevel(date)
+            RoundedRectangle(cornerRadius: corner)
+                .stroke(Color.white.opacity(lvl), lineWidth: 1.75)
+                .shadow(color: Color.white.opacity(0.85 * lvl), radius: 6)
+                .shadow(color: Color.white.opacity(0.6 * lvl), radius: 6)
+        }
+    }
+    // ONE formula for "which column is live right now" from a StateMatrixClock — shared by stateMatrixRadio,
+    // sliderLane, and any bespoke `live:`/`liveColOverride:` closure that wants to derive from the same clock shape
+    // (e.g. VELOCITY's BYPASS toggleLane, built from the identical clock as its own velocity sliderLane) — so two
+    // widgets fed the same clock can never disagree by having hand-duplicated the arithmetic twice.
+    private func liveCol(from c: StateMatrixClock?, at date: Date) -> Int? {
+        guard let c, c.steps > 0 else { return nil }
+        let b = c.anchor + date.timeIntervalSince(c.anchorAt) * c.tempo / 60.0
+        let localBeat = c.span > 0 ? (b - columnStart(b, c.span)) : b
+        return (((Int((localBeat / Swift.max(0.0001, c.rate)).rounded(.down)) + c.rotate) % c.steps) + c.steps) % c.steps
+    }
+    // For a raw/bespoke grid (no stateMatrixRadio/sliderLane underneath, e.g. RIFF's rank matrix) that has its own
+    // live-column function: runs it in a TimelineView and hands the body (liveCol, date) — -1/Date() when `live` is
+    // nil, so `s == liveCol` is simply always false and nothing pulses. Avoids duplicating the grid body per-branch.
+    @ViewBuilder private func liveClockWrap<C: View>(_ live: ((Date) -> Int?)?, @ViewBuilder _ content: @escaping (Int, Date) -> C) -> some View {
+        if let live {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in content(live(tl.date) ?? -1, tl.date) }
+        } else {
+            content(-1, Date())
+        }
+    }
+
     /// THE STATE MATRIX (Paul 2026-08-22): rows = options · columns = 8 steps · RADIO-PER-COLUMN (exactly one lit per
     /// step). Retires pick-then-paint — every touch responds instantly (tap a cell = that step takes that state, no
     /// brush, no dead first touch). Row headers (left edge) carry the option's glyph + name — permanent and positional;
@@ -1531,14 +1639,16 @@ struct ProcessorBox: View {
         // SAME live-column highlight — for a control that isn't a mutually-exclusive "pick one option" pick (like
         // a per-column on/off toggle) but still needs to visually READ as part of the one grid, not a separately-
         // laid-out control underneath that may not line up. `extraRowCell(step, live)` draws that column.
-        extraRowHeader: AnyView? = nil, extraRowCell: ((Int, Bool) -> AnyView)? = nil,
+        extraRowHeader: AnyView? = nil, extraRowCell: ((Int, Bool, Date) -> AnyView)? = nil,
         selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
     ) -> some View {
         let cols = max(1, min(32, steps))   // variable matrix width (CHORDS ≤16; RATCHET PATTERN up to 32 — Paul 2026-09-07); other callers default to 8
-        // The grid, parameterised on which column is lit. RATCHET PATTERN drives `liveCol` from its OWN clock (extrapolated,
-        // below); every other caller lights the global grid column (`liveStep`). A `let` closure (a `func` isn't legal in a
-        // @ViewBuilder body) → AnyView so both branches type-match.
-        let makeGrid: (Int) -> AnyView = { liveCol in AnyView(
+        // The grid, parameterised on which column is lit + the current Date (Paul 2026-09-28: PULSE GLOW breathes off
+        // this shared timestamp, so every lit cell in the grid pulses in lockstep instead of each running its own
+        // clock). RATCHET PATTERN drives `liveCol` from its OWN clock (extrapolated, below); every other caller lights
+        // the global grid column (`liveStep`). A `let` closure (a `func` isn't legal in a @ViewBuilder body) → AnyView
+        // so both branches type-match.
+        let makeGrid: (Int, Date) -> AnyView = { liveCol, date in AnyView(
             VStack(spacing: 3) {
                 ForEach(Array(options.enumerated()), id: \.offset) { (_, opt) in
                     HStack(spacing: 3) {
@@ -1548,10 +1658,10 @@ struct ProcessorBox: View {
                             let on = selected(step) == opt
                             let dimOn: Bool = { guard !on, let d = dim, let dv = d(step) else { return false }; return dv == opt }()   // FAINT: this column's carried/implied state
                             let live = step == liveCol                        // PLAYHEAD (idea 15): the live column (ratchet's own clock, or the global grid)
-                            RoundedRectangle(cornerRadius: 4).fill(on ? accent : (dimOn ? accent.opacity(0.28) : Color.white.opacity(live ? 0.14 : 0.06)))
+                            RoundedRectangle(cornerRadius: 4).fill(on ? accent : (dimOn ? accent.opacity(0.28) : Color.white.opacity(0.06)))
                                 .frame(maxWidth: .infinity).frame(height: 26)
                                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : (dimOn ? 0.4 : 0.12)), lineWidth: on ? 1.5 : 1))
-                                .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
+                                .overlay { pulseGlowOverlay(live, date) }
                                 .contentShape(Rectangle()).onTapGesture { set(step, opt) }
                         }
                     }
@@ -1559,7 +1669,7 @@ struct ProcessorBox: View {
                 if let h = extraRowHeader, let cell = extraRowCell {
                     HStack(spacing: 3) {
                         h.frame(width: 64, alignment: .leading)
-                        ForEach(0..<cols, id: \.self) { step in cell(step, step == liveCol) }
+                        ForEach(0..<cols, id: \.self) { step in cell(step, step == liveCol, date) }
                     }
                 }
             }
@@ -1568,16 +1678,13 @@ struct ProcessorBox: View {
         // a 1/8 sweep read at 4 Hz collapses to a 1↔5 jump). col = floor(beat ÷ RATE) mod STEPS (+ ROTATE). No clock → liveStep.
         let grid = Group {
             if let ov = liveColOverride {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in makeGrid(ov(tl.date) ?? -1) }
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in makeGrid(ov(tl.date) ?? -1, tl.date) }
             } else if let c = clock ?? gridClock {   // bespoke ratchet clock, else the DEFAULT grid-column clock (Paul 2026-09-11) — both extrapolated per frame so NO per-step page re-render
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
-                    let b = c.anchor + tl.date.timeIntervalSince(c.anchorAt) * c.tempo / 60.0
-                    let localBeat = c.span > 0 ? (b - columnStart(b, c.span)) : b   // SPAN re-anchors every `span` beats; else free-run
-                    let g = Int((localBeat / c.rate).rounded(.down))
-                    makeGrid((((g + c.rotate) % c.steps) + c.steps) % c.steps)
+                    makeGrid(liveCol(from: c, at: tl.date) ?? -1, tl.date)
                 }
             } else {
-                makeGrid(liveStep)   // stopped (no clock) → liveStep is -1 from the caller → no playhead
+                makeGrid(liveStep, Date())   // stopped (no clock) → liveStep is -1 from the caller → no playhead (and nothing to pulse)
             }
         }
         if let onRotate { grid.modifier(RotateOnDrag(onRotate: onRotate)) } else { grid }   // ROTATE §2: drag the matrix to rotate
@@ -1590,7 +1697,9 @@ struct ProcessorBox: View {
     // THE SLIDER LANE (Paul 2026-08-22 §2): 8+ per-step bars — TAP sets to tap-height (first touch always responds), DRAG
     // draws the lane. The ONE shared continuous-per-step component: STEP MOD (CC 0…127) · CHANCE PATTERN (odds 0…100) ·
     // (future VELOCITY PATTERN · CHOP levels). `max` = the value ceiling; the bar height + the write both scale to it.
-    private func sliderLane(_ steps: [Int], count: Int = 8, max maxV: Int = 127, center: Bool = false, eFill: Bool = false, _ set: @escaping (Int, Int) -> Void) -> some View {
+    private func sliderLane(_ steps: [Int], count: Int = 8, max maxV: Int = 127, center: Bool = false, eFill: Bool = false,
+                             clock: StateMatrixClock? = nil, liveColOverride: ((Date) -> Int?)? = nil,
+                             _ set: @escaping (Int, Int) -> Void) -> some View {
         HStack(spacing: 6) {
         if eFill { EBrushButton(steps: count, accent: accent) { pat in for i in 0..<count { set(i, pat[i] ? maxV : 0) } } }   // §5 E-BRUSH: euclidean fill (hit = max, rest = 0)
         ZStack(alignment: .top) {
@@ -1604,17 +1713,17 @@ struct ProcessorBox: View {
             // The DRAG gesture stays on a stable overlay layer (NOT inside the TimelineView) so it isn't re-created each frame.
             ZStack(alignment: .topLeading) {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
-                    let liveCol: Int = {
-                        guard let c = gridClock else { return -1 }
-                        let b = c.anchor + tl.date.timeIntervalSince(c.anchorAt) * c.tempo / 60.0
-                        return (((Int((b / c.rate).rounded(.down))) % c.steps) + c.steps) % c.steps
-                    }()
+                    // BESPOKE CLOCK (Paul 2026-09-28): a processor with its own independent RATE/SPAN (VELOCITY, MOD
+                    // STEPS, …) passes `clock:`/`liveColOverride:` so this lane sweeps what's actually sounding —
+                    // the same `clock ?? gridClock` fallback `stateMatrixRadio` already established. Unspecified
+                    // (every pre-existing caller) ⇒ byte-identical to before.
+                    let liveColNow: Int = liveColOverride.map { $0(tl.date) ?? -1 } ?? (liveCol(from: clock ?? gridClock, at: tl.date) ?? -1)
                     HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
                         ForEach(0..<count, id: \.self) { i in
                             let v = i < steps.count ? steps[i] : 0
-                            let live = i == liveCol                       // PLAYHEAD (idea 15): the live grid column
+                            let live = i == liveColNow                    // PLAYHEAD (idea 15): the live grid column
                             ZStack(alignment: center ? .center : .bottom) {   // CENTRE = a bipolar lane (0 = mid, + above, − below) — the TIMING pocket
-                                RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(live ? 0.16 : 0.08))
+                                RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08))
                                 if center {
                                     let frac = CGFloat(v) / CGFloat(maxV)   // −1…1
                                     let barH = Swift.max(2, abs(frac) * H / 2)
@@ -1623,7 +1732,7 @@ struct ProcessorBox: View {
                                     RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, H * CGFloat(v) / CGFloat(maxV)))
                                 }
                             }
-                            .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
+                            .overlay { pulseGlowOverlay(live, tl.date, corner: 3) }
                             .frame(maxWidth: .infinity)
                         }
                     }
@@ -1661,14 +1770,14 @@ struct ProcessorBox: View {
         Group {
             if let live {
                 TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { tl in
-                    toggleLaneGrid(count, height: height, liveCol: live(tl.date), on: on, glyph: glyph, setOn)
+                    toggleLaneGrid(count, height: height, liveCol: live(tl.date), date: tl.date, on: on, glyph: glyph, setOn)
                 }
             } else {
-                toggleLaneGrid(count, height: height, liveCol: nil, on: on, glyph: glyph, setOn)
+                toggleLaneGrid(count, height: height, liveCol: nil, date: Date(), on: on, glyph: glyph, setOn)
             }
         }
     }
-    private func toggleLaneGrid(_ count: Int, height: CGFloat, liveCol: Int?, on: @escaping (Int) -> Bool, glyph: String?, _ setOn: @escaping (Int, Bool) -> Void) -> some View {
+    private func toggleLaneGrid(_ count: Int, height: CGFloat, liveCol: Int?, date: Date, on: @escaping (Int) -> Bool, glyph: String?, _ setOn: @escaping (Int, Bool) -> Void) -> some View {
         GeometryReader { row in
             let W = row.size.width
             HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
@@ -1678,7 +1787,7 @@ struct ProcessorBox: View {
                     RoundedRectangle(cornerRadius: 4).fill(lit ? accent.opacity(0.85) : Color.white.opacity(0.06))
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(lit ? accent : Color.white.opacity(0.14), lineWidth: lit ? 1.5 : 1))
                         .overlay { if lit, let g = glyph { Image(systemName: g).font(.system(size: 9, weight: .black)).foregroundColor(.black) } }
-                        .overlay(alignment: .top) { if live { Rectangle().fill(Color.white.opacity(0.9)).frame(height: 2) } }
+                        .overlay { pulseGlowOverlay(live, date) }
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -1719,18 +1828,33 @@ struct ProcessorBox: View {
     // An odd pattern length against an aligning span = drift then snap back. RIFF is the first card to adopt it.
     // RIFF §5 (Paul 2026-08-26): a per-step TOGGLE lane (ACCENT · TIE · SLIDE), aligned under the rank matrix (16pt rank
     // gutter + 30pt SET gutter). `on(step)` reads the lit state; `tap(step)` flips it.
-    private func riffToggleLane(_ label: String, steps: Int, on: @escaping (Int) -> Bool, accent: Color, glyph: String, _ tap: @escaping (Int) -> Void) -> some View {
+    // `live` (Paul 2026-09-28, closing RIFF's missing-sweep gap): mirrors `toggleLane`'s own optional live-column
+    // hook exactly — nil (any future caller that doesn't need it) ⇒ static, unchanged; RIFF's ACCENT/TIE/SLIDE lanes
+    // are the first to pass one (RIFF's own bespoke clock, since its playback order isn't a simple rotate).
+    private func riffToggleLane(_ label: String, steps: Int, on: @escaping (Int) -> Bool, accent: Color, glyph: String, live: ((Date) -> Int?)? = nil, _ tap: @escaping (Int) -> Void) -> some View {
         field(label) {
-            HStack(spacing: 2) {
-                Color.clear.frame(width: 16, height: 14)
-                ForEach(0..<steps, id: \.self) { s in
-                    let isOn = on(s)
-                    RoundedRectangle(cornerRadius: 3).fill(isOn ? accent.opacity(0.6) : Color.white.opacity(0.06)).frame(maxWidth: .infinity).frame(height: 15)
-                        .overlay(isOn ? Text(glyph).font(.system(size: 8, weight: .heavy)).foregroundColor(.white.opacity(0.95)) : nil)
-                        .contentShape(Rectangle()).onTapGesture { tap(s) }
+            Group {
+                if let live {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+                        riffToggleLaneRow(steps: steps, on: on, accent: accent, glyph: glyph, liveCol: live(tl.date), date: tl.date, tap)
+                    }
+                } else {
+                    riffToggleLaneRow(steps: steps, on: on, accent: accent, glyph: glyph, liveCol: nil, date: Date(), tap)
                 }
-                Color.clear.frame(width: 30, height: 14)
             }
+        }
+    }
+    private func riffToggleLaneRow(steps: Int, on: @escaping (Int) -> Bool, accent: Color, glyph: String, liveCol: Int?, date: Date, _ tap: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 2) {
+            Color.clear.frame(width: 16, height: 14)
+            ForEach(0..<steps, id: \.self) { s in
+                let isOn = on(s)
+                RoundedRectangle(cornerRadius: 3).fill(isOn ? accent.opacity(0.6) : Color.white.opacity(0.06)).frame(maxWidth: .infinity).frame(height: 15)
+                    .overlay(isOn ? Text(glyph).font(.system(size: 8, weight: .heavy)).foregroundColor(.white.opacity(0.95)) : nil)
+                    .overlay { pulseGlowOverlay(s == liveCol, date, corner: 3) }
+                    .contentShape(Rectangle()).onTapGesture { tap(s) }
+            }
+            Color.clear.frame(width: 30, height: 14)
         }
     }
     // The label row shared by field/heroField: just the label, OR (when `lfo` is set) the label with the ∿ LFO button
@@ -1952,22 +2076,27 @@ struct ProcessorBox: View {
     }
     // The MOD's current CC output right now (mirrors the engine's modSourceUnipolar→modMap so the marker matches audio).
     // SHAPE + STEPS only (beat-derived); other sources return nil (no editor marker). nil when the clock is stopped.
-    private func modLiveCC(date: Date) -> Int? {
-        guard clockPlaying else { return nil }
-        let src = p.modSource ?? .shape
+    // Factored out of modLiveCC (Paul 2026-09-28) so the STEPS lane's own live-sweep can share the IDENTICAL period
+    // math instead of a third hand-derived copy (the engine's modPeriodBeats is the second) — two readers, one formula.
+    private func modPeriodBeatsUI(src: ModSource) -> Double {
         let S = Swift.max(0.0001, gridStepBeats)
         let bar = Double(Snap.cols) * S
         let sn = p.modStepSpanN ?? 0
-        let period: Double
-        if sn > 0 { period = Swift.max(0.03125, spanLadderBeats(sn, S: S, row: bar)) }
-        else if src == .steps {
+        if sn > 0 { return Swift.max(0.03125, spanLadderBeats(sn, S: S, row: bar)) }
+        if src == .steps {
             switch p.modStepSpan ?? .period {
-            case .period: period = Swift.max(0.03125, (p.modRate ?? .r2).periodBeats)
-            case .row:    period = Swift.max(0.03125, bar)
-            case .row2:   period = Swift.max(0.03125, 2 * bar)
-            case .row4:   period = Swift.max(0.03125, 4 * bar)
+            case .period: return Swift.max(0.03125, (p.modRate ?? .r2).periodBeats)
+            case .row:    return Swift.max(0.03125, bar)
+            case .row2:   return Swift.max(0.03125, 2 * bar)
+            case .row4:   return Swift.max(0.03125, 4 * bar)
             }
-        } else { period = (p.modSpan ?? .cell) == .row ? Swift.max(0.03125, bar) : Swift.max(0.03125, (p.modRate ?? .r2).periodBeats) }
+        }
+        return (p.modSpan ?? .cell) == .row ? Swift.max(0.03125, bar) : Swift.max(0.03125, (p.modRate ?? .r2).periodBeats)
+    }
+    private func modLiveCC(date: Date) -> Int? {
+        guard clockPlaying else { return nil }
+        let src = p.modSource ?? .shape
+        let period = modPeriodBeatsUI(src: src)
         guard period > 0 else { return nil }
         let beat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
         let cyc = Int((beat / period).rounded(.down))
