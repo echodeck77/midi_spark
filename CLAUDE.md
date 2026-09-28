@@ -221,6 +221,38 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   grid↔machine order moved. **DEVICE-OWED:** the whole re-arranged layout on a real screen, and that dragging a chain
   box to the NOW-right-side trash still deletes it (the hit-test math is unit-untestable — GridUI has no test-target
   reach, same as every prior playhead/layout fix in this file).**
+- **▶ PLAY FERRIES — M/S collapsed to a single SOLO button (2026-09-29, on `main`; iOS builds; DEVICE eye owed). Paul:
+  replace the mute+solo pair under each play ferry with one "SOLO" button, same size. `roomsPlayFerry`'s `HStack { M;
+  S }` (each half-width) is now one full-width `Text("SOLO")` calling `buildToggleFerrySolo(t)` — same amber-when-
+  soloed styling the S button had, same overall footprint/height (`selH`, matching the selector row above it) the
+  M+S pair used to fill together. **MUTE'S UI IS GONE, its plumbing ISN'T:** `buildToggleFerryMute`/
+  `buildPlayColMute`/`buildFerryAudible`'s mute check, and the ferry-move carry-over that copies a source ferry's
+  mute state onto its target, are all UNTOUCHED — a ferry can still end up muted (an old saved doc, a future code
+  path) and `buildFerryAudible`/the silenced-dimming visual will still honor it correctly; there's just no button
+  left to SET it. Scoped to exactly what was asked (a UI button, not a feature removal) — flagged in case Paul
+  actually meant to drop mute everywhere, not just its ferry-row control.**
+- **▶ EMITTER TOGGLES — zero emitters is now selectable, chase-pulses an invite when reached (2026-09-29, on `main`;
+  iOS builds; DEVICE eye owed). Paul: let the MIDI-OUT A–D toggles go to nothing selected, and when they do, animate
+  all four "in order" to invite a pick. **REACHING ZERO:** `buildToggleBus`/`buildToggleBusAll` (BuildPage.swift)
+  each had a `if buses.isEmpty { buses = [bus] }` guard — "never leave a row with no output" — removed from both, so
+  toggling off the last emitter now actually lands on an empty set instead of snapping back on. That alone wasn't
+  enough: TWO resolvers upstream of the toggle also forced non-empty — `buildRowEmittersResolved` treated an
+  explicitly-empty per-row override the SAME as no override at all (`if let own, !own.isEmpty { return own }; return
+  buildDefaultEmitters` — an empty `own` fell through to the default) and `buildDefaultEmitters` itself collapsed
+  `buildPartEmitters.isEmpty` to `[.a]`. Both changed to respect an explicit empty set as a real value — nil (never
+  touched) is still the only thing that falls through to a default now. Safe precedent already existed: the
+  fresh-cell `buildIONullPending` state already runs the engine at busMask 0 on purpose ("the fresh cell is SILENT
+  until wired") — zero real emitters was already a proven-safe engine state, just not reachable through ordinary
+  toggling before this. Checked every reader of both resolvers first (all either `.contains()` or pass the Set
+  straight into `chainEmitters`/`p.emitters` — no force-unwraps assuming non-empty). **THE INVITE:** a NEW
+  `emitterChaseLevel(date:index:count:)` — a cosine bump per toggle index, phase-offset by its position (0…3) over a
+  ~1.2s lap, cubed to sharpen the peak so ONE toggle reads "lit" at a time as the brightness sweeps A→B→C→D — drives
+  a new `chaseIndex: Int?` param on `buildIOSelectChip`, wired only from `buildEmitterToggles` when the resolved set
+  is empty AND it isn't the separate (already-static) `buildIONullPending` invite. Deliberately a DIFFERENT, animated
+  treatment from that existing static cyan keyline (Paul 2026-09-08 flattened THAT one from a breathe to a steady
+  mark) — this is a distinct state (a normal, previously-wired cell the user emptied out) with its own fresh, explicit
+  ask for motion, not a reversion of that earlier call. The MIDI-IN receiver chip (the OTHER `buildIOSelectChip`
+  caller) is unaffected — `chaseIndex` defaults to nil there.**
 - **▶ SELECT GRID — the play badge left-aligned + vertically centred (2026-09-29, on `main`, `2276dcb`; iOS builds;
   DEVICE eye owed). Paul: match `roomsPlayFerry`'s own icon placement. `buildGridSelCell`'s play badge (added
   2026-09-28) moved from `.frame(alignment: .bottomTrailing)` + a same-order `.padding(4)` — which padded OUTSIDE an
