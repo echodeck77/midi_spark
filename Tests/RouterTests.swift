@@ -5087,6 +5087,22 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 127 }, "SLIDE arms portamento CC65=127")
         XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 0 }, "the non-slide step after clears CC65=0")
     }
+    // §5 SLIDE, DIRECTION-AWARE (Paul 2026-09-28): the SLIDE-side mirror of the TIE lookahead bug above — the
+    // portamento-clear lookBACK always checked array-index `step-1`, already wrong for REVERSE (whose true previous
+    // step is `step+1`, not `step-1`). n=4 REVERSE plays step 3,2,1,0, repeating — slide-tagging step 1 arms CC65
+    // when step 1 strikes; step 0 (REVERSE's true NEXT step after step 1) must clear it. The pre-fix bug would have
+    // checked step 3 for "was the previous step a slide", found none, and left the portamento wrongly armed.
+    func testRiffSlideRespectsReverseDirection() {
+        var c = Machine(machineID: "gold", type: .riff)
+        c.paramsA.riffSteps = 4; c.paramsA.riffRate = .r1_4; c.paramsA.riffWrap = .fold
+        c.paramsA.riffRanks = [1, 2, 3, 4]; c.paramsA.riffDir = .reverse
+        c.paramsA.riffSlide = [false, true, false, false]   // step 1 slides
+        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 62, 64, 66]), beats: 4, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 127 }, "step 1 (slide) arms portamento CC65=127")
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 0 }, "step 0 (REVERSE's true next step) clears CC65=0")
+    }
     // Variable length (Paul 2026-08-26): a stencil longer than 16 steps is not truncated — step 20 of a 24-step stencil
     // still fires (the old min(16,...) cap would fold it to step 4). RIFF across the whole row so it ticks continuously.
     func testRiffVariableLengthBeyond16() {

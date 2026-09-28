@@ -327,6 +327,7 @@ final class Router {
     // `tick` (never `raw`, which resets at every SPAN boundary) so the walk is SPAN-oblivious by construction. Reset
     // on a fresh play, same trigger as DEAL/ALT, never on panic. Fixed storage → no render-path allocation.
     private var riffDrunkPos = [Int](repeating: -1, count: Snap.cells)           // −1 ⇒ not yet started (first strike parks at step 0)
+    private var riffDrunkPrevPos = [Int](repeating: -1, count: Snap.cells)       // the position immediately BEFORE the current tick's move — −1 ⇒ no previous strike yet (SLIDE's own lookback, Paul 2026-09-28)
     private var riffDrunkLastTick = [Int64](repeating: .min, count: Snap.cells)  // last tick this cell's walk advanced on
     // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18) — the looper-in-a-chain. STAGE 1: LOOP · PASSES|STEPS ·
     // ON PLAY|AFTER N · REPLACE|LAYER · CAPTURE ONCE, fed by an UPSTREAM DRIVER (captured in the driver fold). Per-cell
@@ -2477,7 +2478,7 @@ final class Router {
             prevEffColumn = -1
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
-            for i in riffDrunkPos.indices { riffDrunkPos[i] = -1; riffDrunkLastTick[i] = .min }   // RIFF DRUNK: a fresh play restarts the walk (Paul 2026-09-28)
+            for i in riffDrunkPos.indices { riffDrunkPos[i] = -1; riffDrunkPrevPos[i] = -1; riffDrunkLastTick[i] = .min }   // RIFF DRUNK: a fresh play restarts the walk (Paul 2026-09-28)
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
@@ -4833,8 +4834,9 @@ final class Router {
     private func riffDrunkStep(ci: Int, tick: Int64, steps: Int, bias: Double, seed: UInt64) -> Int {
         guard ci >= 0, ci < riffDrunkPos.count else { return 0 }
         if previewMode { return riffDrunkPos[ci] < 0 ? 0 : min(steps - 1, riffDrunkPos[ci]) }
-        if riffDrunkPos[ci] < 0 { riffDrunkPos[ci] = 0; riffDrunkLastTick[ci] = tick; return 0 }
+        if riffDrunkPos[ci] < 0 { riffDrunkPos[ci] = 0; riffDrunkPrevPos[ci] = -1; riffDrunkLastTick[ci] = tick; return 0 }
         if tick != riffDrunkLastTick[ci] {
+            riffDrunkPrevPos[ci] = riffDrunkPos[ci]   // SLIDE's lookback (Paul 2026-09-28): where the walk was before THIS move
             riffDrunkLastTick[ci] = tick
             var np = riffDrunkPos[ci] + riffDrunkDelta(tick: tick, bias: bias, seed: seed)
             if np < 0 { np = -np }
@@ -4871,8 +4873,9 @@ final class Router {
             // the one stateful mode (keyed on `tick`, NOT `raw` — SPAN-oblivious by construction, see riffDrunkPos);
             // every other mode is `riffStepAt`, the SAME pure formula the TIE lookahead below calls for `raw+k` —
             // one formula, so the current step and "what plays next" can never disagree.
+            let riffCi = effColumn * Snap.rows + r   // this cell's grid index — shared by the DRUNK step lookup below and its SLIDE lookback
             let step: Int = p.riffDir == .drunk
-                ? riffDrunkStep(ci: effColumn * Snap.rows + r, tick: tick, steps: steps, bias: p.riffDirBias, seed: p.riffDirSeed)
+                ? riffDrunkStep(ci: riffCi, tick: tick, steps: steps, bias: p.riffDirBias, seed: p.riffDirSeed)
                 : riffStepAt(p.riffDir, raw: raw, steps: steps, seed: p.riffDirSeed)
             if step < p.riffTie.count && p.riffTie[step] { return }   // §5 TIE — no new attack; the striking step's off was EXTENDED to cover this step (a held ⌒)
             // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask bits) — a chord that follows the held chord;
@@ -4906,8 +4909,15 @@ final class Router {
                 let sbus = bm.trailingZeroBitCount
                 if sbus < 4 {
                     let sch = (busChannels[sbus] &- 1) & 15
-                    let prevStep = (((step - 1) % steps) + steps) % steps
-                    let prevSlide = prevStep < p.riffSlide.count && p.riffSlide[prevStep]
+                    // DIRECTION-AWARE (Paul 2026-09-28, the TIE-lookahead fix's mirror image): "the PREVIOUS step" means
+                    // whatever this RIFF actually played immediately before — `step-1` only for FORWARD. Same fix shape
+                    // as TIE: `riffStepAt(raw-1)` is the identical pure formula one tick EARLIER, so it agrees with the
+                    // current step by construction. DRUNK can't be algebraically un-walked (a reflected random walk
+                    // isn't invertible from its current position alone), so its previous position is simply REMEMBERED
+                    // (riffDrunkPrevPos, set in riffDrunkStep) rather than recomputed; −1 ⇒ this is the walk's very
+                    // first strike, so there's nothing to have slid from.
+                    let prevStep = p.riffDir == .drunk ? riffDrunkPrevPos[riffCi] : riffStepAt(p.riffDir, raw: raw - 1, steps: steps, seed: p.riffDirSeed)
+                    let prevSlide = prevStep >= 0 && prevStep < p.riffSlide.count && p.riffSlide[prevStep]
                     if isSlide { out?.emit(sampleTime: onTime, cable: UInt8(sbus + 1), 0xB0 | sch, 65, 127) }
                     else if prevSlide { out?.emit(sampleTime: onTime, cable: UInt8(sbus + 1), 0xB0 | sch, 65, 0) }
                 }
