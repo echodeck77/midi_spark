@@ -4631,34 +4631,35 @@ extension DiagView {
         let inGrace = door >= 0 && door < buildInGrace.count && buildInGrace[door]
         let sticky = (door >= 0 && door < buildInSticky.count) ? buildInSticky[door] : []
         let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
-        // `proc` (is MIDI reaching THIS instance) varies PER COLUMN while a part plays, so drive it off a TimelineView on the
-        // part's own beat clock (buildProcessing(at:)) — the 4 Hz poll alone lagged/aliased at speed (Paul 2026-09-13).
-        let dynamic = buildDisplayVoice == .part && d.effectivePlaying && (buildStagingPlaying || buildActiveFerryPlaying)   // HOST OR FREE-RUN (Paul 2026-09-28 fix)
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !dynamic)) { tl in
-            let proc = buildProcessing(at: tl.date)
-            let outLabel = buildDisplayVoice == .chain ? "this chain" : (buildDisplayVoice == .none ? "press ▶ to hear it" : (proc ? "this cell — live" : "part — not this cell"))
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    buildStripLabel("IN")
-                    if !held.isEmpty {
-                        buildKeyboardStrip(held, hue: hue).opacity(proc ? 1 : 0.4)   // BRIGHT when MIDI reaches this instance; GRAYED (notes still shown) when the playhead isn't on this rung's column (Paul 2026-09-12)
-                    } else if inGrace {
-                        buildKeyboardStrip(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
-                    } else {
-                        buildKeyboardStrip([], hue: hue).opacity(0.25)             // truly empty — a blank keyboard, no teach text (Paul 2026-09-13)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }   // tap → the STAGE EYE (§4)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        buildStripLabel("OUT")
-                        Text(outLabel).font(.system(size: 9, weight: .heavy, design: .monospaced))   // §2: what's driving OUT right now
-                            .foregroundColor(proc ? hue.opacity(0.9) : buildDim).lineLimit(1)
-                    }
-                    buildKeyboardStrip(buildOutHeld, hue: hue).opacity(proc ? 1 : 0.4)   // §2: dim when the OUT isn't this rung (Paul 2026-09-28: a piano, not a roll)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }
-            }
+        // `proc` (is MIDI reaching THIS instance) reads straight off the ~30fps poll (buildOutProcessing, kept in lockstep
+        // with buildOutHeld — see the meterTimer .onReceive) instead of its own TimelineView (Paul 2026-09-29). A TimelineView
+        // here used to pause whenever `buildDisplayVoice != .part` or nothing was effectively playing — a real spot for the
+        // whole strip to wedge across a host transport stop/restart, since a paused timeline's own schedule is what would need
+        // to notice the restart. A plain @State write always forces a re-render, so this can't get stuck that way; it also
+        // now updates just as fast for CHAIN audition, which the old `dynamic` gate (part-only) never covered.
+        let proc = buildOutProcessing
+        let outLabel = buildDisplayVoice == .chain ? "this chain" : (buildDisplayVoice == .none ? "press ▶ to hear it" : (proc ? "this cell — live" : "part — not this cell"))
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                buildStripLabel("IN")
+                if !held.isEmpty {
+                    buildKeyboardStrip(held, hue: hue).opacity(proc ? 1 : 0.4)   // BRIGHT when MIDI reaches this instance; GRAYED (notes still shown) when the playhead isn't on this rung's column (Paul 2026-09-12)
+                } else if inGrace {
+                    buildKeyboardStrip(sticky, hue: hue).opacity(0.4)          // §1: recent input (within a pass) → sticky, dimmed; NO flashing text
+                } else {
+                    buildKeyboardStrip([], hue: hue).opacity(0.25)             // truly empty — a blank keyboard, no teach text (Paul 2026-09-13)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }   // tap → the STAGE EYE (§4)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    buildStripLabel("OUT")
+                    Text(outLabel).font(.system(size: 9, weight: .heavy, design: .monospaced))   // §2: what's driving OUT right now
+                        .foregroundColor(proc ? hue.opacity(0.9) : buildDim).lineLimit(1)
+                }
+                buildKeyboardStrip(buildOutHeld, hue: hue).opacity(proc ? 1 : 0.4)   // §2: dim when the OUT isn't this rung (Paul 2026-09-28: a piano, not a roll)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle()).onTapGesture { buildOpenStageEye() }
         }
     }
     private func buildStripLabel(_ t: String) -> some View {

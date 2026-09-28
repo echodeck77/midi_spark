@@ -440,6 +440,7 @@ struct DiagView: View {
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     @State var buildOutRoll: [OutMark] = []                   // Stage Eye OUTPUT lane only now (Paul 2026-09-28: the truth strips' own OUT roll became a piano)
     @State var buildOutHeld: [Int] = []                       // §1 TRUTH STRIPS: the focused processor instance's currently-SOUNDING output pitches (editor-open only)
+    @State var buildOutProcessing: Bool = false                // §1 TRUTH STRIPS: is MIDI reaching this instance right now (Paul 2026-09-29) — polled alongside buildOutHeld so the two can never disagree; see buildTruthStrips
     @State var buildRiffDrunkPos: Int = -1                     // RIFF's DRUNK walk position for the focused cell (editor-open only); −1 = unknown/not this mode (Paul 2026-09-28)
     @State var buildFocusNotes: [BuildFocusNote] = []         // the focused machine cell's REAL emitted notes (+ beats) — drives the real chain-flow comets (Paul 2026-08-31)
     @State var buildStageEye = false                          // §4 STAGE EYE: the expanded 3-lane (input · mechanism · output) view is open
@@ -814,6 +815,29 @@ struct DiagView: View {
             for i in 0..<4 where i < act.events.count && act.events[i] > 0 { meters.emitter(i, peak: Double(act.peak[i]) / 127.0) }   // → the @State-held class; DOES NOT re-run the body
             let rin = au.pollReceiverActivity()
             for i in 0..<4 where i < rin.events.count && rin.events[i] > 0 { meters.receiver(i, peak: Double(rin.peak[i]) / 127.0) }
+            // §1 TRUTH STRIPS — OUT piano (Paul 2026-09-29): moved off the 4 Hz diagnostic poll onto this ~30fps
+            // timer, same reason as the peak meters above — the held-note snapshot was visibly laggy at 4 Hz. Also
+            // now the ONE source for "is MIDI reaching this instance" (buildOutProcessing) — buildTruthStrips used to
+            // recompute that itself in a paused-gated TimelineView (paused whenever the transport wasn't driving a
+            // part), which could only refresh on its OWN schedule; a stop/restart cycle left it a plausible spot to
+            // wedge (this fixes Paul's "piano stops updating after stop/restart" report by removing that dependency
+            // — plain @State writes always force a re-render, a TimelineView's own paused schedule doesn't). Kept
+            // OFF the render thread (a plain voices[] scan / array read, like cellSoundingVelSnapshot).
+            let editorOpen = buildEditSlot != nil
+            if editorOpen {
+                let now = Date()
+                let proc = buildProcessing(at: now)
+                if proc != buildOutProcessing { buildOutProcessing = proc }
+                let idx = buildOutputCellIndex(at: now)
+                let held = idx >= 0 ? au.pollCellSoundingNotes(idx).map { Int($0) } : []
+                if held != buildOutHeld { buildOutHeld = held }
+                let drunk = idx >= 0 ? au.pollRiffDrunkPos(idx) : -1
+                if drunk != buildRiffDrunkPos { buildRiffDrunkPos = drunk }
+            } else {
+                if buildOutProcessing { buildOutProcessing = false }
+                if !buildOutHeld.isEmpty { buildOutHeld = [] }
+                if buildRiffDrunkPos != -1 { buildRiffDrunkPos = -1 }
+            }
         }
         .onReceive(timer) { _ in
             guard uiAppeared, let au else { return }   // CR-17: don't drain the render→main feeds while the view is hidden/backgrounded (perf + narrows CR-1's race window). buildPersistTick resumes on re-appear — a load restores then.
@@ -1023,22 +1047,8 @@ struct DiagView: View {
                 let out = buildOutRoll.filter { mnow.timeIntervalSince($0.born) < 2.5 }   // last notes drift out + gray (never a different row's live output)
                 if out != buildOutRoll { buildOutRoll = out }
             } else if !buildOutRoll.isEmpty { buildOutRoll = [] }
-            // §1 TRUTH STRIPS — OUT piano (Paul 2026-09-28: replaces the mini-roll above): the currently-SOUNDING
-            // pitches for the focused instance's own cell — a genuine held snapshot (on until off, from the live
-            // voice pool), not an onset trail. buildOutputCellIndex mirrors buildProcessing's own cell resolution.
-            if editorOpen {
-                let idx = buildOutputCellIndex(at: mnow)
-                let held = idx >= 0 ? au.pollCellSoundingNotes(idx).map { Int($0) } : []
-                if held != buildOutHeld { buildOutHeld = held }
-                // RIFF DRUNK sweep (Paul 2026-09-28): genuine per-cell render-thread state with no closed form —
-                // polled at this same cadence/index rather than extrapolated, so it jumps between columns instead
-                // of sweeping (the honest ceiling for this one mode, not a shortcut).
-                let drunk = idx >= 0 ? au.pollRiffDrunkPos(idx) : -1
-                if drunk != buildRiffDrunkPos { buildRiffDrunkPos = drunk }
-            } else {
-                if !buildOutHeld.isEmpty { buildOutHeld = [] }
-                if buildRiffDrunkPos != -1 { buildRiffDrunkPos = -1 }
-            }
+            // §1 TRUTH STRIPS — OUT piano: MOVED to the ~30fps meterTimer above (Paul 2026-09-29, latency + the
+            // stop/restart freeze) — was polled here at 4 Hz.
             // §4 STAGE EYE — INPUT roll: while the eye is open, accumulate the watched door's note ONSETS (diff the held set)
             // so the top lane scrolls what arrives. recvHeldNotes is already updated above (editor open ⊇ eye open).
             if buildStageEye, buildStageEyeDoor >= 0, buildStageEyeDoor < recvHeldNotes.count {
