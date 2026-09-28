@@ -5557,6 +5557,16 @@ final class Router {
         // HEAD slot; a full serial preview of the tail is a follow-up.)
         var treat = machine; treat.a = cell.proc
 
+        // TAG the audition's voices with the REAL cell being auditioned (was never set here at all — every audition
+        // voice inherited whatever currentCellIndex/currentMachineIndex a PRIOR real scene render last left behind,
+        // or -1 on a fresh session). SEAL comet / cellSoundVel / cellNoteHead / cellSoundingNotes all key off these,
+        // so an audition was invisible — or misattributed to a stale cell — to every one of them. Paul 2026-09-28
+        // ("the OUT piano shows nothing"): traced to this, not the piano itself. Mirrors the save/set/defer-restore
+        // idiom emitColumnRatchetPattern already uses for the same "attribute to a specific cell" need.
+        let savedCI = currentMachineIndex, savedCell = currentCellIndex, savedAlt = currentAlt
+        defer { currentMachineIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
+        currentMachineIndex = Int16(ci); currentCellIndex = target; currentAlt = cell.alt
+
         let beatsPerSample = tempo / 60.0 / sampleRate
         let auditionBeat = Double(windowStart - auditionStartSample) * beatsPerSample   // free phase clock
         let windowBeats = Double(frameCount) * beatsPerSample

@@ -2510,7 +2510,7 @@ extension DiagView {
     // ALONG THE LENGTH of the ACTIVE CELL (the current column's selected rung) — a short line crossing that one cell's width
     // over the column's step, jumping to the next column's active cell as the sequencer advances. One TimelineView (perf).
     @ViewBuilder private func roomsPartPlayhead(colW: CGFloat, gap: CGFloat, rowH: CGFloat) -> some View {
-        if d.playing && (buildStagingPlaying || buildActiveFerryPlaying) {   // follow the active ferry's play-layer line (Paul 2026-09-08), not only the old staging voice
+        if d.effectivePlaying && (buildStagingPlaying || buildActiveFerryPlaying) {   // follow the active ferry's play-layer line (Paul 2026-09-08), not only the old staging voice; HOST OR FREE-RUN (Paul 2026-09-28 fix — was host-only, froze this sweep during a free-run-only ferry)
             let sb = buildPartRate?.beats ?? stepBeats
             // PART LOOP SELECTION (Paul 2026-09-26): the SAME plan the audio uses (BuildSceneLogic.loopColumnPlan) — when
             // a loop is selected the sweep covers only that many LOGICAL steps, and each logical step maps back to its
@@ -2545,7 +2545,7 @@ extension DiagView {
     // processor-card header — shown ONLY while THAT row is the active rung of the current column (i.e. that row of THIS part
     // is playing). Same clock/column math as roomsPartPlayhead; `fract` is the progress along the current column = one step.
     @ViewBuilder private func roomsCardRowPlayhead(_ n: Int, w: CGFloat, h: CGFloat) -> some View {
-        if d.playing && (buildStagingPlaying || buildActiveFerryPlaying) {
+        if d.effectivePlaying && (buildStagingPlaying || buildActiveFerryPlaying) {   // HOST OR FREE-RUN (Paul 2026-09-28 fix, see roomsPartPlayhead)
             let sb = buildPartRate?.beats ?? stepBeats
             let plan = BuildSceneLogic.loopColumnPlan(buildPartLoopCols, length: buildPartCols)   // PART LOOP SELECTION (Paul 2026-09-26) — same plan as roomsPartPlayhead
             let cols = plan.count
@@ -4583,7 +4583,7 @@ extension DiagView {
     // part playhead (roomsPartPlayhead) uses. NOT `d.effColumn`: that's the SCENE column, which sits stuck for a ferry-played
     // part (the part advances on its own rate/width on the play layer), so the old gate froze on one rung. -1 when not playing.
     func buildPartColumnNow(at now: Date) -> Int {
-        guard d.playing && (buildStagingPlaying || buildActiveFerryPlaying) else { return -1 }
+        guard d.effectivePlaying && (buildStagingPlaying || buildActiveFerryPlaying) else { return -1 }   // HOST OR FREE-RUN (Paul 2026-09-28 fix — was host-only; a free-run-only ferry made every reader of this function think nothing was playing, incl. the truth strips' OUT piano)
         let sb = buildPartRate?.beats ?? stepBeats
         let cols = buildPartCols
         guard sb > 0, cols > 0 else { return -1 }
@@ -4629,7 +4629,7 @@ extension DiagView {
         let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
         // `proc` (is MIDI reaching THIS instance) varies PER COLUMN while a part plays, so drive it off a TimelineView on the
         // part's own beat clock (buildProcessing(at:)) — the 4 Hz poll alone lagged/aliased at speed (Paul 2026-09-13).
-        let dynamic = buildDisplayVoice == .part && d.playing && (buildStagingPlaying || buildActiveFerryPlaying)
+        let dynamic = buildDisplayVoice == .part && d.effectivePlaying && (buildStagingPlaying || buildActiveFerryPlaying)   // HOST OR FREE-RUN (Paul 2026-09-28 fix)
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !dynamic)) { tl in
             let proc = buildProcessing(at: tl.date)
             let outLabel = buildDisplayVoice == .chain ? "this chain" : (buildDisplayVoice == .none ? "press ▶ to hear it" : (proc ? "this cell — live" : "part — not this cell"))
