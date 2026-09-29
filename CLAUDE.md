@@ -200,7 +200,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
 - **▶ RECEIVER STRIP — the top label now shows LIVE notes received, not the channel filter (2026-09-29, on `main`,
-  `<PENDING>`; iOS builds; DEVICE eye owed). Paul: change the receiver toggles' labels to show the notes being
+  `92ed1c8`; iOS builds; DEVICE eye owed). Paul: change the receiver toggles' labels to show the notes being
   received in realtime, but leave whichever one is set to KEY still showing the selected key. `buildReceiverControl`'s
   TOP button (the ENABLE toggle, `buildRecProminent`) previously showed `recChanLabel` — OMNI/CH n/CH ×k, the channel
   filter. Replaced with `recLiveLabel(i, rec)`: for a door in SCALE mode (the standing "key" reference doors like the
