@@ -2923,7 +2923,12 @@ extension DiagView {
         let letter = ["A", "B", "C", "D"][i]
         let key: String? = i < receivers.count ? receivers[i].scaleLabel : nil   // "A MIXO" (SCALE), else nil
         let big = key ?? liveNoteClassLabel(i) ?? "no input"
-        buildIOSelectChip(top: letter, letter: big, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
+        // SMALLER TEXT (Paul 2026-09-29): the note-name/key/"no input" readout was rendering at the chip's full 15pt —
+        // fine for a single letter, but a short live-note string ("c e g") rarely needs minimumScaleFactor's shrink to
+        // avoid clipping, so it was rendering near that full size and reading as too dominant. `textSize:` overrides
+        // ONLY this call (the receiver toggles); buildEmitterToggles below keeps the default 15 — Paul has scoped this
+        // note-display feature to receiver chips specifically before ("not the separate MIDI-OUT emitter toggles").
+        buildIOSelectChip(top: letter, letter: big, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, textSize: 11, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
     }
     // A door's currently-held notes as a live pitch-class label (see the shared `noteClassLabel` in GridUI.swift —
     // "c e g", lowercase, no octave). Reuses recvHeldNotes, the same live per-door feed the config-sheet REPLAY
@@ -2965,9 +2970,11 @@ extension DiagView {
     // The shared two-line I/O chip: a small top label over a big A/B/C/D, styled like the centre column's emitter A–D
     // chips (cyan-when-on, muted idle, height 48). Used by BOTH the MIDI-IN receiver selector and the MIDI-OUT
     // emitter toggles so they read identically. (Paul 2026-08-18)
-    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, pulse: Bool = false, chaseIndex: Int? = nil, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
+    // `textSize` (Paul 2026-09-29): default 15 keeps buildEmitterToggles' plain bus letter unchanged; buildReceiverSelectChip
+    // passes 11 for its note-name/key/"no input" readout, which read too large at the full size (see its own call site).
+    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, pulse: Bool = false, chaseIndex: Int? = nil, textSize: CGFloat = 15, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
         // Paul 2026-08-30: HALF height (48→24) + only the LARGER line (the letter) — the small "MIDI IN"/"MIDI OUT" caption dropped.
-        Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
+        Text(letter).font(.system(size: textSize, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         .foregroundColor(on ? Color.black : buildDim)
         .frame(maxWidth: .infinity).frame(height: 36)                        // +50% over the halved 24 (Paul 2026-08-30)
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))   // ON = the accent (emitter signature machine for MIDI OUT); idle mutes

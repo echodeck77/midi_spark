@@ -124,7 +124,10 @@ func receiverGrey(_ i: Int) -> Color { receiverGreys[max(0, min(3, i))] }
 // aren't rows) — pulling them apart risked changing gesture behaviour on the two already-shipped, heavily-used
 // toggles for no real benefit here. Keep the two visually in sync by hand if the shared look ever changes.
 @ViewBuilder func ioChip(_ letter: String, on: Bool, accent: Color? = nil, action: @escaping () -> Void) -> some View {
-    Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)
+    // 11pt, not 15 (Paul 2026-09-29): matches buildIOSelectChip's own receiver-chip textSize — kept in sync by hand per
+    // this function's own doc comment above, since this chip exists solely to show the SAME note-name/key/"no input"
+    // readout on ECHO/CHORDS/AVOID's door pickers.
+    Text(letter).font(.system(size: 11, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)
         .foregroundColor(on ? Color.black : buildDim)
         .frame(maxWidth: .infinity).frame(height: 36)
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))
