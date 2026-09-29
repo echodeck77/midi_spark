@@ -4373,7 +4373,7 @@ extension DiagView {
                 buildReceiverFader(i, letter: spanner != nil ? "" : letter)     // velocity INDICATOR — draggable to override input velocity (spring-back on release)
             }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                                // EQUAL rows, top → bottom
-                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, machine: receiverGrey(i)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE) — the receiver's SIGNATURE GREY (Paul 2026-08-30)
+                buildRecProminent(recLiveLabel(i, rec), on: rec.inputEnabledResolved, machine: receiverGrey(i)) { toggleReceiverEnabled(i) }   // TOP: live notes received (or the key, for a SCALE door) — ENABLE toggle (Paul 2026-08-30, label 2026-09-29)
                 buildReceiverLatchButton(i, rec)                                    // LATCH — SET (no mode) / mode label / "LAST N" · pulses when ready · solid when armed
                 buildOctRow(oct: i < receiverOctave.count ? receiverOctave[i] : 0, onDown: { nudgeReceiverOctave(i, -1) }, onUp: { nudgeReceiverOctave(i, 1) })   // OCT −/+ (between LATCH and S/M)
                 HStack(spacing: 3) {                                            // SOLO (left) · MUTE (right)
@@ -4546,15 +4546,19 @@ extension DiagView {
             }
         }
     }
-    // The channel-button caption ALWAYS reflects the chosen channel(s) (Paul 2026-08-23): reads the multi-channel MASK
-    // (the source of truth since 2026-08-21), not the legacy single `channel` field. OMNI = all · CH n = one · CH ×k =
-    // a subset · OFF = none.
-    private func recChanLabel(_ rec: Receiver) -> String {
-        let mask = rec.channelMaskResolved
-        if mask == 0xFFFF { return "OMNI" }
-        if mask == 0 { return "OFF" }
-        let chans = (0..<16).filter { mask & (UInt16(1) << UInt16($0)) != 0 }
-        return chans.count == 1 ? "CH \(chans[0] + 1)" : "CH ×\(chans.count)"
+    // The TOP receiver label (Paul 2026-09-29): shows the LIVE notes this door is currently receiving, e.g. "C4 E4
+    // G4" — except a door in SCALE mode, which shows the selected KEY instead ("D MIXOLYDIAN") — a scale door's
+    // "held notes" are its own resolved pool (see recvHeldNotes' AVOID-piano comment: "armed/scale doors report
+    // their pool"), not a live performance, so the key name is the more useful real-time-ish readout for it.
+    // Channel-filter info (the old OMNI/CH n label this replaced) is still reachable via the spanner → MIXER sheet.
+    private func recLiveLabel(_ i: Int, _ rec: Receiver) -> String {
+        if rec.doorModeResolved == .scale {
+            let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+            return "\(names[rec.scaleRootResolved]) \(rec.scaleTypeResolved.label)"
+        }
+        let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []
+        guard !held.isEmpty else { return "—" }
+        return held.sorted().map(midiNoteName).joined(separator: " ")
     }
     // A small square-ish Mute/Solo toggle.
     @ViewBuilder private func buildRecMini(_ label: String, on: Bool, machine: Color, action: @escaping () -> Void) -> some View {

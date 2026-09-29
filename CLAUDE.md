@@ -199,6 +199,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RECEIVER STRIP — the top label now shows LIVE notes received, not the channel filter (2026-09-29, on `main`,
+  `<PENDING>`; iOS builds; DEVICE eye owed). Paul: change the receiver toggles' labels to show the notes being
+  received in realtime, but leave whichever one is set to KEY still showing the selected key. `buildReceiverControl`'s
+  TOP button (the ENABLE toggle, `buildRecProminent`) previously showed `recChanLabel` — OMNI/CH n/CH ×k, the channel
+  filter. Replaced with `recLiveLabel(i, rec)`: for a door in SCALE mode (the standing "key" reference doors like the
+  D→SCALE door use throughout this rig) it shows the selected key ("D MIXOLYDIAN", the exact `\(names[root])
+  \(type.label)` format the scale pop-up's own ACTIVE summary already uses, for consistency); every other door shows
+  its currently-held/received pitches live, e.g. "C4 E4 G4" — reusing `recvHeldNotes` (`AudioUnitViewController.
+  swift`), the SAME already-live per-door note feed that already drives the config-sheet REPLAY roll, the IN-piano
+  truth-strip, and the AVOID piano — no new polling, no new engine plumbing, just a new reader of state that was
+  already being kept current every render. Empty (nothing held) shows a plain "—" rather than going blank. Checked
+  why SCALE needed the special case rather than falling through: `recvHeldNotes` for a scale door already reports
+  ITS OWN resolved pool (per the AVOID-piano comment on that field: "armed/scale doors report their pool"), not a
+  live performance — showing that as "notes received" would be misleading (a wall of 7+ pool notes, not what's
+  actually playing), so the key name is the more honest realtime-ish readout for that one door type. Chose the check
+  as `rec.doorModeResolved == .scale` (not hardcoded to a specific door letter) so it naturally covers however many
+  doors are actually configured as scale references, not just an assumed one. Channel-filter info isn't lost, just
+  relocated — it's still reachable via the spanner → MIXER sheet, same as before. Removed a now-stale doc-comment
+  that described the old channel-caption behaviour and was left orphaned above the new function. UI-only (BuildPage.
+  swift), no test-target reach, matching every prior GridUI/BuildPage-only fix in this file. **DEVICE-OWED:** legibility
+  of a real chord's worth of note names at this button's actual size (`.minimumScaleFactor(0.6)` auto-shrinks, same
+  as every other label on this button, but untested against 4+ simultaneous notes); confirm a CHORD-mode door (left
+  on the live-notes branch, not special-cased like SCALE — Paul only named "key") reads sensibly showing its own
+  resolved chord rather than looking broken.**
 - **▶ EUCLID MASK CHORD "not sounding" — INVESTIGATED, NOT REPRODUCIBLE off-device; +2 permanent regression tests
   (2026-09-29, on `main`, `10863ef`; macOS 1149 green incl. 2 new). Paul: a Euclid mask after an arp, GAPS=CHORD,
   7-of-8, wasn't sounding, "fails on every setting" — then gave the exact steps: the chain was ARP→VELOCITY, he added
