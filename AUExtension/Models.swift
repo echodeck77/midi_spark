@@ -316,6 +316,8 @@ struct MachineParams: Codable, Equatable {
     var arpOctDown: Bool? = false  // OCT DIRECTION (Paul 2026-08-22): laps descend the octaves (top octave first) — "up the chord, down the octaves". Orthogonal to PATTERN (which orders WITHIN a lap).
     var arpRandomAnchor: Int? = 0  // RANDOM ANCHOR (Paul 2026-08-22): 0 OFF · 1 LOW-first · 2 HIGH-first — when PATTERN=RANDOM, each cycle (a full pool×oct traversal) OPENS on the lowest/highest note, the rest shuffle (seeded).
     var arpSeed: Int? = nil        // RANDOM ONCE seed (Paul 2026-09-16): additive-Optional; PERSISTED with the machine so its fixed shuffled order survives save/load. Rolled fresh each time RANDOM ONCE is picked; unused by every other pattern.
+    var arpVelScale: Double? = 1   // ARP VELOCITY (Paul 2026-09-30): a flat multiplier on the picked note's own velocity, 0…2 (1 = unchanged) — the arp's own overall level, distinct from the standalone VELOCITY processor's per-step lane.
+    var arpVelTilt: Double? = 0    // ARP VELOCITY TILT −1…1 (0 = flat): favours the TOP of the held pool (+) or the BOTTOM (−), by the note's ascending-pool rank — the same convention as strum's velTilt / chance's chanceTilt (Derivations.strumVelocity, reused verbatim).
     // EUCLID MASK, standalone processor (Paul 2026-09-27): the SAME Bjorklund K-of-N idea once embedded directly on
     // the arp (now removed, Paul 2026-09-28 — fully superseded by this), pulled out as its own downstream FOLD stage
     // (isModifierFoldable) so it gates ANY driver's notes, not just ARP's own — reuses euclidMaskHit/euclidMaskTieRun

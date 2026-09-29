@@ -5067,6 +5067,8 @@ final class Router {
         var arpBeats = effectiveRateBeats(machine)
         let gate = effectiveGate(machine)
         let octaves = effectiveOctaves(machine)
+        let velScale = effectiveArpVelScale(machine)   // ARP VELOCITY (Paul 2026-09-30): a flat multiplier, 0…2 (1 = unchanged)
+        let velTilt = effectiveArpVelTilt(machine)     // ARP VELOCITY TILT −1…1: favours top (+) / bottom (−) of the pool
         if arpBeats <= 0 { arpBeats = 0.25 }
         // SPAN (Paul 2026-09-13, the universal re-anchor model — replaces FIT): FREE (spanN 0) runs the global grid
         // (byte-identical to before); spanN > 0 re-syncs the pattern to index 0 every N columns. Pure (derived from the
@@ -5104,13 +5106,15 @@ final class Router {
                 composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: machine.a.patternIndex,
                                    pool: chainScratch, filter: 0, cableMask: 0b1111,
-                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed)
+                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed,
+                                   velScale: velScale, velTilt: velTilt)
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             } else {
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves,
                                    pattern: machine.a.patternIndex, pool: pool, for: cell,
-                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed)   // §7 source filter
+                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed,   // §7 source filter
+                                   velScale: velScale, velTilt: velTilt)
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             }

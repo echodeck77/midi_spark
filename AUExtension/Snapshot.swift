@@ -109,6 +109,8 @@ struct SnapParams {
     var arpOctDown: Bool = false     // OCT DIRECTION: laps descend the octaves (top octave first)
     var arpRandomAnchor: Int = 0     // RANDOM ANCHOR: 0 off · 1 low-first · 2 high-first (RANDOM pattern)
     var arpSeed: UInt64 = 0          // RANDOM ONCE seed (Paul 2026-09-16): the persisted seed for the fixed shuffled order; 0 = unset (still deterministic)
+    var arpVelScale: Double = 1      // ARP velocity SCALE 0…2 (1 = unchanged) — a flat multiplier on the picked note's own velocity
+    var arpVelTilt: Double = 0       // ARP velocity TILT −1…1 (favours top notes + / bottom −), by ascending-pool rank
     // EUCLID MASK, standalone processor (Paul 2026-09-27): the resolved shape for the downstream-fold processor type
     // (§ isModifierFoldable) — gates ANY driver, not just ARP (the arp's own embedded version is removed, Paul
     // 2026-09-28). No WALK field: WAIT was dropped (a downstream fold can't reach the driver's own phase-index).
@@ -348,6 +350,7 @@ enum AutoParamField: Equatable {
     case euclidPulses, euclidSteps, euclidRot, glideRange, modMin, modMax
     case lenShort, lenLong, lenRotate, weaveSpan, weaveEuclidSteps
     case maskK, maskRotate, maskChordGate, maskChordOct   // EUCLID MASK (standalone processor): HITS density · ROTATE · the CHORD-gap stab's LENGTH · OCTAVE — LFO targets (Paul 2026-09-28, restoring parity with the removed arp-embedded mask's own LFO targets)
+    case arpVelScale, arpVelTilt   // ARP VELOCITY · VELOCITY TILT (Paul 2026-09-30) — plain scalars, LFO-only targets (no render-time AUTO-lane UI wired for these two yet, same as most of this list)
     /// nil ⇒ this param is NOT render-time automatable (nested/complex) → its lane stays step-bake only.
     init?(key: String) {
         switch key {
@@ -361,6 +364,7 @@ enum AutoParamField: Equatable {
         case "lenRotate": self = .lenRotate;  case "weaveSpan": self = .weaveSpan; case "weaveEuclidSteps": self = .weaveEuclidSteps
         case "maskK": self = .maskK;          case "maskRotate": self = .maskRotate
         case "maskChordGate": self = .maskChordGate; case "maskChordOct": self = .maskChordOct
+        case "arpVelScale": self = .arpVelScale; case "arpVelTilt": self = .arpVelTilt
         default: return nil
         }
     }
@@ -405,6 +409,8 @@ extension SnapParams {
         case .maskRotate:       s.maskRotate = ci(0, 15)
         case .maskChordGate:    s.maskChordGate = cd(0.05, 1)
         case .maskChordOct:     s.maskChordOct = ci(-2, 2)
+        case .arpVelScale:      s.arpVelScale = cd(0, 2)
+        case .arpVelTilt:       s.arpVelTilt = cd(-1, 1)
         }
         return s
     }
@@ -422,6 +428,7 @@ extension SnapParams {
         case .lenRotate: return Double(lenRotate); case .weaveSpan: return Double(weaveSpan); case .weaveEuclidSteps: return Double(weaveEuclidSteps)
         case .maskK: return Double(maskK); case .maskRotate: return Double(maskRotate)
         case .maskChordGate: return maskChordGate; case .maskChordOct: return Double(maskChordOct)
+        case .arpVelScale: return arpVelScale; case .arpVelTilt: return arpVelTilt
         }
     }
 }
@@ -440,6 +447,7 @@ extension AutoParamField {
         case .lenRotate: return (0, 7); case .weaveSpan: return (1, 8);   case .weaveEuclidSteps: return (2, 16)
         case .maskK: return (1, 16); case .maskRotate: return (0, 15)
         case .maskChordGate: return (0.05, 1); case .maskChordOct: return (-2, 2)
+        case .arpVelScale: return (0, 2); case .arpVelTilt: return (-1, 1)
         }
     }
 }
@@ -746,6 +754,11 @@ func effectiveRateBeats(_ c: SnapMachine) -> Double {
 
 @inline(__always)
 func effectiveGate(_ c: SnapMachine) -> Double { c.a.gate }
+
+@inline(__always)
+func effectiveArpVelScale(_ c: SnapMachine) -> Double { c.a.arpVelScale }
+@inline(__always)
+func effectiveArpVelTilt(_ c: SnapMachine) -> Double { c.a.arpVelTilt }
 
 @inline(__always)
 func effectiveOctaves(_ c: SnapMachine) -> Int { max(1, min(4, Int(c.a.octaves))) }

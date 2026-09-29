@@ -562,6 +562,8 @@ enum SnapshotBuilder {
         if let v = p.arpOctDown { out.arpOctDown = v }
         if let v = p.arpRandomAnchor { out.arpRandomAnchor = max(0, min(2, v)) }
         if let v = p.arpSeed { out.arpSeed = UInt64(bitPattern: Int64(v)) }   // RANDOM ONCE persisted seed → render-side (Paul 2026-09-16)
+        if let v = p.arpVelScale { out.arpVelScale = clamp(v, 0, 2) }   // ARP VELOCITY (Paul 2026-09-30): a flat multiplier, 0…2
+        if let v = p.arpVelTilt { out.arpVelTilt = clamp(v, -1, 1) }    // ARP VELOCITY TILT: favours top (+) / bottom (−) of the pool
         // EUCLID MASK, standalone processor: the same resolve shape (Bjorklund K-of-N), no WALK.
         out.maskN = max(1, min(64, p.maskN ?? 8))
         out.maskK = max(1, min(out.maskN, p.maskK ?? out.maskN))

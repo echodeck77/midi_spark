@@ -438,41 +438,64 @@ struct ProcessorBox: View {
         switch ft {
         case .empty: EmptyView()   // the sentinel — buildIsEmptySlot filters this out before the editor ever opens on one
         case .arp: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {
-            // PATTERN (Paul 2026-09-13): ALL options on ONE line, no highlight bar. The last two (RND HI / RND LO FIRST)
-            // are the RANDOM anchor — which note each cycle opens on — folded in from the retired RANDOM ANCHOR control.
-            field("ARP PATTERN") {
-                arpPatternRow(pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0) { pat, anc in
-                    setParam {
-                        $0.pattern = pat; $0.arpRandomAnchor = anc
-                        // RANDOM ONCE (Paul 2026-09-16): each tap rolls a FRESH persisted seed → a new fixed shuffle (and a
-                        // re-tap = re-roll). Only for this pattern; every other pick leaves the stored seed untouched.
-                        if pat == .randomOnce { $0.arpSeed = Int.random(in: Int.min...Int.max) }
-                    } } }
-            // FLOW (phase; LEGATO default, first) | OCTAVES | OCT DIR — their own row, below PATTERN and above SPEED (label was "NEW CHORD").
+            // ROW 1 — ARP PATTERN (two equally-sized rows of 5) | SPEED, equal height (Paul 2026-09-30 layout).
+            // The pattern table (10 entries — see arpPatternOptions) splits evenly in half; each row renders through
+            // the SAME arpPatternRow, just a different slice, so a selection in either row still lights correctly.
+            // Height match, computed exactly (not eyeballed): 2 rows × 48pt chip + 1×6pt gap = 102 — SPEED's own
+            // arpSpeedGrid is 3 rows × 32pt + 2×3pt gap = 102. Same total, by construction.
             HStack(alignment: .top, spacing: 12) {
-                // FLOW stacked VERTICALLY (Paul 2026-09-14): legato/retrig/free on top of each other. (Main since moved
-                // this to its own row with OCTAVES/OCT DIR, so the earlier "line up with SPEED" framing no longer applies.)
-                field("ARP FLOW", \.phase) { segV(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
-                    setParam { $0.phase = [ArpPhase.legato, .retrig, .free][i] } } }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                field("OCTAVES", \.octaves) { numPair(p.octaves ?? 1, 1...4) { v in setParam { $0.octaves = v } } }
-                // OCT DIRECTION (Paul 2026-08-22): the laps ascend the octaves (UP) or descend them (DOWN).
-                field("OCT DIR", \.arpOctDown) { seg(["UP", "DOWN"], sel: (p.arpOctDown ?? false) ? "DOWN" : "UP") { i in
-                    setParam { $0.arpOctDown = (i == 1) } } }
-            }
-            // SPEED (3 rows: standard · dotted · triplet) | LENGTH — left to right.
-            HStack(alignment: .top, spacing: 12) {
+                field("ARP PATTERN") {
+                    let pick: (ArpPattern, Int) -> Void = { pat, anc in
+                        setParam {
+                            $0.pattern = pat; $0.arpRandomAnchor = anc
+                            // RANDOM ONCE (Paul 2026-09-16): each tap rolls a FRESH persisted seed → a new fixed shuffle (and a
+                            // re-tap = re-roll). Only for this pattern; every other pick leaves the stored seed untouched.
+                            if pat == .randomOnce { $0.arpSeed = Int.random(in: Int.min...Int.max) }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        arpPatternRow(Array(ProcessorBox.arpPatternOptions.prefix(5)), pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0, pick)
+                        arpPatternRow(Array(ProcessorBox.arpPatternOptions.suffix(5)), pattern: p.pattern ?? .up, anchor: p.arpRandomAnchor ?? 0, pick)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
                 field("SPEED", \.rate, lfo: "arpRate") {   // ∿ LFO sweeps the rate ladder; the swept rate shows here as a dim ring (Paul 2026-09-16)
                     TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !clockPlaying || lfoFor("arpRate") == nil)) { tl in
                         arpSpeedGrid(sel: p.rate ?? .r1_16, live: lfoFor("arpRate").flatMap { lfoLiveRateIndex($0, date: tl.date) }) { r in setParam { $0.rate = r } }
                     }
-                }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // ROW 2 — ARP FLOW | OCTAVES+OCT DIR (stacked) | LENGTH | VELOCITY | VELOCITY TILT (Paul 2026-09-30 layout).
+            // VELOCITY (arpVelScale, a 0…2 multiplier on the picked note's own velocity) and VELOCITY TILT (arpVelTilt,
+            // −1…1, favours the top/bottom of the held pool) are NEW — see Derivations.arpPick's velScale/velTilt params
+            // and effectiveArpVelScale/Tilt (Snapshot.swift). Both carry a ∿ LFO like every other scalar here.
+            HStack(alignment: .top, spacing: 12) {
+                // FLOW stacked VERTICALLY (Paul 2026-09-14): legato/retrig/free on top of each other — 3 rows × 32pt +
+                // 2×3pt gap = 102, matching SPEED/PATTERN above by the same arithmetic.
+                field("ARP FLOW", \.phase) { segV(["LEGATO", "RETRIG", "FREE"], sel: (p.phase ?? .legato).rawValue) { i in
+                    setParam { $0.phase = [ArpPhase.legato, .retrig, .free][i] } } }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                // OCTAVES + OCT DIR stacked one over the other (Paul 2026-09-30, were side-by-side fields) — each keeps
+                // its own label for clarity. DEVICE-EYE OWED: unlike the PATTERN/SPEED pair above, this compound
+                // two-label stack's total height against FLOW's single-label segV isn't provably exact from source
+                // alone (SwiftUI's own text-line-height metrics aren't something to hand-compute) — flagged, not
+                // silently assumed equal.
+                VStack(alignment: .leading, spacing: 8) {
+                    field("OCTAVES", \.octaves) { numPair(p.octaves ?? 1, 1...4) { v in setParam { $0.octaves = v } } }
+                    // OCT DIRECTION (Paul 2026-08-22): the laps ascend the octaves (UP) or descend them (DOWN).
+                    field("OCT DIR", \.arpOctDown) { seg(["UP", "DOWN"], sel: (p.arpOctDown ?? false) ? "DOWN" : "UP") { i in
+                        setParam { $0.arpOctDown = (i == 1) } } }
+                }.frame(maxWidth: .infinity, alignment: .leading)
                 field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate, lfo: "gate") {   // ∿ LFO on the label row (Docs/PLAN-param-lfo.md)
                     // Reflect a LENGTH LFO here too (Paul 2026-09-16): a dim live tick tracks the sweep on the MAIN slider.
                     if let glfo = lfoFor("gate") { lfoSlider(p.gate ?? 0.6, 0.05...1, lfo: glfo) { v in setParam { $0.gate = v } } }
                     else { slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
+                field("VELOCITY \(Int((p.arpVelScale ?? 1) * 100))%", \.arpVelScale, lfo: "arpVelScale") {
+                    if let vlfo = lfoFor("arpVelScale") { lfoSlider(p.arpVelScale ?? 1, 0...2, lfo: vlfo) { v in setParam { $0.arpVelScale = v } } }
+                    else { slider(bind(p.arpVelScale ?? 1) { v in setParam { $0.arpVelScale = v } }, in: 0...2) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                bipolarSlider("VEL TILT \(Int((p.arpVelTilt ?? 0) * 100))  (−bottom · +top)", p.arpVelTilt ?? 0, lfo: "arpVelTilt") { v in setParam { $0.arpVelTilt = v } }
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             // SPAN (Paul 2026-09-13, replaces FIT): the universal span-ladder — FREE runs the global grid, N re-anchors
             // the pattern to index 0 every N columns (polymeter), same behaviour as riff/euclid/etc.
@@ -2030,6 +2053,7 @@ struct ProcessorBox: View {
         case "arpRate": return "RATE"
         case "maskK": return "HITS"; case "maskRotate": return "ROTATE"
         case "maskChordOct": return "CHORD OCT"; case "maskChordGate": return "CHORD LEN"
+        case "arpVelScale": return "VELOCITY"; case "arpVelTilt": return "VEL TILT"
         default: return target.uppercased()
         }
     }
@@ -2161,6 +2185,10 @@ struct ProcessorBox: View {
             numPair(max(0, min(15, Int(value.rounded()))), 0...15, wrap: true) { set(Double($0)) }
         case "maskChordOct":
             numPair(max(-2, min(2, Int(value.rounded()))), -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { set(Double($0)) }
+        case "arpVelScale":
+            lfoSlider(value, 0...2, lfo: lfo, set)
+        case "arpVelTilt":
+            lfoSlider(value, -1...1, lfo: lfo, set)
         default:
             lfoSlider(value, (target == "rtcChance") ? 0...1 : 0.05...1, lfo: lfo, set)   // gate / chord-len / chance
         }
@@ -2305,6 +2333,7 @@ struct ProcessorBox: View {
         case "arpRate":         return ArpRate.allCases[max(0, min(17, Int(v.rounded())))].rawValue
         case "maskChordOct":    let n = Int(v.rounded()); return n > 0 ? "+\(n)" : "\(n)"
         case "maskK", "maskRotate": return "\(Int(v.rounded()))"
+        case "arpVelTilt":      let n = Int((v * 100).rounded()); return n > 0 ? "+\(n)" : "\(n)"   // matches strum/chance's bare-number tilt convention (no %)
         default:                return "\(Int((v * 100).rounded()))%"
         }
     }
@@ -2317,6 +2346,8 @@ struct ProcessorBox: View {
         case "maskChordOct":       return Double(max(-2, min(2, p.maskChordOct ?? 0)))
         case "maskChordGate":      return p.maskChordGate ?? 0.6
         case "rtcChance":          return p.rtcChance ?? 0.5
+        case "arpVelScale":        return p.arpVelScale ?? 1
+        case "arpVelTilt":         return p.arpVelTilt ?? 0
         default:                   return p.gate ?? 0.6
         }
     }
@@ -2332,17 +2363,24 @@ struct ProcessorBox: View {
         case "maskChordOct":       setParam { $0.maskChordOct = max(-2, min(2, Int(v.rounded()))) }
         case "maskChordGate":      setParam { $0.maskChordGate = v }
         case "rtcChance":          setParam { $0.rtcChance = v }
+        case "arpVelScale":        setParam { $0.arpVelScale = v }
+        case "arpVelTilt":         setParam { $0.arpVelTilt = v }
         default:                   setParam { $0.gate = v }
         }
     }
     // A BIPOLAR slider (§presentation idea 4/22): centred on 0; DOUBLE-TAP the label = reset to centre. `v`/`set` are in
-    // the natural range; the track maps it to 0…1.
-    private func bipolarSlider(_ label: String, _ v: Double, in range: ClosedRange<Double> = -1...1, _ set: @escaping (Double) -> Void) -> some View {
+    // the natural range; the track maps it to 0…1. `lfo` (Paul 2026-09-30, ARP VELOCITY TILT — the first bipolar field
+    // to want one): swaps the plain label for the LFO-aware `lfoLabelRow` (the ∿ button) and, once an LFO is authored,
+    // the slider for `lfoSlider` (its dim live tick) — nil (every existing caller: strum's VOL TILT, chance's FAVOUR)
+    // renders BYTE-IDENTICAL to before, since `lfoLabelRow`'s own no-lfo branch is the same Text/font/opacity this
+    // function used inline.
+    private func bipolarSlider(_ label: String, _ v: Double, in range: ClosedRange<Double> = -1...1, lfo target: String? = nil, _ set: @escaping (Double) -> Void) -> some View {
         let lo = range.lowerBound, hi = range.upperBound
         return VStack(alignment: .leading, spacing: 5) {
-            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            lfoLabelRow(label, opacity: 0.55, target)
                 .contentShape(Rectangle()).onTapGesture(count: 2) { set(0) }   // double-tap → centre (0)
-            slider(bind((v - lo) / (hi - lo)) { set(lo + $0 * (hi - lo)) }, in: 0...1)
+            if let t = target, let l = lfoFor(t) { lfoSlider(v, range, lfo: l) { set($0) } }
+            else { slider(bind((v - lo) / (hi - lo)) { set(lo + $0 * (hi - lo)) }, in: 0...1) }
         }
     }
     // TWO-COLUMN PAIRING (§presentation rule 6 / E): two compact ★★ fields share one row on the wide panel — halving the
@@ -2592,11 +2630,15 @@ struct ProcessorBox: View {
         (.random,   1, "RAND LO FIRST", "shuffle"),
         (.randomOnce, 0, "RANDOM ONCE", "shuffle"),   // a FIXED shuffle off a persisted seed — repeats every cycle (Paul 2026-09-16)
     ]
-    private func arpPatternRow(pattern: ArpPattern, anchor: Int, _ pick: @escaping (ArpPattern, Int) -> Void) -> some View {
-        let opts = ProcessorBox.arpPatternOptions
+    // `opts` is now an explicit SLICE (Paul 2026-09-30: "two equally sized rows" — the caller splits the 10-entry
+    // table in half and calls this twice) rather than always the whole table. `sel` is Optional — nil when the
+    // currently-picked pattern belongs to the OTHER row's slice, so a selection elsewhere can no longer wrongly
+    // light this row's first chip (the old `?? 0` fallback only ever needed to cover "some chip in the ONE full
+    // table always matches"; that's no longer true once the table is split).
+    private func arpPatternRow(_ opts: [(pattern: ArpPattern, anchor: Int, label: String, glyph: String)], pattern: ArpPattern, anchor: Int, _ pick: @escaping (ArpPattern, Int) -> Void) -> some View {
         // Derive the lit index FROM the table (never hardcode positions — inserting a pattern shifts them). RANDOM has
         // three rows split by anchor, so match anchor there; every other pattern is a single row (anchor 0).
-        let sel: Int = opts.firstIndex { $0.pattern == pattern && (pattern == .random ? $0.anchor == anchor : true) } ?? 0
+        let sel: Int? = opts.firstIndex { $0.pattern == pattern && (pattern == .random ? $0.anchor == anchor : true) }
         return HStack(spacing: 4) {
             ForEach(Array(opts.enumerated()), id: \.offset) { idx, o in
                 let on = idx == sel
