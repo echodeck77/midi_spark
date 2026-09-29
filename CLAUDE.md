@@ -252,6 +252,42 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   the cell rather than looking stuck; the exit fade is soft, not a pop; `selectRollWindowBeats = 2.0` is legible at
   real cell size for typical chain content (arp density especially) — first tunable to revisit if too cramped or
   too sparse; the dark-ink colour still reads with enough contrast against the light `selGrey` face.**
+- **▶ RECEIVER-DOOR PICKERS — a codebase-wide audit + unification with the main toggles (2026-09-29, on `main`,
+  `<PENDING>`; iOS builds; DEVICE eye owed). Paul: "please review everywhere in the code where another receiver
+  toggle is used, for things like chord and echo. I want the styling and dynamic note info to be the same as on the
+  main toggles." Audited every A/B/C/D-style picker across GridUI.swift/RackMatrix.swift and classified each as
+  RECEIVER (MIDI-IN door reference, in scope) or EMITTER (MIDI-OUT bus reference, out of scope — Paul named
+  "receiver" specifically): DEST's "EMITTER PER STEP", DEAL's "EMITTER 1/2", MUTE MATRIX's per-column mute row, TAP's
+  "TO — where the copy exits", HOCKET's "LISTEN TO — the wire" (another ROW's OUTPUT, not an input door — "put it on
+  a later row than what it listens to"), and the whole of RackMatrix.swift ("THE RACK — the emitter treatment
+  matrix") are all EMITTER-side, untouched. Found exactly THREE genuine receiver-door pickers beyond the main
+  toggles, each a hand-rolled or plain `seg()` control with none of the main toggles' styling or live-note behavior:
+  **ECHO's "FROM"** (`echoInKeyReceivers`, a multi-select bitmask — which door(s) define "in key" for the pitch-step
+  trail), **CHORDS' "SCALE FROM"** (`chordsScaleRef`, single-select + "—"/none — which door supplies the key; its own
+  comment already said "the KEY is read from a RECEIVER set to SCALE" — this ALSO fixes the CHORD DOOR's own "KEY
+  FROM" pop-up for free, since that door mounts this exact CHORDS processor editor, per the door's original
+  design), and **AVOID's "WHICH INPUT"** (`avoidRefIndex`, single-select, shown only when `avoidRefKind == .door` —
+  "another MIDI input's live notes" per its own comment). **THE REFACTOR:** `ProcessorBox` (GridUI.swift) is a
+  SEPARATE `View` struct from `DiagView` (BuildPage.swift's main type) — it can't call `DiagView`'s own
+  `buildIOSelectChip` method directly (no shared `self`). Rather than thread `DiagView`'s full state through
+  `ProcessorBox` or risk touching the two already-shipped, heavily-used main toggles, extracted two NEW top-level
+  free functions (GridUI.swift, beside `receiverGrey`): `ioChip(_:on:accent:action:)` — the bare visual core (text/
+  background/border/tap), a deliberately smaller sibling of `buildIOSelectChip` that leaves out its chase-index
+  "invite" animation and long-press "apply to every row" gesture (both `DiagView`-only `@State`, and both concepts
+  that don't apply to a per-processor door reference — ECHO/CHORDS/AVOID aren't rows); and `noteClassLabel(_:)`, the
+  shared lowercase/no-octave formatter, which `BuildPage.swift`'s own `liveNoteClassLabel` now calls too (was
+  standalone duplicate logic, now one implementation). New `ProcessorBox.doorKeyLabels: [String?]` (mirrors the
+  EXISTING `avoidInputNotes` pattern exactly — a per-door array, populated at the ONE real call site that already
+  supplies `avoidInputNotes`, `buildSlotBox`'s `ProcessorBox(...)` — every OTHER `ProcessorBox` call site (tab
+  strips, the chord-sequencer popup) falls back to its all-nil default, same as `avoidInputNotes` already does
+  there, so this isn't a new gap). All three pickers now compute their chip label identically to the main toggles:
+  `doorKeyLabels[i] ?? noteClassLabel(avoidInputNotes[i]) ?? "no input"`. CHORDS' "—" (none) option — no separate 5th
+  widget; tapping the already-selected door deselects it, matching what the old 5-way seg offered with one fewer
+  control. **FLAGGED, not fixed:** `buildIOSelectChip`'s own `top:` parameter is genuinely dead (its two-line design
+  was flattened to one line back on 2026-08-30 and the parameter was never removed — confirmed while reading the
+  function closely) — left alone as out-of-scope housekeeping, not touched by this pass. **DEVICE-OWED:** the three
+  reworked editors' legibility/layout at real panel size, and that CHORDS' new deselect-by-re-tapping interaction
+  reads as intentional rather than broken.**
 - **▶ PART ROW ROLL — three device-reported fixes: note contrast, blinking→fading, and a REAL pre-existing playhead-
   jitter bug (2026-09-29, on `main`, `0eb862b`; iOS builds; DEVICE eye/ear owed). Paul, testing the new live piano
   roll: the note colour needs more contrast, the playhead jitters when stopped, and notes are blinking out rather

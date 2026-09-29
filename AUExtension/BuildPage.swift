@@ -2925,16 +2925,12 @@ extension DiagView {
         let big = key ?? liveNoteClassLabel(i) ?? "no input"
         buildIOSelectChip(top: letter, letter: big, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
     }
-    // Lowercase pitch-class-only readout of a door's currently-held notes, e.g. "c e g" — no octave digit (Paul
-    // 2026-09-29: "lowercase without the octave number"). Reuses recvHeldNotes, the same live per-door feed the
-    // config-sheet REPLAY roll / IN piano / AVOID piano already read. nil when nothing's currently held (the caller
-    // shows "no input" instead). Two held notes an octave apart collapse to the same letter twice (e.g. "c c") — an
-    // honest consequence of dropping the octave, not deduplicated.
+    // A door's currently-held notes as a live pitch-class label (see the shared `noteClassLabel` in GridUI.swift —
+    // "c e g", lowercase, no octave). Reuses recvHeldNotes, the same live per-door feed the config-sheet REPLAY
+    // roll / IN piano / AVOID piano already read. Two held notes an octave apart collapse to the same letter twice
+    // (e.g. "c c") — an honest consequence of dropping the octave, not deduplicated.
     private func liveNoteClassLabel(_ i: Int) -> String? {
-        let names = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"]
-        let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []
-        guard !held.isEmpty else { return nil }
-        return held.sorted().map { names[Int($0) % 12] }.joined(separator: " ")
+        noteClassLabel(i < recvHeldNotes.count ? recvHeldNotes[i].map(Int.init) : [])
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every machine follows). (Paul 2026-08-18)
@@ -5124,7 +5120,8 @@ extension DiagView {
             processing: buildSelectedProcessing,   // PLAY-STATE GREY (Paul 2026-09-14): dim the controls unless this machine's active cell is sounding now
 
             avoidInputNotes: recvHeldNotes.map { $0.map(Int.init) },   // AVOID piano: per-input held notes (armed/scale doors report their pool) — live while the editor is open
-            avoidChainInputDoor: buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver)   // the door feeding THIS chain → the OUTPUT piano predicts from its notes
+            avoidChainInputDoor: buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver,   // the door feeding THIS chain → the OUTPUT piano predicts from its notes
+            doorKeyLabels: (0..<4).map { i in i < receivers.count ? receivers[i].scaleLabel : nil })   // ECHO/CHORDS/AVOID door pickers: the main toggles' own key label, live while the editor is open (Paul 2026-09-29)
     }
 
     // BUILD chain edits — machine-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written

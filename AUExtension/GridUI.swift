@@ -115,6 +115,32 @@ func ferryShadeHex(_ base: UInt32, _ row: Int) -> UInt32 { mixHex(base, 0x000000
 let receiverGreys: [Color] = [Color(hex: 0xC8D2DC), Color(hex: 0xA6B2BF), Color(hex: 0x808E9C), Color(hex: 0x5E6C7A)]   // Tide & Ember: cool-tinted greys (IN recedes cool)
 func receiverGrey(_ i: Int) -> Color { receiverGreys[max(0, min(3, i))] }
 
+// THE I/O CHIP CORE VISUAL (Paul 2026-09-29: "I want the styling... to be the same as on the main toggles") — a free
+// function, not a DiagView method, so ProcessorBox (a separate View type that can't call DiagView's own instance
+// methods) can render a door-reference chip that looks IDENTICAL to the main MIDI-IN/MIDI-OUT toggles. Deliberately a
+// smaller, separate sibling of DiagView's own buildIOSelectChip (BuildPage.swift), not a shared extraction: that
+// function also carries the chase-index "invite" animation and the long-press "apply to every row" gesture, both
+// DiagView-only concepts (its own @State) that don't apply to a per-PROCESSOR door reference (ECHO/CHORDS/AVOID
+// aren't rows) — pulling them apart risked changing gesture behaviour on the two already-shipped, heavily-used
+// toggles for no real benefit here. Keep the two visually in sync by hand if the shared look ever changes.
+@ViewBuilder func ioChip(_ letter: String, on: Bool, accent: Color? = nil, action: @escaping () -> Void) -> some View {
+    Text(letter).font(.system(size: 15, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)
+        .foregroundColor(on ? Color.black : buildDim)
+        .frame(maxWidth: .infinity).frame(height: 36)
+        .background(RoundedRectangle(cornerRadius: 7).fill(on ? (accent ?? buildCyan) : buildCell))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+}
+// Lowercase pitch-class-only readout of a set of held notes, e.g. "c e g" — no octave digit (Paul 2026-09-29:
+// "lowercase without the octave number"). nil when empty (the caller shows "no input" instead). Shared by every
+// door-reference picker that wants the main toggles' own live-note/no-input labeling.
+func noteClassLabel(_ notes: [Int]) -> String? {
+    let names = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"]
+    guard !notes.isEmpty else { return nil }
+    return notes.sorted().map { names[(($0 % 12) + 12) % 12] }.joined(separator: " ")
+}
+
 // delta §9 item 11: the four receivers' fixed "infrastructure family" hues (muted), shared by the
 // RECEIVERS panel and the cells' band-as-deviation marker.
 let receiverHues: [Color] = [Color(hex: 0x4E8FA8), Color(hex: 0x4E79A8), Color(hex: 0x55A79C), Color(hex: 0x6E8CA8)]   // Tide & Ember: IN = COOL (incoming water)
@@ -198,6 +224,7 @@ struct ProcessorBox: View {
     var processing: Bool = true                          // PLAY-STATE GREY (Paul 2026-09-14): false ⇒ this machine's active cell isn't sounding right now → the controls DIM (still fully usable, no disable). Default true = no greying (unaffected call sites).
     var avoidInputNotes: [[Int]] = [[], [], [], []]     // AVOID editor: per-input held PITCHES (recvHeldNotes; armed/scale doors report their pool) — feeds both illustration pianos
     var avoidChainInputDoor: Int = -1                   // AVOID editor: the door feeding THIS chain (its receiver) — the notes the filter acts on; -1 = unknown
+    var doorKeyLabels: [String?] = [nil, nil, nil, nil] // per-door SCALE key label (Receiver.scaleLabel), else nil — every door-reference picker (ECHO's FROM, CHORDS' SCALE FROM, AVOID's WHICH INPUT) shows this over live notes over "no input", matching the main MIDI-IN toggles (Paul 2026-09-29)
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var lfoEditTarget: String? = nil      // PER-PARAM LFO (Docs/PLAN-param-lfo.md): which param's ∿ LFO editor popover is open
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
@@ -585,20 +612,20 @@ struct ProcessorBox: View {
             if pit != 0 {
                 field("UNITS", \.echoPitchMode) { seg(EchoPitchMode.allCases.map { $0.rawValue }, sel: epm.rawValue) { i in setParam { $0.echoPitchMode = EchoPitchMode.allCases[i] } } }   // IN-KEY = the trail WALKS THE SCALE live, from the FROM receivers below, not chromatic (supersedes the old POOL mode)
                 if epm == .inKey {
-                    let letters = ["A", "B", "C", "D"]
+                    // Styled + labelled IDENTICALLY to the main MIDI-IN toggles (Paul 2026-09-29) — the shared
+                    // `ioChip` + `doorKeyLabels`/`noteClassLabel` (a door's key when it's a SCALE door, else its
+                    // live notes, else "no input"). Multi-select (a bitmask, unlike the main toggles' single-select),
+                    // so `on` reads per-bit instead of an equality check.
                     let recvMask = p.echoInKeyReceivers ?? 0
                     VStack(alignment: .leading, spacing: 5) {
                         Text("FROM").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                         HStack(spacing: 6) {
                             ForEach(0..<4, id: \.self) { i in
                                 let on = (recvMask >> UInt8(i)) & 1 != 0
-                                Text(letters[i]).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6))
-                                    .padding(.horizontal, 12).frame(minHeight: 38)
-                                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.08)))
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { setParam { let cur = $0.echoInKeyReceivers ?? 0; $0.echoInKeyReceivers = cur ^ (1 << UInt8(i)) } }
+                                ioChip(doorKeyLabels[i] ?? noteClassLabel(avoidInputNotes[i]) ?? "no input", on: on, accent: receiverGrey(i)) {
+                                    setParam { let cur = $0.echoInKeyReceivers ?? 0; $0.echoInKeyReceivers = cur ^ (1 << UInt8(i)) }
+                                }
                             }
-                            Spacer(minLength: 0)
                         }
                     }
                 }
@@ -1334,9 +1361,20 @@ struct ProcessorBox: View {
             let refIdx = p.chordsScaleRef ?? -1
             let letters = ["A", "B", "C", "D"]
             heroField("MODE") { seg(["PATTERN", "FOLLOW", "WALK"], sel: mode.rawValue.uppercased()) { i in setParam { $0.chordsMode = ChordsMode.allCases[i] } } }
-            // SCALE FROM (Paul 2026-09-01): the KEY is read from a RECEIVER set to SCALE — point at it here (— = none → C major).
-            // The cell's OWN input stays the TRIGGER (FOLLOW names the degree from the note you play); this door only sets the key.
-            heroField("SCALE FROM") { seg(["—", "A", "B", "C", "D"], sel: refIdx < 0 ? "—" : letters[max(0, min(3, refIdx))]) { i in setParam { $0.chordsScaleRef = i == 0 ? nil : i - 1 } } }
+            // SCALE FROM (Paul 2026-09-01): the KEY is read from a RECEIVER set to SCALE — point at it here (none →
+            // C major). The cell's OWN input stays the TRIGGER (FOLLOW names the degree from the note you play);
+            // this door only sets the key. Styled + labelled IDENTICALLY to the main MIDI-IN toggles (Paul
+            // 2026-09-29): the shared `ioChip` + `doorKeyLabels`/`noteClassLabel`. No separate "—" option any more —
+            // tapping the already-selected door deselects it (the same "none" the old 5-way seg control offered).
+            heroField("SCALE FROM") {
+                HStack(spacing: 6) {
+                    ForEach(0..<4, id: \.self) { i in
+                        ioChip(doorKeyLabels[i] ?? noteClassLabel(avoidInputNotes[i]) ?? "no input", on: refIdx == i, accent: receiverGrey(i)) {
+                            setParam { $0.chordsScaleRef = (refIdx == i) ? nil : i }
+                        }
+                    }
+                }
+            }
             // MODE body — only PATTERN authors a degree lane; FOLLOW/WALK derive the degrees, so they show a plain-language tell.
             let steps = max(1, min(16, p.chordsSteps ?? 8))
             let rateNames = StepRate.allCases.map { $0.rawValue }
@@ -1387,7 +1425,17 @@ struct ProcessorBox: View {
             let refTint = md == .lock ? avoidGreen : avoidRed           // input reference: green when locking to it, red when avoiding it
             heroField("LISTEN TO") { seg(["INPUT", "EVERYTHING"], sel: refIsInput ? "INPUT" : "EVERYTHING") { i in setParam { $0.avoidRefKind = (i == 0 ? .door : .sounding) } } }
             if refIsInput {
-                field("WHICH INPUT", \.avoidRefIndex) { seg(letters, sel: letters[idx]) { i in setParam { $0.avoidRefIndex = i } } }
+                // Styled + labelled IDENTICALLY to the main MIDI-IN toggles (Paul 2026-09-29): the shared `ioChip` +
+                // `doorKeyLabels`/`noteClassLabel`.
+                field("WHICH INPUT", \.avoidRefIndex) {
+                    HStack(spacing: 6) {
+                        ForEach(0..<4, id: \.self) { i in
+                            ioChip(doorKeyLabels[i] ?? noteClassLabel(avoidInputNotes[i]) ?? "no input", on: idx == i, accent: receiverGrey(i)) {
+                                setParam { $0.avoidRefIndex = i }
+                            }
+                        }
+                    }
+                }
             }
             field("MODE", \.avoidMode) { seg(["AVOID", "LOCK"], sel: md == .lock ? "LOCK" : "AVOID") { i in setParam { $0.avoidMode = (i == 0 ? .avoid : .lock) } } }
             if md == .avoid {   // how wide the avoided zone is: just the exact notes, or also the semitones next to them (the ones that clash)
