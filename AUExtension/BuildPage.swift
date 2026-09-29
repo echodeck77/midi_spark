@@ -2912,10 +2912,24 @@ extension DiagView {
         let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i }
             ?? (buildSelReceiver == i)
         // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
-        // top so its identity is kept. Otherwise the plain A/B/C/D letter. (Paul 2026-08-29)
+        // top so its identity is kept. (Paul 2026-08-29) Otherwise, show the notes this door is receiving LIVE (Paul
+        // 2026-09-29) — same top/big swap, so the letter still reads as a small caption whenever the big slot is
+        // showing something else. Idle (nothing held, no key) falls back to the plain A/B/C/D letter, as before.
         let letter = ["A", "B", "C", "D"][i]
         let key: String? = (i < receivers.count ? receivers[i].scaleLabel : nil) ?? buildChordDoorLabel(receivers, i)   // "A MIXO" (SCALE) / "A · V7" (CHORD), else nil
-        buildIOSelectChip(top: key != nil ? letter : "MIDI IN", letter: key ?? letter, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
+        let live: String? = key == nil ? liveNoteClassLabel(i) : nil
+        buildIOSelectChip(top: (key ?? live) != nil ? letter : "MIDI IN", letter: key ?? live ?? letter, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
+    }
+    // Lowercase pitch-class-only readout of a door's currently-held notes, e.g. "c e g" — no octave digit (Paul
+    // 2026-09-29: "lowercase without the octave number"). Reuses recvHeldNotes, the same live per-door feed the
+    // config-sheet REPLAY roll / IN piano / AVOID piano already read. nil when nothing's currently held (the chip
+    // falls back to its plain letter rather than going blank). Two held notes an octave apart collapse to the same
+    // letter twice (e.g. "c c") — an honest consequence of dropping the octave, not deduplicated.
+    private func liveNoteClassLabel(_ i: Int) -> String? {
+        let names = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"]
+        let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []
+        guard !held.isEmpty else { return nil }
+        return held.sorted().map { names[Int($0) % 12] }.joined(separator: " ")
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every machine follows). (Paul 2026-08-18)
@@ -4386,7 +4400,7 @@ extension DiagView {
                 buildReceiverFader(i, letter: spanner != nil ? "" : letter)     // velocity INDICATOR — draggable to override input velocity (spring-back on release)
             }.frame(width: 22, height: h)
             VStack(spacing: 3) {                                                // EQUAL rows, top → bottom
-                buildRecProminent(recLiveLabel(i, rec), on: rec.inputEnabledResolved, machine: receiverGrey(i)) { toggleReceiverEnabled(i) }   // TOP: live notes received (or the key, for a SCALE door) — ENABLE toggle (Paul 2026-08-30, label 2026-09-29)
+                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, machine: receiverGrey(i)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE) — the receiver's SIGNATURE GREY (Paul 2026-08-30)
                 buildReceiverLatchButton(i, rec)                                    // LATCH — SET (no mode) / mode label / "LAST N" · pulses when ready · solid when armed
                 buildOctRow(oct: i < receiverOctave.count ? receiverOctave[i] : 0, onDown: { nudgeReceiverOctave(i, -1) }, onUp: { nudgeReceiverOctave(i, 1) })   // OCT −/+ (between LATCH and S/M)
                 HStack(spacing: 3) {                                            // SOLO (left) · MUTE (right)
@@ -4559,19 +4573,15 @@ extension DiagView {
             }
         }
     }
-    // The TOP receiver label (Paul 2026-09-29): shows the LIVE notes this door is currently receiving, e.g. "C4 E4
-    // G4" — except a door in SCALE mode, which shows the selected KEY instead ("D MIXOLYDIAN") — a scale door's
-    // "held notes" are its own resolved pool (see recvHeldNotes' AVOID-piano comment: "armed/scale doors report
-    // their pool"), not a live performance, so the key name is the more useful real-time-ish readout for it.
-    // Channel-filter info (the old OMNI/CH n label this replaced) is still reachable via the spanner → MIXER sheet.
-    private func recLiveLabel(_ i: Int, _ rec: Receiver) -> String {
-        if rec.doorModeResolved == .scale {
-            let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-            return "\(names[rec.scaleRootResolved]) \(rec.scaleTypeResolved.label)"
-        }
-        let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []
-        guard !held.isEmpty else { return "—" }
-        return held.sorted().map(midiNoteName).joined(separator: " ")
+    // The channel-button caption ALWAYS reflects the chosen channel(s) (Paul 2026-08-23): reads the multi-channel MASK
+    // (the source of truth since 2026-08-21), not the legacy single `channel` field. OMNI = all · CH n = one · CH ×k =
+    // a subset · OFF = none.
+    private func recChanLabel(_ rec: Receiver) -> String {
+        let mask = rec.channelMaskResolved
+        if mask == 0xFFFF { return "OMNI" }
+        if mask == 0 { return "OFF" }
+        let chans = (0..<16).filter { mask & (UInt16(1) << UInt16($0)) != 0 }
+        return chans.count == 1 ? "CH \(chans[0] + 1)" : "CH ×\(chans.count)"
     }
     // A small square-ish Mute/Solo toggle.
     @ViewBuilder private func buildRecMini(_ label: String, on: Bool, machine: Color, action: @escaping () -> Void) -> some View {

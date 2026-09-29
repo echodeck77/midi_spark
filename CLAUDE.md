@@ -318,6 +318,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   as every other label on this button, but untested against 4+ simultaneous notes); confirm a CHORD-mode door (left
   on the live-notes branch, not special-cased like SCALE — Paul only named "key") reads sensibly showing its own
   resolved chord rather than looking broken.**
+  **WRONG CONTROL — REVERTED + REDONE on the actual receiver TOGGLES, lowercase/no-octave (2026-09-29, on `main`,
+  `<PENDING>`; iOS builds; DEVICE eye owed). Paul: "I actually intended this for the toggles, not the receivers
+  themselves. Also, make them lowercase without the octave number." The entry above landed on
+  `buildReceiverControl`'s big 4-button strip (the ENABLE/LATCH/OCT/S-M column) — fully reverted (`recLiveLabel`
+  deleted, `recChanLabel` + its call site restored byte-for-byte). "The receiver toggles" are a DIFFERENT, smaller
+  control: `buildReceiverSelectChip` (via the shared `buildIOSelectChip`), the per-row A/B/C/D door-picker chips
+  under the machine box — these ALREADY had a "show the key instead of the letter" mechanism for a SCALE/CHORD door
+  (`key`, via `receivers[i].scaleLabel`/`buildChordDoorLabel`, a top/big label swap so the letter survives as a small
+  caption) — exactly the "leave one set to key" case, so that branch is UNTOUCHED. Added a new `live` branch using
+  the SAME top/big swap: when a door has no key AND currently has held notes (`liveNoteClassLabel`, a new pitch-
+  CLASS-only reader of the same `recvHeldNotes` feed — no octave digit, lowercased, e.g. "c e g", per Paul's literal
+  ask), the big slot shows that instead of the plain letter; idle (nothing held, no key) still falls back to the
+  plain A/B/C/D letter exactly as before — a chip is never left blank. Two held notes an octave apart collapse to the
+  same letter twice (e.g. "c c") — an honest, undeduplicated consequence of dropping the octave, flagged not fixed
+  (Paul didn't ask for dedup). MIDI-OUT emitter toggles (`buildEmitterToggles`, the sibling caller of the same shared
+  chip) are UNTOUCHED — Paul named receiver toggles specifically. **DEVICE-OWED:** legibility of several lowercase
+  letters in the chip's compact space, and whether a CHORD-mode door (still covered by the pre-existing `key` branch,
+  unaffected by this pass) reads right alongside the new live-notes chips.**
 - **▶ EUCLID MASK CHORD "not sounding" — INVESTIGATED, NOT REPRODUCIBLE off-device; +2 permanent regression tests
   (2026-09-29, on `main`, `10863ef`; macOS 1149 green incl. 2 new). Paul: a Euclid mask after an arp, GAPS=CHORD,
   7-of-8, wasn't sounding, "fails on every setting" — then gave the exact steps: the chain was ARP→VELOCITY, he added
