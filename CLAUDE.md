@@ -336,6 +336,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   chip) are UNTOUCHED — Paul named receiver toggles specifically. **DEVICE-OWED:** legibility of several lowercase
   letters in the chip's compact space, and whether a CHORD-mode door (still covered by the pre-existing `key` branch,
   unaffected by this pass) reads right alongside the new live-notes chips.**
+  **"NO INPUT" ADDENDUM, same day (`<PENDING>`; iOS builds; DEVICE eye owed).** Paul: "this works well on the first
+  receiver toggle. I also expect to see the notes or 'no input' appear on the other emitter toggles (the exception
+  being scale)" — clarified via AskUserQuestion (2 corrections already landed on this exact feature this session, so
+  asked rather than guessed a third time): he meant the other 3 RECEIVER chips (B/C/D), not the separate MIDI-OUT
+  emitter toggles — "no input" is receiver-side language, which was the tell. ROOT ISSUE: the idle fallback was the
+  PLAIN LETTER (byte-identical to the chip's own resting state), so a receiver with nothing currently held looked
+  indistinguishable from "this feature doesn't apply here" — not a bug in the logic (every chip already ran the same
+  code), just an invisible result. FIX: idle now shows literal `"no input"` (lowercase, matching the note-name
+  convention) instead of falling back to the letter. Simplified the top/big swap while in there: since EVERY branch
+  now fills the big slot with something (key · live notes · "no input"), the top caption is unconditionally the
+  letter — the old `"MIDI IN"` fallback caption is dead code (no remaining case reaches it), removed. Scale/chord
+  doors are UNCHANGED (still their own `key` branch, exactly the "exception being scale" Paul named).**
 - **▶ EUCLID MASK CHORD "not sounding" — INVESTIGATED, NOT REPRODUCIBLE off-device; +2 permanent regression tests
   (2026-09-29, on `main`, `10863ef`; macOS 1149 green incl. 2 new). Paul: a Euclid mask after an arp, GAPS=CHORD,
   7-of-8, wasn't sounding, "fails on every setting" — then gave the exact steps: the chain was ARP→VELOCITY, he added

@@ -2912,19 +2912,20 @@ extension DiagView {
         let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i }
             ?? (buildSelReceiver == i)
         // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
-        // top so its identity is kept. (Paul 2026-08-29) Otherwise, show the notes this door is receiving LIVE (Paul
-        // 2026-09-29) — same top/big swap, so the letter still reads as a small caption whenever the big slot is
-        // showing something else. Idle (nothing held, no key) falls back to the plain A/B/C/D letter, as before.
+        // top so its identity is kept. (Paul 2026-08-29) Otherwise, show the notes this door is receiving LIVE, or
+        // "no input" when it's holding nothing (Paul 2026-09-29) — the top caption is now ALWAYS the letter, since
+        // every branch fills the big slot with something (key, live notes, or the "no input" state); there's no
+        // remaining case where the big slot shows the plain letter itself.
         let letter = ["A", "B", "C", "D"][i]
         let key: String? = (i < receivers.count ? receivers[i].scaleLabel : nil) ?? buildChordDoorLabel(receivers, i)   // "A MIXO" (SCALE) / "A · V7" (CHORD), else nil
-        let live: String? = key == nil ? liveNoteClassLabel(i) : nil
-        buildIOSelectChip(top: (key ?? live) != nil ? letter : "MIDI IN", letter: key ?? live ?? letter, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
+        let big = key ?? liveNoteClassLabel(i) ?? "no input"
+        buildIOSelectChip(top: letter, letter: big, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
     }
     // Lowercase pitch-class-only readout of a door's currently-held notes, e.g. "c e g" — no octave digit (Paul
     // 2026-09-29: "lowercase without the octave number"). Reuses recvHeldNotes, the same live per-door feed the
-    // config-sheet REPLAY roll / IN piano / AVOID piano already read. nil when nothing's currently held (the chip
-    // falls back to its plain letter rather than going blank). Two held notes an octave apart collapse to the same
-    // letter twice (e.g. "c c") — an honest consequence of dropping the octave, not deduplicated.
+    // config-sheet REPLAY roll / IN piano / AVOID piano already read. nil when nothing's currently held (the caller
+    // shows "no input" instead). Two held notes an octave apart collapse to the same letter twice (e.g. "c c") — an
+    // honest consequence of dropping the octave, not deduplicated.
     private func liveNoteClassLabel(_ i: Int) -> String? {
         let names = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"]
         let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []
