@@ -253,7 +253,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   real cell size for typical chain content (arp density especially) — first tunable to revisit if too cramped or
   too sparse; the dark-ink colour still reads with enough contrast against the light `selGrey` face.**
 - **▶ RECEIVER-DOOR PICKERS — a codebase-wide audit + unification with the main toggles (2026-09-29, on `main`,
-  `<PENDING>`; iOS builds; DEVICE eye owed). Paul: "please review everywhere in the code where another receiver
+  `dbf3fa3`; iOS builds; DEVICE eye owed). Paul: "please review everywhere in the code where another receiver
   toggle is used, for things like chord and echo. I want the styling and dynamic note info to be the same as on the
   main toggles." Audited every A/B/C/D-style picker across GridUI.swift/RackMatrix.swift and classified each as
   RECEIVER (MIDI-IN door reference, in scope) or EMITTER (MIDI-OUT bus reference, out of scope — Paul named
