@@ -580,9 +580,29 @@ struct ProcessorBox: View {
                 slider(bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1) } },
                  { field("FADE  \(Int(dec * 100))%", \.echoDecay) {
                 slider(bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1) } })
-            let epu = p.echoPitchUnits ?? .semitones
-            field("PITCH STEP  \(pit > 0 ? "+" : "")\(pit) \(epu == .pool ? "deg" : "st") / echo", \.echoPitch) { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
-            if pit != 0 { field("UNITS", \.echoPitchUnits) { seg(PitchUnits.allCases.map { $0.rawValue }, sel: epu.rawValue) { i in setParam { $0.echoPitchUnits = PitchUnits.allCases[i] } } } }   // §2: POOL = the trail WALKS THE SCALE (in-key), not chromatic
+            let epm = p.echoPitchMode ?? .semitones
+            field("PITCH STEP  \(pit > 0 ? "+" : "")\(pit) \(epm == .inKey ? "(in key)" : "st") / echo", \.echoPitch) { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
+            if pit != 0 {
+                field("UNITS", \.echoPitchMode) { seg(EchoPitchMode.allCases.map { $0.rawValue }, sel: epm.rawValue) { i in setParam { $0.echoPitchMode = EchoPitchMode.allCases[i] } } }   // IN-KEY = the trail WALKS THE SCALE live, from the FROM receivers below, not chromatic (supersedes the old POOL mode)
+                if epm == .inKey {
+                    let letters = ["A", "B", "C", "D"]
+                    let recvMask = p.echoInKeyReceivers ?? 0
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("FROM").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                        HStack(spacing: 6) {
+                            ForEach(0..<4, id: \.self) { i in
+                                let on = (recvMask >> UInt8(i)) & 1 != 0
+                                Text(letters[i]).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6))
+                                    .padding(.horizontal, 12).frame(minHeight: 38)
+                                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.08)))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { setParam { let cur = $0.echoInKeyReceivers ?? 0; $0.echoInKeyReceivers = cur ^ (1 << UInt8(i)) } }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
             sectionLabel("TAIL")
             // ROUTE (§7②, ratified 2026-08-22): DIRECT echoes the cell's final set (v1). CHAIN runs each repeat back
             // through the stages AFTER this ECHO slot — [ECHO→LENGTH] chokes/ties repeats, [ECHO→SPLIT] thins the trail.

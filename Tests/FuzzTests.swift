@@ -236,7 +236,8 @@ final class FuzzTests: XCTestCase {
         p.echoThru = r.chance(0.6)
         p.echoDecay = 0.3 + Double(r.int(7)) / 10.0    // 0.3…0.9
         p.echoPitch = r.int(5) - 2                       // −2…+2 semitones per echo (range-drop hammered)
-        p.echoPitchUnits = r.chance(0.5) ? .pool : .semitones   // §2 POOL-STEP echo trails
+        p.echoPitchMode = r.chance(0.5) ? .inKey : .semitones
+        p.echoInKeyReceivers = UInt8(r.int(16))          // 0...15 incl. the empty-mask "hold" edge case — hammers the new mutable walk state
         p.echoSpill = r.chance(0.5) ? .cut : .ring
     }
     private func applyRandomUtil(_ p: inout MachineParams, type: ProcessorType, _ r: inout FuzzRNG) {   // UTILITY pitch shift (Paul 2026-08-22)

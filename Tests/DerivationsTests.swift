@@ -949,6 +949,22 @@ final class DerivationsTests: XCTestCase {
         // AVOID (minus) + REMOVE: a note whose class IS in the reference drops (dodge the clash).
         XCTAssertEqual(keyFilterNote(60, refMask: scalePitchClassMask(root: 0, scale: .chromatic) & 0b1, only: false, snap: false), nil, "AVOID: a C is removed when C is the clash class")
     }
+    // ECHO IN-KEY (Paul 2026-09-29): nextInKeyNote ALWAYS advances to a genuinely different note — unlike
+    // keyFilterNote's snap-to-nearest-OR-STAY, an already-in-key note must still move.
+    func testNextInKeyNoteAlwaysAdvancesCrossOctaveAndReportsNoLegalMove() {
+        let cMaj = scalePitchClassMask(root: 0, scale: .major)   // C D E F G A B = classes 0,2,4,5,7,9,11
+        // STRICT ADVANCE: 60 (C) is already in cMaj — keyFilterNote would return 60 unchanged; nextInKeyNote must not.
+        XCTAssertEqual(nextInKeyNote(60, refMask: cMaj, dir: 1), 62, "C is already in-key, but the walk still advances — to D, not back to itself")
+        XCTAssertEqual(nextInKeyNote(60, refMask: cMaj, dir: -1), 59, "same strict-advance rule going down — to B, not back to C")
+        // CROSS-OCTAVE: a one-pitch-class mask (only E) starting AT an E must skip a full octave to reach the next one.
+        let onlyE: UInt16 = 1 << 4
+        XCTAssertEqual(nextInKeyNote(16, refMask: onlyE, dir: 1), 28, "the only legal note 12 semitones up is the next E, crossing the octave boundary")
+        // NO LEGAL MOVE, two different causes, same nil result:
+        XCTAssertNil(nextInKeyNote(60, refMask: 0, dir: 1), "an empty reference mask has nothing to walk to")
+        XCTAssertNil(nextInKeyNote(60, refMask: cMaj, dir: 0), "dir == 0 means no movement, mirroring echoPitch == 0 in flat mode")
+        let onlyC: UInt16 = 1 << 0
+        XCTAssertNil(nextInKeyNote(121, refMask: onlyC, dir: 1), "the next C above 121 would be 132 — out of MIDI range, so the walk exhausts and reports no move (a DIFFERENT cause than the empty-mask case, same nil result)")
+    }
     // AVOID's "CLASHES" (2026-08-31): the reference mask widens to its ±1 (ic1) / ±2 (ic2) neighbours, so a note a
     // semitone from the reference is dodged too (not just the exact doubling). A SPARSE reference is where it matters.
     func testWidenClashMask() {

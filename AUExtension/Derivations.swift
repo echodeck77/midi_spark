@@ -1118,6 +1118,22 @@ func keyFilterNote(_ note: Int, refMask: UInt16, only: Bool, snap: Bool) -> Int?
     return nil
 }
 
+/// ECHO IN-KEY WALK: advance from `note` to the NEXT note whose pitch class is in `refMask` — ALWAYS a genuinely
+/// different note (never returns `note` even if already in-key, unlike keyFilterNote's snap-to-nearest-or-stay).
+/// dir > 0 = up, dir < 0 = down; dir == 0 or refMask == 0 ⇒ nil (hold — no legal move, mirrors echoPitch==0
+/// meaning "no movement" in flat mode). Cross-octave (mod 12), bounded to 0...127 — the range bound itself caps
+/// iteration count, no separate counter needed. Pure/testable; no allocation.
+func nextInKeyNote(_ note: Int, refMask: UInt16, dir: Int) -> Int? {
+    guard refMask != 0, dir != 0 else { return nil }
+    let step = dir > 0 ? 1 : -1
+    var n = note + step
+    while n >= 0 && n <= 127 {
+        if (refMask >> UInt16(n % 12)) & 1 != 0 { return n }
+        n += step
+    }
+    return nil
+}
+
 /// MIDI note number → name: pitch class + a NON-NEGATIVE octave (note 0 = C0 … note 127 = G10) — the range
 /// display never shows a "-1" octave (user 2026-08-03). Shared by the cog RANGE chips, the strip header's range
 /// summary, and tests — one source so the naming can't drift.

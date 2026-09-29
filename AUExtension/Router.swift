@@ -731,8 +731,26 @@ final class Router {
         var feedDelay: Double = 0.7  // input send — first echo level
         var decay: Double = 0.5   // regeneration — decay ratio between echoes
         var offset: Double = 0       // ±0.33 nudge off the grid
-        var pitch: Int = 0           // semitones (or POOL DEGREES if poolMask != 0) per successive echo
-        var poolMask: UInt16 = 0     // §2 POOL-STEP: the source pool's pitch classes, captured at registration — echo k walks `k·pitch` DEGREES (in-key trails). 0 = semitones.
+        var pitch: Int = 0           // semitones per successive echo (flat mode) — IN-KEY mode reads only its SIGN (direction)
+        // ECHO IN-KEY (Paul 2026-09-29, supersedes the old POOL-STEP field): PITCH STEP walks to the next in-key
+        // note instead of a flat semitone amount, live, from whichever ABCD receivers are selected.
+        var inKeyMode: Bool = false      // true ⇒ PITCH STEP walks to the next in-key note; captured once at registration.
+                                          // Kept as its OWN flag rather than inferred from inKeyReceivers != 0 — inferring
+                                          // it would make "IN-KEY mode with zero receivers ticked" indistinguishable from
+                                          // "mode not engaged," silently falling back to flat semitone math instead of the
+                                          // required "hold at last landed pitch" behaviour for an empty reference set.
+        var inKeyReceivers: UInt8 = 0    // bit i = receiver A..D contributing the live reference; the SELECTION is fixed
+                                          // for the tail's life (like every other echo param), only its CONTENT is live.
+        // WALK STATE: the previous repeat's actual landed note (−1 = not yet walked; repeat 1 starts from `note`). A
+        // sanctioned mutable-state exception, same class as riffDrunkPos (~line 332) — disclosed, not treated as a
+        // blanket precedent (see CLAUDE.md's RIFF DRUNK entry / Docs/codebase-review-2026-08-16.md finding A1).
+        // Lower risk than DRUNK though: this is PER-TAIL not per-cell, and structurally exempt from the seek/loop
+        // replay concern DRUNK carries, because a tail cannot survive a beat discontinuity at all (clearEchoTails
+        // fires first — see drainEchoTails' own discontinuity check). Reset is free, not a separate mechanism:
+        // pushEchoTail always fully RECONSTRUCTS the struct via a literal (never in-place field mutation), so a
+        // reused slot's inKeyLast silently defaults back to −1. Do not change pushEchoTail to partial mutation
+        // without re-zeroing this field explicitly.
+        var inKeyLast: Int8 = -1
         var gateBeats: Double = 0.25
         var spill: EchoSpill = .ring // RING = tail spills past the column · CUT = pending repeats die at column exit
         // §7② ROUTE = CHAIN: re-fold each repeat through the chain stages AFTER the ECHO slot, at the repeat's own beat.
@@ -763,7 +781,7 @@ final class Router {
     private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, timeBeats: Double, repeats: Int,
                               feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double,
                               spill: EchoSpill = .ring, route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1,
-                              poolMask: UInt16 = 0) {
+                              inKeyMode: Bool = false, inKeyReceivers: UInt8 = 0) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
         for i in echoTails.indices where !echoTails[i].active { slot = i; break }
@@ -774,7 +792,8 @@ final class Router {
         }
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
-                                   decay: decay, offset: offset, pitch: pitch, poolMask: poolMask, gateBeats: gateBeats, spill: spill,
+                                   decay: decay, offset: offset, pitch: pitch, inKeyMode: inKeyMode, inKeyReceivers: inKeyReceivers,
+                                   gateBeats: gateBeats, spill: spill,
                                    route: route, cellIdx: cellIdx, echoSlot: echoSlot,
                                    chan: Int8(max(-1, min(15, Int(chanOverride)))), nudge: nudgeSamples)   // repeats inherit the registering cell's CHANNEL/NUDGE (set at every push site)
     }
@@ -2126,7 +2145,7 @@ final class Router {
         let multi = cell.procs.count >= 2
         if multi { composeChainSet(cell: cell, pool: cellPool, upto: cell.procs.count - 2, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
         let srcN = multi ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)
-        let echoPoolMask: UInt16 = p.echoPitchUnits == .pool ? (multi ? chainScratch.pitchClassMaskAll() : cellPool.pitchClassMaskAll()) : 0   // §2: in-key echo trails
+        let echoInKey = p.echoPitchMode == .inKey
         for k in 0..<srcN {
             let srcNote = multi ? chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111) : cellPool.srcAscending(k, for: cell)
             let n = Int(srcNote) + transpose
@@ -2141,10 +2160,18 @@ final class Router {
             }
             pushEchoTail(onset: colStart, note: UInt8(n), vel: vel, busMask: chopped, timeBeats: timeBeats, repeats: repeats,
                          feedDelay: p.echoFeedDelay, decay: p.echoDecay, offset: p.echoOffset, pitch: p.echoPitch,
-                         gateBeats: gateBeats, spill: p.echoSpill, poolMask: echoPoolMask)
+                         gateBeats: gateBeats, spill: p.echoSpill,
+                         inKeyMode: echoInKey, inKeyReceivers: echoInKey ? p.echoInKeyReceivers : 0)
         }
     }
 
+    // ECHO IN-KEY: union of the live pitch-classes of every SELECTED receiver (bit i = A..D) — mirrors avoidRefMask's
+    // .sounding union (line ~207), but user-selected rather than "every other door."
+    private func echoInKeyRefMask(_ mask: UInt8) -> UInt16 {
+        var m: UInt16 = 0
+        for d in 0..<4 where (mask >> UInt8(d)) & 1 != 0 { m |= doorRefMask(d) }
+        return m
+    }
     /// Emit every registered echo REPEAT whose musical time lands in this window [mStart, mEnd) — column-independent,
     /// so tails ring out after the playhead leaves the cell's column AND after the source chord releases. Each repeat
     /// opens a voice with a scheduled off (drainDue guarantees the off → no stuck note). Decay-floor + all-past retire
@@ -2163,13 +2190,28 @@ final class Router {
             // the last one already emitted keeps its scheduled off, so the sounding note finishes its gate (no lurch).
             if e.spill == .cut && mStart >= columnStart(e.onset, S) + S { echoTails[i].active = false; continue }
             if e.onset + (Double(e.repeats) + 1) * e.timeBeats < mStart { echoTails[i].active = false; continue }   // all past → retire
+            // ECHO IN-KEY: the walk cursor is seeded ONCE per tail per drain call, then read/written as a LOCAL var
+            // through the whole k-loop below — NOT through `e` (a value-type snapshot taken above, before this loop).
+            // If two repeats fire in the SAME render window (fast rate + large frameCount), reading the cursor
+            // through `e` would read the same stale value twice and break the chain; the local var lets k+1 see
+            // k's actual landed note within one drain call, while the array write-back (below) is what lets the
+            // NEXT render window's drain call continue from where this one left off.
+            var inKeyWalk = e.inKeyLast >= 0 ? Int(e.inKeyLast) : Int(e.note)
             for k in 1...e.repeats {
                 let tau = e.onset + (Double(k) + e.offset) * e.timeBeats     // OFFSET nudges each echo off the grid
                 if tau < mStart || tau >= mEnd { continue }                 // half-open: fires in exactly one window
                 // FEED DELAY = the first echo's send level · FEEDBACK = the per-echo decay ratio (tail length)
                 let v = Int((Double(e.vel) * e.feedDelay * pow(e.decay, Double(k - 1))).rounded())
                 if v < 1 { continue }                                       // level floor kills the tail
-                let n = e.poolMask != 0 ? poolStepMask(Int(e.note), steps: k * e.pitch, pcMask: e.poolMask) : Int(e.note) + k * e.pitch   // PITCH: climb/descend each echo — §2 POOL = walk the scale (in-key trails)
+                let n: Int
+                if e.inKeyMode {                                            // walk to the next in-key note, live, chained from the last landed pitch
+                    let dir = e.pitch > 0 ? 1 : (e.pitch < 0 ? -1 : 0)
+                    if let next = nextInKeyNote(inKeyWalk, refMask: echoInKeyRefMask(e.inKeyReceivers), dir: dir) { inKeyWalk = next }   // else: hold at the last landed note (empty mask / dir 0 / range exhausted)
+                    n = inKeyWalk
+                    echoTails[i].inKeyLast = Int8(clamping: inKeyWalk)       // persists for the NEXT render window's drain call
+                } else {
+                    n = Int(e.note) + k * e.pitch                           // PITCH: climb/descend each echo (flat semitones)
+                }
                 guard n >= 0 && n <= 127 else { continue }
                 let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)

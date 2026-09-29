@@ -7704,6 +7704,141 @@ final class RouterTests: XCTestCase {
             c.paramsA.echoThru = thru; c.paramsA.echoPitch = pitch; c.paramsA.echoOffset = offset; return c }
     }
 
+    // ECHO IN-KEY (Paul 2026-09-29): PITCH STEP can walk to the next in-key note, live, from whichever ABCD
+    // receivers are selected — replaces the old POOL-STEP mode (removed). Mirrors
+    // testAvoidDoorReferenceReadsAnotherLiveReceiverAndItsClashes' shape: door 0 (ch1) feeds the ECHO cell
+    // itself, door 1 (ch2) is the live IN-KEY reference (bit 1 = receiver B). SCOPE, confirmed by tracing
+    // emitEchoColumn/isEchoTail: IN-KEY mode only reaches registerEcho (single-slot [ECHO], or an upstream-
+    // then-ECHO tail like [HARMONIZE→ECHO]) — the SAME scope the old POOL mode had (neither ever threaded
+    // through pushEchoForNote's hold-chain path, e.g. [ECHO→HARMONIZE], or registerLengthChainEcho's
+    // [ECHO→…→LENGTH] path). CHAIN route is architecturally inapplicable here too: registerEcho never passes
+    // a route to pushEchoTail (always the .direct default), since when ECHO is the chain's own tail there is
+    // nothing downstream to re-fold repeats through.
+    private func echoInKeyBox(receivers: UInt8, pitch: Int, repeats: Int, div: Int, upstream: [ProcessorSlot] = []) -> SnapshotBox {
+        var s = ProcessorSlot(type: .echo)
+        s.params.echoSync = true; s.params.echoDelayDiv = div; s.params.echoRepeats = repeats
+        s.params.echoFeedDelay = 1.0; s.params.echoDecay = 0.95   // slow decay so late repeats still clear the velocity floor
+        s.params.echoThru = true; s.params.echoPitchMode = .inKey; s.params.echoPitch = pitch
+        s.params.echoInKeyReceivers = receivers
+        var st = PluginState(machines: [Machine(machineID: "gold", type: .empty)], scenes: [{ var sc = SceneState.empty()
+            sc.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = upstream + [s]; return c }()
+            return sc }()])
+        st.busChannels = [1, 2, 3, 4]
+        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3"), Receiver(name: "4")]
+        return SnapshotBuilder.build(from: st)
+    }
+    func testEchoInKeyWalksToNextInKeyNoteChainedFromLastLanded() {
+        let b = echoInKeyBox(receivers: 0b0010, pitch: 1, repeats: 4, div: 4)   // bit 1 = receiver B (door 1)
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0)                                    // ECHO's own dry input (door 0)
+        for n: UInt8 in [48, 52, 55] { pool.noteOn(n, velocity: 100, channel: 1) }     // the live IN-KEY reference (door 1): classes {0,4,7}
+        let e = RecordingEmitter(); run(b, pool, beats: 5, into: e)
+        let repeats = e.ons.filter { $0.cable == 1 && $0.note != 60 }   // exclude the dry strike at the source pitch
+        XCTAssertFalse(repeats.isEmpty, "the walk produced at least one repeat")
+        XCTAssertTrue(repeats.allSatisfy { [0, 4, 7].contains(Int($0.note) % 12) }, "every repeat lands on the reference's own pitch classes (C/E/G)")
+        XCTAssertGreaterThanOrEqual(Set(repeats.map { $0.note }).count, 2, "the walk actually advances across repeats, not stuck on one note")
+        assertNothingLeftSounding(e)
+    }
+    func testEchoInKeyReadsReceiverContentLiveNotSnapshotted() {
+        let b = echoInKeyBox(receivers: 0b0010, pitch: 1, repeats: 3, div: 4)   // timeBeats = 1 beat/repeat → repeats at 1, 2, 3 beats
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0)   // ECHO's own dry input (door 0) — untouched throughout
+        pool.noteOn(48, velocity: 100, channel: 1)   // reference (door 1) initially holds ONLY class 0 (C, via note 48)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < 1.5 {   // covers repeat 1 (tau=1 beat), stops short of repeat 2 (tau=2 beats)
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let afterFirst = Set(e.ons.filter { $0.cable == 1 && $0.note != 60 }.map { Int($0.note) % 12 })
+        XCTAssertEqual(afterFirst, [0], "repeat 1 landed using the ORIGINAL reference (class 0 only)")
+        pool.noteOff(48); pool.noteOn(54, velocity: 100, channel: 1)   // swap the reference LIVE to class 6 (F#) before repeats 2/3 fire
+        while beat < 4 {   // covers repeats 2 and 3 (tau=2, 3 beats)
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let laterClasses = Set(e.ons.filter { $0.cable == 1 && $0.note != 60 }.map { Int($0.note) % 12 })
+        XCTAssertTrue(laterClasses.contains(6), "a later repeat reflects the NEW reference (class 6/F#), read live at its own fire time — not the class-0 snapshot from registration")
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop flush
+        assertNothingLeftSounding(e)
+    }
+    func testEchoInKeyHoldsAtLastLandedWhenMaskGoesEmpty() {
+        let b = echoInKeyBox(receivers: 0b0010, pitch: 1, repeats: 3, div: 4)
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0)
+        pool.noteOn(48, velocity: 100, channel: 1)   // reference holds class 0 initially
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < 1.5 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let firstNote = e.ons.first { $0.cable == 1 && $0.note != 60 }?.note
+        XCTAssertNotNil(firstNote, "repeat 1 landed on a real note")
+        pool.noteOff(48)   // the reference goes SILENT (empty mask) — nothing else held on door 1
+        while beat < 4 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let allRepeatNotes = Set(e.ons.filter { $0.cable == 1 && $0.note != 60 }.map { $0.note })
+        XCTAssertEqual(allRepeatNotes, Set([firstNote!]), "with the reference silent, later repeats HOLD at the last landed note rather than dropping or crashing")
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+    func testEchoInKeyZeroReceiversHoldsNotFlatSemitones() {
+        let b = echoInKeyBox(receivers: 0, pitch: 3, repeats: 3, div: 4)   // no ABCD ticked; pitch=3 would climb chromatically in flat mode
+        let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
+        let e = RecordingEmitter(); run(b, pool, beats: 4.5, into: e)
+        let cable1 = e.ons.filter { $0.cable == 1 }
+        XCTAssertGreaterThan(cable1.count, 1, "the dry strike PLUS at least one repeat actually fired")
+        XCTAssertEqual(Set(cable1.map { $0.note }), [60], "zero receivers selected ⇒ nothing to walk to ⇒ every repeat holds at the dry note (60), not a flat +3-semitone climb (63,66,69,…) — holding also lands on 60, so this checks event COUNT separately from note VALUE")
+        assertNothingLeftSounding(e)
+    }
+    /// Fast rate (div=1 → timeBeats=0.25) + an oversized render window spanning several repeat intervals, so
+    /// repeats 1-3 all resolve inside the SAME call to drainEchoTails — the exact scenario the `inKeyWalk` local-var
+    /// fix (read/written through the array, not the stale per-tail `e` snapshot taken before the k-loop) exists for.
+    func testEchoInKeySameWindowMultipleRepeatsChainCorrectly() {
+        let b = echoInKeyBox(receivers: 0b0010, pitch: 1, repeats: 3, div: 1)
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0)
+        for n: UInt8 in [48, 52, 55] { pool.noteOn(n, velocity: 100, channel: 1) }   // reference: classes {0,4,7}
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 24576, sr = 48_000.0, tempo = 120.0   // ~1.02 beats/window — comfortably spans all 3 repeats (0.25, 0.5, 0.75)
+        router.process(box: b, pool: pool, playing: true, beatPos: 0, tempo: tempo, sampleRate: sr,
+                       timestampSample: 0, frameCount: frames, out: e, diag: &diag)
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: Double(frames) * tempo / 60.0 / sr, tempo: tempo,
+                       sampleRate: sr, timestampSample: Double(frames), frameCount: frames, out: e, diag: &diag)   // stop flush
+        let repeatNotes = e.ons.filter { $0.cable == 1 && $0.note != 60 }.map { $0.note }
+        XCTAssertGreaterThanOrEqual(repeatNotes.count, 2, "at least 2 repeats fired within the single oversized window")
+        XCTAssertEqual(Set(repeatNotes).count, repeatNotes.count, "each repeat within the SAME window landed on a genuinely distinct note — proving the walk chained through the local cursor, not a stale per-tail snapshot")
+        assertNothingLeftSounding(e)
+    }
+    /// IN-KEY mode reached via registerEcho's OWN "multi" chain-composition branch — [HARMONIZE→ECHO] (echo as the
+    /// chain's tail, with an upstream stage feeding it), the one realistic "chain" shape IN-KEY mode can actually
+    /// reach (see the scope note above the helper — CHAIN route itself is inapplicable to registerEcho).
+    func testEchoInKeyWalksTheHarmonizedUpstreamSet() {
+        var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [7, 0, 0]   // widen the dry note with a +7
+        let b = echoInKeyBox(receivers: 0b0010, pitch: 1, repeats: 3, div: 4, upstream: [h])
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0)                                    // door 0: C → harmonized to {C, G}
+        for n: UInt8 in [48, 52, 55] { pool.noteOn(n, velocity: 100, channel: 1) }     // reference (door 1): classes {0,4,7}
+        let e = RecordingEmitter(); run(b, pool, beats: 4.5, into: e)
+        XCTAssertFalse(e.ons.filter { $0.cable == 1 }.isEmpty, "[HARMONIZE→ECHO] in IN-KEY mode still produces output")
+        let repeats = e.ons.filter { $0.cable == 1 && $0.note != 60 && $0.note != 67 }   // exclude the two dry (harmonized) strikes
+        XCTAssertTrue(repeats.allSatisfy { [0, 4, 7].contains(Int($0.note) % 12) }, "repeats walk in-key regardless of which harmonized source note they started from")
+        assertNothingLeftSounding(e)
+    }
+
     /// A single-slot [ECHO] cell re-strikes its held note the DRY + REPEATS times, velocities DECAYING, no stuck notes.
     func testEchoRepeatsHeldNoteWithDecay() {
         let b = box(machines: echoMachines(div: 1, repeats: 4, feedDelay: 0.5, decay: 0.5)) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }

@@ -589,7 +589,6 @@ enum SnapshotBuilder {
         if let v = p.harmVelScale { out.harmVelScale = clamp(v, 0.1, 1) }
         if let v = p.harmUnits { out.harmUnits = v }                       // §2 POOL-STEP UNITS
         if let v = p.utilTransposeUnits { out.utilTransposeUnits = v }
-        if let v = p.echoPitchUnits { out.echoPitchUnits = v }
         if let v = p.glideStepUnits { out.glideStepUnits = v }
         // ECHO (user 2026-08-08)
         if let v = p.echoSync { out.echoSync = v }
@@ -600,6 +599,8 @@ enum SnapshotBuilder {
         if let v = p.echoFeedDelay { out.echoFeedDelay = clamp(v, 0, 1) }
         if let v = p.echoDecay { out.echoDecay = clamp(v, 0, 1) }
         if let v = p.echoPitch { out.echoPitch = clamp(v, -24, 24) }
+        if let v = p.echoPitchMode { out.echoPitchMode = v }
+        if let v = p.echoInKeyReceivers { out.echoInKeyReceivers = v & 0x0F }   // defensive — only bits 0-3 are meaningful
         if let v = p.echoThru { out.echoThru = v }
         if let v = p.echoSpill { out.echoSpill = v }
         if let v = p.echoRoute { out.echoRoute = v }

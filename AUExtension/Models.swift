@@ -310,10 +310,9 @@ struct MachineParams: Codable, Equatable {
     var harmVelScale: Double? = 0.8
     // POOL-STEP UNITS (ratified scale-door §2, 2026-08-27): the offset-bearing processors count in SEMITONES (today) or
     // POOL DEGREES (against the pool feeding the chain — a SCALE door ⇒ diatonic, a chord ⇒ chord-tone stacking). Additive-
-    // Optional — nil ⇒ semitones (byte-identical for old docs). HARMONIZE intervals · TRANSPOSE · ECHO pitch · GLIDE step.
+    // Optional — nil ⇒ semitones (byte-identical for old docs). HARMONIZE intervals · TRANSPOSE · GLIDE step.
     var harmUnits: PitchUnits? = nil
     var utilTransposeUnits: PitchUnits? = nil
-    var echoPitchUnits: PitchUnits? = nil
     var glideStepUnits: PitchUnits? = nil
     // ECHO (the TAIL era, user 2026-08-08): the delay-echo controls. Append-only Optional (old docs decode nil →
     // defaults). SUPERSEDES echo's earlier reuse of rate/count/ramp; those keys are ignored for echo now.
@@ -324,7 +323,9 @@ struct MachineParams: Codable, Equatable {
     var echoOffset: Double? = 0         // ±0.33 — nudge echoes ahead of / behind the grid (fraction of the interval)
     var echoFeedDelay: Double? = 0.7    // 0…1 — input send: how loud the FIRST echo is
     var echoDecay: Double? = 0.5        // 0…1 — per-echo velocity FALLOFF (was FEEDBACK; removed per design 2026-08-07)
-    var echoPitch: Int? = 0             // semitones transposed per successive echo (climbing / descending)
+    var echoPitch: Int? = 0             // semitones transposed per successive echo (climbing / descending) — IN-KEY mode reads only its SIGN (direction)
+    var echoPitchMode: EchoPitchMode? = nil       // SEMITONES (default, nil) or IN-KEY (walk to the next in-key note; sign of echoPitch = direction)
+    var echoInKeyReceivers: UInt8? = nil          // IN-KEY mode: bit i = receiver A..D feeds the live reference (0 ⇒ none selected → holds)
     var echoThru: Bool? = true          // THRU = pass the dry note · MUTE = echoes only
     var echoSpill: EchoSpill? = .ring   // TAIL SPILL (design 2026-08-07): RING past the bar · CUT inside it · HAND (birthstone, deferred)
     var echoRoute: EchoRoute? = .direct // ROUTE (§7②, ratified 2026-08-22): DIRECT = echo the final set (v1) · CHAIN = each repeat flows THROUGH the stages after ECHO ([ECHO→LENGTH] chokes repeats, [ECHO→SPLIT] thins to a register)
@@ -587,6 +588,10 @@ enum EchoSpill: String, Codable, CaseIterable { case ring = "RING", cut = "CUT",
 // (position-blind, v1). CHAIN = each repeat is re-folded through the chain stages AFTER the ECHO slot at the repeat's
 // own beat — so [ECHO→LENGTH] chokes/ties repeats by the slice they land in, [ECHO→SPLIT] thins trails to a register.
 enum EchoRoute: String, Codable, CaseIterable { case direct = "DIRECT", chain = "CHAIN" }
+// ECHO PITCH MODE (Paul 2026-09-29): SEMITONES = the old flat per-repeat step. IN-KEY replaces the removed POOL
+// mode — each repeat walks to the NEXT in-key note (nextInKeyNote, Derivations.swift), live, from whichever ABCD
+// receivers are selected (echoInKeyReceivers); echoPitch's SIGN is the only part of it that matters in this mode.
+enum EchoPitchMode: String, Codable, CaseIterable { case semitones = "SEMITONES", inKey = "IN-KEY" }
 
 struct Machine: Codable, Equatable {
     var machineID: String

@@ -131,7 +131,6 @@ struct SnapParams {
     var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
     var harmUnits: PitchUnits = .semitones              // §2: harmonize intervals in semitones or pool degrees
     var utilTransposeUnits: PitchUnits = .semitones     // §2: TRANSPOSE in semitones or pool degrees
-    var echoPitchUnits: PitchUnits = .semitones         // §2: ECHO pitch-per-repeat in semitones or pool degrees
     var glideStepUnits: PitchUnits = .semitones         // §2: GLIDE STEP zipper in semitones or pool degrees
     var harmVelScale: Double = 0.8   // harmonize: velocity scale on added voices
     // ECHO (user 2026-08-08)
@@ -142,7 +141,9 @@ struct SnapParams {
     var echoOffset: Double = 0       // ±0.33
     var echoFeedDelay: Double = 0.7  // 0…1
     var echoDecay: Double = 0.5      // 0…1 per-echo falloff
-    var echoPitch: Int = 0           // semitones per echo
+    var echoPitch: Int = 0           // semitones per echo (IN-KEY mode: only the sign is read)
+    var echoPitchMode: EchoPitchMode = .semitones
+    var echoInKeyReceivers: UInt8 = 0
     var echoThru: Bool = true        // THRU vs MUTE
     var echoSpill: EchoSpill = .ring // RING past the bar · CUT inside it · HAND (deferred)
     var echoRoute: EchoRoute = .direct // DIRECT = echo the final set (v1) · CHAIN = repeats re-fold through post-ECHO stages (§7②)
