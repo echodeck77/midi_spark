@@ -199,6 +199,31 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROCESSOR EDITOR — the swap transition is now SLIDE + FADE, not a plain cross-fade (2026-09-29, on `main`,
+  `a1667b9`; iOS builds; DEVICE eye owed). Follow-through on the 2026-09-28 cross-fade fix: Paul asked whether it'd
+  landed (he couldn't see it), then for suggestions on feel — shown as an interactive mockup comparing candidates
+  (opacity-only · slide+fade · scale+fade · flash · flash+slide) built from the shipped code's own actual gaps, not
+  invented; he picked slide+fade. **THE TRANSITION:** `ProcessorBox`'s new `swapTransition` (GridUI.swift) — a small
+  FIXED 14pt offset + opacity, `.asymmetric(insertion:removal:)`, NOT SwiftUI's built-in `.move(edge:)` (which travels
+  the view's own full width — far too big a sweep at panel size for a subtle cue, caught before shipping by reasoning
+  through what `.move` actually measures against, not assumed). Direction is `swapDirection: Int` (new `ProcessorBox`
+  param, default +1): the incoming controls nudge in from the edge matching which way the user actually moved through
+  the chain; the outgoing controls nudge out the opposite way. Duration bumped 0.18s→0.2s to match what read best in
+  the mockup comparison (a touch more time for the added motion). **DIRECTION SOURCE:** `buildEditSlot` (0…7) already
+  IS the chain's own left-to-right order — no new positional concept needed. A new `buildEditSlotDir` @State
+  (AudioUnitViewController.swift) derives it via `.onChange(of: buildEditSlot)` (comparing against a remembered
+  `buildEditSlotLast`), threaded into the ONE call site tied to the real chain editor (`buildSlotBox`'s own
+  `ProcessorBox(...)` call, BuildPage.swift). Both surfaces Paul originally named — the MIDI-chain box grid
+  (`buildProcBox`) and the tab strip above the panel (`buildProcCardTabs`/`buildProcTab`) — already write the SAME
+  `buildEditSlot`, so both get the directional treatment for free, no separate wiring per surface. The OTHER
+  `ProcessorBox` call site (the chord-sequencer popup, `buildChordSeqEditor` — a 4-slot radio with no real chain
+  position) keeps the `swapDirection` default (+1) — still gets slide+fade, just not adaptively directional; not a
+  regression (it had no transition beyond the shared cross-fade before either). **UNCHANGED, flagged again for
+  clarity:** still fires ONLY on an actual TYPE change (the existing `.id(ft)` mechanism) — switching between two
+  same-typed slots (e.g. two ARPs with different params) still shows nothing; that's the separately-flagged gap from
+  the mockup's own "same-type switches" toggle, not addressed by this pass. UI-only, no test-target reach (GridUI, as
+  always). **DEVICE-OWED:** the 14pt/0.2s feel at real panel size and normal tap cadence, and that rapid back-to-back
+  swaps (slot→slot→slot) don't visually overlap or stutter.**
 - **▶ FERRY DRAG-AND-DROP — a DEALT cell's transpose now bakes into the chain, not a machine field (2026-09-28/29, on
   `main`, `9272248`; iOS builds; DEVICE-ear owed). Paul asked me to investigate circumstances where dragging a SELECT-
   grid cell onto a play ferry changes its output. Traced the whole path (`buildFerryDrop` → `buildPopulateFerry-
