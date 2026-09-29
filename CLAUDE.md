@@ -199,6 +199,37 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FERRY DRAG-DROP — silent ferry + un-stopped source audition FIXED, the source cell now commits (name+colour),
+  +2 tests (2026-09-29, on `main`, `aada129`; macOS green incl. 2 new, iOS builds; DEVICE ear/eye owed). Paul reported
+  three bugs dragging a SELECT cell onto a play ferry: the source cell kept playing, the target ferry stayed silent,
+  the source cell never got marked/named. **ROOT CAUSE of the silent ferry — A REGRESSION FROM THIS SAME DAY'S
+  EARLIER FIX** (the `1c902c6`-adjacent "only navigate to PART if already focused" change): `buildPublishScene`'s
+  `input.ferryParts[t] = t == buildActiveFerry ? buildCaptureBenchPart() : buildFerryParts[t]` — an ACTIVE ferry is
+  read LIVE off the editing "bench" @State, every OTHER ferry from its own stored `BuildPart`. The earlier fix set
+  `buildActiveFerry = t` on a non-focused drop WITHOUT loading `t`'s data onto the bench — so the compositor kept
+  reading whatever the PREVIOUSLY active ferry had left there, not the drop. Same shortcut skipped the chain-
+  audition-stop (it only ran on the navigate-to-PART branch) — the un-stopped source cell was the SAME root cause,
+  not a separate bug. **FIX:** `buildActivateFerry`/`buildReactivateFerry` gained a `navigate: Bool = true` param —
+  the FULL activate flow (outgoing-ferry bench writeback, bench LOAD of the new ferry, the chain-audition stop) now
+  ALWAYS runs; `navigate` gates ONLY the room switch + `roomsPartSetup()`. `buildPopulateFerry` calls through this
+  properly instead of the hand-rolled `buildActiveFerry = t; buildPublishScene()` shortcut the earlier fix used.
+  Traced the fix by hand against the exact `buildPublishScene` composition code before shipping (not assumed) —
+  confirmed a non-focused drop now correctly bench-loads `t`, publishes with `t`'s real content, and separately
+  writes back the OUTGOING ferry's live edits so IT keeps sounding right too. **SOURCE-CELL COMMIT:**
+  `buildPopulateFerryFromSelect` now marks/names the SOURCE cell, mirroring the existing "EDIT = COMMIT" rule an
+  in-place chain edit already applies (`buildApplyChain` — first name wins, the colour override always follows) —
+  this never ran for drag-drop at all before, which is exactly why it "did this in some instances already" (only
+  when a PRIOR edit had happened to commit the cell first). **TESTS:** extracted the two genuinely pure rules —
+  which name wins (`BuildSceneLogic.ferryDropSourceName`) and whether to navigate
+  (`ferryDropShouldNavigateToPart`) — into `BuildSceneLogic.swift`, `BuildPage.swift` now calls THROUGH them rather
+  than duplicating the logic inline, +2 `BuildSceneLogicTests`. **HONESTLY FLAGGED, not swept under a test:** the
+  actual bench/active-ferry sync bug lives entirely in SwiftUI `@State` glue (`buildLoadBenchPart`/
+  `buildCaptureBenchPart` read/write ~20 `@State var`s directly) — this project's own architecture deliberately
+  keeps that class of code OUT of the unit-test target (BuildPage.swift isn't in `MidiSparkTests`); traced it by
+  hand instead of forcing an artificial pure-function extraction that wouldn't actually cover the real bug. **DEVICE-
+  OWED:** drop onto a non-focused ferry → it should audibly start playing the dropped content immediately, the
+  previously-focused ferry should keep sounding unaffected, the source SELECT cell should go quiet + show its name,
+  and switching to PART later should show the newly-active ferry's part (not stale bench content).**
 - **▶ PART GRID — a live per-row piano roll of what actually played, overlaid on the existing grid (2026-09-29, on
   `main`, `56868a9`; macOS 1145 green incl. 4 new, iOS builds; DEVICE eye/ear owed). Paul: each of the part grid's 4
   interior rows should show a LIVE piano roll of the notes it actually played — pitch vertically, time horizontally,
