@@ -228,7 +228,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   press-and-hold/tap audition or by actually pressing PLAY on a scene; his CHORD PICK setting (ALL vs. a narrower
   pick could read as "nothing" if it's e.g. LOW/HIGH and he's listening for the whole chord); whether EUCLID MASK is
   the chain's last slot or anything follows it; any other processor anywhere else in the chain.**
-  **BOTH FLAGGED ISSUES FIXED (2026-09-29, on `main`, `<PENDING>`; iOS builds). Paul confirmed he's not auditioning
+  **BOTH FLAGGED ISSUES FIXED (2026-09-29, on `main`, `33d2266`; iOS builds). Paul confirmed he's not auditioning
   (real playback), it fails on every CHORD PICK mode, and EUCLID MASK is the chain's last slot, then asked me to fix
   the two issues found above. (1) `Router.auditionRender` and its whole "Phase 2" dead-preview cluster REMOVED at
   every entry point: `AudioUnitViewController.swift`'s `AuditionBox` class + `abox` @State (its `target`/`held`
