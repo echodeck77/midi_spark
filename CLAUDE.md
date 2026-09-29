@@ -199,6 +199,61 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ARP EDITOR — a full layout rework + two new fields, VELOCITY + VELOCITY TILT (2026-09-30, on `main`, `67fb646`;
+  macOS 1155 green, iOS builds; DEVICE eye/ear owed). Paul specified the new layout precisely: ARP PATTERN's options
+  into two equally-sized rows, SPEED to its right at matching height; OCTAVE + OCT DIR stacked one over the other, to
+  the right of ARP FLOW, matching FLOW's height; then LENGTH, VELOCITY, VELOCITY TILT to the right of that, equal
+  height among themselves — with VELOCITY and VELOCITY TILT named as NEW features, both wanting a ∿ LFO.
+  **LAYOUT:** the 10-entry `arpPatternOptions` table (UP/DOWN/UP-DN/ALT LO/ALT HI/AS PLAYED/RANDOM/RND HI/RAND LO/
+  RANDOM ONCE) splits into two 5-chip rows via `arpPatternRow`, reworked to take an explicit SLICE instead of always
+  the whole table (its `sel` highlight is now `Int?`, not `?? 0` — a pattern belonging to the OTHER row no longer
+  wrongly lights this row's first chip, a real bug the split would otherwise have introduced). Height match against
+  SPEED is EXACT ARITHMETIC, not eyeballed: 2 rows×48pt + 1×6pt gap = 102, same as `arpSpeedGrid`'s 3 rows×32pt +
+  2×3pt gap = 102. OCTAVES/OCT DIR now stack in one VStack beside FLOW's existing 3-item `segV` (each keeps its own
+  label). LENGTH/VELOCITY/VELOCITY TILT are three side-by-side fields, naturally equal height since all three share
+  the identical `slider`/`lfoSlider` → `FineSlider` (fixed 30pt) content underneath. **NEW ENGINE FIELDS:** `arpVelScale`
+  (0…2, default 1 — a flat multiplier on the picked note's own velocity) and `arpVelTilt` (−1…1, default 0 — favours
+  the top (+) or bottom (−) of the held pool). No spec for either existed, so both were modeled on established
+  precedent rather than invented from nothing: `arpVelScale` mirrors HARMONIZE's `harmVelScale` (a plain velocity-
+  scale multiplier); `arpVelTilt` reuses `Derivations.strumVelocity` VERBATIM (the exact formula STRUM's own `velTilt`
+  and CHANCE's `chanceTilt` already established as this codebase's tilt convention), keyed on `rank = pos % count` —
+  the SAME ascending-pool-rank index `arpPick` already computes to fetch the note itself (captured once, reused for
+  the tilt — no second pool scan). For every pattern except AS PLAYED, `rank` is a true pitch-ascending rank (0=lowest);
+  AS PLAYED reads press-order instead (`srcPlayed`, not `srcAscending`), so its "tilt" is by play-order there — an
+  honest, disclosed minor difference for that one mode, not a second code path. Threaded through all THREE `arpPick`
+  overloads (chanMask-based impl, the `filter:` forwarder, the `for cell:` convenience forwarder) with defaults
+  (1, 0) that reproduce the exact prior velocity byte-for-byte (verified: `clampVel` is idempotent on an
+  already-legal 1…127 velocity, and `strumVelocity`'s tilt=0 scale is exactly 1). `emitArpRow` resolves both via new
+  `effectiveArpVelScale`/`effectiveArpVelTilt` (Snapshot.swift, mirroring `effectiveGate`) and passes them to BOTH
+  the chain-driver and standalone `arpPick` call sites. **LFO:** both fields joined `AutoParamField` (the ONE enum
+  shared by the per-param ∿ LFO AND the older render-time span-automation) — `settingAuto`/`autoValue`/`unitRange`
+  gained the two cases, which is ALSO what makes them span-automation-ramp-able for free, unasked but harmless (same
+  shared-enum consequence every prior LFO addition to this enum has had). GridUI's 5-switch LFO-editor recipe
+  (`lfoLabelText`/`lfoEndpointControl`/`lfoFmt`/`lfoSeedFrom`/`lfoSetBase`) got matching cases each — caught the
+  `lfoSeedFrom`/`lfoSetBase` DEFAULT branches fall back to `p.gate` before writing these in, which would have silently
+  seeded/written the WRONG param (GATE, not VELOCITY) had either case been skipped. **`bipolarSlider` gained LFO
+  support** (a new optional `lfo target:` param, default nil) — the FIRST bipolar field in the app to get a ∿ button;
+  nil renders byte-identical to before (confirmed: `lfoLabelRow`'s own no-lfo branch uses the exact same Text/font/
+  opacity bipolarSlider inlined previously), so STRUM's VOL TILT and CHANCE's FAVOUR — the only other callers — are
+  unaffected. **CAUGHT BY THE COMPILER, not hand-checked (this session's own standing pattern):** adding the 2
+  `AutoParamField` cases broke 2 EXHAUSTIVE switches in `Tests/EffectiveParamsTests.swift` (the 28-key recognition
+  list and the 28-entry clamp-bounds table, both bumped to 30) — fixed once the build surfaced them. **A genuine
+  self-caught bug pre-push:** the first pass only updated TWO of the three `arpPick` overloads with the new params;
+  the THIRD (the `for cell:` convenience one `emitArpRow`'s standalone branch actually calls) was left unchanged,
+  which the iOS build failed on immediately (`extra argument 'for' in call` — Swift's overload resolution tried to
+  match the call against a different candidate once the intended one no longer matched) — caught by the real
+  compiler, not assumed fixed. **INTEGRATION NOTE:** built and committed on a branch that started one commit behind
+  `origin/main` (another worktree had just landed EUCLID redesign Stage 1, `481cafe`, unrelated fields/files);
+  rebased cleanly (no conflicts — different processor, disjoint field names), rebuilt + retested green on the
+  combined tree before pushing, per the standing multi-worktree workflow. **JUDGMENT CALLS, flagged not silent:**
+  VELOCITY's 0…2 range/percentage display and VELOCITY TILT's pool-rank tilt basis are this session's own design
+  choices (Paul asked for the features + LFO, not their exact semantics) — modeled closely on existing conventions,
+  but unverified against what Paul actually pictured; the OCTAVE+OCT DIR stack's height-match against ARP FLOW is a
+  best-effort spacing choice, NOT provably exact arithmetic like the PATTERN/SPEED pair — SwiftUI's own per-label
+  text-line-height isn't something to hand-derive from source, so this one is real device-eye-owed, not just
+  routine caution. **DEVICE-OWED, the whole feature:** the layout at real panel width (5 side-by-side slots in row 2
+  is the most cramped row this card has ever had), VELOCITY audibly scaling louder/softer, VELOCITY TILT audibly
+  favouring top/bottom notes across a real chord, and both ∿ LFOs sweeping smoothly.**
 - **▶ RECEIVER TOGGLES + DOOR PICKERS — the note-name/key/"no input" text shrunk 15pt→11pt (2026-09-30, on `main`,
   `ad48901`; iOS builds; DEVICE eye owed). Paul: reduce the size of the text showing notes on the receiver toggles
   and related instances. That readout (`buildReceiverSelectChip`'s `big` label — key ?? live notes ?? "no input")
