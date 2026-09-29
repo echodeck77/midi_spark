@@ -136,7 +136,23 @@ final class LiveTelemetry {
     var cellNoteCount = [UInt8](repeating: 0, count: Snap.cells)
     var cellRoll: [[BuildRollNote]] = Array(repeating: [], count: Snap.cells)   // the drifting piano-roll notes per cell (buildNoteSweep)
     var rollPrevSeq   = [Int](repeating: 0, count: Snap.cells)              // last folded strike-seq per cell (the roll fold's diff)
+    var partRollNotes: [[PartRowRollNote]] = Array(repeating: [], count: Snap.rowsPerFerry)   // PART grid's live per-row piano-roll (Paul 2026-09-29) — held here (not @State), same reason as cellRoll
     var lastStep = -1   // step-boundary detector for the quantized voice-switch commit (replaced .onChange(of: d.absoluteStep))
+}
+
+/// PART ROW ROLL (Paul 2026-09-29): the fixed trailing fade window, in musical BEATS (not wall-clock seconds — this
+/// page is tempo-synced everywhere else; a wall-clock fade would visibly drift relative to the beat-synced sweep
+/// under a tempo change). Module-internal (not `private`) — read by both the poll/reconcile in AudioUnitViewController
+/// and the draw in BuildPage's roomsPartNoteRoll; extensions can't add stored properties, so this can't live on a type.
+let partRollFadeBeats = 2.0
+
+/// PART ROW ROLL (Paul 2026-09-29): one tracked note in a part row's live piano-roll overlay. `onBeat` is the RAW
+/// (un-swing-warped) beat from Router.Voice.onBeat — swing-warp is applied only at draw time (roomsPartNoteRoll),
+/// never baked in here, so it can never drift from what the playhead itself does with the same raw beat.
+struct PartRowRollNote: Equatable {
+    var pitch: UInt8, vel: UInt8
+    var onBeat: Double        // true onset beat (raw)
+    var heldToBeat: Double?   // nil = still sounding (bar's head rides the live playhead); non-nil = frozen release point (raw beat)
 }
 
 // Paul 2026-09-05: the WHOLE part-grid state, archived onto a play cell when a part/cell is promoted FROM the part grid, so
@@ -853,6 +869,32 @@ struct DiagView: View {
                 if buildOutProcessing { buildOutProcessing = false }
                 if !buildOutHeld.isEmpty { buildOutHeld = [] }
                 if buildRiffDrunkPos != -1 { buildRiffDrunkPos = -1 }
+            }
+            // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the
+            // OUT piano above, same reason (a poll-driven held-note feed is visibly laggy at 4Hz). Deliberately does
+            // NOT clear on a transport stop — the overlay itself is already gate-hidden while stopped (roomsPart-
+            // NoteRoll shares roomsPartPlayhead's own gate), so a data-level clear here would only ever throw away
+            // in-flight fade state on a brief stop/resume for no visual benefit — the plan explicitly rejected that.
+            if activeTab == .build, roomsRoom == .part, let ferry = buildActiveFerry {
+                let base = Snap.ferryRowBase(ferry)
+                let liveAll = au.pollRowSoundingVoices()
+                let nowRaw = meters.beatAnchor + Date().timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                for r in 0..<Snap.rowsPerFerry {
+                    let live = base + r < liveAll.count ? liveAll[base + r] : []
+                    var existing = meters.partRollNotes[r]
+                    for i in existing.indices where existing[i].heldToBeat == nil
+                        && !live.contains(where: { $0.note == existing[i].pitch && $0.onBeat == existing[i].onBeat }) {
+                        existing[i].heldToBeat = nowRaw                       // just released — freeze the head here
+                    }
+                    for lv in live where !existing.contains(where: { $0.pitch == lv.note && $0.onBeat == lv.onBeat })
+                        && abs(lv.onBeat - nowRaw) < 64 {                     // sanity clamp — reject an implausible onBeat outright
+                        existing.append(PartRowRollNote(pitch: lv.note, vel: lv.vel, onBeat: lv.onBeat, heldToBeat: nil))
+                    }
+                    existing.removeAll { ($0.heldToBeat ?? nowRaw) < nowRaw - partRollFadeBeats - 0.05 }   // fully receded
+                    if existing != meters.partRollNotes[r] { meters.partRollNotes[r] = existing }
+                }
+            } else if meters.partRollNotes.contains(where: { !$0.isEmpty }) {
+                meters.partRollNotes = Array(repeating: [], count: Snap.rowsPerFerry)
             }
         }
         .onReceive(timer) { _ in

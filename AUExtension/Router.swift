@@ -53,6 +53,9 @@ final class Router {
         var machineIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — matches SnapCell; a machine index can exceed 127
         var alt = false
         var vel: UInt8 = 0           // §strips-done: the emit velocity, for the per-emitter hold-while-sounding feed
+        var onBeat: Double = 0       // PART ROW ROLL (Paul 2026-09-29): true onset beat (raw, un-swing-warped) — the
+                                     // exact focusNoteBeat formula, stamped in openVoice. 0 on a fresh/inactive slot
+                                     // (harmless — only ever read while active).
         var cellIndex: Int16 = -1    // SEAL comet: the emitting cell's grid index (col*Snap.rows+row). Int16 (was Int8, whose 127 ceiling = the exact 7*16+15 cell max) so a 16-COLUMN grid (index up to 15*16+15 = 255) doesn't overflow — the grid-8|16 groundwork (2026-08-31)
                                      // SOUNDING gate — the spark travels for exactly as long as the note is held.
         var bypassRecv: Int8 = -1    // BYPASS: ≥0 = a direct-injection voice for that receiver (IMMORTAL, managed by
@@ -936,6 +939,7 @@ final class Router {
         voices[slot].machineIndex = currentMachineIndex   // §2 adoption identity (MACHINE-AND-FACE)
         voices[slot].alt = currentAlt
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
+        voices[slot].onBeat = fBeatPos + Double(onSample - fWindowStart) * fBeatsPerSample   // PART ROW ROLL: focusNoteBeat's exact formula
         voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < Snap.cells) ? Int16(currentCellIndex) : -1   // SEAL sounding gate (Int16 now — was the grid's hard ceiling at Int8's 127)
         voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
         voices[slot].rtcHold = rtcHold         // RATCHET PATTERN standalone: tag the immortal pass-through sustain (owned by emitColumnRatchetPattern)
@@ -1045,6 +1049,20 @@ final class Router {
         guard cellIndex >= 0 else { return [] }
         var out: [UInt8] = []
         for v in voices where v.active && !v.silent && Int(v.cellIndex) == cellIndex { out.append(v.note) }
+        return out
+    }
+
+    /// UI-poll read: every actively-sounding (non-silent) voice, bucketed by ENGINE ROW (index = cellIndex %
+    /// Snap.rows), each carrying its true onset beat (Voice.onBeat) — feeds the PART grid's live per-row piano-roll
+    /// overlay (Paul 2026-09-29). One scan of all 128 voices; race-safe like `cellSoundingNotes` (a torn read is
+    /// benign, one stale frame — no locking). BYPASS voices (cellIndex == -1) are naturally excluded, same as
+    /// `cellSoundingNotes`. Returns the WHOLE row range unscoped (like `cellSoundingVelSnapshot`), not caller-scoped
+    /// — the scan cost is voice-count-bound regardless, so there's no efficiency reason to narrow it.
+    func rowSoundingVoices() -> [[(note: UInt8, vel: UInt8, onBeat: Double)]] {
+        var out = [[(note: UInt8, vel: UInt8, onBeat: Double)]](repeating: [], count: Snap.rows)
+        for v in voices where v.active && !v.silent && v.cellIndex >= 0 {
+            out[Int(v.cellIndex) % Snap.rows].append((note: v.note, vel: v.vel, onBeat: v.onBeat))
+        }
         return out
     }
 

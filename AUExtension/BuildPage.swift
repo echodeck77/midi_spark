@@ -2333,6 +2333,7 @@ extension DiagView {
                                         HStack(spacing: gap) { ForEach(0..<cols, id: \.self) { c in roomsPartCell(c, r, w: cw, h: rowH) } }
                                     }
                                 } }
+                                roomsPartNoteRoll(colW: cw, gap: gap, rowH: rowH)   // PART ROW ROLL (Paul 2026-09-29): live per-row piano-roll of what actually played
                                 roomsPartSelectionOverlay(colW: cw, gap: gap, rowH: rowH)   // ONE outline around each contiguous selected run (Paul 2026-09-10)
                                 roomsPartPlayhead(colW: cw, gap: gap, rowH: rowH).allowsHitTesting(false)
                             }
@@ -2562,6 +2563,72 @@ extension DiagView {
                     Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: rowH)
                         .offset(x: sweepX, y: CGFloat(r) * (rowH + gap)).allowsHitTesting(false)
                 }
+            }
+        }
+    }
+    // PART ROW ROLL (Paul 2026-09-29): each of the 4 interior rows shows a LIVE piano-roll of the notes it actually
+    // played — pitch vertically, time horizontally, riding the SAME clock/column math as roomsPartPlayhead (never
+    // reimplemented independently, so the bars and the white sweep line can never visually disagree). A bar stays
+    // FIXED at its own grid column and fades in place (opacity only, confirmed with Paul — not a scrolling tape); a
+    // still-sounding note's head extends forward with the live playhead, a released note's bar does not translate.
+    // Fade is a ROLLING LOOKBACK from now (partRollFadeBeats), not from the note's own onset — a long held note's
+    // tail stays pinned at the fixed window while its head tracks the sweep, however long it's actually been held.
+    // Decomposed into one segment per LOGICAL step via BuildSceneLogic.loopColumnPlan (the same plan the playhead
+    // uses) so a loop-column selection can't smear a bar across skipped columns, and the loop seam CLIPS (never
+    // wraps) for free. onBeat is RAW (Router's Voice.onBeat) — musicalOf (the swing warp) is applied here, at draw
+    // time, to both the live beat and every note's beat, never compared raw-to-musical (see the plan's own note on
+    // why that would silently drift under non-50 swing).
+    @ViewBuilder private func roomsPartNoteRoll(colW: CGFloat, gap: CGFloat, rowH: CGFloat) -> some View {
+        if d.effectivePlaying && (buildStagingPlaying || buildActiveFerryPlaying) {
+            let sb = buildPartRate?.beats ?? stepBeats
+            let plan = BuildSceneLogic.loopColumnPlan(buildPartLoopCols, length: buildPartCols)
+            let cols = plan.count
+            let swingA = max(1.0, Double(swing) / 50.0)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let curMusical = musicalOf(live, stepBeats: sb, a: swingA)
+                let curColF = sb > 0 ? curMusical / sb : 0
+                let wrapped = curColF.truncatingRemainder(dividingBy: Double(cols))
+                let pcol = wrapped < 0 ? wrapped + Double(cols) : wrapped
+                let lapStart = curColF - pcol                          // same wrap idiom roomsPartPlayhead already uses
+                Canvas { ctx, size in
+                    for r in 0..<Snap.rowsPerFerry {
+                        let hue = Color(hex: partFerryHue(r))
+                        for n in meters.partRollNotes[r] {
+                            let headBeatRaw = n.heldToBeat ?? live
+                            guard live - headBeatRaw <= partRollFadeBeats + 0.05 else { continue }
+                            var headColF = sb > 0 ? musicalOf(headBeatRaw, stepBeats: sb, a: swingA) / sb : 0
+                            var tailColF = sb > 0 ? musicalOf(n.onBeat, stepBeats: sb, a: swingA) / sb : headColF
+                            tailColF = max(tailColF, headColF - partRollFadeBeats / max(sb, 0.0001), lapStart)
+                            headColF = min(headColF, lapStart + Double(cols))
+                            guard headColF > tailColF else { continue }
+                            // VELOCITY: brightness + size, layered on top of the time-based fade, not instead of it —
+                            // a soft note reads thinner/dimmer than a loud one at every point along its fade.
+                            let velScale = 0.35 + 0.65 * Double(n.vel) / 127.0
+                            var seg = Int(tailColF.rounded(.down))
+                            while Double(seg) < headColF {
+                                let logical = seg - Int(lapStart.rounded(.down))
+                                if logical >= 0 && logical < cols {
+                                    let loF = max(tailColF, Double(seg)) - Double(seg)
+                                    let hiF = min(headColF, Double(seg + 1)) - Double(seg)
+                                    let c = plan.physicalColumn(logical)
+                                    let x0 = CGFloat(c) * (colW + gap) + colW * CGFloat(loF)
+                                    let x1 = CGFloat(c) * (colW + gap) + colW * CGFloat(hiF)
+                                    let yFrac = 1 - rollLaneForPitch(Int(n.pitch))
+                                    let slotH = rowH * 0.18
+                                    let barH = slotH * CGFloat(velScale)                             // louder = thicker
+                                    let y = CGFloat(r) * (rowH + gap) + CGFloat(yFrac) * (rowH - slotH) + (slotH - barH) / 2
+                                    let farA  = velScale * max(0, min(1, 1 - (headColF - Double(seg)) / (partRollFadeBeats / max(sb, 0.0001))))
+                                    let nearA = velScale * max(0, min(1, 1 - (headColF - Double(seg + 1)) / (partRollFadeBeats / max(sb, 0.0001))))
+                                    ctx.fill(Path(roundedRect: CGRect(x: x0, y: y, width: max(1, x1 - x0), height: barH), cornerRadius: barH / 2),
+                                             with: .linearGradient(Gradient(colors: [hue.opacity(farA), hue.opacity(nearA)]),
+                                                                    startPoint: CGPoint(x: x0, y: y), endPoint: CGPoint(x: x1, y: y)))
+                                }
+                                seg += 1
+                            }
+                        }
+                    }
+                }.allowsHitTesting(false)
             }
         }
     }

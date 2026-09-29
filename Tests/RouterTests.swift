@@ -5544,6 +5544,93 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(router.drainFocusNotes().count, 0, "a non-emitting focus cell records nothing")
     }
 
+    // PART ROW ROLL (Paul 2026-09-29): rowSoundingVoices() bucket-scans the voice pool by ENGINE ROW
+    // (cellIndex % Snap.rows), each entry carrying its TRUE onset beat (Voice.onBeat) — the feed behind
+    // the part grid's live piano-roll overlay. cell (0,0) is row 0. An EMPTY chain = born-audible
+    // PASSTHROUGH hold (same setup as testCellSoundingGateReflectsHeldNoteThenClears) — the chord
+    // SUSTAINS, guaranteeing something is still active at the check point; an ARP's staccato notes can
+    // all have already gated off by then (caught by this test failing with an ARP on the first run).
+    func testRowSoundingVoicesReportsHeldNoteWithAccurateOnsetBeat() {
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = []; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<4 {
+            router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        let rows = router.rowSoundingVoices()
+        XCTAssertEqual(rows.count, Snap.rows)
+        let row0 = rows[0]
+        // §7b: each note opens TWO voices (its own cable + the ALL-cable copy) — rowSoundingVoices() is a
+        // raw per-voice dump by design (the UI layer dedupes by (pitch,onBeat) for the roll), so 3 held
+        // notes → 6 voices here, not 3. (Caught by the first run of this test asserting 3 and failing.)
+        XCTAssertEqual(row0.count, 6, "row 0 (cell 0,0) holds the 3-note chord × 2 cables (own + ALL)")
+        XCTAssertEqual(Set(row0.map { Int($0.note) }), Set([60, 64, 67]), "exactly the 3 held pitches, each duplicated")
+        for v in row0 {
+            XCTAssertTrue([60, 64, 67].contains(Int(v.note)), "a reported pitch is a held chord note")
+            XCTAssertGreaterThan(v.vel, 0)
+            XCTAssertGreaterThanOrEqual(v.onBeat, -0.001, "the note carries a real (non-negative) onset beat")
+            XCTAssertLessThanOrEqual(v.onBeat, beat + 0.5, "…within the played range")
+        }
+        XCTAssertTrue(rows[1...].allSatisfy { $0.isEmpty }, "no other row sounds")
+    }
+
+    // Two machines on DIFFERENT rows (row 0 and row 4 — a different FERRY's first row, Snap.rowsPerFerry
+    // == 4) must land in their own row's bucket only — proving the filter keys on the real engine row,
+    // not some coarser per-ferry grouping.
+    func testRowSoundingVoicesBucketsByRowNotFerry() {
+        let cs = arpMachines()
+        let b = box(machines: cs) {
+            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = []; return c }()   // row 0
+            $0.cells[0][4] = { var c = Cell(machineID: "cyan", buses: [.b]); c.processors = []; return c }()   // row 4 (a different ferry)
+        }
+        let router = runDirect(b, chord([60, 64, 67]))
+        let rows = router.rowSoundingVoices()
+        XCTAssertEqual(rows.count, Snap.rows)
+        XCTAssertGreaterThan(rows[0].count, 0, "row 0's own machine sounds in row 0's bucket")
+        XCTAssertGreaterThan(rows[4].count, 0, "row 4's own machine sounds in row 4's bucket")
+        XCTAssertTrue(rows[0].allSatisfy { [60, 64, 67].contains(Int($0.note)) })
+        XCTAssertTrue(rows[4].allSatisfy { [60, 64, 67].contains(Int($0.note)) })
+        for r in 0..<Snap.rows where r != 0 && r != 4 {
+            XCTAssertTrue(rows[r].isEmpty, "row \(r) has no machine → its bucket is empty")
+        }
+    }
+
+    // A row's bucket empties on release, mirroring testCellSoundingGateReflectsHeldNoteThenClears.
+    func testRowSoundingVoicesClearsOnRelease() {
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = []; return c }() }
+        let router = runDirect(b, chord([60, 64, 67]))
+        XCTAssertGreaterThan(router.rowSoundingVoices()[0].count, 0, "row 0 sounds while held")
+        var diag = KernelDiag(); let e = RecordingEmitter()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: false, beatPos: 4.0, tempo: 120.0,
+                       sampleRate: 48_000.0, timestampSample: 8192, frameCount: 2048, out: e, diag: &diag)
+        XCTAssertTrue(router.rowSoundingVoices()[0].isEmpty, "after release the row's bucket clears")
+    }
+
+    // Mirrors testSilentClaimGhostDoesNotLightTheSoundingComet: a MUTED claimant opens only a SILENT ghost
+    // voice (still carrying a valid cellIndex) — the same `!v.silent` guard used by cellSoundingNotes/
+    // cellSoundingVelSnapshot must also keep it out of rowSoundingVoices' buckets. BYPASS voices need no
+    // separate test: they're excluded by the SAME `cellIndex >= 0` guard (a bypass voice always carries
+    // cellIndex == -1 — reconcileBypass saves/clears/restores currentCellIndex around it, "wire voices
+    // carry no grid identity"), the identical mechanism already proven here for the silent-ghost case.
+    func testRowSoundingVoicesExcludesSilentClaimGhosts() {
+        var st = PluginState(machines: claimMachines(transposeB: 5), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // row 0 — MUTED claimant → only a silent ghost (holds 60)
+            s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // row 1 — audible (holds 65, not the claimed pitch)
+            return s }()])
+        st.claimEmitter = 0
+        st.busEnabled = [false, true, true, true]                 // A muted → the claimant makes no sound
+        let router = runDirect(SnapshotBuilder.build(from: st), chord([60]))
+        let rows = router.rowSoundingVoices()
+        XCTAssertTrue(rows[0].isEmpty, "the muted claimant's SILENT ghost must not appear in row 0's bucket")
+        XCTAssertGreaterThan(rows[1].count, 0, "…while the audible non-claimant DOES appear in row 1 — the scene is live")
+    }
+
     // The per-cell note ring CAPS at 6 and the wrap-index read returns valid pitches (Paul 2026-08-19). A cell emitting
     // many notes before a drain must return exactly 6 (the ring size), all real chord pitches (proving the modular read).
     func testCellNoteRingCapsAtSixWithValidWrap() {
