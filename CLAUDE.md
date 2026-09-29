@@ -319,7 +319,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   on the live-notes branch, not special-cased like SCALE — Paul only named "key") reads sensibly showing its own
   resolved chord rather than looking broken.**
   **WRONG CONTROL — REVERTED + REDONE on the actual receiver TOGGLES, lowercase/no-octave (2026-09-29, on `main`,
-  `<PENDING>`; iOS builds; DEVICE eye owed). Paul: "I actually intended this for the toggles, not the receivers
+  `79eada1`; iOS builds; DEVICE eye owed). Paul: "I actually intended this for the toggles, not the receivers
   themselves. Also, make them lowercase without the octave number." The entry above landed on
   `buildReceiverControl`'s big 4-button strip (the ENABLE/LATCH/OCT/S-M column) — fully reverted (`recLiveLabel`
   deleted, `recChanLabel` + its call site restored byte-for-byte). "The receiver toggles" are a DIFFERENT, smaller
