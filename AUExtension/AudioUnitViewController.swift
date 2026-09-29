@@ -137,6 +137,7 @@ final class LiveTelemetry {
     var cellRoll: [[BuildRollNote]] = Array(repeating: [], count: Snap.cells)   // the drifting piano-roll notes per cell (buildNoteSweep)
     var rollPrevSeq   = [Int](repeating: 0, count: Snap.cells)              // last folded strike-seq per cell (the roll fold's diff)
     var partRollNotes: [[PartRowRollNote]] = Array(repeating: [], count: Snap.rowsPerFerry)   // PART grid's live per-row piano-roll (Paul 2026-09-29) — held here (not @State), same reason as cellRoll
+    var selectRollNotes: [PartRowRollNote] = []   // SELECT grid's live scrolling piano-roll on the auditioning cell (Paul 2026-09-29) — one row, same reason as partRollNotes
     var lastStep = -1   // step-boundary detector for the quantized voice-switch commit (replaced .onChange(of: d.absoluteStep))
 }
 
@@ -145,6 +146,11 @@ final class LiveTelemetry {
 /// under a tempo change). Module-internal (not `private`) — read by both the poll/reconcile in AudioUnitViewController
 /// and the draw in BuildPage's roomsPartNoteRoll; extensions can't add stored properties, so this can't live on a type.
 let partRollFadeBeats = 4.0   // was 2.0 (Paul 2026-09-29: increase the fade time)
+
+/// SELECT ROLL (Paul 2026-09-29): how many beats of history the auditioning SELECT cell's width represents, right
+/// edge = now, left edge = this many beats ago. A SELECT cell is one grid column, not a whole PART row, so it has
+/// meaningfully less horizontal room than partRollFadeBeats' context — a smaller, separately-tunable default.
+let selectRollWindowBeats = 2.0
 
 /// PART ROW ROLL (Paul 2026-09-29): one tracked note in a part row's live piano-roll overlay. `onBeat` is the RAW
 /// (un-swing-warped) beat from Router.Voice.onBeat — swing-warp is applied only at draw time (roomsPartNoteRoll),
@@ -887,6 +893,29 @@ struct DiagView: View {
                 }
             } else if meters.partRollNotes.contains(where: { !$0.isEmpty }) {
                 meters.partRollNotes = Array(repeating: [], count: Snap.rowsPerFerry)
+            }
+            // SELECT ROLL (Paul 2026-09-29): the SELECT grid's live scrolling piano-roll on the currently-auditioning
+            // cell — same technique as the PART ROW ROLL above, scoped to the one engine row the chain audition is
+            // parked on (buildChainAuditionRow) instead of a whole ferry's 4 rows. Gated on ddSolo (the precise "is a
+            // SELECT cell genuinely the live voice" check), not the selGrey UI proxy — a selected-but-stopped cell
+            // correctly reports no live notes and falls back to its static preview at the draw site.
+            if roomsRoom == .select, buildGridSelSel != nil, ddSolo, let row = buildChainAuditionRow, row >= 0 {
+                let liveAll = au.pollRowSoundingVoices()
+                let nowRaw = meters.beatAnchor + Date().timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+                let live = row < liveAll.count ? liveAll[row] : []
+                var existing = meters.selectRollNotes
+                for i in existing.indices where existing[i].heldToBeat == nil
+                    && !live.contains(where: { $0.note == existing[i].pitch && $0.onBeat == existing[i].onBeat }) {
+                    existing[i].heldToBeat = nowRaw
+                }
+                for lv in live where !existing.contains(where: { $0.pitch == lv.note && $0.onBeat == lv.onBeat })
+                    && abs(lv.onBeat - nowRaw) < 64 {
+                    existing.append(PartRowRollNote(pitch: lv.note, vel: lv.vel, onBeat: lv.onBeat, heldToBeat: nil))
+                }
+                existing.removeAll { ($0.heldToBeat ?? nowRaw) < nowRaw - selectRollWindowBeats - 0.05 }
+                if existing != meters.selectRollNotes { meters.selectRollNotes = existing }
+            } else if !meters.selectRollNotes.isEmpty {
+                meters.selectRollNotes = []
             }
         }
         .onReceive(timer) { _ in

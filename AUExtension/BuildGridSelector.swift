@@ -229,8 +229,18 @@ extension DiagView {
             RoundedRectangle(cornerRadius: 6).fill(fill)
             if chequer { RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)) }   // the lighter square of the board
             if present && !committed {   // the piano-roll face — shown UNTIL the cell is committed, then REPLACED by its name (Paul 2026-09-12)
-                buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint, strikeIdx: sel ? (buildChainAuditionRow.map { [$0] } ?? []) : [])
-                    .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
+                // LIVE ROLL WHILE PLAYING (Paul 2026-09-29): selGrey && ddSolo = genuinely the live voice, not just
+                // selected-but-stopped — the precise "is this cell actually sounding" check (ddSolo = buildVoiceOwner
+                // == .chain), not the selGrey UI proxy alone. A selected-but-stopped cell falls through to the static
+                // offline preview below unchanged, the natural low-risk fallback (nothing to show live, and an empty
+                // canvas would read as broken).
+                if selGrey && ddSolo {
+                    buildSelectLiveRoll(tint: rollTint)
+                        .padding(.vertical, vPad).padding(.horizontal, 3)
+                } else {
+                    buildGridSelPianoRoll(sel ? buildGridSelActiveRoll : (buildGridSelCellRoll[i] ?? []), playing: sel, tint: rollTint, strikeIdx: sel ? (buildChainAuditionRow.map { [$0] } ?? []) : [])
+                        .padding(.vertical, vPad).padding(.horizontal, 3).opacity(sel ? 1.0 : 0.7)   // SELECT grid pads the roll 15% top/bottom (Paul 2026-08-29)
+                }
             }
             if committed, let nm = buildGridSelName[i] {   // the generated hash name, REPLACING the roll on a committed cell (Paul 2026-09-12)
                 Text(nm).font(.system(size: min(11, h * 0.4), weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -257,12 +267,51 @@ extension DiagView {
     }
 
     // THE SELECT-CELL PIANO ROLL (Paul 2026-08-31 — replaces the looping drift on the SELECT grid CELLS only; the ferries
-    // keep buildGridSelDriftFace/buildNoteSweep). A PRECISE one-frame piano roll of the chain's real output (gridSelRollBars
-    // = an offline render → each note's start · LENGTH (x0→x1 = bar width) · PITCH lane · VELOCITY (opacity)). STATIC at the
-    // real note positions when idle; when the cell is auditioning it SCROLLS LEFT→RIGHT, beat-locked to the music (the same
-    // extrapolated beat the cell playheads use). Same machine scheme (the caller's `tint`).
+    // keep buildGridSelDriftFace/buildNoteSweep). A one-frame piano roll of the chain's real output (gridSelRollBars = an
+    // OFFLINE render against a standard test chord → each note's start · LENGTH (x0→x1 = bar width) · PITCH lane ·
+    // VELOCITY (opacity)) — STATIC always; `playing`/`strikeIdx` are dead params kept only for call-site compatibility
+    // (2026-09-08 "calm cells" rewrite — see buildOutputFace). The genuinely LIVE roll while auditioning is
+    // buildSelectLiveRoll below (Paul 2026-09-29), wired in at the buildGridSelCell call site, not here.
     @ViewBuilder func buildGridSelPianoRoll(_ bars: [GridSelBar], playing: Bool, tint: Color, strikeIdx: [Int] = []) -> some View {
         buildOutputFace(bars, tint: tint, playing: playing, strikeIdx: strikeIdx)   // SELECT face = the unified expected-output constellation (Paul 2026-09-05 v2)
+    }
+
+    /// SELECT ROLL (Paul 2026-09-29): the auditioning cell's LIVE scrolling piano roll — a note enters at the right
+    /// edge (now) and scrolls left as it ages, exiting at `selectRollWindowBeats` ago. Deliberately a different
+    /// motion model from the PART roll's fixed-column fade (Paul's explicit choice, "scrolling from right to left")
+    /// — same rigor underneath (true onset beats via Router.rowSoundingVoices, live-polled not offline-simulated,
+    /// velocity reflected), reusing roomsRibbonFace's own thickness/opacity language so the switch from the idle
+    /// static ribbon to this live view doesn't jump in visual weight. No musicalOf swing-warp here — unlike the PART
+    /// roll, there's no separate swing-warped playhead on a SELECT cell to stay in sync with, so the true raw onset
+    /// beat is the most direct, most accurate signal to draw from.
+    @ViewBuilder func buildSelectLiveRoll(tint: Color) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+            let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
+            Canvas { ctx, size in
+                let w = size.width, h = size.height
+                for n in meters.selectRollNotes {
+                    let headBeat = n.heldToBeat ?? live
+                    let ageTail = live - n.onBeat
+                    let ageHead = live - headBeat
+                    guard ageHead < selectRollWindowBeats + 0.05 else { continue }   // fully scrolled off — drop it
+                    let xTail = CGFloat(max(0, min(1, 1 - ageTail / selectRollWindowBeats))) * w
+                    // minimum visible width floor, mirrors roomsRibbonFace's own `max(x0+2, x1*w)` — otherwise a very
+                    // short/instantaneous strike computes a zero-width, invisible rect and silently never renders.
+                    let xHead = max(xTail + 2, CGFloat(max(0, min(1, 1 - ageHead / selectRollWindowBeats))) * w)
+                    let velScale = Double(n.vel) / 127.0
+                    // soft exit fade as the head nears the left edge (a released note keeps scrolling and leaves the
+                    // cell, unlike PART's frozen-in-place fade) — the scrolling context's equivalent of PART's recede.
+                    let edgeFade = max(0, min(1, Double(xHead) / max(1, 0.15 * Double(w))))
+                    let yFrac = 1 - rollLaneForPitch(Int(n.pitch))
+                    let th = CGFloat(2.0 + velScale * 2.5)
+                    let yc = CGFloat(yFrac) * (h - 4) + 2
+                    let rect = CGRect(x: xTail, y: yc - th / 2, width: xHead - xTail, height: th)
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: th / 2),
+                             with: .color(tint.opacity((0.4 + 0.5 * velScale) * edgeFade)))
+                }
+            }
+            .allowsHitTesting(false)
+        }
     }
 
     // THE DRIFTING NOTE FACE (Paul 2026-08-26): notes scroll RIGHT→LEFT, looping — the same aesthetic as the part/play grid

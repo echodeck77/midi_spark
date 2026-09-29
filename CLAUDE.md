@@ -199,6 +199,59 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SELECT GRID — a live scrolling piano roll on the auditioning cell (2026-09-29, on `main`; iOS builds, macOS
+  1155 green; DEVICE eye owed). Follow-through on the PART ROW ROLL entry below: Paul asked for the SAME accuracy
+  standard (true onset beats read live from the render engine, velocity reflected, "no shortcuts") on the SELECT
+  grid's currently-auditioning cell — but with a DELIBERATELY different, explicitly-requested motion model: notes
+  SCROLL right-to-left as they play, not PART's fixed-column fade-in-place. Also folded in a small earlier fix that
+  hadn't been logged yet: `partRollFadeBeats` doubled 2.0→4.0 beats per a same-day follow-up ask ("increase the time
+  for the fade"). **ROOT STATE, confirmed by tracing (not assumed):** the SELECT grid's existing roll is entirely
+  STATIC — every present cell, including the selected/auditioning one, draws through `buildGridSelPianoRoll` →
+  `buildOutputFace` → `roomsRibbonFace`, a one-shot `Canvas` render from an OFFLINE-simulated note array
+  (`gridSelRollBars` → `Dice.runRecorder` against a fixed standard chord, not the cell's real live output). Its
+  `playing`/`strikeIdx` params are dead — explicitly neutered in the 2026-09-08 "calm cells" rewrite ("kept for
+  call-site compatibility but ignored"), confirmed via a targeted trace before building anything. So this was new
+  code, not a matter of flipping an inert switch. **ENGINE:** none — reuses `Router.rowSoundingVoices()` verbatim,
+  the same primitive the PART roll introduced, scoped to the ONE engine row the chain audition already pins to
+  (the existing `buildChainAuditionRow`). **DATA:** a new reconciliation block in the existing `.onReceive
+  (meterTimer)` (AudioUnitViewController.swift), a third sibling right after the PART ROW ROLL block, mirroring its
+  exact diff/freeze/prune technique (poll → diff against last-seen held notes → freeze `heldToBeat` on release →
+  prune once fully receded) but scoped to a single row via a new `meters.selectRollNotes: [PartRowRollNote]` (plain,
+  non-`@State`, same reason as `partRollNotes` — the TimelineView-driven Canvas re-reads it on its own per-frame
+  schedule, so a SwiftUI-invalidating write would be pure waste). Gated on `ddSolo` (`buildVoiceOwner == .chain`,
+  the precise "is a SELECT cell genuinely the live voice" check) AND a selection present — NOT the `selGrey` UI
+  proxy alone, so a selected-but-stopped cell correctly reports no live notes rather than a stale/wrong snapshot.
+  **DRAWING:** new `buildSelectLiveRoll(tint:)` (BuildGridSelector.swift) — right edge = now, left edge =
+  `selectRollWindowBeats` (new constant, 2.0 — a SELECT cell is one grid column, not a whole PART row, so
+  meaningfully less horizontal room than PART's context; flagged as a tunable default, same as `partRollFadeBeats`
+  itself was tuned live off device feedback this session) beats ago. A note's HEAD (onset, or `heldToBeat` once
+  released) and TAIL (true onset beat) each map independently via `x = clamp(w×(1−age/window), 0, w)` — a
+  STILL-SOUNDING note's head stays pinned at the right edge while its tail scrolls left as it's held (grows to fill
+  the cell on a long hold, the scrolling analogue of PART's "head tracks the live position"); a RELEASED note's
+  whole bar keeps scrolling left and exits off the left edge — the deliberate difference from PART (which freezes a
+  released bar in place and only fades its opacity). Added a soft opacity fade as a bar's head nears the left edge
+  (`edgeFade`) so the exit isn't an abrupt pop — the scrolling context's equivalent of PART's own recede factor, same
+  "no shortcuts" rigor applied to a different problem. A minimum-visible-width floor mirrors `roomsRibbonFace`'s own
+  `max(x0+2, x1×w)` — without it a very short/instantaneous strike computes a zero-width, invisible rect and
+  silently never renders, exactly the kind of shortcut this task ruled out. No `musicalOf` swing-warp needed (unlike
+  PART, which reconciles against a separate swing-warped playhead) — there's no second visual element on a SELECT
+  cell to stay in sync with, so the raw true onset beat is the most direct, most accurate signal to draw from.
+  Reuses `roomsRibbonFace`'s own thickness/opacity formulas (`2.0+vel×2.5` thickness, `0.4+0.5×vel` opacity) so the
+  switch from the idle static ribbon to the live view doesn't jump in visual weight, and `rollLaneForPitch`
+  (Derivations.swift) verbatim for the pitch→lane mapping. **WIRING:** in `buildGridSelCell`, `selGrey && ddSolo`
+  now branches to the live roll instead of the static `buildGridSelPianoRoll` call; every other case (idle,
+  selected-but-stopped, committed, or a non-SELECT caller of the same shared function) is byte-identical to before
+  — a selected-but-stopped cell keeps its static offline preview rather than an empty live canvas, the natural
+  low-risk fallback. Colour needed no new work: `rollTint` already resolves to `Color(white: 0.22)` (dark ink) for
+  this state, correct as-is since `selGrey`'s background is the light `buildSelectGrey` — the opposite contrast
+  problem from PART's dark cells, and already solved. Planned first (EnterPlanMode, one Explore pass confirming the
+  static/dead-param state, a second targeted Explore pass locating the exact `meters.partRollNotes`/`roomsPart-
+  NoteRoll` code to mirror precisely rather than re-derive from memory) before any code. UI-only, no
+  `Router.swift`/engine change, no macOS test-target reach (GridUI-only, matching every prior playhead/roll fix this
+  session). **DEVICE-OWED:** the scroll reads smooth and beat-locked, not jittery; a long-held note visibly fills
+  the cell rather than looking stuck; the exit fade is soft, not a pop; `selectRollWindowBeats = 2.0` is legible at
+  real cell size for typical chain content (arp density especially) — first tunable to revisit if too cramped or
+  too sparse; the dark-ink colour still reads with enough contrast against the light `selGrey` face.**
 - **▶ PART ROW ROLL — three device-reported fixes: note contrast, blinking→fading, and a REAL pre-existing playhead-
   jitter bug (2026-09-29, on `main`, `0eb862b`; iOS builds; DEVICE eye/ear owed). Paul, testing the new live piano
   roll: the note colour needs more contrast, the playhead jitters when stopped, and notes are blinking out rather
