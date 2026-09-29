@@ -200,7 +200,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
 - **▶ PROCESSOR EDITOR — the swap transition is now SLIDE + FADE, not a plain cross-fade (2026-09-29, on `main`,
-  `a1667b9`; iOS builds; DEVICE eye owed). Follow-through on the 2026-09-28 cross-fade fix: Paul asked whether it'd
+  `7ad1775`; iOS builds; DEVICE eye owed). Follow-through on the 2026-09-28 cross-fade fix: Paul asked whether it'd
   landed (he couldn't see it), then for suggestions on feel — shown as an interactive mockup comparing candidates
   (opacity-only · slide+fade · scale+fade · flash · flash+slide) built from the shipped code's own actual gaps, not
   invented; he picked slide+fade. **THE TRANSITION:** `ProcessorBox`'s new `swapTransition` (GridUI.swift) — a small
