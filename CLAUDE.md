@@ -199,6 +199,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RECEIVER TOGGLES + DOOR PICKERS — the note-name/key/"no input" text shrunk 15pt→11pt (2026-09-30, on `main`,
+  `ad48901`; iOS builds; DEVICE eye owed). Paul: reduce the size of the text showing notes on the receiver toggles
+  and related instances. That readout (`buildReceiverSelectChip`'s `big` label — key ?? live notes ?? "no input")
+  was rendering at `buildIOSelectChip`'s shared 15pt: fine for a single letter, but a short live-note string
+  ("c e g") rarely needs `minimumScaleFactor`'s shrink-to-fit to avoid clipping, so it rendered near the full
+  nominal size and read as too dominant for a 2-3 char label. **FIX:** `buildIOSelectChip` gained a `textSize:
+  CGFloat = 15` param — the receiver-chip call site passes 11; `buildEmitterToggles`' call (the MIDI-OUT bus-letter
+  chips) passes nothing, keeping its plain "A/B/C/D" at the original 15 — Paul scoped this note-display feature to
+  receivers specifically in an earlier session ("not the separate MIDI-OUT emitter toggles"), so I left emitter
+  toggles untouched here too. Matched the same 11pt directly on `ioChip` (GridUI.swift) — the shared sibling that
+  gives ECHO's FROM, CHORDS' SCALE FROM, and AVOID's WHICH INPUT the identical note-display styling per the
+  2026-09-29 receiver-door-picker audit — since its own doc comment already commits to "keep the two visually in
+  sync by hand if the shared look ever changes." UI-only (BuildPage.swift/GridUI.swift), no test-target reach.
+  **DEVICE-OWED:** legibility of the smaller text at real chip size, both for a short note label and for a longer
+  one like a key name ("D MIXOLYDIAN") still relying on the auto-shrink floor underneath the new, smaller base.**
 - **▶ BUILD UNDO — structural chain edits now ALWAYS get their own step (2026-09-29, on `main`, `f49363b`; iOS
   builds, macOS 1155 green; DEVICE-owed — no test-target reach, UI-state bookkeeping only). Paul: "I added two
   processors to the MIDI chain, then hit undo and both disappeared. Every user touch action should have a
