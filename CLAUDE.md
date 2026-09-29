@@ -199,6 +199,40 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RANDOMIZE/MUTATE — a REAL progress bar on both the machine panel and the part grid (2026-09-29, on `main`,
+  `b7591af`; macOS green (full suite), iOS builds; DEVICE eye owed). Paul: show a progress bar while RANDOMIZE/MUTATE
+  is in process, from either surface. **MACHINE PANEL:** already backgrounded since the 2026-09-13 tranche
+  (`runOnLargeStack` + `buildMachineGenerating`), just showed an indeterminate circular `ProgressView()` — swapped for
+  `ProgressView(value: buildMachineGenProgress)` (`.progressViewStyle(.linear)`). **PART GRID:** the row-creator's
+  MUTATE/RANDOM/TRY-AGAIN (`roomsRowCreatorInline`/`buildRegenRow`) were STILL SYNCHRONOUS on the main thread — a
+  gap explicitly flagged and left open in the 2026-09-13 tranche's own forward-plan ("Background the synchronous
+  row-creator MUTATE/RANDOM"), never picked up until now. New shared `buildRowGenerate(row:random:base:)` — one
+  guard (`buildRowGenRow`, keyed by row not a bare bool), one `runOnLargeStack` dispatch, one completion handler —
+  replaces the three near-duplicate inline call sites; a new `roomsRowGeneratingInline` shows the bar in the SAME
+  row footprint the creator/confirm buttons already use, wired into the part-grid's per-row switch (now a 4-way:
+  generating → confirm → creator → cells) and into the drag-gesture guard (a generating row can't also take cell
+  taps, matching the existing KEEP\|TRY-AGAIN row's own guard). **THE BAR IS REAL, NOT SIMULATED** — checked this
+  before building anything: `Dice.fingerprint`/`evalRun` (which both `mutateChain`'s retry loop and `rollSimple`'s
+  candidate loop call every iteration) run a genuine offline Router probe (`runRecorder`, 3 beats each) — a real,
+  not-fake cost per attempt, confirmed by reading `runRecorder` directly rather than assumed from the loop shape
+  alone. So `attempt/24` (mutateChain's hard cap) and `candidate/4` (rollSimple's) are honest proxies for work
+  actually done, not a decorative timer. Threaded an optional `progress: ((Double) -> Void)? = nil` through BOTH
+  pure functions (BuildSceneLogic.swift, Dice.swift — both Foundation-only, no UI dependency added; the callback
+  itself hops to main via the caller, same pattern as the existing completion handler) — additive, every existing
+  caller/test unaffected (confirmed, not assumed: ran the full macOS suite). **A real bug caught before it shipped,
+  not after:** a first draft used `defer { progress?(...) }` per loop iteration for the "didn't finish yet" case —
+  but the fast-path early return (`if !scored { progress?(1); return chain }`) would have fired its OWN 100% call
+  and THEN the deferred per-attempt fraction on the way out (defer always runs on scope exit, including via
+  return), landing the bar back below 100% instead of at it. Caught by tracing the actual control-flow order before
+  shipping, not by a test (no test-target reach for this — see below) — rewritten with explicit calls at each exit
+  point instead of `defer`, so every path reports its OWN final value exactly once. RANDOMIZE's rare cold-corpus
+  fallback (`Dice.rollArchetype`, only reachable when the pregen corpus isn't warm yet) has no natural sub-steps to
+  report — left as a small 0.08 head-start snapping to 1.0 on completion, honest about not knowing more than that,
+  not worth over-engineering for a path that's usually instant anyway. UI-only for the wiring; the two engine
+  signature changes have no test-target reach for the NEW behavior specifically (the callback itself isn't asserted
+  by a test, only that existing callers/tests still pass unmodified) — DEVICE-OWED: the bar's legibility at both
+  panel and row-creator size, and that rapid-fire RANDOMIZE/MUTATE taps (either surface) can't desync the guard from
+  the visible state.**
 - **▶ PROCESSOR EDITOR — the swap transition is now SLIDE + FADE, not a plain cross-fade (2026-09-29, on `main`,
   `7ad1775`; iOS builds; DEVICE eye owed). Follow-through on the 2026-09-28 cross-fade fix: Paul asked whether it'd
   landed (he couldn't see it), then for suggestions on feel — shown as an interactive mockup comparing candidates
