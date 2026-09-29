@@ -3444,13 +3444,32 @@ extension DiagView {
     }
     /// Record the pre-action state. Call at the START of any authoring action. `coalesce` collapses a continuous gesture
     /// (a scrub/drag) into ONE step. A missed call just leaves that action non-undoable — never corrupts (restore is whole).
+    /// "chain" is TIME-WINDOWED (Paul 2026-09-29 fix): key equality alone wasn't enough for it — `buildApplyChain`'s generic
+    /// param-mutate path (the ProcessorBox `onEdit` closure: sliders, drag-paint lanes, AND plain discrete taps like a
+    /// segmented MODE picker, all funnel through the SAME "chain" key, since nothing at that boundary can tell a slider's
+    /// rapid-fire onChanged ticks apart from a one-off tap) so two logically separate "chain" edits could still coalesce if
+    /// nothing else intervened. Every genuinely DISCRETE, structural chain edit (add/remove/move/type-change/bypass) now
+    /// passes coalesce: nil from its own call site instead (see buildApplyChain) — a deterministic fix, not timing-based —
+    /// so this window only ever matters for the leftover param-mutate case. Bounded to `"chain"` specifically: OTHER keys
+    /// ("recv" etc.) keep their original, simpler "coalesce until a different key shows up" behaviour unchanged — "recv"'s
+    /// own comment documents that a WHOLE multi-tap config-sheet session is deliberately meant to collapse into one undo,
+    /// which a blanket time window would quietly break for anyone who pauses > 0.6s between two taps in the same session.
+    /// Only continue coalescing if the LAST coalesced push under "chain" was recent (< 0.6s) — a real continuous gesture's
+    /// ticks land well inside that window; two deliberate taps, separated by the user lifting a finger and touching again,
+    /// never do. Each continuation refreshes the timestamp, so a slow multi-second drag still stays one step throughout.
     func buildRecordUndo(_ coalesce: String? = nil) {
         if buildApplyingSnapshot { return }   // an onChange fired mid-restore — never record while applying an undo/redo
-        if let k = coalesce, k == buildUndoKey, !buildUndoStack.isEmpty { return }
+        let now = Date()
+        if let k = coalesce, k == buildUndoKey, !buildUndoStack.isEmpty,
+           k != "chain" || (buildUndoKeyAt.map { now.timeIntervalSince($0) < 0.6 } ?? false) {
+            if k == "chain" { buildUndoKeyAt = now }   // still the same gesture — refresh the window, stay coalesced
+            return
+        }
         buildUndoStack.append(buildCaptureSnapshot())
         if buildUndoStack.count > 64 { buildUndoStack.removeFirst(buildUndoStack.count - 64) }   // bounded depth
         buildRedoStack.removeAll()
         buildUndoKey = coalesce
+        buildUndoKeyAt = now
     }
     private func buildApplySnapshot(_ s: BuildSnapshot) {
         buildApplyingSnapshot = true
@@ -5126,10 +5145,14 @@ extension DiagView {
 
     // BUILD chain edits — machine-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
     // whole with setMachineChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
-    private func buildApplyChain(_ chain: [ProcessorSlot]) {
+    // `coalesce` (Paul 2026-09-29 fix — see buildRecordUndo): default "chain" is for the generic param-mutate path
+    // (a FineSlider/drag-paint control can fire many onChanged ticks per gesture — those must collapse into one step).
+    // Every DISCRETE, one-shot structural edit (add/remove/move/type-change/bypass) passes nil instead, so it ALWAYS
+    // gets its own undo step regardless of what chain edit happened immediately before it.
+    private func buildApplyChain(_ chain: [ProcessorSlot], coalesce: String? = "chain") {
         buildKeepRowGen()   // editing the processor chain acts as KEEP
         guard let cid = ddSelectedMachineID else { return }   // guard ABOVE the record so a nil selection never pushes a no-op undo step (U10 fix 2026-08-27)
-        buildRecordUndo("chain")   // BUILD UNDO: chain edit (add/remove/move/param) — coalesced so a param scrub is one step
+        buildRecordUndo(coalesce)   // BUILD UNDO: chain edit (add/remove/move/type/bypass/param)
         // idea 24 TOUCH-TO-DIFF: every chain edit funnels here — stamp the edit clock so the OUT read-out glows and the
         // notes the NEW settings produce (born after the gesture started) stand out from the old ones, as you drag.
         let now = Date(); if buildEditStartedAt == nil { buildEditStartedAt = now }; buildLastEditAt = now
@@ -5181,13 +5204,18 @@ extension DiagView {
         for _ in 0..<4 { s.append(alphabet[Int(v % 36)]); v /= 36 }
         return s
     }
-    private func buildChainEditSlot(_ i: Int, _ mutate: (inout ProcessorSlot) -> Void) {
-        var c = selectedMachineChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c)
+    // `coalesce` defaults to "chain" (the generic param-mutate path — a slider/drag-paint control), forwarded straight
+    // to buildApplyChain; bypass/type-change below override it to nil (see buildApplyChain's own comment).
+    private func buildChainEditSlot(_ i: Int, coalesce: String? = "chain", _ mutate: (inout ProcessorSlot) -> Void) {
+        var c = selectedMachineChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c, coalesce: coalesce)
     }
-    private func buildChainToggleBypass(_ i: Int) { buildChainEditSlot(i) { $0.bypassed.toggle() } }
-    private func buildChainSetType(_ i: Int, _ t: ProcessorType) { buildChainEditSlot(i) { $0.type = t } }
+    // BYPASS toggle + TYPE change are single discrete taps (a long-press / a card pick), never a repeating gesture —
+    // always their own fresh undo step (Paul 2026-09-29 fix), never coalesced with whatever chain edit came before.
+    private func buildChainToggleBypass(_ i: Int) { buildChainEditSlot(i, coalesce: nil) { $0.bypassed.toggle() } }
+    private func buildChainSetType(_ i: Int, _ t: ProcessorType) { buildChainEditSlot(i, coalesce: nil) { $0.type = t } }
     private func buildChainRemoveSlot(_ i: Int) {                  // DELETE → leave an empty (passthrough) box, keep positions
-        var c = selectedMachineChain(); guard i < c.count else { return }; c[i] = buildPassthroughSlot(); buildApplyChain(c)
+        var c = selectedMachineChain(); guard i < c.count else { return }; c[i] = buildPassthroughSlot()
+        buildApplyChain(c, coalesce: nil)   // a discrete delete tap — always its own undo step (Paul 2026-09-29 fix)
     }
     // DRAG-TO-REORDER (Paul 2026-08-25): a POSITIONAL move — the dragged processor LANDS at the target box (box index `to`,
     // OVERWRITING whatever was there) and its ORIGINAL box is vacated (→ empty passthrough). Nothing else shifts. So RIFF on
@@ -5200,7 +5228,7 @@ extension DiagView {
         while c.count <= to { c.append(buildPassthroughSlot()) }   // extend to reach the target box (dropping onto an empty slot)
         c[to] = moved                                              // land at the target box (overwrite it)
         c[from] = buildPassthroughSlot()                           // vacate the original box (trailing empties are trimmed on read)
-        buildApplyChain(c)
+        buildApplyChain(c, coalesce: nil)   // fires once per drop (.onEnded), never per-frame — always its own undo step (Paul 2026-09-29 fix)
         // BUG FIX (2026-09-28): if the box being dragged was the one currently open in the editor, FOLLOW it to its
         // new position. Without this, buildEditSlot kept pointing at `from` — now an empty passthrough box — so the
         // editor (and "the eye") kept showing that placeholder's sentinel identity as if it were a real processor
@@ -5357,8 +5385,8 @@ extension DiagView {
         var slot = ProcessorSlot(type: card.type)
         card.apply(&slot.params)
         c[i] = slot
-        buildApplyChain(c)
-        buildAddSlot = nil; buildEditSlot = i
+        buildApplyChain(c, coalesce: nil)   // adding a processor is a discrete tap — always its own undo step (Paul 2026-09-29 fix:
+        buildAddSlot = nil; buildEditSlot = i   // two ADDs done back-to-back used to share one "chain"-keyed step, so undo dropped both at once)
     }
 
     // ── ADD-PROCESSOR PICKER (THE CATALOG) ───────────────────────────────────────────────────────────────────────

@@ -327,9 +327,16 @@ struct DiagView: View {
     // its OWN undo. Each snapshot captures the WHOLE authoring @State + the document, so a restore is always complete (never
     // partial/corrupting); an action that forgets to record is simply not undoable, never corrupt. `buildUndoKey` coalesces
     // a continuous gesture (a scrub / drag) into one step.
+    // `buildUndoKeyAt` (Paul 2026-09-29 fix — "added two processors, undo dropped both"): a SLIDING TIME WINDOW on the
+    // coalesce, not just key equality. `buildApplyChain` funnels every chain edit — add/remove/move/type/bypass/param —
+    // through the SAME "chain" key, so two genuinely separate discrete taps (add processor A, then add processor B) were
+    // silently merging into one undo step purely because both happened to reuse that key, with nothing to tell "still the
+    // same drag" apart from "a brand-new tap." A real slider drag's onChanged ticks land well under 600ms apart; two
+    // separate taps — which need the user to lift a finger, read the UI, and touch again — never do. See buildRecordUndo.
     @State var buildUndoStack: [BuildSnapshot] = []
     @State var buildRedoStack: [BuildSnapshot] = []
     @State var buildUndoKey: String? = nil
+    @State var buildUndoKeyAt: Date? = nil
     @State var buildApplyingSnapshot = false   // true while an undo/redo restores state — suppresses any re-entrant record from an onChange
     // THE GRID SELECTOR (AcceptanceCriteria-grid-selector.md, 2026-08-23): the full-page 8×8 chain browser — each cell a
     // complete MIDI chain, tap = audition it live (mutually-exclusive, quantized, piece plays on), COMMIT overwrites the
