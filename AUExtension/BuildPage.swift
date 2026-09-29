@@ -1337,12 +1337,14 @@ extension DiagView {
                 .contentShape(Rectangle())
                 .onTapGesture { buildEditSlot = nil; buildAddSlot = nil; buildStageEye = false }
         )
-        .overlay {   // GENERATING spinner (Paul 2026-09-13): shown only on a COLD live RANDOMIZE/MUTATE roll (a warm corpus draw is instant → no spinner). Swallows taps while busy.
+        .overlay {   // GENERATING bar (Paul 2026-09-13, progress bar 2026-09-29): shown only on a COLD live RANDOMIZE/MUTATE
+            // roll (a warm corpus draw is instant → no bar). buildMachineGenProgress is REAL, not simulated — see
+            // mutateChain's own progress: callback. Swallows taps while busy.
             if buildMachineGenerating {
                 ZStack {
                     Rectangle().fill(Color.black.opacity(0.35))
-                    VStack(spacing: 6) {
-                        ProgressView().tint(.white)
+                    VStack(spacing: 8) {
+                        ProgressView(value: buildMachineGenProgress).progressViewStyle(.linear).tint(.white).frame(width: 130)
                         Text("GENERATING…").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.85))
                     }
                 }.contentShape(Rectangle()).onTapGesture {}   // block interaction during the roll
@@ -2310,7 +2312,9 @@ extension DiagView {
                             VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }   // LEFT = chevron (row-select for playback)
                             ZStack(alignment: .topLeading) {
                                 VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in
-                                    if buildRowGenConfirm?.row == r {   // just MUTATE/RANDOM'd this row → KEEP | TRY AGAIN, same place/style (Paul 2026-09-11)
+                                    if buildRowGenRow == r {   // MUTATE/RANDOM/TRY-AGAIN generating this row off-main → its progress bar, same place/style (Paul 2026-09-29)
+                                        roomsRowGeneratingInline(r, cw: cw, gap: gap, cols: cols, rowH: rowH)
+                                    } else if buildRowGenConfirm?.row == r {   // just MUTATE/RANDOM'd this row → KEEP | TRY AGAIN, same place/style (Paul 2026-09-11)
                                         roomsRowConfirmInline(r, random: buildRowGenConfirm?.random ?? true, cw: cw, gap: gap, cols: cols, rowH: rowH)
                                     } else if r == buildGridSelStampSourceRow && buildRowMachine(r) == nil {   // selected EMPTY row → 4 in-row creator buttons (Paul 2026-09-10)
                                         roomsRowCreatorInline(r, cw: cw, gap: gap, cols: cols, rowH: rowH)
@@ -2458,6 +2462,7 @@ extension DiagView {
         let c = Int(loc.x / (cw + gap)), r = Int(loc.y / (ch + gap))
         guard c >= 0, c < cols, r >= 0, r < Snap.rowsPerFerry else { return }
         if buildRowGenConfirm?.row == r { return }   // this row shows KEEP | TRY AGAIN, not cells — its buttons own the touch
+        if buildRowGenRow == r { return }             // this row is generating (Paul 2026-09-29) — its progress bar owns the space, not cells
         buildKeepRowGen()                            // touching any OTHER row's cells acts as KEEP (Paul 2026-09-11)
         let key = c * 100 + r
         let first = buildPartDragLast == nil                            // first cell of this drag gesture (drives partGridTap's firstTapOfGesture)
@@ -3580,27 +3585,34 @@ extension DiagView {
             buildWriteMachineSlots(cid, buildScaleLocked(entry.chain))   // keep it in key if a scale door is set
             return
         }
-        buildMachineGenerating = true                               // COLD → generate one archetype off-main with a spinner
+        buildMachineGenerating = true                               // COLD → generate one archetype off-main with a bar
+        // No natural sub-progress for a single archetype roll (Paul 2026-09-29) — a small head-start so the bar
+        // isn't dead-still while it runs, same idea as the row-creator's RANDOM below.
+        buildMachineGenProgress = 0.08
         runOnLargeStack {
             var rng = SystemRandomNumberGenerator()
             let chain = Dice.rollArchetype(Dice.Archetype.allCases.randomElement(using: &rng)!, using: &rng).chain
             DispatchQueue.main.async {
                 self.buildWriteMachineSlots(cid, self.buildScaleLocked(chain))   // scale lock resolved on the main thread
+                self.buildMachineGenProgress = 1
                 self.buildMachineGenerating = false
             }
         }
     }
     // <<< MUTATE — nudge the SELECTED machine's midi chain in place (a value-tweaked variant of its OWN machine). (Paul 2026-08-18)
-    // Now undoable + OFF the main thread (mutateChain runs the offline Router up to 24×) with a spinner (Paul 2026-09-13).
+    // Now undoable + OFF the main thread (mutateChain runs the offline Router up to 24×) with a progress bar (Paul 2026-09-13/29).
     private func buildMutateChain() {
         guard let cid = ddSelectedMachineID, !buildMachineGenerating else { return }
         let base = buildMachineChain(cid)                            // read state on the main thread, before dispatching
         buildMachineGenerating = true
+        buildMachineGenProgress = 0
         runOnLargeStack {
             var rng = SystemRandomNumberGenerator()
-            let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng, scored: true)   // backgrounded → afford the most-musical pick
+            let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng, scored: true,   // backgrounded → afford the most-musical pick
+                progress: { f in DispatchQueue.main.async { self.buildMachineGenProgress = f } })
             DispatchQueue.main.async {
                 if let mutated { self.buildRecordUndo("mutate"); self.buildWriteMachineSlots(cid, self.buildScaleLocked(mutated)) }   // undo only on a real change (mutate can find no distinct variant)
+                self.buildMachineGenProgress = 1
                 self.buildMachineGenerating = false
             }
         }
@@ -3625,9 +3637,10 @@ extension DiagView {
         let ref = (0..<8).first { buildRowMachine($0) != nil }
         let refChain = ref.flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
         HStack(spacing: gap) {
-            // MUTATE/RANDOM generate, then OFFER KEEP | TRY AGAIN (Paul 2026-09-11); CREATE/CLONE commit directly (no confirm).
-            roomsRowCreatorSeg("MUTATE") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: buildScaleLocked(BuildSceneLogic.mutateChain(refChain, avoid: [Dice.fingerprint(refChain)], &rng) ?? refChain)); buildRowGenConfirm = RowGenConfirm(row: row, random: false) }
-            roomsRowCreatorSeg("RANDOM") { var rng = SystemRandomNumberGenerator(); buildCreateRowMachine(row, chain: buildScaleLocked(Dice.rollSimple(using: &rng))); buildRowGenConfirm = RowGenConfirm(row: row, random: true) }
+            // MUTATE/RANDOM generate off-main with a progress bar (Paul 2026-09-29, was synchronous on this thread —
+            // see buildRowGenerate), then OFFER KEEP | TRY AGAIN (Paul 2026-09-11); CREATE/CLONE commit directly (no confirm).
+            roomsRowCreatorSeg("MUTATE") { buildRowGenerate(row, random: false, base: refChain) }
+            roomsRowCreatorSeg("RANDOM") { buildRowGenerate(row, random: true, base: []) }
             roomsRowCreatorSeg("CREATE") { buildCreateRowMachine(row, chain: []); buildAddSlot = 0 }   // mint an empty machine + open the ADD PROCESSOR card (Paul 2026-09-10)
             roomsRowCreatorSeg("CLONE")  { buildCreateRowMachine(row, chain: refChain) }
         }.frame(width: rowW, height: rowH)
@@ -3641,24 +3654,63 @@ extension DiagView {
             roomsRowCreatorSeg("TRY AGAIN") { buildRegenRow(row, random: random) }   // regenerate (same mode) → still offering KEEP | TRY AGAIN
         }.frame(width: rowW, height: rowH)
     }
+    // THE ROW-CREATOR'S BACKGROUNDED GENERATOR (Paul 2026-09-29): MUTATE/RANDOM/TRY-AGAIN all route through here now —
+    // one guard, one progress bar, matching the machine-box RANDOMIZE/MUTATE pattern (buildRandomizeSimple/
+    // buildMutateChain above). `base` is the chain to mutate FROM (ignored when random). Was synchronous on this
+    // thread — mutateChain/rollSimple each run the offline Router up to ~24×/~4× respectively (Dice.fingerprint/
+    // evalRun → runRecorder), a real, sometimes-perceptible cost, not just a courtesy background hop.
+    private func buildRowGenerate(_ row: Int, random: Bool, base: [ProcessorSlot]) {
+        guard buildRowGenRow == nil else { return }
+        buildRowGenRow = row
+        buildRowGenProgress = 0
+        runOnLargeStack {
+            var rng = SystemRandomNumberGenerator()
+            let chain: [ProcessorSlot]
+            if random {
+                chain = Dice.rollSimple(using: &rng, progress: { f in DispatchQueue.main.async { self.buildRowGenProgress = f } })
+            } else {
+                chain = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng,
+                    progress: { f in DispatchQueue.main.async { self.buildRowGenProgress = f } }) ?? base
+            }
+            DispatchQueue.main.async {
+                self.buildRowGenProgress = 1
+                self.buildCreateRowMachine(row, chain: self.buildScaleLocked(chain))
+                self.buildRowGenConfirm = RowGenConfirm(row: row, random: random)   // re-offers KEEP | TRY AGAIN for the new result
+                self.buildRowGenRow = nil
+            }
+        }
+    }
     // Re-run MUTATE/RANDOM on `row` for TRY AGAIN. MUTATE re-mutates the ORIGINAL source (a populated OTHER row), not the
     // just-generated result. The confirm stays set (same row/mode) so KEEP | TRY AGAIN re-presents for the new result.
     private func buildRegenRow(_ row: Int, random: Bool) {
-        var rng = SystemRandomNumberGenerator()
         if random {
-            buildCreateRowMachine(row, chain: buildScaleLocked(Dice.rollSimple(using: &rng)))
+            buildRowGenerate(row, random: true, base: [])
         } else {
             // WALK (Paul 2026-09-13): mutate the row's CURRENT chain (the last result) so repeated TRY AGAIN explores
             // ONWARD, instead of re-sampling the original source each time. Fall back to another populated row if empty.
             let cur = buildRowMachine(row).map { buildMachineChain($0) }
                 ?? (0..<8).first(where: { $0 != row && buildRowMachine($0) != nil }).flatMap { buildRowMachine($0).map { buildMachineChain($0) } } ?? []
-            buildCreateRowMachine(row, chain: buildScaleLocked(BuildSceneLogic.mutateChain(cur, avoid: [Dice.fingerprint(cur)], &rng) ?? cur))
+            buildRowGenerate(row, random: false, base: cur)
         }
-        buildRowGenConfirm = RowGenConfirm(row: row, random: random)   // re-assert: TRY AGAIN keeps offering KEEP | TRY AGAIN for the new result
     }
     // IMPLICIT KEEP (Paul 2026-09-11): any real action on the processor / machine / toggles / grid accepts a pending
     // MUTATE/RANDOM result → the KEEP | TRY AGAIN confirm disappears. (The TRY AGAIN button re-asserts it above; KEEP nils it.)
     private func buildKeepRowGen() { if buildRowGenConfirm != nil { buildRowGenConfirm = nil } }
+    // THE ROW-CREATOR'S GENERATING BAR (Paul 2026-09-29) — same footprint as roomsRowCreatorInline/roomsRowConfirmInline
+    // (identical rowW/rowH math), shown in a row's place while buildRowGenerate runs in the background for it.
+    @ViewBuilder private func roomsRowGeneratingInline(_ row: Int, cw: CGFloat, gap: CGFloat, cols: Int, rowH: CGFloat) -> some View {
+        let rowW = cw * CGFloat(cols) + gap * CGFloat(cols - 1)
+        RoundedRectangle(cornerRadius: 5).fill(buildCell)
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
+            .overlay {
+                VStack(spacing: 5) {
+                    ProgressView(value: buildRowGenProgress).progressViewStyle(.linear).tint(.white)
+                        .frame(width: min(160, rowW * 0.4))
+                    Text("GENERATING…").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white.opacity(0.75))
+                }
+            }
+            .frame(width: rowW, height: rowH)
+    }
     @ViewBuilder private func roomsRowCreatorSeg(_ label: String, _ action: @escaping () -> Void) -> some View {
         RoundedRectangle(cornerRadius: 5).fill(buildCell)                          // identical cell styling: dark stage + edge
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))

@@ -294,10 +294,13 @@ enum Dice {
     /// A SIMPLER roll (BUILD): a SHORT all-contributing chain of 1–3 slots — every slot changes the output when
     /// bypassed (`allContribute`), the chain never sounds empty, and it stays under the density cap. NO macros. (The
     /// full `roll(target:)` — with evaluated slider/button macros — is kept for elsewhere, e.g. the DRAG&DROP page.)
-    static func rollSimple(using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
+    // `progress` (Paul 2026-09-29): called with a 0...1 fraction, once per outer candidate (each costs real Router
+    // passes via evalRun) — genuine, not simulated. Optional + defaults nil so every existing caller/test is
+    // unaffected. Runs on whatever thread calls this; a background caller hops to main itself, same as the result.
+    static func rollSimple(using rng: inout some RandomNumberGenerator, progress: ((Double) -> Void)? = nil) -> [ProcessorSlot] {
         let want = Int.random(in: 1...3, using: &rng)
         var candidates: [[ProcessorSlot]] = []                   // BEST-OF-N by musicality (Paul 2026-09-13), was best-by-length
-        for _ in 0..<4 {                                         // a few all-contributing candidates ≤ want
+        for i in 0..<4 {                                         // a few all-contributing candidates ≤ want
             var chain: [ProcessorSlot] = []; var sig = signature(chain); var budget = 12
             while chain.count < want && budget > 0 {
                 budget -= 1
@@ -307,10 +310,12 @@ enum Dice {
                 if allContribute(trial) { chain = trial; sig = tsig }
             }
             if !chain.isEmpty { candidates.append(chain) }
+            progress?(Double(i + 1) / 4.0)
         }
         if candidates.isEmpty {                                  // guarantee ≥1 audible slot — never a silent chain
             var budget = 24
-            while budget > 0 { budget -= 1; let one = [randomSlot(using: &rng)]; if !signature(one).isEmpty { return one } }
+            while budget > 0 { budget -= 1; let one = [randomSlot(using: &rng)]; if !signature(one).isEmpty { progress?(1); return one } }
+            progress?(1)
             return []
         }
         // keep the most musical (rollSimple has no archetype → a wide density band)

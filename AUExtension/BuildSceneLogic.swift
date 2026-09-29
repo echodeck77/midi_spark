@@ -306,12 +306,17 @@ enum BuildSceneLogic {
     // `scored` (Paul 2026-09-13): when true, collect a few distinct+audible variants and return the MOST MUSICAL
     // (Dice.musicality) instead of the FIRST — so a MUTATE lands a good-sounding variation, not just a different one.
     // Off (default) keeps the cheap first-distinct behaviour for the synchronous row-creator path.
-    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], avoid: [[Int]], _ rng: inout R, scored: Bool = false) -> [ProcessorSlot]? {
+    // `progress` (Paul 2026-09-29): called with a 0...1 fraction as the retry loop advances — each attempt costs a
+    // real offline Router pass (Dice.fingerprint → runRecorder), so attempt/24 is a genuine, not simulated, proxy for
+    // work done (the loop's own hard cap). Optional + defaults nil so every existing caller/test is unaffected.
+    // Runs on whatever thread calls this (kept Foundation-only, no UI dependency) — callers on a background thread
+    // must hop back to main themselves before touching UI state, same as the completion value.
+    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], avoid: [[Int]], _ rng: inout R, scored: Bool = false, progress: ((Double) -> Void)? = nil) -> [ProcessorSlot]? {
         var all: [(slot: Int, param: MacroControlParam)] = []
         for (i, slot) in base.enumerated() where !slot.bypassed {
             for p in macroParamsForProcessor(slot.type) { all.append((i, p)) }
         }
-        guard !all.isEmpty else { return nil }
+        guard !all.isEmpty else { progress?(1); return nil }
         let cont = all.filter { !$0.param.kind.isDiscrete }, disc = all.filter { $0.param.kind.isDiscrete }
         var candidates: [[ProcessorSlot]] = []
         for attempt in 0..<24 {                                // retry until distinct + audible (escalating with each miss)
@@ -328,11 +333,13 @@ enum BuildSceneLogic {
             }
             let fp = Dice.fingerprint(chain)
             if !fp.isEmpty && !avoid.contains(fp) {            // NOT silent + unlike everything already present
-                if !scored { return chain }                    // fast path: the first distinct variant
+                if !scored { progress?(1); return chain }      // fast path: the first distinct variant — done, report 100% once, right here
                 candidates.append(chain)
-                if candidates.count >= 3 { break }             // enough to choose the most musical from
+                if candidates.count >= 3 { break }             // enough to choose the most musical from — falls through to the single post-loop report below
             }
+            progress?(Double(attempt + 1) / 24.0)               // this attempt didn't finish it — how far the retry budget has gone (skipped on the two exits above, which each report their own 100%)
         }
+        progress?(1)   // broke early, ran out of attempts, or the scoring below is about to add a few more Router passes — exactly ONE call here (no defer, so it can't double-fire against the early returns above)
         guard scored else { return nil }
         guard !candidates.isEmpty else { return nil }
         return candidates.map { ($0, Dice.musicality($0, band: (0.5, 9.0))) }.max { $0.1 < $1.1 }!.0   // the most musical variation

@@ -283,6 +283,12 @@ struct DiagView: View {
     // ROW-CREATOR CONFIRM (Paul 2026-09-11): after MUTATE/RANDOM generates a row's machine, that row shows KEEP | TRY AGAIN
     // in place of the creator buttons until the user picks one (KEEP dismisses; TRY AGAIN regenerates + re-offers). nil = none.
     @State var buildRowGenConfirm: RowGenConfirm? = nil
+    // ROW-CREATOR PROGRESS (Paul 2026-09-29): the row-creator's MUTATE/RANDOM/TRY-AGAIN now run off-main like the
+    // machine-box versions, showing a progress bar in the SAME row footprint. buildRowGenRow = which row (nil = none
+    // busy) — keyed by row, not a bare bool, since a different row could in principle be selected while one is still
+    // generating in the background.
+    @State var buildRowGenRow: Int? = nil
+    @State var buildRowGenProgress: Double = 0
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildVoiceOwner: BuildWorkshopVoice = .none   // SINGLE SOURCE OF TRUTH for the page-owned audition voice (none | chain | part). ddSolo/buildStagingPlaying are computed mirrors of this (Paul 2026-08-31) — one owner, so a play-ferry stop can never leave the shared audition sounding.
     // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.
@@ -325,6 +331,7 @@ struct DiagView: View {
     @State var buildSelectGreyAlt: Bool = false          // SELECT machine grey ALTERNATES between two bright shades on each new selection, so a new pick visibly shifts even though the audition stays "gsAud" (Paul 2026-09-01)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
     @State var buildMachineGenerating = false            // the machine-box RANDOMIZE/MUTATE is generating off-main (spinner + disable) — Paul 2026-09-13
+    @State var buildMachineGenProgress: Double = 0       // 0...1 — drives the machine-box bar (Paul 2026-09-29, was an indeterminate spinner)
     @State var buildGridSelActiveRoll: [GridSelBar] = []  // the auditioning chain's piano-roll (offline render, shown on the active cell + right column)
     @State var buildGridSelCellRoll: [Int: [GridSelBar]] = [:]   // per-CELL piano-roll fingerprints (bg-computed per deal/tab) — the drifting note face on every present cell (Paul 2026-08-26)
     @State var buildGridSelRollGen = 0                   // generation token so a stale bg roll batch (deal/tab changed under it) is discarded
