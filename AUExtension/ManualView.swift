@@ -4,7 +4,7 @@ import SwiftUI
 // Native SwiftUI (ScrollViewReader anchor-scroll — no WKWebView); the content is the bundled manual markdown.
 
 /// Tracks the doc-anchor of the last-touched control. NOT @Published — read lazily when the "?" opens, so a touch
-/// never triggers a re-render (the AuditionBox-style silent reference). Controls report via `.helpAnchor("#anchor")`
+/// never triggers a re-render (a silent reference box, not @State). Controls report via `.helpAnchor("#anchor")`
 /// where "#anchor" matches a `{#anchor}` id in Docs/manual/manual-skeleton.md — keep the two in sync (an anchor with
 /// no matching id silently opens the manual at the top).
 final class HelpTracker: ObservableObject {

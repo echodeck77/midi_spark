@@ -1411,22 +1411,28 @@ struct ProcessorBox: View {
                     numPair(mN, 2...16) { v in setParam { $0.maskN = v; if let k = $0.maskK, k > v { $0.maskK = v } } }
                 }
             }
-            if mK < mN {
-                row2({ field("GAPS", \.maskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.maskGap ?? .rest).rawValue) { i in setParam { $0.maskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
-                     { field("ROTATE", \.maskRotate, lfo: "maskRotate") { numPair(p.maskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.maskRotate = v } } } })
-                // INVERT + CHANCE (Paul 2026-09-28): INVERT plays the N−K rests instead (mirrors EUCLID's own
-                // toggle); CHANCE thins the deterministic skeleton with a per-hit coin-flip (can only drop a hit,
-                // never add one) — 100% = today's exact behaviour.
-                row2({ field("PATTERN", \.maskInvert) { seg(["NORMAL", "INVERT"], sel: (p.maskInvert ?? false) ? "INVERT" : "NORMAL") { i in setParam { $0.maskInvert = (i == 1) } } } },
-                     { field("CHANCE  \(Int((p.maskChance ?? 1) * 100))%", \.maskChance) { slider(bind(p.maskChance ?? 1) { v in setParam { $0.maskChance = v } }, in: 0...1) } })
-                if (p.maskGap ?? .rest) == .chord {   // GAPS = CHORD gap-stab controls, mirroring the ARP mask's own (Docs/PLAN-param-lfo.md)
-                    row2({ field("CHORD OCT", \.maskChordOct, lfo: "maskChordOct") { numPair(p.maskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.maskChordOct = v } } } },
-                         { field("CHORD LEN  \(Int((p.maskChordGate ?? 0.6) * 100))%", \.maskChordGate, lfo: "maskChordGate") { slider(bind(p.maskChordGate ?? 0.6) { v in setParam { $0.maskChordGate = v } }, in: 0.05...1) } })
-                    field("CHORD VEL  \(Int((p.maskChordVel ?? 1) * 100))%", \.maskChordVel) { slider(bind(p.maskChordVel ?? 1) { v in setParam { $0.maskChordVel = v } }, in: 0...1) }
-                    // CHORD PICK (Paul 2026-09-28): which note(s) of the composed chord a gap strikes. ALL = today's
-                    // whole-chord stab; BOT2/TOP2 strike the two lowest/highest tones.
-                    field("CHORD PICK", \.maskChordPick) { seg(MaskChordPick.allCases.map(\.rawValue), sel: (p.maskChordPick ?? .all).rawValue) { i in setParam { $0.maskChordPick = MaskChordPick.allCases[i] } } }
-                }
+            // GAPS/ROTATE/CHORD are always shown now (Paul 2026-09-29: they used to be hidden behind `mK < mN`,
+            // a discoverability trap — a freshly-added slot starts at K=N/fully-open, so there was nothing to
+            // tap toward "chord mode" until HITS had already been lowered). K = N still means "no gaps exist,
+            // so none of this row has anything to act on yet" — said plainly instead of just disappearing.
+            if mK == mN {
+                Text("K = N — every step hits, so GAPS/ROTATE/CHORD have nothing to act on yet. Lower HITS below N to open gaps.")
+                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            row2({ field("GAPS", \.maskGap) { seg(["REST", "TIE", "CHORD"], sel: (p.maskGap ?? .rest).rawValue) { i in setParam { $0.maskGap = [ArpMaskGap.rest, .tie, .chord][i] } } } },
+                 { field("ROTATE", \.maskRotate, lfo: "maskRotate") { numPair(p.maskRotate ?? 0, 0...(mN - 1), wrap: true) { v in setParam { $0.maskRotate = v } } } })
+            // INVERT + CHANCE (Paul 2026-09-28): INVERT plays the N−K rests instead (mirrors EUCLID's own
+            // toggle); CHANCE thins the deterministic skeleton with a per-hit coin-flip (can only drop a hit,
+            // never add one) — 100% = today's exact behaviour.
+            row2({ field("PATTERN", \.maskInvert) { seg(["NORMAL", "INVERT"], sel: (p.maskInvert ?? false) ? "INVERT" : "NORMAL") { i in setParam { $0.maskInvert = (i == 1) } } } },
+                 { field("CHANCE  \(Int((p.maskChance ?? 1) * 100))%", \.maskChance) { slider(bind(p.maskChance ?? 1) { v in setParam { $0.maskChance = v } }, in: 0...1) } })
+            if (p.maskGap ?? .rest) == .chord {   // GAPS = CHORD gap-stab controls, mirroring the ARP mask's own (Docs/PLAN-param-lfo.md)
+                row2({ field("CHORD OCT", \.maskChordOct, lfo: "maskChordOct") { numPair(p.maskChordOct ?? 0, -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { v in setParam { $0.maskChordOct = v } } } },
+                     { field("CHORD LEN  \(Int((p.maskChordGate ?? 0.6) * 100))%", \.maskChordGate, lfo: "maskChordGate") { slider(bind(p.maskChordGate ?? 0.6) { v in setParam { $0.maskChordGate = v } }, in: 0.05...1) } })
+                field("CHORD VEL  \(Int((p.maskChordVel ?? 1) * 100))%", \.maskChordVel) { slider(bind(p.maskChordVel ?? 1) { v in setParam { $0.maskChordVel = v } }, in: 0...1) }
+                // CHORD PICK (Paul 2026-09-28): which note(s) of the composed chord a gap strikes. ALL = today's
+                // whole-chord stab; BOT2/TOP2 strike the two lowest/highest tones.
+                field("CHORD PICK", \.maskChordPick) { seg(MaskChordPick.allCases.map(\.rawValue), sel: (p.maskChordPick ?? .all).rawValue) { i in setParam { $0.maskChordPick = MaskChordPick.allCases[i] } } }
             }
             // SPAN (Paul 2026-09-28): re-anchor the K-of-N pattern to ordinal 0 every N notes — the same universal
             // span-ladder model every other pattern processor (RIFF/EUCLID/RATCHET PATTERN/KILL STEP/CLOCK) already has.

@@ -233,17 +233,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// The live document — for the EDIT page's SELECTION undo (which snapshots (selection, document) per select/
     /// deselect and restores both). Separate from the transactional undo stack above (which it never touches).
 
-    /// AUDITION (§6.4 / delta §5): hold a cell → sound its processor alone while stopped. Ephemeral
-    /// UI gesture — writes the render-thread target only, never the document (no rebuild, not persisted).
-    func setAudition(col: Int, row: Int) { kernel.setAudition(col * 8 + row) }
-    func clearAudition() { kernel.setAudition(-1) }
-
-    // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell renders solo while PREVIEW is held.
-    func setPreview(machineIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
-        kernel.setPreview(machineIndex: machineIndex, filter: filter, busMask: busMask, inputRow: inputRow)
-    }
-    func clearPreview() { kernel.clearPreview() }
-
     /// §5b COLUMN-SUBSET LAP: the held column keys as a bitmask (bit i = column i). Ephemeral, never
     /// persisted; the PERFORM UI sets it while column keys are held and clears it (0) on release /
     /// transport stop / EDIT switch. `laneMask == 0` = no lap (playback follows the true column).

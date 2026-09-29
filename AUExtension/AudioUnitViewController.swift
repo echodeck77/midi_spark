@@ -562,8 +562,7 @@ struct DiagView: View {
         guard holdLatch != on else { return }
         holdLatch = on
         if !on {                                 // the drop: release the captures this layer owns
-            au?.clearAudition(); abox.target = nil
-            au?.setHoldCell(-1); abox.held = false          // §9 item 1: a latched ON HOLD drops too
+            au?.setHoldCell(-1)                             // §9 item 1: a latched ON HOLD drops too
             au?.setLaneMask(0); laneMask = 0     // §5c: the latched lap set drops too (velocity springs
                                                  // back via OutputsView's onChange(holdLatch))
         }
@@ -611,13 +610,6 @@ struct DiagView: View {
         sceneEmpty = au.uiScenes().map { $0.isEmpty }   // MULTI-SCENE strip occupancy + active
         activeSceneIdx = au.uiActiveScene()
     }
-
-    // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The held
-    // target lives in a REFERENCE box mutated SILENTLY (never @State) so starting/stopping an audition
-    // never re-renders the grid mid-press (which would tear down the long-press gesture). The deduped
-    // poll above does the rest — when stopped the grid is quiescent, so the gesture is never disturbed.
-    final class AuditionBox { var target: (col: Int, row: Int)? = nil; var held = false }
-    @State var abox = AuditionBox()
 
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
     // Kernel-only (no @State / re-render). (Stopped-audition retired with the editing UI — it returns via PLACE.)

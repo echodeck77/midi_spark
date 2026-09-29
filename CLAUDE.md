@@ -228,6 +228,33 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   press-and-hold/tap audition or by actually pressing PLAY on a scene; his CHORD PICK setting (ALL vs. a narrower
   pick could read as "nothing" if it's e.g. LOW/HIGH and he's listening for the whole chord); whether EUCLID MASK is
   the chain's last slot or anything follows it; any other processor anywhere else in the chain.**
+  **BOTH FLAGGED ISSUES FIXED (2026-09-29, on `main`, `<PENDING>`; iOS builds). Paul confirmed he's not auditioning
+  (real playback), it fails on every CHORD PICK mode, and EUCLID MASK is the chain's last slot, then asked me to fix
+  the two issues found above. (1) `Router.auditionRender` and its whole "Phase 2" dead-preview cluster REMOVED at
+  every entry point: `AudioUnitViewController.swift`'s `AuditionBox` class + `abox` @State (its `target`/`held`
+  fields were written only to their own already-default values, never read anywhere); `MidiSparkAudioUnit.
+  setAudition(col:row:)`/`clearAudition()`; and — found while removing these, same dead "Phase 2" era, same
+  shape (zero UI callers) — `MidiSparkAudioUnit.setPreview`/`clearPreview` too. Deliberately did NOT chase the
+  removal all the way down into `Kernel.swift`'s `auditionTarget`/`previewActive`/`suppressAuditionNotes` fields
+  or `Router.process()`'s `audition:`/`preview:` parameters — those are live plumbing read by the render loop's
+  own gates on every render (`auditionSuppressing: suppressAuditionNotes || previewActive || …`), and safely
+  unwinding a load-bearing function signature deserves its own focused pass, not a rushed side-fix; they're now
+  commented as permanently-dead-but-still-read, and Kernel.swift's own two setter methods that only these deleted
+  callers used (`setAudition`/`setPreview`/`clearPreview`) are gone too since nothing calls them anymore. Net
+  effect: this render path can no longer be reconnected from the UI by accident — it would need genuinely new code.
+  (2) The K=N discoverability trap in the EUCLID MASK editor (GridUI.swift) — GAPS/ROTATE/PATTERN/CHANCE/the CHORD
+  sub-fields are no longer hidden behind `if mK < mN`; they're always visible now, with a plain one-line hint
+  ("K = N — every step hits, so GAPS/ROTATE/CHORD have nothing to act on yet") shown only when the mask is
+  currently fully open. **A THIRD possibility raised, not yet code — a listening-window hypothesis, not a bug:**
+  reconciling "7-of-8 fails, and so does every OTHER setting he tried" — K=7/N=8 leaves exactly ONE gap per 8-note
+  cycle; if GAPS/CHORD PICK are being toggled and listened to for only a second or two each (very natural while
+  dialling in a setting), the one gap-per-cycle may simply never be reached before moving on — which would equally
+  explain "fails on every CHORD PICK mode" (the pick differentiator never gets a chance to be heard if the gap
+  itself is never reached). Asked Paul to test a much denser mask (e.g. 4-of-8) over 2+ full cycles, and separately
+  whether REST/TIE modes have ANY audible effect at all (drops/ties a note) with his current settings — the single
+  most decisive remaining diagnostic: if REST/TIE do nothing either, the whole downstream fold isn't engaging (a
+  bigger, different, and more findable bug than the CHORD stab specifically); if REST/TIE clearly work and only
+  CHORD's replacement note is silent, that narrows the search to the stab's own emission call.**
 - **▶ FERRY DRAG-DROP — silent ferry + un-stopped source audition FIXED, the source cell now commits (name+colour),
   +2 tests (2026-09-29, on `main`, `aada129`; macOS green incl. 2 new, iOS builds; DEVICE ear/eye owed). Paul reported
   three bugs dragging a SELECT cell onto a play ferry: the source cell kept playing, the target ferry stayed silent,

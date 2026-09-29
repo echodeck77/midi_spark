@@ -39,27 +39,24 @@ final class Kernel {
     var store: SnapshotStore?
     private(set) var diag = KernelDiag()
 
-    // AUDITION (§6.4 / delta §5): the held cell (col*rows+row, −1 = none), set from the UI thread and
-    // read on the render thread. Plain Int32 — a single aligned word, main-writes / render-reads, same
-    // cross-thread pattern as `midiOut`; ephemeral, never persisted. `setAudition` is the only writer.
+    // AUDITION (§6.4 / delta §5) — SUPERSEDED, the writer is gone (Paul 2026-09-29): a press-hold "hear this
+    // processor alone while stopped" preview, replaced by the newer composeSceneMeta-based audition (which
+    // parks the machine as a real playing cell and runs it through the full engine). `auditionTarget` now
+    // never leaves its initial −1 — kept (not deleted) only because `Router.process`'s `audition:` parameter
+    // and the render-loop's own invariant checks still read it; unwinding that is a separate, deliberate pass.
     private var auditionTarget: Int32 = -1
     private var suppressAuditionNotes = false     // this render: audition replaces raw note passthrough
-    func setAudition(_ target: Int) { auditionTarget = Int32(target) }
     // (The reference-chord fallback was REMOVED 2026-08-23, Paul: a synthetic chord must never be part of the user experience.)
 
-    // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell, set from the UI while PREVIEW is held.
-    // Ephemeral, never persisted. machineIndex −1 = inactive. Row −1 = receiver input (its channel filter);
-    // the Router renders it SOLO. Suppresses raw passthrough (only the virtual cell sounds).
+    // PREVIEW / cell audition (Phase 2) — SUPERSEDED, the writer is gone (Paul 2026-09-29): the staged VIRTUAL
+    // cell was meant to render SOLO while PREVIEW was held; `setPreview`/`clearPreview` had zero UI callers
+    // (found alongside the AUDITION cleanup above — same "Phase 2" era, same fate). `previewActive` now never
+    // leaves false — kept only because the render loop still reads it (see the AUDITION note above).
     private var previewActive = false
     private var previewMachineIndex: Int32 = -1
     private var previewFilter: Int32 = 0
     private var previewBusMask: UInt8 = 0
     private var previewInputRow: Int32 = -1
-    func setPreview(machineIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
-        previewMachineIndex = Int32(machineIndex); previewFilter = Int32(filter)
-        previewBusMask = busMask; previewInputRow = Int32(inputRow); previewActive = machineIndex >= 0 && busMask != 0
-    }
-    func clearPreview() { previewActive = false; previewMachineIndex = -1; previewBusMask = 0 }
 
     // §5b COLUMN-SUBSET LAP: the held column keys (bit i = column i), set from the UI (PERFORM only),
     // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
