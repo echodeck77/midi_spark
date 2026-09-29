@@ -153,6 +153,43 @@ struct EuclidLine: Codable, Equatable {
     var pick: EuclidPick? = nil   // v1b (Paul 2026-08-26): per-line PICK for TARGET=ALL lines (nil ⇒ the global euclidPick — byte-identical)
     var die: Int? = nil           // v1b: per-line seed salt so CYCLE/RANDOM picks differ across lines. OPTIONAL (a non-Optional additive field would throw on a pre-v1b euclidLines doc — the CR-8 decode-loss class); nil ⇒ 0 = unsalted, byte-identical
     var dieResolved: Int { die ?? 0 }
+    // NOTE SELECT MERGE (Paul 2026-09-29, the 4-fixed-row redesign): target+pick collapse into ONE selector —
+    // picking a specific rank (N1…N8) behaves like the old target; picking an aggregate (ALL/LOW/HIGH/BOT2/TOP2/
+    // CYCLE/RANDOM) behaves like the old pick. OPTIONAL — same CR-8 reasoning as `die` above: a non-Optional
+    // additive field would throw decoding a pre-redesign doc.
+    var noteSel: EuclidNoteSel? = nil
+    var reverse: Bool? = nil   // DIRECTION: nil/false = FWD (today's behaviour, byte-identical) · true = REV mirrors the pattern
+    /// The effective note selection — `noteSel` once the line's been touched under the new UI, else derived from
+    /// the old target/pick pair so a pre-redesign line resolves identically to what it always played.
+    var noteSelResolved: EuclidNoteSel {
+        if let s = noteSel { return s }
+        if target >= 1 { return EuclidNoteSel(rawValue: "N\(min(8, target))") ?? .all }
+        switch pick ?? .all {
+        case .all: return .all
+        case .cycle: return .cycle
+        case .low: return .low
+        case .high: return .high
+        case .random: return .random
+        }
+    }
+    var reverseResolved: Bool { reverse ?? false }
+}
+// EUCLID NOTE SELECT (Paul 2026-09-29): the merged target+pick selector above — one control answering "which
+// note(s) does this line strike." String-raw so it persists by VALUE, not `allCases` index (the class of bug
+// ArpPattern/index-persisted enums have already caused elsewhere in this codebase). Ordered ALL·N1…N8 then the
+// aggregate strategies, matching the two-row chip grouping the redesigned editor draws (row 1 = specific ranks,
+// row 2 = strategies) — `allCases` slicing at the UI layer relies on this exact order.
+enum EuclidNoteSel: String, Codable, CaseIterable {
+    case all = "ALL"
+    case n1 = "N1", n2 = "N2", n3 = "N3", n4 = "N4", n5 = "N5", n6 = "N6", n7 = "N7", n8 = "N8"
+    case low = "LOW", high = "HIGH", bottom2 = "BOT2", top2 = "TOP2", cycle = "CYCLE", random = "RANDOM"
+    /// 1...8 for a specific-rank pick; nil for every aggregate case (ALL/LOW/HIGH/BOT2/TOP2/CYCLE/RANDOM).
+    var specificRank: Int? {
+        switch self {
+        case .n1: 1; case .n2: 2; case .n3: 3; case .n4: 4; case .n5: 5; case .n6: 6; case .n7: 7; case .n8: 8
+        default: nil
+        }
+    }
 }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 // SPAN — the timeline a pattern-based processor runs on (Paul 2026-08-18): CELL restarts the pattern each column
@@ -574,6 +611,40 @@ struct MachineParams: Codable, Equatable {
         let d = chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]
         let n = max(1, min(16, steps))
         return d.count == n ? d : (d.count > n ? Array(d.prefix(n)) : d + [Int](repeating: -1, count: n - d.count))
+    }
+    /// The four EUCLID rows for editing/rendering — ALWAYS exactly 4 (the 2026-09-29 fixed-row redesign; SHARED
+    /// by the GridUI editor and SnapshotBuilder's resolve so the two can't independently derive this differently).
+    /// A touched `euclidLines` array pads/truncates to 4 with silent rows (`pulses: 0` → `euclidPatternInto`
+    /// yields all-false, confirmed safe — matches the idle-row mockup). An untouched (nil/empty) machine derives
+    /// row 0 from the flat single-euclid fields it always had; rows 1–3 are silent — so an old doc resolves and
+    /// sounds byte-identical to before this shipped.
+    func euclidLinesForEditing() -> [EuclidLine] {
+        // MIGRATION NOTE: a pre-redesign line with `pick == nil` fell back to the MACHINE-WIDE global `euclidPick`
+        // (the old "PICK — for ALL-target lines" row, now folded away) — a fallback `EuclidLine.noteSelResolved`
+        // can't see on its own (it only knows its own fields). Resolved HERE, once, with the full context, so an
+        // old doc's lines keep sounding exactly as they did before this shipped.
+        func resolved(_ L: EuclidLine) -> EuclidLine {
+            guard L.noteSel == nil else { return L }   // already touched under the new UI — leave as authored
+            var out = L
+            if L.target >= 1 { out.noteSel = EuclidNoteSel(rawValue: "N\(min(8, L.target))") ?? .all }
+            else {
+                switch L.pick ?? (euclidPick ?? .all) {
+                case .all: out.noteSel = .all
+                case .cycle: out.noteSel = .cycle
+                case .low: out.noteSel = .low
+                case .high: out.noteSel = .high
+                case .random: out.noteSel = .random
+                }
+            }
+            return out
+        }
+        let pad: ([EuclidLine]) -> [EuclidLine] = { a in
+            Array((a.map(resolved) + Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)).prefix(4))
+        }
+        if let L = euclidLines, !L.isEmpty { return pad(L) }
+        let row0 = EuclidLine(target: 0, pulses: euclidPulses ?? 5, steps: euclidSteps ?? 8, rotate: euclidRot ?? 0,
+                               invert: euclidInvert ?? false, pick: euclidPick, die: nil, noteSel: nil, reverse: nil)
+        return pad([row0])
     }
 }
 // CHORDS mode (SPEC-chords-stage §1): where the degree comes from.

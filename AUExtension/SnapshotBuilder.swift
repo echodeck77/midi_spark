@@ -613,11 +613,15 @@ enum SnapshotBuilder {
         out.euclidSpanN = max(0, min(32, p.euclidSpanN ?? 0))                // SPAN re-anchor: nil ⇒ FREE (0), else re-sync every N cols
         if let v = p.euclidPick { out.euclidPick = v }
         if let v = p.euclidInvert { out.euclidInvert = v }
-        if let v = p.euclidLines {   // EUCLID LINES (§10): clamp each line + cap at 8; empty ⇒ single-euclid fallback
-            out.euclidLines = v.prefix(8).map { EuclidLine(target: clamp($0.target, 0, 8), pulses: clamp($0.pulses, 0, 16),
-                                                           steps: clamp($0.steps, 2, 16), rotate: $0.rotate, invert: $0.invert,
-                                                           pick: $0.pick, die: $0.die) }   // v1b: carry per-line PICK + DIE (Paul 2026-08-26)
-        }
+        // EUCLID LINES (2026-09-29 redesign): ALWAYS resolves to exactly 4 rows via the shared
+        // `euclidLinesForEditing()` helper (Models.swift, also used by the GridUI editor so the two can't
+        // independently derive this differently) — an untouched machine derives row 0 from the flat fields
+        // above, rows 1-3 silent; Router.swift's EUCLID case no longer branches on "is euclidLines empty,"
+        // it always loops these 4 (a doc that used the old up-to-8 LINES model keeps only its first 4 —
+        // deliberate, per the fixed-4-row redesign, not an oversight).
+        out.euclidLines = p.euclidLinesForEditing().map { EuclidLine(target: clamp($0.target, 0, 8), pulses: clamp($0.pulses, 0, 16),
+                                                                      steps: clamp($0.steps, 2, 16), rotate: $0.rotate, invert: $0.invert,
+                                                                      pick: $0.pick, die: $0.die, noteSel: $0.noteSel, reverse: $0.reverse) }
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
         if let v = p.burstMode { out.burstMode = v }

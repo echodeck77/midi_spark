@@ -246,6 +246,74 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   into one step — an accepted, narrow edge case (see the comment on `buildRecordUndo`), not the reported bug.
   DEVICE-OWED: confirm two back-to-back ADD/DELETE/REORDER/BYPASS actions each undo independently, and that a
   normal slider drag still collapses to one undo step (not one per tick).**
+- **▶ EUCLID REDESIGN — Stage 1 (model/engine): TARGET+PICK merged into one NOTE SELECT field, DIRECTION (FWD/REV),
+  always-exactly-4-lines (2026-09-30, on `main`; iOS builds, macOS 1160 green incl. 5 new). Paul asked to redesign
+  the EUCLID editor UI — planned via a two-round HTML mockup (three hit-bar candidates, comet trail chosen; then the
+  final row layout) before any code, per the plan at `~/.claude/plans/velvet-foraging-curry.md`. This is the
+  model/engine half; the UI half (Stage 2 — the new row layout, the comet-bar widget, the merged chip selector) is
+  still to come. **THE MERGE:** `EuclidLine.target` (0=ALL/1-8=N1…N8, which chord note a line fires from) and `.pick`
+  (ALL/CYCLE/LOW/HIGH/RANDOM, only meaningful for TARGET=ALL) collapse into ONE new `EuclidNoteSel` (String-raw enum,
+  ALL·N1…N8·LOW·HIGH·BOT2·TOP2·CYCLE·RANDOM — BOT2/TOP2 ported from the sibling EUCLID MASK's own `MaskChordPick`).
+  `target`/`pick` are KEPT on `EuclidLine` for decode compatibility (never read by the render path again); a new
+  `noteSel: EuclidNoteSel?` is additive-Optional (the same CR-8 reasoning already recorded for `die`). **BOT2/TOP2
+  needed a real engine change** — `strikeChord(onlyIndex:)` only ever strikes one pool rank or the whole chord;
+  `runEuclidLine` now resolves a `noteSel` to either an `onlyIndex: Int?` or a `(lo,hi)` range, calling `strikeChord`
+  once per index in the range when one applies — mirroring EUCLID MASK's own `maskChordPickRange` loop rather than
+  inventing a second mechanism. **DIRECTION (FWD/REV):** a new `reverse: Bool?` on `EuclidLine`. REV mirrors
+  (time-reverses) the K-of-N pattern by flipping the READ INDEX into the already-ROTATE-baked buffer
+  (`euclidReadIndex(step,n,reverse) = reverse ? n-1-step : step`), NOT by rebuilding the buffer with a second
+  rotation — verified algebraically that rotate-then-reverse and reverse-then-rotate are NOT the same pattern in
+  general (they differ by a shift of 2×rotate mod n, coinciding only at rotate=0 or n/2), so this is a deliberate,
+  tested composition order, locked by a worked-example `DerivationsTest` rather than left to chance. Every buffer
+  read in `runEuclidLine` — the hit/rest test AND the `hitsUpTo` ordinal loop CYCLE/RANDOM use for their walk
+  position — goes through the same `euclidReadIndex`, so a reversed line's pick-walk stays correct in PLAYBACK
+  order, not buffer-storage order. **ALWAYS EXACTLY FOUR LINES** (the fixed-4-row redesign, replacing "start with
+  one euclid, tap +ADD LINE up to 8"): `SnapshotBuilder`'s old `.prefix(8)` clamp is gone — `MachineParams.
+  euclidLinesForEditing()` (Models.swift, shared by SnapshotBuilder AND the eventual Stage-2 editor, so the two
+  can't independently derive this differently) always returns exactly 4, deriving row 0 from the flat single-euclid
+  fields when untouched (rows 1-3 silent, `pulses: 0`) or padding/truncating a touched `euclidLines` array to 4 —
+  **a deliberate, disclosed consequence: any existing saved session that used 5-8 lines loses lines 5-8 permanently**
+  (Paul: "fixed at four always visible rows, please" — named here plainly, not silently absorbed). Router.swift's
+  `.euclid` case dropped its `euclidLines.isEmpty ? flat : lines` branch entirely — always `for L in p.euclidLines`.
+  **A MIGRATION SUBTLETY caught before it shipped wrong:** a pre-redesign line with `pick == nil` fell back to the
+  MACHINE-WIDE global `euclidPick` (the old "PICK — for ALL-target lines" row) — a fallback `EuclidLine.
+  noteSelResolved` can't see on its own (it only knows its own fields). Fixed by resolving this WITH the full
+  context inside `euclidLinesForEditing()` itself (which has `self.euclidPick`), not left to the narrower per-line
+  computed property — regression-tested (`testEuclidLineWithoutItsOwnPickFallsBackToTheOldMachineWideGlobal`).
+  **TWO REAL BUGS CAUGHT BY THE TEST SUITE, not by inspection — this session's own standing rule, twice over:**
+  (1) a first draft tried to make the render path's step computation and the eventual Stage-2 UI comet-bar share
+  ONE formula (`euclidPhase`, a continuous phase-in-[0,n) function) — mathematically proven equivalent to the
+  original exact-integer step math for real-number arithmetic, but in FLOATING POINT the continuous version's extra
+  divide+floor+multiply round-trip introduced a rare off-by-one at tick boundaries that the original integer-only
+  path never had. Caught by `testEuclidPulsesFromPoolTracksHeldCount` (an existing test, not a new one) going 9→54
+  note-ons — traced with a throwaway debug print rather than re-guessing by hand, per this project's own standing
+  technique. Fixed by reverting `runEuclidLine`'s own step math to the original exact Int64 formula and keeping
+  `euclidPhase` as a SEPARATE, UI-only function (Stage 2) — a discrete hit/rest decision needs exact integer ticks;
+  a comet's visual position tolerates float imprecision invisibly, and the two shouldn't share a code path just
+  because they share a CONCEPT (the same rate/span/anchor reading). (2) even after that revert, the SAME test still
+  failed the same way — traced (again via a debug print, not guessing) to a genuine interaction the redesign
+  introduced: `iterateTicks` dedups via a `lastTick[row]` scalar SHARED across every line on a row (safe for one
+  real line; a pre-existing, undisclosed limitation for 2+ real lines sharing a row across a render-window boundary
+  — not introduced here, just newly exercised). Running all 4 lines unconditionally under `HITS FROM: POOL` (which
+  overrides EVERY line's K to the held-note count, ignoring each line's own authored `pulses`) turned the 3
+  always-present silent padding rows into 3 MORE real, identical lines competing for that shared dedup state across
+  the ~24 render windows a 2-beat test spans. Fixed by skipping any line with `pulses <= 0` entirely (`for L in
+  p.euclidLines where L.pulses > 0`) — an unused fixed row now stays silent regardless of POOL, matching the
+  approved mockup's own "row 4 — 0 hits, no comet" idle-state language, and keeps genuinely-authored multi-line
+  polyrhythms (2+ real lines, already supported pre-redesign) working exactly as before. **ALSO FIXED, found while
+  testing:** the render-time SPAN-AUTOMATION system (`AutoParamField.euclidPulses/.euclidSteps/.euclidRot`,
+  `SnapParams.settingAuto`) mutates the FLAT `euclidPulses`/`euclidSteps`/`euclidRot` fields per render window — but
+  since Router.swift no longer reads those flat fields at all, an AUTO lane ramping EUCLID's hit count silently
+  stopped reaching the render path. Fixed by mirroring `settingAuto`'s write onto `euclidLines[0]` (row 0 — the row
+  the flat fields always fed) alongside the flat field, caught by the EXISTING
+  `testRenderAutoPassSpanRampsHitsUpAcrossBars` test, not a new one. **TESTS:** +5 (a worked-example composition-
+  order lock for REVERSE; BOT2/TOP2 strike two notes; REVERSE genuinely time-reverses the onset sequence, not just
+  a cosmetic relabelling; always-exactly-4 resolution for both a flat doc and an old 2-line doc; the machine-wide
+  PICK fallback). Every pre-existing EUCLID test (LINES polyrhythm/target, per-line PICK/DIE, POOL, SPAN, INVERT,
+  CYCLE/RANDOM, chain-driver composition) passes UNCHANGED — confirming the redesign's migration path is genuinely
+  byte-identical for every pre-existing document shape. No UI touched yet — GridUI.swift is next (Stage 2).
+  **DEVICE-OWED (once Stage 2 ships):** none yet — this stage is pure engine/model, fully covered by the macOS test
+  target, nothing device-only to verify until the UI lands.**
 - **▶ SELECT GRID — a live scrolling piano roll on the auditioning cell (2026-09-29, on `main`; iOS builds, macOS
   1155 green; DEVICE eye owed). Follow-through on the PART ROW ROLL entry below: Paul asked for the SAME accuracy
   standard (true onset beats read live from the render engine, velocity reflected, "no shortcuts") on the SELECT

@@ -3643,12 +3643,17 @@ final class Router {
 
         switch mode {
         case .euclid:
-            // EUCLID LINES (§10, ratified): run 1…8 lines from one chord (kick/hat/pulse). Each line = K·N·ROTATE·INVERT
-            // + TARGET (0 = ALL, honouring the card's PICK · 1–8 = a specific pool rank). Per-line N ⇒ polyrhythm. The
-            // single-line (empty `euclidLines`) path is BYTE-IDENTICAL to the pre-lines euclid — same K/N/rot/pick/invert.
+            // EUCLID LINES (2026-09-29 fixed-4-row redesign): ALWAYS exactly 4 lines — SnapshotBuilder's
+            // `euclidLinesForEditing()` guarantees this (an untouched machine's row 0 derives from the flat
+            // single-euclid fields, rows 1-3 silent, so a pre-redesign doc plays byte-identical). TARGET+PICK
+            // merged into `noteSelResolved` (a specific rank N1…N8, or an aggregate ALL/LOW/HIGH/BOT2/TOP2/CYCLE/
+            // RANDOM). DIRECTION (`reverseResolved`) mirrors the pattern by flipping the READ INDEX into the
+            // already-rotated buffer, not rebuilding it — rotate-then-reverse ≠ reverse-then-rotate in general
+            // (they differ by a shift of 2×rotate mod n), so this is a deliberate, tested composition order, not
+            // an arbitrary one (see `testEuclidReverseFlipsReadIndexNotRebuiltBuffer`).
             let srcCount = srcNotes.count
             // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
-            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, target: Int, invert: Bool, pick pickIn: EuclidPick? = nil, die: Int = 0) {
+            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, invert: Bool, reverse: Bool, noteSel: EuclidNoteSel, die: Int = 0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -3657,45 +3662,64 @@ final class Router {
                 // span drifts then snaps back. (Was the WIDTH model `sub = spanWidth/n`, where SPAN just scaled the speed.)
                 let sub = p.euclidRateBeats
                 let spanBeats = p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0
-                let pick = pickIn ?? p.euclidPick   // v1b: per-line PICK (nil ⇒ the global) for TARGET=ALL lines
-                var cycleHits = 0; for s in 0..<n where (invert ? !euclidBuf[s] : euclidBuf[s]) { cycleHits += 1 }
+                var cycleHits = 0; for s in 0..<n where (invert ? !euclidBuf[s] : euclidBuf[s]) { cycleHits += 1 }   // a permutation of indices (reverse) never changes the TOTAL hit count
                 let effHits = Int64(max(1, cycleHits))
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                              beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
                              clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc) { _, mTickBeat, _, _ in
-                    // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/replay-exact.
+                    // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
+                    // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
+                    // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a
+                    // comet's visual position tolerates float imprecision invisibly; the two shouldn't share a code
+                    // path just because they share a CONCEPT (the same rate/span/anchor reading).
                     let phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
                     let localT = Int64((phaseBeat / sub).rounded(.down))
                     let step = Int(((localT % Int64(n)) + Int64(n)) % Int64(n))
-                    let isHit = invert ? !euclidBuf[step] : euclidBuf[step]
+                    let ri = euclidReadIndex(step, n: n, reverse: reverse)
+                    let isHit = invert ? !euclidBuf[ri] : euclidBuf[ri]
                     guard isHit else { return }
                     var pickIndex: Int? = nil
-                    if target >= 1 { pickIndex = target - 1 }   // TARGET a specific pool rank (strikeChord skips if absent)
+                    var pickRange: (lo: Int, hi: Int)? = nil
+                    if let rank = noteSel.specificRank { pickIndex = rank - 1 }   // N1..N8 (strikeChord skips if absent)
                     else {
-                        switch pick {
+                        switch noteSel {
                         case .all: pickIndex = nil
                         case .low: pickIndex = 0
                         case .high: pickIndex = srcCount - 1
+                        // BOT2/TOP2 (Paul 2026-09-29): strike a PAIR, mirroring EUCLID MASK's own `maskChordPickRange`
+                        // — collapses to a single note when the pool is too small, rather than repeating or wrapping.
+                        case .bottom2: if srcCount > 0 { pickRange = (0, min(1, srcCount - 1)) }
+                        case .top2: if srcCount > 0 { pickRange = (max(0, srcCount - 2), srcCount - 1) }
                         case .cycle, .random:
                             let cy = (localT - Int64(step)) / Int64(n)               // floored cycle within the span (localT = cy·n + step)
-                            var hitsUpTo = 0; for s in 0...step where (invert ? !euclidBuf[s] : euclidBuf[s]) { hitsUpTo += 1 }
+                            var hitsUpTo = 0; for s in 0...step where (invert ? !euclidBuf[euclidReadIndex(s, n: n, reverse: reverse)] : euclidBuf[euclidReadIndex(s, n: n, reverse: reverse)]) { hitsUpTo += 1 }
                             let ord = (cy * effHits + Int64(hitsUpTo - 1)) &+ Int64(die)   // v1b: per-line die salts CYCLE (rotates the sequence) / RANDOM (reseeds the scatter)
                             if srcCount > 0 {
-                                pickIndex = pick == .cycle
+                                pickIndex = noteSel == .cycle
                                     ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
                                     : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(srcCount))
                             }
+                        default: break   // N1…N8 already resolved via specificRank above
                         }
                     }
-                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: pickIndex)
+                    if let range = pickRange {
+                        for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: idx) }
+                    } else {
+                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: pickIndex)
+                    }
                 }
             }
-            if p.euclidLines.isEmpty {
-                runEuclidLine(pulses: p.euclidPulses, steps: p.euclidSteps, rotate: p.euclidRot, target: 0, invert: p.euclidInvert)
-            } else {
-                for L in p.euclidLines { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, target: L.target, invert: L.invert, pick: L.pick, die: L.dieResolved) }
-            }
+            // A pulses<=0 row is an UNUSED fixed slot — skipped entirely, not run-and-silenced. `iterateTicks`
+            // dedups via a scalar `lastTick[row]` SHARED across every line on this row (safe for one real line;
+            // already a known limitation for 2+ real lines sharing a row across a window boundary — pre-existing,
+            // not introduced here). Running all 4 lines unconditionally under POOL (which overrides EVERY line's K
+            // to the held-note count, ignoring its own authored `pulses`) turned the 3 always-present silent
+            // padding rows into 3 more real, identical lines competing for that shared dedup state — caught by
+            // `testEuclidPulsesFromPoolTracksHeldCount` going 9→54 note-ons, traced with a throwaway debug trace,
+            // not guessed. Skipping a pulses<=0 row keeps it out of the dedup contention entirely, matching the
+            // idle-row mockup ("0 hits, no comet") — an unused row stays silent regardless of POOL.
+            for L in p.euclidLines where L.pulses > 0 { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, reverse: L.reverseResolved, noteSel: L.noteSelResolved, die: L.dieResolved) }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
             // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,

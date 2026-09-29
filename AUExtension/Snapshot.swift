@@ -386,9 +386,13 @@ extension SnapParams {
         case .rtcCountLo:   s.rtcCountLo = ci(1, 8)
         case .rtcCountHi:   s.rtcCountHi = ci(1, 8)
         case .rtcRotate:    s.rtcRotate = ci(0, 7)
-        case .euclidPulses: s.euclidPulses = ci(1, 16)
-        case .euclidSteps:  s.euclidSteps = ci(2, 16)
-        case .euclidRot:    s.euclidRot = ci(0, 15)
+        // EUCLID's flat fields are decode/legacy-only now — the render path reads euclidLines[0] exclusively (the
+        // 2026-09-29 fixed-4-row redesign). An AUTO lane still targets "euclidPulses" etc by name (authored before
+        // the redesign, and the redesign didn't touch AutoParamField), so mirror the write onto row 0 — the row the
+        // flat fields always fed — or the ramp would silently stop reaching the render path.
+        case .euclidPulses: s.euclidPulses = ci(1, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].pulses = s.euclidPulses }
+        case .euclidSteps:  s.euclidSteps = ci(2, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].steps = s.euclidSteps }
+        case .euclidRot:    s.euclidRot = ci(0, 15); if !s.euclidLines.isEmpty { s.euclidLines[0].rotate = s.euclidRot }
         case .glideRange:   s.glideRange = ci(1, 48)
         case .modMin:       s.modMin = ci(0, 127)
         case .modMax:       s.modMax = ci(0, 127)

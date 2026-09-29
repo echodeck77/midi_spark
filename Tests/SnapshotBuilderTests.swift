@@ -637,6 +637,41 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(hi.euclidSteps, 16, "euclidSteps max is 16")
     }
 
+    // EUCLID — always exactly 4 lines (2026-09-29 fixed-4-row redesign). An untouched (flat-fields) machine derives
+    // row 0 from euclidPulses/Steps/Rot/Invert/Pick, rows 1-3 silent (pulses 0) — byte-identical resolve to what the
+    // old single-euclid path would have used. An old-style 2-line doc pads to 4 with 2 more silent rows, keeping its
+    // 2 real lines untouched. Both counts are always exactly 4 — never fewer, never (post-redesign) more than 4.
+    func testEuclidLinesAlwaysResolveToExactlyFour() {
+        let flat = box(machines(customizing: 0) {
+            $0.paramsA.euclidPulses = 5; $0.paramsA.euclidSteps = 8; $0.paramsA.euclidRot = 2; $0.paramsA.euclidPick = .high
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(flat.euclidLines.count, 4, "always exactly 4, even for an untouched flat-fields machine")
+        XCTAssertEqual(flat.euclidLines[0].pulses, 5); XCTAssertEqual(flat.euclidLines[0].steps, 8)
+        XCTAssertEqual(flat.euclidLines[0].rotate, 2); XCTAssertEqual(flat.euclidLines[0].noteSelResolved, .high,
+                       "row 0 derives noteSel from the old flat PICK when untouched")
+        XCTAssertTrue(flat.euclidLines[1...3].allSatisfy { $0.pulses == 0 }, "rows 1-3 pad silent")
+
+        let twoLine = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8), EuclidLine(target: 2, pulses: 3, steps: 16)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(twoLine.euclidLines.count, 4, "an old 2-line doc pads to exactly 4, not left at 2")
+        XCTAssertEqual(twoLine.euclidLines[0].pulses, 4); XCTAssertEqual(twoLine.euclidLines[1].pulses, 3)
+        XCTAssertEqual(twoLine.euclidLines[1].noteSelResolved, .n2, "the old target:2 line resolves to noteSel .n2")
+        XCTAssertTrue(twoLine.euclidLines[2...3].allSatisfy { $0.pulses == 0 }, "the 2 padded rows are silent")
+    }
+
+    // A pre-redesign line with pick == nil fell back to the MACHINE-WIDE global euclidPick (the old "PICK — for
+    // ALL-target lines" row, now folded away) — a fallback EuclidLine.noteSelResolved can't see on its own (it only
+    // knows its own fields). euclidLinesForEditing() must resolve this with the full context so an old doc's lines
+    // keep sounding exactly as they did before the redesign.
+    func testEuclidLineWithoutItsOwnPickFallsBackToTheOldMachineWideGlobal() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidPick = .high   // the old machine-wide default
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, pick: nil)]   // no per-line override
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(a.euclidLines[0].noteSelResolved, .high, "no per-line pick ⇒ falls back to the machine-wide global, not ALL")
+    }
+
     // The 16-machine cap is lifted: the builder sizes its machine array to the document and resolves cells BY ID, so a
     // machine appended beyond the canonical 16 (a BUILD ephemeral machine) renders instead of being skipped. (2026-08-15)
     func testBuilderResolvesMachineBeyondTheSixteen() {

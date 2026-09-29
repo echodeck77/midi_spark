@@ -78,6 +78,18 @@ func nearestLadderPos(_ ladder: [Int], _ idx: Int) -> Int {
     }
 }
 
+/// EUCLID's live position, as ONE continuous phase in [0, n) — SHARED by the real render path
+/// (Router.swift's `runEuclidLine`) and the GridUI comet-bar (Paul 2026-09-29 redesign), so a UI sweep can
+/// never read a different clock than the engine actually does — the RATCHET-PATTERN/DEST class of bug this
+/// project has hit twice before, where a UI re-derived a clock instead of calling the engine's own formula.
+/// `mTickBeat` must already be the swing-warped "musical" beat (via `musicalOf`), matching `iterateTicks`.
+func euclidPhase(mTickBeat: Double, sub: Double, spanBeats: Double, n: Int) -> Double {
+    let phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
+    let raw = phaseBeat / max(0.0001, sub)
+    let nD = Double(max(1, n))
+    return raw - nD * (raw / nD).rounded(.down)   // raw mod n, always in [0, n)
+}
+
 // CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26) — the pure beat → phase transform. A downstream fold
 // consumer (RATCHET's own rate/slice math etc.) asks "what's local time AT this one real beat instant?"; a
 // retimed DRIVER asks the inverse ("what real beat produces this local tick?"); these functions answer both — no
@@ -2221,6 +2233,15 @@ func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
     var buf = [Bool](repeating: false, count: max(1, min(64, steps)))
     let n = euclidPatternInto(&buf, pulses: pulses, steps: steps, rotation: rotation)
     return Array(buf[0..<n])
+}
+/// DIRECTION (Paul 2026-09-29): maps a chronological playback step to the buffer index to read. FWD reads the
+/// already-rotated buffer in order; REV reads it back-to-front — a genuine time-mirror of the hit pattern, NOT a
+/// second rotation. Rotate-then-reverse and reverse-then-rotate differ in general (by a shift of 2×rotate mod n,
+/// coinciding only at rotate=0 or n/2 — verified algebraically). Flipping the READ index on the already-rotated
+/// buffer, rather than rebuilding it, is the smallest change and keeps ROTATE meaning "where the forward reading
+/// starts" and DIRECTION meaning "which way it's read from there."
+@inline(__always) func euclidReadIndex(_ step: Int, n: Int, reverse: Bool) -> Int {
+    reverse ? (max(1, n) - 1 - step) : step
 }
 
 // ── ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26) ──────────────────────────────────────────────────

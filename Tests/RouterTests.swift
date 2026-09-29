@@ -5156,6 +5156,39 @@ final class RouterTests: XCTestCase {
         let dieB = notesOf(EuclidLine(target: 0, pulses: 5, steps: 8, pick: .random, die: 5))
         XCTAssertNotEqual(dieA, dieB, "a different per-line DIE reseeds the RANDOM scatter → a different note sequence")
     }
+    // EUCLID NOTE SELECT MERGE (2026-09-29 fixed-4-row redesign): TARGET+PICK merge into one `noteSel` field. BOT2/
+    // TOP2 are new — ported from the sibling EUCLID MASK's own CHORD PICK — and need a real engine change (strike a
+    // PAIR, not one pool rank), mirroring EUCLID MASK's own `maskChordPickRange` loop.
+    func testEuclidNoteSelTop2AndBot2StrikeTwoNotes() {
+        func notesOf(_ sel: EuclidNoteSel) -> Set<Int> {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, noteSel: sel)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 4, into: e); assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        }
+        XCTAssertEqual(notesOf(.bottom2), [60, 64], "BOT2 strikes the two lowest chord tones")
+        XCTAssertEqual(notesOf(.top2), [67, 72], "TOP2 strikes the two highest chord tones")
+    }
+    // DIRECTION (2026-09-29): REV mirrors the hit pattern by flipping the READ INDEX into the already-rotated
+    // buffer — a genuine time-reversal of the rhythm, not a cosmetic change. For a non-palindromic K-of-N pattern
+    // this changes WHICH steps land hits, so REV must strike a genuinely different (same-count) set of onsets than
+    // FWD for the identical K/N/ROTATE.
+    func testEuclidReverseTimeReversesTheHitSequence() {
+        func onsetSteps(_ reverse: Bool) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, reverse: reverse)]   // E(3,8): hits at 0,3,6 (unrotated) — not palindromic
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)   // 2 beats = the full 8-tick (1/16 rate) cycle
+            // default run() tempo/sr = 120bpm/48kHz ⇒ 24000 samples/beat; euclidRate defaults to 1/16 (0.25 beats/tick)
+            // ⇒ 6000 samples/tick.
+            return e.ons.filter { $0.cable == 1 }.map { Int((Double($0.sample) / 6000).rounded()) }.sorted()
+        }
+        let fwd = onsetSteps(false), rev = onsetSteps(true)
+        XCTAssertEqual(fwd, [0, 3, 6], "FWD strikes E(3,8)'s own hit steps, unrotated")
+        XCTAssertEqual(rev, [1, 4, 7], "REV reads the SAME buffer back-to-front (readIdx = n-1-step) — 7-6=1, 7-3=4, 7-0=7 — a genuinely different, same-count set")
+        XCTAssertEqual(fwd.count, rev.count, "reversing never changes the total hit count — a permutation of indices")
+    }
     // ARP EUCLID MASK (SPEC-arp-euclid-mask) is REMOVED (Paul 2026-09-28) — fully superseded by the standalone EUCLID
     // MASK processor; see testEuclidMaskFold*/testEuclidMask* above for the surviving REST/TIE/CHORD/ROTATE coverage.
     // WAIT-vs-MARCH had no replacement (Paul: "happy to drop wait as an option" — a downstream fold can't reach a

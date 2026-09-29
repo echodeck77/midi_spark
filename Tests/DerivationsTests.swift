@@ -477,6 +477,31 @@ final class DerivationsTests: XCTestCase {
         let base = euclidPattern(pulses: 3, steps: 8)
         XCTAssertEqual(euclidPattern(pulses: 3, steps: 8, rotation: 1), (0..<8).map { base[($0 + 1) % 8] }, "rotation cycles the pattern")
     }
+    // DIRECTION (2026-09-29): euclidReadIndex flips the READ into the already-rotated buffer, not a second
+    // rotation. Rotate-then-reverse and reverse-then-rotate are NOT the same pattern in general (they differ by a
+    // shift of 2×rotate mod n) — this worked example pins the composition order actually shipped, so a future
+    // refactor can't silently swap it without a test noticing.
+    func testEuclidReverseFlipsReadIndexNotRebuiltBuffer() {
+        XCTAssertEqual(euclidReadIndex(0, n: 8, reverse: false), 0)
+        XCTAssertEqual(euclidReadIndex(3, n: 8, reverse: false), 3, "FWD is the identity — no change from today")
+        XCTAssertEqual(euclidReadIndex(0, n: 8, reverse: true), 7)
+        XCTAssertEqual(euclidReadIndex(7, n: 8, reverse: true), 0, "REV mirrors the index range")
+        // K=3,N=8 rotated by 1: [0,0,1,0,0,1,0,1] (hits at buffer indices 2,5,7 — from testEuclidPatternSpreadsKHitsEvenly's
+        // own base [1,0,0,1,0,0,1,0], rotated[i] = base[(i+1)%8]).
+        let rotated = euclidPattern(pulses: 3, steps: 8, rotation: 1)
+        XCTAssertEqual(rotated.map { $0 ? 1 : 0 }, [0, 0, 1, 0, 0, 1, 0, 1])
+        // SHIPPED composition: reverse reads THIS rotated buffer back-to-front (readIdx = n-1-step).
+        let reverseOfRotated = (0..<8).map { rotated[euclidReadIndex($0, n: 8, reverse: true)] }
+        XCTAssertEqual(reverseOfRotated.enumerated().filter { $0.element }.map { $0.offset }, [0, 2, 5],
+                       "reverse-of-the-already-rotated-buffer's hit steps")
+        // The OTHER, NOT-shipped order — reverse the UNROTATED base, then rotate it — gives a DIFFERENT pattern,
+        // proving the two compositions genuinely disagree (not an arbitrary choice between equivalent orders).
+        let base = euclidPattern(pulses: 3, steps: 8)
+        let reversedBase = (0..<8).map { base[7 - $0] }
+        let rotateThenOfReversedBase = (0..<8).map { reversedBase[($0 + 1) % 8] }
+        XCTAssertEqual(rotateThenOfReversedBase.enumerated().filter { $0.element }.map { $0.offset }, [0, 3, 6])
+        XCTAssertNotEqual(reverseOfRotated, rotateThenOfReversedBase, "the two composition orders are NOT interchangeable")
+    }
     func testBurstFractionsCountFirstZeroAndCurve() {
         XCTAssertEqual(burstFractions(count: 4, curve: 0), [0, 0.25, 0.5, 0.75], "even spacing at curve 0")
         XCTAssertEqual(burstFractions(count: 4, curve: 0).first, 0, "first strike at step entry")
