@@ -199,6 +199,63 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PART GRID — a live per-row piano roll of what actually played, overlaid on the existing grid (2026-09-29, on
+  `main`, `56868a9`; macOS 1145 green incl. 4 new, iOS builds; DEVICE eye/ear owed). Paul: each of the part grid's 4
+  interior rows should show a LIVE piano roll of the notes it actually played — pitch vertically, time horizontally,
+  riding the row's own existing sweeping playhead — accurate, no perceptible latency, fading at a FIXED trailing
+  window behind the playhead (a rolling lookback from NOW, not from a held note's onset — its head stays bright at
+  the playhead as long as it's held, its tail fades at a fixed distance regardless of hold length). Planned carefully
+  first (10 ACs ratified in chat, then a formal EnterPlanMode pass with 2 parallel Explore agents + 1 Plan agent,
+  self-reviewed against the ACs before implementing — 3 real gaps caught and fixed pre-code: velocity wasn't wired to
+  any visual, an early draft cleared the roll on transport-stop which directly violated the no-abrupt-reset AC, and
+  the ~33ms poll-bound "how fast can a note appear" honesty wasn't stated plainly). **SCOPE, confirmed via
+  AskUserQuestion:** one roll PER ROW (not one combined roll for the whole part); it lives ON the existing grid as an
+  overlay (not a new strip/page element — no layout/lattice change at all); a bar stays FIXED at its own grid column
+  and fades in place (opacity only), a held note's head still extends forward with the live playhead. **ROOT DESIGN
+  PROBLEM: the render engine had no per-voice onset TIME at all** — `Router.Voice` tracked active/note/vel/cellIndex/
+  offSample but nothing about WHEN a voice opened. Fixed by adding `Voice.onBeat: Double`, stamped inside `openVoice`
+  using the IDENTICAL formula the existing `focusNoteBeat` comet-trail already uses (`fBeatPos + Double(onSample −
+  fWindowStart) × fBeatsPerSample`) — these are Router INSTANCE fields set once per render window, so no signature
+  change was needed on `openVoice` or any of its 13 call sites. New `Router.rowSoundingVoices()` bucket-scans the
+  128-voice pool ONCE by engine row (`cellIndex % Snap.rows`), returning every row's (note,vel,onBeat) — mirrors
+  `cellSoundingVelSnapshot`'s existing "return the whole unscoped array" shape rather than threading a ferry/row
+  param through 3 forwarding layers. Threaded through Kernel/MidiSparkAudioUnit as thin forwarders, polled on the
+  **30fps `meterTimer`** (the OUT-piano's just-landed precedent from the day before — NOT the laggier 4Hz diagnostic
+  timer), reconciled into a new `LiveTelemetry.partRollNotes` (plain reference-class field, not `@State`, matching
+  `cellRoll`'s existing pattern so per-note writes don't force a body re-run). **THE SUBTLE BUG THE PLAN AGENT CAUGHT
+  BEFORE ANY CODE WAS WRITTEN:** `onBeat` is captured RAW (un-swing-warped, matching `focusNoteBeat`), but the
+  existing playhead (`roomsPartPlayhead`) runs its beat through `musicalOf` (the swing warp) before it becomes a
+  pixel — comparing a raw note-beat against a musical playhead-beat directly would have silently drifted the bars off
+  the white sweep line under any non-50 swing setting. Fixed by applying `musicalOf` to BOTH the live beat and every
+  note's beat at draw time, never comparing raw-to-musical. **LOOP-COLUMN SELECTION EDGE CASE, also caught in
+  planning:** a loop-column selection can map adjacent logical steps to non-adjacent physical columns
+  (`BuildSceneLogic.loopColumnPlan`) — a naive single-rectangle bar would smear across skipped columns, so a held
+  note's bar is decomposed into one segment per LOGICAL step, each positioned via the SAME `plan.physicalColumn`
+  the playhead itself uses — this also gives the loop-seam CLIP (never wrap) for free, matching the fade
+  clarification Paul gave. **KNOWN, STATED LIMITATION (not a bug):** detection depends on the ~30fps poll observing
+  "what's active right now" — a note shorter than ~33ms, or repeated strikes closer together than that (a fast
+  ratchet/burst can exceed it), can open and fully close BETWEEN two polls and never be observed at all, not merely
+  delayed. No faster live-voice channel exists in this codebase today; flagged explicitly in the plan and here rather
+  than discovered as a surprise later — device-verify against a real fast ratchet before calling this fully done.
+  Also explicitly NOT clearing `partRollNotes` on the transport-stop edge (an early draft did — removed: it fought
+  the no-abrupt-reset AC and was pure downside, since the overlay is already gate-hidden while stopped via the same
+  `d.effectivePlaying` gate `roomsPartPlayhead` uses). Reused verbatim, not reinvented: `rollLaneForPitch`
+  (pitch→lane, already used by the dead-but-still-populated `meters.cellRoll`/`buildNoteSweep` pathway) and
+  `partFerryHue(row:)` (the exact colour already tinting the flat part cells this overlay sits on top of).
+  **DELIBERATE, SCOPED EXCEPTION to "GRID REBUILD P2" (2026-09-08, "cells are calm, the ferry row carries the
+  motion")** — the roll is a new overlay layer riding above the flat, unchanged part cells, not a reversion of that
+  redesign; worth device-confirming it doesn't read as visually contradicting the calm-grid intent elsewhere. +4
+  RouterTests (onset-beat accuracy on a SUSTAINED hold — an ARP's staccato notes were the first draft's mistake, all
+  already gated off by the check point, caught by the test failing, not by inspection; row-bucketing across a real
+  ferry boundary, row 0 vs. row 4; clears on release; the existing silent-claim-ghost exclusion pattern extended to
+  the new method). One test-writing lesson recorded plainly: the first draft of the onset-beat test also asserted 3
+  voices for a 3-note chord and failed at 6 — §7b's own two-cable-per-note copy (own bus + the ALL cable) means
+  `rowSoundingVoices()`, a deliberately raw per-voice dump, legitimately reports 2 voices per logical note; the UI
+  layer's `(pitch,onBeat)` dedup (not Router) is what collapses that back to one bar. **DEVICE-OWED:** the whole
+  feature — no-perceptible-lag on strike, a held note's tail pinned at the 2-beat window while its head tracks the
+  sweep, non-zero swing not drifting the bars off the white line, a loop-column selection not smearing a bar across
+  skipped columns, velocity actually reading as thinner/dimmer for soft notes, and the fast-ratchet miss-limitation
+  either not noticeable or worth a follow-up if it is. Plan: `~/.claude/plans/velvet-foraging-curry.md`.**
 - **▶ FERRY DRAG-DROP — a SELECT-cell drop no longer force-navigates to the part grid unless the target ferry was
   already focused (2026-09-29, on `main`, `59f6bdb`; iOS builds; DEVICE eye owed). Paul: dropping a SELECT cell onto
   a play ferry shouldn't yank the view over to the part grid unless that ferry's own selector was already the active
