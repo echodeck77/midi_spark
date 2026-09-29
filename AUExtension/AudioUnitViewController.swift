@@ -161,6 +161,8 @@ struct DiagView: View {
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
     @State var buildPlaceArmed: Bool = false         // PLAY-grid PLACE mode — a standalone toggle (NOT the staging radio); armed from the left PLACE button
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
+    @State var buildEditSlotDir: Int = 1        // ProcessorBox's slide-in direction for its NEXT swap (±1) — derived from buildEditSlot's own left/right movement through the chain, below (Paul 2026-09-29)
+    @State private var buildEditSlotLast: Int = 0   // the last-known buildEditSlot value, kept purely to compute the direction above
     @State var buildSelectedProcessing = false  // PLAY-STATE GREY (Paul 2026-09-14): is the SELECTED machine's active cell sounding NOW? Updated (deduped) in the 4 Hz poll; feeds the processor editor's grey-when-idle. false = grey the controls (still usable).
     // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
     // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-machine.
@@ -808,6 +810,13 @@ struct DiagView: View {
         //  so the step no longer needs to be folded into `d` at step rate. See the poll's step-boundary block.)
         .onChange(of: d.playing) { playing in                 // transport stopped mid-arm → apply the pending voice switch now (no boundary will come)
             if !playing { buildCommitPendingVoice() }
+        }
+        // PROCESSOR SWAP DIRECTION (Paul 2026-09-29): buildEditSlot IS the chain's own left-to-right order (0…7), so
+        // its own movement is the direction the processor editor's slide+fade should travel — no separate positional
+        // concept needed. Closing the editor (nil) doesn't shift the remembered position (only a genuine slot→slot
+        // move should set a direction for the NEXT open).
+        .onChange(of: buildEditSlot) { new in
+            if let n = new { buildEditSlotDir = n >= buildEditSlotLast ? 1 : -1; buildEditSlotLast = n }
         }
         .onReceive(meterTimer) { _ in
             guard uiAppeared, let au else { return }   // ~30fps peak metering → the velocity indicators track live (not the 4Hz poll)

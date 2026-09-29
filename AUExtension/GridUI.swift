@@ -173,6 +173,7 @@ struct ProcessorBox: View {
     // (those stay Machine-level). Bound via a synthetic Machine whose A face == the slot's type+params.
     var slotMode: Bool = false
     var slotBypassed: Bool = false
+    var swapDirection: Int = 1                            // the chain-box swap's slide+fade direction (Paul 2026-09-29): +1 slides the incoming controls in from the trailing edge (moved rightward in the chain), -1 from the leading edge; callers with no positional concept (e.g. the chord-sequencer popup) keep the +1 default.
     var accentOverride: Color? = nil                     // MODE ROW: force the control accent (blue, to match the emitters)
     var liveStep: Int = -1                               // PLAYHEAD (idea 15): the live GRID COLUMN (0…7) lit in the matrices/lanes; -1 = stopped
     // RATCHET PATTERN own-clock playhead (Paul 2026-09-07): the matrix highlight must sweep at the ratchet's OWN rate,
@@ -227,6 +228,17 @@ struct ProcessorBox: View {
     // TupleViews whose concrete-metadata instantiation overflowed the demangler stack → SIGSEGV when the editor
     // first rendered — e.g. adding an ARP). rowSpacing MATCHES the body VStack's spacing so layout is unchanged.
     private var rowSpacing: CGFloat { slotMode ? 14 : 6 }
+    // PROCESSOR SWAP — slide + fade (Paul 2026-09-29, replaces the plain opacity cross-fade): the incoming controls
+    // nudge in from whichever edge matches swapDirection (the direction the user actually moved through the chain),
+    // fading in together; the outgoing controls nudge out the opposite way. A small FIXED offset, not SwiftUI's
+    // built-in .move(edge:) (which travels the view's own full width — too big a sweep at panel size for a subtle
+    // swap cue). Chosen over a bare cross-fade after comparing candidates with Paul against a mockup — gives the
+    // swap real spatial continuity with the tap instead of just dissolving in place.
+    private var swapTransition: AnyTransition {
+        let d: CGFloat = swapDirection >= 0 ? 14 : -14
+        return .asymmetric(insertion: .opacity.combined(with: .offset(x: d)),
+                            removal: .opacity.combined(with: .offset(x: -d)))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: slotMode ? 14 : 6) {
@@ -244,8 +256,8 @@ struct ProcessorBox: View {
                     }
                     typeParams(ft)
                         .id(ft)                                    // a type change is a fresh identity, not an in-place diff — lets the transition below actually fire
-                        .transition(.opacity)                      // ONE-SHOT cross-fade on swap (Paul 2026-09-28): catches the moment the controls change, not a resting-state marker
-                        .animation(.easeInOut(duration: 0.18), value: ft)
+                        .transition(swapTransition)                // SLIDE + FADE on swap (Paul 2026-09-29, was a plain cross-fade) — catches the moment the controls change, directionally
+                        .animation(.easeInOut(duration: 0.2), value: ft)
                     if !slotMode && isB && glides {      // morph glides A↔B; only meaningful for a FULL B
                         field("MORPH \(Int(machine.morph * 100))%  → B") {
                             slider(Binding(get: { machine.morph }, set: { onMorph($0) }), in: 0...1)

@@ -4930,7 +4930,7 @@ extension DiagView {
             },
             onTranspose: { _ in }, onMorph: { _ in },
             onSetTypeA: { t in buildChainSetType(i, t) },
-            height: 260, slotMode: true, slotBypassed: slot.bypassed,
+            height: 260, slotMode: true, slotBypassed: slot.bypassed, swapDirection: buildEditSlotDir,   // the slide+fade's direction — follows buildEditSlot's own movement through the chain (Paul 2026-09-29)
             accentOverride: buildCardHue,   // the ONE machine/card hue (grey on the SELECT audition) — matches the machine box
             // PLAYHEADS (Paul 2026-09-11): the matrix/lane playheads now SELF-CLOCK inside ProcessorBox from the beat
             // anchor below (gridStepBeats = the scene step), so `liveStep`/`passHead` no longer fold the step into the whole-page
