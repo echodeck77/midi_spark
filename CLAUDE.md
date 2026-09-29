@@ -348,6 +348,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   now fills the big slot with something (key · live notes · "no input"), the top caption is unconditionally the
   letter — the old `"MIDI IN"` fallback caption is dead code (no remaining case reaches it), removed. Scale/chord
   doors are UNCHANGED (still their own `key` branch, exactly the "exception being scale" Paul named).**
+  **CHORD-DOOR FIX, same day (`<PENDING>`; iOS builds; DEVICE eye owed). Paul: "it doesn't work on chord receiver
+  toggles - it still shows 'chord'."** Self-inflicted: the `key` exception (the entry above's own "Scale/chord doors
+  are UNCHANGED" line) wrongly carried CHORD doors along with SCALE ones — the ORIGINAL pre-existing code bundled
+  `receivers[i].scaleLabel` and `buildChordDoorLabel` under one `key` value (both being "this door has a special
+  identity" cases), and this feature's first pass never questioned that bundling. But Paul's own words, both times
+  ("leave one set to key," "the exception being scale"), only ever named scale/key — never chord. A CHORD door was
+  showing `buildChordDoorLabel`'s fixed `"A · CHRD"` string, which reads as "it still shows 'chord'." FIX: dropped
+  `buildChordDoorLabel` from `buildReceiverSelectChip`'s `key` entirely (it's still used elsewhere — the tab-label
+  call site at line ~211 — only THIS chip's use of it is gone) — a CHORD door now falls through to the same live-
+  notes/"no input" branch as any plain input door. Its `recvHeldNotes` entry is that door's own resolved chord pool,
+  live — a meaningful "what's sounding from here right now" readout, not a stand-in.**
 - **▶ EUCLID MASK CHORD "not sounding" — INVESTIGATED, NOT REPRODUCIBLE off-device; +2 permanent regression tests
   (2026-09-29, on `main`, `10863ef`; macOS 1149 green incl. 2 new). Paul: a Euclid mask after an arp, GAPS=CHORD,
   7-of-8, wasn't sounding, "fails on every setting" — then gave the exact steps: the chain was ARP→VELOCITY, he added

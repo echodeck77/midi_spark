@@ -2915,9 +2915,13 @@ extension DiagView {
         // top so its identity is kept. (Paul 2026-08-29) Otherwise, show the notes this door is receiving LIVE, or
         // "no input" when it's holding nothing (Paul 2026-09-29) — the top caption is now ALWAYS the letter, since
         // every branch fills the big slot with something (key, live notes, or the "no input" state); there's no
-        // remaining case where the big slot shows the plain letter itself.
+        // remaining case where the big slot shows the plain letter itself. SCALE is the ONLY exception (Paul: "the
+        // exception being scale") — a CHORD door used to share this branch too (`buildChordDoorLabel`, "A · CHRD"),
+        // which read as "it still shows 'chord'"; dropped, so a CHORD door now falls through to live notes/no input
+        // like any other door — its own resolved chord pool, live, is exactly as meaningful a "notes received"
+        // readout as a plain input door's.
         let letter = ["A", "B", "C", "D"][i]
-        let key: String? = (i < receivers.count ? receivers[i].scaleLabel : nil) ?? buildChordDoorLabel(receivers, i)   // "A MIXO" (SCALE) / "A · V7" (CHORD), else nil
+        let key: String? = i < receivers.count ? receivers[i].scaleLabel : nil   // "A MIXO" (SCALE), else nil
         let big = key ?? liveNoteClassLabel(i) ?? "no input"
         buildIOSelectChip(top: letter, letter: big, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
     }
