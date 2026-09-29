@@ -199,6 +199,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FERRY DRAG-DROP — a SELECT-cell drop no longer force-navigates to the part grid unless the target ferry was
+  already focused (2026-09-29, on `main`, `59f6bdb`; iOS builds; DEVICE eye owed). Paul: dropping a SELECT cell onto
+  a play ferry shouldn't yank the view over to the part grid unless that ferry's own selector was already the active
+  one — otherwise stay on whatever room you're in, but still let "the selected colour" (`buildActiveFerry`) follow
+  the drop. ROOT CAUSE: `buildPopulateFerry`'s trailing `buildReactivateFerry(t)` was unconditional — it always
+  called through to `buildActivateFerry(t)`, which (since the ferry is now populated) always takes the "load bench +
+  `roomsRoom = .part`" branch, regardless of whether `t` was the ferry you were already looking at. **FIX:** capture
+  `buildActiveFerry == t` right before that trailing call (nothing above it in the function touches `buildActiveFerry`,
+  so it still reflects the PRE-drop focus) — already-focused → unchanged behaviour (`buildReactivateFerry`, full
+  bench load + navigate); a DIFFERENT, non-focused ferry → populate + colour-swap runs exactly as before (untouched),
+  the ferry starts playing in the BACKGROUND (consistent with the ferry-row-unification model, where every ON ferry
+  already composes/plays independently of which one has focus), and only `buildActiveFerry = t` updates (+
+  `buildPublishScene()` so the newly-armed play state actually takes effect) — no bench load, no room switch. Scoped
+  to exactly the SELECT-cell→ferry drop path (`buildPopulateFerry`, the only caller of the old unconditional call);
+  ferry→ferry drag-moves (`buildMoveFerry`) are untouched — Paul's ask named the SELECT-cell case specifically.
+  UI-only, no test-target reach (GridUI/BuildPage, as always). **DEVICE-OWED:** dropping onto a non-focused ferry
+  reads as "it populated and started playing, right where I was" rather than as a dead tap; the SELECT cell's border/
+  play badge (the two things this session already wired to "the selected colour") pick up the new colour immediately.**
 - **▶ RANDOMIZE/MUTATE — a REAL progress bar on both the machine panel and the part grid (2026-09-29, on `main`,
   `b7591af`; macOS green (full suite), iOS builds; DEVICE eye owed). Paul: show a progress bar while RANDOMIZE/MUTATE
   is in process, from either surface. **MACHINE PANEL:** already backgrounded since the 2026-09-13 tranche
