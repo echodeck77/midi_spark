@@ -348,7 +348,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   now fills the big slot with something (key · live notes · "no input"), the top caption is unconditionally the
   letter — the old `"MIDI IN"` fallback caption is dead code (no remaining case reaches it), removed. Scale/chord
   doors are UNCHANGED (still their own `key` branch, exactly the "exception being scale" Paul named).**
-  **CHORD-DOOR FIX, same day (`<PENDING>`; iOS builds; DEVICE eye owed). Paul: "it doesn't work on chord receiver
+  **CHORD-DOOR FIX, same day (`eeafcda`; iOS builds; DEVICE eye owed). Paul: "it doesn't work on chord receiver
   toggles - it still shows 'chord'."** Self-inflicted: the `key` exception (the entry above's own "Scale/chord doors
   are UNCHANGED" line) wrongly carried CHORD doors along with SCALE ones — the ORIGINAL pre-existing code bundled
   `receivers[i].scaleLabel` and `buildChordDoorLabel` under one `key` value (both being "this door has a special
