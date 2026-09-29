@@ -1983,7 +1983,18 @@ extension DiagView {
         buildFerryHueAlloc[t] = nil                                                   // a populated ferry's colour comes from its part now, not the empty-slot alloc
         buildSyncMachines()
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }                      // a populated ferry starts playing at once (via the staging sequencer once activated)
-        buildReactivateFerry(t)                                                       // fresh load of the NEW part (skip the stale-bench writeback)
+        // NAVIGATION (Paul 2026-09-29): only follow through onto the PART grid when ferry `t`'s OWN selector was
+        // ALREADY the active one before this drop — i.e. you were already looking at it. Dropping onto a DIFFERENT,
+        // non-focused ferry populates + starts it in the background (the ferry-row-unification model already plays
+        // every ON ferry regardless of focus) without yanking the view away from wherever it was. Either way "the
+        // selected colour" (buildActiveFerry, read by the SELECT cell's border/play badge etc.) still follows the
+        // drop — that part was never conditional, only the room switch + bench load were.
+        if buildActiveFerry == t {
+            buildReactivateFerry(t)                                                   // fresh load of the NEW part (skip the stale-bench writeback)
+        } else {
+            buildActiveFerry = t
+            buildPublishScene()
+        }
     }
     // MOVE ferry `from` → `to` (overwrites the target; vacates the source), carrying play/mute/solo state. (Paul 2026-09-12)
     func buildMoveFerry(_ from: Int, to: Int) {
