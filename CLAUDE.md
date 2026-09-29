@@ -200,7 +200,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
 - **▶ EUCLID MASK CHORD "not sounding" — INVESTIGATED, NOT REPRODUCIBLE off-device; +2 permanent regression tests
-  (2026-09-29, on `main`, `<PENDING>`; macOS 1149 green incl. 2 new). Paul: a Euclid mask after an arp, GAPS=CHORD,
+  (2026-09-29, on `main`, `10863ef`; macOS 1149 green incl. 2 new). Paul: a Euclid mask after an arp, GAPS=CHORD,
   7-of-8, wasn't sounding, "fails on every setting" — then gave the exact steps: the chain was ARP→VELOCITY, he added
   EUCLID MASK after it (still silent on CHORD), removed VELOCITY (still silent). Exhaustive engine-level
   investigation could NOT reproduce this: the CHORD stab mechanism (`chainScratch`/`composeChainSet`), `isModifierFoldable`/
