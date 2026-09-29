@@ -199,6 +199,38 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ BUILD UNDO — structural chain edits now ALWAYS get their own step (2026-09-29, on `main`, `f49363b`; iOS
+  builds, macOS 1155 green; DEVICE-owed — no test-target reach, UI-state bookkeeping only). Paul: "I added two
+  processors to the MIDI chain, then hit undo and both disappeared. Every user touch action should have a
+  corresponding undo/redo step." **ROOT CAUSE, traced not guessed:** `buildApplyChain` is the SINGLE funnel every
+  chain mutation goes through — add/remove/move/type-change/bypass-toggle AND per-param slider drags alike — and it
+  unconditionally called `buildRecordUndo("chain")`. That coalesce key exists so a FineSlider's dozens-per-second
+  `onChanged` ticks collapse into one undo step (confirmed by reading `FineSlider`'s `DragGesture.onChanged` — it
+  really does call `set(v)`, and therefore `buildApplyChain`, on every tick) — but the SAME blanket key was applied
+  to genuinely discrete, one-shot actions too. So "add processor A" pushed a checkpoint and set `buildUndoKey =
+  "chain"`; "add processor B" right after saw that key already active and silently skipped recording — both adds
+  shared ONE undo step, and a single undo dropped both at once, exactly Paul's report. **FIX:** `buildApplyChain`/
+  `buildChainEditSlot` now take an explicit `coalesce` override (default `"chain"`, preserving the param-drag
+  path). The five DISCRETE call sites — `buildChainAddCard` (ADD), `buildChainRemoveSlot` (DELETE, both the editor
+  button and drag-to-trash), `buildChainMoveSlot` (drag-to-reorder — confirmed fired only once, from `.onEnded`,
+  never per drag-frame, so forcing it fresh can't explode the stack), `buildChainSetType`, `buildChainToggleBypass`
+  — now pass `coalesce: nil`, which `buildRecordUndo` treats as "always push, no coalescing," regardless of what
+  `buildUndoKey` currently holds. **ALSO:** added a 0.6s SLIDING TIME WINDOW to "chain" coalescing specifically —
+  the generic param-mutate path (`onEdit`, used by sliders AND plain discrete taps like a segmented MODE picker
+  alike, since nothing at that boundary can tell them apart) still shares one key, so two genuinely separate
+  "chain" edits could still merge if nothing else intervened between them. Now a same-key coalesce only continues
+  if the last one was < 0.6s ago (refreshed on every continuation, so a slow multi-second drag still stays one
+  step throughout); a tap that lands well after a drag has clearly ended gets its own step. **DELIBERATELY SCOPED
+  to "chain" only** — checked `buildRecvEdit`'s own doc comment first ("coalesced into one 'recv' burst so a run of
+  config tweaks is a single undo," an explicit, documented design choice from 2026-08-27) and left "recv"/
+  "randomize"/"mutate" on their original untimed behaviour, so a deliberate multi-tap MIDI-config session still
+  collapses to one undo exactly as designed — a blanket time window would have silently broken that. Verified
+  every `buildApplyChain`/`buildChainEditSlot` call site by grep (4 total) before and after, confirming none were
+  missed and no other caller needed the same treatment. **RESIDUAL, flagged not fixed:** two truly discrete param
+  taps on DIFFERENT controls within the same open editor, performed within 0.6s of each other, can still coalesce
+  into one step — an accepted, narrow edge case (see the comment on `buildRecordUndo`), not the reported bug.
+  DEVICE-OWED: confirm two back-to-back ADD/DELETE/REORDER/BYPASS actions each undo independently, and that a
+  normal slider drag still collapses to one undo step (not one per tick).**
 - **▶ SELECT GRID — a live scrolling piano roll on the auditioning cell (2026-09-29, on `main`; iOS builds, macOS
   1155 green; DEVICE eye owed). Follow-through on the PART ROW ROLL entry below: Paul asked for the SAME accuracy
   standard (true onset beats read live from the render engine, velocity reflected, "no shortcuts") on the SELECT
