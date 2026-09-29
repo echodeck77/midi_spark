@@ -336,7 +336,7 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   chip) are UNTOUCHED — Paul named receiver toggles specifically. **DEVICE-OWED:** legibility of several lowercase
   letters in the chip's compact space, and whether a CHORD-mode door (still covered by the pre-existing `key` branch,
   unaffected by this pass) reads right alongside the new live-notes chips.**
-  **"NO INPUT" ADDENDUM, same day (`494cd39`; iOS builds; DEVICE eye owed).** Paul: "this works well on the first
+  **"NO INPUT" ADDENDUM, same day (`a75ec6a`; iOS builds; DEVICE eye owed).** Paul: "this works well on the first
   receiver toggle. I also expect to see the notes or 'no input' appear on the other emitter toggles (the exception
   being scale)" — clarified via AskUserQuestion (2 corrections already landed on this exact feature this session, so
   asked rather than guessed a third time): he meant the other 3 RECEIVER chips (B/C/D), not the separate MIDI-OUT
