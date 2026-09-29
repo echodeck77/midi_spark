@@ -531,4 +531,15 @@ extension BuildSceneLogic {
         guard oldHex != cellHex else { return nil }
         return hex.indices.first { u in u != target && hex[u] == cellHex }
     }
+    /// SOURCE-CELL COMMIT (Paul 2026-09-29): a SELECT-cell → ferry drop now marks/names the SOURCE cell too, mirroring
+    /// the in-place-edit "EDIT = COMMIT" rule (buildApplyChain) — the FIRST name sticks; a cell already committed
+    /// under one keeps it (a later drop of the same cell doesn't rename it). `fallback` is the name the drop is
+    /// already carrying (the ferry's own new name — the committed hash, or a fresh one). Pure.
+    static func ferryDropSourceName(existing: String?, fallback: String) -> String { existing ?? fallback }
+    /// NAVIGATION (Paul 2026-09-29): a SELECT-cell → ferry drop only switches the visible room to PART when the
+    /// target ferry was ALREADY the focused one before the drop — i.e. you were already looking at it. Dropping onto
+    /// a DIFFERENT, non-focused ferry populates + starts it where it is, without yanking the view away. Pure — the
+    /// actual bench-load/publish this gates is BuildPage's job (buildActivateFerry's `navigate:`), since it's real
+    /// @State/AU plumbing this Foundation-only layer can't reach; this is the RULE, locked down independent of it.
+    static func ferryDropShouldNavigateToPart(targetWasAlreadyFocused: Bool) -> Bool { targetWasAlreadyFocused }
 }

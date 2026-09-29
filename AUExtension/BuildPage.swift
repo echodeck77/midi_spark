@@ -1827,7 +1827,14 @@ extension DiagView {
         let soloed = t >= 0 && t < buildPlayColSolo.count && buildPlayColSolo[t]
         return !muted && (!anySolo || soloed)
     }
-    func buildActivateFerry(_ t: Int) {
+    // `navigate` (Paul 2026-09-29): false keeps the CURRENT room on screen — used by a ferry drag-drop landing on a
+    // NOT-already-focused ferry, which must still make `t` the bench-active ferry (composeSceneMeta only reads a
+    // ferry LIVE off the bench when it's buildActiveFerry — every other ferry composes from its own stored
+    // BuildPart; without this, `t` would silently keep playing whatever was left on the bench, not what was just
+    // dropped) and update "the selected colour" (buildActiveFerry), WITHOUT yanking the visible grid over to PART.
+    // The chain-audition stop (leaving `.chain`) still always fires — a drag-drop should stop the SOURCE cell's own
+    // audition regardless of where the view ends up.
+    func buildActivateFerry(_ t: Int, navigate: Bool = true) {
         guard t >= 0, t < 8 else { return }
         if t == buildActiveFerry {                                            // RE-TAPPING the ferry already on the bench
             // The LIVE bench is the truth — capture it BEFORE the reload below, so re-tapping never discards
@@ -1837,12 +1844,13 @@ extension DiagView {
             if buildFerryParts[a] != nil { buildFerryParts[a] = buildCaptureBenchPart() }   // write back ONLY a POPULATED ferry's bench edits — an EMPTY selector must NOT be captured into a part (Paul 2026-09-12: navigating away from an empty selector was populating it)
         }
         if let p = buildFerryParts[t] {
-            buildLoadBenchPart(p); buildActiveFerry = t; roomsRoom = .part
+            buildLoadBenchPart(p); buildActiveFerry = t
+            if navigate { roomsRoom = .part }
             if buildVoiceOwner == .chain { buildVoiceOwner = .none }          // leaving the chain audition; the part plays iff its ferry is ON (Option A — never auto-play on open)
-            roomsPartSetup()                                                  // same per-grid setup the retired toggle ran (rolls + focus default)
+            if navigate { roomsPartSetup() }                                  // same per-grid setup the retired toggle ran (rolls + focus default)
         } else {
-            buildActiveFerry = t; roomsRoom = .select; buildVoiceOwner = .none   // an empty ferry opens the browser but STAYS SELECTED — its pre-allocated colour becomes the selected colour (Paul 2026-09-12: always one selected, never back to grey)
-            roomsSelectSetup()                                                // opens the library browser (buildEnsureGridSelOpen), like the retired toggle
+            buildActiveFerry = t; buildVoiceOwner = .none   // an empty ferry's pre-allocated colour becomes the selected colour (Paul 2026-09-12: always one selected, never back to grey)
+            if navigate { roomsRoom = .select; roomsSelectSetup() }           // opens the library browser (buildEnsureGridSelOpen), like the retired toggle
         }
         buildPublishScene()
     }
@@ -1932,7 +1940,18 @@ extension DiagView {
     // name, colour and settings (chain). Overwrites a populated ferry.
     func buildPopulateFerryFromSelect(_ i: Int, into t: Int) {
         guard let hit = buildGridSelChainAt(i) else { return }
-        let name = buildGridSelName[i] ?? buildChainShortHash(hit.chain)             // the committed name, else a short hash (inherit a name either way)
+        let name = BuildSceneLogic.ferryDropSourceName(existing: buildGridSelName[i], fallback: buildChainShortHash(hit.chain))
+        // COMMIT THE SOURCE CELL TOO (Paul 2026-09-29): dragging a cell onto a ferry now marks/names the SOURCE the
+        // same way editing its chain already does (buildApplyChain's "EDIT = COMMIT", the ONLY other place that
+        // writes buildGridSelName/Override) — the drop wasn't reaching this at all before, which is exactly why it
+        // "did this in some instances already" (Paul's own words): only when a PRIOR chain edit had happened to
+        // commit the cell first. Uses the SAME `name` the ferry just inherited, and the cell's own colour (hit.hex,
+        // already resolved through any existing override, so re-setting it here is a safe no-op on an already-
+        // committed cell) — so it reads exactly like any other committed cell (name replaces the roll).
+        if i >= 0, i < 64 {
+            if buildGridSelName[i] == nil { buildGridSelName[i] = name }
+            buildGridSelOverride[i] = (hit.chain, hit.hex)
+        }
         buildPopulateFerry(t, chain: hit.chain, transpose: hit.transpose, hue: hit.hex, name: name)
     }
     // The shared populate core: mint a part carrying `chain` across a full 16-step row, inheriting `hue`/`name`, store it in
@@ -1984,17 +2003,14 @@ extension DiagView {
         buildSyncMachines()
         if t < buildPlayColOn.count { buildPlayColOn[t] = true }                      // a populated ferry starts playing at once (via the staging sequencer once activated)
         // NAVIGATION (Paul 2026-09-29): only follow through onto the PART grid when ferry `t`'s OWN selector was
-        // ALREADY the active one before this drop — i.e. you were already looking at it. Dropping onto a DIFFERENT,
-        // non-focused ferry populates + starts it in the background (the ferry-row-unification model already plays
-        // every ON ferry regardless of focus) without yanking the view away from wherever it was. Either way "the
-        // selected colour" (buildActiveFerry, read by the SELECT cell's border/play badge etc.) still follows the
-        // drop — that part was never conditional, only the room switch + bench load were.
-        if buildActiveFerry == t {
-            buildReactivateFerry(t)                                                   // fresh load of the NEW part (skip the stale-bench writeback)
-        } else {
-            buildActiveFerry = t
-            buildPublishScene()
-        }
+        // ALREADY the active one before this drop — i.e. you were already looking at it. A drop onto a DIFFERENT,
+        // non-focused ferry still calls through to buildReactivateFerry (navigate: false) — it MUST, not just
+        // `buildActiveFerry = t`: composeSceneMeta only reads a ferry LIVE off the bench when it IS buildActiveFerry,
+        // so becoming "the selected colour" ferry without also becoming the bench-active one would leave `t` composing
+        // from whatever was already on the bench — silent, or worse, playing someone else's part (a real bug this
+        // fix caught and closed, not a hypothetical). navigate: false skips only roomsRoom/roomsPartSetup; the bench
+        // load, the chain-audition stop, and "the selected colour" (buildActiveFerry) update all still happen.
+        buildReactivateFerry(t, navigate: BuildSceneLogic.ferryDropShouldNavigateToPart(targetWasAlreadyFocused: buildActiveFerry == t))
     }
     // MOVE ferry `from` → `to` (overwrites the target; vacates the source), carrying play/mute/solo state. (Paul 2026-09-12)
     func buildMoveFerry(_ from: Int, to: Int) {
@@ -2037,9 +2053,9 @@ extension DiagView {
     }
     // Activate ferry `t` with a FRESH load — clear any stale active-ferry pointer first so buildActivateFerry doesn't write
     // the OLD bench back over the new/moved part (the source slot is already emptied by the caller). (Paul 2026-09-12)
-    func buildReactivateFerry(_ t: Int) {
+    func buildReactivateFerry(_ t: Int, navigate: Bool = true) {
         if buildActiveFerry == t { buildActiveFerry = nil }
-        buildActivateFerry(t)
+        buildActivateFerry(t, navigate: navigate)
     }
     // The FLOATING GHOST that follows the finger during a ferry drag (drawn in the "rooms" space, hit-transparent).
     @ViewBuilder func buildFerryDragGhost() -> some View {

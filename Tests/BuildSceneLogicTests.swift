@@ -1085,6 +1085,18 @@ final class BuildSceneLogicTests: XCTestCase {
         hex[3] = cell
         XCTAssertEqual(BuildSceneLogic.ferryColourDisplacement(target: 0, cellHex: cell, oldHex: old, hex: hex), 3, "a POPULATED ferry holding the colour is chosen too — swapping doesn't care whether the other slot is empty or populated")
     }
+    // SOURCE-CELL COMMIT (Paul 2026-09-29): a SELECT-cell → ferry drop names the SOURCE cell too — the FIRST name
+    // sticks (a re-drop of an already-committed cell never renames it), an uncommitted cell takes the drop's fallback.
+    func testFerryDropSourceNameFirstCommitWins() {
+        XCTAssertEqual(BuildSceneLogic.ferryDropSourceName(existing: nil, fallback: "a1b2c3"), "a1b2c3", "uncommitted → takes the fallback")
+        XCTAssertEqual(BuildSceneLogic.ferryDropSourceName(existing: "already-named", fallback: "a1b2c3"), "already-named", "already committed → keeps its OWN name, ignores the fallback")
+    }
+    // NAVIGATION (Paul 2026-09-29): a SELECT-cell → ferry drop only follows onto the PART grid when the target ferry
+    // was ALREADY the focused one before the drop.
+    func testFerryDropNavigatesOnlyWhenTargetWasAlreadyFocused() {
+        XCTAssertTrue(BuildSceneLogic.ferryDropShouldNavigateToPart(targetWasAlreadyFocused: true))
+        XCTAssertFalse(BuildSceneLogic.ferryDropShouldNavigateToPart(targetWasAlreadyFocused: false))
+    }
 
     // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): the per-ferry name/hue/launch fields round-trip through the document,
     // and an older save (missing keys) decodes to the resolved defaults — LOOP · LATCH · SYNC · choke OFF (CR-8 guard).
