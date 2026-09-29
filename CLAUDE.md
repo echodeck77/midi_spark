@@ -199,6 +199,45 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PART ROW ROLL — three device-reported fixes: note contrast, blinking→fading, and a REAL pre-existing playhead-
+  jitter bug (2026-09-29, on `main`, `0eb862b`; iOS builds; DEVICE eye/ear owed). Paul, testing the new live piano
+  roll: the note colour needs more contrast, the playhead jitters when stopped, and notes are blinking out rather
+  than fading. **CONTRAST:** the note colour was the row's raw, unmixed hue — the SAME colour family as the cell's
+  own background tint (`partFerryFill` mixes that identical hue into the dark ground), so at typical fade opacity
+  the bars barely stood out. Now blends the hue 55% toward white (`mixHex(partFerryHue(r), 0xFFFFFF, 0.55)`) so
+  notes read as bright marks over the darker, more saturated background — the same "notes pop white-ish over a
+  coloured cell" language already used elsewhere in this grid. **BLINKING, ROOT CAUSE:** a released note's
+  `heldToBeat` FREEZES at its release point, but the draw code only ever varied opacity by POSITION within the bar
+  (distance from the frozen head) — never by how much REAL TIME had passed since release. So a released note held
+  CONSTANT brightness frame after frame (nothing in the per-segment gradient depended on `live` once frozen), then
+  vanished in a SINGLE FRAME once its age crossed `partRollFadeBeats` and the existing `guard` dropped it — a blink,
+  not a fade. Fixed by adding the missing piece: a `recede` factor (`1 − (live − headBeatRaw) / partRollFadeBeats`,
+  clamped 0…1) multiplied into every segment's opacity — continuously dims the WHOLE bar as time passes since
+  release, reaching 0 exactly as the guard's cutoff arrives, so by the time a note is actually dropped it's already
+  invisible. A still-sounding note (`heldToBeat == nil` ⇒ `headBeatRaw == live` always) keeps `recede == 1`,
+  unaffected — this bug was specific to released notes. **PLAYHEAD JITTER — a genuine, pre-existing bug, not
+  something new in the roll's own code, just made newly obvious by it:** traced `meters.syncBeat`
+  (AudioUnitViewController.swift) — its own doc comment says "only HARD re-anchor on a genuine discontinuity...
+  otherwise FREE-RUN... so 4Hz sampling jitter never shows," but its ONE call site was passing `playing: nd.playing`
+  (the HOST's raw transport state) instead of `nd.effectivePlaying` (host OR free-run). During FREE-RUN (a ferry/
+  part driving its own clock while the host transport is genuinely stopped — the normal way to audition a part
+  without the host DAW running), the host is NEVER "playing" by definition, so `!playing` was PERMANENTLY true,
+  defeating the dejitter guard entirely and hard-re-anchoring the beat on EVERY 4Hz poll — exactly the "~4Hz
+  sawtooth" the original 2026-09-11 dejitter fix (`ef48264`) was built to kill, just scoped specifically to
+  free-run playback (steady host-driven playback was never affected, which is why this went unnoticed until a
+  new, low-motion-tolerant view — the roll — made the creep-then-snap pattern obvious). Fixed by passing
+  `nd.effectivePlaying` instead — `nd.beat` was ALREADY the correct "effective" beat (per Kernel.swift's own
+  comment), only this one boolean was reading the wrong field. **SECOND, RELATED BUG found in the same pass:** the
+  `@State d` refresh trigger (`if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass { d = nd }`)
+  never checked `effectivePlaying` — since `nd.playing` stays `false` throughout an ENTIRE free-run session by
+  definition, `d.effectivePlaying` could go stale INDEFINITELY unless tempo/pass ALSO happened to change at the
+  same moment, desyncing `roomsPartPlayhead`/`roomsPartNoteRoll`'s own visibility gate from the TRUE free-run state.
+  Added `effectivePlaying` to the trigger condition. UI/telemetry-only changes — no Router/engine touch, no new
+  tests (GridUI/AudioUnitViewController have no macOS test-target reach, same as every prior playhead fix in this
+  file); iOS build green. **DEVICE-OWED:** the note colour actually reading with enough contrast; a held note
+  visibly fading out smoothly rather than popping; and — the one most worth confirming carefully — the sweep/roll
+  staying rock-steady during a FREE-RUN part (host transport stopped, a ferry playing on its own), not just during
+  host-driven playback.**
 - **▶ ECHO — a live in-key pitch-step via ABCD receiver toggles, replacing the confusing POOL mode (2026-09-29, on
   `main`, `d092d9b`; macOS 1151 green incl. 7 new, iOS builds; DEVICE ear/eye owed). Paul: each echo repeat should be
   able to step to the NEXT IN-KEY note (up if PITCH STEP is positive, down if negative — sign only, magnitude no
