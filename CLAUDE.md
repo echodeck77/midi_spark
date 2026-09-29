@@ -199,6 +199,35 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID MASK CHORD "not sounding" — INVESTIGATED, NOT REPRODUCIBLE off-device; +2 permanent regression tests
+  (2026-09-29, on `main`, `<PENDING>`; macOS 1149 green incl. 2 new). Paul: a Euclid mask after an arp, GAPS=CHORD,
+  7-of-8, wasn't sounding, "fails on every setting" — then gave the exact steps: the chain was ARP→VELOCITY, he added
+  EUCLID MASK after it (still silent on CHORD), removed VELOCITY (still silent). Exhaustive engine-level
+  investigation could NOT reproduce this: the CHORD stab mechanism (`chainScratch`/`composeChainSet`), `isModifierFoldable`/
+  `chainDriverIndex`'s fold selection, `emitDriverNote`'s mask block, K/N/GAPS/ROTATE/CHORD PICK/SPAN/FILL/ACCENT LAYER
+  param resolution, every `emitOneBus` suppression gate (mute/octave-clamp/RACK FENCE/CLAIM/solo/flood-governor/MONO,
+  all confirmed off by default), and `openVoice` all check out clean by direct reading; Paul's TWO literal repro shapes
+  were built and tested directly — `[ARP→EMPTY/bypassed→EUCLID MASK]` (the real post-removal shape; chain edits are
+  POSITION-PRESERVING, `buildChainRemoveSlot` leaves a bypassed `.empty` passthrough and never shifts later slots) and
+  `[ARP→VELOCITY→EUCLID MASK]` (his original, pre-removal chain) — both strike the chord correctly. The storefront
+  "ADD PROCESSOR" card for EUCLID MASK applies no param preset (`apply: { _ in }`), so a freshly-added slot is
+  identical to direct construction. **A real dead-code finding along the way, flagged not fixed:** `Router.
+  auditionRender` — a separate, simpler render path for a press-and-hold single-cell preview — only ever previews a
+  chain's HEAD slot (its own comment says so: "a full serial preview of the tail is a follow-up") and would have
+  PERFECTLY explained this exact symptom (a downstream processor silently ignored) if it were reachable. It isn't:
+  its sole trigger `MidiSparkAudioUnit.setAudition(col:row:)` and the `AuditionBox.target`/`.held` state it depends on
+  are never written anywhere in the current codebase (grepped clean) — today's real preview mechanism instead parks
+  the audition machine as a genuine playing cell (`BuildSceneLogic.composeSceneMeta`'s `auditionRow`) and renders it
+  through the same full engine as any other cell, so this dead path isn't actually reachable from the UI. **Also
+  flagged (minor, not what Paul described but a real discoverability trap):** a freshly-added EUCLID MASK defaults to
+  K=N (fully open/pass-through — `mK = p.maskK ?? mN`), and the GAPS/ROTATE/CHORD PICK/CHORD OCT/LEN/VEL rows are all
+  HIDDEN until K is manually lowered below N, so there's nothing to tap toward "chord mode" on a brand-new slot until
+  HITS is touched first. +2 RouterTests locking in Paul's two repro shapes as permanent coverage
+  (`testEuclidMaskChordFoldsAcrossAPositionPreservingEmptySlot`, `testEuclidMaskChordFoldsWithVelocityStillInTheChain`).
+  **GENUINELY UNRESOLVED — asked Paul for the detail needed to keep chasing it:** whether he's checking via the
+  press-and-hold/tap audition or by actually pressing PLAY on a scene; his CHORD PICK setting (ALL vs. a narrower
+  pick could read as "nothing" if it's e.g. LOW/HIGH and he's listening for the whole chord); whether EUCLID MASK is
+  the chain's last slot or anything follows it; any other processor anywhere else in the chain.**
 - **▶ FERRY DRAG-DROP — silent ferry + un-stopped source audition FIXED, the source cell now commits (name+colour),
   +2 tests (2026-09-29, on `main`, `aada129`; macOS green incl. 2 new, iOS builds; DEVICE ear/eye owed). Paul reported
   three bugs dragging a SELECT cell onto a play ferry: the source cell kept playing, the target ferry stayed silent,

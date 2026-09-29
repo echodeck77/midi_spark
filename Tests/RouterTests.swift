@@ -352,6 +352,42 @@ final class RouterTests: XCTestCase {
         let arpOnly = count([arp]), chorded = count([arp, mask])
         XCTAssertGreaterThan(chorded, arpOnly, "[ARP→EUCLID MASK(4-of-8, CHORD)] strikes the whole 3-note chord on every gap — more note-ons than the arp alone")
     }
+    // Paul's literal repro (2026-09-29, "chord isn't sounding"): a chain of ARP→VELOCITY, then EUCLID MASK added
+    // after it (GAPS=CHORD, 7-of-8), didn't sound; removing VELOCITY didn't fix it either. Chain edits are
+    // POSITION-PRESERVING (buildChainRemoveSlot leaves a bypassed .empty PASSTHROUGH, never shifts later slots) — so
+    // post-removal the real chain is [ARP(0), EMPTY/bypassed(1), EUCLID MASK(2)], not the tight [ARP, EUCLID MASK]
+    // every other test here builds. Locks in both real shapes from his repro as permanent regression coverage —
+    // investigated 2026-09-29: both already passed (engine-level; the reported silence wasn't reproducible off-device).
+    func testEuclidMaskChordFoldsAcrossAPositionPreservingEmptySlot() {
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        func count(_ procs: [ProcessorSlot]) -> Int {
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 7; mask.params.maskGap = .chord
+        let empty: ProcessorSlot = { var s = ProcessorSlot(type: .empty); s.bypassed = true; return s }()   // buildPassthroughSlot()'s exact shape
+        let arpOnly = count([arp])
+        let gapped = count([arp, empty, mask])   // ARP(0) · EMPTY/bypassed(1) · EUCLID MASK(2) — the exact post-removal shape
+        XCTAssertGreaterThan(gapped, arpOnly, "[ARP→EMPTY→EUCLID MASK] (the shape a remove-then-mask leaves) still strikes the chord on gaps")
+    }
+    func testEuclidMaskChordFoldsWithVelocityStillInTheChain() {
+        let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+        func count(_ procs: [ProcessorSlot]) -> Int {
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
+        var vel = ProcessorSlot(type: .velocity)
+        var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 7; mask.params.maskGap = .chord
+        let arpOnly = count([arp])
+        let withVel = count([arp, vel, mask])   // ARP(0) → VELOCITY(1) → EUCLID MASK(2) — Paul's ORIGINAL chain, before he removed VELOCITY
+        XCTAssertGreaterThan(withVel, arpOnly, "[ARP→VELOCITY→EUCLID MASK] strikes the chord on gaps with VELOCITY still in the chain")
+    }
     // ROTATE shifts WHICH ticks gate through (not just how many — a Bjorklund K-of-N always keeps exactly K hits per
     // N regardless of rotation), so two different rotations of the SAME K/N must produce different onset sets.
     func testEuclidMaskFoldRotateShiftsWhichStepsGate() {
