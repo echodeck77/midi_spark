@@ -909,7 +909,16 @@ struct DiagView: View {
                 os_log(.fault, log: DiagView.hangLog, "MidiSpark STUCK-NOTE: %{public}s — voices=%d echoes=%d panics=%llu",
                        why, nd.stuckVoices, nd.stuckEchoes, nd.panics)
             }
-            meters.syncBeat(nd.beat, tempo: nd.tempo, playing: nd.playing, at: Date())   // BEAT clock (4 Hz) → the telemetry; playheads extrapolate at 30 fps. DEJITTER: re-anchors only on a discontinuity, else free-runs (see syncBeat) → no 4 Hz stutter
+            // BUG FIX (Paul 2026-09-29, "playhead jitters when stopped"): was `playing: nd.playing` (HOST-only) — during
+            // PLUGIN free-run (a ferry/part driving its own clock while the host transport is genuinely stopped), the
+            // host is never "playing" by definition, so `!playing` was permanently true → syncBeat's own dejitter guard
+            // ("only hard re-anchor on a genuine discontinuity, else free-run") never took the free-run branch at all,
+            // hard-re-anchoring on EVERY 4Hz poll instead — exactly the ~4Hz sawtooth this mechanism exists to kill,
+            // just scoped to free-run playback specifically (steady host-driven playback was never affected, which is
+            // why this went unnoticed until a low-motion-tolerant view — the new PART ROW ROLL — made it obvious).
+            // `nd.beat` is ALREADY the effective (host-or-free-run) beat (Kernel.swift: "EFFECTIVE beat... UI beat-driven
+            // playheads work while the host is stopped") — only this BOOLEAN was mismatched to the wrong field.
+            meters.syncBeat(nd.beat, tempo: nd.tempo, playing: nd.effectivePlaying, at: Date())   // BEAT clock (4 Hz) → the telemetry; playheads extrapolate at 30 fps. DEJITTER: re-anchors only on a discontinuity, else free-runs (see syncBeat) → no 4 Hz stutter
             buildTickFerryOneShot(nd.beat)                                // PLAY-FERRY LAUNCH (Phase 2b): stop a ONE-SHOT ferry one part-length after its launch (≤ one poll of the pass end)
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
                 if holdLatch { setHold(false) }
@@ -929,7 +938,13 @@ struct DiagView: View {
             // now SELF-CLOCKS from the free-running beat anchor, so re-rendering the whole page each step is pure waste that
             // dropped a frame per step and hitched every playhead. `d` now updates only on the SLOW fields (playing/tempo/pass);
             // the beat-derived playheads stay smooth. The quantized voice switch rides the poll's own step detector (below).
-            if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass { d = nd }
+            // BUG FIX (Paul 2026-09-29, part of the "playhead jitters when stopped" fix): `effectivePlaying` was missing
+            // from this trigger — during free-run (host `playing` stays false throughout, by definition), `d.effectivePlaying`
+            // could go stale indefinitely (never copied from `nd` unless tempo/pass ALSO happened to change at the same
+            // moment), so roomsPartPlayhead/roomsPartNoteRoll's own `d.effectivePlaying` gate could desync from the TRUE
+            // free-run state — visible as the sweep/roll failing to appear or disappear exactly when free-run actually
+            // started/stopped.
+            if nd.playing != d.playing || nd.effectivePlaying != d.effectivePlaying || nd.tempo != d.tempo || nd.pass != d.pass { d = nd }
             // QUANTIZED CHAIN⟷PART VOICE SWITCH (was .onChange(of: d.absoluteStep), Paul 2026-08-14): commit an armed switch on
             // the step boundary. Detect the boundary against the reference-held last-step so a plain step change re-runs nothing;
             // buildCommitPendingVoice (which does mutate @State) only runs when a switch/reengage is actually armed (rare).

@@ -2609,10 +2609,23 @@ extension DiagView {
                 let lapStart = curColF - pcol                          // same wrap idiom roomsPartPlayhead already uses
                 Canvas { ctx, size in
                     for r in 0..<Snap.rowsPerFerry {
-                        let hue = Color(hex: partFerryHue(r))
+                        // CONTRAST FIX (Paul 2026-09-29): the row's raw hue read as too close to the cell's own
+                        // background tint (partFerryFill mixes the SAME hue into the dark ground) — blend toward
+                        // white so notes pop as bright marks against the darker, more saturated background, the
+                        // same "white-ish notes over a coloured cell" language used elsewhere in this grid.
+                        let hue = Color(hex: mixHex(partFerryHue(r), 0xFFFFFF, 0.55))
                         for n in meters.partRollNotes[r] {
                             let headBeatRaw = n.heldToBeat ?? live
-                            guard live - headBeatRaw <= partRollFadeBeats + 0.05 else { continue }
+                            // FADE FIX (Paul 2026-09-29): a released note's `headBeatRaw` FREEZES at its release point,
+                            // so the old code — which only varied opacity by position WITHIN the bar (headColF−seg),
+                            // never by how much time had passed since release — held the bar at a CONSTANT brightness
+                            // frame after frame, then the `guard` below made it vanish in one frame once its age
+                            // crossed the window: a blink, not a fade. `recede` is the missing piece — it continuously
+                            // dims the WHOLE bar as `live` pulls away from `headBeatRaw`, reaching 0 exactly as the
+                            // guard's cutoff arrives, so by the time a note is dropped it's already invisible. A
+                            // still-sounding note (headBeatRaw == live always) keeps recede == 1 — unaffected.
+                            let recede = max(0, min(1, 1 - (live - headBeatRaw) / partRollFadeBeats))
+                            guard recede > 0.001 else { continue }
                             var headColF = sb > 0 ? musicalOf(headBeatRaw, stepBeats: sb, a: swingA) / sb : 0
                             var tailColF = sb > 0 ? musicalOf(n.onBeat, stepBeats: sb, a: swingA) / sb : headColF
                             tailColF = max(tailColF, headColF - partRollFadeBeats / max(sb, 0.0001), lapStart)
@@ -2634,8 +2647,8 @@ extension DiagView {
                                     let slotH = rowH * 0.18
                                     let barH = slotH * CGFloat(velScale)                             // louder = thicker
                                     let y = CGFloat(r) * (rowH + gap) + CGFloat(yFrac) * (rowH - slotH) + (slotH - barH) / 2
-                                    let farA  = velScale * max(0, min(1, 1 - (headColF - Double(seg)) / (partRollFadeBeats / max(sb, 0.0001))))
-                                    let nearA = velScale * max(0, min(1, 1 - (headColF - Double(seg + 1)) / (partRollFadeBeats / max(sb, 0.0001))))
+                                    let farA  = velScale * recede * max(0, min(1, 1 - (headColF - Double(seg)) / (partRollFadeBeats / max(sb, 0.0001))))
+                                    let nearA = velScale * recede * max(0, min(1, 1 - (headColF - Double(seg + 1)) / (partRollFadeBeats / max(sb, 0.0001))))
                                     ctx.fill(Path(roundedRect: CGRect(x: x0, y: y, width: max(1, x1 - x0), height: barH), cornerRadius: barH / 2),
                                              with: .linearGradient(Gradient(colors: [hue.opacity(farA), hue.opacity(nearA)]),
                                                                     startPoint: CGPoint(x: x0, y: y), endPoint: CGPoint(x: x1, y: y)))
