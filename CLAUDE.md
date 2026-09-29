@@ -199,6 +199,62 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ECHO — a live in-key pitch-step via ABCD receiver toggles, replacing the confusing POOL mode (2026-09-29, on
+  `main`, `d092d9b`; macOS 1151 green incl. 7 new, iOS builds; DEVICE ear/eye owed). Paul: each echo repeat should be
+  able to step to the NEXT IN-KEY note (up if PITCH STEP is positive, down if negative — sign only, magnitude no
+  longer matters in this mode) instead of a flat semitone amount, where "in key" is read from whichever of the 4
+  receivers are toggled — and it must be genuinely LIVE ("I want it live, please"): a chord change on the referenced
+  receiver(s) mid-tail bends the walk, each repeat chaining from the PREVIOUS repeat's actual landed pitch, never a
+  fixed offset from the source note. Also: remove the old POOL pitch-step mode entirely ("I saw pool but didn't
+  understand what it did") — replaced by ABCD multi-select toggles, not a single receiver picker. Planned carefully
+  first (EnterPlanMode, 2 parallel Explore agents + 1 Plan-agent validation pass, re-entered plan mode after the user
+  asked "is this clear instruction?" surfaced real ambiguity) before any code — the validation pass caught two real
+  bugs pre-implementation: (1) a same-window multi-repeat staleness bug (`drainEchoTails` takes `let e =
+  echoTails[i]` ONCE before its `for k in 1...e.repeats` loop — reading the walk cursor through `e` inside that loop
+  would have two same-window repeats both read the same stale value instead of chaining), fixed by seeding a LOCAL
+  `var` cursor once per tail per drain call, read/written through the loop directly, with the array write-back only
+  feeding the NEXT render window's drain call; (2) inferring "in-key mode engaged" from `inKeyReceivers != 0` would
+  have made "IN-KEY mode with zero receivers ticked" indistinguishable from "mode not engaged," silently falling
+  back to flat semitones instead of the required "hold at last landed pitch" — fixed with an explicit `inKeyMode`
+  flag on the tail, not an inferred one. **ROOT ENGINEERING PROBLEM: `EchoTail` was fully static once pushed**
+  (every field written ONCE at `pushEchoTail` time; the only prior cross-window mutation was `active` flipping
+  false on retirement) — going live meant adding the FIRST genuinely mutable per-tail field,
+  `inKeyLast` (the walk cursor). Disclosed as a sanctioned, narrowly-scoped exception to the engine's derived-never-
+  accumulated rule, same class as `riffDrunkPos` — but structurally SAFER than that precedent: it's per-tail (not
+  per-cell/session-long), and provably exempt from the seek/loop replay concern DRUNK carries, because a tail cannot
+  survive a beat discontinuity at all (`clearEchoTails` fires first) — and its reset is FREE, not a separate
+  mechanism, since `pushEchoTail` always fully reconstructs the struct via a literal rather than in-place mutation,
+  so a reused slot's `inKeyLast` silently defaults back to unset. New `nextInKeyNote` (Derivations.swift) always
+  advances to a genuinely DIFFERENT note — unlike the existing `keyFilterNote` (AVOID's own primitive), which snaps
+  to nearest-or-stays if the input is already in-key; the new function's whole point is that even an already-in-key
+  note must still move. Live reads reuse `doorRefMask` (already proven safe to call from this exact render-window
+  context by AVOID) unioned across whichever ABCD receivers are toggled, mirroring AVOID's own `.sounding` union.
+  **SCOPE GAP FOUND DURING IMPLEMENTATION, inherited unchanged from the old POOL mode, not a new regression:** tracing
+  `emitEchoColumn`/`isEchoTail` mid-implementation revealed THREE separate echo-tail registration call sites, not
+  one — `registerEcho` (single-slot `[ECHO]` or an upstream-then-echo tail like `[HARMONIZE→ECHO]`), `pushEchoForNote`
+  (a hold-chain shape like `[ECHO→HARMONIZE]`, echo NOT last), and `registerLengthChainEcho` (`[ECHO→…→LENGTH]`
+  specifically). POOL mode's own `echoPoolMask` computation only ever existed in `registerEcho` — confirmed via grep
+  before assuming — so IN-KEY mode, threaded the same way, inherits the identical scope: it works for ECHO standalone
+  or as a chain's own tail, not for the other two shapes. CHAIN route is architecturally inapplicable to `registerEcho`
+  regardless (nothing sits downstream of ECHO when it IS the tail) — so "IN-KEY × CHAIN route" was never a reachable
+  combination to begin with, not a gap. Flagged here plainly rather than silently shipped. +1 DerivationsTest
+  (strict-advance / cross-octave / empty-mask / dir-zero / range-exhaustion, mirroring `testScalePitchClassMask-
+  AndKeyFilterDirections`'s style) +6 RouterTests (chained walk stays in the reference's pitch classes; genuinely
+  live — a receiver's content changed BETWEEN repeats via a manual per-window `process()` loop, not the shared
+  `run()` helper, which only takes one fixed pool for its whole run; empty-mask hold; zero-receivers hold, not a
+  flat climb — caught a test-writing mistake of its own: holding also lands on note 60, so filtering `note != 60`
+  to isolate "the repeats" from "the dry strike" silently emptied the result — fixed by checking event COUNT
+  separately from note VALUE; same-window multi-repeat chaining, the direct regression test for bug (1) above, via
+  one oversized `frameCount` so 3 repeats resolve inside a single `drainEchoTails` call; walking a harmonized
+  upstream set through `registerEcho`'s own chain-composition branch). One existing test for the removed POOL mode
+  deleted outright (`Tests/AcceptanceTests.swift`, nothing left to assert once the mechanism is gone — its
+  `Accept.notesA` oracle also can't express a separate referenced receiver anyway); the `FuzzTests.swift` POOL
+  randomizer now hammers the new mode instead, including the empty-mask "hold" edge case across all 16 receiver-
+  mask combinations. Old saved sessions using POOL decode fine (Codable ignores the removed key) but now play flat
+  semitones instead of a pool-stepped trail — a real, silent musical change on next load, expected given the
+  removal request, named here rather than left implicit. Plan: `~/.claude/plans/velvet-foraging-curry.md`.
+  **DEVICE-OWED:** the walk audibly following a changing chord on the referenced receiver(s) in real time; the
+  empty-mask hold reading as a hold, not a dropped/stuck note; the new FROM row's chip legibility next to PITCH STEP.**
 - **▶ RECEIVER STRIP — the top label now shows LIVE notes received, not the channel filter (2026-09-29, on `main`,
   `92ed1c8`; iOS builds; DEVICE eye owed). Paul: change the receiver toggles' labels to show the notes being
   received in realtime, but leave whichever one is set to KEY still showing the selected key. `buildReceiverControl`'s
