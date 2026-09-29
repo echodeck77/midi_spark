@@ -144,7 +144,7 @@ final class LiveTelemetry {
 /// page is tempo-synced everywhere else; a wall-clock fade would visibly drift relative to the beat-synced sweep
 /// under a tempo change). Module-internal (not `private`) — read by both the poll/reconcile in AudioUnitViewController
 /// and the draw in BuildPage's roomsPartNoteRoll; extensions can't add stored properties, so this can't live on a type.
-let partRollFadeBeats = 2.0
+let partRollFadeBeats = 4.0   // was 2.0 (Paul 2026-09-29: increase the fade time)
 
 /// PART ROW ROLL (Paul 2026-09-29): one tracked note in a part row's live piano-roll overlay. `onBeat` is the RAW
 /// (un-swing-warped) beat from Router.Voice.onBeat — swing-warp is applied only at draw time (roomsPartNoteRoll),
