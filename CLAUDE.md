@@ -199,6 +199,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID DEFAULT — a fresh card opens on a steady 4-of-4 low-note pulse, not 5-of-8/ALL (2026-09-30, on `main`;
+  iOS builds; DEVICE eye/ear owed). Paul: "default the euclid page to play a 4 by 4 on a single low note, on the
+  first lane, and no notes on the additional rows." The storefront "EUCLID" card (`BuildPage.swift`'s `C(...)`
+  list) previously applied NO preset at all (`C("EUCLID", …, .euclid)`, no trailing closure) — a brand-new card
+  opened on the struct's bare defaults (5 pulses of 8 steps, PICK=ALL), no real starting point. Now applies
+  `{ $0.euclidPulses = 4; $0.euclidSteps = 4; $0.euclidPick = .low }`, matching the same `apply:` convention every
+  sibling card already uses for a sensible default (e.g. TUTTI COIN/AVOID CLASHES). **Rows 1-3 silent for free** —
+  nothing here touches `euclidLines`, so the existing `euclidLinesForEditing()` pad (Stage 1 of the 2026-09-30
+  redesign) still derives row 0 from these 3 flat fields and pads rows 1-3 with `pulses: 0`, exactly the idle-row
+  behaviour already shipped — no new code needed for "no notes on the additional rows." UI-only (BuildPage.swift),
+  no test-target reach. **DEVICE-OWED:** a freshly dragged-in EUCLID actually strikes only the lowest held note,
+  on every one of 4 steps, with rows 2-4 visibly empty/silent in the new 4-row editor.**
 - **▶ ARP EDITOR — revised same day: sliders stacked, VELOCITY now absolute 1…100 (2026-09-30, on `main`, `288ce7e`;
   macOS 1160 green incl. 3 rewritten, iOS builds; DEVICE eye/ear owed). Direct follow-up to the layout landed earlier
   the same day. Paul: (1) stack LENGTH/VELOCITY/VELOCITY TILT on top of each other, instead of side-by-side; (2)

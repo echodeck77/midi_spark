@@ -5295,7 +5295,11 @@ extension DiagView {
                 C("BURST", "One accelerating (or slowing) roll per step.", .burst) { $0.burstMode = .once },
                 C("BURST COIN", "A roll by chance: some steps fire, some rest.", .burst) { $0.burstMode = .coin },
                 C("BURST PATTERN", "Paint where rolls start and how far they stretch.", .burst) { $0.burstMode = .pattern },
-                C("EUCLID", "Spreads K hits evenly around the cycle.", .euclid),
+                // DEFAULT (Paul 2026-09-30): a fresh EUCLID opens on a steady 4-of-4 (every step hits) low-note
+                // pulse on row 0 only — rows 1-3 stay silent for free (euclidLinesForEditing()'s own pad default,
+                // pulses:0, unchanged) since nothing here touches `euclidLines`. Was 5-of-8/ALL, no real starting
+                // point for a brand-new card.
+                C("EUCLID", "Spreads K hits evenly around the cycle.", .euclid) { $0.euclidPulses = 4; $0.euclidSteps = 4; $0.euclidPick = .low },
                 C("WEAVE LADDER", "Every note pulses at its own speed: bass slow, top fast.", .weave) { $0.weaveMode = .ladder },
                 C("WEAVE HARMONIC", "Note speeds follow the harmonic series: 1×, 2×, 3×…", .weave) { $0.weaveMode = .harmonic },
                 C("WEAVE DRAWN", "You set each note's pulse speed by hand.", .weave) { $0.weaveMode = .drawn },
