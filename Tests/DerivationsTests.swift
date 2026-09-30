@@ -2071,15 +2071,18 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(Accept.notesA([pat(Array(repeating: 1, count: 8), .r1_16)]), [60, 64, 67], "the whole chord passes through")
     }
 
-    // ARP OCT DIRECTION (Paul 2026-08-22): the PATTERN orders WITHIN a lap; OCT DIRECTION orders the LAPS. DOWN = top octave first.
+    // ARP OCT DIRECTION — the PATTERN orders WITHIN a lap; OCT DIRECTION orders the LAPS. REDEFINED (Paul 2026-09-30):
+    // symmetric with UP now — both directions open lap 0 AT the held register; UP ascends from there, DOWN descends
+    // below it (was "DOWN opens at the TOP octave and comes down TO the held keys, never below" — a deliberate
+    // behaviour change, confirmed fine since Paul is the sole user).
     func testArpOctDirectionInvertsTheLaps() {
         let p = NotePool(); for n: UInt8 in [60, 64, 67] { p.noteOn(n, velocity: 100, channel: 0) }; p.rebuildSorted()
         let count = 3, octaves = 2   // UP pattern = index 0
         XCTAssertEqual(arpPick(phaseIndex: 0, octaves: octaves, pattern: 0, pool: p).note, 60, "UP: lap 0 opens on the lowest note")
         XCTAssertEqual(arpPick(phaseIndex: Int64(count), octaves: octaves, pattern: 0, pool: p).note, 72, "UP: lap 1 = the lowest note an octave up")
-        // OCT DOWN: the laps invert — lap 0 lands in the TOP octave, lap 1 in the bottom.
-        XCTAssertEqual(arpPick(phaseIndex: 0, octaves: octaves, pattern: 0, pool: p, octDown: true).note, 72, "DOWN: opens on the top octave")
-        XCTAssertEqual(arpPick(phaseIndex: Int64(count), octaves: octaves, pattern: 0, pool: p, octDown: true).note, 60, "DOWN: descends to the bottom octave")
+        // OCT DOWN: both directions open AT the held register; DOWN's lap 1 descends BELOW it, not up to it.
+        XCTAssertEqual(arpPick(phaseIndex: 0, octaves: octaves, pattern: 0, pool: p, octDown: true).note, 60, "DOWN: lap 0 opens at the held register, same as UP")
+        XCTAssertEqual(arpPick(phaseIndex: Int64(count), octaves: octaves, pattern: 0, pool: p, octDown: true).note, 48, "DOWN: lap 1 descends a full octave BELOW the held register")
     }
 
     // ARP OCTAVE CONTROL — the exact octave-spanning sequence (Paul 2026-09-15: "make sure the octave control is right").
@@ -2097,7 +2100,7 @@ final class DerivationsTests: XCTestCase {
         // exactly N distinct octave levels — never N+1 or N−1
         XCTAssertEqual(Set(seq(4, 12).map { ($0 - 60) / 12 }).count, 4, "OCTAVES 4 produces exactly 4 octave levels, no more")
         XCTAssertEqual(Set(seq(3, 9).map { ($0 - 60) / 12 }).count, 3, "OCTAVES 3 produces exactly 3 octave levels")
-        XCTAssertEqual(seq(2, 6, octDown: true), [72, 76, 79, 60, 64, 67], "OCT DIR DOWN plays the TOP octave lap first")
+        XCTAssertEqual(seq(2, 6, octDown: true), [60, 64, 67, 48, 52, 55], "OCT DIR DOWN: lap 0 at the held register, lap 1 a full octave below it")
         XCTAssertEqual(seq(2, 6, pattern: 1), [79, 76, 72, 67, 64, 60], "DOWN pattern descends the whole 2-octave span")
         XCTAssertEqual(seq(2, 12), seq(2, 6) + seq(2, 6), "the span loops cleanly (phase 6 == phase 0)")
     }

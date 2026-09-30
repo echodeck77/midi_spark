@@ -1680,10 +1680,14 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
                              : pool.srcAscending(rank, chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi))
     }
     guard note >= 0 && note <= 127 else { return (-1, 0) }
-    // OCT DIRECTION (Paul 2026-08-22): PATTERN orders WITHIN a lap; this orders the LAPS. DOWN = start at the top octave
-    // and descend ("up the chord, down the octaves"). Byte-identical when octDown = false (the default).
+    // OCT DIRECTION — PATTERN orders WITHIN a lap; this orders the LAPS. REDEFINED (Paul 2026-09-30, a deliberate
+    // behaviour change — was "start at the top octave, descend TO the held keys," never going below them): now
+    // symmetric with UP — lap 0 always opens AT the held register (octIdx 0 ⇒ oct 0); UP ascends from there
+    // (oct = +octIdx), DOWN descends BELOW it (oct = −octIdx). No new range handling needed: every call site
+    // already re-checks the FINAL `note + 12*oct` against 0…127 before emitting (unchanged — the same check that
+    // already silently drops an UP note pushed above 127 equally drops a DOWN note pushed below 0).
     let octIdx = pos / count
-    let oct = octDown ? (max(1, octaves) - 1 - octIdx) : octIdx
+    let oct = octDown ? -octIdx : octIdx
     // VELOCITY (Paul 2026-09-30): SCALE (a flat multiplier, default 1 = unchanged) first, then TILT — reuses
     // `strumVelocity` verbatim, keyed on `rank`/`count` (the exact ascending-pool index just used to fetch `note`),
     // so a byte-identical (1, 0) default reproduces `pool.velocity(note)` exactly, unchanged from before this feature.

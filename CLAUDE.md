@@ -199,6 +199,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ARP OCT DIRECTION — REDEFINED: DOWN now descends BELOW the held keys, symmetric with UP (2026-09-30, on
+  `main`; iOS builds, macOS green incl. 2 updated; DEVICE ear owed). Paul noticed DOWN starts a full octave (or
+  more) ABOVE the held keys rather than at them, and asked whether starting AT the held keys and descending was
+  practical. It was — and it's a deliberate BEHAVIOUR CHANGE, not an addition (Paul: "I'm currently the only user
+  so I don't mind behaviour changes. Go for it."). **OLD semantics:** DOWN opened at the TOP octave (`octaves-1`)
+  and came DOWN TO the held register — it never sounded anything BELOW the held keys, only reversed which octave
+  each lap of the walk landed in. **NEW semantics, symmetric with UP:** lap 0 always opens AT the held register
+  (`octIdx 0 ⇒ oct 0`) for BOTH directions; UP ascends from there (`oct = +octIdx`), DOWN now descends BELOW it
+  (`oct = -octIdx`) — `arpPick`'s one-line formula (Derivations.swift) simplified from `octDown ? (max(1,octaves)-
+  1-octIdx) : octIdx` to `octDown ? -octIdx : octIdx`. **RANGE SAFETY, checked not assumed:** `arpPick` itself only
+  ever guards the UNSHIFTED note against 0…127 before applying the octave offset; the actually-shifted
+  `note + 12*oct` is range-checked at every one of the 6 call sites in Router.swift (either directly, or via a
+  downstream `base + transpose` check the arp/hold/strum paths already share) — the EXACT same mechanism that
+  already silently drops a note UP pushes above 127 now equally drops one DOWN pushes below 0, so going negative
+  needed no new guard anywhere. +0 new tests — 2 EXISTING `DerivationsTests` updated to the new expected values
+  (`testArpOctDirectionInvertsTheLaps`, `testArpOctaveSpanFullSequence`) rather than left asserting the old
+  behaviour. **DEVICE-OWED:** an ARP with OCT DIR=DOWN and 2+ octaves actually sounds the held chord first, then
+  descends into the register below it, rather than opening high.**
 - **▶ ARP EDITOR — a full layout rework + two new fields, VELOCITY + VELOCITY TILT (2026-09-30, on `main`, `67fb646`;
   macOS 1155 green, iOS builds; DEVICE eye/ear owed). Paul specified the new layout precisely: ARP PATTERN's options
   into two equally-sized rows, SPEED to its right at matching height; OCTAVE + OCT DIR stacked one over the other, to
