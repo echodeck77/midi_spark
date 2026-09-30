@@ -5067,7 +5067,7 @@ final class Router {
         var arpBeats = effectiveRateBeats(machine)
         let gate = effectiveGate(machine)
         let octaves = effectiveOctaves(machine)
-        let velScale = effectiveArpVelScale(machine)   // ARP VELOCITY (Paul 2026-09-30): a flat multiplier, 0…2 (1 = unchanged)
+        let velocity = effectiveArpVelocity(machine)   // ARP VELOCITY (Paul 2026-09-30, revised same day): an ABSOLUTE value 1…100 — the input note's own velocity is ignored entirely
         let velTilt = effectiveArpVelTilt(machine)     // ARP VELOCITY TILT −1…1: favours top (+) / bottom (−) of the pool
         if arpBeats <= 0 { arpBeats = 0.25 }
         // SPAN (Paul 2026-09-13, the universal re-anchor model — replaces FIT): FREE (spanN 0) runs the global grid
@@ -5099,7 +5099,7 @@ final class Router {
                                   cycleBeats: cycleBeats, phase: machine.a.phase,
                                   runStartColumn: cell.runStartColumn)
             let base: Int
-            let srcVel: UInt8   // velocity inherited from the picked source note (user 2026-08-09)
+            let srcVel: UInt8   // ARP VELOCITY (Paul 2026-09-30, revised same day): NO LONGER inherited from the picked source note — arpPick now derives this from the VELOCITY/VELOCITY TILT controls directly, ignoring the source's own velocity
             if chainDriver >= 0 {
                 // CELL MACHINE: this ARP is the chain DRIVER — arp the composed SET of the stages BEFORE it at this
                 // tick (OMNI, past the input filter). Derived per tick → pool-correct (arps ALL upstream voices).
@@ -5107,14 +5107,14 @@ final class Router {
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: machine.a.patternIndex,
                                    pool: chainScratch, filter: 0, cableMask: 0b1111,
                                    octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed,
-                                   velScale: velScale, velTilt: velTilt)
+                                   velocity: velocity, velTilt: velTilt)
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             } else {
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves,
                                    pattern: machine.a.patternIndex, pool: pool, for: cell,
                                    octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed,   // §7 source filter
-                                   velScale: velScale, velTilt: velTilt)
+                                   velocity: velocity, velTilt: velTilt)
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             }

@@ -1585,13 +1585,13 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
              pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
              noteLo: UInt8 = 0, noteHi: UInt8 = 127,
              octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0,
-             velScale: Double = 1, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
+             velocity: Double = 100, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
     // Legacy single-channel `filter` → channel MASK, byte-identical (0 → OMNI 0xFFFF · n → bit n−1) — then the mask body.
     let mask: UInt16 = filter == 0 ? 0xFFFF : (filter >= 1 && filter <= 16 ? (UInt16(1) << UInt16(filter - 1)) : 0)
     return arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool,
                    chanMask: mask, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi,
                    octDown: octDown, randomAnchor: randomAnchor, seed: seed,
-                   velScale: velScale, velTilt: velTilt)
+                   velocity: velocity, velTilt: velTilt)
 }
 // MULTI-CHANNEL arp source pick (Paul 2026-08-23): filter the source by a channel MASK so an arp honours a door's
 // multi-channel subset on LIVE input (the `for: cell` path passes cell.inputChanMask; a frozen omniRead pool passes OMNI).
@@ -1599,11 +1599,12 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
              pool: NotePool, chanMask: UInt16, cableMask: Int = 0b1111,
              noteLo: UInt8 = 0, noteHi: UInt8 = 127,
              octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0,
-             // ARP VELOCITY · VELOCITY TILT (Paul 2026-09-30): velScale is a flat multiplier on the picked note's own
-             // velocity (0…2, 1 = unchanged); velTilt favours the top (+) or bottom (−) of the pool by the note's
-             // ASCENDING-POOL RANK — reuses `strumVelocity`'s own tilt formula verbatim (the exact chanceTilt/velTilt/
-             // bipolarSlider convention), not a second tilt implementation.
-             velScale: Double = 1, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
+             // ARP VELOCITY · VELOCITY TILT (Paul 2026-09-30, revised same day): `velocity` is an ABSOLUTE value
+             // 1…100 — the picked note's own input velocity is IGNORED entirely, every arp note plays at exactly
+             // this level; `velTilt` then favours the top (+) or bottom (−) of the pool by the note's ASCENDING-POOL
+             // RANK, applied on top of that fixed base — reuses `strumVelocity`'s own tilt formula verbatim (the
+             // exact chanceTilt/velTilt/bipolarSlider convention), not a second tilt implementation.
+             velocity: Double = 100, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
     // RANGE (§2): arps admit only in-window source notes (vel window intentionally NOT applied to arps — unchanged).
     let fullRange = noteLo <= 0 && noteHi >= 127
     let count = fullRange ? pool.srcCount(chanMask: chanMask, cableMask: cableMask)
@@ -1688,11 +1689,12 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
     // already silently drops an UP note pushed above 127 equally drops a DOWN note pushed below 0).
     let octIdx = pos / count
     let oct = octDown ? -octIdx : octIdx
-    // VELOCITY (Paul 2026-09-30): SCALE (a flat multiplier, default 1 = unchanged) first, then TILT — reuses
-    // `strumVelocity` verbatim, keyed on `rank`/`count` (the exact ascending-pool index just used to fetch `note`),
-    // so a byte-identical (1, 0) default reproduces `pool.velocity(note)` exactly, unchanged from before this feature.
-    let scaled = clampVel(Int((Double(pool.velocity(UInt8(note))) * velScale).rounded()))
-    let vel = strumVelocity(index: rank, count: count, tilt: velTilt, base: Int(scaled))
+    // VELOCITY (Paul 2026-09-30, revised same day): `velocity` is the note's ENTIRE velocity — the input note's own
+    // velocity (`pool.velocity`) is deliberately never read here anymore; every arp note plays at exactly the dialed
+    // level, then TILT shapes it by pool rank — reuses `strumVelocity` verbatim, keyed on `rank`/`count` (the exact
+    // ascending-pool index just used to fetch `note`).
+    let base = clampVel(Int(velocity.rounded()))
+    let vel = strumVelocity(index: rank, count: count, tilt: velTilt, base: Int(base))
     return (note + 12 * oct, vel)
 }
 
@@ -1705,7 +1707,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePo
 }
 func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell,
              octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0,
-             velScale: Double = 1, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
+             velocity: Double = 100, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
     // MULTI-CHANNEL (Paul 2026-08-23): filter by the cell's channel MASK (was the legacy single `inputChannel` — which is
     // OMNI for a multi-channel-masked door, so an arp ignored the mask on live input). omniRead FROZEN pool → skip the
     // door filter entirely (channel/cable/range applied at capture; see NotePool.omniRead).
@@ -1713,7 +1715,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
             pool: pool, chanMask: pool.omniRead ? 0xFFFF : cell.inputChanMask, cableMask: pool.omniRead ? 0b1111 : Int(cell.inputCableMask),
             noteLo: pool.omniRead ? 0 : cell.inputRangeLo, noteHi: pool.omniRead ? 127 : cell.inputRangeHi,   // RANGE (§2)
             octDown: octDown, randomAnchor: randomAnchor, seed: seed,
-            velScale: velScale, velTilt: velTilt)
+            velocity: velocity, velTilt: velTilt)
 }
 
 // MARK: - Processor dispatch (§3/§4)

@@ -580,10 +580,12 @@ struct ProcessorBox: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            // ROW 2 — ARP FLOW | OCTAVES+OCT DIR (stacked) | LENGTH | VELOCITY | VELOCITY TILT (Paul 2026-09-30 layout).
-            // VELOCITY (arpVelScale, a 0…2 multiplier on the picked note's own velocity) and VELOCITY TILT (arpVelTilt,
-            // −1…1, favours the top/bottom of the held pool) are NEW — see Derivations.arpPick's velScale/velTilt params
-            // and effectiveArpVelScale/Tilt (Snapshot.swift). Both carry a ∿ LFO like every other scalar here.
+            // ROW 2 — ARP FLOW | OCTAVES+OCT DIR (stacked) | LENGTH/VELOCITY/VELOCITY TILT (stacked) (Paul 2026-09-30
+            // layout, revised same day: the three sliders now stack instead of sitting side-by-side).
+            // VELOCITY (arpVelocity, 1…100 — Paul 2026-09-30 revision: an ABSOLUTE value, not a multiplier; the
+            // picked note's own input velocity is now ignored entirely) and VELOCITY TILT (arpVelTilt, −1…1, favours
+            // the top/bottom of the held pool, applied ON TOP of the fixed VELOCITY base) — see Derivations.arpPick's
+            // velocity/velTilt params and effectiveArpVelocity/Tilt (Snapshot.swift). Both carry a ∿ LFO.
             HStack(alignment: .top, spacing: 12) {
                 // FLOW stacked VERTICALLY (Paul 2026-09-14): legato/retrig/free on top of each other — 3 rows × 32pt +
                 // 2×3pt gap = 102, matching SPEED/PATTERN above by the same arithmetic.
@@ -601,17 +603,24 @@ struct ProcessorBox: View {
                     field("OCT DIR", \.arpOctDown) { seg(["UP", "DOWN"], sel: (p.arpOctDown ?? false) ? "DOWN" : "UP") { i in
                         setParam { $0.arpOctDown = (i == 1) } } }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate, lfo: "gate") {   // ∿ LFO on the label row (Docs/PLAN-param-lfo.md)
-                    // Reflect a LENGTH LFO here too (Paul 2026-09-16): a dim live tick tracks the sweep on the MAIN slider.
-                    if let glfo = lfoFor("gate") { lfoSlider(p.gate ?? 0.6, 0.05...1, lfo: glfo) { v in setParam { $0.gate = v } } }
-                    else { slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) }
+                // LENGTH / VELOCITY / VELOCITY TILT, stacked (Paul 2026-09-30: "stack the three sliders on top of
+                // each other" — were three side-by-side slots; now one slot, top-to-bottom in the order Paul named
+                // them). Each keeps its own label/LFO; naturally equal height already (all three are the same
+                // slider/lfoSlider → FineSlider content underneath), now also equal WIDTH (one shared slot).
+                VStack(alignment: .leading, spacing: 8) {
+                    field("LENGTH \(Int((p.gate ?? 0.6) * 100))%", \.gate, lfo: "gate") {   // ∿ LFO on the label row (Docs/PLAN-param-lfo.md)
+                        // Reflect a LENGTH LFO here too (Paul 2026-09-16): a dim live tick tracks the sweep on the MAIN slider.
+                        if let glfo = lfoFor("gate") { lfoSlider(p.gate ?? 0.6, 0.05...1, lfo: glfo) { v in setParam { $0.gate = v } } }
+                        else { slider(bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1) }
+                    }
+                    // VELOCITY (Paul 2026-09-30 revision): a plain 1…100 ABSOLUTE value — no "%" (this isn't a scale
+                    // anymore, see arpVelocity's own doc comment in Models.swift/Snapshot.swift).
+                    field("VELOCITY \(Int(p.arpVelocity ?? 100))", \.arpVelocity, lfo: "arpVelocity") {
+                        if let vlfo = lfoFor("arpVelocity") { lfoSlider(p.arpVelocity ?? 100, 1...100, lfo: vlfo) { v in setParam { $0.arpVelocity = v } } }
+                        else { slider(bind(p.arpVelocity ?? 100) { v in setParam { $0.arpVelocity = v } }, in: 1...100) }
+                    }
+                    bipolarSlider("VEL TILT \(Int((p.arpVelTilt ?? 0) * 100))  (−bottom · +top)", p.arpVelTilt ?? 0, lfo: "arpVelTilt") { v in setParam { $0.arpVelTilt = v } }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                field("VELOCITY \(Int((p.arpVelScale ?? 1) * 100))%", \.arpVelScale, lfo: "arpVelScale") {
-                    if let vlfo = lfoFor("arpVelScale") { lfoSlider(p.arpVelScale ?? 1, 0...2, lfo: vlfo) { v in setParam { $0.arpVelScale = v } } }
-                    else { slider(bind(p.arpVelScale ?? 1) { v in setParam { $0.arpVelScale = v } }, in: 0...2) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                bipolarSlider("VEL TILT \(Int((p.arpVelTilt ?? 0) * 100))  (−bottom · +top)", p.arpVelTilt ?? 0, lfo: "arpVelTilt") { v in setParam { $0.arpVelTilt = v } }
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             // SPAN (Paul 2026-09-13, replaces FIT): the universal span-ladder — FREE runs the global grid, N re-anchors
             // the pattern to index 0 every N columns (polymeter), same behaviour as riff/euclid/etc.
@@ -2118,7 +2127,7 @@ struct ProcessorBox: View {
         case "arpRate": return "RATE"
         case "maskK": return "HITS"; case "maskRotate": return "ROTATE"
         case "maskChordOct": return "CHORD OCT"; case "maskChordGate": return "CHORD LEN"
-        case "arpVelScale": return "VELOCITY"; case "arpVelTilt": return "VEL TILT"
+        case "arpVelocity": return "VELOCITY"; case "arpVelTilt": return "VEL TILT"
         default: return target.uppercased()
         }
     }
@@ -2250,8 +2259,8 @@ struct ProcessorBox: View {
             numPair(max(0, min(15, Int(value.rounded()))), 0...15, wrap: true) { set(Double($0)) }
         case "maskChordOct":
             numPair(max(-2, min(2, Int(value.rounded()))), -2...2, format: { $0 > 0 ? "+\($0)" : "\($0)" }) { set(Double($0)) }
-        case "arpVelScale":
-            lfoSlider(value, 0...2, lfo: lfo, set)
+        case "arpVelocity":
+            lfoSlider(value, 1...100, lfo: lfo, set)
         case "arpVelTilt":
             lfoSlider(value, -1...1, lfo: lfo, set)
         default:
@@ -2398,6 +2407,7 @@ struct ProcessorBox: View {
         case "arpRate":         return ArpRate.allCases[max(0, min(17, Int(v.rounded())))].rawValue
         case "maskChordOct":    let n = Int(v.rounded()); return n > 0 ? "+\(n)" : "\(n)"
         case "maskK", "maskRotate": return "\(Int(v.rounded()))"
+        case "arpVelocity":     return "\(Int(v.rounded()))"   // an ABSOLUTE 1…100 value now (Paul 2026-09-30) — not a %, the default's ×100 would mangle it
         case "arpVelTilt":      let n = Int((v * 100).rounded()); return n > 0 ? "+\(n)" : "\(n)"   // matches strum/chance's bare-number tilt convention (no %)
         default:                return "\(Int((v * 100).rounded()))%"
         }
@@ -2411,7 +2421,7 @@ struct ProcessorBox: View {
         case "maskChordOct":       return Double(max(-2, min(2, p.maskChordOct ?? 0)))
         case "maskChordGate":      return p.maskChordGate ?? 0.6
         case "rtcChance":          return p.rtcChance ?? 0.5
-        case "arpVelScale":        return p.arpVelScale ?? 1
+        case "arpVelocity":        return p.arpVelocity ?? 100
         case "arpVelTilt":         return p.arpVelTilt ?? 0
         default:                   return p.gate ?? 0.6
         }
@@ -2428,7 +2438,7 @@ struct ProcessorBox: View {
         case "maskChordOct":       setParam { $0.maskChordOct = max(-2, min(2, Int(v.rounded()))) }
         case "maskChordGate":      setParam { $0.maskChordGate = v }
         case "rtcChance":          setParam { $0.rtcChance = v }
-        case "arpVelScale":        setParam { $0.arpVelScale = v }
+        case "arpVelocity":        setParam { $0.arpVelocity = v }
         case "arpVelTilt":         setParam { $0.arpVelTilt = v }
         default:                   setParam { $0.gate = v }
         }

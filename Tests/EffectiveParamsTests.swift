@@ -522,7 +522,7 @@ final class EffectiveParamsTests: XCTestCase {
                     "octaves", "count", "rtcChance", "rtcCountLo", "rtcCountHi", "rtcRotate",
                     "euclidPulses", "euclidSteps", "euclidRot", "glideRange", "modMin", "modMax",
                     "lenShort", "lenLong", "lenRotate", "weaveSpan", "weaveEuclidSteps",
-                    "maskK", "maskRotate", "maskChordGate", "maskChordOct", "arpVelScale", "arpVelTilt"]
+                    "maskK", "maskRotate", "maskChordGate", "maskChordOct", "arpVelocity", "arpVelTilt"]
         for k in keys { XCTAssertNotNil(AutoParamField(key: k), "\(k) must be render-time automatable") }
         XCTAssertEqual(keys.count, 30, "the render-time scalar set is 30 fields")
         for bogus in ["", "nope", "euclidPuls", "bypass", "pattern", "harm0", "passMask"] {
@@ -543,7 +543,7 @@ final class EffectiveParamsTests: XCTestCase {
             (.modMin, 0, 127), (.modMax, 0, 127), (.lenShort, 0.05, 0.95), (.lenLong, 0, 1),
             (.lenRotate, 0, 7), (.weaveSpan, 1, 8), (.weaveEuclidSteps, 2, 16),
             (.maskK, 1, 16), (.maskRotate, 0, 15), (.maskChordGate, 0.05, 1), (.maskChordOct, -2, 2),
-            (.arpVelScale, 0, 2), (.arpVelTilt, -1, 1)]
+            (.arpVelocity, 1, 100), (.arpVelTilt, -1, 1)]
         XCTAssertEqual(table.count, 30, "every AutoParamField case is covered")
         for (f, lo, hi) in table {
             XCTAssertEqual(readAuto(SnapParams().settingAuto(f, -9_999), f), lo, accuracy: 1e-9, "\(f) clamps below to \(lo)")
@@ -563,7 +563,7 @@ final class EffectiveParamsTests: XCTestCase {
         case .lenRotate: return Double(s.lenRotate); case .weaveSpan: return Double(s.weaveSpan); case .weaveEuclidSteps: return Double(s.weaveEuclidSteps)
         case .maskK: return Double(s.maskK); case .maskRotate: return Double(s.maskRotate)
         case .maskChordGate: return s.maskChordGate; case .maskChordOct: return Double(s.maskChordOct)
-        case .arpVelScale: return s.arpVelScale; case .arpVelTilt: return s.arpVelTilt
+        case .arpVelocity: return s.arpVelocity; case .arpVelTilt: return s.arpVelTilt
         }
     }
 }

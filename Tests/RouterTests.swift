@@ -1968,19 +1968,23 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(r1CC, 0, "row 1's MOD emits its CC on bus B — both per-row MOD rows run, neither starves the other")
         assertNothingLeftSounding(me)
     }
-    // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
-    // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
-    func testArpInheritsSourceVelocity() {
+    // ARP VELOCITY (Paul 2026-09-30): a DELIBERATE reversal of the old "every processor inherits source velocity"
+    // default (still true for euclid — testEuclidGeneratorInheritsSourceVelocity below — and every other generator;
+    // ARP is the one exception Paul asked for). The arp's own VELOCITY control (default 100) sets the output level
+    // outright; the source note's own velocity is never read.
+    func testArpUsesVelocityControlIgnoringSource() {
         let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, velChord([(60, 30), (67, 120)]), beats: 8, into: e)
         let vels = Set(e.ons.filter { $0.cable == 1 }.map { $0.vel })
         XCTAssertFalse(vels.isEmpty, "the arp sounded")
-        XCTAssertTrue(vels.isSubset(of: [30, 120]), "every arp note carries a SOURCE velocity (30 or 120), never a flat 96 — got \(vels)")
-        XCTAssertTrue(vels.contains(30) && vels.contains(120), "both source dynamics come through")
+        XCTAssertTrue(vels.isSubset(of: [100]), "every arp note plays at the VELOCITY control's default (100), ignoring the source's own 30/120 — got \(vels)")
         assertNothingLeftSounding(e)
     }
-    // A chain carries velocity end-to-end: [ARP → HARMONIZE] — the dry AND the +12 voice inherit the source velocity.
-    func testChainInheritsSourceVelocityThroughHarmonize() {
+    // A chain carries the ARP's OWN resolved velocity downstream, not the source's: [ARP → HARMONIZE] — both the dry
+    // note and the +12 voice take whatever the driver (ARP) already resolved (its VELOCITY control, 100 default) —
+    // HARMONIZE's fold (Router.applyStage's .harmonize case) reads the ONE-NOTE pool emitDriverNote seeds with the
+    // driver's own (note, velocity), never the original chord.
+    func testChainUsesArpVelocityControlThroughHarmonize() {
         let b = box(machines: arpMachines()) { $0.cells[0][0] = {
             var c = Cell(machineID: "gold", buses: [.a])
             let arp = ProcessorSlot(type: .arp)
@@ -1989,8 +1993,8 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter(); run(b, velChord([(60, 44)]), beats: 8, into: e)
         let dry = e.ons.filter { $0.cable == 1 && $0.note == 60 }
         let harm = e.ons.filter { $0.cable == 1 && $0.note == 72 }
-        XCTAssertTrue(!dry.isEmpty && dry.allSatisfy { $0.vel == 44 }, "the dry note keeps its source velocity 44")
-        XCTAssertTrue(!harm.isEmpty && harm.allSatisfy { $0.vel == 44 }, "the +12 harmony voice inherits the base note's velocity 44")
+        XCTAssertTrue(!dry.isEmpty && dry.allSatisfy { $0.vel == 100 }, "the dry note plays at the arp's VELOCITY control (100), not the source's 44")
+        XCTAssertTrue(!harm.isEmpty && harm.allSatisfy { $0.vel == 100 }, "the +12 harmony voice also takes the arp's own resolved velocity (100), unscaled")
         assertNothingLeftSounding(e)
     }
     // A single-slot GENERATOR inherits too — euclid strikes each note at its own source velocity (envelope × source).
@@ -2003,9 +2007,10 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(a.filter { $0.note == 64 }.allSatisfy { $0.vel == 110 }, "euclid note 64 → source velocity 110")
         assertNothingLeftSounding(e)
     }
-    // The soundcheck path inherits velocity too (user 2026-08-09): a stopped-transport AUDITION of an arp cell sounds
-    // at the source velocity, not a flat 96 — audition matches playback.
-    func testAuditionInheritsSourceVelocity() {
+    // The soundcheck path matches playback (Paul 2026-09-30): a stopped-transport AUDITION of an arp cell also plays
+    // at the VELOCITY control's level (100 default), ignoring the source chord's own dynamics — audition still
+    // matches playback, just under the new ARP velocity model (see testArpUsesVelocityControlIgnoringSource above).
+    func testAuditionUsesVelocityControlIgnoringSource() {
         let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
         let pool = velChord([(60, 40), (67, 118)])
@@ -2017,7 +2022,7 @@ final class RouterTests: XCTestCase {
         }
         let vels = Set(e.ons.filter { $0.cable == 1 }.map { $0.vel })
         XCTAssertFalse(vels.isEmpty, "the audition sounded")
-        XCTAssertTrue(vels.isSubset(of: [40, 118]), "audition inherits the source velocity (40/118), not a flat 96 — got \(vels)")
+        XCTAssertTrue(vels.isSubset(of: [100]), "audition plays at the VELOCITY control's default (100), ignoring the source's 40/118 — got \(vels)")
     }
     // THE PER-MACHINE MACHINE (user 2026-08-09, GLOBAL): a machine's `templateChain` drives EVERY cell of that machine
     // that has no per-cell override — the machine lives on the (document-global) MACHINE, not the cell.
