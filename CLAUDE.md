@@ -254,6 +254,47 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   routine caution. **DEVICE-OWED, the whole feature:** the layout at real panel width (5 side-by-side slots in row 2
   is the most cramped row this card has ever had), VELOCITY audibly scaling louder/softer, VELOCITY TILT audibly
   favouring top/bottom notes across a real chord, and both ∿ LFOs sweeping smoothly.**
+- **▶ EUCLID REDESIGN — Stage 2 (the UI): four always-visible rows, DIRECTION seg, the merged NOTE SELECT chips, a
+  live comet-bar (2026-09-30, on `main`; iOS builds, macOS 1160 green; DEVICE eye owed — no test-target reach,
+  GridUI-only, same as every prior playhead/widget change in this file). Completes the redesign Stage 1 shipped
+  the model/engine for — planned via a two-round HTML mockup with Paul before any code (comet trail chosen over
+  two other candidates; the final row layout ratified in a second round). **THE EDITOR:** `case .euclid:`
+  (GridUI.swift) rebuilt entire — the old "single euclid OR a dynamic +ADD LINE stack up to 8" branch is gone;
+  `ForEach(p.euclidLinesForEditing().enumerated())` always renders exactly 4 row blocks (the SAME shared helper
+  Stage 1's SnapshotBuilder resolve calls, so the editor and the render path can never derive "what the 4 rows
+  are" differently). Each row: line 1 = `HITS ◀K▶ OF ◀N▶` · `ROTATE ↻r` · a new `FWD|REV` seg bound to `reverse` ·
+  the existing INVERT tap-pill; line 2 = the merged NOTE SELECT (two `euclidNoteSelChipRow`s, sliced from
+  `EuclidNoteSel.allCases`'s own declared order — ALL·N1…N8 on row 1, LOW·HIGH·BOT2·TOP2·CYCLE·RANDOM on row 2 — so
+  there's no second, separately-maintained grouping list to drift from the enum) to the left, the new comet-bar to
+  the right; DIE's dial (kept, not dropped, from the pre-merge editor) reappears inline only when the row's
+  resolved noteSel is CYCLE/RANDOM. New `euclidLineEdit4(idx:)` replaces the old `euclidLineEdit` (deleted, no
+  callers left) — it seeds/pads to 4 via `euclidLinesForEditing()` before writing, so touching ANY of the 4 rows
+  "promotes" the machine to a real 4-line array on first edit, same idiom the old "+ ADD LINE" button used, just
+  automatic. Footer keeps GRID (rate) + SPAN (shared machine-wide, unchanged); the footer's ROTATE slot (already
+  conditionally hidden in LINES mode pre-redesign) is now unconditionally empty (rotate lives on every row's own
+  line 1); the standalone "PICK — for ALL-target lines" row is gone, folded into the per-row selector. **THE COMET
+  BAR:** a new non-interactive `euclidCometBar` (`TimelineView` + `Canvas`, ~30fps) — reuses `euclidPhase`/
+  `euclidReadIndex` (Derivations.swift, Stage 1), the SAME pure functions the real render path calls for its own
+  step math, so the bar can never silently disagree with what's actually heard the way RATCHET PATTERN/DEST once
+  did. A glowing dot travels the pattern continuously; each hit node flares and holds a brief decaying afterglow as
+  the dot passes; rests stay a plain hollow ring — reads as decoration, never as a tappable grid (per Paul's "I
+  don't want this to look selectable"). **TWO DELIBERATE DEVIATIONS FROM THE LITERAL APPROVED MOCKUP, flagged
+  plainly rather than silently changed:** (1) NOT swing-warped — the mockup obviously couldn't show this either
+  way; matches every OTHER pattern-processor's live sweep in this exact file (BURST/RATCHET/TUTTI/DEST's
+  `StateMatrixClock`/`liveCol` also read a plain linear beat, only the real render path applies `musicalOf`) —
+  threading swing into this ONE new widget would need a new stored property on `ProcessorBox` for a discrepancy
+  that only shows at non-50 swing settings; scoped out rather than half-built. (2) the comet's direction of travel:
+  the mockup showed BOTH the displayed hit pattern mirroring AND the comet visually reversing to run right-to-left
+  under REV; built instead so screen position always shows the i-th step in PLAYBACK order (`euclidReadIndex`
+  resolves which buffer index that is) and the comet ALWAYS travels left-to-right — steadier, more legible, and
+  actually reads as "impressive" (Paul's own word for the brief) rather than as a glitch, which a direction-
+  reversing comet risked once actually animated rather than sketched in static HTML. **DEVICE-OWED:** whether
+  deviation (2) reads right in practice — reverting to a direction-flipping comet is a small, contained change if
+  Paul prefers the literal mockup once he sees the real animation; the chip legibility at real panel width (up to
+  15 options across 2 rows); the comet bar's height/proportions next to a 2-row chip stack; the flare/afterglow
+  timing constants (0.02 threshold, 1.5-step decay window — all tunable, unverified off-device); confirm an old
+  saved doc (flat single-euclid, or a pre-redesign 2-8-line doc) opens showing its content correctly across the 4
+  rows with no data loss for the first 4 lines.**
 - **▶ RECEIVER TOGGLES + DOOR PICKERS — the note-name/key/"no input" text shrunk 15pt→11pt (2026-09-30, on `main`,
   `ad48901`; iOS builds; DEVICE eye owed). Paul: reduce the size of the text showing notes on the receiver toggles
   and related instances. That readout (`buildReceiverSelectChip`'s `big` label — key ?? live notes ?? "no input")

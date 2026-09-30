@@ -429,9 +429,125 @@ struct ProcessorBox: View {
             .background(RoundedRectangle(cornerRadius: 5).fill(accent.opacity(0.2)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
-    // EUCLID LINES (§10): mutate line `idx` in place (through setParam → the machine-scoped edit).
-    private func euclidLineEdit(_ idx: Int, _ f: @escaping (inout EuclidLine) -> Void) {
-        setParam { var a = $0.euclidLines ?? []; guard idx < a.count else { return }; f(&a[idx]); $0.euclidLines = a }
+    // EUCLID REDESIGN (Paul 2026-09-30, Stage 2 — the UI half of the fixed-4-row plan; Stage 1's model/engine
+    // landed on `main` first). ALWAYS operates on exactly 4 rows via the shared `euclidLinesForEditing()`
+    // (Models.swift, the SAME helper SnapshotBuilder's resolve calls) — editing any of the 4 always-visible rows
+    // "promotes" the machine from the old flat/short representation to a real 4-line array on first touch,
+    // mirroring the pre-redesign "+ ADD LINE" seed-on-tap idiom, just automatic instead of button-triggered. The
+    // old `euclidLineEdit` (which no-op'd past whatever `euclidLines` happened to currently hold) had no other
+    // caller once the fixed-4-row editor replaced the old dynamic "+ ADD LINE" stack — removed, not kept dead.
+    private func euclidLineEdit4(_ idx: Int, _ f: @escaping (inout EuclidLine) -> Void) {
+        setParam { var a = $0.euclidLinesForEditing(); guard idx < a.count else { return }; f(&a[idx]); $0.euclidLines = a }
+    }
+    /// The merged NOTE SELECT chip row — one of the two rows (ALL·N1…N8, or the aggregate strategies), sliced from
+    /// `EuclidNoteSel.allCases`'s own declared order (Models.swift) rather than a second, separately-maintained list.
+    @ViewBuilder private func euclidNoteSelChipRow(_ opts: [EuclidNoteSel], _ cur: EuclidNoteSel, _ set: @escaping (EuclidNoteSel) -> Void) -> some View {
+        HStack(spacing: 3) {
+            ForEach(opts, id: \.self) { s in
+                Text(s.rawValue)
+                    .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                    .foregroundColor(s == cur ? .black : .white.opacity(0.55))
+                    .padding(.horizontal, 5).padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(s == cur ? accent : Color.white.opacity(0.08)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { set(s) }
+            }
+        }
+    }
+    /// THE COMET BAR (Paul 2026-09-30): a non-interactive, live K-of-N hit display — a glowing comet runs the
+    /// pattern continuously, flaring each hit node as it passes. Reuses `euclidPhase`/`euclidReadIndex`
+    /// (Derivations.swift) — the SAME pure functions the real render path uses for its own step math (Stage 1) —
+    /// so this can never silently disagree with what's actually heard the way RATCHET PATTERN/DEST once did.
+    /// NOT swing-warped: a deliberate, disclosed simplification matching every OTHER pattern-processor live sweep
+    /// in this file (BURST/RATCHET/TUTTI/DEST's StateMatrixClock/liveCol also read a plain linear beat) — only
+    /// EUCLID's actual render path (Router.swift) applies `musicalOf`; threading swing into this widget too would
+    /// need a new stored property on `ProcessorBox` for a discrepancy that only shows at non-50 swing settings.
+    /// DESIGN CHOICE (deviates from the approved mockup's literal reversed-comet-direction sketch, flagged
+    /// plainly): screen position i always shows the i-th step in PLAYBACK order (`euclidReadIndex` resolves which
+    /// buffer index that is), so the comet always travels left→right — steadier and more legible than having it
+    /// visually reverse direction, which read as a glitch rather than "impressive" once actually built.
+    @ViewBuilder private func euclidCometBar(pulses k: Int, steps nIn: Int, rotate: Int, invert: Bool, reverse: Bool, rate: ArpRate, spanN: Int, tint: Color) -> some View {
+        let n = max(2, min(16, nIn))
+        let sub = max(0.03125, rate.beats)
+        let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clockPlaying)) { tl in
+            let liveBeat = beatAnchor + tl.date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+            let phase = euclidPhase(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n)
+            Canvas { ctx, size in
+                var buf = [Bool](repeating: false, count: n)
+                _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
+                let w = size.width, midY = size.height / 2
+                let insetL: CGFloat = 6, insetR: CGFloat = 6
+                let usable = max(1, w - insetL - insetR)
+                func xFor(_ pos: Double) -> CGFloat { insetL + usable * CGFloat(pos / Double(n)) }
+                ctx.stroke(Path { pth in pth.move(to: CGPoint(x: insetL, y: midY)); pth.addLine(to: CGPoint(x: w - insetR, y: midY)) },
+                           with: .color(.white.opacity(0.10)), lineWidth: 1)
+                for i in 0..<n {
+                    let ri = euclidReadIndex(i, n: n, reverse: reverse)
+                    let hit = invert ? !buf[ri] : buf[ri]
+                    let x = xFor(Double(i) + 0.5)
+                    if hit {
+                        // steps since the comet passed this node (0 = just now), wrapped positive every lap.
+                        let raw = (phase - Double(i)).truncatingRemainder(dividingBy: Double(n))
+                        let age = raw < 0 ? raw + Double(n) : raw
+                        let recede = max(0, 1 - age / 1.5)   // a brief decaying flare, not a hard on/off
+                        if recede > 0.02 {
+                            ctx.fill(Path(ellipseIn: CGRect(x: x - 7, y: midY - 7, width: 14, height: 14)), with: .color(tint.opacity(0.28 * recede)))
+                        }
+                        ctx.fill(Path(ellipseIn: CGRect(x: x - 3.5, y: midY - 3.5, width: 7, height: 7)), with: .color(tint.opacity(0.4 + 0.6 * recede)))
+                    } else {
+                        ctx.stroke(Path(ellipseIn: CGRect(x: x - 2.5, y: midY - 2.5, width: 5, height: 5)), with: .color(.white.opacity(0.16)), lineWidth: 1)
+                    }
+                }
+                let hx = xFor(phase)
+                for t in stride(from: 1, through: 5, by: 1) {   // a short fading trail behind the comet head
+                    let tx = hx - CGFloat(t) * 3.5
+                    guard tx > insetL - 4 else { continue }
+                    ctx.fill(Path(ellipseIn: CGRect(x: tx - 2, y: midY - 2, width: 4, height: 4)), with: .color(tint.opacity(0.22 * (1 - Double(t) / 6))))
+                }
+                ctx.fill(Path(ellipseIn: CGRect(x: hx - 5, y: midY - 5, width: 10, height: 10)), with: .color(tint.opacity(0.95)))
+            }
+            .allowsHitTesting(false)
+        }
+    }
+    /// One of the four always-visible EUCLID rows (Paul 2026-09-30). Line 1: HITS·OF·ROTATE·DIRECTION·INVERT.
+    /// Line 2: the merged NOTE SELECT chips (two rows) to the left, the live comet bar to the right.
+    @ViewBuilder private func euclidRow(_ idx: Int, _ L: EuclidLine, fromPool: Bool) -> some View {
+        let cur = L.noteSelResolved
+        let noteSelCases = EuclidNoteSel.allCases
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("HITS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                numPair(L.pulses, 0...max(2, L.steps)) { v in euclidLineEdit4(idx) { $0.pulses = min(v, $0.steps) } }
+                    .opacity(fromPool ? 0.4 : 1)   // POOL overrides K machine-wide — still tweakable, just currently moot
+                Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                numPair(L.steps, 2...16) { v in euclidLineEdit4(idx) { $0.steps = max(2, v); if $0.pulses > max(2, v) { $0.pulses = max(2, v) } } }
+                numPair(L.rotate, 0...15, wrap: true, format: { "↻\($0)" }) { v in euclidLineEdit4(idx) { $0.rotate = v } }
+                Spacer(minLength: 4)
+                seg(["FWD", "REV"], sel: L.reverseResolved ? "REV" : "FWD") { i in euclidLineEdit4(idx) { $0.reverse = (i == 1) } }
+                Text(L.invert ? "REST" : "HITS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(L.invert ? accent : .white.opacity(0.45))
+                    .frame(width: 38, height: 30).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                    .contentShape(Rectangle()).onTapGesture { euclidLineEdit4(idx) { $0.invert.toggle() } }
+            }
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    euclidNoteSelChipRow(Array(noteSelCases.prefix(9)), cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }     // ALL · N1…N8
+                    euclidNoteSelChipRow(Array(noteSelCases.suffix(6)), cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }     // LOW·HIGH·BOT2·TOP2·CYCLE·RANDOM
+                    if cur == .cycle || cur == .random {   // DIE (Paul 2026-08-26): salts CYCLE/RANDOM apart across rows — kept, not dropped, from the pre-merge editor
+                        HStack(spacing: 6) {
+                            Text("DIE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                            numPair(L.dieResolved, 0...8, format: { "⚄\($0)" }) { v in euclidLineEdit4(idx) { $0.die = v } }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                euclidCometBar(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, reverse: L.reverseResolved,
+                               rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent)
+                    .frame(minWidth: 90, maxWidth: .infinity).frame(height: 44)
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.04)))
     }
 
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
@@ -667,67 +783,16 @@ struct ProcessorBox: View {
                 ("CUT SPILL", spill == .cut, { setParam { $0.echoSpill = ($0.echoSpill ?? .ring) == .cut ? .ring : .cut } }),
             ])
         })
-        case .euclid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // GENERATOR — K-of-N euclidean rhythm; LINES model (§10): up to 8 lines from ONE chord (kick/hat/pulse)
-            let steps = p.euclidSteps ?? 8
+        case .euclid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // GENERATOR — K-of-N euclidean rhythm; FOUR ALWAYS-VISIBLE FIXED ROWS (2026-09-30 redesign — replaces the old "start with one, tap +ADD LINE up to 8" model)
             let fromPool = p.euclidPulsesFromPool ?? false
-            let lines = p.euclidLines ?? []
             field("HITS FROM", \.euclidPulsesFromPool) { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
-            if lines.isEmpty {
-                // The single euclid (today) — the K-of-N hero row (§presentation ⑤): "◀5▶ of ◀16▶".
-                if !fromPool {
-                    heroField("HITS OF STEPS") { HStack(spacing: 8) {
-                        numPair(p.euclidPulses ?? 5, 1...steps) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } }
-                        Text("of").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                        numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } }
-                    } }
-                } else {
-                    heroField("STEPS") { numPair(steps, 2...16) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
-                }
-                optionsCluster([("INVERT", p.euclidInvert ?? false, { setParam { $0.euclidInvert = !($0.euclidInvert ?? false) } })])
-                pill("+ ADD LINE") { setParam {   // convert to LINES: line 1 = the current euclid, + a second line to author
-                    let l1 = EuclidLine(target: 0, pulses: $0.euclidPulses ?? 5, steps: $0.euclidSteps ?? 8, rotate: $0.euclidRot ?? 0, invert: $0.euclidInvert ?? false)
-                    $0.euclidLines = [l1, EuclidLine(target: 1, pulses: 4, steps: 8, rotate: 0, invert: false)] } }
-            } else {
-                // THE LINES STACK (§10): each row = TARGET · K of N · ROTATE · HITS/REST · ×
-                heroField("LINES — each a euclid from one chord (kick · hat · pulse)") {
-                    VStack(spacing: 5) {
-                        ForEach(Array(lines.enumerated()), id: \.offset) { (idx, L) in
-                            VStack(spacing: 3) {
-                                HStack(spacing: 5) {
-                                    numPair(L.target, 0...8, format: { $0 == 0 ? "ALL" : "N\($0)" }) { v in euclidLineEdit(idx) { $0.target = v } }
-                                    numPair(L.pulses, 0...max(2, L.steps)) { v in euclidLineEdit(idx) { $0.pulses = min(v, $0.steps) } }
-                                    Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                                    numPair(L.steps, 2...16) { v in euclidLineEdit(idx) { $0.steps = max(2, v); if $0.pulses > max(2, v) { $0.pulses = max(2, v) } } }
-                                    numPair(L.rotate, 0...15, wrap: true, format: { "↻\($0)" }) { v in euclidLineEdit(idx) { $0.rotate = v } }
-                                    Text(L.invert ? "REST" : "HITS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(L.invert ? accent : .white.opacity(0.45))
-                                        .frame(width: 34, height: 34).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-                                        .contentShape(Rectangle()).onTapGesture { euclidLineEdit(idx) { $0.invert.toggle() } }
-                                    Button { setParam { var a = $0.euclidLines ?? []; if idx < a.count { a.remove(at: idx) }; $0.euclidLines = a.isEmpty ? nil : a } } label: {
-                                        Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundColor(.red.opacity(0.8)).frame(width: 26, height: 34)
-                                    }.buttonStyle(.plain)
-                                }
-                                if L.target == 0 {   // v1b (Paul 2026-08-26): per-line PICK (what each hit strikes) + DIE (salts CYCLE/RANDOM apart from other lines)
-                                    HStack(spacing: 6) {
-                                        Text("PICK").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                                        let cur = L.pick ?? (p.euclidPick ?? .all)
-                                        Text(cur.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(accent)
-                                            .frame(width: 64, height: 24).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-                                            .contentShape(Rectangle())
-                                            .onTapGesture { euclidLineEdit(idx) { let all = EuclidPick.allCases; let c = $0.pick ?? (p.euclidPick ?? .all); $0.pick = all[(((all.firstIndex(of: c) ?? 0) + 1) % all.count)] } }
-                                        Text("DIE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                                        numPair(L.dieResolved, 0...8, format: { "⚄\($0)" }) { v in euclidLineEdit(idx) { $0.die = v } }
-                                        Spacer(minLength: 0)
-                                    }.padding(.leading, 8)
-                                }
-                            }
-                        }
-                        if lines.count < 8 { pill("+ ADD LINE") { setParam { var a = $0.euclidLines ?? []; a.append(EuclidLine(target: 0, pulses: 4, steps: 8, rotate: 0, invert: false)); $0.euclidLines = a } } }
-                    }
+            VStack(spacing: 8) {
+                ForEach(Array(p.euclidLinesForEditing().enumerated()), id: \.offset) { (idx, L) in
+                    euclidRow(idx, L, fromPool: fromPool)
                 }
             }
-            field("PICK — for ALL-target lines", \.euclidPick) { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
-            frameRow(grid:  { frameGrid(p.euclidRate ?? .r1_16) { r in setParam { $0.euclidRate = r } } },   // §1 ANATOMY FOOTER — GRID = the step rate (density)
-                     rotate: { if lines.isEmpty { frameRotate(p.euclidRot ?? 0, 0...15) { v in setParam { $0.euclidRot = v } } } },   // single euclid only (LINES rotate per-line)
+            frameRow(grid:  { frameGrid(p.euclidRate ?? .r1_16) { r in setParam { $0.euclidRate = r } } },   // §1 ANATOMY FOOTER — GRID = the step rate (density), shared by all 4 rows
+                     rotate: { EmptyView() },   // ROTATE lives on each row's own line 1 now, not the shared footer
                      span:   { frameSpan(p.euclidSpanN ?? 0, free: true) { v in setParam { $0.euclidSpanN = v } } },
                      pairs: .euclid)
         })
