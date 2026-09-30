@@ -495,11 +495,29 @@ struct ProcessorBox: View {
                         // steps since the comet passed this node (0 = just now), wrapped positive every lap.
                         let raw = (phase - Double(i)).truncatingRemainder(dividingBy: Double(n))
                         let age = raw < 0 ? raw + Double(n) : raw
-                        let recede = max(0, 1 - age / 1.5)   // a brief decaying flare, not a hard on/off
-                        let dot = Path(ellipseIn: CGRect(x: x - 3.5, y: midY - 3.5, width: 7, height: 7))
+                        let recede = max(0, 1 - age / 1.5)     // the lingering afterglow (unchanged window)
+                        // DRAMATIC HIT (Paul 2026-10-01: "brighter, with effects, more dramatic when it hits") —
+                        // a short, sharp BURST window layered on top of the lingering afterglow: the dot swells,
+                        // a hot white core flashes at its center, and a shockwave ring expands outward — all decay
+                        // much faster than `recede` so the strike itself reads as an impact, not just a brighter dot.
+                        let burst = max(0, 1 - age / 0.35)
+                        let r = 3.5 + 4.5 * burst
+                        let dot = Path(ellipseIn: CGRect(x: x - r, y: midY - r, width: r * 2, height: r * 2))
                         ctx.drawLayer { layer in
-                            if recede > 0.03 { layer.addFilter(.shadow(color: tint.opacity(min(1, recede * 1.3)), radius: 3 + 6 * recede)) }
-                            layer.fill(dot, with: .color(tint.opacity(0.4 + 0.6 * recede)))
+                            layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 16 * burst + 4 * recede))
+                            layer.fill(dot, with: .color(tint.opacity(0.5 + 0.5 * recede)))
+                        }
+                        if burst > 0.04 {   // the hot white flash core, right at the strike
+                            let cr: CGFloat = 2.0 + 2.2 * burst
+                            ctx.drawLayer { layer in
+                                layer.addFilter(.shadow(color: .white.opacity(burst), radius: 7 * burst))
+                                layer.fill(Path(ellipseIn: CGRect(x: x - cr, y: midY - cr, width: cr * 2, height: cr * 2)), with: .color(.white.opacity(burst)))
+                            }
+                        }
+                        if burst > 0.06 {   // the shockwave — an expanding ring, reads as an impact not just a flash
+                            let ringR = r + 11 * (1 - burst)
+                            ctx.stroke(Path(ellipseIn: CGRect(x: x - ringR, y: midY - ringR, width: ringR * 2, height: ringR * 2)),
+                                       with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
                         }
                     } else {
                         ctx.stroke(Path(ellipseIn: CGRect(x: x - 2.5, y: midY - 2.5, width: 5, height: 5)), with: .color(.white.opacity(0.16)), lineWidth: 1)
@@ -532,11 +550,11 @@ struct ProcessorBox: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text("HITS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                numPair(L.pulses, 0...max(2, L.steps)) { v in euclidLineEdit4(idx) { $0.pulses = min(v, $0.steps) } }
+                numPair(L.pulses, 0...max(2, L.steps), compact: true) { v in euclidLineEdit4(idx) { $0.pulses = min(v, $0.steps) } }
                     .opacity(fromPool ? 0.4 : 1)   // POOL overrides K machine-wide — still tweakable, just currently moot
                 Text("of").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                numPair(L.steps, 2...16) { v in euclidLineEdit4(idx) { $0.steps = max(2, v); if $0.pulses > max(2, v) { $0.pulses = max(2, v) } } }
-                numPair(L.rotate, 0...15, wrap: true, format: { "↻\($0)" }) { v in euclidLineEdit4(idx) { $0.rotate = v } }
+                numPair(L.steps, 2...16, compact: true) { v in euclidLineEdit4(idx) { $0.steps = max(2, v); if $0.pulses > max(2, v) { $0.pulses = max(2, v) } } }
+                numPair(L.rotate, 0...15, wrap: true, compact: true, format: { "↻\($0)" }) { v in euclidLineEdit4(idx) { $0.rotate = v } }
                 Spacer(minLength: 4)
                 seg(["FWD", "REV"], sel: L.reverseResolved ? "REV" : "FWD") { i in euclidLineEdit4(idx) { $0.reverse = (i == 1) } }
                 Text(L.invert ? "REST" : "HITS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(L.invert ? accent : .white.opacity(0.45))
@@ -550,7 +568,7 @@ struct ProcessorBox: View {
                     if cur == .cycle || cur == .random {   // DIE (Paul 2026-08-26): salts CYCLE/RANDOM apart across rows — kept, not dropped, from the pre-merge editor
                         HStack(spacing: 6) {
                             Text("DIE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                            numPair(L.dieResolved, 0...8, format: { "⚄\($0)" }) { v in euclidLineEdit4(idx) { $0.die = v } }
+                            numPair(L.dieResolved, 0...8, compact: true, format: { "⚄\($0)" }) { v in euclidLineEdit4(idx) { $0.die = v } }
                             Spacer(minLength: 0)
                         }
                     }
@@ -808,12 +826,14 @@ struct ProcessorBox: View {
         })
         case .euclid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // GENERATOR — K-of-N euclidean rhythm; FOUR ALWAYS-VISIBLE FIXED ROWS (2026-09-30 redesign — replaces the old "start with one, tap +ADD LINE up to 8" model)
             let fromPool = p.euclidPulsesFromPool ?? false
-            field("HITS FROM", \.euclidPulsesFromPool) { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
             VStack(spacing: 8) {
                 ForEach(Array(p.euclidLinesForEditing().enumerated()), id: \.offset) { (idx, L) in
                     euclidRow(idx, L, fromPool: fromPool)
                 }
             }
+            // HITS FROM moved to the bottom (Paul 2026-10-01, was above the 4 rows) — a machine-wide toggle, not a
+            // per-row control, reads better sitting with the row stack it affects rather than ahead of it.
+            field("HITS FROM", \.euclidPulsesFromPool) { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
             frameRow(grid:  { frameGrid(p.euclidRate ?? .r1_16) { r in setParam { $0.euclidRate = r } } },   // §1 ANATOMY FOOTER — GRID = the step rate (density), shared by all 4 rows
                      rotate: { EmptyView() },   // ROTATE lives on each row's own line 1 now, not the shared footer
                      span:   { frameSpan(p.euclidSpanN ?? 0, free: true) { v in setParam { $0.euclidSpanN = v } } },
@@ -2783,9 +2803,9 @@ struct ProcessorBox: View {
     // THE NUDGE PAIR (Paul 2026-08-25 §presentation rule 3): ◀ value ▶ — the ONE numeric grammar. tap = ±1 · drag the
     // value = scrub. Replaces grid16, numeric-as-radio, CHANNEL's chip wall, AND is the ROTATE control. `wrap` cycles
     // (rotate/channel); `format` prints units/glyphs (e.g. "3/16", "WIRE").
-    private func numPair(_ v: Int, _ range: ClosedRange<Int>, wrap: Bool = false,
+    private func numPair(_ v: Int, _ range: ClosedRange<Int>, wrap: Bool = false, compact: Bool = false,
                          format: @escaping (Int) -> String = { "\($0)" }, _ set: @escaping (Int) -> Void) -> some View {
-        NumPair(value: v, range: range, wrap: wrap, format: format, accent: accent, set: set)
+        NumPair(value: v, range: range, wrap: wrap, compact: compact, format: format, accent: accent, set: set)
     }
 }
 
@@ -2794,27 +2814,31 @@ private struct NumPair: View {
     let value: Int
     let range: ClosedRange<Int>
     var wrap = false
+    // COMPACT (Paul 2026-10-01, the EUCLID row redesign): half-height variant — opt-in, every existing caller
+    // across the whole file stays at the original 42pt (default false) so this is additive, not a global resize.
+    var compact = false
     var format: (Int) -> String = { "\($0)" }
     let accent: Color
     let set: (Int) -> Void
     @State private var dragBase: Int? = nil
     @State private var showPicker = false      // ideas 12/31: tap the value → a grid/keypad overlay for exact entry
     @State private var padEntry = ""
+    private var h: CGFloat { compact ? 21 : 42 }
     private func clampWrap(_ raw: Int) -> Int {
         if wrap { let n = max(1, range.count); return range.lowerBound + (((raw - range.lowerBound) % n) + n) % n }
         return min(range.upperBound, max(range.lowerBound, raw))
     }
     private func apply(_ raw: Int) { let x = clampWrap(raw); if x != value { set(x) } }
     private func arrow(_ glyph: String, _ act: @escaping () -> Void) -> some View {
-        Text(glyph).font(.system(size: 17, weight: .heavy)).foregroundColor(.white.opacity(0.85))
-            .frame(width: 44, height: 42).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
+        Text(glyph).font(.system(size: compact ? 12 : 17, weight: .heavy)).foregroundColor(.white.opacity(0.85))
+            .frame(width: 44, height: h).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
             .contentShape(Rectangle()).onTapGesture(perform: act)
     }
     var body: some View {
         HStack(spacing: 6) {
             arrow("◀") { apply(value - 1) }
-            Text(format(value)).font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(accent)
-                .lineLimit(1).padding(.horizontal, 10).frame(minWidth: 56, minHeight: 42)
+            Text(format(value)).font(.system(size: compact ? 12 : 16, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                .lineLimit(1).padding(.horizontal, 10).frame(minWidth: 56, minHeight: h)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)))
                 .contentShape(Rectangle())
                 .onTapGesture { padEntry = ""; showPicker = true }            // tap = the value overlay (ideas 12/31)

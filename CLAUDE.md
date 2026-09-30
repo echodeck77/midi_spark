@@ -199,6 +199,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID EDITOR — a more dramatic hit flash, HITS FROM moved to the bottom, half-height number steppers
+  (2026-10-01, on `main`; iOS builds; DEVICE eye owed). Three quick device-driven polish asks on the same-day comet
+  bar. **(1) "The hits should be brighter, with effects, and more dramatic when it hits":** the flare was one glow
+  layer decaying over the SAME 1.5-step window as the lingering afterglow — bright enough to read, but no sense of
+  IMPACT at the instant of the strike. Added a second, much SHORTER `burst` window (0.35 steps, independent of the
+  existing `recede` afterglow) layered on top: the dot visibly SWELLS (3.5→8pt radius) at the strike, a hot WHITE
+  flash core blooms at its center (fades within the same short window), and a thin ring expands outward from the
+  dot — three effects stacked, all fast-decaying, so the strike reads as a distinct "hit" moment rather than just a
+  brighter glow. The lingering `recede`-based glow (Stage 2) is untouched underneath — still there for the trailing
+  afterglow, just no longer the ONLY thing marking a hit. **(2) "Move fixed/pool to the bottom":** the `HITS FROM`
+  FIXED|POOL seg (GridUI.swift, `case .euclid:`) moved from above the 4 rows to below them, just before the shared
+  GRID/SPAN footer — a machine-wide toggle reads better sitting with the row stack it affects than ahead of it.
+  **(3) "Halve the height of the number selectors":** `NumPair` (the ◀▶ nudge-pair used for HITS/OF/ROTATE/DIE)
+  gained an opt-in `compact: Bool = false` — halves its height (42pt→21pt, arrows+value box) and trims its font
+  (17/16pt→12pt) so the smaller pill stays legible; every OTHER caller across the whole file is untouched (default
+  false), since `NumPair` is shared by dozens of unrelated processor editors and a global resize would have been a
+  far bigger change than asked. All 4 `numPair` calls inside `euclidRow` now pass `compact: true`; nothing else
+  does. UI-only (GridUI.swift), no test-target reach. **DEVICE-OWED:** the new burst effect's timing/scale at real
+  panel size (0.35-step decay, the white-core peak, the ring's reach — all first-pass, tunable); the half-height
+  steppers' legibility and touch-target size now that the tap/drag-scrub hit area is half as tall.**
 - **▶ EUCLID DEFAULT — a fresh card opens on a steady 4-of-4 low-note pulse, not 5-of-8/ALL (2026-09-30, on `main`;
   iOS builds; DEVICE eye/ear owed). Paul: "default the euclid page to play a 4 by 4 on a single low note, on the
   first lane, and no notes on the additional rows." The storefront "EUCLID" card (`BuildPage.swift`'s `C(...)`
