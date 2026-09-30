@@ -232,6 +232,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   **DEVICE-OWED:** the stacked trio's legibility in one column, VELOCITY audibly ignoring how hard the chord was
   played and only tracking the dial, and the oct-direction + velocity changes not interacting oddly in the same
   render pass.**
+- **▶ EUCLID COMET BAR — a REAL glow, not a stack of flat circles (2026-09-30, on `main`; iOS builds; DEVICE eye
+  owed). Paul, on-device: "the timing on the animation is great, but it doesn't look as good as it did in the
+  preview html. Maybe it's missing the glow?" Correct diagnosis. The Stage 2 build (this same day) approximated a
+  glow by layering hard-edged circles of falling opacity underneath each lit element — reads as flat concentric
+  rings, not a soft halo, because nothing was ever actually BLURRED; the HTML mockup's look came entirely from CSS
+  `box-shadow`/`filter: blur()`, a genuine gaussian blur with no equivalent in the first Canvas draft. **FIX:**
+  `euclidCometBar` (GridUI.swift) now uses `ctx.drawLayer { … }` + `GraphicsContext.Filter.shadow`/`.blur` — Canvas's
+  real counterpart to CSS box-shadow/blur — for every glowing element: a hit node's flare is now one dot inside a
+  `.shadow(color:radius:)`-filtered layer (radius scales with `recede`, the same decay factor as before) instead of
+  a second flat circle drawn underneath; the comet's trailing tail is now a blurred (`.blur(radius:3)`) gradient
+  stroke instead of discrete hard dots; the comet head itself sits inside its own `.shadow(radius:9)` layer for a
+  true glowing halo instead of a plain filled circle. The underlying per-node recede/age math (Stage 2) is
+  untouched — only HOW each element is painted changed, not when/how bright. UI-only (GridUI.swift), no test-target
+  reach — builds clean, nothing to run off-device for a pure Canvas-drawing change. **DEVICE-OWED:** confirm the
+  glow now reads as intended at real panel size/brightness — the shadow radii (3–9pt) and the blur amount are
+  first-pass values, tunable if they read too soft/too sharp on the actual screen.**
 - **▶ ARP OCT DIRECTION — REDEFINED: DOWN now descends BELOW the held keys, symmetric with UP (2026-09-30, on
   `main`; iOS builds, macOS green incl. 2 updated; DEVICE ear owed). Paul noticed DOWN starts a full octave (or
   more) ABOVE the held keys rather than at them, and asked whether starting AT the held keys and descending was

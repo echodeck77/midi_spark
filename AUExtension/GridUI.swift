@@ -482,6 +482,11 @@ struct ProcessorBox: View {
                 func xFor(_ pos: Double) -> CGFloat { insetL + usable * CGFloat(pos / Double(n)) }
                 ctx.stroke(Path { pth in pth.move(to: CGPoint(x: insetL, y: midY)); pth.addLine(to: CGPoint(x: w - insetR, y: midY)) },
                            with: .color(.white.opacity(0.10)), lineWidth: 1)
+                // GLOW (Paul 2026-09-30: "the timing's great but it doesn't look as good... maybe it's missing the
+                // glow"): the first pass approximated a glow with stacked hard-edged circles of falling opacity —
+                // reads as flat concentric rings, not a soft halo, because nothing was actually BLURRED. `drawLayer`
+                // + `GraphicsContext.Filter.shadow`/`.blur` are Canvas's real equivalent of the mockup's CSS
+                // `box-shadow`/`filter: blur()` — a true soft-edged glow, not an approximation of one.
                 for i in 0..<n {
                     let ri = euclidReadIndex(i, n: n, reverse: reverse)
                     let hit = invert ? !buf[ri] : buf[ri]
@@ -491,21 +496,30 @@ struct ProcessorBox: View {
                         let raw = (phase - Double(i)).truncatingRemainder(dividingBy: Double(n))
                         let age = raw < 0 ? raw + Double(n) : raw
                         let recede = max(0, 1 - age / 1.5)   // a brief decaying flare, not a hard on/off
-                        if recede > 0.02 {
-                            ctx.fill(Path(ellipseIn: CGRect(x: x - 7, y: midY - 7, width: 14, height: 14)), with: .color(tint.opacity(0.28 * recede)))
+                        let dot = Path(ellipseIn: CGRect(x: x - 3.5, y: midY - 3.5, width: 7, height: 7))
+                        ctx.drawLayer { layer in
+                            if recede > 0.03 { layer.addFilter(.shadow(color: tint.opacity(min(1, recede * 1.3)), radius: 3 + 6 * recede)) }
+                            layer.fill(dot, with: .color(tint.opacity(0.4 + 0.6 * recede)))
                         }
-                        ctx.fill(Path(ellipseIn: CGRect(x: x - 3.5, y: midY - 3.5, width: 7, height: 7)), with: .color(tint.opacity(0.4 + 0.6 * recede)))
                     } else {
                         ctx.stroke(Path(ellipseIn: CGRect(x: x - 2.5, y: midY - 2.5, width: 5, height: 5)), with: .color(.white.opacity(0.16)), lineWidth: 1)
                     }
                 }
+                // THE COMET — a soft blurred trail (a gradient stroke behind a `.blur` filter, not discrete hard
+                // dots) + a glowing head (a `.shadow` filter, not a second flat circle underneath).
                 let hx = xFor(phase)
-                for t in stride(from: 1, through: 5, by: 1) {   // a short fading trail behind the comet head
-                    let tx = hx - CGFloat(t) * 3.5
-                    guard tx > insetL - 4 else { continue }
-                    ctx.fill(Path(ellipseIn: CGRect(x: tx - 2, y: midY - 2, width: 4, height: 4)), with: .color(tint.opacity(0.22 * (1 - Double(t) / 6))))
+                ctx.drawLayer { layer in
+                    layer.addFilter(.blur(radius: 3))
+                    var trail = Path()
+                    trail.move(to: CGPoint(x: hx, y: midY)); trail.addLine(to: CGPoint(x: max(insetL, hx - 22), y: midY))
+                    layer.stroke(trail, with: .linearGradient(Gradient(colors: [tint.opacity(0.55), tint.opacity(0)]),
+                                                               startPoint: CGPoint(x: hx, y: midY), endPoint: CGPoint(x: hx - 22, y: midY)),
+                                 lineWidth: 5)
                 }
-                ctx.fill(Path(ellipseIn: CGRect(x: hx - 5, y: midY - 5, width: 10, height: 10)), with: .color(tint.opacity(0.95)))
+                ctx.drawLayer { layer in
+                    layer.addFilter(.shadow(color: tint, radius: 9))
+                    layer.fill(Path(ellipseIn: CGRect(x: hx - 5, y: midY - 5, width: 10, height: 10)), with: .color(tint))
+                }
             }
             .allowsHitTesting(false)
         }
