@@ -520,7 +520,15 @@ struct ProcessorBox: View {
                                        with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
                         }
                     } else {
-                        ctx.stroke(Path(ellipseIn: CGRect(x: x - 2.5, y: midY - 2.5, width: 5, height: 5)), with: .color(.white.opacity(0.16)), lineWidth: 1)
+                        // REST (Paul 2026-10-01: "the position of the notes move, not just switch on and off") —
+                        // every x here is mathematically fixed per step index regardless of hit/rest (confirmed by
+                        // re-tracing the math, not assumed) — but a tiny (5pt), 16%-opacity HOLLOW ring next to a
+                        // much bigger, brightly glowing FILLED hit dot doesn't read as "this slot dimmed," it reads
+                        // as "that note vanished" — and a different bright dot appearing elsewhere then reads as
+                        // relocation, not re-lighting. Now a rest is a plainly visible FILLED dot at the SAME base
+                        // size a resting (non-flaring) hit dot settles to — same shape family, just dim — so the
+                        // fixed slot grid stays legible regardless of which subset is currently lit.
+                        ctx.fill(Path(ellipseIn: CGRect(x: x - 3.5, y: midY - 3.5, width: 7, height: 7)), with: .color(.white.opacity(0.22)))
                     }
                 }
                 // THE COMET — a soft blurred trail (a gradient stroke behind a `.blur` filter, not discrete hard

@@ -199,6 +199,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID COMET BAR — the rest marker made legible, a perceived-not-literal position bug (2026-10-01, on `main`;
+  iOS builds; DEVICE eye owed, audio unchecked — Paul: "I can't currently check audio"). Paul, on-device: "the
+  position of the notes move, not just switch on and off" when toggling HITS/REST. Re-traced the draw math
+  end-to-end (not re-asserted blind a second time) — `x = xFor(i+0.5)` is computed from the loop index `i` and `n`
+  alone; `invert` only ever changes whether a given `i` counts as `hit`, never `x`. So every step's HORIZONTAL
+  POSITION is provably fixed regardless of invert. **THE ACTUAL CAUSE, best diagnosis without being able to see
+  the device:** the rest marker was a tiny (5pt), 16%-opacity HOLLOW ring sitting next to a hit dot that's much
+  bigger and, after the same-day "more dramatic" pass, glows/flashes/rings brightly — that size+opacity gulf means
+  the "off" state barely registered as present at all. Toggling invert then LOOKS like a note vanishing from one
+  spot and a different one appearing elsewhere (relocation), when it's actually the same fixed 8 (or N) slots
+  re-lighting a different subset. **FIX:** the rest marker is now a plainly visible FILLED dot at the SAME base
+  radius a resting (non-flaring) hit dot settles to (7pt, up from 5pt) at 22% white opacity (up from 16%, and
+  filled rather than a thin stroked outline) — same shape family as a hit, just dim, so the fixed slot grid reads
+  clearly as persistent structure regardless of which subset is lit. **HONESTLY FLAGGED:** this is a perception fix
+  for the most plausible cause found by re-deriving the math, not a confirmed root-cause match against what's
+  actually on screen — if the dots still read as relocating after this, the bug is somewhere I haven't found by
+  code-reading alone and needs a fresh look (a device screenshot/recording would resolve this far faster than
+  another round of static analysis). Audio correctness is explicitly UNVERIFIED this pass (Paul can't currently
+  check it) — this fix only addresses the VISUAL legibility, not any claim about what's actually heard.
+  **DEVICE-OWED:** confirm the rest/hit distinction now reads as "the same slot, different brightness" rather than
+  "different notes," and separately (once audio can be checked) that INVERT audibly plays the complementary N−K
+  steps, not something else.**
 - **▶ EUCLID EDITOR — a more dramatic hit flash, HITS FROM moved to the bottom, half-height number steppers
   (2026-10-01, on `main`; iOS builds; DEVICE eye owed). Three quick device-driven polish asks on the same-day comet
   bar. **(1) "The hits should be brighter, with effects, and more dramatic when it hits":** the flare was one glow
