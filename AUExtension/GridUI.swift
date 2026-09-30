@@ -439,6 +439,12 @@ struct ProcessorBox: View {
     private func euclidLineEdit4(_ idx: Int, _ f: @escaping (inout EuclidLine) -> Void) {
         setParam { var a = $0.euclidLinesForEditing(); guard idx < a.count else { return }; f(&a[idx]); $0.euclidLines = a }
     }
+    /// Two-finger gesture target (Paul 2026-10-01): the SAME edit as `euclidLineEdit4`, applied to ALL 4 rows at
+    /// once — each row clamps independently against its OWN steps/pulses, so a shared delta can't push one row's
+    /// value somewhere another row's range wouldn't allow.
+    private func euclidAllRowsEdit(_ f: @escaping (inout EuclidLine) -> Void) {
+        setParam { var a = $0.euclidLinesForEditing(); for i in a.indices { f(&a[i]) }; $0.euclidLines = a }
+    }
     /// The merged NOTE SELECT chip row — one of the two rows (ALL·N1…N8, or the aggregate strategies), sliced from
     /// `EuclidNoteSel.allCases`'s own declared order (Models.swift) rather than a second, separately-maintained list.
     @ViewBuilder private func euclidNoteSelChipRow(_ opts: [EuclidNoteSel], _ cur: EuclidNoteSel, _ set: @escaping (EuclidNoteSel) -> Void) -> some View {
@@ -466,10 +472,14 @@ struct ProcessorBox: View {
     /// plainly): screen position i always shows the i-th step in PLAYBACK order (`euclidReadIndex` resolves which
     /// buffer index that is), so the comet always travels left→right — steadier and more legible than having it
     /// visually reverse direction, which read as a glitch rather than "impressive" once actually built.
-    @ViewBuilder private func euclidCometBar(pulses k: Int, steps nIn: Int, rotate: Int, invert: Bool, reverse: Bool, rate: ArpRate, spanN: Int, tint: Color) -> some View {
+    @ViewBuilder private func euclidCometBar(pulses k: Int, steps nIn: Int, rotate: Int, invert: Bool, reverse: Bool, rate: ArpRate, spanN: Int, tint: Color,
+                                              onRotateDelta: @escaping (Int) -> Void, onHitsDelta: @escaping (Int) -> Void,
+                                              onStepsDelta: @escaping (Int) -> Void,
+                                              onAllRotateDelta: @escaping (Int) -> Void, onAllHitsDelta: @escaping (Int) -> Void) -> some View {
         let n = max(2, min(16, nIn))
         let sub = max(0.03125, rate.beats)
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+        ZStack {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clockPlaying)) { tl in
             let liveBeat = beatAnchor + tl.date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
             let phase = euclidPhase(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n)
@@ -549,6 +559,71 @@ struct ProcessorBox: View {
             }
             .allowsHitTesting(false)
         }
+        // GESTURES (Paul 2026-10-01): 1-finger drag left/right = Δrotate, up/down = Δhits (this row); 2-finger drag
+        // does the same but to EVERY row (`euclidAllRowsEdit`). Inset 14pt each side so the pad's own touch area
+        // never competes with the thin +/- STEPS glyphs sitting in that margin (a ZStack sibling, drawn ON TOP —
+        // SwiftUI hit-tests top-down, so the small glyphs win their own bounds before the pad underneath sees them).
+        EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta,
+                         onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta)
+            .padding(.horizontal, 14)
+        HStack {
+            Text("+").font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                .frame(width: 14, height: 30).contentShape(Rectangle()).onTapGesture { onStepsDelta(1) }
+            Spacer(minLength: 0)
+            Text("−").font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                .frame(width: 14, height: 30).contentShape(Rectangle()).onTapGesture { onStepsDelta(-1) }
+        }
+        }
+    }
+    /// A UIKit pan bridge (Paul 2026-10-01) — SwiftUI's own `DragGesture` doesn't distinguish touch COUNT, only
+    /// position, and the EUCLID bar needs a genuine 1-vs-2-finger distinction (1 finger = this row, 2 fingers =
+    /// every row). Touch count is LATCHED at `.began`, not re-read every `.changed`, so a finger lifting or
+    /// landing mid-drag can't flip which mode the drag is in partway through.
+    private struct EuclidGesturePad: UIViewRepresentable {
+        let onRotateDelta: (Int) -> Void        // 1-finger horizontal — Δrotate, this row
+        let onHitsDelta: (Int) -> Void          // 1-finger vertical — Δhits, this row
+        let onAllRotateDelta: (Int) -> Void     // 2-finger horizontal — Δrotate, every row
+        let onAllHitsDelta: (Int) -> Void       // 2-finger vertical — Δhits, every row
+        func makeUIView(context: Context) -> UIView {
+            let v = UIView(); v.backgroundColor = .clear; v.isOpaque = false
+            let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+            pan.minimumNumberOfTouches = 1; pan.maximumNumberOfTouches = 2
+            v.addGestureRecognizer(pan)
+            return v
+        }
+        func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.owner = self }
+        func makeCoordinator() -> Coordinator { Coordinator(self) }
+        final class Coordinator: NSObject {
+            var owner: EuclidGesturePad
+            private var twoFinger = false
+            private var appliedX = 0, appliedY = 0
+            // ~18pt per step each axis — a first-pass sensitivity (tunable): deliberately coarser than NumPair's
+            // own 14pt/step scrub, since this bar is small and a finger resting on it covers a fair chunk of it.
+            private let stepPt: CGFloat = 18
+            init(_ o: EuclidGesturePad) { owner = o }
+            @objc func handlePan(_ g: UIPanGestureRecognizer) {
+                switch g.state {
+                case .began:
+                    twoFinger = g.numberOfTouches >= 2
+                    appliedX = 0; appliedY = 0
+                case .changed:
+                    let t = g.translation(in: g.view)
+                    let stepsX = Int((t.x / stepPt).rounded())
+                    let stepsY = Int((-t.y / stepPt).rounded())   // screen-down is +y; dragging UP should INCREASE
+                    if stepsX != appliedX {
+                        let d = stepsX - appliedX
+                        twoFinger ? owner.onAllRotateDelta(d) : owner.onRotateDelta(d)
+                        appliedX = stepsX
+                    }
+                    if stepsY != appliedY {
+                        let d = stepsY - appliedY
+                        twoFinger ? owner.onAllHitsDelta(d) : owner.onHitsDelta(d)
+                        appliedY = stepsY
+                    }
+                default: break
+                }
+            }
+        }
     }
     /// One of the four always-visible EUCLID rows (Paul 2026-09-30). Line 1: HITS·OF·ROTATE·DIRECTION·INVERT.
     /// Line 2: the merged NOTE SELECT chips (two rows) to the left, the live comet bar to the right.
@@ -582,7 +657,12 @@ struct ProcessorBox: View {
                     }
                 }
                 euclidCometBar(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, reverse: L.reverseResolved,
-                               rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent)
+                               rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent,
+                               onRotateDelta: { d in euclidLineEdit4(idx) { $0.rotate = ((($0.rotate + d) % 16) + 16) % 16 } },
+                               onHitsDelta: { d in euclidLineEdit4(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) } },
+                               onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
+                               onAllRotateDelta: { d in euclidAllRowsEdit { line in line.rotate = ((line.rotate + d) % 16 + 16) % 16 } },
+                               onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } })
                     .frame(minWidth: 90, maxWidth: .infinity).frame(height: 44)
             }
         }

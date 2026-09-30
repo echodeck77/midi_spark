@@ -199,6 +199,39 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID COMET BAR — gesture controls: 1-finger drag (this row) / 2-finger drag (all rows) / tap STEPS ±
+  (2026-10-01, on `main`; iOS builds; DEVICE eye/feel owed — genuinely untestable off-device). Paul: "Left/right
+  drag will move the offset. Up/down will increase or decrease the hits. A thin plus sign is on the left and minus
+  sign is on the right to increase/decrease steps. Two finger drag up changes all lanes' hits. Two finger drag
+  left/right changes offset on all lanes." The bar goes from purely decorative (`allowsHitTesting(false)`) to
+  genuinely interactive — a deliberate reversal of the earlier "must not look selectable" brief; Paul's own
+  explicit ask this time, not a contradiction to flag. **THE CORE PROBLEM:** SwiftUI's native `DragGesture` reports
+  POSITION but never TOUCH COUNT — there's no built-in way to tell a 1-finger drag from a 2-finger drag on the same
+  gesture. Solved with a real `UIPanGestureRecognizer` (`minimumNumberOfTouches: 1, maximumNumberOfTouches: 2`)
+  bridged in via a new `EuclidGesturePad: UIViewRepresentable` — `numberOfTouches` is read ONCE, at `.began`, and
+  LATCHED for the rest of that gesture, so a finger lifting or landing mid-drag can't flip which mode (per-row vs
+  all-rows) the drag is in partway through. `GridUI.swift` already imports UIKit (pre-existing, unrelated to this
+  change) — no new import/seam concern. **LAYOUT:** the comet bar is now a `ZStack` — the existing (unchanged)
+  `Canvas` drawing underneath, the new gesture pad INSET 14pt each side, and the thin `+`/`−` STEPS glyphs as a
+  THIRD sibling drawn on top in that reserved margin — SwiftUI hit-tests top-down, so the small glyphs claim their
+  own bounds before the pad underneath ever sees those touches; no explicit exclusion-zone logic needed. **THE
+  MAPPING**, all delta-based (relative nudges, not absolute-set, so a fast repeated drag/tap keeps compounding
+  naturally): 1-finger horizontal → `Δrotate` (wraps mod 16, matching the existing ROTATE dial's own range) on THIS
+  row only (`euclidLineEdit4`); 1-finger vertical → `Δhits` (clamped `0…max(2,steps)`, mirroring the existing HITS
+  numPair's own clamp) on this row; the `+`/`−` glyphs → `Δsteps` (clamped 2…16, pulling hits down if steps shrinks
+  below it — the exact same rule the existing STEPS numPair callback already applies); 2-finger horizontal/vertical
+  → the SAME two deltas via a new `euclidAllRowsEdit` (applies the shared delta to EVERY row, each still clamping
+  against its OWN steps/pulses independently, so a shared nudge can't push one row somewhere a DIFFERENT row's
+  range wouldn't allow). Sensitivity: ~18pt/step on both axes — a first-pass, tunable constant, deliberately
+  coarser than `NumPair`'s own 14pt scrub since this bar is small and a resting finger covers a good fraction of
+  it. UI-only (GridUI.swift), no test-target reach. **DEVICE-OWED, and this is the one area I genuinely cannot
+  verify by reading code — gesture-recognizer behavior only shows itself on a real touchscreen:** whether
+  `numberOfTouches` reads reliably at `.began` in practice (a fast 2-finger touch-down isn't always perfectly
+  simultaneous at the OS level); whether the UIKit pan gesture conflicts with any ENCLOSING SwiftUI ScrollView's
+  own pan-to-scroll (if the processor panel scrolls, a vertical drag starting on this bar might fight the page
+  instead of adjusting hits — untested, a real risk this specific bridge pattern is known to hit); whether the
+  14pt margin is actually wide enough to reliably hit the `+`/`−` glyphs without also triggering the pad underneath;
+  the 18pt/step feel in the hand.**
 - **▶ EUCLID COMET BAR — the rest marker made legible, a perceived-not-literal position bug (2026-10-01, on `main`;
   iOS builds; DEVICE eye owed, audio unchecked — Paul: "I can't currently check audio"). Paul, on-device: "the
   position of the notes move, not just switch on and off" when toggling HITS/REST. Re-traced the draw math
