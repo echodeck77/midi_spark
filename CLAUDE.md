@@ -199,6 +199,39 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ARP EDITOR — revised same day: sliders stacked, VELOCITY now absolute 1…100 (2026-09-30, on `main`, `288ce7e`;
+  macOS 1160 green incl. 3 rewritten, iOS builds; DEVICE eye/ear owed). Direct follow-up to the layout landed earlier
+  the same day. Paul: (1) stack LENGTH/VELOCITY/VELOCITY TILT on top of each other, instead of side-by-side; (2)
+  VELOCITY should IGNORE the input note's own velocity and use only what the control specifies; (3) the slider
+  should run 1…100, not the old 0…2 relative scale. **LAYOUT:** the three now share ONE HStack slot (was three)
+  as a `VStack(spacing: 8)`, top-to-bottom in the order Paul named them — matching the OCTAVE/OCT DIR stack's own
+  spacing for visual consistency within the same row. **RENAMED `arpVelScale`→`arpVelocity` throughout** (MachineParams,
+  SnapParams, `AutoParamField` + its 4 exhaustive functions, `SnapshotBuilder`'s resolve, the `effective*` helper,
+  `arpPick`'s own parameter across all 3 overloads, GridUI's 5 LFO-editor switches) — not just a range change but a
+  vocabulary fix, since "scale" no longer described what the field does. **ENGINE:** `arpPick` no longer reads
+  `pool.velocity(note)` at all — `velocity` (the resolved 1…100 control value) IS the note's entire base, with
+  VELOCITY TILT still shaping it further by pool rank on top (unchanged — a fixed base instead of the old scaled-
+  input one). **TEST FALLOUT, traced not guessed:** 3 pre-existing RouterTests asserted the very invariant Paul just
+  asked to reverse for ARP ("VELOCITY INHERITANCE — every processor takes its output velocity from the input
+  source," dated 2026-08-09) — before rewriting their expected values, traced the EXACT fold path for `[ARP →
+  HARMONIZE]` (`Router.applyStage`'s `.harmonize` case reads the ONE-NOTE pool `emitDriverNote` seeds from the
+  driver's OWN resolved `(note, velocity)`, never the original chord — confirmed by reading, not assumed) to derive
+  the correct new expected value (100, the VELOCITY default) for BOTH the dry note and the harmony voice, rather
+  than guessing. Renamed + rewrote `testArpInheritsSourceVelocity`→`testArpUsesVelocityControlIgnoringSource`,
+  `testChainInheritsSourceVelocityThroughHarmonize`→`testChainUsesArpVelocityControlThroughHarmonize`,
+  `testAuditionInheritsSourceVelocity`→`testAuditionUsesVelocityControlIgnoringSource`.
+  `testEuclidGeneratorInheritsSourceVelocity` (a different generator, unaffected — Paul scoped this to ARP only) is
+  untouched, still green, still asserting the old invariant for euclid. **INTEGRATION NOTE:** this branch's own
+  single commit landed a SECOND time this session one commit behind `origin/main` — another worktree's "ARP OCT
+  DIRECTION" commit (below) had, in the interim, changed the EXACT SAME formula line (`let oct = octDown ? … :
+  octIdx`) this commit's own velocity code sits directly beneath in `arpPick` — a real rebase conflict (adjacent,
+  not overlapping, lines), resolved by hand: kept their new oct-direction formula verbatim + this commit's new
+  velocity code verbatim, rebuilt + retested green on the combined tree before pushing. **JUDGMENT CALL, flagged:**
+  Paul said "1 to 100," read literally as the direct value (not a 1–100 MAPPED onto 0–127) — so a VELOCITY of 100 is
+  the ceiling, not "full MIDI velocity" (127); if 127 was actually meant, that's a one-line range change.
+  **DEVICE-OWED:** the stacked trio's legibility in one column, VELOCITY audibly ignoring how hard the chord was
+  played and only tracking the dial, and the oct-direction + velocity changes not interacting oddly in the same
+  render pass.**
 - **▶ ARP OCT DIRECTION — REDEFINED: DOWN now descends BELOW the held keys, symmetric with UP (2026-09-30, on
   `main`; iOS builds, macOS green incl. 2 updated; DEVICE ear owed). Paul noticed DOWN starts a full octave (or
   more) ABOVE the held keys rather than at them, and asked whether starting AT the held keys and descending was
