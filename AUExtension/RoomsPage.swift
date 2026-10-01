@@ -159,11 +159,24 @@ extension DiagView {
             let chainW = avail - gridW
             let bodyH = g.size.height - 16                                // no in-body toggle bar now — the body fills the page (Paul 2026-09-08)
             let m = RoomsMetrics(height: bodyH)                           // the ONE lattice for the grid body
-            HStack(alignment: .top, spacing: 6) {
-                Group {
-                    if roomsRoom == .part { roomsPartGrid(m: m) } else { roomsSelectGridUnit(m: m) }
-                }.frame(width: gridW, height: bodyH)                      // the active GRID (2/3, LEFT — same side for both)
-                chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box (1/3, RIGHT — fixed)
+            // ORIENTATION (Paul 2026-10-01): roomsLeftOriented swaps which SIDE each region renders on; the widths
+            // (grid 2/3, machine box 1/3) are unchanged either way — only the position swaps.
+            Group {
+                if roomsLeftOriented {
+                    HStack(alignment: .top, spacing: 6) {
+                        chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box — LEFT (new default)
+                        Group {
+                            if roomsRoom == .part { roomsPartGrid(m: m) } else { roomsSelectGridUnit(m: m) }
+                        }.frame(width: gridW, height: bodyH)                           // the active GRID — RIGHT
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 6) {
+                        Group {
+                            if roomsRoom == .part { roomsPartGrid(m: m) } else { roomsSelectGridUnit(m: m) }
+                        }.frame(width: gridW, height: bodyH)                           // the active GRID — LEFT (classic)
+                        chainPanel(roomsRoom, m).frame(width: chainW, height: bodyH)   // the MACHINE box — RIGHT
+                    }
+                }
             }.padding(8)
             // FERRY DRAG-AND-DROP (Paul 2026-09-12): ONE shared coordinate space spanning the grid + the machine box, so a
             // SELECT cell / ferry drag can hit-test the ferries AND the machine-box trash. Drop-zone frames flow up via

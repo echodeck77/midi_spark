@@ -11,6 +11,7 @@ struct CogPage: View {
     let d: KernelDiag                 // health readout (voices / held / panics)
     let aboutLine: String
     @Binding var showScenes: Bool     // DISPLAY: the arrangement bar's 16-scene row (hidden by default)
+    @Binding var roomsLeftOriented: Bool   // DISPLAY: left/right handedness of the rooms workbench (Paul 2026-10-01)
     let onClose: () -> Void
 
     private let ink = Color.white
@@ -31,6 +32,12 @@ struct CogPage: View {
                             Text("show the arrangement's 16-scene row").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
                             Spacer()
                             onOffToggle(on: showScenes) { showScenes = $0 }
+                        }
+                        HStack(spacing: 8) {
+                            Text("ORIENTATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).fixedSize()
+                            Text("machine column, row-rail/trash, and part-grid rails: LEFT or RIGHT").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+                            Spacer()
+                            leftRightToggle(left: roomsLeftOriented) { roomsLeftOriented = $0 }
                         }
                         divider
                         section("INPUT")
@@ -142,6 +149,19 @@ struct CogPage: View {
             .frame(width: 34, height: 20)
             .background(RoundedRectangle(cornerRadius: 3).fill(on ? green : ink.opacity(0.07)))
             .contentShape(Rectangle()).onTapGesture { set(!on) }
+    }
+    // A two-way LEFT|RIGHT segmented toggle (Paul 2026-10-01, ORIENTATION) — reads which side is active directly,
+    // unlike onOffToggle's bare ON/OFF (which wouldn't convey WHICH orientation is on at a glance).
+    private func leftRightToggle(left: Bool, _ set: @escaping (Bool) -> Void) -> some View {
+        HStack(spacing: 2) {
+            ForEach([true, false], id: \.self) { v in
+                Text(v ? "LEFT" : "RIGHT").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(left == v ? .black : ink.opacity(0.45))
+                    .frame(width: 40, height: 20)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(left == v ? green : ink.opacity(0.07)))
+                    .contentShape(Rectangle()).onTapGesture { set(v) }
+            }
+        }
     }
 
 }

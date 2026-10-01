@@ -1293,31 +1293,56 @@ extension DiagView {
             AnyView(buildReceiverSelector(castW: castW))                       // the 4 MIDI IN toggles — CONTENT-sized (was .frame(height: m.ch), whose extra space read as padding above the chain; the emitter toggles below are content-sized, now symmetric — Paul 2026-08-30)
             VStack(spacing: 8) {                                            // THE INTERIOR COLUMN — from the grid's interiorTop to its bottom
                 Spacer(minLength: 8)                                         // centre the chain row VERTICALLY
+                // ORIENTATION (Paul 2026-10-01): roomsLeftOriented swaps the trash/row-rail flank with the verb-button
+                // flank — "the cluster of buttons like clear and randomize move to the left... to where the garbage
+                // can lives and vice versa." The flow overlay (velocity circles + connectors) is DELIBERATELY left
+                // reading LEFT=input/RIGHT=output in both orientations — flipping it too would need the chain's own
+                // internal entry/exit corners (buildChainFlowLine, always top-left→bottom-right) to flip as well,
+                // which is a bigger, unrequested change; flagged as a known consequence, not silently fixed: the
+                // row-rail's "sized to match the input circle" visual rhyme only holds in the CLASSIC orientation.
                 if room == .part, let sr = buildGridSelStampSourceRow, buildRowMachine(sr) == nil {
                     // EMPTY part row selected (Paul 2026-09-10): the row-creator MENU is gone (creation is now the 4 in-row
                     // buttons). The machine box instead shows a FADED, EMPTY, UNSELECTABLE chain — same layout + footprint as
                     // a real chain (blockH, no scale change), just dimmed + inert so it clearly reads "nothing here yet".
-                    AnyView(HStack(alignment: .center, spacing: 0) {           // TRASH flank LEFT · chain centred · LIBRARY/MUTATE/CLEAR RIGHT — matches the populated layout (Paul 2026-09-10)
-                        AnyView(roomsChainTrash(width: sideW, height: blockH))
-                        AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue, chainOverride: [])).frame(width: blockW)
-                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                    let trashFlank = AnyView(roomsChainTrash(width: sideW, height: blockH))
+                    let verbFlank = AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))
+                    let centre = AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue, chainOverride: [])).frame(width: blockW)
+                    AnyView(HStack(alignment: .center, spacing: 0) {
+                        if roomsLeftOriented {
+                            verbFlank
+                            centre
+                            trashFlank
+                        } else {
+                            trashFlank
+                            centre
+                            verbFlank
+                        }
                     }
                     .opacity(0.35)
                     .allowsHitTesting(false))
                 } else {
-                    AnyView(HStack(alignment: .center, spacing: 0) {           // LEFT flank: ROW RAIL (part room) ↔ trash · MIDI CHAIN centred · verb buttons (LIBRARY/MUTATE/CLEAR) RIGHT (Paul 2026-09-10)
-                        AnyView(ZStack {                                        // LEFT — the 4 part-row selectors (another view of the selected/playing row), swapped for the trash while dragging (Paul 2026-09-13)
-                            if roomsRoom == .part && !buildTrashVisible {
-                                // Match the row buttons to the INPUT circle that feeds the chain (drawn by buildChainFlowOverlay
-                                // directly above them): its radius = the SAME formula, with the overlay's boxH = (cell+cgap)*1.5.
-                                let flowBoxH = (cell + cgap) * 1.5
-                                let inCircleR = max(3.5, min(flowBoxH * 0.16, sideW * 0.42))
-                                AnyView(roomsMachineRowRail(width: sideW, height: blockH, buttonWidth: 6 * inCircleR))   // 3× the circle width (Paul 2026-09-16); clamped to the flank (sideW) inside the rail
-                            }
-                            AnyView(roomsChainTrash(width: sideW, height: blockH))   // the DELETE trash (drawn only mid-drag; keeps registering its drop zone)
-                        }.frame(width: sideW, height: blockH))
-                        AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
-                        AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // RIGHT — LIBRARY / MUTATE / CLEAR (always the right, both rooms)
+                    let trashFlank = AnyView(ZStack {                              // the 4 part-row selectors (another view of the selected/playing row), swapped for the trash while dragging (Paul 2026-09-13)
+                        if roomsRoom == .part && !buildTrashVisible {
+                            // Match the row buttons to the INPUT circle that feeds the chain (drawn by buildChainFlowOverlay
+                            // directly above them): its radius = the SAME formula, with the overlay's boxH = (cell+cgap)*1.5.
+                            let flowBoxH = (cell + cgap) * 1.5
+                            let inCircleR = max(3.5, min(flowBoxH * 0.16, sideW * 0.42))
+                            AnyView(roomsMachineRowRail(width: sideW, height: blockH, buttonWidth: 6 * inCircleR))   // 3× the circle width (Paul 2026-09-16); clamped to the flank (sideW) inside the rail
+                        }
+                        AnyView(roomsChainTrash(width: sideW, height: blockH))      // the DELETE trash (drawn only mid-drag; keeps registering its drop zone)
+                    }.frame(width: sideW, height: blockH))
+                    let verbFlank = AnyView(buildChainButtonStack(width: sideW, height: blockH, showGrid: false))   // LIBRARY / MUTATE / CLEAR
+                    let centre = AnyView(buildProcessorBlock(castW: castW, cell: cell, hue: boxHue)).frame(width: blockW)   // the chain wears the SAME machine hue as the box (grey on SELECT) — Paul 2026-08-30
+                    AnyView(HStack(alignment: .center, spacing: 0) {
+                        if roomsLeftOriented {
+                            verbFlank
+                            centre
+                            trashFlank
+                        } else {
+                            trashFlank
+                            centre
+                            verbFlank
+                        }
                     }.overlay { buildChainFlowOverlay(sideW: sideW, blockW: blockW, blockH: blockH, boxH: (cell + cgap) * 1.5, gap: cgap, hue: boxHue, chain: selectedMachineChain()) })   // circles + connectors + NOTE COMETS (spans the circles, clipped out of POPULATED boxes) — Paul 2026-08-31
                 }
                 Spacer(minLength: 8)
@@ -2335,9 +2360,14 @@ extension DiagView {
                 }
                 ZStack(alignment: .topLeading) {                           // the lower region: the 4-row grid on top, the docked CARD beneath
                     VStack(alignment: .leading, spacing: gap) {
-                        HStack(alignment: .top, spacing: gap) {             // body: LEFT chevron rail | interior+playhead | RIGHT numbered rail (Paul 2026-09-08 — rails swapped)
-                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } }   // LEFT = chevron (row-select for playback)
-                            ZStack(alignment: .topLeading) {
+                        // ORIENTATION (Paul 2026-10-01): the two rails swap sides — roomsLeftOriented (new default)
+                        // puts the NUMBERED rail (part-position selector / copy source) on the LEFT and the CHEVRON
+                        // rail (row-select for playback) on the RIGHT; classic keeps the 2026-09-08 arrangement
+                        // (chevron LEFT, numbered RIGHT). The interior grid itself never moves — only its two flanks.
+                        let chevronRail = AnyView(VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsPartRightRail(n).frame(width: railW, height: rowH) } })   // row-select for playback
+                        let numberedRail = AnyView(VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH)
+                            .overlay { roomsCardRowPlayhead(n, w: railW, h: rowH).clipShape(RoundedRectangle(cornerRadius: 5)) } } })   // part-position selector / copy source + the 1-step sweep on the playing row (Paul 2026-09-13)
+                        let interior = AnyView(ZStack(alignment: .topLeading) {
                                 VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { r in
                                     if buildRowGenRow == r {   // MUTATE/RANDOM/TRY-AGAIN generating this row off-main → its progress bar, same place/style (Paul 2026-09-29)
                                         roomsRowGeneratingInline(r, cw: cw, gap: gap, cols: cols, rowH: rowH)
@@ -2358,9 +2388,17 @@ extension DiagView {
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("partInt"))   // TAP + DRAG select (empty cells too, Paul 2026-09-02)
                                 .onChanged { g in buildPartGridDrag(g.location, cw: cw, ch: rowH, gap: gap, cols: cols) }
                                 .onEnded { _ in buildPartDragLast = nil })
-                            .saturation(gridSilenced ? 0.12 : 1).opacity(gridSilenced ? 0.5 : 1)   // MUTE/SOLO: the on-bench grid reads as silenced (still editable — opacity keeps hit-testing)
-                            VStack(spacing: gap) { ForEach(0..<rows, id: \.self) { n in roomsSideButton(n, part: true).frame(width: railW, height: rowH)
-                                .overlay { roomsCardRowPlayhead(n, w: railW, h: rowH).clipShape(RoundedRectangle(cornerRadius: 5)) } } }   // RIGHT = numbered (part-position selector / copy source) + the 1-step sweep on the playing row (Paul 2026-09-13)
+                            .saturation(gridSilenced ? 0.12 : 1).opacity(gridSilenced ? 0.5 : 1))   // MUTE/SOLO: the on-bench grid reads as silenced (still editable — opacity keeps hit-testing)
+                        HStack(alignment: .top, spacing: gap) {
+                            if roomsLeftOriented {
+                                numberedRail
+                                interior
+                                chevronRail
+                            } else {
+                                chevronRail
+                                interior
+                                numberedRail
+                            }
                         }
                     }
                     // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
@@ -3217,7 +3255,10 @@ extension DiagView {
                     if buildChainDragFrom == nil { buildChainDragFrom = i }   // drag just started → lift this box
                     buildChainDragMoved = true                                // a real drag is underway → reveal the trash + targets
                     buildChainDragLoc = drag.location
-                    let overTrash = drag.location.x < -6                      // the trash is the LEFT flank (negative x in the box-grid space)
+                    // ORIENTATION (Paul 2026-10-01): the trash lives on the LEFT flank (classic) or the RIGHT flank
+                    // (roomsLeftOriented — verb buttons took the left) — blockW = this 2×4 grid's own width (2 box
+                    // widths + 1 gap), the same formula the 2026-09-28 LEFT-machine-column experiment used.
+                    let overTrash = roomsLeftOriented ? (drag.location.x > w * 2 + gap + 6) : (drag.location.x < -6)
                     buildChainOverTrash = overTrash
                     buildChainDropTo = overTrash ? nil : buildChainTargetIndex(drag.location, boxW: w, boxH: h, gap: gap, count: chain.count)
                 }

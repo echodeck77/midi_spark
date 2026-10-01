@@ -382,6 +382,12 @@ struct DiagView: View {
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
+    // ORIENTATION (Paul 2026-10-01): a device-wide layout handedness preference — same persistence class as showScenes
+    // (an @AppStorage display preference, not a PluginState/document field, since it's about the USER's own setup, not
+    // any one project). TRUE (the NEW default) = machine column/receivers/emitters on the LEFT, the machine-box's
+    // trash+row-rail flank on the RIGHT (swapped with the verb-button cluster), and the part grid's numbered rail on
+    // the LEFT with the chevron rail on the RIGHT. FALSE = the classic layout (main's shape before this toggle existed).
+    @AppStorage("midispark.roomsLeftOriented") var roomsLeftOriented = true
     // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — a parallel NEW-interface shell behind a preview toggle
     // (old BUILD stays the default + fully working). Off ⇒ the current BUILD page; on ⇒ the room shell (roomsPage).
     @State var roomsRoom: Room = .select       // which room is in view in the new shell (one grid at a time)
@@ -806,6 +812,7 @@ struct DiagView: View {
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, d: d, aboutLine: aboutLine,
                             showScenes: $showScenes,
+                            roomsLeftOriented: $roomsLeftOriented,
                             onClose: { showSettings = false })
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
