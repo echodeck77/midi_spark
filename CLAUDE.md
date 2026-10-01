@@ -196,6 +196,52 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID DRAG HUD — relocated OUT of the scrolling processor panel, tracks the touch, restyled (2026-10-02,
+  on `main`; iOS builds, no test-target reach (GridUI+BuildPage+AudioUnitViewController); DEVICE eye owed —
+  the touch-tracking math can't be confirmed off-device). Paul: "I want the overlay for count, hits to be top
+  level because it's currently fixed on the scrolling processor edit page. It should be an inch or two above
+  the touch location and more prominent than it is now. Style it as saying 3 hits out of 8, with offset by 2 in
+  smaller text." **ROOT PROBLEM:** the old HUD (`euclidDragHUD`) was rendered INSIDE `ProcessorBox`, which is
+  itself nested inside `buildProcessorPanel`'s `ScrollView(.vertical, showsIndicators: true)` (confirmed by
+  reading the actual call chain, not assumed) — a plain `.overlay(alignment: .top) { ... }.offset(y: -58)`
+  anchored to the lane stack's own TOP edge, regardless of which of the 4 lanes was actually being touched or
+  where the panel happened to be scrolled to. `ProcessorBox` itself has no way to escape its own embedding
+  ScrollView's clip/scroll — only its HOST (`buildProcessorPanel`, in BuildPage.swift) can render something as a
+  true sibling OUTSIDE it. **FIX, three moving parts:** (1) a new `EuclidDragHUDInfo` struct (label/hits/steps/
+  offset/point, GridUI.swift) carries everything the HUD needs, including the touch's location in WINDOW
+  coordinates (`UIPanGestureRecognizer`/`UIPinchGestureRecognizer`'s own `location(in: view.window)` — NOT
+  SwiftUI-local coordinates, which would be meaningless once the content is rendered somewhere else entirely).
+  (2) `EuclidGesturePad`'s `onDragState` signature widened from `(Bool, Bool)` to `(CGPoint?, Bool)` — now fires
+  on EVERY `.changed` tick (not just begin/end) so the reported point tracks the finger continuously, not just
+  at touch-down; `nil` on lift/cancel. `euclidRow` builds the full `EuclidDragHUDInfo` from its own already-in-
+  scope `L`/`idx` and reports it via a new `onDragInfo` callback, threaded up through a new `ProcessorBox.
+  onEuclidDragInfo: (EuclidDragHUDInfo?) -> Void = { _ in }` (default no-op — only `buildSlotBox`, the one real
+  chain-slot editor, wires it; the tab-strip/chord-sequencer-popup `ProcessorBox` call sites never show EUCLID
+  and are unaffected). (3) `buildProcessorPanel` (BuildPage.swift) now owns a new `@State var euclidDragHUDInfo`
+  (declared on `DiagView` itself, `AudioUnitViewController.swift`, since that's where the struct's state lives)
+  and renders the ACTUAL HUD via a NEW `.overlay()` chained AFTER the panel's own `ScrollView` + its `.frame(...)`
+  — a true sibling, escaping the scroll clip entirely. The overlay's own `GeometryReader` converts the WINDOW-
+  space touch point into ITS local coordinate space via `geo.frame(in: .global).origin` subtraction (SwiftUI's
+  `.global` space and UIKit's window space coincide for a SwiftUI root hosted directly in its window, the
+  standard bridging assumption for this kind of UIKit-gesture-into-SwiftUI-overlay technique — unverified on
+  THIS specific hosting setup without a device). Positioned ~150pt above the touch ("an inch or two," a
+  documented approximation — iPad's logical point density isn't a fixed physical inch, flagged as tunable, not
+  measured) with the X clamped so the ~230pt-wide card can't run off either edge. **STYLE:** replaced the old
+  3-stat-box row (STEPS/HITS/OFFSET side by side, 16pt numbers) with a plain-English primary line — "N HITS OUT
+  OF M" at 22pt — and a smaller secondary line, "OFFSET BY K" at 12pt, per Paul's own literal phrasing. Bigger
+  padding, a brighter border, and a drop shadow (new) make it read as a genuine floating card, not an inline
+  tag. The 4 bordering arrow glyphs from the old design are DROPPED, not kept — they were a "gestures work
+  here" reminder tied to a FIXED position beside the gesture pad; pointing in 4 directions stops meaning
+  anything once the card floats freely wherever the touch happens to be, so keeping them would have been
+  decoration with no referent. No animation on position (deliberate) — the HUD snaps to each reported point
+  immediately rather than easing toward it, so it doesn't lag behind the finger. UI-only, three files
+  (GridUI.swift, BuildPage.swift, AudioUnitViewController.swift), no test-target reach. **DEVICE-OWED, and
+  this is the one piece I genuinely can't verify by reading code — true cross-UIKit/SwiftUI coordinate bridging
+  only shows itself on a real touchscreen+window:** whether the window-space-to-SwiftUI-global conversion lands
+  pixel-accurate on THIS app's actual hosting setup (a systematic offset would show up as "the HUD is near the
+  touch but consistently off by some amount," not as a crash); the ~150pt/~230pt constants' feel at real panel
+  size; confirm the HUD now stays visible and tracks the finger regardless of how far the processor panel has
+  been scrolled, the actual bug being fixed.**
 - **▶ PLAY FERRIES — fixed a populated, selected ferry loading with the part grid invisible (2026-10-02, on `main`,
   `7f07897`; iOS builds, no test-target reach (BuildPage-only); DEVICE eye owed). Paul: "sometimes, early in the
   session, a play ferry selector is selected on a populated play ferry but the part grid isn't visible." **ROOT
