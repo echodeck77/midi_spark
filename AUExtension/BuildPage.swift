@@ -4118,6 +4118,20 @@ extension DiagView {
         }
         if let names = d.gridSelNames { buildGridSelName = names }
         buildFerryHueAlloc = d.ferryHueAlloc ?? [:]   // empty-ferry colour reallocation (Paul 2026-09-12)
+        // RE-SYNC THE ACTIVE FERRY (Paul 2026-10-02 fix — "a ferry selector is selected on a populated ferry but
+        // the part grid isn't visible, early in a session"): `buildActiveFerry` (default 0) and `roomsRoom`
+        // (default .select) are independent @State defaults, set before any document is known. This restore is
+        // the FIRST moment we learn whether the default-active ferry actually has content — nothing used to
+        // re-check that, so a saved document with ferry 0 populated left roomsRoom stuck on .select (the
+        // hardcoded launch default) while the selector correctly showed ferry 0 as selected+populated: the
+        // reported symptom. Re-activate whichever ferry is marked active now that its real content is known.
+        // `buildActiveFerry = nil` FIRST so buildActivateFerry takes its "nothing was previously active" branch —
+        // skipping its own bench→part CAPTURE step (the `t == buildActiveFerry` / re-tap branch), which would
+        // otherwise overwrite the part we JUST restored with the bench's stale pre-load content (a real hazard
+        // here, not hypothetical: t == buildActiveFerry is exactly the case that capture exists for). For a
+        // genuinely empty ferry this resolves to byte-identical behaviour (roomsRoom stays .select, matching
+        // today) — only a populated default-active ferry changes anything.
+        if let a = buildActiveFerry { buildActiveFerry = nil; buildActivateFerry(a, navigate: true) }
         buildPublishScene()   // republish so restored STARTED ferries sound at once
     }
     // PART AUTOMATION (Paul 2026-09-02): capture the per-machine AUTO lanes for the save (prune machines with no active
