@@ -199,6 +199,45 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ COG — a LEFT/RIGHT ORIENTATION toggle for the rooms workbench, new default LEFT (2026-10-01, on `main`,
+  `f31c528`; iOS builds, macOS 1160 unaffected; DEVICE eye owed on the whole flip). Paul: a cog feature to switch
+  the workbench's left/right handedness, with the machine column/receivers/emitters moving to the LEFT as the NEW
+  default, the part grid's row rails swapping sides, and the machine-box's trash/verb-button flank swapping too.
+  **PERSISTENCE:** `roomsLeftOriented` — a NEW `@AppStorage("midispark.roomsLeftOriented")` Bool, default `true` —
+  the SAME persistence class as the existing `showScenes` (a device-wide DISPLAY preference, not a PluginState/
+  document field, since handedness is about the user's own setup, not any one project). Since `DiagView` (the one
+  giant SwiftUI View struct `RoomsPage.swift`/`BuildPage.swift` are both `extension` of) already owns `showScenes`
+  as a stored property, every `roomsXxx`/`buildXxx` function across both files reads `roomsLeftOriented` DIRECTLY —
+  no parameter threading needed anywhere except `CogPage` (a genuinely separate View struct, wired the same way
+  `showScenes` already was: `@Binding`, passed from the one construction site in AudioUnitViewController.swift).
+  **THREE THINGS FLIP TOGETHER:** ① `RoomsPage.roomsWorkbench` — the page-level HStack's two children (the active
+  GRID, 2/3, and the MACHINE BOX, 1/3) swap which side they render on; widths unchanged, only position. ② `BuildPage.
+  roomsMachineStrip` — the machine box's two flanks swap: the verb-button cluster (LIBRARY/MUTATE/RANDOMIZE/CLEAR)
+  moves to wherever the trash/row-rail lived, and vice versa, in BOTH the populated and the faded-empty-row
+  branches (factored each flank + the centre chain block into local `let` bindings so the if/else just reorders
+  three names, rather than duplicating the actual view construction). `buildProcBox`'s drag-to-delete hit-test
+  (`drag.location.x < -6` for "is the finger over the trash") now branches on orientation — the classic check stays,
+  the new-default check reads the OPPOSITE edge (`> w·2+gap+6`, the exact `blockW` formula the 2026-09-28 LEFT-
+  machine-column experiment used for the same purpose). ③ `BuildPage.roomsPartGrid` — the part grid's two side
+  rails swap: the NUMBERED rail (part-position selector / copy source) moves to the LEFT under the new default, the
+  CHEVRON rail (row-select for playback) to the RIGHT — extracted both rails + the whole interior grid/playhead/
+  gesture block into `let chevronRail`/`numberedRail`/`interior` bindings for the same reason. **TERMINOLOGY
+  RESOLVED BY DIRECTION, not by guessing a label:** Paul named the two part-grid rails "row selectors" (→ LEFT) and
+  "line selector" (→ RIGHT) without naming which rail is which — rather than risk picking the wrong mapping, used
+  his own unambiguous meta-instruction ("the opposite to how it is now") as the authority: main's CURRENT
+  arrangement is chevron-LEFT/numbered-RIGHT, so the only swap consistent with "opposite" is chevron→RIGHT/
+  numbered→LEFT, regardless of which name belongs to which rail. **DELIBERATELY NOT TOUCHED, flagged not silently
+  dropped:** `buildChainFlowOverlay`'s two velocity circles stay LEFT=input/RIGHT=output in BOTH orientations.
+  Making them follow the trash/row-rail flank (so the row-rail's existing "sized to match the input circle"
+  pairing — `buttonWidth: 6 * inCircleR` — kept visually rhyming) would need the chain's own internal entry/exit
+  corners (`buildChainFlowLine`, always top-left→bottom-right, independent of which flank holds the trash) to flip
+  too — traced the connector-line geometry by hand before deciding this was a bigger, genuinely different change
+  Paul never asked for, not a one-line follow-on. Known, disclosed consequence: the row-rail/input-circle visual
+  pairing only holds in the CLASSIC orientation; under the new default it's just two unrelated adjacent elements.
+  **UI (cog page):** a new LEFT|RIGHT segmented control (`leftRightToggle`, DISPLAY section, beside SCENES) — not
+  the existing bare `onOffToggle`, since ON/OFF wouldn't say WHICH side is active at a glance. **DEVICE-OWED:** the
+  whole flip in both rooms (SELECT and PART), the drag-to-trash hit-test at the new edge, and whether the lost
+  row-rail/input-circle pairing reads as a problem worth a follow-up fix.**
 - **▶ EUCLID REDESIGN — Stage 3/4: PLAY/SELECT lanes + a side settings panel with GATE/OCTAVE/3-way DIRECTION
   (2026-10-01, on `main`; macOS 1165 green incl. 9 new, iOS builds; DEVICE eye/ear owed on the whole layout +
   feel). Paul, after the gesture/HUD/note-select trims above: "Lose the existing controls for count, hits, offset
