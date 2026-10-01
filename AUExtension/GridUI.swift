@@ -1090,7 +1090,6 @@ struct ProcessorBox: View {
             ])
         })
         case .euclid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // GENERATOR — K-of-N euclidean rhythm; FOUR ALWAYS-VISIBLE FIXED LANES (2026-10-01 PLAY/SELECT + settings-panel redesign — supersedes the 2026-09-30 inline-controls layout)
-            let fromPool = p.euclidPulsesFromPool ?? false
             let rows = p.euclidLinesForEditing()
             let selIdx = min(max(0, euclidSelectedLane), max(0, rows.count - 1))
             // LAYOUT (Paul 2026-10-01): "four lanes stacked... selector buttons on the left for play/stop and
@@ -1122,13 +1121,13 @@ struct ProcessorBox: View {
                 }
             }
             .frame(height: euclidLaneH * 4 + euclidLaneGap * 3)   // pins the reader's own height to the known lane-stack height — it doesn't need to measure this dimension
-            // HITS FROM stays at the bottom (2026-10-01, unchanged from the prior layout) — a machine-wide
-            // toggle, not a per-lane control; Paul didn't mention relocating it.
-            field("HITS FROM", \.euclidPulsesFromPool) { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
-            frameRow(grid:  { frameGrid(p.euclidRate ?? .r1_16) { r in setParam { $0.euclidRate = r } } },   // §1 ANATOMY FOOTER — GRID = the step rate (density), shared by all 4 lanes
-                     rotate: { EmptyView() },   // ROTATE lives on each lane's own gesture pad now, not the shared footer
-                     span:   { frameSpan(p.euclidSpanN ?? 0, free: true) { v in setParam { $0.euclidSpanN = v } } },
-                     pairs: .euclid)
+            // FOOTER REMOVED (Paul 2026-10-02: "remove everything below the lanes") — this used to carry the
+            // machine-wide HITS FROM (FIXED|POOL) toggle and the GRID/SPAN frameRow. Those three params still
+            // exist and still resolve/render (GRID/SPAN drive every lane's comet bar and the real engine
+            // unchanged) — only the UI to CHANGE them from this page is gone; a machine keeps whatever it last
+            // had (GRID defaults 1/16, SPAN defaults FREE, HITS FROM defaults FIXED). Flagged plainly: this is a
+            // real loss of reachable control, not just a visual trim — there's no other place in this editor
+            // left to set these three.
         })
         case .burst: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)
             let bmode = p.burstMode ?? .once   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
