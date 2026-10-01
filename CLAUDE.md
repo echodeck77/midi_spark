@@ -196,6 +196,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID COMET BAR — the rotate-drag direction was backwards (FWD/PING-PONG), fixed dir-aware (2026-10-02, on
+  `main`; iOS builds, no test-target reach (GridUI-only); DEVICE ear/eye owed). Paul, on-device: "I grab a dot and
+  drag one space to the left, but there's some kind of mismatch... the lit note doesn't move along with my
+  gesture, instead it jumps somewhere else." Traced, not guessed — worked a concrete E(3,8) example by hand
+  before touching code. ROOT CAUSE: `euclidPatternInto`'s `rotation` is `buf[i] = test((i+rot) % n)`, a true
+  cyclic shift where INCREASING `rot` moves every hit LEFT by one screen slot (confirmed: rot=0 hits {0,3,6} →
+  rot=1 hits {2,5,7} — each exactly one slot left, 0 wrapping to 7). The pan gesture's `d` carries the SAME sign
+  as the raw finger translation (negative when dragging left) and was applied as `rotate + d` (`euclidRow`'s
+  `onRotateDelta`/`onAllRotateDelta`) — so dragging left DECREASED rotate, which shifts the pattern RIGHT:
+  backwards from the finger, exactly the reported symptom (and explains "jumps somewhere else" rather than just
+  "doesn't move" — Euclidean spacing means a wrong-direction shift doesn't look like a small nudge). **FIX is
+  DIRECTION-AWARE, not a blanket sign flip:** re-derived the SAME relationship for BKW (whose `euclidReadIndex`
+  mirrors the read: screen position i shows buffer index n−1−i) and found it's the OPPOSITE — increasing `rot`
+  moves a tracked hit RIGHT by one screen slot under BKW (verified by tracking one specific base-hit index
+  through the mirrored formula, not just eyeballing the resulting sets, which the first pass did WRONG — matching
+  unordered sets `{1,4,7}`→`{0,2,5}` by position looked inconsistent until each hit was tracked individually by
+  identity, which showed a clean uniform +1 every time). So the fix branches on `directionResolved`: BKW keeps
+  the ORIGINAL `rotate + d` (already correct there); FWD takes `rotate - d` (the flip). PING-PONG rides the FWD
+  branch — its comet bar already reads the buffer identically to FWD for i in 0..<n (its own disclosed
+  simplification, shown only the ascending half). Scoped to the rotate axis only — the vertical HITS delta
+  already correctly compensates for screen-y-is-inverted (`-t.y`), and isn't a positional-shift parameter, so it
+  has no direction-dependent sign question the way rotate does; PINCH/STEPS likewise untouched. **DEVICE-OWED:**
+  confirm a 1-finger left-drag now visibly follows the finger left (wrapping at the edge) in FWD/PING-PONG, and
+  separately that BKW's drag still feels right now that it's the one branch left unchanged from before.**
 - **▶ EUCLID PANEL — layout fix: GeometryReader column split, 44pt touch targets, DIRECTION stacked, detail
   panel scrolls (2026-10-01, on `main`; macOS 1165 green (no test-target reach — GridUI-only), iOS builds;
   DEVICE eye owed — this pass fixes what a device screenshot showed, but was itself built and verified off-
