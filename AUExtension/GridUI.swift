@@ -535,32 +535,43 @@ struct ProcessorBox: View {
                     let hit = invert ? !buf[ri] : buf[ri]
                     let x = xFor(Double(i) + 0.5)
                     if hit {
-                        // steps since the comet passed this node (0 = just now), wrapped positive every lap.
-                        let raw = (phase - Double(i)).truncatingRemainder(dividingBy: Double(n))
-                        let age = raw < 0 ? raw + Double(n) : raw
-                        let recede = max(0, 1 - age / 1.5)     // the lingering afterglow (unchanged window)
-                        // DRAMATIC HIT (Paul 2026-10-01: "brighter, with effects, more dramatic when it hits") —
-                        // a short, sharp BURST window layered on top of the lingering afterglow: the dot swells,
-                        // a hot white core flashes at its center, and a shockwave ring expands outward — all decay
-                        // much faster than `recede` so the strike itself reads as an impact, not just a brighter dot.
-                        let burst = max(0, 1 - age / 0.35)
-                        let r = 3.5 + 4.5 * burst
-                        let dot = Path(ellipseIn: CGRect(x: x - r, y: midY - r, width: r * 2, height: r * 2))
-                        ctx.drawLayer { layer in
-                            layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 16 * burst + 4 * recede))
-                            layer.fill(dot, with: .color(tint.opacity(0.5 + 0.5 * recede)))
-                        }
-                        if burst > 0.04 {   // the hot white flash core, right at the strike
-                            let cr: CGFloat = 2.0 + 2.2 * burst
+                        // STOPPED (Paul 2026-10-02: "don't show the playhead comets when the playhead isn't
+                        // running") — `clockPlaying` false means the TimelineView above is PAUSED, so `phase`
+                        // is frozen at whatever it was the instant playback stopped, not a meaningful "time since
+                        // the comet passed." Drawing the age/recede/burst flare off a frozen age would leave some
+                        // hit dot stuck mid-flash forever. A stopped lane shows every hit at one steady,
+                        // unflared brightness instead — no comet, no animation, no stale frozen flare.
+                        if clockPlaying {
+                            // steps since the comet passed this node (0 = just now), wrapped positive every lap.
+                            let raw = (phase - Double(i)).truncatingRemainder(dividingBy: Double(n))
+                            let age = raw < 0 ? raw + Double(n) : raw
+                            let recede = max(0, 1 - age / 1.5)     // the lingering afterglow (unchanged window)
+                            // DRAMATIC HIT (Paul 2026-10-01: "brighter, with effects, more dramatic when it hits") —
+                            // a short, sharp BURST window layered on top of the lingering afterglow: the dot swells,
+                            // a hot white core flashes at its center, and a shockwave ring expands outward — all decay
+                            // much faster than `recede` so the strike itself reads as an impact, not just a brighter dot.
+                            let burst = max(0, 1 - age / 0.35)
+                            let r = 3.5 + 4.5 * burst
+                            let dot = Path(ellipseIn: CGRect(x: x - r, y: midY - r, width: r * 2, height: r * 2))
                             ctx.drawLayer { layer in
-                                layer.addFilter(.shadow(color: .white.opacity(burst), radius: 7 * burst))
-                                layer.fill(Path(ellipseIn: CGRect(x: x - cr, y: midY - cr, width: cr * 2, height: cr * 2)), with: .color(.white.opacity(burst)))
+                                layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 16 * burst + 4 * recede))
+                                layer.fill(dot, with: .color(tint.opacity(0.5 + 0.5 * recede)))
                             }
-                        }
-                        if burst > 0.06 {   // the shockwave — an expanding ring, reads as an impact not just a flash
-                            let ringR = r + 11 * (1 - burst)
-                            ctx.stroke(Path(ellipseIn: CGRect(x: x - ringR, y: midY - ringR, width: ringR * 2, height: ringR * 2)),
-                                       with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
+                            if burst > 0.04 {   // the hot white flash core, right at the strike
+                                let cr: CGFloat = 2.0 + 2.2 * burst
+                                ctx.drawLayer { layer in
+                                    layer.addFilter(.shadow(color: .white.opacity(burst), radius: 7 * burst))
+                                    layer.fill(Path(ellipseIn: CGRect(x: x - cr, y: midY - cr, width: cr * 2, height: cr * 2)), with: .color(.white.opacity(burst)))
+                                }
+                            }
+                            if burst > 0.06 {   // the shockwave — an expanding ring, reads as an impact not just a flash
+                                let ringR = r + 11 * (1 - burst)
+                                ctx.stroke(Path(ellipseIn: CGRect(x: x - ringR, y: midY - ringR, width: ringR * 2, height: ringR * 2)),
+                                           with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
+                            }
+                        } else {
+                            let r: CGFloat = 3.5
+                            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: midY - r, width: r * 2, height: r * 2)), with: .color(tint.opacity(0.5)))
                         }
                     } else {
                         // REST (Paul 2026-10-01: "the position of the notes move, not just switch on and off") —
@@ -575,19 +586,24 @@ struct ProcessorBox: View {
                     }
                 }
                 // THE COMET — a soft blurred trail (a gradient stroke behind a `.blur` filter, not discrete hard
-                // dots) + a glowing head (a `.shadow` filter, not a second flat circle underneath).
-                let hx = xFor(phase)
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 3))
-                    var trail = Path()
-                    trail.move(to: CGPoint(x: hx, y: midY)); trail.addLine(to: CGPoint(x: max(insetL, hx - 22), y: midY))
-                    layer.stroke(trail, with: .linearGradient(Gradient(colors: [tint.opacity(0.55), tint.opacity(0)]),
-                                                               startPoint: CGPoint(x: hx, y: midY), endPoint: CGPoint(x: hx - 22, y: midY)),
-                                 lineWidth: 5)
-                }
-                ctx.drawLayer { layer in
-                    layer.addFilter(.shadow(color: tint, radius: 9))
-                    layer.fill(Path(ellipseIn: CGRect(x: hx - 5, y: midY - 5, width: 10, height: 10)), with: .color(tint))
+                // dots) + a glowing head (a `.shadow` filter, not a second flat circle underneath). STOPPED: not
+                // drawn at all (Paul 2026-10-02) — a paused TimelineView freezes `phase`, so without this guard
+                // the comet would sit motionless at its last live position instead of disappearing, which is
+                // exactly the bug reported ("don't show the playhead comets when the playhead isn't running").
+                if clockPlaying {
+                    let hx = xFor(phase)
+                    ctx.drawLayer { layer in
+                        layer.addFilter(.blur(radius: 3))
+                        var trail = Path()
+                        trail.move(to: CGPoint(x: hx, y: midY)); trail.addLine(to: CGPoint(x: max(insetL, hx - 22), y: midY))
+                        layer.stroke(trail, with: .linearGradient(Gradient(colors: [tint.opacity(0.55), tint.opacity(0)]),
+                                                                   startPoint: CGPoint(x: hx, y: midY), endPoint: CGPoint(x: hx - 22, y: midY)),
+                                     lineWidth: 5)
+                    }
+                    ctx.drawLayer { layer in
+                        layer.addFilter(.shadow(color: tint, radius: 9))
+                        layer.fill(Path(ellipseIn: CGRect(x: hx - 5, y: midY - 5, width: 10, height: 10)), with: .color(tint))
+                    }
                 }
             }
             .allowsHitTesting(false)
