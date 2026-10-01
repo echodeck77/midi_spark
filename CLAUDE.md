@@ -224,6 +224,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   straight to the PART grid showing that ferry's real content, not SELECT; confirm no brief visible flash of the
   wrong room during the sub-second gap between `.onAppear` and the first persist-tick (a minor, likely-imperceptible
   timing nuance flagged here rather than silently assumed away, not something this fix tries to eliminate).**
+- **▶ EUCLID COMET BAR — hidden entirely when the playhead isn't running, not frozen in place (2026-10-02, on
+  `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye owed). Paul: "Don't show the playhead
+  comets when the playhead isn't running." ROOT STATE: `euclidCometBar`'s `TimelineView` already paused when
+  `!clockPlaying`, but pausing a TimelineView only stops `tl.date` advancing — it doesn't hide anything already
+  drawn. So the comet trail + glowing head, and every hit node's age-based recede/burst flare, kept rendering at
+  whatever `phase` they'd last computed the instant playback stopped — a motionless comet (and potentially a
+  hit dot frozen mid-flash) sitting on screen indefinitely, not disappearing. **FIX:** both the comet trail/head
+  draw and the per-hit age/recede/burst flare block are now wrapped in `if clockPlaying { ... }`; the `else`
+  branch for a hit node draws one steady, unflared dot (`tint.opacity(0.5)`, no shadow/glow filter, the flare
+  formula's own floor value) instead of a stale frozen flash — REST dots are untouched (already static,
+  nothing to gate). Scoped to exactly the comet + its reactive flare — the static K-of-N hit/rest pattern
+  itself stays fully visible and editable while stopped, only the LIVE-playhead-driven elements disappear.
+  UI-only (GridUI.swift), no test-target reach, matching every prior comet-bar change in this file.
+  **DEVICE-OWED:** confirm the comet/flare genuinely vanish on transport stop rather than freezing, and that
+  resuming playback brings them back cleanly (no stale state left over from the stopped frame).**
 - **▶ EUCLID COMET BAR — the rotate-drag direction was backwards (FWD/PING-PONG), fixed dir-aware (2026-10-02, on
   `main`; iOS builds, no test-target reach (GridUI-only); DEVICE ear/eye owed). Paul, on-device: "I grab a dot and
   drag one space to the left, but there's some kind of mismatch... the lit note doesn't move along with my
