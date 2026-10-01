@@ -769,10 +769,24 @@ struct ProcessorBox: View {
                 .onTapGesture { euclidSelectedLane = idx }
             euclidCometBar(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, dir: L.directionResolved,
                            rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent,
-                           onRotateDelta: { d in euclidLineEdit4(idx) { $0.rotate = ((($0.rotate + d) % 16) + 16) % 16 } },
+                           // DRAG-DIRECTION FIX (Paul 2026-10-02: "I drag a dot one space left, the lit note doesn't
+                           // follow — it jumps somewhere else"). Traced, not guessed: `euclidPatternInto`'s
+                           // `rotation` is `buf[i] = test((i+rot) % n)` — a TRUE cyclic shift where INCREASING rot
+                           // moves every hit LEFT by one screen slot (worked example: E(3,8) rot=0 hits {0,3,6} →
+                           // rot=1 hits {2,5,7}, i.e. 0→7(wrap),3→2,6→5 — each exactly one slot left). The pan
+                           // gesture's `d` carries the SAME sign as raw finger translation (negative when dragging
+                           // left) and was applied as `rotate + d` — so dragging left DECREASED rotate, which
+                           // shifts the pattern RIGHT: backwards from the finger, exactly the reported symptom.
+                           // Under FWD (screen position i reads buffer index i directly) the fix is `rotate - d`.
+                           // Under BKW (`euclidReadIndex` mirrors: screen position i reads buffer index n-1-i) the
+                           // relationship flips — the ORIGINAL `rotate + d` is actually correct there, confirmed by
+                           // the same substitution worked through the mirrored index. PING-PONG's comet bar reads
+                           // the buffer identically to FWD (its own disclosed simplification, see euclidCometBar's
+                           // doc comment), so it takes the FWD branch too.
+                           onRotateDelta: { d in euclidLineEdit4(idx) { let s = $0.directionResolved == .bkw ? d : -d; $0.rotate = ((($0.rotate + s) % 16) + 16) % 16 } },
                            onHitsDelta: { d in euclidLineEdit4(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) } },
                            onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
-                           onAllRotateDelta: { d in euclidAllRowsEdit { line in line.rotate = ((line.rotate + d) % 16 + 16) % 16 } },
+                           onAllRotateDelta: { d in euclidAllRowsEdit { line in let s = line.directionResolved == .bkw ? d : -d; line.rotate = ((line.rotate + s) % 16 + 16) % 16 } },
                            onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } },
                            onDragState: { active, allRows in euclidActiveDragRow = active ? (allRows ? -1 : idx) : nil })
                 .frame(minWidth: 60, maxWidth: .infinity).frame(height: 44)
