@@ -199,6 +199,71 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID REDESIGN — Stage 3/4: PLAY/SELECT lanes + a side settings panel with GATE/OCTAVE/3-way DIRECTION
+  (2026-10-01, on `main`; macOS 1165 green incl. 9 new, iOS builds; DEVICE eye/ear owed on the whole layout +
+  feel). Paul, after the gesture/HUD/note-select trims above: "Lose the existing controls for count, hits, offset
+  as this can be handled with the gestures and overlay. When the user first opens the processor I want them to
+  see the four lanes stacked on[e] of the other, with selector buttons on the left for play/stop and select/
+  settings button to the left of each lane. At an equal height to the four lanes combined, on the right side, I
+  want a panel showing the settings for the selected row. The controls in here include note (moved from its
+  original position), length (or gate), Oct+-, direction (fwd, bkw, ping pong), invert (instead of the current
+  option)." Flagged back which pieces were pure relocation vs genuinely new engine work (GATE/OCTAVE/PING-PONG)
+  and that PLAY/STOP = mute/enable was a working assumption; Paul: "Yes please, go ahead on that basis."
+  **STAGE 3 (model/engine), `AUExtension/Models.swift`/`SnapshotBuilder.swift`/`Derivations.swift`/`Router.swift`:**
+  four new additive-Optional `EuclidLine` fields (CR-8 safe — an old doc without them decodes fine) — `gate:
+  Double?` (nil⇒0.9, today's hardcoded value), `octave: Int?` (nil⇒0, clamped ±3 — UTILITY/ARP's own `note +
+  12×shift` convention, reused not reinvented), `direction: EuclidDir?` (nil⇒derive from the legacy `reverse`
+  bool), `enabled: Bool?` (nil⇒true). **DIRECTION is a real engine change:** new dedicated `EuclidDir` enum
+  (FWD·BKW·PING-PONG — a SEPARATE type from RIFF's own `RiffDir`, since EUCLID needs only 3 of its 6 cases and
+  RiffDir's persisted-string-vs-display-label mismatch is a RIFF-specific legacy quirk that wouldn't fit here).
+  `euclidReadIndex` generalized from a binary `reverse: Bool` to `dir: EuclidDir` + a new sibling `euclidCycleLen`
+  (FWD/BKW repeat every N ticks, unchanged; PING-PONG repeats every 2N — it must bounce out and back before
+  repeating). PING-PONG reuses RIFF's own `.pingpong` shape (period 2n, each endpoint sounding on two consecutive
+  ticks) — confirmed as the specific RIFF case to mirror, not `.pendulum` (period 2(n−1), never repeats an
+  endpoint). **The CYCLE/RANDOM pick ordinal math generalizes for free, not as a special case:** looping the
+  hit-count (`effHits`) and the `hitsUpTo` lookback over the FULL `cycleLen` (not just `n`) naturally double-counts
+  a ping-pong's repeated endpoints the same way the real read-sequence does — verified by hand before shipping,
+  not assumed. `strikeChord` gained an additive `octave: Int = 0` parameter (every one of its ~15 existing call
+  sites omits it, byte-identical); its note-building line is now `sn.note + transpose + 12*octave` before the
+  existing 0...127 guard. `runEuclidLine` threads `gate`/`octave`/`dir` through to both `strikeChord` calls (the
+  column-boundary safety clamp loosened 0.9→0.95 so an aggressive GATE still can't bleed past its own column) and
+  the render loop's guard became `where L.pulses > 0 && L.enabledResolved` — PLAY/STOP gates emission ONLY, never
+  touching pulses/steps/rotate, so re-enabling a lane resumes EXACTLY the pattern it had before (deliberately NOT
+  built on repurposing pulses=0, which would have silently discarded the authored hit count — the exact regression
+  class the Stage-1 POOL/padding-row fix already had to catch once). **TWO TEST BUGS CAUGHT BY THE SUITE, not
+  guessed, both traced with a throwaway RTCDEBUG print per this project's own standing technique:** (1) a PING-PONG
+  lap genuinely needs MORE real time than this test harness's default single-column lifespan (S=2 beats) supplies
+  — `run()`'s own `forceColumn: 0` (PLAY: THIS CELL) is the existing, documented bypass for exactly this, used for
+  the first time in a EUCLID test; (2) forcing the column also lets the window-granularity scan run slightly PAST
+  the exact lap boundary, picking up the next lap's first tick — fixed by filtering onset steps to the exact tick
+  range under test rather than comparing raw totals; (3) the OCTAVE out-of-range test's first draft tried `octave:
+  6` expecting silence, forgetting the field itself clamps to ±3 at resolve (SAME clamp UTILITY/ARP already use) —
+  fixed to reach the real 0...127 note clamp via a high source note (110 + 12×3 = 146) instead. +2 DerivationsTests
+  (3-way `euclidReadIndex`/`euclidCycleLen`, incl. a worked ping-pong hit-sequence example) +4 RouterTests (PING-
+  PONG doubles hits over a full lap, hand-verified against the exact ascending+mirrored-descending step list; GATE
+  changes note length audibly; OCTAVE shifts by exactly 12×shift and clamps out-of-range to silence; `enabled:
+  false` silences WITHOUT touching the pattern underneath — re-enabling resumes identically). **STAGE 4 (UI),
+  `AUExtension/GridUI.swift`:** `euclidRow` rebuilt — a lane is now just a PLAY/STOP icon button (flips
+  play.fill/stop.fill, toggles `enabled`) + a SELECT number chip (opens that lane in the panel) + the comet bar at
+  full width; the OLD inline HITS/OF/ROTATE/FWD-REV/INVERT/NOTE-SELECT controls are GONE from the row — Paul's own
+  framing ("this can be handled with the gestures and overlay") — the comet bar's existing gesture pad (1-finger
+  drag/2-finger drag/pinch, shipped earlier the same day) is UNCHANGED and still the way to reshape hits/steps/
+  rotate. New `euclidSettingsPanel(_:idx:)` shows whichever lane `@State euclidSelectedLane` points at: NOTE
+  (the existing chip row + conditional DIE, moved verbatim) · GATE (a slider) · OCTAVE (a numPair, −3…+3) ·
+  DIRECTION (a 3-way `seg` FWD/BKW/PING-PONG) · INVERT (the existing tap-pill, relocated). New `euclidLaneH`
+  constant (56, computed exactly from a 34pt button + a 44pt comet bar + 6pt padding, not eyeballed) sizes BOTH
+  every lane's own frame AND the panel's total height (`euclidLaneH*4 + gap*3`, forced via `.frame(height:)` with
+  a trailing Spacer absorbing any slack) — the SAME "two columns can't drift apart" guarantee ARP's own PATTERN/
+  SPEED height-matched pair already established as this file's convention. The comet bar's own `reverse: Bool`
+  param is now `dir: EuclidDir` throughout; PING-PONG's static per-node display is a disclosed, flagged
+  simplification (shows only the ascending half, like BKW already shows a mirrored-but-still-single-pass view) —
+  the comet's own continuous sweep motion is unaffected either way, matching the existing "always travels left→
+  right regardless of direction" design choice this same bar already committed to for BKW. `HITS FROM` and the
+  GRID/SPAN footer stay exactly where they were — machine-wide, not per-lane, never mentioned for relocation.
+  **DEVICE-OWED:** the whole new layout at real panel width (a 150pt-wide settings panel is a first-pass guess,
+  untested against real text wrapping); the panel's height genuinely lining up against the 4-lane stack; PLAY/
+  STOP correctly muting/restoring a lane's pattern; GATE/OCTAVE/PING-PONG's audible feel; the SELECT chip's
+  highlight reading clearly against the comet bar's own glow.**
 - **▶ EUCLID COMET BAR — a drag HUD (steps/hits/offset, arrow-bordered, floats above the grid) + pinch-to-resize
   steps (2026-10-01, on `main`; iOS builds; DEVICE eye/feel owed — gesture interplay is genuinely untestable off-
   device). Paul: "On drag, I want something to appear above listing the steps, hits and offset, clear enough that
