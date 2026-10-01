@@ -196,6 +196,49 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID PANEL — layout fix: GeometryReader column split, 44pt touch targets, DIRECTION stacked, detail
+  panel scrolls (2026-10-01, on `main`; macOS 1165 green (no test-target reach — GridUI-only), iOS builds;
+  DEVICE eye owed — this pass fixes what a device screenshot showed, but was itself built and verified off-
+  device, no new screenshot in hand). A "FERRY FRAGMENT" spec (relayed via the Claude↔Claude design channel,
+  Paul's device screenshot of the EUCLID panel open on T24N) reported 4 concrete bugs in the Stage 3/4 redesign
+  shipped the same day: the lane-detail column (LANE n/GATE/OCTAVE/DIRECTION) squeezed and truncating ("F… B…
+  P…", "T…"); lane 1's selection outline running UNDER the detail column with the "LANE 1" label sitting on top
+  of it; the detail column's content clipping at the bottom. **ROOT CAUSE:** the detail panel was a FIXED
+  150pt-wide `.frame(width: 150)` sibling of a FLEXIBLE `.frame(maxWidth: .infinity)` lane column — implicit
+  sizing with no guarantee the two could never visually collide, and 150pt was never actually wide enough for a
+  3-way `seg(["FWD","BKW","PING-PONG"])` or the 5-chip NOTE SELECT row once real panel width was accounted for.
+  Separately, the panel's content was forced into an EXACT height (`euclidLaneH*4+gap*3` = 248pt) it was always
+  going to be taller than (NOTE row + conditional DIE + 3 `field`s + the INVERT pill), so it clipped regardless
+  of width. **FIX:** `case .euclid:`'s HStack is now wrapped in a `GeometryReader` that measures the REAL panel
+  width once and splits it explicitly — lanes get ~2/3, the detail panel gets the "freed third" — as exact
+  complements of the same total minus the gutter, so the two literally cannot overlap by construction (not by
+  hope). `euclidRow`/`euclidSettingsPanel` both now take an explicit `width:` parameter instead of relying on
+  `.frame(maxWidth:/width:)` sizing applied from outside. DIRECTION moved from `seg` (one row of 3 — the thing
+  that was truncating "PING-PONG") to `segV` (full-width stacked buttons — can't truncate regardless of column
+  width, satisfying the spec's own "stack... do not ellipsize" instruction literally). The NOTE SELECT chip
+  Text gained `.fixedSize(horizontal: true, vertical: false)` so "TOP" can't ellipsize either. The settings
+  panel's content now lives inside a `ScrollView` whose OUTER frame is still pinned to the lane stack's exact
+  height (so the two columns still height-match) — content that doesn't fit now SCROLLS inside that fixed box
+  instead of clipping, per the spec's own §C. PLAY/STOP + SELECT buttons grew 34→44pt (the HIG touch-target
+  floor the spec named explicitly), absorbing the per-button padding slack that existed at 34pt — explicitly
+  SCOPED to the lane row's own controls, NOT the detail column's internal fields (GATE/OCTAVE/INVERT kept their
+  existing sizes — the spec's own "OUT OF SCOPE: leave the current controls as they are, only make them fit"
+  line was read literally, so only DIRECTION's truncation and the NOTE SELECT chip's truncation were touched
+  inside the detail column, nothing resized there for touch-target reasons). **SPACE RECOVERED, honestly
+  reported (not fabricated):** this is a REALLOCATION, not a net gain — no slack was freed on either axis.
+  WIDTH: the detail column's share grew from a flat 150pt to `(panelWidth−12)/3`, and the lane column gave up
+  the exact same amount it had been getting via `maxWidth: .infinity` — a transfer between the two columns, not
+  new space from nowhere (the real pt figures depend on the host's actual panel width, which this codebase has
+  no fixed constant for and I have no device reading of). HEIGHT: `euclidLaneH` (56) and the panel's total
+  forced height (248) are BOTH unchanged — the 10pt of per-button vertical slack that existed at 34pt (5pt above
+  + 5pt below inside the row's 44pt inner content area) is now fully absorbed by the 44pt buttons; zero pt left
+  over on either count. **NO engine change, no identifier renames** — GridUI.swift only, matching the spec's own
+  scope line. **DEVICE-OWED, honestly flagged (I have no device/screenshot capability — this is the limit of
+  what could be verified off-device):** whether the 2:1 width split actually reads as uncramped at real panel
+  width; whether `segV`'s 3 stacked DIRECTION buttons feel right vertically versus the old single row; whether
+  the settings panel's scroll is needed/visible at typical content (NOTE SELECT without DIE showing, vs. with
+  DIE+CYCLE/RANDOM showing); confirm no residual overlap at any of the 4 lane selections, exactly per the
+  spec's own acceptance criteria.**
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
