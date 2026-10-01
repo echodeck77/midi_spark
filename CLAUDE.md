@@ -199,6 +199,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID NOTE SELECT — trimmed to 1·2·3·4·TOP, one row instead of two (2026-10-01, on `main`; iOS builds;
+  DEVICE eye owed). Paul: "Change the note control to only display 1, 2, 3, 4 and top." Was all 15
+  `EuclidNoteSel` cases (ALL·N1…N8·LOW·HIGH·BOT2·TOP2·CYCLE·RANDOM) spread over two chip rows; now a single row of
+  5 — `N1…N4` (labelled bare "1"…"4", not "N1"…"N4" — Paul's own wording) and `HIGH` (relabelled "TOP" for this
+  control specifically — same case, same engine behaviour, just Paul's preferred word for it). The full enum is
+  UNTOUCHED underneath (`euclidNoteSelShown` is a new, separate display-order list; nothing was removed from
+  `EuclidNoteSel` itself) — an old doc already using ALL/N5…N8/LOW/BOT2/TOP2/CYCLE/RANDOM still resolves and plays
+  exactly as before, it just won't highlight any of these 5 chips (an honest "none of these," not a wrong guess).
+  **A GAP CAUGHT BEFORE SHIPPING, not after:** the EUCLID storefront card (same day) defaults a fresh row 0 to
+  `euclidPick = .low` — `.low` isn't one of the 5 shown, so a brand-new EUCLID would have opened with NOTHING
+  highlighted, reading as broken. Fixed in the chip row's own "is this selected" check (not by changing the
+  default): `.low` and `.n1` resolve to the IDENTICAL pool rank (both strike index 0 — confirmed by re-reading
+  `arpPick`'s fold, not assumed), so the row now treats `cur == .low` as matching the "1" chip — a freshly-created
+  EUCLID now correctly shows "1" highlighted, with zero change to what's actually heard. The now-unused
+  `noteSelCases` local (`euclidRow`) and the dead 9/6-slice comment were removed. The now-orphaned DIE control
+  (only shown for CYCLE/RANDOM, neither reachable via these 5 chips anymore) is left as-is — still correctly shows
+  for an OLD doc that has CYCLE/RANDOM set, just not reachable from a fresh pick. UI-only (GridUI.swift), no
+  test-target reach. **DEVICE-OWED:** the single-row layout at real panel width with 5 chips instead of 2 rows of
+  9+6 (likely reads calmer, worth confirming); the "1" chip correctly lighting for a freshly-created row.**
 - **▶ EUCLID COMET BAR — gesture controls: 1-finger drag (this row) / 2-finger drag (all rows) / tap STEPS ±
   (2026-10-01, on `main`; iOS builds; DEVICE eye/feel owed — genuinely untestable off-device). Paul: "Left/right
   drag will move the offset. Up/down will increase or decrease the hits. A thin plus sign is on the left and minus

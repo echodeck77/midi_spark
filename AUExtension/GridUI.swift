@@ -447,14 +447,30 @@ struct ProcessorBox: View {
     }
     /// The merged NOTE SELECT chip row — one of the two rows (ALL·N1…N8, or the aggregate strategies), sliced from
     /// `EuclidNoteSel.allCases`'s own declared order (Models.swift) rather than a second, separately-maintained list.
+    // TRIMMED (Paul 2026-10-01: "only display 1, 2, 3, 4 and top") — was all 15 EuclidNoteSel cases over two chip
+    // rows; now just the 5 Paul actually wants surfaced. The full enum (ALL/N5…N8/LOW/BOT2/TOP2/CYCLE/RANDOM) is
+    // UNTOUCHED underneath — an old doc already using one of those still resolves and plays correctly, it just
+    // won't highlight any of these 5 chips (an honest "none of these" rather than a wrong guess).
+    private let euclidNoteSelShown: [EuclidNoteSel] = [.n1, .n2, .n3, .n4, .high]
+    private func euclidNoteSelLabel(_ s: EuclidNoteSel) -> String {
+        switch s {
+        case .n1: return "1"; case .n2: return "2"; case .n3: return "3"; case .n4: return "4"
+        case .high: return "TOP"   // Paul's own word — reuses the existing HIGH case (the top held note), just relabelled here
+        default: return s.rawValue
+        }
+    }
+    // `.low` picks the exact same pool rank as `.n1` (both strikeChord index 0 — confirmed by reading arpPick's
+    // sibling euclidRow fold) — so a row still carrying the pre-trim default (`.low`, from the EUCLID storefront
+    // card) highlights "1" here rather than reading as nothing-selected, with zero change in what's actually heard.
     @ViewBuilder private func euclidNoteSelChipRow(_ opts: [EuclidNoteSel], _ cur: EuclidNoteSel, _ set: @escaping (EuclidNoteSel) -> Void) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 5) {
             ForEach(opts, id: \.self) { s in
-                Text(s.rawValue)
-                    .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                    .foregroundColor(s == cur ? .black : .white.opacity(0.55))
-                    .padding(.horizontal, 5).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(s == cur ? accent : Color.white.opacity(0.08)))
+                let on = s == cur || (s == .n1 && cur == .low)
+                Text(euclidNoteSelLabel(s))
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.55))
+                    .padding(.horizontal, 7).padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.08)))
                     .contentShape(Rectangle())
                     .onTapGesture { set(s) }
             }
@@ -629,7 +645,6 @@ struct ProcessorBox: View {
     /// Line 2: the merged NOTE SELECT chips (two rows) to the left, the live comet bar to the right.
     @ViewBuilder private func euclidRow(_ idx: Int, _ L: EuclidLine, fromPool: Bool) -> some View {
         let cur = L.noteSelResolved
-        let noteSelCases = EuclidNoteSel.allCases
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text("HITS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
@@ -646,8 +661,7 @@ struct ProcessorBox: View {
             }
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    euclidNoteSelChipRow(Array(noteSelCases.prefix(9)), cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }     // ALL · N1…N8
-                    euclidNoteSelChipRow(Array(noteSelCases.suffix(6)), cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }     // LOW·HIGH·BOT2·TOP2·CYCLE·RANDOM
+                    euclidNoteSelChipRow(euclidNoteSelShown, cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }     // 1·2·3·4·TOP (trimmed, Paul 2026-10-01) — one row now, 5 fit easily
                     if cur == .cycle || cur == .random {   // DIE (Paul 2026-08-26): salts CYCLE/RANDOM apart across rows — kept, not dropped, from the pre-merge editor
                         HStack(spacing: 6) {
                             Text("DIE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
