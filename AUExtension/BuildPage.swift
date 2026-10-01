@@ -4856,6 +4856,54 @@ extension DiagView {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // (The pop-up chrome — buildPanel fill · rounded clip · thick hue border · drop shadow · tap-swallow — is REMOVED so the
         // card reads as part of the page. The card region (roomsProcessorCardAt) provides the flat fill + clip. Paul 2026-09-10.)
+        // EUCLID DRAG HUD (Paul 2026-10-02: "I want the overlay for count, hits to be top level because it's
+        // currently fixed on the scrolling processor edit page... an inch or two above the touch location").
+        // Attached HERE — a SIBLING of the ScrollView above, not a descendant of it — so it floats clear of the
+        // panel's own scroll offset/clip entirely, instead of being laid out (and potentially clipped) inside the
+        // scrolling body the way the old row-anchored HUD was. `GeometryReader` + `.global` converts the touch's
+        // WINDOW-space point (reported from `ProcessorBox`'s UIKit gesture, via `onEuclidDragInfo`) into THIS
+        // view's own local coordinate space.
+        .overlay(alignment: .topLeading) {
+            if let info = euclidDragHUDInfo {
+                GeometryReader { geo in
+                    let origin = geo.frame(in: .global).origin
+                    let hudW: CGFloat = 230
+                    // "an inch or two above the touch" — ~150pt, a documented approximation (iPad's logical point
+                    // density isn't a fixed physical inch, and this can't be confirmed without a device); tunable.
+                    let aboveTouch: CGFloat = 150
+                    let rawX = info.point.x - origin.x
+                    let halfW = hudW / 2 + 8
+                    let x = min(max(rawX, halfW), max(halfW, geo.size.width - halfW))
+                    let y = max(40, info.point.y - origin.y - aboveTouch)
+                    buildEuclidDragHUD(info).frame(width: hudW).position(x: x, y: y)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .zIndex(2)
+            }
+        }
+    }
+    /// STYLE (Paul 2026-10-02: "3 hits out of 8, with offset by 2 in smaller text... more prominent than it is
+    /// now"): a plain-English primary line replaces the old 3-stat-box layout (STEPS/HITS/OFFSET side by side);
+    /// OFFSET drops to a smaller secondary line. Bigger type, a drop shadow, and a brighter border than the
+    /// original make it read as a genuine floating HUD rather than a small inline tag. The old 4 bordering arrow
+    /// glyphs (a "gestures work here" reminder tied to the HUD's OLD fixed position beside the lane row) are
+    /// dropped — they'd point in directions that no longer mean anything now that the card floats freely above
+    /// wherever the touch is, rather than sitting anchored to one fixed spot relative to the gesture pad.
+    private func buildEuclidDragHUD(_ info: EuclidDragHUDInfo) -> some View {
+        VStack(spacing: 5) {
+            Text(info.label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Text("\(info.hits) HITS OUT OF \(info.steps)")
+                .font(.system(size: 22, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.6)
+            Text("OFFSET BY \(info.offset)")
+                .font(.system(size: 12, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(0.6))
+        }
+        .padding(.horizontal, 22).padding(.vertical, 16)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.92)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.22), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
     }
 
     // §1 TRUTH STRIPS (Paul 2026-08-22, the TUTTI-confusion cure): a slim IN | OUT band above the controls. IN = the
@@ -5202,7 +5250,8 @@ extension DiagView {
 
             avoidInputNotes: recvHeldNotes.map { $0.map(Int.init) },   // AVOID piano: per-input held notes (armed/scale doors report their pool) — live while the editor is open
             avoidChainInputDoor: buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver,   // the door feeding THIS chain → the OUTPUT piano predicts from its notes
-            doorKeyLabels: (0..<4).map { i in i < receivers.count ? receivers[i].scaleLabel : nil })   // ECHO/CHORDS/AVOID door pickers: the main toggles' own key label, live while the editor is open (Paul 2026-09-29)
+            doorKeyLabels: (0..<4).map { i in i < receivers.count ? receivers[i].scaleLabel : nil },   // ECHO/CHORDS/AVOID door pickers: the main toggles' own key label, live while the editor is open (Paul 2026-09-29)
+            onEuclidDragInfo: { info in euclidDragHUDInfo = info })   // reported straight to buildProcessorPanel, which renders it OUTSIDE this card's own ScrollView (Paul 2026-10-02)
     }
 
     // BUILD chain edits — machine-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written

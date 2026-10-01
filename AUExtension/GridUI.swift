@@ -183,6 +183,18 @@ private struct FixedHeightIf: ViewModifier {
     }
 }
 
+/// EUCLID DRAG HUD (Paul 2026-10-02 relocation): what's live while dragging a lane's comet bar — reported UP to
+/// whoever hosts `ProcessorBox`, since the HUD itself must render OUTSIDE this box's own (possibly scrolling)
+/// container to float truly "above the touch," not fixed to the scrolling processor-edit page. `point` is in
+/// WINDOW coordinates (UIKit's `location(in: view.window)`) — the host converts it into its own local space.
+struct EuclidDragHUDInfo {
+    let label: String    // "LANE 1"…"LANE 4" or "ALL LANES" (2-finger)
+    let hits: Int
+    let steps: Int
+    let offset: Int
+    let point: CGPoint
+}
+
 struct ProcessorBox: View {
     enum Face { case a, b }
     let machine: Machine
@@ -228,20 +240,20 @@ struct ProcessorBox: View {
     var avoidInputNotes: [[Int]] = [[], [], [], []]     // AVOID editor: per-input held PITCHES (recvHeldNotes; armed/scale doors report their pool) — feeds both illustration pianos
     var avoidChainInputDoor: Int = -1                   // AVOID editor: the door feeding THIS chain (its receiver) — the notes the filter acts on; -1 = unknown
     var doorKeyLabels: [String?] = [nil, nil, nil, nil] // per-door SCALE key label (Receiver.scaleLabel), else nil — every door-reference picker (ECHO's FROM, CHORDS' SCALE FROM, AVOID's WHICH INPUT) shows this over live notes over "no input", matching the main MIDI-IN toggles (Paul 2026-09-29)
+    // EUCLID DRAG HUD (Paul 2026-10-02): reports live steps/hits/offset + the touch's WINDOW-space location while
+    // dragging a comet bar. Default no-op — only the real chain-slot editor (BuildPage's `buildSlotBox`, the one
+    // place EUCLID is actually edited) wires this; the tab-strip/chord-sequencer-popup call sites never show
+    // EUCLID's own editor and don't need it. The HOST renders the actual HUD OUTSIDE its own scrolling container
+    // (this box can't escape its own embedding ScrollView from in here) — see `buildProcessorPanel`.
+    var onEuclidDragInfo: (EuclidDragHUDInfo?) -> Void = { _ in }
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var lfoEditTarget: String? = nil      // PER-PARAM LFO (Docs/PLAN-param-lfo.md): which param's ∿ LFO editor popover is open
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
     @State private var laneReadout: String? = nil        // LANE READOUT (idea 18): the value floating while a lane bar is dragged
     @State private var togglePaintTarget: Bool? = nil    // toggleLane drag-paint (Paul 2026-09-07): the state set by the first cell touched, painted across the drag
-    // EUCLID DRAG HUD (Paul 2026-10-01): the same idea as `laneReadout` above (a value floating while dragging),
-    // scoped to which row's gesture is live — nil = no drag; 0...3 = that row (1-finger or pinch); -1 = the
-    // 2-finger "every row" edit. Read-only identity; `euclidDragHUD(_:)` pulls the actual live steps/hits/offset
-    // straight from the row data already in scope each render, so this doesn't need to carry those values itself.
-    @State private var euclidActiveDragRow: Int? = nil
     /// STAGE 4 (Paul 2026-10-01, PLAY/SELECT + settings-panel redesign): which of the 4 lanes the side panel is
     /// currently showing. Non-optional, defaulting to 0 — "a selector is ALWAYS selected" (mirrors
-    /// `buildActiveFerry`'s own documented rationale), unlike `euclidActiveDragRow` above which is transient/
-    /// nilable because it's a drag-only signal, not persistent UI state.
+    /// `buildActiveFerry`'s own documented rationale) — persistent UI state, unlike a drag-only signal.
     @State private var euclidSelectedLane: Int = 0
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
@@ -508,7 +520,7 @@ struct ProcessorBox: View {
                                               onRotateDelta: @escaping (Int) -> Void, onHitsDelta: @escaping (Int) -> Void,
                                               onStepsDelta: @escaping (Int) -> Void,
                                               onAllRotateDelta: @escaping (Int) -> Void, onAllHitsDelta: @escaping (Int) -> Void,
-                                              onDragState: @escaping (Bool, Bool) -> Void) -> some View {
+                                              onDragState: @escaping (CGPoint?, Bool) -> Void) -> some View {
         let n = max(2, min(16, nIn))
         let sub = max(0.03125, rate.beats)
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
@@ -638,7 +650,10 @@ struct ProcessorBox: View {
         let onStepsDelta: (Int) -> Void         // pinch — Δsteps, this row (shared with the +/- tap glyphs)
         let onAllRotateDelta: (Int) -> Void     // 2-finger horizontal — Δrotate, every row
         let onAllHitsDelta: (Int) -> Void       // 2-finger vertical — Δhits, every row
-        let onDragState: (Bool, Bool) -> Void   // (isActive, isAllRows) — true/false at first touch down / last lift
+        // (location, isAllRows) — location is WINDOW-space (`location(in: view.window)`), non-nil while a touch is
+        // down, nil the instant it lifts/cancels. Reported on EVERY `.changed` tick too (Paul 2026-10-02), not just
+        // begin/end, so a HUD tracking the finger moves continuously, not just at the start of the gesture.
+        let onDragState: (CGPoint?, Bool) -> Void
         func makeUIView(context: Context) -> UIView {
             let v = UIView(); v.backgroundColor = .clear; v.isOpaque = false
             let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
@@ -670,7 +685,7 @@ struct ProcessorBox: View {
                 case .began:
                     twoFinger = g.numberOfTouches >= 2
                     appliedX = 0; appliedY = 0
-                    owner.onDragState(true, twoFinger)
+                    owner.onDragState(g.location(in: g.view?.window), twoFinger)
                 case .changed:
                     let t = g.translation(in: g.view)
                     let stepsX = Int((t.x / stepPt).rounded())
@@ -685,8 +700,9 @@ struct ProcessorBox: View {
                         twoFinger ? owner.onAllHitsDelta(d) : owner.onHitsDelta(d)
                         appliedY = stepsY
                     }
+                    owner.onDragState(g.location(in: g.view?.window), twoFinger)   // every tick — the HUD tracks the finger live, not just at touch-down
                 case .ended, .cancelled, .failed:
-                    owner.onDragState(false, twoFinger)
+                    owner.onDragState(nil, twoFinger)
                 default: break
                 }
             }
@@ -694,7 +710,7 @@ struct ProcessorBox: View {
                 switch g.state {
                 case .began:
                     appliedPinchSteps = 0
-                    owner.onDragState(true, false)   // pinch is always scoped to this row — no "all rows" steps mode
+                    owner.onDragState(g.location(in: g.view?.window), false)   // pinch is always scoped to this row — no "all rows" steps mode
                 case .changed:
                     // clamp scale well above 0 before taking its log — two touches landing on nearly the same
                     // point would send scale → 0, and log(0) → -infinity, which traps converting to Int.
@@ -703,50 +719,18 @@ struct ProcessorBox: View {
                         owner.onStepsDelta(steps - appliedPinchSteps)
                         appliedPinchSteps = steps
                     }
+                    owner.onDragState(g.location(in: g.view?.window), false)
                 case .ended, .cancelled, .failed:
-                    owner.onDragState(false, false)
+                    owner.onDragState(nil, false)
                 default: break
                 }
             }
         }
     }
-    /// THE DRAG HUD (Paul 2026-10-01) — same idea as the existing `laneReadout` (a value floating while a lane bar
-    /// is dragged), scoped up to the whole EUCLID row stack instead of one bar. Four small arrow glyphs border
-    /// the card (↑↓ = hits, ←→ = offset) so the card itself doubles as a reminder of what each gesture does, not
-    /// just a readout. `rows[active]` is always current — this reads the SAME data `euclidRow` is drawing from,
-    /// so the HUD can't show a stale value lagging behind what the gesture just applied.
-    @ViewBuilder private func euclidDragHUD(_ rows: [EuclidLine]) -> some View {
-        if let active = euclidActiveDragRow {
-            let L = active >= 0 && active < rows.count ? rows[active] : (rows.first ?? EuclidLine())
-            let label = active < 0 ? "ALL LANES" : "LANE \(active + 1)"
-            VStack(spacing: 5) {
-                Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                HStack(spacing: 16) {
-                    euclidHUDStat("STEPS", "\(L.steps)")
-                    euclidHUDStat("HITS", "\(L.pulses)")
-                    euclidHUDStat("OFFSET", "↻\(L.rotate)")
-                }
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.9)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.14), lineWidth: 1))
-            .overlay(alignment: .top) { euclidHUDArrow("▲").offset(y: -13) }
-            .overlay(alignment: .bottom) { euclidHUDArrow("▼").offset(y: 13) }
-            .overlay(alignment: .leading) { euclidHUDArrow("◀").offset(x: -13) }
-            .overlay(alignment: .trailing) { euclidHUDArrow("▶").offset(x: 13) }
-            .transition(.opacity)
-            .zIndex(1)   // float clear of the row stack below it, never clipped behind a neighbouring row
-        }
-    }
-    private func euclidHUDStat(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 1) {
-            Text(value).font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white)
-            Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-        }
-    }
-    private func euclidHUDArrow(_ s: String) -> some View {
-        Text(s).font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.4))
-    }
+    // THE DRAG HUD moved OUT of this box entirely (Paul 2026-10-02: "I want the overlay... to be top level because
+    // it's currently fixed on the scrolling processor edit page") — rendering it here could never escape this
+    // box's own embedding ScrollView (`buildProcessorPanel`). See `EuclidDragHUDInfo`/`onEuclidDragInfo` above and
+    // `BuildPage.swift`'s `buildEuclidDragHUD`/`buildProcessorPanel` for where it actually lives now.
     /// STAGE 4 (Paul 2026-10-01): every lane's own frame height AND the side settings panel's total height derive
     /// from this ONE constant — "computed exactly, not eyeballed," the same idiom ARP's `case .arp:` editor
     /// already uses for its own height-matched pair, so the two columns can't drift out of sync. By construction:
@@ -765,7 +749,7 @@ struct ProcessorBox: View {
     /// row's own selection stroke run under the detail column on device. PLAY/STOP + SELECT also grew 34→44pt
     /// (the HIG touch-target floor Paul's spec named) — free room from the new split absorbed by touch size,
     /// per the spec's own "reclaimed space goes to touch size, not new controls."
-    @ViewBuilder private func euclidRow(_ idx: Int, _ L: EuclidLine, width: CGFloat) -> some View {
+    @ViewBuilder private func euclidRow(_ idx: Int, _ L: EuclidLine, width: CGFloat, onDragInfo: @escaping (EuclidDragHUDInfo?) -> Void) -> some View {
         let selected = euclidSelectedLane == idx
         let on = L.enabledResolved
         HStack(spacing: 8) {
@@ -804,7 +788,11 @@ struct ProcessorBox: View {
                            onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
                            onAllRotateDelta: { d in euclidAllRowsEdit { line in let s = line.directionResolved == .bkw ? d : -d; line.rotate = ((line.rotate + s) % 16 + 16) % 16 } },
                            onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } },
-                           onDragState: { active, allRows in euclidActiveDragRow = active ? (allRows ? -1 : idx) : nil })
+                           onDragState: { point, allRows in
+                               guard let point else { onDragInfo(nil); return }
+                               let label = allRows ? "ALL LANES" : "LANE \(idx + 1)"
+                               onDragInfo(EuclidDragHUDInfo(label: label, hits: L.pulses, steps: L.steps, offset: L.rotate, point: point))
+                           })
                 .frame(minWidth: 60, maxWidth: .infinity).frame(height: 44)
         }
         .padding(6)
@@ -1120,16 +1108,14 @@ struct ProcessorBox: View {
                 let laneW = max(100, (geo.size.width - gutter) * (2.0 / 3.0))
                 let detailW = max(100, (geo.size.width - gutter) - laneW)
                 HStack(alignment: .top, spacing: gutter) {
+                    // DRAG HUD relocated (Paul 2026-10-02): no longer rendered here at all — `onEuclidDragInfo`
+                    // reports straight up to whoever hosts this box, so the HUD can render OUTSIDE this box's own
+                    // scrolling container (see `ProcessorBox.onEuclidDragInfo` / BuildPage's `buildProcessorPanel`).
                     VStack(spacing: euclidLaneGap) {
                         ForEach(Array(rows.enumerated()), id: \.offset) { (idx, L) in
-                            euclidRow(idx, L, width: laneW)
+                            euclidRow(idx, L, width: laneW, onDragInfo: onEuclidDragInfo)
                         }
                     }
-                    // DRAG HUD (Paul 2026-10-01): "something to appear above listing the steps, hits and offset,
-                    // clear enough that it's not obscured by the user's finger... sitting above the grid." Floats
-                    // above the WHOLE lane stack (not per-lane) so it's in one consistent, finger-clear spot
-                    // regardless of which lane is being touched — reads live values straight off `rows`.
-                    .overlay(alignment: .top) { euclidDragHUD(rows).offset(y: -58) }
                     if selIdx < rows.count {
                         euclidSettingsPanel(rows[selIdx], idx: selIdx, width: detailW)
                     }

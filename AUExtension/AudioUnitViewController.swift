@@ -186,6 +186,10 @@ struct DiagView: View {
     @State var buildEditSlotDir: Int = 1        // ProcessorBox's slide-in direction for its NEXT swap (±1) — derived from buildEditSlot's own left/right movement through the chain, below (Paul 2026-09-29)
     @State private var buildEditSlotLast: Int = 0   // the last-known buildEditSlot value, kept purely to compute the direction above
     @State var buildSelectedProcessing = false  // PLAY-STATE GREY (Paul 2026-09-14): is the SELECTED machine's active cell sounding NOW? Updated (deduped) in the 4 Hz poll; feeds the processor editor's grey-when-idle. false = grey the controls (still usable).
+    // EUCLID DRAG HUD (Paul 2026-10-02): reported UP from `ProcessorBox.onEuclidDragInfo` while dragging a comet
+    // bar — lives HERE (not inside ProcessorBox) specifically so `buildProcessorPanel` can render the actual HUD
+    // as a sibling OUTSIDE its own ScrollView, escaping the "fixed on the scrolling processor edit page" bug.
+    @State var euclidDragHUDInfo: EuclidDragHUDInfo? = nil
     // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
     // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-machine.
     // PART AUTOMATION (Paul 2026-09-02): per machineID → its automation (which lane is active + its 5 lanes). The ACTIVE
