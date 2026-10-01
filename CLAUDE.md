@@ -196,6 +196,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID EDITOR — the footer below the lanes removed entire: HITS FROM + GRID/SPAN (2026-10-02, on `main`;
+  iOS builds, no test-target reach (GridUI-only); DEVICE eye owed). Paul: "Remove everything below the lanes on
+  the euclid processor page." Deleted the `field("HITS FROM"...)` toggle and the `frameRow(grid:…, span:…)`
+  footer wholesale, plus the now-unused `fromPool` local it alone was reading. **FLAGGED, not silently absorbed:
+  this is a real loss of reachable control, not a cosmetic trim.** `euclidPulsesFromPool`/`euclidRate`/
+  `euclidSpanN` are UNTOUCHED at the model/engine level — every lane's comet bar and the real render path still
+  read them exactly as before (GRID still drives every lane's tick rate, SPAN still re-anchors, POOL still
+  overrides K when set) — only the UI that let a user CHANGE these three from this page is gone. A machine now
+  keeps whatever it last had for all three (defaults: GRID 1/16, SPAN free-run, HITS FROM fixed); there is no
+  other control surface left in this editor to set them. UI-only, no test-target reach.
+  **DEVICE-OWED:** confirm the page now ends cleanly right after the 4-lane stack + side panel, with nothing
+  dangling below it.**
 - **▶ EUCLID DRAG HUD — relocated OUT of the scrolling processor panel, tracks the touch, restyled (2026-10-02,
   on `main`; iOS builds, no test-target reach (GridUI+BuildPage+AudioUnitViewController); DEVICE eye owed —
   the touch-tracking math can't be confirmed off-device). Paul: "I want the overlay for count, hits to be top
