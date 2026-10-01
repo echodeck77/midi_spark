@@ -196,6 +196,34 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ PLAY FERRIES — fixed a populated, selected ferry loading with the part grid invisible (2026-10-02, on `main`,
+  `7f07897`; iOS builds, no test-target reach (BuildPage-only); DEVICE eye owed). Paul: "sometimes, early in the
+  session, a play ferry selector is selected on a populated play ferry but the part grid isn't visible." **ROOT
+  CAUSE, traced not guessed:** `buildActiveFerry` (`@State`, default `0`) and `roomsRoom` (`@State`, default
+  `.select`) are INDEPENDENT defaults, both set before any document is known — `.onAppear` runs on these raw
+  defaults immediately. The REAL ferry content only arrives later, via `buildPersistTick()`'s per-poll `consume`
+  pattern → `buildRestorePlayGrid`, which wrote `buildFerryParts` from the saved doc but never re-checked whether
+  the now-known-populated default-active ferry (0) should ALSO flip `roomsRoom` to `.part` — so a saved session
+  with ferry 0 populated left `roomsRoom` stuck on its hardcoded `.select` launch default while the selector
+  correctly showed ferry 0 as selected+populated: exactly the reported symptom. Explains both qualifiers Paul gave
+  unprompted: "sometimes" (only visible when the default-active ferry actually has content), "early in the
+  session" (only until the user's first manual ferry/room tap re-syncs both together via the normal interactive
+  path, masking it for the rest of the session). **FIX:** once `buildFerryParts` is restored, re-activate whichever
+  ferry is marked active via the EXISTING `buildActivateFerry(t, navigate: true)` — the same function every
+  interactive ferry-select already goes through, reusing proven logic rather than hand-rolling a parallel sync.
+  `buildActiveFerry` is set to `nil` immediately before the call so the function takes its "nothing was previously
+  active" branch — **a hazard caught by reading the function's branch order before writing the fix, not assumed:**
+  calling it naively (`t == buildActiveFerry`, true in this exact scenario) would hit the "re-tapping" branch,
+  which captures the BENCH into `buildFerryParts[t]` BEFORE loading — exactly backwards immediately after a
+  restore, since the bench is stale pre-load content and `buildFerryParts[t]` now holds the just-restored real
+  data; calling it directly would have silently clobbered the restore with blank bench content. For a genuinely
+  empty default-active ferry the fix resolves to byte-identical behaviour (`roomsRoom` stays `.select`, matching
+  today) — only a populated one changes anything. Checked the sibling `buildRestoreScenes`/`buildRestoreScene`
+  path for the same bug class — out of scope, it only carries ROW 8 state, no ferry/room interaction at all.
+  **DEVICE-OWED:** a saved session with a populated ferry 0 (or whichever ferry was active at save time) now opens
+  straight to the PART grid showing that ferry's real content, not SELECT; confirm no brief visible flash of the
+  wrong room during the sub-second gap between `.onAppear` and the first persist-tick (a minor, likely-imperceptible
+  timing nuance flagged here rather than silently assumed away, not something this fix tries to eliminate).**
 - **▶ EUCLID COMET BAR — the rotate-drag direction was backwards (FWD/PING-PONG), fixed dir-aware (2026-10-02, on
   `main`; iOS builds, no test-target reach (GridUI-only); DEVICE ear/eye owed). Paul, on-device: "I grab a dot and
   drag one space to the left, but there's some kind of mismatch... the lit note doesn't move along with my
