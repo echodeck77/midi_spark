@@ -158,7 +158,17 @@ struct EuclidLine: Codable, Equatable {
     // CYCLE/RANDOM) behaves like the old pick. OPTIONAL — same CR-8 reasoning as `die` above: a non-Optional
     // additive field would throw decoding a pre-redesign doc.
     var noteSel: EuclidNoteSel? = nil
-    var reverse: Bool? = nil   // DIRECTION: nil/false = FWD (today's behaviour, byte-identical) · true = REV mirrors the pattern
+    var reverse: Bool? = nil   // DIRECTION (decode-only legacy as of the FWD/BKW/PING-PONG redesign below — see `direction`): nil/false = FWD · true = BKW
+    // STAGE 3 (Paul 2026-10-01, the PLAY/SELECT + settings-panel redesign): GATE/OCTAVE/DIRECTION(3-way)/ENABLED.
+    // All OPTIONAL — same CR-8 reasoning as `die`/`noteSel` above: a non-Optional additive field would throw
+    // decoding a pre-Stage-3 euclidLines doc.
+    var gate: Double? = nil       // GATE: this hit's length as a fraction of its own rate interval. nil ⇒ 0.9 (today's hardcoded value, byte-identical)
+    var octave: Int? = nil        // OCTAVE: ±3, shifts the struck note(s) by 12×this. nil ⇒ 0 (byte-identical)
+    var direction: EuclidDir? = nil   // DIRECTION: FWD/BKW/PING-PONG. nil ⇒ derive from the legacy `reverse` bool (byte-identical for an old doc)
+    var enabled: Bool? = nil      // PLAY/STOP: nil ⇒ true (byte-identical). false ⇒ this lane contributes nothing, WITHOUT touching pulses/steps/rotate
+    var gateResolved: Double { gate ?? 0.9 }
+    var octaveResolved: Int { octave ?? 0 }
+    var enabledResolved: Bool { enabled ?? true }
     /// The effective note selection — `noteSel` once the line's been touched under the new UI, else derived from
     /// the old target/pick pair so a pre-redesign line resolves identically to what it always played.
     var noteSelResolved: EuclidNoteSel {
@@ -173,7 +183,16 @@ struct EuclidLine: Codable, Equatable {
         }
     }
     var reverseResolved: Bool { reverse ?? false }
+    /// The effective direction — `direction` once touched under Stage 3, else derived from the legacy `reverse`
+    /// bool (FWD/BKW only — PING-PONG never existed before this, so there's nothing for an old doc to migrate to).
+    var directionResolved: EuclidDir { direction ?? (reverseResolved ? .bkw : .fwd) }
 }
+// EUCLID DIRECTION (Paul 2026-10-01): a DEDICATED enum, not a reuse of RIFF's own `RiffDir` — EUCLID needs only
+// 3 of RiffDir's 6 cases (no RANDOM/DRUNK) and RiffDir's own PENDULUM/PING-PONG naming history (the persisted
+// string and the display label disagree, for legacy-compat reasons specific to RIFF) would be a confusing fit
+// here. PING-PONG's own MATH (euclidCycleLen/euclidReadIndex, Derivations.swift) reuses RiffDir's `.pingpong`
+// shape (period 2n, each endpoint sounds on two consecutive ticks) — reuse of the FORMULA, not the type.
+enum EuclidDir: String, Codable, CaseIterable { case fwd = "FWD", bkw = "BKW", pingpong = "PING-PONG" }
 // EUCLID NOTE SELECT (Paul 2026-09-29): the merged target+pick selector above — one control answering "which
 // note(s) does this line strike." String-raw so it persists by VALUE, not `allCases` index (the class of bug
 // ArpPattern/index-persisted enums have already caused elsewhere in this codebase). Ordered ALL·N1…N8 then the

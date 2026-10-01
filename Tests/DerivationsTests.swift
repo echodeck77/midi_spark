@@ -482,16 +482,16 @@ final class DerivationsTests: XCTestCase {
     // shift of 2×rotate mod n) — this worked example pins the composition order actually shipped, so a future
     // refactor can't silently swap it without a test noticing.
     func testEuclidReverseFlipsReadIndexNotRebuiltBuffer() {
-        XCTAssertEqual(euclidReadIndex(0, n: 8, reverse: false), 0)
-        XCTAssertEqual(euclidReadIndex(3, n: 8, reverse: false), 3, "FWD is the identity — no change from today")
-        XCTAssertEqual(euclidReadIndex(0, n: 8, reverse: true), 7)
-        XCTAssertEqual(euclidReadIndex(7, n: 8, reverse: true), 0, "REV mirrors the index range")
+        XCTAssertEqual(euclidReadIndex(0, n: 8, dir: .fwd), 0)
+        XCTAssertEqual(euclidReadIndex(3, n: 8, dir: .fwd), 3, "FWD is the identity — no change from today")
+        XCTAssertEqual(euclidReadIndex(0, n: 8, dir: .bkw), 7)
+        XCTAssertEqual(euclidReadIndex(7, n: 8, dir: .bkw), 0, "BKW mirrors the index range")
         // K=3,N=8 rotated by 1: [0,0,1,0,0,1,0,1] (hits at buffer indices 2,5,7 — from testEuclidPatternSpreadsKHitsEvenly's
         // own base [1,0,0,1,0,0,1,0], rotated[i] = base[(i+1)%8]).
         let rotated = euclidPattern(pulses: 3, steps: 8, rotation: 1)
         XCTAssertEqual(rotated.map { $0 ? 1 : 0 }, [0, 0, 1, 0, 0, 1, 0, 1])
         // SHIPPED composition: reverse reads THIS rotated buffer back-to-front (readIdx = n-1-step).
-        let reverseOfRotated = (0..<8).map { rotated[euclidReadIndex($0, n: 8, reverse: true)] }
+        let reverseOfRotated = (0..<8).map { rotated[euclidReadIndex($0, n: 8, dir: .bkw)] }
         XCTAssertEqual(reverseOfRotated.enumerated().filter { $0.element }.map { $0.offset }, [0, 2, 5],
                        "reverse-of-the-already-rotated-buffer's hit steps")
         // The OTHER, NOT-shipped order — reverse the UNROTATED base, then rotate it — gives a DIFFERENT pattern,
@@ -501,6 +501,21 @@ final class DerivationsTests: XCTestCase {
         let rotateThenOfReversedBase = (0..<8).map { reversedBase[($0 + 1) % 8] }
         XCTAssertEqual(rotateThenOfReversedBase.enumerated().filter { $0.element }.map { $0.offset }, [0, 3, 6])
         XCTAssertNotEqual(reverseOfRotated, rotateThenOfReversedBase, "the two composition orders are NOT interchangeable")
+    }
+    // DIRECTION §3-way (2026-10-01): PING-PONG bounces — period 2n, each endpoint (raw 0 and raw n-1) sounds on
+    // TWO consecutive raw ticks (the turn), every OTHER index exactly once per lap — worked against the SAME
+    // n=8 rotated buffer as the test above, so the hit-step numbers are directly comparable.
+    func testEuclidPingPongCycleLenAndReadIndex() {
+        XCTAssertEqual(euclidCycleLen(.fwd, n: 8), 8)
+        XCTAssertEqual(euclidCycleLen(.bkw, n: 8), 8, "BKW's cycle length is unchanged — only the read direction flips")
+        XCTAssertEqual(euclidCycleLen(.pingpong, n: 8), 16, "PING-PONG must bounce out and back before repeating")
+        // raw 0...7 ascend (identity, same as FWD); raw 8...15 descend back through 6...0 — endpoints 0 and 7 are
+        // each read on two CONSECUTIVE raw ticks (7 at raw=7 and raw=8; 0 at raw=15 and the next lap's raw=0).
+        let readSeq = (0..<16).map { euclidReadIndex($0, n: 8, dir: .pingpong) }
+        XCTAssertEqual(readSeq, [0, 1, 2, 3, 4, 5, 6, 7, 7, 6, 5, 4, 3, 2, 1, 0])
+        let rotated = euclidPattern(pulses: 3, steps: 8, rotation: 1)   // same fixture as the test above: hits at 2,5,7
+        let pingpongHitSteps = readSeq.enumerated().filter { rotated[$0.element] }.map { $0.offset }
+        XCTAssertEqual(pingpongHitSteps, [2, 5, 7, 8, 10, 13], "hit at buffer index 7 fires on BOTH raw ticks 7 and 8 (the turn)")
     }
     func testBurstFractionsCountFirstZeroAndCurve() {
         XCTAssertEqual(burstFractions(count: 4, curve: 0), [0, 0.25, 0.5, 0.75], "even spacing at curve 0")

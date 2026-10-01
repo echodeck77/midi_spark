@@ -623,7 +623,9 @@ enum SnapshotBuilder {
         // deliberate, per the fixed-4-row redesign, not an oversight).
         out.euclidLines = p.euclidLinesForEditing().map { EuclidLine(target: clamp($0.target, 0, 8), pulses: clamp($0.pulses, 0, 16),
                                                                       steps: clamp($0.steps, 2, 16), rotate: $0.rotate, invert: $0.invert,
-                                                                      pick: $0.pick, die: $0.die, noteSel: $0.noteSel, reverse: $0.reverse) }
+                                                                      pick: $0.pick, die: $0.die, noteSel: $0.noteSel, reverse: $0.reverse,
+                                                                      gate: $0.gate.map { clamp($0, 0.05, 1.0) }, octave: $0.octave.map { clamp($0, -3, 3) },
+                                                                      direction: $0.direction, enabled: $0.enabled) }
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
         if let v = p.burstMode { out.burstMode = v }

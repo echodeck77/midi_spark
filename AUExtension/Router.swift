@@ -3611,13 +3611,17 @@ final class Router {
         // ONE chord strike at musical beat `tau` (source notes, chop-routed / downstream-folded), gated `gateBeats`.
         // `velScale` is the generator's per-strike envelope level (0…1) RELATIVE to each note's inherited source
         // velocity — so a soft chord bursts soft, a hard one bursts hard (user 2026-08-09).
-        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil) {
+        // OCTAVE (Paul 2026-10-01, EUCLID's per-lane shift): additive, defaulted 0 — every OTHER call site below
+        // (hocket/echo/tutti/etc, none of which author a per-lane octave) simply omits it, byte-identical. Mirrors
+        // UTILITY's `utilOctave`/ARP's `arpPick` convention exactly: ×12, add, clamp 0...127 right at emission —
+        // not a new convention invented for EUCLID.
+        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let tbm = chopMask(cell, m: tau, S: S, base: bm)
             for (k, sn) in srcNotes.enumerated() {
                 if let only = onlyIndex, k != only { continue }
-                let n = sn.note + transpose
+                let n = sn.note + transpose + 12 * octave
                 guard n >= 0 && n <= 127 else { continue }
                 let vel = clampVel(Int((Double(max(1, sn.vel)) * velScale).rounded()))   // inherited velocity × envelope
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
@@ -3653,7 +3657,11 @@ final class Router {
             // an arbitrary one (see `testEuclidReverseFlipsReadIndexNotRebuiltBuffer`).
             let srcCount = srcNotes.count
             // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
-            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, invert: Bool, reverse: Bool, noteSel: EuclidNoteSel, die: Int = 0) {
+            // DIRECTION (Paul 2026-10-01, 3-way redesign): `dir` replaces the old binary `reverse` — FWD/BKW read the
+            // n-length buffer directly/mirrored (unchanged math, renamed); PING-PONG reuses RIFF's own `.pingpong`
+            // shape (period 2n, each endpoint sounding on two consecutive ticks) via `euclidCycleLen`/`euclidReadIndex`.
+            // GATE/OCTAVE are new per-lane fields threaded straight to `strikeChord`.
+            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, invert: Bool, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, die: Int = 0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -3662,7 +3670,11 @@ final class Router {
                 // span drifts then snaps back. (Was the WIDTH model `sub = spanWidth/n`, where SPAN just scaled the speed.)
                 let sub = p.euclidRateBeats
                 let spanBeats = p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0
-                var cycleHits = 0; for s in 0..<n where (invert ? !euclidBuf[s] : euclidBuf[s]) { cycleHits += 1 }   // a permutation of indices (reverse) never changes the TOTAL hit count
+                // cycleLen (2n under PING-PONG, else n): looping the hit-count over the FULL cycle naturally
+                // double-counts a ping-pong's repeated endpoints the same way the real read-sequence does — no
+                // ×2 special-case needed (every buffer position 0..<n is visited exactly twice per 2n-tick lap).
+                let cycleLen = euclidCycleLen(dir, n: n)
+                var cycleHits = 0; for s in 0..<cycleLen where (invert ? !euclidBuf[euclidReadIndex(s, n: n, dir: dir)] : euclidBuf[euclidReadIndex(s, n: n, dir: dir)]) { cycleHits += 1 }
                 let effHits = Int64(max(1, cycleHits))
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
@@ -3675,8 +3687,8 @@ final class Router {
                     // path just because they share a CONCEPT (the same rate/span/anchor reading).
                     let phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
                     let localT = Int64((phaseBeat / sub).rounded(.down))
-                    let step = Int(((localT % Int64(n)) + Int64(n)) % Int64(n))
-                    let ri = euclidReadIndex(step, n: n, reverse: reverse)
+                    let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
+                    let ri = euclidReadIndex(raw, n: n, dir: dir)
                     let isHit = invert ? !euclidBuf[ri] : euclidBuf[ri]
                     guard isHit else { return }
                     var pickIndex: Int? = nil
@@ -3692,8 +3704,8 @@ final class Router {
                         case .bottom2: if srcCount > 0 { pickRange = (0, min(1, srcCount - 1)) }
                         case .top2: if srcCount > 0 { pickRange = (max(0, srcCount - 2), srcCount - 1) }
                         case .cycle, .random:
-                            let cy = (localT - Int64(step)) / Int64(n)               // floored cycle within the span (localT = cy·n + step)
-                            var hitsUpTo = 0; for s in 0...step where (invert ? !euclidBuf[euclidReadIndex(s, n: n, reverse: reverse)] : euclidBuf[euclidReadIndex(s, n: n, reverse: reverse)]) { hitsUpTo += 1 }
+                            let cy = (localT - Int64(raw)) / Int64(cycleLen)               // floored cycle within the span (localT = cy·cycleLen + raw)
+                            var hitsUpTo = 0; for s in 0...raw where (invert ? !euclidBuf[euclidReadIndex(s, n: n, dir: dir)] : euclidBuf[euclidReadIndex(s, n: n, dir: dir)]) { hitsUpTo += 1 }
                             let ord = (cy * effHits + Int64(hitsUpTo - 1)) &+ Int64(die)   // v1b: per-line die salts CYCLE (rotates the sequence) / RANDOM (reseeds the scatter)
                             if srcCount > 0 {
                                 pickIndex = noteSel == .cycle
@@ -3703,10 +3715,12 @@ final class Router {
                         default: break   // N1…N8 already resolved via specificRank above
                         }
                     }
+                    // GATE loosens the column-boundary safety clamp 0.9→0.95 so an aggressive per-lane GATE still can't
+                    // bleed past its own column; OCTAVE threads straight to strikeChord (clamped there, like UTILITY/ARP).
                     if let range = pickRange {
-                        for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: idx) }
+                        for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave) }
                     } else {
-                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: pickIndex)
+                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave)
                     }
                 }
             }
@@ -3719,7 +3733,10 @@ final class Router {
             // `testEuclidPulsesFromPoolTracksHeldCount` going 9→54 note-ons, traced with a throwaway debug trace,
             // not guessed. Skipping a pulses<=0 row keeps it out of the dedup contention entirely, matching the
             // idle-row mockup ("0 hits, no comet") — an unused row stays silent regardless of POOL.
-            for L in p.euclidLines where L.pulses > 0 { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, reverse: L.reverseResolved, noteSel: L.noteSelResolved, die: L.dieResolved) }
+            // PLAY/STOP (Paul 2026-10-01): `enabledResolved` gates emission ONLY — pulses/steps/rotate are never
+            // touched by the toggle, so re-enabling a lane resumes exactly the pattern it had before (not the
+            // pulses=0 "unused slot" case just above, which is a different, permanent-until-edited state).
+            for L in p.euclidLines where L.pulses > 0 && L.enabledResolved { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, dir: L.directionResolved, noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, die: L.dieResolved) }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
             // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,

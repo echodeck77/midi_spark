@@ -5194,6 +5194,75 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(rev, [1, 4, 7], "REV reads the SAME buffer back-to-front (readIdx = n-1-step) — 7-6=1, 7-3=4, 7-0=7 — a genuinely different, same-count set")
         XCTAssertEqual(fwd.count, rev.count, "reversing never changes the total hit count — a permutation of indices")
     }
+    // STAGE 3 (Paul 2026-10-01, PLAY/SELECT + settings-panel redesign): PING-PONG bounces — a full lap is 2N ticks,
+    // so a PING-PONG line struck over a window TWICE as long as a same-K/N FWD line's own full cycle produces
+    // roughly DOUBLE the hit count (every buffer position read twice per lap, incl. both endpoints on their turn).
+    func testEuclidPingPongDoublesHitsOverAFullLap() {
+        // forceColumn: 0 (PLAY: THIS CELL) bypasses the column-lap gate — a bare cell's own grid column is only
+        // S=2 beats wide by default (same reason testEuclidReverseTimeReversesTheHitSequence picks beats:2 for
+        // its FWD/BKW n=8 lap), too short to hold a full PING-PONG lap (2n=16 ticks = 4 beats). But forcing the
+        // column also lets the window-granularity scan run slightly PAST the exact lap boundary (picking up the
+        // next lap's very first tick) — onset STEPS are filtered to the exact tick range under test (`< ticks`)
+        // so that harmless overrun can't inflate the count (confirmed via a throwaway debug trace, not guessed).
+        func onsetSteps(_ dir: EuclidDir, beats: Double, ticks: Int) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, direction: dir)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: beats, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int((Double($0.sample) / 6000).rounded()) }.filter { $0 < ticks }.sorted()
+        }
+        let fwdOneLap = onsetSteps(.fwd, beats: 2, ticks: 8)             // N=8 ticks at 1/16 (0.25 beats/tick) = 2 beats/lap
+        let pingpongOneLap = onsetSteps(.pingpong, beats: 4, ticks: 16) // PING-PONG's lap is 2N ticks = 4 beats
+        XCTAssertEqual(fwdOneLap, [0, 3, 6], "E(3,8) unrotated — sanity check against the known fixture")
+        XCTAssertEqual(pingpongOneLap, [0, 3, 6, 9, 12, 15], "ascending hits (0,3,6) then the SAME 3 positions mirrored on the way back (15−6=9, 15−3=12, 15−0=15)")
+        XCTAssertEqual(pingpongOneLap.count, fwdOneLap.count * 2, "one PING-PONG lap strikes every FWD hit twice (ascending + descending)")
+    }
+    // GATE (new 2026-10-01): a tight gate must end measurably earlier than a long one, same onset — proves the
+    // per-lane fraction actually reaches the emitted note-off, not just the model field.
+    func testEuclidGateChangesNoteLength() {
+        func dur(_ gate: Double) -> Int {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, gate: gate)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+            let on = e.ons.filter { $0.cable == 1 }.min { $0.sample < $1.sample }!
+            let off = e.offs.first { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }!
+            return Int(off.sample - on.sample)
+        }
+        XCTAssertLessThan(dur(0.1), dur(0.9), "a tight GATE ends measurably earlier than a long one")
+    }
+    // OCTAVE (new 2026-10-01): shifts the struck note by exactly 12×shift, clamped 0...127 like every other
+    // octave-shift site in this codebase (UTILITY/ARP) — an out-of-range shift drops the note silently.
+    func testEuclidOctaveShiftsAndClampsOutOfRange() {
+        func notes(_ octave: Int, note: UInt8 = 60) -> Set<Int> {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, octave: octave)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([note]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        }
+        XCTAssertEqual(notes(0), [60])
+        XCTAssertEqual(notes(2), [84], "+2 octaves = +24 semitones")
+        XCTAssertEqual(notes(-1), [48], "-1 octave = -12 semitones")
+        // octave itself clamps to ±3 at SnapshotBuilder resolve (like UTILITY/ARP) — so reaching the OUT-OF-RANGE
+        // note clamp (not the octave clamp) needs a high source note at the max allowed shift: 110 + 12×3 = 146.
+        XCTAssertEqual(notes(3, note: 110), [], "110 + 12×3 = 146, past 127 — clamped away to silence, not wrapped")
+    }
+    // PLAY/STOP (new 2026-10-01): `enabled: false` contributes nothing, but pulses/steps/rotate underneath are
+    // provably unchanged — re-enabling resumes the EXACT prior pattern. Guards against the Stage-1 POOL/padding-row
+    // regression class (PLAY/STOP must not be built on repurposing pulses=0, which would discard the authored hits).
+    func testEuclidEnabledFalseSilencesWithoutTouchingThePattern() {
+        func notes(_ enabled: Bool?) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, enabled: enabled)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        }
+        XCTAssertTrue(notes(false).isEmpty, "a disabled lane strikes nothing")
+        XCTAssertEqual(notes(true), notes(nil), "enabled:true and the nil default (also true) resume the identical pattern")
+        XCTAssertFalse(notes(nil).isEmpty, "the underlying pulses/steps weren't touched by the toggle — re-enabling plays the same pattern as before")
+    }
     // ARP EUCLID MASK (SPEC-arp-euclid-mask) is REMOVED (Paul 2026-09-28) — fully superseded by the standalone EUCLID
     // MASK processor; see testEuclidMaskFold*/testEuclidMask* above for the surviving REST/TIE/CHORD/ROTATE coverage.
     // WAIT-vs-MARCH had no replacement (Paul: "happy to drop wait as an option" — a downstream fold can't reach a

@@ -2259,15 +2259,27 @@ func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
     let n = euclidPatternInto(&buf, pulses: pulses, steps: steps, rotation: rotation)
     return Array(buf[0..<n])
 }
-/// DIRECTION (Paul 2026-09-29): maps a chronological playback step to the buffer index to read. FWD reads the
-/// already-rotated buffer in order; REV reads it back-to-front — a genuine time-mirror of the hit pattern, NOT a
-/// second rotation. Rotate-then-reverse and reverse-then-rotate differ in general (by a shift of 2×rotate mod n,
-/// coinciding only at rotate=0 or n/2 — verified algebraically). Flipping the READ index on the already-rotated
-/// buffer, rather than rebuilding it, is the smallest change and keeps ROTATE meaning "where the forward reading
-/// starts" and DIRECTION meaning "which way it's read from there."
-@inline(__always) func euclidReadIndex(_ step: Int, n: Int, reverse: Bool) -> Int {
-    reverse ? (max(1, n) - 1 - step) : step
+/// DIRECTION (Paul 2026-09-29, extended 2026-10-01 to 3-way FWD/BKW/PING-PONG) — maps a position already reduced
+/// mod `euclidCycleLen(dir, n:)` to the buffer index to read. FWD reads the already-rotated buffer in order; BKW
+/// reads it back-to-front — a genuine time-mirror of the hit pattern, NOT a second rotation (rotate-then-reverse
+/// and reverse-then-rotate differ in general, by a shift of 2×rotate mod n, coinciding only at rotate=0 or n/2 —
+/// verified algebraically). Flipping the READ index on the already-rotated buffer, rather than rebuilding it, is
+/// the smallest change and keeps ROTATE meaning "where the forward reading starts" and DIRECTION meaning "which
+/// way it's read from there." PING-PONG reuses RIFF's own `.pingpong` shape (`riffStepAt`) — period `2n`, each
+/// endpoint sounding on two consecutive ticks at the turn, not RIFF's OTHER mode `.pendulum` (period `2(n-1)`,
+/// never repeats an endpoint) — confirmed `.pingpong` is specifically the case RIFF's own UI labels "PING-PONG".
+@inline(__always) func euclidReadIndex(_ raw: Int, n: Int, dir: EuclidDir) -> Int {
+    let nn = max(1, n)
+    switch dir {
+    case .fwd: return raw
+    case .bkw: return nn - 1 - raw
+    case .pingpong: return raw < nn ? raw : 2 * nn - 1 - raw
+    }
 }
+/// The real cycle length DIRECTION implies — FWD/BKW repeat every N ticks (unchanged from before PING-PONG
+/// existed); PING-PONG repeats every 2N (it must bounce all the way out and back before repeating), so a caller
+/// must reduce its raw tick count mod THIS, not mod `n`, before calling `euclidReadIndex` above.
+@inline(__always) func euclidCycleLen(_ dir: EuclidDir, n: Int) -> Int { dir == .pingpong ? max(1, 2 * n) : max(1, n) }
 
 // ── ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26) ──────────────────────────────────────────────────
 // Pure per-step helpers over a Bjorklund K-of-N mask (SAME formula as euclidPatternInto). No allocation — safe in the
