@@ -199,6 +199,40 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EUCLID COMET BAR — a drag HUD (steps/hits/offset, arrow-bordered, floats above the grid) + pinch-to-resize
+  steps (2026-10-01, on `main`; iOS builds; DEVICE eye/feel owed — gesture interplay is genuinely untestable off-
+  device). Paul: "On drag, I want something to appear above listing the steps, hits and offset, clear enough that
+  it's not obscured by the user's finger (maybe sitting above the grid). It will have small up/down/left/right
+  arrows bordering it to make it clear that gestures work. Change the pinch gesture to add remove steps."
+  **THE HUD:** new `@State private var euclidActiveDragRow: Int?` on `ProcessorBox` — the SAME idea as the
+  existing `laneReadout` (idea 18, "the value floating while a lane bar is dragged"), just scoped to WHICH row's
+  gesture is live (nil = none; 0…3 = that row; -1 = the 2-finger "every row" edit) rather than carrying a value
+  itself — `euclidDragHUD(_:)` reads the CURRENT steps/hits/rotate straight off the same `rows` array `euclidRow`
+  is already drawing from, so it can't show a stale number lagging the gesture. **POSITIONED ABOVE THE WHOLE
+  4-ROW STACK**, not per-row (`.overlay(alignment: .top) { euclidDragHUD(rows).offset(y: -58) }` on the row
+  VStack) — deliberately NOT anchored to whichever row is touched, so it sits in ONE consistent, finger-clear spot
+  regardless of which of the 4 rows is being dragged, matching Paul's own "maybe sitting above the grid" steer.
+  Four small arrow glyphs (▲▼◀▶) border the card on all 4 sides via `.overlay(alignment:)`, doubling as a visual
+  reminder of what the gestures do (not just decoration). **PINCH → STEPS:** a `UIPinchGestureRecognizer` added
+  to the SAME `EuclidGesturePad` view alongside the existing pan recognizer — spread = add steps, pinch-in =
+  remove, routed through the EXACT same `onStepsDelta` the +/- tap glyphs already use (kept, not replaced — pinch
+  is an additional way in, not a swap). Scale is converted to discrete integer steps LOGARITHMICALLY
+  (`log(scale)/log(1.15)`, ~15%/step) rather than linearly, so pinching in and spreading out feel symmetric — a
+  linear mapping would weight the two directions unevenly. **A REAL CRASH CAUGHT BEFORE SHIPPING, not after:**
+  `UIPinchGestureRecognizer.scale` can approach 0 if both touches land on nearly the same point; `log(0) =
+  -infinity`, and converting a non-finite Double to `Int` TRAPS in Swift — caught by reasoning through the edge
+  case before testing, not by a crash log; fixed with `log(max(0.05, g.scale))`. **GESTURE COEXISTENCE:** pan
+  (1-2 finger drag) and pinch now share one view — both recognizers get a delegate returning `true` from
+  `shouldRecognizeSimultaneously`, lifting UIKit's own default "one gesture at a time per view" restriction. Not
+  expected to conflict in practice (a genuine pinch has near-zero net translation; a 2-finger pan has near-zero
+  scale change — the two gestures measure nearly orthogonal things) but this is reasoning, not a device-confirmed
+  fact. UI-only (GridUI.swift), no test-target reach. **DEVICE-OWED, and this is the area most resistant to
+  verification by reading code — real multi-touch arbitration only shows itself on a touchscreen:** whether pan
+  and pinch genuinely coexist without one swallowing the other's touches; the HUD's exact vertical offset (-58pt)
+  against the REAL surrounding panel chrome — it may overlap something above the EUCLID editor that isn't visible
+  from the code alone, or get clipped if an enclosing container clips its own bounds; the pinch sensitivity
+  (~15%/step) and pan sensitivity (~18pt/step) feel; confirm the HUD reads clearly as "LANE N" vs "ALL LANES" for
+  the two drag modes.**
 - **▶ EUCLID NOTE SELECT — trimmed to 1·2·3·4·TOP, one row instead of two (2026-10-01, on `main`; iOS builds;
   DEVICE eye owed). Paul: "Change the note control to only display 1, 2, 3, 4 and top." Was all 15
   `EuclidNoteSel` cases (ALL·N1…N8·LOW·HIGH·BOT2·TOP2·CYCLE·RANDOM) spread over two chip rows; now a single row of

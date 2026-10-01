@@ -233,6 +233,11 @@ struct ProcessorBox: View {
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
     @State private var laneReadout: String? = nil        // LANE READOUT (idea 18): the value floating while a lane bar is dragged
     @State private var togglePaintTarget: Bool? = nil    // toggleLane drag-paint (Paul 2026-09-07): the state set by the first cell touched, painted across the drag
+    // EUCLID DRAG HUD (Paul 2026-10-01): the same idea as `laneReadout` above (a value floating while dragging),
+    // scoped to which row's gesture is live — nil = no drag; 0...3 = that row (1-finger or pinch); -1 = the
+    // 2-finger "every row" edit. Read-only identity; `euclidDragHUD(_:)` pulls the actual live steps/hits/offset
+    // straight from the row data already in scope each render, so this doesn't need to carry those values itself.
+    @State private var euclidActiveDragRow: Int? = nil
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -491,7 +496,8 @@ struct ProcessorBox: View {
     @ViewBuilder private func euclidCometBar(pulses k: Int, steps nIn: Int, rotate: Int, invert: Bool, reverse: Bool, rate: ArpRate, spanN: Int, tint: Color,
                                               onRotateDelta: @escaping (Int) -> Void, onHitsDelta: @escaping (Int) -> Void,
                                               onStepsDelta: @escaping (Int) -> Void,
-                                              onAllRotateDelta: @escaping (Int) -> Void, onAllHitsDelta: @escaping (Int) -> Void) -> some View {
+                                              onAllRotateDelta: @escaping (Int) -> Void, onAllHitsDelta: @escaping (Int) -> Void,
+                                              onDragState: @escaping (Bool, Bool) -> Void) -> some View {
         let n = max(2, min(16, nIn))
         let sub = max(0.03125, rate.beats)
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
@@ -579,8 +585,8 @@ struct ProcessorBox: View {
         // does the same but to EVERY row (`euclidAllRowsEdit`). Inset 14pt each side so the pad's own touch area
         // never competes with the thin +/- STEPS glyphs sitting in that margin (a ZStack sibling, drawn ON TOP —
         // SwiftUI hit-tests top-down, so the small glyphs win their own bounds before the pad underneath sees them).
-        EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta,
-                         onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta)
+        EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
+                         onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
             .padding(.horizontal, 14)
         HStack {
             Text("+").font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.4))
@@ -591,37 +597,53 @@ struct ProcessorBox: View {
         }
         }
     }
-    /// A UIKit pan bridge (Paul 2026-10-01) — SwiftUI's own `DragGesture` doesn't distinguish touch COUNT, only
-    /// position, and the EUCLID bar needs a genuine 1-vs-2-finger distinction (1 finger = this row, 2 fingers =
-    /// every row). Touch count is LATCHED at `.began`, not re-read every `.changed`, so a finger lifting or
-    /// landing mid-drag can't flip which mode the drag is in partway through.
+    /// A UIKit pan+pinch bridge (Paul 2026-10-01) — SwiftUI's own `DragGesture` doesn't distinguish touch COUNT,
+    /// only position, and the EUCLID bar needs a genuine 1-vs-2-finger distinction (1 finger = this row, 2 fingers
+    /// = every row). Touch count is LATCHED at `.began`, not re-read every `.changed`, so a finger lifting or
+    /// landing mid-drag can't flip which mode the drag is in partway through. PINCH (spread = add steps, pinch-in
+    /// = remove) runs on the SAME view as a second recognizer — a genuine pinch (fingers moving apart/together,
+    /// centroid roughly static) and a 2-finger pan (both fingers moving together) measure near-orthogonal things,
+    /// so they coexist without fighting in practice; the delegate below just lifts UIKit's own default "one
+    /// gesture at a time per view" restriction so neither silently blocks the other.
     private struct EuclidGesturePad: UIViewRepresentable {
         let onRotateDelta: (Int) -> Void        // 1-finger horizontal — Δrotate, this row
         let onHitsDelta: (Int) -> Void          // 1-finger vertical — Δhits, this row
+        let onStepsDelta: (Int) -> Void         // pinch — Δsteps, this row (shared with the +/- tap glyphs)
         let onAllRotateDelta: (Int) -> Void     // 2-finger horizontal — Δrotate, every row
         let onAllHitsDelta: (Int) -> Void       // 2-finger vertical — Δhits, every row
+        let onDragState: (Bool, Bool) -> Void   // (isActive, isAllRows) — true/false at first touch down / last lift
         func makeUIView(context: Context) -> UIView {
             let v = UIView(); v.backgroundColor = .clear; v.isOpaque = false
             let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
             pan.minimumNumberOfTouches = 1; pan.maximumNumberOfTouches = 2
+            pan.delegate = context.coordinator
             v.addGestureRecognizer(pan)
+            let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
+            pinch.delegate = context.coordinator
+            v.addGestureRecognizer(pinch)
             return v
         }
         func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.owner = self }
         func makeCoordinator() -> Coordinator { Coordinator(self) }
-        final class Coordinator: NSObject {
+        final class Coordinator: NSObject, UIGestureRecognizerDelegate {
             var owner: EuclidGesturePad
             private var twoFinger = false
             private var appliedX = 0, appliedY = 0
+            private var appliedPinchSteps = 0
             // ~18pt per step each axis — a first-pass sensitivity (tunable): deliberately coarser than NumPair's
             // own 14pt/step scrub, since this bar is small and a finger resting on it covers a fair chunk of it.
             private let stepPt: CGFloat = 18
+            // ~15% scale change per ±1 step (log-spaced so pinching in and spreading out feel symmetric — a
+            // linear mapping would make the two directions feel unequal) — also a first-pass, tunable threshold.
+            private let pinchStepRatio: Double = 1.15
             init(_ o: EuclidGesturePad) { owner = o }
+            func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
             @objc func handlePan(_ g: UIPanGestureRecognizer) {
                 switch g.state {
                 case .began:
                     twoFinger = g.numberOfTouches >= 2
                     appliedX = 0; appliedY = 0
+                    owner.onDragState(true, twoFinger)
                 case .changed:
                     let t = g.translation(in: g.view)
                     let stepsX = Int((t.x / stepPt).rounded())
@@ -636,10 +658,67 @@ struct ProcessorBox: View {
                         twoFinger ? owner.onAllHitsDelta(d) : owner.onHitsDelta(d)
                         appliedY = stepsY
                     }
+                case .ended, .cancelled, .failed:
+                    owner.onDragState(false, twoFinger)
+                default: break
+                }
+            }
+            @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
+                switch g.state {
+                case .began:
+                    appliedPinchSteps = 0
+                    owner.onDragState(true, false)   // pinch is always scoped to this row — no "all rows" steps mode
+                case .changed:
+                    // clamp scale well above 0 before taking its log — two touches landing on nearly the same
+                    // point would send scale → 0, and log(0) → -infinity, which traps converting to Int.
+                    let steps = Int((log(max(0.05, g.scale)) / log(pinchStepRatio)).rounded())
+                    if steps != appliedPinchSteps {
+                        owner.onStepsDelta(steps - appliedPinchSteps)
+                        appliedPinchSteps = steps
+                    }
+                case .ended, .cancelled, .failed:
+                    owner.onDragState(false, false)
                 default: break
                 }
             }
         }
+    }
+    /// THE DRAG HUD (Paul 2026-10-01) — same idea as the existing `laneReadout` (a value floating while a lane bar
+    /// is dragged), scoped up to the whole EUCLID row stack instead of one bar. Four small arrow glyphs border
+    /// the card (↑↓ = hits, ←→ = offset) so the card itself doubles as a reminder of what each gesture does, not
+    /// just a readout. `rows[active]` is always current — this reads the SAME data `euclidRow` is drawing from,
+    /// so the HUD can't show a stale value lagging behind what the gesture just applied.
+    @ViewBuilder private func euclidDragHUD(_ rows: [EuclidLine]) -> some View {
+        if let active = euclidActiveDragRow {
+            let L = active >= 0 && active < rows.count ? rows[active] : (rows.first ?? EuclidLine())
+            let label = active < 0 ? "ALL LANES" : "LANE \(active + 1)"
+            VStack(spacing: 5) {
+                Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                HStack(spacing: 16) {
+                    euclidHUDStat("STEPS", "\(L.steps)")
+                    euclidHUDStat("HITS", "\(L.pulses)")
+                    euclidHUDStat("OFFSET", "↻\(L.rotate)")
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.9)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.14), lineWidth: 1))
+            .overlay(alignment: .top) { euclidHUDArrow("▲").offset(y: -13) }
+            .overlay(alignment: .bottom) { euclidHUDArrow("▼").offset(y: 13) }
+            .overlay(alignment: .leading) { euclidHUDArrow("◀").offset(x: -13) }
+            .overlay(alignment: .trailing) { euclidHUDArrow("▶").offset(x: 13) }
+            .transition(.opacity)
+            .zIndex(1)   // float clear of the row stack below it, never clipped behind a neighbouring row
+        }
+    }
+    private func euclidHUDStat(_ label: String, _ value: String) -> some View {
+        VStack(spacing: 1) {
+            Text(value).font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white)
+            Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+        }
+    }
+    private func euclidHUDArrow(_ s: String) -> some View {
+        Text(s).font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.4))
     }
     /// One of the four always-visible EUCLID rows (Paul 2026-09-30). Line 1: HITS·OF·ROTATE·DIRECTION·INVERT.
     /// Line 2: the merged NOTE SELECT chips (two rows) to the left, the live comet bar to the right.
@@ -676,7 +755,8 @@ struct ProcessorBox: View {
                                onHitsDelta: { d in euclidLineEdit4(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) } },
                                onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
                                onAllRotateDelta: { d in euclidAllRowsEdit { line in line.rotate = ((line.rotate + d) % 16 + 16) % 16 } },
-                               onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } })
+                               onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } },
+                               onDragState: { active, allRows in euclidActiveDragRow = active ? (allRows ? -1 : idx) : nil })
                     .frame(minWidth: 90, maxWidth: .infinity).frame(height: 44)
             }
         }
@@ -928,11 +1008,17 @@ struct ProcessorBox: View {
         })
         case .euclid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // GENERATOR — K-of-N euclidean rhythm; FOUR ALWAYS-VISIBLE FIXED ROWS (2026-09-30 redesign — replaces the old "start with one, tap +ADD LINE up to 8" model)
             let fromPool = p.euclidPulsesFromPool ?? false
+            let rows = p.euclidLinesForEditing()
             VStack(spacing: 8) {
-                ForEach(Array(p.euclidLinesForEditing().enumerated()), id: \.offset) { (idx, L) in
+                ForEach(Array(rows.enumerated()), id: \.offset) { (idx, L) in
                     euclidRow(idx, L, fromPool: fromPool)
                 }
             }
+            // DRAG HUD (Paul 2026-10-01): "something to appear above listing the steps, hits and offset, clear
+            // enough that it's not obscured by the user's finger... sitting above the grid." Floats above the
+            // WHOLE 4-row stack (not per-row) so it's in one consistent, finger-clear spot regardless of which
+            // row is being touched — reads the live values straight off `rows`, already current every render.
+            .overlay(alignment: .top) { euclidDragHUD(rows).offset(y: -58) }
             // HITS FROM moved to the bottom (Paul 2026-10-01, was above the 4 rows) — a machine-wide toggle, not a
             // per-row control, reads better sitting with the row stack it affects rather than ahead of it.
             field("HITS FROM", \.euclidPulsesFromPool) { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
