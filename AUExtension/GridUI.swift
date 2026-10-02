@@ -868,15 +868,16 @@ struct ProcessorBox: View {
     /// DIRECTION moved from `segV` (full-width stacked) back to `seg` (content-sized chips) — "reduce the width
     /// of the back, forward ping-pong buttons" — safe now that this panel spans the full editor width (the
     /// narrow-column truncation `segV` was built to dodge no longer applies here). Labels stay the same-day
-    /// >/</>< shrink (display only — the persisted EuclidDir raw values are untouched).
+    /// >/</>< shrink (display only — the persisted EuclidDir raw values are untouched). `compact: true` halves
+    /// its chip height (Paul 2026-10-02) — the LANE N header above this row is GONE (each HIT/MISS box already
+    /// labels itself "LANE N HIT"/"LANE N MISS", so the panel-level one was redundant).
     @ViewBuilder private func euclidSettingsPanel(_ L: EuclidLine, idx: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("LANE \(idx + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
             HStack(spacing: 10) {
                 field("DIRECTION") {
                     let dirLabels = [">", "<", "><"]
                     let dirSel = dirLabels[[EuclidDir.fwd, .bkw, .pingpong].firstIndex(of: L.directionResolved) ?? 0]
-                    seg(dirLabels, sel: dirSel) { i in
+                    seg(dirLabels, sel: dirSel, compact: true) { i in
                         euclidLineEdit4(idx) { $0.direction = [EuclidDir.fwd, .bkw, .pingpong][i] } }
                 }
                 Spacer(minLength: 0)
@@ -3004,18 +3005,21 @@ struct ProcessorBox: View {
     }
     // MODE ROW (device round 2): an enum field is an ALWAYS-VISIBLE RADIO ROW — every option shown, the selected
     // one filled. No dropdown; nothing hidden. Wraps to a second line when the options don't fit one row.
-    private func seg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
+    // `compact` (Paul 2026-10-02, EUCLID's own DIRECTION row): halves the chip height + trims the font, same
+    // opt-in convention as `numPair`'s own `compact` — default false, so every other of this function's ~30
+    // call sites is byte-identical.
+    private func seg(_ options: [String], sel: String, compact: Bool = false, _ onPick: @escaping (Int) -> Void) -> some View {
         // Chips size to their LABEL (finger-min 52pt), LEFT-aligned — so a 2-option toggle is ~140pt, not the full panel
         // width (Paul 2026-08-25: "controls feel too wide"). Font unchanged; the trailing Spacer stops the row stretching.
         let rows = radioRows(options.count)
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, span in
                 HStack(spacing: 6) {
                     ForEach(span, id: \.self) { i in
                         let on = options[i] == sel
-                        Text(options[i]).font(.system(size: 15, weight: .heavy, design: .monospaced))
+                        Text(options[i]).font(.system(size: compact ? 11 : 15, weight: .heavy, design: .monospaced))
                             .foregroundColor(on ? .black : accent).lineLimit(1)
-                            .padding(.horizontal, 15).frame(minWidth: 52, minHeight: 42)
+                            .padding(.horizontal, compact ? 10 : 15).frame(minWidth: compact ? 36 : 52, minHeight: compact ? 21 : 42)
                             .background(RoundedRectangle(cornerRadius: 7).fill(on ? accent : Color.white.opacity(0.09)))
                             .contentShape(Rectangle()).onTapGesture { onPick(i) }
                     }

@@ -196,6 +196,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID PANEL — the redundant LANE N header removed, DIRECTION chips halved in height (2026-10-02, on
+  `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye owed). Paul: "Remove the LANE 2 header
+  from euclid. Halve the height of the direction buttons." The top-of-panel `Text("LANE \(idx+1)")` in
+  `euclidSettingsPanel` is deleted outright — each HIT/MISS box already labels itself "LANE N HIT"/"LANE N
+  MISS" directly beneath it, so the panel-level header was pure duplication. **DIRECTION:** `seg` (the shared
+  content-sized-chip control, ~30 call sites across every processor editor in this file) gained an opt-in
+  `compact: Bool = false` param — same convention as `numPair`'s own `compact` — halving chip height 42→21pt,
+  trimming the font 15→11pt and padding/min-width to match, so the one EUCLID DIRECTION call site that now
+  passes `compact: true` is the ONLY caller affected; every other `seg` usage (OCT DIR, SYNC, ROUTE, VOICING,
+  etc.) is byte-identical. UI-only (GridUI.swift), no engine/model change. **DEVICE-OWED:** the DIRECTION
+  row's legibility and touch target at the new half-height, and that the panel reads cleanly with no gap
+  where the removed header used to sit.**
 - **▶ EUCLID DRAG HUD — relocated a SECOND time, now genuinely top-level (2026-10-02, on
   `feature/euclid-hud-touch-and-polish`; iOS builds, no test-target reach — UI-only, BuildPage.swift/
   AudioUnitViewController.swift; DEVICE eye owed). Paul, after the first relocation shipped: "the euclid overlay
