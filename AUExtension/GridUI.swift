@@ -499,8 +499,10 @@ struct ProcessorBox: View {
             }
         }
     }
-    /// THE COMET BAR (Paul 2026-09-30): a non-interactive, live K-of-N hit display — a glowing comet runs the
-    /// pattern continuously, flaring each hit node as it passes. Reuses `euclidPhase`/`euclidReadIndex`
+    /// THE COMET BAR (Paul 2026-09-30, box redesign 2026-10-02): a non-interactive, live K-of-N hit display — N
+    /// gap-separated rounded-rect BOXES (one per step, "easier to see the number of steps" than a dot on a bare
+    /// line) with a glowing comet running the pattern continuously over them, flaring each hit box as it passes.
+    /// Reuses `euclidPhase`/`euclidReadIndex`
     /// (Derivations.swift) — the SAME pure functions the real render path uses for its own step math (Stage 1) —
     /// so this can never silently disagree with what's actually heard the way RATCHET PATTERN/DEST once did.
     /// NOT swing-warped: a deliberate, disclosed simplification matching every OTHER pattern-processor live sweep
@@ -534,24 +536,31 @@ struct ProcessorBox: View {
                 let w = size.width, midY = size.height / 2
                 let insetL: CGFloat = 6, insetR: CGFloat = 6
                 let usable = max(1, w - insetL - insetR)
-                func xFor(_ pos: Double) -> CGFloat { insetL + usable * CGFloat(pos / Double(n)) }
-                ctx.stroke(Path { pth in pth.move(to: CGPoint(x: insetL, y: midY)); pth.addLine(to: CGPoint(x: w - insetR, y: midY)) },
-                           with: .color(.white.opacity(0.10)), lineWidth: 1)
-                // GLOW (Paul 2026-09-30: "the timing's great but it doesn't look as good... maybe it's missing the
-                // glow"): the first pass approximated a glow with stacked hard-edged circles of falling opacity —
-                // reads as flat concentric rings, not a soft halo, because nothing was actually BLURRED. `drawLayer`
-                // + `GraphicsContext.Filter.shadow`/`.blur` are Canvas's real equivalent of the mockup's CSS
-                // `box-shadow`/`filter: blur()` — a true soft-edged glow, not an approximation of one.
+                func xFor(_ pos: Double) -> CGFloat { insetL + usable * CGFloat(pos / Double(n)) }   // the comet still rides this CONTINUOUS position — independent of the discrete boxes below
+                // STEP BOXES (Paul 2026-10-02: "incorporate boxes into the design... to represent every step. It
+                // needs to be easier to see the number of steps."). Replaces the old thin-baseline + floating-dot
+                // track: N bounded, gap-separated rounded-rect slots read the step COUNT at a glance in a way a
+                // dot sitting on an otherwise-blank line never did — the boxes themselves ARE the grid, with or
+                // without anything lit. Gap narrows as N grows so a dense 16-step lane doesn't crush its boxes
+                // into nothing; corner radius is capped relative to box width for the same reason at the thin end.
+                let gap: CGFloat = n <= 8 ? 4 : (n <= 12 ? 3 : 2)
+                let boxW = max(3, (usable - gap * CGFloat(n - 1)) / CGFloat(n))
+                let boxH = min(30, size.height - 6)
+                let corner = min(5, boxW / 2.2)
+                func boxRect(_ i: Int) -> CGRect {
+                    CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
+                }
                 for i in 0..<n {
                     let ri = euclidReadIndex(i, n: n, dir: dir)
                     let hit = invert ? !buf[ri] : buf[ri]
-                    let x = xFor(Double(i) + 0.5)
+                    let rect = boxRect(i)
+                    let box = Path(roundedRect: rect, cornerRadius: corner)
                     if hit {
                         // STOPPED (Paul 2026-10-02: "don't show the playhead comets when the playhead isn't
                         // running") — `clockPlaying` false means the TimelineView above is PAUSED, so `phase`
                         // is frozen at whatever it was the instant playback stopped, not a meaningful "time since
                         // the comet passed." Drawing the age/recede/burst flare off a frozen age would leave some
-                        // hit dot stuck mid-flash forever. A stopped lane shows every hit at one steady,
+                        // hit box stuck mid-flash forever. A stopped lane shows every hit at one steady,
                         // unflared brightness instead — no comet, no animation, no stale frozen flare.
                         if clockPlaying {
                             // steps since the comet passed this node (0 = just now), wrapped positive every lap.
@@ -559,49 +568,50 @@ struct ProcessorBox: View {
                             let age = raw < 0 ? raw + Double(n) : raw
                             let recede = max(0, 1 - age / 1.5)     // the lingering afterglow (unchanged window)
                             // DRAMATIC HIT (Paul 2026-10-01: "brighter, with effects, more dramatic when it hits") —
-                            // a short, sharp BURST window layered on top of the lingering afterglow: the dot swells,
-                            // a hot white core flashes at its center, and a shockwave ring expands outward — all decay
-                            // much faster than `recede` so the strike itself reads as an impact, not just a brighter dot.
+                            // a short, sharp BURST window layered on top of the lingering afterglow: the box's
+                            // glow swells, a hot white flash core blooms inside it, and a shockwave OUTLINE (the
+                            // box-shaped echo of the old circular ring) expands outward — all decay much faster
+                            // than `recede` so the strike itself reads as an impact, not just a brighter box.
                             let burst = max(0, 1 - age / 0.35)
-                            let r = 3.5 + 4.5 * burst
-                            let dot = Path(ellipseIn: CGRect(x: x - r, y: midY - r, width: r * 2, height: r * 2))
+                            // a top-lit gradient fill (COOL factor, Paul 2026-10-02: "make it look cool") — a
+                            // flat fill read as a dead swatch; light-to-dark top-to-bottom gives each box a
+                            // glassy, lit-from-above quality, brightening further on its own burst.
                             ctx.drawLayer { layer in
-                                layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 16 * burst + 4 * recede))
-                                layer.fill(dot, with: .color(tint.opacity(0.5 + 0.5 * recede)))
+                                layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 14 * burst + 4 * recede))
+                                layer.fill(box, with: .linearGradient(Gradient(colors: [tint.opacity(min(1, 0.95 + 0.3 * burst)), tint.opacity(0.55 + 0.25 * recede)]),
+                                                                       startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
                             }
-                            if burst > 0.04 {   // the hot white flash core, right at the strike
-                                let cr: CGFloat = 2.0 + 2.2 * burst
+                            ctx.stroke(box, with: .color(.white.opacity(0.18 + 0.5 * burst)), lineWidth: 1)
+                            if burst > 0.04 {   // the hot flash core — a bright inset band, not a second shape
+                                let core = Path(roundedRect: rect.insetBy(dx: rect.width * 0.22, dy: rect.height * 0.3), cornerRadius: corner * 0.6)
                                 ctx.drawLayer { layer in
-                                    layer.addFilter(.shadow(color: .white.opacity(burst), radius: 7 * burst))
-                                    layer.fill(Path(ellipseIn: CGRect(x: x - cr, y: midY - cr, width: cr * 2, height: cr * 2)), with: .color(.white.opacity(burst)))
+                                    layer.addFilter(.shadow(color: .white.opacity(burst), radius: 6 * burst))
+                                    layer.fill(core, with: .color(.white.opacity(burst * 0.9)))
                                 }
                             }
-                            if burst > 0.06 {   // the shockwave — an expanding ring, reads as an impact not just a flash
-                                let ringR = r + 11 * (1 - burst)
-                                ctx.stroke(Path(ellipseIn: CGRect(x: x - ringR, y: midY - ringR, width: ringR * 2, height: ringR * 2)),
-                                           with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
+                            if burst > 0.06 {   // the shockwave — an expanding box outline, reads as an impact not just a flash
+                                let grow = 11 * (1 - burst)
+                                let ring = Path(roundedRect: rect.insetBy(dx: -grow, dy: -grow), cornerRadius: corner + grow * 0.4)
+                                ctx.stroke(ring, with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
                             }
                         } else {
-                            let r: CGFloat = 3.5
-                            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: midY - r, width: r * 2, height: r * 2)), with: .color(tint.opacity(0.5)))
+                            ctx.fill(box, with: .color(tint.opacity(0.55)))
+                            ctx.stroke(box, with: .color(.white.opacity(0.2)), lineWidth: 1)
                         }
                     } else {
                         // REST (Paul 2026-10-01: "the position of the notes move, not just switch on and off") —
-                        // every x here is mathematically fixed per step index regardless of hit/rest (confirmed by
-                        // re-tracing the math, not assumed) — but a tiny (5pt), 16%-opacity HOLLOW ring next to a
-                        // much bigger, brightly glowing FILLED hit dot doesn't read as "this slot dimmed," it reads
-                        // as "that note vanished" — and a different bright dot appearing elsewhere then reads as
-                        // relocation, not re-lighting. Now a rest is a plainly visible FILLED dot at the SAME base
-                        // size a resting (non-flaring) hit dot settles to — same shape family, just dim — so the
-                        // fixed slot grid stays legible regardless of which subset is currently lit.
-                        ctx.fill(Path(ellipseIn: CGRect(x: x - 3.5, y: midY - 3.5, width: 7, height: 7)), with: .color(.white.opacity(0.22)))
+                        // every box's RECT is mathematically fixed per step index regardless of hit/rest, so the
+                        // grid itself never relocates — only which boxes are lit does. A plainly visible FILLED +
+                        // bordered box (same shape family as a hit, just dim), not a hollow ring, so the fixed
+                        // slot grid stays legible regardless of which subset is currently lit.
+                        ctx.fill(box, with: .color(.white.opacity(0.09)))
+                        ctx.stroke(box, with: .color(.white.opacity(0.16)), lineWidth: 1)
                     }
                 }
-                // THE COMET — a soft blurred trail (a gradient stroke behind a `.blur` filter, not discrete hard
-                // dots) + a glowing head (a `.shadow` filter, not a second flat circle underneath). STOPPED: not
-                // drawn at all (Paul 2026-10-02) — a paused TimelineView freezes `phase`, so without this guard
-                // the comet would sit motionless at its last live position instead of disappearing, which is
-                // exactly the bug reported ("don't show the playhead comets when the playhead isn't running").
+                // THE COMET — unchanged motion/timing (a soft blurred trail + a glowing head), now riding OVER
+                // the box row instead of a thin baseline. STOPPED: not drawn at all (Paul 2026-10-02) — a paused
+                // TimelineView freezes `phase`, so without this guard the comet would sit motionless at its last
+                // live position instead of disappearing, exactly the bug reported earlier this session.
                 if clockPlaying {
                     let hx = xFor(phase)
                     ctx.drawLayer { layer in
