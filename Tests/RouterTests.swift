@@ -5152,8 +5152,8 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
         XCTAssertEqual(beyond, 0, "a TARGET past the held chord (rank 6 of 3 notes) strikes NOTHING — correctly silent, never wraps")
     }
-    func testEuclidLinesPerLinePickAndDie() {
-        // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick; a per-line die salts CYCLE/RANDOM apart.
+    func testEuclidLinesPerLinePick() {
+        // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick.
         func notesOf(_ line: EuclidLine) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid); c.paramsA.euclidLines = [line]
             let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
@@ -5162,9 +5162,12 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertEqual(Set(notesOf(EuclidLine(target: 0, pulses: 4, steps: 8, pick: .low))), [60], "per-line PICK=LOW strikes only the low note")
         XCTAssertEqual(Set(notesOf(EuclidLine(target: 0, pulses: 4, steps: 8, pick: .high))), [67], "per-line PICK=HIGH strikes only the high note")
+        // DIE — REMOVED (Paul 2026-10-02: "drop it, please"), was testEuclidLinesPerLinePickAndDie's own 3rd
+        // assertion ("a different per-line DIE reseeds the RANDOM scatter"). Locked in as a no-op regression
+        // guard rather than deleted, matching the INVERT removal's own testEuclidInvertIsNowANoOp.
         let dieA = notesOf(EuclidLine(target: 0, pulses: 5, steps: 8, pick: .random, die: 0))
         let dieB = notesOf(EuclidLine(target: 0, pulses: 5, steps: 8, pick: .random, die: 5))
-        XCTAssertNotEqual(dieA, dieB, "a different per-line DIE reseeds the RANDOM scatter → a different note sequence")
+        XCTAssertEqual(dieA, dieB, "DIE no longer salts the RANDOM scatter — two different die values now produce the identical sequence")
     }
     // EUCLID NOTE SELECT MERGE (2026-09-29 fixed-4-row redesign): TARGET+PICK merge into one `noteSel` field. BOT2/
     // TOP2 are new — ported from the sibling EUCLID MASK's own CHORD PICK — and need a real engine change (strike a
@@ -5327,23 +5330,38 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(a1, a2, "the same RANDOM ONCE seed reproduces the identical EUCLID-walked sequence — arpPick is a pure hash of (phaseIndex, seed), no accumulated state")
         XCTAssertNotEqual(a1, b1, "a different seed shuffles the walked sequence differently")
     }
-    func testEuclidTwoLinesSameRiffPredecessorPhaseIndependently() {
-        var riff = ProcessorSlot(type: .riff)
-        riff.params.riffSteps = 4
-        riff.params.riffRanks = [1, 2, 3, 0]   // non-rest steps: 0(rank1) 1(rank2) 2(rank3)
-        var euclid = ProcessorSlot(type: .euclid)
-        euclid.params.euclidLines = [
-            EuclidLine(target: 0, pulses: 8, steps: 8, die: 0, noteSel: .riff),   // same K/N/rate as line 2 — ticks in lockstep
-            EuclidLine(target: 0, pulses: 8, steps: 8, die: 1, noteSel: .riff),   // own DIE offsets its OWN ord, independent of line 1's
-        ]
-        let cs = arpMachines()
-        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
-        let ordered = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
-        // tick0 (simultaneous): line1(die0)→ord0→rank1(60) emitted before line2(die1)→ord1→rank2(64) (array order);
-        // tick1: line1→ord1→rank2(64), line2→ord2→rank3(67) — a constant +1 offset between the two lines' own walks,
-        // proving each line's `ord`/DIE is independent, not a single counter shared across lines on the same predecessor.
-        XCTAssertEqual(Array(ordered.prefix(4)), [60, 64, 64, 67], "two lines reading the same RIFF predecessor walk independently, each offset by its own DIE")
+    // REWRITTEN (Paul 2026-10-02, DIE removed — "drop it, please"): the original test used two lines with
+    // identical K/N but different DIE to prove independent phasing; with DIE gone, two identical lines would now
+    // be byte-identical by construction (nothing left to tell them apart), so this instead gives the two lines
+    // DIFFERENT densities (K=8 dense vs. K=3 a real Euclidean subset). NOT an exact union-count comparison — first
+    // draft tried that and tripped the PRE-EXISTING, documented `lastTick[row]` dedup-across-a-window-boundary
+    // quirk (runEuclidLine's own doc comment: "a known limitation for 2+ real lines sharing a row," the exact
+    // mechanism `testEuclidPulsesFromPoolTracksHeldCount` already guards elsewhere) — two REAL lines on one row
+    // can legitimately land a couple of counts off an exact solo-union once ticks straddle a render window, with
+    // nothing to do with DIE or independence. Weakened to the robust claim that's actually load-bearing here:
+    // neither line SUPPRESSES the other when run together (a genuine coupling bug — e.g. line2 silently
+    // continuing line1's walk instead of running its own — would collapse toward one line's solo count, not add).
+    func testEuclidTwoLinesSameRiffPredecessorBothContribute() {
+        func riffSlot() -> ProcessorSlot {
+            var riff = ProcessorSlot(type: .riff)
+            riff.params.riffSteps = 4
+            riff.params.riffRanks = [1, 2, 3, 0]   // non-rest: rank1(60) rank2(64) rank3(67)
+            return riff
+        }
+        func noteCount(_ lines: [EuclidLine]) -> Int {
+            var euclid = ProcessorSlot(type: .euclid); euclid.params.euclidLines = lines
+            let cs = arpMachines()
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riffSlot(), euclid]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let line1 = EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff)   // dense: every tick hits
+        let line2 = EuclidLine(target: 0, pulses: 3, steps: 8, noteSel: .riff)   // a real, sparser K-of-N subset
+        let solo1 = noteCount([line1]), solo2 = noteCount([line2])
+        XCTAssertGreaterThan(solo1, 0); XCTAssertGreaterThan(solo2, 0)
+        let combined = noteCount([line1, line2])
+        XCTAssertGreaterThan(combined, solo1, "line 2 adds its own notes on top of line 1's, rather than silently replacing them")
+        XCTAssertGreaterThan(combined, solo2, "line 1 adds its own notes on top of line 2's, rather than silently replacing them")
     }
     func testEuclidRiffAllRestPredecessorIsSilentNotACrash() {
         func onCount(poly: Bool) -> Int {
@@ -5415,7 +5433,10 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter(); run(b, chord([60]), beats: 1, into: e); assertNothingLeftSounding(e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [84], "RIFF's own +1 octave and EUCLID's own +1 octave stack additively (60→72→84) — two independent shifts, not one overriding the other")
     }
-    func testEuclidDieOffsetsTheRiffSequenceStart() {
+    // DIE — REMOVED (Paul 2026-10-02: "drop it, please"), was testEuclidDieOffsetsTheRiffSequenceStart (die 0/1/2
+    // landed on 60/64/67 respectively). Rewritten as a no-op regression guard covering the RIFF-sourced path
+    // specifically — testEuclidLinesPerLinePick's own guard only covers the pool-based RANDOM pick.
+    func testEuclidDieIsNowANoOpOnTheRiffSourcedPath() {
         func firstNote(die: Int) -> Int? {
             var riff = ProcessorSlot(type: .riff)
             riff.params.riffSteps = 4
@@ -5428,8 +5449,8 @@ final class RouterTests: XCTestCase {
             return e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.first.map { Int($0.note) }
         }
         XCTAssertEqual(firstNote(die: 0), 60, "die 0: the walk starts at ord 0 → non-rest step 0 → rank 1 (60)")
-        XCTAssertEqual(firstNote(die: 1), 64, "die 1 offsets the very first hit's ord by 1 → non-rest step 1 → rank 2 (64)")
-        XCTAssertEqual(firstNote(die: 2), 67, "die 2 offsets by 2 → non-rest step 2 → rank 3 (67)")
+        XCTAssertEqual(firstNote(die: 1), 60, "die no longer offsets the walk — die 1 still starts at ord 0 → rank 1 (60), not 64")
+        XCTAssertEqual(firstNote(die: 2), 60, "die no longer offsets the walk — die 2 still starts at ord 0 → rank 1 (60), not 67")
     }
     // ARP EUCLID MASK (SPEC-arp-euclid-mask) is REMOVED (Paul 2026-09-28) — fully superseded by the standalone EUCLID
     // MASK processor; see testEuclidMaskFold*/testEuclidMask* above for the surviving REST/TIE/CHORD/ROTATE coverage.

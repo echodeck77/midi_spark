@@ -149,9 +149,13 @@ struct EuclidLine: Codable, Equatable {
     var pulses: Int = 5      // K hits
     var steps: Int = 8       // N steps (per-line ⇒ polyrhythm)
     var rotate: Int = 0
-    var invert: Bool = false  // strike the N−K rests
+    // DECODE-ONLY (Paul 2026-10-02: "remove the hits button and functionality") — Router.swift's runEuclidLine no
+    // longer reads this; an old doc with it set true just stops flipping to the rests, nothing more.
+    var invert: Bool = false
     var pick: EuclidPick? = nil   // v1b (Paul 2026-08-26): per-line PICK for TARGET=ALL lines (nil ⇒ the global euclidPick — byte-identical)
-    var die: Int? = nil           // v1b: per-line seed salt so CYCLE/RANDOM picks differ across lines. OPTIONAL (a non-Optional additive field would throw on a pre-v1b euclidLines doc — the CR-8 decode-loss class); nil ⇒ 0 = unsalted, byte-identical
+    // DECODE-ONLY (Paul 2026-10-02: "drop it, please") — Router.swift's runEuclidLine no longer reads this; an
+    // old doc with a non-zero per-line die just stops salting CYCLE/RANDOM/RIFF/ARP's walk, nothing more.
+    var die: Int? = nil
     var dieResolved: Int { die ?? 0 }
     // NOTE SELECT MERGE (Paul 2026-09-29, the 4-fixed-row redesign): target+pick collapse into ONE selector —
     // picking a specific rank (N1…N8) behaves like the old target; picking an aggregate (ALL/LOW/HIGH/BOT2/TOP2/

@@ -196,6 +196,36 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID DIE — removed entire, control and effect (2026-10-02, on `fix/euclid-riff-predtype-and-polish`; macOS
+  1176 green incl. 3 rewritten, iOS builds; DEVICE eye owed). Paul asked what DIE was/why it was there (it predated
+  this session, v1b 2026-08-26 — a per-line ordinal salt so two lines both reading CYCLE/RANDOM/RIFF/ARP could be
+  staggered instead of producing the identical sequence); after the explanation, "Drop it, please." Same message:
+  "octave does not work" — investigated (re-read strikeChord/runEuclidLine's 4 call sites + the shared NumPair
+  widget, all correct, all covered by passing tests) — Paul then retracted it ("Actually, octave does work") before
+  any fix was needed; no code changed for that report. **DIE REMOVAL:** the `HStack` DIE control in
+  `euclidSettingsPanel` (GridUI.swift) is deleted outright; `runEuclidLine`'s `ord` computation drops the
+  `&+ Int64(die)` term entirely (now a plain, unsalted ordinal) and the function's own `die: Int = 0` parameter +
+  the `die: L.dieResolved` call-site argument are both gone. `EuclidLine.die`/`dieResolved` KEPT as decode-only
+  (same treatment INVERT got the same day) — an old doc with a non-zero per-line die just stops salting, nothing
+  crashes. **TESTS, 3 rewritten (not deleted — regression guards, matching the INVERT precedent):**
+  `testEuclidLinesPerLinePickAndDie`'s own DIE assertion → now asserts two different die values produce the
+  IDENTICAL sequence (was: different); `testEuclidDieOffsetsTheRiffSequenceStart` → `testEuclidDieIsNowANoOp-
+  OnTheRiffSourcedPath` (die 0/1/2 all now land on the SAME first note, not 60/64/67); the two-lines-independent-
+  phasing test, which had used matched-K/different-DIE as its proof mechanism, needed a full redesign since
+  identical-K lines are now byte-identical with nothing left to tell them apart — rebuilt around DIFFERENT
+  densities (K=8 dense vs K=3 sparse) instead. **A SELF-CAUGHT TEST-DESIGN BUG, not shipped wrong:** the first
+  redesign asserted the combined run equals the EXACT union of each line's solo run — failed (13 ons vs 11
+  expected) not because of independence breaking, but because it tripped a PRE-EXISTING, already-documented
+  quirk (`runEuclidLine`'s own comment: "`lastTick[row]` SHARED across every line on this row... a known
+  limitation for 2+ real lines sharing a row across a window boundary") — unrelated to DIE, unrelated to this
+  change, just newly exposed by a test strict enough to notice it. Weakened to the actually-robust claim
+  (`testEuclidTwoLinesSameRiffPredecessorBothContribute`: combined count > either solo count alone — neither line
+  silently swallows the other) rather than fighting or silently working around a known, accepted limitation.
+  Also fixed two now-stale doc comments in GridUI.swift (one above `euclidSettingsPanel` still listing
+  "conditional DIE"/INVERT, missing VELOCITY) and Models.swift (`invert`'s/`die`'s own field comments, updated to
+  say plainly they're decode-only and why). UI+engine, no test-target reach for the UI half (GridUI.swift, as
+  always). **DEVICE-OWED:** confirm the settings panel now reads cleanly with just the NOTE chip row above
+  GATE/VELOCITY/OCTAVE/DIRECTION, no dangling gap where DIE used to sit.**
 - **▶ EUCLID per-line panel — a real bugfix on the RIFF/ARP feature + three polish asks: HITS/REST removed, DIRECTION
   relabelled >/</><, a new VELOCITY control (2026-10-02, on `fix/euclid-riff-predtype-and-polish`; macOS 1176 green
   incl. +1, iOS builds; DEVICE ear/eye owed). Paul, testing the EUCLID-reads-RIFF/ARP feature just shipped: "RIFF

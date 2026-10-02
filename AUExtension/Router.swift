@@ -3680,7 +3680,7 @@ final class Router {
             // n-length buffer directly/mirrored (unchanged math, renamed); PING-PONG reuses RIFF's own `.pingpong`
             // shape (period 2n, each endpoint sounding on two consecutive ticks) via `euclidCycleLen`/`euclidReadIndex`.
             // GATE/OCTAVE are new per-lane fields threaded straight to `strikeChord`.
-            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, die: Int = 0) {
+            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -3716,7 +3716,8 @@ final class Router {
                     // .cycle/.random) since .riff/.arp consume it too.
                     let cy = (localT - Int64(raw)) / Int64(cycleLen)               // floored cycle within the span (localT = cy·cycleLen + raw)
                     var hitsUpTo = 0; for s in 0...raw where euclidBuf[euclidReadIndex(s, n: n, dir: dir)] { hitsUpTo += 1 }
-                    let ord = (cy * effHits + Int64(hitsUpTo - 1)) &+ Int64(die)   // v1b: per-line die salts CYCLE (rotates the sequence) / RANDOM (reseeds the scatter) / RIFF·ARP (offsets the walked sequence)
+                    // DIE REMOVED (Paul 2026-10-02: "drop it, please") — `ord` is now a plain, unsalted ordinal.
+                    let ord = cy * effHits + Int64(hitsUpTo - 1)
                     // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
                     // non-bypassed slot's OWN authored sequence by `ord` — an explicit resolved MIDI note, not an
                     // index into the held chord, so this is a separate branch, not two more cases folded into the
@@ -3820,7 +3821,7 @@ final class Router {
             // PLAY/STOP (Paul 2026-10-01): `enabledResolved` gates emission ONLY — pulses/steps/rotate are never
             // touched by the toggle, so re-enabling a lane resumes exactly the pattern it had before (not the
             // pulses=0 "unused slot" case just above, which is a different, permanent-until-edited state).
-            for L in p.euclidLines where L.pulses > 0 && L.enabledResolved { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved, noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved, die: L.dieResolved) }
+            for L in p.euclidLines where L.pulses > 0 && L.enabledResolved { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved, noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved) }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
             // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,

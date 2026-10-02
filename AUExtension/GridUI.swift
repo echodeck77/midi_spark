@@ -814,7 +814,7 @@ struct ProcessorBox: View {
     }
     /// THE INDIVIDUAL CONTROLS PER LANE (Paul 2026-10-02 relayout: "put the individual controls per lane below
     /// these" — below the lane controls row, which is itself below the 2×2 box) for whichever lane is
-    /// `euclidSelectedLane` — NOTE (chip row + conditional DIE) · GATE/OCTAVE/DIRECTION · INVERT. No longer a
+    /// `euclidSelectedLane` — NOTE chip row · GATE/VELOCITY/OCTAVE/DIRECTION. No longer a
     /// side panel height-matched to a lane column beside it (that pairing is gone — lanes are above, not
     /// beside) — this is now a plain full-width section at the BOTTOM of the editor, sized to its own natural
     /// content height; `buildProcessorPanel`'s own outer ScrollView (BuildPage.swift) already handles overflow
@@ -823,22 +823,16 @@ struct ProcessorBox: View {
         let cur = L.noteSelResolved
         VStack(alignment: .leading, spacing: 8) {
             Text("LANE \(idx + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            VStack(alignment: .leading, spacing: 3) {
-                // SEQUENTIAL SOURCES (Paul 2026-10-02): append a RIFF or ARP chip ONLY when the immediately-
-                // preceding, non-bypassed slot is that exact type (`precedingSourceType`, threaded in from
-                // BuildPage.swift) — hidden entirely, not shown-disabled, same convention as the other 10
-                // EuclidNoteSel cases already left out of `euclidNoteSelShown`. `euclidNoteSelLabel` falls through
-                // to `s.rawValue` for both ("RIFF"/"ARP") — no label change needed.
-                let shown = euclidNoteSelShown + (precedingSourceType == .riff ? [.riff] : precedingSourceType == .arp ? [.arp] : [])
-                euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }
-                if cur == .cycle || cur == .random || cur == .riff || cur == .arp {
-                    HStack(spacing: 6) {
-                        Text("DIE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                        numPair(L.dieResolved, 0...8, compact: true, format: { "⚄\($0)" }) { v in euclidLineEdit4(idx) { $0.die = v } }
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
+            // SEQUENTIAL SOURCES (Paul 2026-10-02): append a RIFF or ARP chip ONLY when the immediately-
+            // preceding, non-bypassed slot is that exact type (`precedingSourceType`, threaded in from
+            // BuildPage.swift) — hidden entirely, not shown-disabled, same convention as the other 10
+            // EuclidNoteSel cases already left out of `euclidNoteSelShown`. `euclidNoteSelLabel` falls through
+            // to `s.rawValue` for both ("RIFF"/"ARP") — no label change needed.
+            let shown = euclidNoteSelShown + (precedingSourceType == .riff ? [.riff] : precedingSourceType == .arp ? [.arp] : [])
+            euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }
+            // DIE — REMOVED (Paul 2026-10-02: "drop it, please"). Control AND effect both gone; see Router.swift's
+            // runEuclidLine for the engine-side removal. `EuclidLine.die`/`dieResolved` stay decode-only, same
+            // treatment as `invert` above.
             field("GATE  \(Int(L.gateResolved * 100))%") {
                 slider(bind(L.gateResolved) { v in euclidLineEdit4(idx) { $0.gate = v } }, in: 0.05...1)
             }
