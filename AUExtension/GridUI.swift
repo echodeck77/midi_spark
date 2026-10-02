@@ -812,52 +812,76 @@ struct ProcessorBox: View {
         .contentShape(Rectangle())
         .onTapGesture { euclidSelectedLane = idx }   // a plain tap anywhere on the cell selects it — the SELECT chip's replacement
     }
-    /// THE INDIVIDUAL CONTROLS PER LANE (Paul 2026-10-02 relayout: "put the individual controls per lane below
-    /// these" — below the lane controls row, which is itself below the 2×2 box) for whichever lane is
-    /// `euclidSelectedLane` — NOTE chip row · GATE/VELOCITY/OCTAVE/DIRECTION. No longer a
-    /// side panel height-matched to a lane column beside it (that pairing is gone — lanes are above, not
-    /// beside) — this is now a plain full-width section at the BOTTOM of the editor, sized to its own natural
-    /// content height; `buildProcessorPanel`'s own outer ScrollView (BuildPage.swift) already handles overflow
-    /// for the whole editor, so this doesn't need its own inner ScrollView anymore either.
+    /// THE INDIVIDUAL CONTROLS PER LANE (Paul 2026-10-02, HIT/MISS SPLIT: "I want the bottom controls... to
+    /// split into two. On the left is 'Lane 1 hit' and on the right is 'Lane 1 miss', which plays the off
+    /// notes... Ensure that both 'hits' and 'misses' boxes have identical controls"). DIRECTION stays SINGULAR,
+    /// shared above both boxes — it shapes the one underlying K-of-N pattern itself, not a per-outcome setting,
+    /// so "identical controls" doesn't apply to it (there's only one pattern to direct, not two). INVERT/DIE
+    /// are GONE entire (Paul 2026-10-02, same day, "drop it, please"/"remove the hits button and functionality")
+    /// — removed from this panel, not just hidden; see Router.swift's runEuclidLine for the engine-side removal.
+    /// DIRECTION moved from `segV` (full-width stacked) back to `seg` (content-sized chips) — "reduce the width
+    /// of the back, forward ping-pong buttons" — safe now that this panel spans the full editor width (the
+    /// narrow-column truncation `segV` was built to dodge no longer applies here). Labels stay the same-day
+    /// >/</>< shrink (display only — the persisted EuclidDir raw values are untouched).
     @ViewBuilder private func euclidSettingsPanel(_ L: EuclidLine, idx: Int) -> some View {
-        let cur = L.noteSelResolved
         VStack(alignment: .leading, spacing: 8) {
             Text("LANE \(idx + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            // SEQUENTIAL SOURCES (Paul 2026-10-02): append a RIFF or ARP chip ONLY when the immediately-
-            // preceding, non-bypassed slot is that exact type (`precedingSourceType`, threaded in from
-            // BuildPage.swift) — hidden entirely, not shown-disabled, same convention as the other 10
-            // EuclidNoteSel cases already left out of `euclidNoteSelShown`. `euclidNoteSelLabel` falls through
-            // to `s.rawValue` for both ("RIFF"/"ARP") — no label change needed.
-            let shown = euclidNoteSelShown + (precedingSourceType == .riff ? [.riff] : precedingSourceType == .arp ? [.arp] : [])
-            euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }
-            // DIE — REMOVED (Paul 2026-10-02: "drop it, please"). Control AND effect both gone; see Router.swift's
-            // runEuclidLine for the engine-side removal. `EuclidLine.die`/`dieResolved` stay decode-only, same
-            // treatment as `invert` above.
-            field("GATE  \(Int(L.gateResolved * 100))%") {
-                slider(bind(L.gateResolved) { v in euclidLineEdit4(idx) { $0.gate = v } }, in: 0.05...1)
+            HStack(spacing: 10) {
+                field("DIRECTION") {
+                    let dirLabels = [">", "<", "><"]
+                    let dirSel = dirLabels[[EuclidDir.fwd, .bkw, .pingpong].firstIndex(of: L.directionResolved) ?? 0]
+                    seg(dirLabels, sel: dirSel) { i in
+                        euclidLineEdit4(idx) { $0.direction = [EuclidDir.fwd, .bkw, .pingpong][i] } }
+                }
+                Spacer(minLength: 0)
             }
-            // VELOCITY (Paul 2026-10-02): a per-line SCALE (0…200%) on the struck note's own inherited velocity —
-            // see EuclidLine.velocity's own doc comment for why this is a scale, not ARP's absolute-level convention.
-            field("VELOCITY  \(Int(L.velocityResolved * 100))%") {
-                slider(bind(L.velocityResolved) { v in euclidLineEdit4(idx) { $0.velocity = v } }, in: 0...2)
-            }
-            field("OCTAVE  \(L.octaveResolved > 0 ? "+" : "")\(L.octaveResolved)") {
-                numPair(L.octaveResolved, -3...3) { v in euclidLineEdit4(idx) { $0.octave = v } }
-            }
-            // DIRECTION labels shrunk to >/</>< (Paul 2026-10-02, was FWD/BKW/PING-PONG) — display only; the
-            // persisted EuclidDir raw values ("FWD"/"BKW"/"PING-PONG") are untouched, so `sel:` must compare
-            // against the SAME shrunk strings segV's own `options` now shows, not the raw value directly (segV
-            // highlights by `opt == sel`, not by index).
-            field("DIRECTION") {
-                let dirLabels = [">", "<", "><"]
-                let dirSel = dirLabels[[EuclidDir.fwd, .bkw, .pingpong].firstIndex(of: L.directionResolved) ?? 0]
-                segV(dirLabels, sel: dirSel) { i in
-                    euclidLineEdit4(idx) { $0.direction = [EuclidDir.fwd, .bkw, .pingpong][i] } }
+            HStack(alignment: .top, spacing: 10) {
+                euclidHitMissBox(idx, L, isMiss: false)
+                euclidHitMissBox(idx, L, isMiss: true)
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.04)))
+    }
+    /// One HIT or MISS box (Paul 2026-10-02) — "under these titles are note selectors, one for each... put
+    /// octave to the right of the note selectors, and half its height... put velocity and gate (both controls
+    /// in both sections) onto the same line." Structurally identical both ways, by construction (one function,
+    /// an `isMiss` flag choosing which fields to read/write) — the ONE deliberate, flagged asymmetry is RIFF/
+    /// ARP: offered on HIT when the preceding slot matches (unchanged `precedingSourceType` mechanism), never
+    /// on MISS, which has no analogous "immediately-preceding slot" concept of its own — `runEuclidLine`
+    /// (Router.swift) guards this explicitly on the engine side too, so a stray `.riff`/`.arp` miss pick can't
+    /// silently read as ALL. No DIE row on either side — removed entire the same day ("drop it, please").
+    @ViewBuilder private func euclidHitMissBox(_ idx: Int, _ L: EuclidLine, isMiss: Bool) -> some View {
+        let cur: EuclidNoteSel = isMiss ? (L.missNoteSel ?? .all) : L.noteSelResolved   // MISS: nil (off) highlights nothing — .all is never in euclidNoteSelShown, so this reads honestly as "none picked"
+        let shown: [EuclidNoteSel] = isMiss ? euclidNoteSelShown
+            : euclidNoteSelShown + (precedingSourceType == .riff ? [.riff] : precedingSourceType == .arp ? [.arp] : [])
+        VStack(alignment: .leading, spacing: 6) {
+            Text(isMiss ? "LANE \(idx + 1) MISS" : "LANE \(idx + 1) HIT")
+                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            HStack(alignment: .top, spacing: 8) {
+                euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { if isMiss { $0.missNoteSel = s } else { $0.noteSel = s } } }
+                Spacer(minLength: 4)
+                VStack(alignment: .leading, spacing: 2) {   // OCT label kept (bare arrows alone next to a chip row read ambiguous); `compact: true` is the "half its height" ask
+                    Text("OCT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                    numPair(isMiss ? L.missOctaveResolved : L.octaveResolved, -3...3, compact: true) { v in
+                        euclidLineEdit4(idx) { if isMiss { $0.missOctave = v } else { $0.octave = v } } }
+                }
+            }
+            HStack(spacing: 8) {
+                field("VEL  \(Int((isMiss ? L.missVelocityResolved : L.velocityResolved) * 100))%") {
+                    slider(bind(isMiss ? L.missVelocityResolved : L.velocityResolved) { v in
+                        euclidLineEdit4(idx) { if isMiss { $0.missVelocity = v } else { $0.velocity = v } } }, in: 0...2)
+                }
+                field("GATE  \(Int((isMiss ? L.missGateResolved : L.gateResolved) * 100))%") {
+                    slider(bind(isMiss ? L.missGateResolved : L.gateResolved) { v in
+                        euclidLineEdit4(idx) { if isMiss { $0.missGate = v } else { $0.gate = v } } }, in: 0.05...1)
+                }
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
