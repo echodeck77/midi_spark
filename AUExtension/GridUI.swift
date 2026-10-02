@@ -525,6 +525,7 @@ struct ProcessorBox: View {
     /// hits `euclidReadIndex`'s `raw < n` branch, identical to FWD) — an honest, disclosed simplification, not a
     /// silent omission; the comet's own continuous sweep is unaffected either way (still left→right, any dir).
     @ViewBuilder private func euclidCometBar(pulses k: Int, steps nIn: Int, rotate: Int, invert: Bool, dir: EuclidDir, rate: ArpRate, spanN: Int, tint: Color,
+                                              lanePlaying: Bool,
                                               onRotateDelta: @escaping (Int) -> Void, onHitsDelta: @escaping (Int) -> Void,
                                               onStepsDelta: @escaping (Int) -> Void,
                                               onAllRotateDelta: @escaping (Int) -> Void, onAllHitsDelta: @escaping (Int) -> Void,
@@ -532,8 +533,14 @@ struct ProcessorBox: View {
         let n = max(2, min(16, nIn))
         let sub = max(0.03125, rate.beats)
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+        // PER-LANE PLAY/STOP (Paul 2026-10-02: "make sure that if a lane is stopped then the comet doesn't move
+        // across it") — a SECOND, independent gate alongside `clockPlaying` (the HOST transport). `running` is
+        // true only when BOTH the transport is playing AND this specific lane's own PLAY/STOP is engaged; a
+        // stopped lane freezes/hides its comet exactly like a stopped transport does (same `else` branch below),
+        // regardless of whether OTHER lanes (or the transport itself) are still running.
+        let running = clockPlaying && lanePlaying
         ZStack {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clockPlaying)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running)) { tl in
             let liveBeat = beatAnchor + tl.date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
             let phase = euclidPhase(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n)
             Canvas { ctx, size in
@@ -563,12 +570,14 @@ struct ProcessorBox: View {
                     let box = Path(roundedRect: rect, cornerRadius: corner)
                     if hit {
                         // STOPPED (Paul 2026-10-02: "don't show the playhead comets when the playhead isn't
-                        // running") — `clockPlaying` false means the TimelineView above is PAUSED, so `phase`
-                        // is frozen at whatever it was the instant playback stopped, not a meaningful "time since
-                        // the comet passed." Drawing the age/recede/burst flare off a frozen age would leave some
-                        // hit box stuck mid-flash forever. A stopped lane shows every hit at one steady,
-                        // unflared brightness instead — no comet, no animation, no stale frozen flare.
-                        if clockPlaying {
+                        // running" — later widened the SAME day to per-lane: "make sure that if a lane is
+                        // stopped then the comet doesn't move across it") — `running` false (either the HOST
+                        // transport, or THIS LANE's own PLAY/STOP) means the TimelineView above is PAUSED, so
+                        // `phase` is frozen at whatever it was the instant playback stopped, not a meaningful
+                        // "time since the comet passed." Drawing the age/recede/burst flare off a frozen age
+                        // would leave some hit box stuck mid-flash forever. A stopped lane shows every hit at
+                        // one steady, unflared brightness instead — no comet, no animation, no stale frozen flare.
+                        if running {
                             // steps since the comet passed this node (0 = just now), wrapped positive every lap.
                             let raw = (phase - Double(i)).truncatingRemainder(dividingBy: Double(n))
                             let age = raw < 0 ? raw + Double(n) : raw
@@ -615,10 +624,10 @@ struct ProcessorBox: View {
                     }
                 }
                 // THE COMET — unchanged motion/timing (a soft blurred trail + a glowing head), now riding OVER
-                // the box row instead of a thin baseline. STOPPED: not drawn at all (Paul 2026-10-02) — a paused
-                // TimelineView freezes `phase`, so without this guard the comet would sit motionless at its last
-                // live position instead of disappearing, exactly the bug reported earlier this session.
-                if clockPlaying {
+                // the box row instead of a thin baseline. STOPPED: not drawn at all (Paul 2026-10-02, widened the
+                // same day to per-lane PLAY/STOP too) — a paused TimelineView freezes `phase`, so without this
+                // guard the comet would sit motionless at its last live position instead of disappearing.
+                if running {
                     let hx = xFor(phase)
                     ctx.drawLayer { layer in
                         layer.addFilter(.blur(radius: 3))
@@ -671,20 +680,57 @@ struct ProcessorBox: View {
         // begin/end, so a HUD tracking the finger moves continuously, not just at the start of the gesture.
         let onDragState: (CGPoint?, Bool) -> Void
         func makeUIView(context: Context) -> UIView {
-            let v = UIView(); v.backgroundColor = .clear; v.isOpaque = false
+            // RAW TOUCH TRACKING (Paul 2026-10-02: "make sure that the overlay... appears on first touch") —
+            // UIPanGestureRecognizer/UIPinchGestureRecognizer only transition to .began once a touch has moved
+            // past UIKit's own recognition slop, so driving the HUD from them alone leaves a dead zone right
+            // after contact (and a plain tap that never moves enough never shows anything). TouchView's raw
+            // touchesBegan/Moved/Ended bridge that gap — see its own doc comment below.
+            let v = TouchView(); v.backgroundColor = .clear; v.isOpaque = false
+            v.coordinator = context.coordinator
             let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
             pan.minimumNumberOfTouches = 1; pan.maximumNumberOfTouches = 2
             pan.delegate = context.coordinator
+            pan.cancelsTouchesInView = false   // let TouchView keep receiving touch events through the whole gesture, not just up to the moment the recognizer takes over
             v.addGestureRecognizer(pan)
             let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
             pinch.delegate = context.coordinator
+            pinch.cancelsTouchesInView = false
             v.addGestureRecognizer(pinch)
             return v
         }
         func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.owner = self }
         func makeCoordinator() -> Coordinator { Coordinator(self) }
+        /// Reports raw touch contact straight to the Coordinator, independent of whatever the pan/pinch
+        /// recognizers decide — see `makeUIView`'s own comment for why this exists. Tracks the active touch SET
+        /// (not just one) so a 2-finger gesture doesn't look "lifted" the instant the FIRST of the two fingers
+        /// comes up; `allRows` (≥2 touches) is a plain snapshot of that count, not a latch — it's only used for
+        /// this early, pre-recognition HUD label, and corrects itself within milliseconds once the real
+        /// recognizer's own LATCHED `twoFinger` (handlePan) takes over reporting.
+        private final class TouchView: UIView {
+            weak var coordinator: Coordinator?
+            private var active: Set<UITouch> = []
+            private func report() {
+                guard let t = active.first else { return }
+                coordinator?.handleRawTouch(t.location(in: window), active.count >= 2)
+            }
+            override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+                super.touchesBegan(touches, with: event); active.formUnion(touches); report()
+            }
+            override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+                super.touchesMoved(touches, with: event); report()
+            }
+            override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+                super.touchesEnded(touches, with: event); active.subtract(touches)
+                active.isEmpty ? coordinator?.handleRawTouch(nil, false) : report()
+            }
+            override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+                super.touchesCancelled(touches, with: event); active.subtract(touches)
+                active.isEmpty ? coordinator?.handleRawTouch(nil, false) : report()
+            }
+        }
         final class Coordinator: NSObject, UIGestureRecognizerDelegate {
             var owner: EuclidGesturePad
+            func handleRawTouch(_ point: CGPoint?, _ allRows: Bool) { owner.onDragState(point, allRows) }
             private var twoFinger = false
             private var appliedX = 0, appliedY = 0
             private var appliedPinchSteps = 0
@@ -777,7 +823,7 @@ struct ProcessorBox: View {
                 .contentShape(Rectangle())
                 .onTapGesture { euclidLineEdit4(idx) { $0.enabled = !($0.enabledResolved) } }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
             euclidCometBar(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, dir: L.directionResolved,
-                           rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent,
+                           rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent, lanePlaying: on,
                            // DRAG-DIRECTION FIX (Paul 2026-10-02: "I drag a dot one space left, the lit note doesn't
                            // follow — it jumps somewhere else"). Traced, not guessed: `euclidPatternInto`'s
                            // `rotation` is `buf[i] = test((i+rot) % n)` — a TRUE cyclic shift where INCREASING rot

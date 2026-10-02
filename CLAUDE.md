@@ -196,6 +196,67 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID DRAG HUD — appears on raw touch-down + tracks the finger end-to-end, tightened to ~1 inch, arrows
+  re-added; comet now respects PER-LANE PLAY/STOP; lanes default to 1-of-8 (2026-10-02, on `fix/euclid-die-removal`;
+  macOS 1176 green (no new tests — all UI/engine-glue, no test-target reach), iOS builds; DEVICE eye/feel owed —
+  real touch-recognizer timing and on-device inch-accuracy can't be confirmed off-device). Paul, five asks in one
+  message: the overlay should be ~an inch above the touch and track finger movement; a stopped lane's comet
+  shouldn't move; lanes should default to 1-of-8; the overlay should show "1 of 8" on first touch; bring back the
+  4 directional arrows. **ROOT GAP, traced not assumed:** `onDragState` (the HUD's only signal) was driven
+  EXCLUSIVELY by `UIPanGestureRecognizer`/`UIPinchGestureRecognizer`'s own `.began`/`.changed` — and a UIKit pan/
+  pinch recognizer only transitions out of `.possible` once a touch has moved past the SYSTEM's own recognition
+  slop (confirmed by re-reading this exact file's own prior doc comment: "a touch that never moves simply fails
+  them, un-consumed") — so there was an unavoidable dead zone right after contact, and a touch that never moved
+  enough (a near-tap) never showed the HUD at all. **FIX — `EuclidGesturePad` gained a genuine raw-touch channel,
+  parallel to the recognizers, not a replacement for them:** a new nested `TouchView: UIView` overrides
+  `touchesBegan`/`touchesMoved`/`touchesEnded`/`touchesCancelled` directly — these fire on the OS's own touch
+  delivery, zero movement required — reporting straight to a new `Coordinator.handleRawTouch(point:allRows:)`,
+  which calls the exact same `owner.onDragState` the recognizers already call. Both `pan`/`pinch` gained
+  `cancelsTouchesInView = false` — **a deliberate fix for a race, reasoned through before shipping:** the default
+  (`true`) would have UIKit call `touchesCancelled` on `TouchView` the MOMENT a recognizer takes over, right as
+  that SAME recognizer's own `.began` starts reporting — an ordering hazard that could visibly flicker-hide the
+  HUD exactly when the drag "officially" begins. With cancellation off, `TouchView` keeps tracking in PARALLEL for
+  the touch's entire lifetime, two harmless near-duplicate `onDragState` calls per tick instead of a race. `Touch-
+  View` NEVER calls `onRotateDelta`/`onHitsDelta`/`onStepsDelta` — only the recognizers still own those — so there
+  was no risk of double-applying a value change, only the HUD-visibility signal gained a second, earlier source.
+  **"1 of 8 on first touch"** falls out of this plus the new default (below) with no separate code — the HUD always
+  reads the lane's OWN live `pulses`/`steps` at the moment of the call, never a hardcoded string. **~1 INCH + 
+  TRACKS THE FINGER:** the Y offset was already recomputed from the live touch point on every call (confirmed by
+  reading `roomsProcessorCardAt`'s overlay before touching anything — this part worked already, just gated behind
+  the same dead-zone gap above); tightened the constant itself from 150pt ("an inch or two," a deliberately loose
+  original guess) to 130pt, the more common iPad points-per-inch approximation — still an honest approximation,
+  not a measured value. **COMET PER-LANE STOP:** `euclidCometBar` had NO idea whether its own lane was enabled —
+  only `clockPlaying` (the HOST transport) gated its animation, so a lane individually stopped via its own inline
+  PLAY/STOP button kept sweeping as long as the transport and at least the CARD were still running. New `lanePlaying:
+  Bool` param, `let running = clockPlaying && lanePlaying`, threaded into both existing `if clockPlaying` gates (the
+  per-box flare/burst and the comet draw itself — renamed `running`) and the `TimelineView`'s own `paused:` — a
+  stopped lane now freezes/hides its comet exactly like a stopped transport already did, independent of whether
+  OTHER lanes or the transport itself are still running; the static K-of-N step-box grid is untouched either way
+  (still fully visible/editable while stopped, matching the existing transport-stop precedent). **DEFAULT 1-OF-8:**
+  three separate sources of "5" fixed in lockstep — `EuclidLine.pulses`'s own struct default, `MachineParams.
+  euclidPulses`'s Optional default, and `euclidLinesForEditing()`'s inline `euclidPulses ?? 5` fallback (used when
+  an old doc decodes the field as nil) — all now 1; the EUCLID storefront card's own explicit preset (`4 of 4`, a
+  DELIBERATE 2026-09-30 default superseded here) changed to `1 of 8` directly. `steps` was already 8 everywhere,
+  untouched. Old saved docs are unaffected — Optional fields already present in a doc's JSON decode to their SAVED
+  value regardless of the struct's own default; this only changes what a genuinely FRESH, never-before-saved lane
+  opens on. **ARROWS RE-ADDED:** `buildEuclidDragHUD` gained 4 chevron glyphs (`.overlay(alignment:)` on all 4
+  sides) — these were deliberately DROPPED earlier the same day ("they'd point in directions that no longer mean
+  anything now that the card floats freely") when the HUD first started tracking the touch; Paul asked for them
+  back anyway, now read as a plain "this is draggable" affordance rather than a literal directional reference, not
+  a reversal of the earlier reasoning so much as a different priority winning. No new tests (GridUI.swift/
+  BuildPage.swift, as always, have no macOS test-target reach — this is UIKit touch-delivery + Canvas-drawing
+  behavior, verifiable only by the existing full suite staying green, which it does). **DEVICE-OWED, and this is
+  the one area most resistant to verification by reading code — real multi-touch/gesture-recognizer arbitration
+  only shows itself on a touchscreen:** whether `cancelsTouchesInView = false` genuinely eliminates the flicker
+  race rather than introducing a new one; whether the HUD now visibly appears the INSTANT a finger lands (not just
+  "sooner"); the 130pt/"1 inch" feel at real device size; confirm a stopped lane's comet freezes cleanly with no
+  stale flash, and that OTHER still-playing lanes are visibly unaffected; the new arrows' legibility/spacing
+  against the card's existing padding. **POST-REBASE NOTE:** landed on top of the other worktree's same-day
+  HIT/MISS SPLIT (directly below) — that commit rewrote `euclidSettingsPanel` into two `euclidHitMissBox` calls
+  and dropped the single shared VELOCITY/OCTAVE/DIRECTION list this session had earlier built; NONE of that
+  overlaps this entry's own changes (`EuclidGesturePad`/`TouchView`/`euclidCometBar`/`euclidLaneBox`'s comet-bar
+  call site, `buildEuclidDragHUD`, the 3 default-value constants) — verified by reading the post-rebase file
+  directly, not just trusting a clean auto-merge, since both branches touched the same region of GridUI.swift.**
 - **▶ EUCLID — HIT/MISS SPLIT: a rest step can now ALSO strike, plus per-lane VELOCITY (2026-10-02, on
   `feature/processor-live-sweep` → `main`; macOS 1180 green incl. 5 new, iOS builds; DEVICE ear/eye owed — the
   whole feature is genuinely unverifiable off-device, both the new sound and the restructured panel). Paul: "I

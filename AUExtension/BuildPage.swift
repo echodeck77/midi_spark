@@ -4825,9 +4825,13 @@ extension DiagView {
                 GeometryReader { geo in
                     let origin = geo.frame(in: .global).origin
                     let hudW: CGFloat = 230
-                    // "an inch or two above the touch" — ~150pt, a documented approximation (iPad's logical point
-                    // density isn't a fixed physical inch, and this can't be confirmed without a device); tunable.
-                    let aboveTouch: CGFloat = 150
+                    // "an inch above the touch" (Paul 2026-10-02, tightened from the original "an inch or two") —
+                    // ~130pt, the common iPad points-per-inch approximation; still a documented approximation
+                    // (iPad's logical point density isn't a fixed physical inch, and this can't be confirmed
+                    // without a device), just a tighter one than the original 150pt guess. Recomputed from the
+                    // LIVE `info.point` on every call (not cached), so the HUD's Y tracks the finger's own
+                    // vertical movement continuously, staying ~1 inch above wherever the touch currently is.
+                    let aboveTouch: CGFloat = 130
                     let rawX = info.point.x - origin.x
                     let halfW = hudW / 2 + 8
                     let x = min(max(rawX, halfW), max(halfW, geo.size.width - halfW))
@@ -4843,10 +4847,11 @@ extension DiagView {
     /// STYLE (Paul 2026-10-02: "3 hits out of 8, with offset by 2 in smaller text... more prominent than it is
     /// now"): a plain-English primary line replaces the old 3-stat-box layout (STEPS/HITS/OFFSET side by side);
     /// OFFSET drops to a smaller secondary line. Bigger type, a drop shadow, and a brighter border than the
-    /// original make it read as a genuine floating HUD rather than a small inline tag. The old 4 bordering arrow
-    /// glyphs (a "gestures work here" reminder tied to the HUD's OLD fixed position beside the lane row) are
-    /// dropped — they'd point in directions that no longer mean anything now that the card floats freely above
-    /// wherever the touch is, rather than sitting anchored to one fixed spot relative to the gesture pad.
+    /// original make it read as a genuine floating HUD rather than a small inline tag.
+    /// ARROWS (Paul 2026-10-02): RE-ADDED, having been dropped the same day the HUD first started floating with
+    /// the touch ("they'd point in directions that no longer mean anything now that the card floats freely") —
+    /// Paul asked for them back regardless, as a plain "this is draggable" affordance rather than a literal
+    /// directional reference. Four chevrons border the card on all 4 sides via `.overlay(alignment:)`.
     private func buildEuclidDragHUD(_ info: EuclidDragHUDInfo) -> some View {
         VStack(spacing: 5) {
             Text(info.label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
@@ -4860,7 +4865,17 @@ extension DiagView {
         .padding(.horizontal, 22).padding(.vertical, 16)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.92)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.22), lineWidth: 1.5))
+        .overlay(alignment: .top) { buildEuclidHUDArrow("chevron.up") }
+        .overlay(alignment: .bottom) { buildEuclidHUDArrow("chevron.down") }
+        .overlay(alignment: .leading) { buildEuclidHUDArrow("chevron.left") }
+        .overlay(alignment: .trailing) { buildEuclidHUDArrow("chevron.right") }
         .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+    }
+    private func buildEuclidHUDArrow(_ systemName: String) -> some View {
+        Image(systemName: systemName).font(.system(size: 13, weight: .heavy))
+            .foregroundColor(.white.opacity(0.4))
+            .offset(x: systemName.hasSuffix("left") ? -18 : (systemName.hasSuffix("right") ? 18 : 0),
+                    y: systemName.hasSuffix("up") ? -18 : (systemName.hasSuffix("down") ? 18 : 0))
     }
 
     // §1 TRUTH STRIPS (Paul 2026-08-22, the TUTTI-confusion cure): a slim IN | OUT band above the controls. IN = the
@@ -5380,7 +5395,7 @@ extension DiagView {
                 // pulse on row 0 only — rows 1-3 stay silent for free (euclidLinesForEditing()'s own pad default,
                 // pulses:0, unchanged) since nothing here touches `euclidLines`. Was 5-of-8/ALL, no real starting
                 // point for a brand-new card.
-                C("EUCLID", "Spreads K hits evenly around the cycle.", .euclid) { $0.euclidPulses = 4; $0.euclidSteps = 4; $0.euclidPick = .low },
+                C("EUCLID", "Spreads K hits evenly around the cycle.", .euclid) { $0.euclidPulses = 1; $0.euclidSteps = 8; $0.euclidPick = .low },   // Paul 2026-10-02: defaults to 1 of 8 (was 4 of 4)
                 C("WEAVE LADDER", "Every note pulses at its own speed: bass slow, top fast.", .weave) { $0.weaveMode = .ladder },
                 C("WEAVE HARMONIC", "Note speeds follow the harmonic series: 1×, 2×, 3×…", .weave) { $0.weaveMode = .harmonic },
                 C("WEAVE DRAWN", "You set each note's pulse speed by hand.", .weave) { $0.weaveMode = .drawn },

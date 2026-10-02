@@ -146,7 +146,7 @@ enum KillStepMode: String, Codable, CaseIterable { case on = "ON", mute = "MUTE"
 // `euclidLines` is nil the engine uses the flat euclidPulses/Steps/Rot params (migration-invisible, byte-identical).
 struct EuclidLine: Codable, Equatable {
     var target: Int = 0      // 0 = ALL (honours PICK) · 1–8 = strike that pool rank (silent if the chord lacks it)
-    var pulses: Int = 5      // K hits
+    var pulses: Int = 1      // K hits (Paul 2026-10-02: a fresh lane defaults to 1 of 8)
     var steps: Int = 8       // N steps (per-line ⇒ polyrhythm)
     var rotate: Int = 0
     // DECODE-ONLY (Paul 2026-10-02: "remove the hits button and functionality") — Router.swift's runEuclidLine no
@@ -421,7 +421,7 @@ struct MachineParams: Codable, Equatable {
     var echoSpill: EchoSpill? = .ring   // TAIL SPILL (design 2026-08-07): RING past the bar · CUT inside it · HAND (birthstone, deferred)
     var echoRoute: EchoRoute? = .direct // ROUTE (§7②, ratified 2026-08-22): DIRECT = echo the final set (v1) · CHAIN = each repeat flows THROUGH the stages after ECHO ([ECHO→LENGTH] chokes repeats, [ECHO→SPLIT] thins to a register)
     // EUCLID generator (user 2026-08-08). BURST reuses count+curve; CASCADE reuses rate+strumDir — no new fields.
-    var euclidPulses: Int? = 5          // K — hits per cycle (1…16) when PULSES = FIXED
+    var euclidPulses: Int? = 1          // K — hits per cycle (1…16) when PULSES = FIXED (Paul 2026-10-02: a fresh lane defaults to 1 of 8)
     var euclidSteps: Int? = 8           // N — steps in the cycle (2…16); K hits spread evenly across N
     var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
@@ -696,7 +696,7 @@ struct MachineParams: Codable, Equatable {
             Array((a.map(resolved) + Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)).prefix(4))
         }
         if let L = euclidLines, !L.isEmpty { return pad(L) }
-        let row0 = EuclidLine(target: 0, pulses: euclidPulses ?? 5, steps: euclidSteps ?? 8, rotate: euclidRot ?? 0,
+        let row0 = EuclidLine(target: 0, pulses: euclidPulses ?? 1, steps: euclidSteps ?? 8, rotate: euclidRot ?? 0,
                                invert: euclidInvert ?? false, pick: euclidPick, die: nil, noteSel: nil, reverse: nil)
         return pad([row0])
     }
