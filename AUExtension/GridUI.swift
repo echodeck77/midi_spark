@@ -741,77 +741,70 @@ struct ProcessorBox: View {
     // it's currently fixed on the scrolling processor edit page") — rendering it here could never escape this
     // box's own embedding ScrollView (`buildProcessorPanel`). See `EuclidDragHUDInfo`/`onEuclidDragInfo` above and
     // `BuildPage.swift`'s `buildEuclidDragHUD`/`buildProcessorPanel` for where it actually lives now.
-    /// RELAYOUT (Paul 2026-10-02): sizes a 2×2 box CELL — comet bar (44pt) + 6pt padding top/bottom = 56.
-    /// Previously also fit PLAY/STOP + SELECT beside the bar (that stage's own doc history); both moved OUT to
-    /// `euclidLaneControl`'s own row below the box, so this is now purely the visual-cell height.
+    /// RELAYOUT (Paul 2026-10-02, THIRD pass): sizes a 2×2 box CELL — a 44pt PLAY/STOP button beside the 44pt
+    /// comet bar + 6pt padding top/bottom = 56.
     private var euclidLaneH: CGFloat { 56 }
     private var euclidLaneGap: CGFloat { 8 }
-    /// One of the four EUCLID lanes' VISUAL BOX (Paul 2026-10-02 relayout — "the four lanes sit as 2x2, taking
-    /// 50% width... move the lane controls to below the box"). Supersedes the 2026-10-01 PLAY/SELECT-inline
-    /// design: this cell is now PURELY the live comet bar — PLAY/STOP + SELECT moved to their own row below the
-    /// whole 2×2 box (`euclidLaneControl`), freeing this box to be just the pattern display + its own gesture pad
-    /// (1-finger drag, 2-finger drag, pinch — UNCHANGED, still the way to reshape hits/steps/rotate). `width` is
-    /// explicit (the GeometryReader-computed half-cell width from `case .euclid:`), matching the established
-    /// "never rely on implicit sizing for this stroke/background" rule from the prior FERRY FRAGMENT fix.
+    /// One of the four EUCLID lanes' box (Paul 2026-10-02, THIRD relayout pass: "I want the play button on its
+    /// original position as part of the grid lane. No select button please, and if any lane is touched I want
+    /// it highlighted (the previous behaviour of the select button) which will bring its control into focus").
+    /// SUPERSEDES the immediately-prior pass, which had pulled PLAY/STOP out to a separate control row below
+    /// and added a dedicated numbered SELECT chip — both reverted here. PLAY/STOP is back INLINE (left of the
+    /// comet bar, its original position from before that pass); there is NO select chip anymore — tapping
+    /// ANYWHERE on the box (`.onTapGesture` on the whole cell), OR starting a single-lane drag/pinch on its
+    /// comet bar, selects it instead, driving the exact same highlight (`selected` border/background) the old
+    /// SELECT button used to drive, and the settings panel below focuses on it. The comet bar's own gesture pad
+    /// (1-finger drag, 2-finger drag, pinch) is UNCHANGED — still the only way to reshape hits/steps/rotate; a
+    /// plain tap (no movement) is never consumed by the pan/pinch recognizers, so it falls through to this
+    /// outer tap gesture cleanly (confirmed by reasoning through UIKit's own recognition rules, not guessed —
+    /// `UIPanGestureRecognizer`/`UIPinchGestureRecognizer` only transition out of `.possible` once the touch
+    /// moves past a system threshold; a touch that never moves simply fails them, un-consumed).
     @ViewBuilder private func euclidLaneBox(_ idx: Int, _ L: EuclidLine, width: CGFloat, onDragInfo: @escaping (EuclidDragHUDInfo?) -> Void) -> some View {
         let selected = euclidSelectedLane == idx
-        euclidCometBar(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, dir: L.directionResolved,
-                       rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent,
-                       // DRAG-DIRECTION FIX (Paul 2026-10-02: "I drag a dot one space left, the lit note doesn't
-                       // follow — it jumps somewhere else"). Traced, not guessed: `euclidPatternInto`'s
-                       // `rotation` is `buf[i] = test((i+rot) % n)` — a TRUE cyclic shift where INCREASING rot
-                       // moves every hit LEFT by one screen slot (worked example: E(3,8) rot=0 hits {0,3,6} →
-                       // rot=1 hits {2,5,7}, i.e. 0→7(wrap),3→2,6→5 — each exactly one slot left). The pan
-                       // gesture's `d` carries the SAME sign as raw finger translation (negative when dragging
-                       // left) and was applied as `rotate + d` — so dragging left DECREASED rotate, which
-                       // shifts the pattern RIGHT: backwards from the finger, exactly the reported symptom.
-                       // Under FWD (screen position i reads buffer index i directly) the fix is `rotate - d`.
-                       // Under BKW (`euclidReadIndex` mirrors: screen position i reads buffer index n-1-i) the
-                       // relationship flips — the ORIGINAL `rotate + d` is actually correct there, confirmed by
-                       // the same substitution worked through the mirrored index. PING-PONG's comet bar reads
-                       // the buffer identically to FWD (its own disclosed simplification, see euclidCometBar's
-                       // doc comment), so it takes the FWD branch too.
-                       onRotateDelta: { d in euclidLineEdit4(idx) { let s = $0.directionResolved == .bkw ? d : -d; $0.rotate = ((($0.rotate + s) % 16) + 16) % 16 } },
-                       onHitsDelta: { d in euclidLineEdit4(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) } },
-                       onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
-                       onAllRotateDelta: { d in euclidAllRowsEdit { line in let s = line.directionResolved == .bkw ? d : -d; line.rotate = ((line.rotate + s) % 16 + 16) % 16 } },
-                       onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } },
-                       onDragState: { point, allRows in
-                           guard let point else { onDragInfo(nil); return }
-                           let label = allRows ? "ALL LANES" : "LANE \(idx + 1)"
-                           onDragInfo(EuclidDragHUDInfo(label: label, hits: L.pulses, steps: L.steps, offset: L.rotate, point: point))
-                       })
-            .frame(height: 44)
-            .padding(6)
-            .frame(width: width, height: euclidLaneH)   // EXPLICIT width — the stroke/background below can never bleed past it
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(selected ? 0.07 : 0.04)))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? accent.opacity(0.5) : Color.clear, lineWidth: 1.5))
-    }
-    /// THE LANE CONTROLS (Paul 2026-10-02 relayout: "move the lane controls to below the box of 4 lanes") —
-    /// PLAY/STOP (mutes — `enabled`, never touches pulses/steps/rotate) + SELECT (opens this lane's detailed
-    /// settings below), relocated here from inline-with-each-box. Four of these sit in a row under the 2×2
-    /// box; full width (not capped to the box's own half-width) since four 44pt button-pairs need more room
-    /// than the box's half-width comfortably offers.
-    @ViewBuilder private func euclidLaneControl(_ idx: Int, _ L: EuclidLine) -> some View {
-        let selected = euclidSelectedLane == idx
         let on = L.enabledResolved
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Image(systemName: on ? "play.fill" : "stop.fill")
                 .font(.system(size: 15, weight: .black))
                 .foregroundColor(on ? accent : .white.opacity(0.4))
                 .frame(width: 44, height: 44)
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
-                .onTapGesture { euclidLineEdit4(idx) { $0.enabled = !($0.enabledResolved) } }
-            Text("\(idx + 1)")
-                .font(.system(size: 15, weight: .heavy, design: .monospaced))
-                .foregroundColor(selected ? .black : .white.opacity(0.7))
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 7).fill(selected ? accent : Color.white.opacity(0.08)))
-                .contentShape(Rectangle())
-                .onTapGesture { euclidSelectedLane = idx }
+                .onTapGesture { euclidLineEdit4(idx) { $0.enabled = !($0.enabledResolved) } }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
+            euclidCometBar(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, dir: L.directionResolved,
+                           rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent,
+                           // DRAG-DIRECTION FIX (Paul 2026-10-02: "I drag a dot one space left, the lit note doesn't
+                           // follow — it jumps somewhere else"). Traced, not guessed: `euclidPatternInto`'s
+                           // `rotation` is `buf[i] = test((i+rot) % n)` — a TRUE cyclic shift where INCREASING rot
+                           // moves every hit LEFT by one screen slot (worked example: E(3,8) rot=0 hits {0,3,6} →
+                           // rot=1 hits {2,5,7}, i.e. 0→7(wrap),3→2,6→5 — each exactly one slot left). The pan
+                           // gesture's `d` carries the SAME sign as raw finger translation (negative when dragging
+                           // left) and was applied as `rotate + d` — so dragging left DECREASED rotate, which
+                           // shifts the pattern RIGHT: backwards from the finger, exactly the reported symptom.
+                           // Under FWD (screen position i reads buffer index i directly) the fix is `rotate - d`.
+                           // Under BKW (`euclidReadIndex` mirrors: screen position i reads buffer index n-1-i) the
+                           // relationship flips — the ORIGINAL `rotate + d` is actually correct there, confirmed by
+                           // the same substitution worked through the mirrored index. PING-PONG's comet bar reads
+                           // the buffer identically to FWD (its own disclosed simplification, see euclidCometBar's
+                           // doc comment), so it takes the FWD branch too.
+                           onRotateDelta: { d in euclidLineEdit4(idx) { let s = $0.directionResolved == .bkw ? d : -d; $0.rotate = ((($0.rotate + s) % 16) + 16) % 16 } },
+                           onHitsDelta: { d in euclidLineEdit4(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) } },
+                           onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
+                           onAllRotateDelta: { d in euclidAllRowsEdit { line in let s = line.directionResolved == .bkw ? d : -d; line.rotate = ((line.rotate + s) % 16 + 16) % 16 } },
+                           onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } },
+                           onDragState: { point, allRows in
+                               guard let point else { onDragInfo(nil); return }
+                               if !allRows { euclidSelectedLane = idx }   // "if any lane is touched... bring its control into focus" — a single-lane drag/pinch selects too, not just a plain tap; the 2-finger ALL-LANES case doesn't name one lane, so it's excluded
+                               let label = allRows ? "ALL LANES" : "LANE \(idx + 1)"
+                               onDragInfo(EuclidDragHUDInfo(label: label, hits: L.pulses, steps: L.steps, offset: L.rotate, point: point))
+                           })
+                .frame(height: 44)
         }
-        .frame(maxWidth: .infinity)
+        .padding(6)
+        .frame(width: width, height: euclidLaneH)   // EXPLICIT width — the stroke/background below can never bleed past it
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(selected ? 0.07 : 0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? accent.opacity(0.5) : Color.clear, lineWidth: 1.5))
+        .contentShape(Rectangle())
+        .onTapGesture { euclidSelectedLane = idx }   // a plain tap anywhere on the cell selects it — the SELECT chip's replacement
     }
     /// THE INDIVIDUAL CONTROLS PER LANE (Paul 2026-10-02 relayout: "put the individual controls per lane below
     /// these" — below the lane controls row, which is itself below the 2×2 box) for whichever lane is
@@ -1098,15 +1091,15 @@ struct ProcessorBox: View {
         case .euclid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // GENERATOR — K-of-N euclidean rhythm; FOUR ALWAYS-VISIBLE FIXED LANES
             let rows = p.euclidLinesForEditing()   // ALWAYS exactly 4 (the fixed-4-row model) — direct rows[0...3] indexing below is safe by that standing invariant, not a guess
             let selIdx = min(max(0, euclidSelectedLane), max(0, rows.count - 1))
-            // RELAYOUT (Paul 2026-10-02): "the four lanes sit as 2x2, taking 50% width of the processor edit
-            // box. Move the lane controls to below the box of 4 lanes. Put the individual controls per lane
-            // below these." Three stacked sections, top to bottom: (1) a 2×2 grid of the 4 lanes' comet-bar
-            // boxes, sized to HALF the editor's measured width (GeometryReader, left-aligned — a trailing
-            // Spacer fills the other half rather than stretching the boxes to fill it, per "taking 50% width"
-            // read literally); (2) the PLAY/STOP+SELECT pair for each lane, one row, FULL width (moved out of
-            // the boxes — four button-pairs don't fit inside the half-width box comfortably); (3) the selected
-            // lane's detailed settings (NOTE/GATE/OCTAVE/DIRECTION/INVERT), full width, where the old side panel
-            // used to sit beside the lanes.
+            // RELAYOUT (Paul 2026-10-02, THIRD pass): "I want the play button on its original position as part
+            // of the grid lane. No select button please, and if any lane is touched I want it highlighted...
+            // which will bring its control into focus." Supersedes the immediately-prior pass's separate
+            // PLAY/STOP+SELECT control row entirely — PLAY/STOP is back INLINE inside each box
+            // (`euclidLaneBox`), and there's no SELECT chip anymore (tapping/dragging a box selects it
+            // directly). Two stacked sections remain: (1) the 2×2 grid of lane boxes at HALF the editor's
+            // measured width (GeometryReader, left-aligned — a trailing Spacer fills the other half rather
+            // than stretching the boxes into it); (2) the selected lane's detailed settings below, where the
+            // old side panel used to sit beside the lanes.
             GeometryReader { geo in
                 let boxW = geo.size.width * 0.5
                 let cellW = max(80, (boxW - euclidLaneGap) / 2)
@@ -1125,11 +1118,6 @@ struct ProcessorBox: View {
                 }
             }
             .frame(height: euclidLaneH * 2 + euclidLaneGap)   // pins the reader's own height to the known 2-row box height — it doesn't need to measure this dimension
-            HStack(spacing: 8) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { (idx, L) in
-                    euclidLaneControl(idx, L)
-                }
-            }
             if selIdx < rows.count {
                 euclidSettingsPanel(rows[selIdx], idx: selIdx)
             }
