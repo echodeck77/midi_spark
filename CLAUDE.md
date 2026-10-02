@@ -196,6 +196,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID PANEL — DIRECTION shrunk further, OCTAVE/GATE relaid out, the +/- STEPS glyphs removed (2026-10-02,
+  on `fix/euclid-hud-escape-card-clip` → `main`; iOS builds, no test-target reach (GridUI.swift-only); DEVICE eye
+  owed). Paul: "Reduce the size of the direction controls on the Euclid processor. Then ensure that the octave
+  controls are lined up with the note selector to its left and gate below it. Remove the + and - buttons from
+  the Euclid lanes." **REBASE NOTE:** landed the SAME turn another worktree independently added an almost
+  identical `compact` flag to `seg()` for the SAME reason (its own commit: "seg() gains an opt-in compact flag
+  (same convention as numPair's own) so only EUCLID's DIRECTION row is affected") — slightly different numbers
+  (their 36/21pt vs. this session's own 34/24pt, their corner radius unchanged vs. this session's 5pt), kept
+  THEIRS wholesale on rebase (already-landed, functionally equivalent, no reason to churn two near-identical
+  guesses into a third). **DIRECTION:** no further size change needed beyond that already-landed `compact: true`
+  — confirmed the call site still passes it. **OCTAVE/GATE RELAYOUT:** `euclidHitMissBox` restructured from
+  "chip-row+OCT on one line, VEL+GATE on the next" into two COLUMNS — LEFT = note chips over VELOCITY, RIGHT =
+  OCTAVE over GATE — so OCTAVE sits beside (lined up with) the note-chip row, and GATE sits directly below OCTAVE
+  specifically, not sharing a row with VELOCITY anymore. **JUDGMENT CALL, flagged:** Paul named where OCTAVE and
+  GATE go, not VELOCITY — placed it under the note chips (the other column) as the natural remaining slot, not
+  explicitly requested. **+/- STEPS REMOVED:** the comet bar's inline tap glyphs (`onStepsDelta(±1)`) are gone
+  entire — PINCH (already wired to the same `onStepsDelta`) is now the only way to resize STEPS from this bar;
+  the 14pt gesture-pad inset they used to justify is deliberately left as-is, not widened to reclaim the margin
+  (asked to remove the buttons, not resize the pad). **DEVICE-OWED:** the two-column box's visual balance
+  (GATE's slider now constrained to the same narrow width as the OCTAVE stepper above it, by construction of
+  "below it" — may read as cramped, worth a look); confirm pinch remains discoverable as the only steps control
+  now that the tap glyphs are gone.**
 - **▶ EUCLID COMET BAR — the sweep now genuinely reverses for BKW and bounces for PING-PONG (2026-10-02, on
   `main`; macOS 1181 green incl. 1 new, iOS builds; DEVICE eye owed). Paul: "The Euclid processor has an
   animation that runs left to right on each lane. Please change this so that it reverses directions when
