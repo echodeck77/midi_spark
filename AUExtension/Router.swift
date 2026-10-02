@@ -3680,7 +3680,30 @@ final class Router {
             // n-length buffer directly/mirrored (unchanged math, renamed); PING-PONG reuses RIFF's own `.pingpong`
             // shape (period 2n, each endpoint sounding on two consecutive ticks) via `euclidCycleLen`/`euclidReadIndex`.
             // GATE/OCTAVE are new per-lane fields threaded straight to `strikeChord`.
-            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double) {
+            // Resolves an aggregate/rank note-select against a walk ordinal into (pickIndex, pickRange) — shared
+            // by the HIT and MISS paths below (Paul 2026-10-02 hit/miss split) so the ALL/LOW/HIGH/BOT2/TOP2/
+            // CYCLE/RANDOM switch exists exactly once; RIFF/ARP are intentionally NOT handled here (they resolve
+            // an explicit note via a separate mechanism entirely, and MISS never offers them — see the guard at
+            // the MISS call site). A pure extraction of the pre-existing inline logic, not a behaviour change.
+            func resolveEuclidPick(_ sel: EuclidNoteSel, ord: Int64) -> (index: Int?, range: (lo: Int, hi: Int)?) {
+                if let rank = sel.specificRank { return (rank - 1, nil) }
+                switch sel {
+                case .all: return (nil, nil)
+                case .low: return (0, nil)
+                case .high: return (srcCount - 1, nil)
+                case .bottom2: return srcCount > 0 ? (nil, (0, min(1, srcCount - 1))) : (nil, nil)
+                case .top2: return srcCount > 0 ? (nil, (max(0, srcCount - 2), srcCount - 1)) : (nil, nil)
+                case .cycle, .random:
+                    guard srcCount > 0 else { return (nil, nil) }
+                    let idx = sel == .cycle
+                        ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
+                        : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(srcCount))
+                    return (idx, nil)
+                default: return (nil, nil)   // N1…N8 already resolved via specificRank above; .riff/.arp never reach here
+                }
+            }
+            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double,
+                                missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -3693,7 +3716,11 @@ final class Router {
                 // double-counts a ping-pong's repeated endpoints the same way the real read-sequence does — no
                 // ×2 special-case needed (every buffer position 0..<n is visited exactly twice per 2n-tick lap).
                 let cycleLen = euclidCycleLen(dir, n: n)
-                var cycleHits = 0; for s in 0..<cycleLen where euclidBuf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }
+                // factored once (Paul 2026-10-02, hit/miss split) — the SAME "is step s a hit" test the original
+                // cycleHits/hitsUpTo loops already repeated inline; the new MISS path below needs a third copy,
+                // so this is a pure de-duplication, not a behaviour change.
+                func isHitAt(_ s: Int) -> Bool { euclidBuf[euclidReadIndex(s, n: n, dir: dir)] }
+                var cycleHits = 0; for s in 0..<cycleLen where isHitAt(s) { cycleHits += 1 }
                 let effHits = Int64(max(1, cycleHits))
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
@@ -3709,103 +3736,107 @@ final class Router {
                     let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
                     let ri = euclidReadIndex(raw, n: n, dir: dir)
                     let isHit = euclidBuf[ri]
-                    guard isHit else { return }
-                    // DIE/ord (Paul 2026-09-29 v1b, widened 2026-10-02 for the RIFF/ARP sources below): a monotonic,
-                    // STATELESS "which hit number is this" ordinal — cycle count × this line's own hit density + the
-                    // within-cycle hit rank, salted by DIE. Hoisted above the pick switch (was computed only inside
-                    // .cycle/.random) since .riff/.arp consume it too.
-                    let cy = (localT - Int64(raw)) / Int64(cycleLen)               // floored cycle within the span (localT = cy·cycleLen + raw)
-                    var hitsUpTo = 0; for s in 0...raw where euclidBuf[euclidReadIndex(s, n: n, dir: dir)] { hitsUpTo += 1 }
-                    // DIE REMOVED (Paul 2026-10-02: "drop it, please") — `ord` is now a plain, unsalted ordinal.
-                    let ord = cy * effHits + Int64(hitsUpTo - 1)
-                    // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
-                    // non-bypassed slot's OWN authored sequence by `ord` — an explicit resolved MIDI note, not an
-                    // index into the held chord, so this is a separate branch, not two more cases folded into the
-                    // pool-index switch below. A stored .riff/.arp whose predecessor no longer matches (chain
-                    // edited, now bypassed) emits nothing — same honest-non-guess contract as every other noteSel
-                    // case that can't resolve (e.g. an aggregate pick against an empty pool).
-                    if noteSel == .riff || noteSel == .arp {
-                        guard (noteSel == .riff && predType == .riff) || (noteSel == .arp && predType == .arp) else { return }
-                        let rp = cell.procs[predIdx]
-                        if noteSel == .riff {
-                            let riffSteps = max(1, min(32, rp.riffSteps))
-                            func riffStepIsRest(_ i: Int) -> Bool {
-                                rp.riffPoly ? ((i < rp.riffMask.count ? rp.riffMask[i] : 0) == 0) : ((i < rp.riffRanks.count ? rp.riffRanks[i] : 0) < 1)
+                    let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle within the span (localT = cy·cycleLen + raw) — shared by both the HIT and MISS ordinals below
+                    if isHit {
+                        // ord (Paul 2026-09-29 v1b, widened 2026-10-02 for the RIFF/ARP sources below; DIE REMOVED
+                        // 2026-10-02 "drop it, please" — a plain, unsalted ordinal): a monotonic, STATELESS "which
+                        // hit number is this" — cycle count × this line's own hit density + the within-cycle hit
+                        // rank. Hoisted above the pick switch (was computed only inside .cycle/.random) since
+                        // .riff/.arp consume it too.
+                        var hitsUpTo = 0; for s in 0...raw where isHitAt(s) { hitsUpTo += 1 }
+                        let ord = cy * effHits + Int64(hitsUpTo - 1)
+                        // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
+                        // non-bypassed slot's OWN authored sequence by `ord` — an explicit resolved MIDI note, not an
+                        // index into the held chord, so this is a separate branch, not two more cases folded into the
+                        // pool-index switch below. A stored .riff/.arp whose predecessor no longer matches (chain
+                        // edited, now bypassed) emits nothing — same honest-non-guess contract as every other noteSel
+                        // case that can't resolve (e.g. an aggregate pick against an empty pool).
+                        if noteSel == .riff || noteSel == .arp {
+                            guard (noteSel == .riff && predType == .riff) || (noteSel == .arp && predType == .arp) else { return }
+                            let rp = cell.procs[predIdx]
+                            if noteSel == .riff {
+                                let riffSteps = max(1, min(32, rp.riffSteps))
+                                func riffStepIsRest(_ i: Int) -> Bool {
+                                    rp.riffPoly ? ((i < rp.riffMask.count ? rp.riffMask[i] : 0) == 0) : ((i < rp.riffRanks.count ? rp.riffRanks[i] : 0) < 1)
+                                }
+                                // two bounded (≤32) scans, no allocation — mirrors this same function's own cycleHits/
+                                // hitsUpTo idiom above, just counting/locating non-rest steps instead of hit hits.
+                                var nonRestCount = 0
+                                for i in 0..<riffSteps where !riffStepIsRest(i) { nonRestCount += 1 }
+                                guard nonRestCount > 0 else { return }   // all-rest predecessor (POLY empty mask / all-zero MONO ranks) — silent, not a crash
+                                let wantedOrd = Int(((ord % Int64(nonRestCount)) + Int64(nonRestCount)) % Int64(nonRestCount))
+                                var seen = 0; var stepIdx = -1
+                                for i in 0..<riffSteps where !riffStepIsRest(i) {
+                                    if seen == wantedOrd { stepIdx = i; break }
+                                    seen += 1
+                                }
+                                guard stepIdx >= 0 else { return }
+                                let roct = stepIdx < rp.riffOct.count ? rp.riffOct[stepIdx] : 0        // RIFF's own per-step OCT lane — stacks additively with this line's own `octave` at strikeChord
+                                let raccent = stepIdx < rp.riffAccent.count ? rp.riffAccent[stepIdx] : 0
+                                // RIFF's own exact velocity formula (emitRiffRow) — read off the CELL's raw/live pool
+                                // (`pool`, in scope since the top of emitGeneratorRow), NOT the pool composed below —
+                                // those differ in a 3+-slot chain, and using the wrong one would silently diverge from
+                                // what RIFF's own standalone emission computes for an equivalent chain.
+                                let rbaseVel = max(1, Int(coinVelFactor(pool) * 127))
+                                let rvel = clampVel(rbaseVel + raccent)
+                                composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the riff's own slot (a no-op pass-through when riff is slot 0)
+                                func strikeRiffRank(_ rank: Int) {
+                                    guard rank >= 1 else { return }
+                                    guard let base = riffResolve(rank: rank, oct: roct, n: chainScratch.srcCount(filter: 0), wrap: rp.riffWrap, asc: { Int(chainScratch.srcAscending($0, filter: 0)) }) else { return }
+                                    strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: rvel)
+                                }
+                                if rp.riffPoly {   // POLY: a step strikes the whole set rank mask as a simultaneous chord-stab
+                                    let polyMask = stepIdx < rp.riffMask.count ? rp.riffMask[stepIdx] : 0
+                                    for rank in 1...8 where (polyMask & (1 << (rank - 1))) != 0 { strikeRiffRank(rank) }
+                                } else {
+                                    strikeRiffRank(stepIdx < rp.riffRanks.count ? rp.riffRanks[stepIdx] : 0)
+                                }
+                            } else {   // .arp
+                                composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the arp's own slot
+                                // `ord` becomes `phaseIndex` directly, unmodified — arpPick is fully pure/total in
+                                // phaseIndex (incl. RANDOM/RANDOM ONCE, both seeded hashes of phaseIndex alone) and
+                                // already respects the upstream ARP's own VELOCITY/VELOCITY TILT controls, so no
+                                // separate velocity formula is needed here (unlike RIFF above).
+                                let pick = arpPick(phaseIndex: ord, octaves: max(1, min(4, Int(rp.octaves))), pattern: rp.patternIndex, pool: chainScratch,
+                                                   chanMask: 0xFFFF, cableMask: 0b1111,
+                                                   octDown: rp.arpOctDown, randomAnchor: rp.arpRandomAnchor, seed: rp.arpSeed,
+                                                   velocity: rp.arpVelocity, velTilt: rp.arpVelTilt)
+                                guard pick.note >= 0 else { return }   // empty predecessor-fed pool
+                                strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: pick.vel)
                             }
-                            // two bounded (≤32) scans, no allocation — mirrors this same function's own cycleHits/
-                            // hitsUpTo idiom above, just counting/locating non-rest steps instead of hit hits.
-                            var nonRestCount = 0
-                            for i in 0..<riffSteps where !riffStepIsRest(i) { nonRestCount += 1 }
-                            guard nonRestCount > 0 else { return }   // all-rest predecessor (POLY empty mask / all-zero MONO ranks) — silent, not a crash
-                            let wantedOrd = Int(((ord % Int64(nonRestCount)) + Int64(nonRestCount)) % Int64(nonRestCount))
-                            var seen = 0; var stepIdx = -1
-                            for i in 0..<riffSteps where !riffStepIsRest(i) {
-                                if seen == wantedOrd { stepIdx = i; break }
-                                seen += 1
-                            }
-                            guard stepIdx >= 0 else { return }
-                            let roct = stepIdx < rp.riffOct.count ? rp.riffOct[stepIdx] : 0        // RIFF's own per-step OCT lane — stacks additively with this line's own `octave` at strikeChord
-                            let raccent = stepIdx < rp.riffAccent.count ? rp.riffAccent[stepIdx] : 0
-                            // RIFF's own exact velocity formula (emitRiffRow) — read off the CELL's raw/live pool
-                            // (`pool`, in scope since the top of emitGeneratorRow), NOT the pool composed below —
-                            // those differ in a 3+-slot chain, and using the wrong one would silently diverge from
-                            // what RIFF's own standalone emission computes for an equivalent chain.
-                            let rbaseVel = max(1, Int(coinVelFactor(pool) * 127))
-                            let rvel = clampVel(rbaseVel + raccent)
-                            composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the riff's own slot (a no-op pass-through when riff is slot 0)
-                            func strikeRiffRank(_ rank: Int) {
-                                guard rank >= 1 else { return }
-                                guard let base = riffResolve(rank: rank, oct: roct, n: chainScratch.srcCount(filter: 0), wrap: rp.riffWrap, asc: { Int(chainScratch.srcAscending($0, filter: 0)) }) else { return }
-                                strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: rvel)
-                            }
-                            if rp.riffPoly {   // POLY: a step strikes the whole set rank mask as a simultaneous chord-stab
-                                let polyMask = stepIdx < rp.riffMask.count ? rp.riffMask[stepIdx] : 0
-                                for rank in 1...8 where (polyMask & (1 << (rank - 1))) != 0 { strikeRiffRank(rank) }
-                            } else {
-                                strikeRiffRank(stepIdx < rp.riffRanks.count ? rp.riffRanks[stepIdx] : 0)
-                            }
-                        } else {   // .arp
-                            composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the arp's own slot
-                            // `ord` becomes `phaseIndex` directly, unmodified — arpPick is fully pure/total in
-                            // phaseIndex (incl. RANDOM/RANDOM ONCE, both seeded hashes of phaseIndex alone) and
-                            // already respects the upstream ARP's own VELOCITY/VELOCITY TILT controls, so no
-                            // separate velocity formula is needed here (unlike RIFF above).
-                            let pick = arpPick(phaseIndex: ord, octaves: max(1, min(4, Int(rp.octaves))), pattern: rp.patternIndex, pool: chainScratch,
-                                               chanMask: 0xFFFF, cableMask: 0b1111,
-                                               octDown: rp.arpOctDown, randomAnchor: rp.arpRandomAnchor, seed: rp.arpSeed,
-                                               velocity: rp.arpVelocity, velTilt: rp.arpVelTilt)
-                            guard pick.note >= 0 else { return }   // empty predecessor-fed pool
-                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: pick.vel)
+                            return
                         }
-                        return
-                    }
-                    var pickIndex: Int? = nil
-                    var pickRange: (lo: Int, hi: Int)? = nil
-                    if let rank = noteSel.specificRank { pickIndex = rank - 1 }   // N1..N8 (strikeChord skips if absent)
-                    else {
-                        switch noteSel {
-                        case .all: pickIndex = nil
-                        case .low: pickIndex = 0
-                        case .high: pickIndex = srcCount - 1
-                        // BOT2/TOP2 (Paul 2026-09-29): strike a PAIR, mirroring EUCLID MASK's own `maskChordPickRange`
-                        // — collapses to a single note when the pool is too small, rather than repeating or wrapping.
-                        case .bottom2: if srcCount > 0 { pickRange = (0, min(1, srcCount - 1)) }
-                        case .top2: if srcCount > 0 { pickRange = (max(0, srcCount - 2), srcCount - 1) }
-                        case .cycle, .random:
-                            if srcCount > 0 {
-                                pickIndex = noteSel == .cycle
-                                    ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
-                                    : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(srcCount))
-                            }
-                        default: break   // N1…N8 already resolved via specificRank above; .riff/.arp are handled above and never reach here
+                        // GATE loosens the column-boundary safety clamp 0.9→0.95 so an aggressive per-lane GATE still
+                        // can't bleed past its own column; OCTAVE threads straight to strikeChord (clamped there, like
+                        // UTILITY/ARP); VELOCITY is a plain multiplier on the struck note's own inherited velocity,
+                        // mirroring HARMONIZE's `harmVelScale` — nil resolves to 1.0, so an untouched lane is
+                        // byte-identical to before this field existed.
+                        let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord)
+                        if let range = pickRange {
+                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave) }
+                        } else {
+                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave)
                         }
-                    }
-                    // GATE loosens the column-boundary safety clamp 0.9→0.95 so an aggressive per-lane GATE still can't
-                    // bleed past its own column; OCTAVE threads straight to strikeChord (clamped there, like UTILITY/ARP).
-                    if let range = pickRange {
-                        for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave) }
-                    } else {
-                        strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave)
+                    } else if let missSel = missNoteSel {
+                        // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — a REST step can now ALSO strike,
+                        // with its own independent note-select/velocity/gate/octave. `missNoteSel == nil` is the
+                        // whole feature's on/off switch (nil ⇒ today's silent-rest behaviour, byte-identical for
+                        // every doc that's never touched this) — there's no separate enable flag. No DIE salt on
+                        // either side anymore (DIE was removed entire the same day — "drop it, please"). RIFF/ARP
+                        // are NOT offered on the miss side (the UI never shows those two chips there); guarded
+                        // explicitly so a stray `.riff`/`.arp` miss pick (a hand-edited doc, or a future UI slip)
+                        // stays silent rather than falling through to `resolveEuclidPick`'s `default: (nil, nil)`,
+                        // which reads as ALL (strike everything) — an honest no-op, not an accidental loud one.
+                        guard missSel != .riff && missSel != .arp else { return }
+                        let effMisses = Int64(max(1, cycleLen - cycleHits))   // every cycle is hits+misses, so this is just the complement of effHits
+                        var missesUpTo = 0; for s in 0...raw where !isHitAt(s) { missesUpTo += 1 }
+                        let missOrd = cy * effMisses + Int64(missesUpTo - 1)
+                        let (pickIndex, pickRange) = resolveEuclidPick(missSel, ord: missOrd)
+                        if let range = pickRange {
+                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: idx, octave: missOctave) }
+                        } else {
+                            strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: pickIndex, octave: missOctave)
+                        }
                     }
                 }
             }
@@ -3821,7 +3852,11 @@ final class Router {
             // PLAY/STOP (Paul 2026-10-01): `enabledResolved` gates emission ONLY — pulses/steps/rotate are never
             // touched by the toggle, so re-enabling a lane resumes exactly the pattern it had before (not the
             // pulses=0 "unused slot" case just above, which is a different, permanent-until-edited state).
-            for L in p.euclidLines where L.pulses > 0 && L.enabledResolved { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved, noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved) }
+            for L in p.euclidLines where L.pulses > 0 && L.enabledResolved {
+                runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
+                              noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved,
+                              missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved)
+            }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
             // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,

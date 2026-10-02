@@ -176,10 +176,25 @@ struct EuclidLine: Codable, Equatable {
     // strike either a pool note (whose own velocity should still matter) or a RIFF/ARP-resolved note (which
     // already carries its own velocity formula this scale multiplies on top of). nil ⇒ 1.0 = unity, byte-identical.
     var velocity: Double? = nil
+    // HIT/MISS SPLIT (Paul 2026-10-02): "the off notes" — a MISS (rest) step can now ALSO strike a note, with its
+    // own note-select/velocity/gate/octave, fully independent of the HIT side. `missNoteSel` is the on/off switch
+    // for the whole feature: nil ⇒ OFF (today's silent-rest behaviour, byte-identical for every existing doc) —
+    // there is deliberately no separate enable flag; picking any chip turns it on. No `missDie` — DIE was removed
+    // entire the same day ("drop it, please"), so MISS's ordinal is unsalted from the start, matching the HIT
+    // side's own now-unsalted `ord`. RIFF/ARP are NOT offered for miss (the UI never shows those two chips there)
+    // — a stored `.riff`/`.arp` miss pick (hand-edited doc, or a future UI bug) is guarded in Router.swift to
+    // emit nothing, not silently fall through to ALL.
+    var missNoteSel: EuclidNoteSel? = nil   // MISS note select — nil ⇒ feature OFF, no second strike on a rest
+    var missGate: Double? = nil        // MISS gate length. nil ⇒ 0.9 (same default as hit's own gate)
+    var missOctave: Int? = nil         // MISS octave shift. nil ⇒ 0
+    var missVelocity: Double? = nil    // MISS velocity multiplier. nil ⇒ 1.0
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
     var velocityResolved: Double { max(0, min(2, velocity ?? 1.0)) }
+    var missGateResolved: Double { missGate ?? 0.9 }
+    var missOctaveResolved: Int { missOctave ?? 0 }
+    var missVelocityResolved: Double { max(0, min(2, missVelocity ?? 1.0)) }
     /// The effective note selection — `noteSel` once the line's been touched under the new UI, else derived from
     /// the old target/pick pair so a pre-redesign line resolves identically to what it always played.
     var noteSelResolved: EuclidNoteSel {

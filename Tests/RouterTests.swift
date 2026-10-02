@@ -5284,6 +5284,45 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(notes(true), notes(nil), "enabled:true and the nil default (also true) resume the identical pattern")
         XCTAssertFalse(notes(nil).isEmpty, "the underlying pulses/steps weren't touched by the toggle — re-enabling plays the same pattern as before")
     }
+    // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — a REST step can now ALSO strike, with its own
+    // independent note-select/velocity/gate/octave/die. `missNoteSel == nil` is the whole feature's on/off
+    // switch — nil must be byte-identical to today's silent-rest behaviour.
+    func testEuclidMissSilentByDefault() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8)]   // missNoteSel nil by default
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+        let steps = e.ons.filter { $0.cable == 1 }.map { Int((Double($0.sample) / 6000).rounded()) }.sorted()
+        XCTAssertEqual(steps, [0, 3, 6], "no miss configured — only the 3 hit steps sound, exactly as before this feature existed")
+    }
+    func testEuclidMissStrikesOnRestSteps() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, missNoteSel: .low)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+        let steps = e.ons.filter { $0.cable == 1 }.map { Int((Double($0.sample) / 6000).rounded()) }.sorted()
+        XCTAssertEqual(steps, [0, 1, 2, 3, 4, 5, 6, 7], "every step now sounds — the 3 hits (0,3,6) plus the 5 rests (1,2,4,5,7) once a miss pick is set")
+    }
+    func testEuclidMissHasIndependentOctaveFromHit() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, octave: 0, missNoteSel: .low, missOctave: 2)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+        func noteAt(_ step: Int) -> Int { Int(e.ons.first { $0.cable == 1 && Int((Double($0.sample) / 6000).rounded()) == step }!.note) }
+        XCTAssertEqual(noteAt(0), 60, "a hit step — hit octave (0) untouched")
+        XCTAssertEqual(noteAt(1), 84, "a miss step — miss octave (+2) shifts independently: 60 + 12×2 = 84")
+    }
+    func testEuclidMissIgnoresRiffAndArpPicks() {
+        func missNoteCount(_ sel: EuclidNoteSel) -> Int {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, missNoteSel: sel)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 && ![0, 3, 6].contains(Int((Double($0.sample) / 6000).rounded())) }.count
+        }
+        XCTAssertEqual(missNoteCount(.riff), 0, "RIFF is never offered for miss — a stored .riff miss pick stays silent, not a fallback to ALL")
+        XCTAssertEqual(missNoteCount(.arp), 0, "same guard for .arp")
+    }
     // SEQUENTIAL SOURCES (Paul 2026-10-02): EUCLID reads an immediately-preceding, non-bypassed RIFF or ARP as a
     // note source — each hit steps through that predecessor's own authored sequence by hit-ordinal, instead of
     // picking from the held chord. Stateless (the existing per-line `ord` — already driving CYCLE/RANDOM — is
