@@ -196,6 +196,58 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID — HIT/MISS SPLIT: a rest step can now ALSO strike, plus per-lane VELOCITY (2026-10-02, on
+  `feature/processor-live-sweep` → `main`; macOS 1180 green incl. 5 new, iOS builds; DEVICE ear/eye owed — the
+  whole feature is genuinely unverifiable off-device, both the new sound and the restructured panel). Paul: "I
+  want the bottom controls (velocity, gate, etc) on Euclid to split into two. On the left is 'Lane 1 hit' and
+  on the right is 'Lane 1 miss', which plays the off notes. Under these titles are note selectors, one for
+  each. Put velocity and gate (both controls in both sections) onto the same line. Put octave to the right of
+  the note selectors, and half its height. Reduce the width of the back, forward ping-pong buttons. Ensure
+  that both 'hits' and 'misses' boxes have identical controls." **MODEL (Models.swift):** 4 new additive-
+  Optional `EuclidLine` fields — `missNoteSel: EuclidNoteSel?` is the WHOLE feature's on/off switch (nil ⇒ OFF,
+  today's silent-rest behaviour, byte-identical for every existing doc; no separate enable flag, picking any
+  chip turns it on) plus `missGate`/`missOctave`/`missVelocity`, mirroring the hit side's own fields exactly.
+  **REINTEGRATION NOTE, flagged plainly:** this landed in the SAME session, on a different worktree, as the
+  entry directly below this one (DIE removal + the first VELOCITY control) — `EuclidLine.velocity` had already
+  been added upstream for the identical purpose (a per-line scale on the hit's own inherited velocity) by the
+  time this branch rebased, so the duplicate declaration was DROPPED here in favour of the already-landed one
+  (same semantics, same clamp) rather than kept as a second field. More consequentially: this feature's first
+  draft also added a `missDie` (mirroring the hit side's own `die`, independently salting the miss-side CYCLE/
+  RANDOM walk) — but DIE was removed ENTIRE, control and effect, by the other worktree's own same-day work
+  ("drop it, please" — see below) while this branch was in flight. Reintroducing an un-asked-for `missDie`
+  under a new name would have directly contradicted that instruction, so it was dropped before merging, not
+  shipped then walked back — MISS's ordinal is unsalted from the start, matching the hit side's own now-
+  unsalted `ord`. The regression test that had exercised `missDie`'s independence was deleted (not rewritten
+  as a no-op guard) since the field was never shipped. **ENGINE (Router.swift, `runEuclidLine`):** the hit
+  path's `guard isHit else { return }` became `if isHit {...} else if let missSel = missNoteSel {...}` — the
+  miss branch computes its OWN ordinal (`missOrd`, counting MISSES not hits up to this tick) and resolves it
+  through a NEW shared `resolveEuclidPick(sel:ord:)`, factored out of the pre-existing inline ALL/LOW/HIGH/
+  BOT2/TOP2/CYCLE/RANDOM switch (confirmed behaviour-identical by direct comparison against the original
+  inline code) so the hit and miss paths can't independently drift from each other's pick semantics. **RIFF/
+  ARP are explicitly EXCLUDED from miss** (flagged, not an oversight) — guarded with `guard missSel != .riff
+  && missSel != .arp else { return }` before calling `resolveEuclidPick`, since that function's own `default:
+  return (nil, nil)` would otherwise read as ALL (strike everything) for an unhandled case — an honest silent
+  no-op instead of an accidental loud one. A new `isHitAt(_:)` local helper factors the "is step s a hit" test
+  that used to be inlined twice (cycleHits, hitsUpTo) and now a third time (missesUpTo) — pure de-duplication.
+  **UI (GridUI.swift):** `euclidSettingsPanel` restructured — DIRECTION is the only control left in the shared
+  row above both boxes (INVERT is gone entire, per the other worktree's same-day removal — "identical
+  controls" never applied to it anyway, since it shapes the one underlying pattern, not a per-outcome
+  setting); kept the same-day >/</>< relabel, just rendered via `seg` (content-sized chips) instead of `segV`
+  (full-width stacked) — "reduce the width... of the buttons" — safe now the panel spans the full editor
+  width. A new `euclidHitMissBox(idx:L:isMiss:)` renders BOTH boxes from ONE function (an `isMiss` flag
+  choosing which fields to read/write) so they can't drift out of structural sync — note-select chips beside a
+  labelled, `compact: true` (half-height) OCTAVE stepper, then VELOCITY+GATE sharing one line below, exactly
+  per Paul's own ordering. No DIE row on either side (removed entire, per the same-day instruction above).
+  MISS's note-select chip row reuses `euclidNoteSelShown` directly (no RIFF/ARP append, unlike HIT's row) —
+  the UI-side half of the same exclusion the engine enforces. **TESTS:** +5 RouterTests (miss silent by
+  default — byte-identical regression; miss strikes on every rest step once a pick is set; miss's own octave
+  shifts independently of hit's; RIFF/ARP picks on miss stay silent, not a stray ALL; VELOCITY coverage already
+  existed from the other worktree's own same-day addition, so no duplicate test was added here). UI+engine
+  (GridUI.swift + Router.swift + Models.swift + SnapshotBuilder.swift + Tests/RouterTests.swift), full macOS
+  test-target reach for the engine half. **DEVICE-OWED, the whole feature:** the restructured panel's
+  legibility (two boxes side by side, each noticeably narrower than the old single-column settings); confirm
+  OCTAVE's half-height stepper still has a usable touch target at that size; the actual SOUND of a configured
+  miss — does a ghost note on the off-beat read as musically useful.**
 - **▶ EUCLID DIE — removed entire, control and effect (2026-10-02, on `fix/euclid-riff-predtype-and-polish`; macOS
   1176 green incl. 3 rewritten, iOS builds; DEVICE eye owed). Paul asked what DIE was/why it was there (it predated
   this session, v1b 2026-08-26 — a per-line ordinal salt so two lines both reading CYCLE/RANDOM/RIFF/ARP could be
