@@ -1103,30 +1103,25 @@ struct ProcessorBox: View {
         case .euclid: AnyView(VStack(alignment: .leading, spacing: rowSpacing) {   // GENERATOR — K-of-N euclidean rhythm; FOUR ALWAYS-VISIBLE FIXED LANES
             let rows = p.euclidLinesForEditing()   // ALWAYS exactly 4 (the fixed-4-row model) — direct rows[0...3] indexing below is safe by that standing invariant, not a guess
             let selIdx = min(max(0, euclidSelectedLane), max(0, rows.count - 1))
-            // RELAYOUT (Paul 2026-10-02, THIRD pass): "I want the play button on its original position as part
-            // of the grid lane. No select button please, and if any lane is touched I want it highlighted...
-            // which will bring its control into focus." Supersedes the immediately-prior pass's separate
-            // PLAY/STOP+SELECT control row entirely — PLAY/STOP is back INLINE inside each box
-            // (`euclidLaneBox`), and there's no SELECT chip anymore (tapping/dragging a box selects it
-            // directly). Two stacked sections remain: (1) the 2×2 grid of lane boxes at HALF the editor's
-            // measured width (GeometryReader, left-aligned — a trailing Spacer fills the other half rather
-            // than stretching the boxes into it); (2) the selected lane's detailed settings below, where the
-            // old side panel used to sit beside the lanes.
+            // RELAYOUT (Paul 2026-10-02, FOURTH pass): "extend the width of the controls so that they take up
+            // the entire processor control window... they should be below the output piano too. The total
+            // width should be the same as the euclid controls box that sits underneath it." ROOT CAUSE of the
+            // reported mismatch: `buildTruthStrips()` (BuildPage.swift) renders IN|OUT as two HALF-width
+            // siblings side by side — the PRIOR pass's half-width, left-aligned 2×2 box only ever sat under the
+            // IN half, never the OUT half, while `euclidSettingsPanel` below it was already full width. FIX:
+            // the 2×2 grid now spans the FULL editor width (no more `* 0.5` + trailing Spacer) — matching
+            // `euclidSettingsPanel`'s own width exactly, and reaching under both piano halves.
             GeometryReader { geo in
-                let boxW = geo.size.width * 0.5
-                let cellW = max(80, (boxW - euclidLaneGap) / 2)
-                HStack(spacing: 0) {
-                    VStack(spacing: euclidLaneGap) {
-                        HStack(spacing: euclidLaneGap) {
-                            euclidLaneBox(0, rows[0], width: cellW, onDragInfo: onEuclidDragInfo)
-                            euclidLaneBox(1, rows[1], width: cellW, onDragInfo: onEuclidDragInfo)
-                        }
-                        HStack(spacing: euclidLaneGap) {
-                            euclidLaneBox(2, rows[2], width: cellW, onDragInfo: onEuclidDragInfo)
-                            euclidLaneBox(3, rows[3], width: cellW, onDragInfo: onEuclidDragInfo)
-                        }
+                let cellW = max(80, (geo.size.width - euclidLaneGap) / 2)
+                VStack(spacing: euclidLaneGap) {
+                    HStack(spacing: euclidLaneGap) {
+                        euclidLaneBox(0, rows[0], width: cellW, onDragInfo: onEuclidDragInfo)
+                        euclidLaneBox(1, rows[1], width: cellW, onDragInfo: onEuclidDragInfo)
                     }
-                    Spacer(minLength: 0)
+                    HStack(spacing: euclidLaneGap) {
+                        euclidLaneBox(2, rows[2], width: cellW, onDragInfo: onEuclidDragInfo)
+                        euclidLaneBox(3, rows[3], width: cellW, onDragInfo: onEuclidDragInfo)
+                    }
                 }
             }
             .frame(height: euclidLaneH * 2 + euclidLaneGap)   // pins the reader's own height to the known 2-row box height — it doesn't need to measure this dimension
