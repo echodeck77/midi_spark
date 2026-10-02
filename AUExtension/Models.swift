@@ -166,9 +166,16 @@ struct EuclidLine: Codable, Equatable {
     var octave: Int? = nil        // OCTAVE: ±3, shifts the struck note(s) by 12×this. nil ⇒ 0 (byte-identical)
     var direction: EuclidDir? = nil   // DIRECTION: FWD/BKW/PING-PONG. nil ⇒ derive from the legacy `reverse` bool (byte-identical for an old doc)
     var enabled: Bool? = nil      // PLAY/STOP: nil ⇒ true (byte-identical). false ⇒ this lane contributes nothing, WITHOUT touching pulses/steps/rotate
+    // VELOCITY (Paul 2026-10-02): a per-line SCALE on the struck note's own inherited velocity (0…2 — attenuate
+    // or boost, never an absolute override) — reuses `strikeChord`'s existing `velScale` parameter directly
+    // rather than inventing ARP's "ignore the input, use a fixed 1…100 level" convention, since a EUCLID line can
+    // strike either a pool note (whose own velocity should still matter) or a RIFF/ARP-resolved note (which
+    // already carries its own velocity formula this scale multiplies on top of). nil ⇒ 1.0 = unity, byte-identical.
+    var velocity: Double? = nil
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
+    var velocityResolved: Double { max(0, min(2, velocity ?? 1.0)) }
     /// The effective note selection — `noteSel` once the line's been touched under the new UI, else derived from
     /// the old target/pick pair so a pre-redesign line resolves identically to what it always played.
     var noteSelResolved: EuclidNoteSel {

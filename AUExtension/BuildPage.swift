@@ -5184,9 +5184,18 @@ extension DiagView {
         // preceding slot's type, ADJACENCY ONLY (not a scan, unlike driverNoteRate above) — and, unlike
         // driverNoteRate's own backward scan, bypass-aware: a bypassed predecessor is "not really there," matching
         // every other adjacency/scan helper in Router.swift (chainDriverIndex, composeChainSet's fold loop).
+        // BUGFIX (2026-10-02, found chasing "riff doesn't feed euclid as expected"): `i` here is `buildEditSlot`,
+        // an index into `selectedMachineChain()` — the RAW chain with only TRAILING empty slots trimmed, so an
+        // INTERIOR empty/bypassed slot (left behind by buildChainRemoveSlot's position-preserving delete — a
+        // one-tap-away, easily-reached shape) keeps its original index. `buildMachineChain(cid)` instead FILTERS
+        // OUT every empty slot anywhere, collapsing indices — so `chain[i-1]` against THAT array reads whatever
+        // slot happens to land at `i-1` post-collapse, which silently disagrees with `i`'s own raw indexing the
+        // moment any empty slot sits before EUCLID. Fixed to read `buildMachineSlots(cid)` — the RAW array
+        // `selectedMachineChain()` itself is built from (same indices, same length, no collapsing) — so this
+        // closure and `i` are provably indexing the same array the same way.
         let precedingSourceType: ProcessorType? = {
             guard slot.type == .euclid else { return nil }
-            let chain = buildMachineChain(cid)
+            let chain = buildMachineSlots(cid)
             guard i >= 1, i - 1 < chain.count, !chain[i - 1].bypassed else { return nil }
             return chain[i - 1].type
         }()

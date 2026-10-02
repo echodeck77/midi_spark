@@ -842,16 +842,24 @@ struct ProcessorBox: View {
             field("GATE  \(Int(L.gateResolved * 100))%") {
                 slider(bind(L.gateResolved) { v in euclidLineEdit4(idx) { $0.gate = v } }, in: 0.05...1)
             }
+            // VELOCITY (Paul 2026-10-02): a per-line SCALE (0…200%) on the struck note's own inherited velocity —
+            // see EuclidLine.velocity's own doc comment for why this is a scale, not ARP's absolute-level convention.
+            field("VELOCITY  \(Int(L.velocityResolved * 100))%") {
+                slider(bind(L.velocityResolved) { v in euclidLineEdit4(idx) { $0.velocity = v } }, in: 0...2)
+            }
             field("OCTAVE  \(L.octaveResolved > 0 ? "+" : "")\(L.octaveResolved)") {
                 numPair(L.octaveResolved, -3...3) { v in euclidLineEdit4(idx) { $0.octave = v } }
             }
+            // DIRECTION labels shrunk to >/</>< (Paul 2026-10-02, was FWD/BKW/PING-PONG) — display only; the
+            // persisted EuclidDir raw values ("FWD"/"BKW"/"PING-PONG") are untouched, so `sel:` must compare
+            // against the SAME shrunk strings segV's own `options` now shows, not the raw value directly (segV
+            // highlights by `opt == sel`, not by index).
             field("DIRECTION") {
-                segV(["FWD", "BKW", "PING-PONG"], sel: L.directionResolved.rawValue) { i in
+                let dirLabels = [">", "<", "><"]
+                let dirSel = dirLabels[[EuclidDir.fwd, .bkw, .pingpong].firstIndex(of: L.directionResolved) ?? 0]
+                segV(dirLabels, sel: dirSel) { i in
                     euclidLineEdit4(idx) { $0.direction = [EuclidDir.fwd, .bkw, .pingpong][i] } }
             }
-            Text(L.invert ? "REST" : "HITS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(L.invert ? accent : .white.opacity(0.45))
-                .frame(maxWidth: .infinity).frame(height: 30).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-                .contentShape(Rectangle()).onTapGesture { euclidLineEdit4(idx) { $0.invert.toggle() } }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

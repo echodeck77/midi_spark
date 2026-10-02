@@ -1274,8 +1274,13 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(ons.allSatisfy { $0.note == 60 }, "PICK LOW strikes only the lowest pool note")
         assertNothingLeftSounding(e)
     }
-    // EUCLID INVERT (Paul 2026-08-22): strike the N−K rests. 3-of-8 = 3 hits (9 ons) vs INVERT = 5 rests (15 ons).
-    func testEuclidInvertPlaysTheRests() {
+    // EUCLID INVERT — REMOVED, now a NO-OP (Paul 2026-10-02: "remove the hits button and functionality" — the
+    // per-line HITS/REST tap-pill in euclidSettingsPanel drove this). `euclidInvert`/`EuclidLine.invert` both
+    // still exist (decode-only — an old doc that had INVERT engaged doesn't factory-reset), but `runEuclidLine`
+    // no longer reads either, so a pattern no longer flips to its N−K rests regardless of the stored value.
+    // Locked in as a regression guard rather than deleting the test outright — was
+    // testEuclidInvertPlaysTheRests, asserting 9 vs 15 ons; now both read 9.
+    func testEuclidInvertIsNowANoOp() {
         func count(_ inv: Bool) -> Int {
             let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
                 c.paramsA.euclidPulses = 3; c.paramsA.euclidSteps = 8; c.paramsA.euclidInvert = inv; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
@@ -1283,8 +1288,8 @@ final class RouterTests: XCTestCase {
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.count
         }
-        XCTAssertEqual(count(false), 9, "3 hits × 3 notes")
-        XCTAssertEqual(count(true), 15, "INVERT plays the 5 rests × 3 notes")
+        XCTAssertEqual(count(false), 9, "3 hits × 3 notes — unaffected by the removal")
+        XCTAssertEqual(count(true), 9, "INVERT no longer flips to the N−K rests — same 3 hits, not 15")
     }
     // EUCLID PICK CYCLE (Paul 2026-08-22): the euclid-arp — one note per pulse, walking the chord.
     func testEuclidPickCycleWalksTheChordOneNotePerPulse() {
@@ -5230,6 +5235,19 @@ final class RouterTests: XCTestCase {
             return Int(off.sample - on.sample)
         }
         XCTAssertLessThan(dur(0.1), dur(0.9), "a tight GATE ends measurably earlier than a long one")
+    }
+    // VELOCITY (new 2026-10-02): a per-line SCALE on the struck note's own inherited velocity — reuses
+    // strikeChord's existing velScale parameter (0…2), so a higher setting must produce a measurably louder
+    // note than a lower one against the identical held note/pattern.
+    func testEuclidVelocityScalesTheStruckNote() {
+        func vel(_ velocity: Double) -> UInt8 {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, velocity: velocity)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.min { $0.sample < $1.sample }!.vel
+        }
+        XCTAssertLessThan(vel(0.3), vel(1.5), "a higher per-line VELOCITY scale produces a measurably louder note than a lower one")
     }
     // OCTAVE (new 2026-10-01): shifts the struck note by exactly 12×shift, clamped 0...127 like every other
     // octave-shift site in this codebase (UTILITY/ARP) — an out-of-range shift drops the note silently.

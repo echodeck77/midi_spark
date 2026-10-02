@@ -3680,7 +3680,7 @@ final class Router {
             // n-length buffer directly/mirrored (unchanged math, renamed); PING-PONG reuses RIFF's own `.pingpong`
             // shape (period 2n, each endpoint sounding on two consecutive ticks) via `euclidCycleLen`/`euclidReadIndex`.
             // GATE/OCTAVE are new per-lane fields threaded straight to `strikeChord`.
-            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, invert: Bool, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, die: Int = 0) {
+            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, die: Int = 0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -3693,7 +3693,7 @@ final class Router {
                 // double-counts a ping-pong's repeated endpoints the same way the real read-sequence does — no
                 // ×2 special-case needed (every buffer position 0..<n is visited exactly twice per 2n-tick lap).
                 let cycleLen = euclidCycleLen(dir, n: n)
-                var cycleHits = 0; for s in 0..<cycleLen where (invert ? !euclidBuf[euclidReadIndex(s, n: n, dir: dir)] : euclidBuf[euclidReadIndex(s, n: n, dir: dir)]) { cycleHits += 1 }
+                var cycleHits = 0; for s in 0..<cycleLen where euclidBuf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }
                 let effHits = Int64(max(1, cycleHits))
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
@@ -3708,14 +3708,14 @@ final class Router {
                     let localT = Int64((phaseBeat / sub).rounded(.down))
                     let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
                     let ri = euclidReadIndex(raw, n: n, dir: dir)
-                    let isHit = invert ? !euclidBuf[ri] : euclidBuf[ri]
+                    let isHit = euclidBuf[ri]
                     guard isHit else { return }
                     // DIE/ord (Paul 2026-09-29 v1b, widened 2026-10-02 for the RIFF/ARP sources below): a monotonic,
                     // STATELESS "which hit number is this" ordinal — cycle count × this line's own hit density + the
                     // within-cycle hit rank, salted by DIE. Hoisted above the pick switch (was computed only inside
                     // .cycle/.random) since .riff/.arp consume it too.
                     let cy = (localT - Int64(raw)) / Int64(cycleLen)               // floored cycle within the span (localT = cy·cycleLen + raw)
-                    var hitsUpTo = 0; for s in 0...raw where (invert ? !euclidBuf[euclidReadIndex(s, n: n, dir: dir)] : euclidBuf[euclidReadIndex(s, n: n, dir: dir)]) { hitsUpTo += 1 }
+                    var hitsUpTo = 0; for s in 0...raw where euclidBuf[euclidReadIndex(s, n: n, dir: dir)] { hitsUpTo += 1 }
                     let ord = (cy * effHits + Int64(hitsUpTo - 1)) &+ Int64(die)   // v1b: per-line die salts CYCLE (rotates the sequence) / RANDOM (reseeds the scatter) / RIFF·ARP (offsets the walked sequence)
                     // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
                     // non-bypassed slot's OWN authored sequence by `ord` — an explicit resolved MIDI note, not an
@@ -3755,7 +3755,7 @@ final class Router {
                             func strikeRiffRank(_ rank: Int) {
                                 guard rank >= 1 else { return }
                                 guard let base = riffResolve(rank: rank, oct: roct, n: chainScratch.srcCount(filter: 0), wrap: rp.riffWrap, asc: { Int(chainScratch.srcAscending($0, filter: 0)) }) else { return }
-                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: rvel)
+                                strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: rvel)
                             }
                             if rp.riffPoly {   // POLY: a step strikes the whole set rank mask as a simultaneous chord-stab
                                 let polyMask = stepIdx < rp.riffMask.count ? rp.riffMask[stepIdx] : 0
@@ -3774,7 +3774,7 @@ final class Router {
                                                octDown: rp.arpOctDown, randomAnchor: rp.arpRandomAnchor, seed: rp.arpSeed,
                                                velocity: rp.arpVelocity, velTilt: rp.arpVelTilt)
                             guard pick.note >= 0 else { return }   // empty predecessor-fed pool
-                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: pick.vel)
+                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: pick.vel)
                         }
                         return
                     }
@@ -3802,9 +3802,9 @@ final class Router {
                     // GATE loosens the column-boundary safety clamp 0.9→0.95 so an aggressive per-lane GATE still can't
                     // bleed past its own column; OCTAVE threads straight to strikeChord (clamped there, like UTILITY/ARP).
                     if let range = pickRange {
-                        for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave) }
+                        for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave) }
                     } else {
-                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave)
+                        strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave)
                     }
                 }
             }
@@ -3820,7 +3820,7 @@ final class Router {
             // PLAY/STOP (Paul 2026-10-01): `enabledResolved` gates emission ONLY — pulses/steps/rotate are never
             // touched by the toggle, so re-enabling a lane resumes exactly the pattern it had before (not the
             // pulses=0 "unused slot" case just above, which is a different, permanent-until-edited state).
-            for L in p.euclidLines where L.pulses > 0 && L.enabledResolved { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, dir: L.directionResolved, noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, die: L.dieResolved) }
+            for L in p.euclidLines where L.pulses > 0 && L.enabledResolved { runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved, noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved, die: L.dieResolved) }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
             // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,

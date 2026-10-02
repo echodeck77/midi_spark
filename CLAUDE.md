@@ -196,6 +196,53 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID per-line panel — a real bugfix on the RIFF/ARP feature + three polish asks: HITS/REST removed, DIRECTION
+  relabelled >/</><, a new VELOCITY control (2026-10-02, on `fix/euclid-riff-predtype-and-polish`; macOS 1176 green
+  incl. +1, iOS builds; DEVICE ear/eye owed). Paul, testing the EUCLID-reads-RIFF/ARP feature just shipped: "RIFF
+  doesn't seem to feed into EUCLID as I expect. The notes it plays seem unrelated to what's set in riff" — then, same
+  message, three unrelated polish asks: "remove the hits button and functionality," "change the direction b[u]t to
+  use >, <, and >< as labels (in order to make them smaller)," "add a velocity control." **THE BUG, root-caused not
+  guessed:** `BuildPage.swift`'s `precedingSourceType` (the chip-visibility gate added with the RIFF/ARP feature)
+  read `buildMachineChain(cid)` — which `.filter`s OUT every empty/bypassed slot ANYWHERE in the chain, collapsing
+  indices — then indexed it with `i` (`buildEditSlot`), which is an index into `selectedMachineChain()`, a DIFFERENT
+  array that only trims TRAILING empties (interior ones keep their original position). The two disagree the moment
+  any empty slot sits before EUCLID — an easily-reached shape, since `buildChainRemoveSlot`'s own documented
+  position-preserving delete leaves exactly this kind of gap (add RIFF, add something else, add EUCLID, delete the
+  middle one — the "something else" slot is still there, just bypassed-empty). `chain[i-1]` against the collapsed
+  array then reads whatever slot lands at that position post-collapse — not necessarily RIFF, not necessarily even
+  adjacent to EUCLID at all. **FIX:** read `buildMachineSlots(cid)` instead — the RAW array `selectedMachineChain()`
+  itself is built from (same indices, same length, nothing collapsed), so the closure and `i` now provably index the
+  same array the same way. Router.swift's OWN `predType` (the render-side twin check) was independently re-verified
+  correct throughout — it already walks `cell.procs`/`cell.slotBypass` directly (the real fixed-8 array, matching
+  `chainDriverIndex`'s own bypass-skip convention), so this was a UI-only bug, not an engine one. UI-only fix
+  (BuildPage.swift), no test-target reach — this exact function isn't unit-testable, DEVICE-owed to confirm the chip
+  now reflects the true predecessor in a chain with a gap before EUCLID (not just the simple adjacent case, which
+  already worked and is what the shipped RouterTests exercise). **HITS/REST REMOVED:** the bottom tap-pill in
+  `euclidSettingsPanel` (`Text(L.invert ? "REST" : "HITS")`, toggling `EuclidLine.invert` to strike the N−K rests
+  instead) is deleted outright — control AND effect. `runEuclidLine`'s `invert` parameter is gone; every
+  `invert ? !euclidBuf[x] : euclidBuf[x]` ternary (cycleHits/isHit/hitsUpTo) simplified to plain `euclidBuf[x]`.
+  `EuclidLine.invert`/`MachineParams.euclidInvert` both KEPT as harmless decode-only fields (an old doc with INVERT
+  engaged doesn't factory-reset — it just silently stops flipping). `testEuclidInvertPlaysTheRests` rewritten to
+  `testEuclidInvertIsNowANoOp` (was 9-vs-15 ons, now 9-vs-9) — a regression guard, not a deleted test, so an
+  accidental re-wire would be caught. **DIRECTION relabelled:** `segV`'s `options` array is now `[">", "<", "><"]`
+  (was `["FWD","BKW","PING-PONG"]`) — display only. Caught before shipping, not after: `segV` highlights by STRING
+  EQUALITY (`opt == sel`), and `sel:` was passed `L.directionResolved.rawValue` (the PERSISTED string, "FWD" etc.,
+  unchanged) — relabelling `options` alone would have left the highlight permanently unlit (none of the new labels
+  equal the old raw value). Fixed by computing `sel:` as the NEW label corresponding to the current direction
+  (`dirLabels[[.fwd,.bkw,.pingpong].firstIndex(of: L.directionResolved) ?? 0]`) — `onPick`'s index-based mapping to
+  `EuclidDir` is untouched, so the persisted raw values ("FWD"/"BKW"/"PING-PONG") never change, only what's drawn.
+  **VELOCITY, new:** `EuclidLine.velocity: Double?` (additive-Optional, CR-8 safe) + `velocityResolved` (0…2, nil⇒1.0
+  = unity). Threaded through `SnapshotBuilder`'s `euclidLines` resolve (clamped 0…2) and into `runEuclidLine` as a
+  new `velocity: Double` parameter, replacing the hardcoded `velScale: 1.0` in all FOUR `strikeChord` calls inside
+  (the plain pickIndex/pickRange strikes AND the RIFF/ARP-sourced explicit-note strikes alike) — a SCALE multiplier
+  on the struck note's own inherited velocity, not ARP's "ignore the input, absolute 1…100" convention, since a
+  EUCLID line can strike either a pool note (whose own velocity should still matter) or a RIFF/ARP-resolved note
+  (whose own velocity formula this scale multiplies on top of). UI: a new `field("VELOCITY …%")` + slider (0...2),
+  inserted right after GATE, replacing the removed HITS/REST pill's visual slot. +1 RouterTest
+  (`testEuclidVelocityScalesTheStruckNote`, a higher scale produces a measurably louder note than a lower one).
+  **DEVICE-OWED:** the predType bugfix against a REAL gapped chain (the shipped tests only exercise a clean adjacent
+  2-slot chain, which already worked); the >/</>< labels reading clearly at the control's reduced width; VELOCITY's
+  audible range at both ends of 0…2; confirm HITS/REST is genuinely gone with no dangling empty space in the panel.**
 - **▶ EUCLID reads RIFF/ARP as a sequential note source (2026-10-02, on `feature/euclid-reads-riff-arp`; macOS
   1175 green incl. 10 new, iOS builds; DEVICE ear/eye owed — chip legibility and the actual sound of a riff/arp-
   sourced line are genuinely untestable off-device). Paul: "if a riff is fed into a Euclid then the riff can be
