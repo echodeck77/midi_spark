@@ -225,6 +225,12 @@ struct ProcessorBox: View {
     var tempo: Double = 120
     var clockPlaying: Bool = false
     var driverNoteRate: Double = 0                       // RATCHET PATTERN NOTE clock: the upstream driver's note rate in beats (0 = unknown/standalone → the playhead can't sweep per-note)
+    // SEQUENTIAL SOURCES (Paul 2026-10-02): the type of the immediately-preceding, NON-BYPASSED chain slot, only
+    // when this box is editing EUCLID — nil otherwise (no predecessor, predecessor bypassed, or not EUCLID). Lets
+    // euclidSettingsPanel show a RIFF/ARP note-select chip only when that source is genuinely readable, mirroring
+    // driverNoteRate's own "a neighbor slot's value threaded in for the editor" shape above, with the one
+    // correction this needs that driverNoteRate's own backward scan doesn't: bypass-aware (see BuildPage.swift).
+    var precedingSourceType: ProcessorType? = nil
     var riffDrunkPosLive: Int = -1                       // RIFF DRUNK's true walk position, polled from the render thread (−1 = unknown/not this mode/cell) — Paul 2026-09-28
     var gridStepBeats: Double = 0.25                     // the SCENE step in beats → the DEFAULT (grid-column) matrix/lane playhead clock (Paul 2026-09-11)
     // A self-clock for a state matrix's playhead — extrapolated per frame so it can sweep faster than the diag poll.
@@ -818,8 +824,14 @@ struct ProcessorBox: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("LANE \(idx + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
             VStack(alignment: .leading, spacing: 3) {
-                euclidNoteSelChipRow(euclidNoteSelShown, cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }
-                if cur == .cycle || cur == .random {
+                // SEQUENTIAL SOURCES (Paul 2026-10-02): append a RIFF or ARP chip ONLY when the immediately-
+                // preceding, non-bypassed slot is that exact type (`precedingSourceType`, threaded in from
+                // BuildPage.swift) — hidden entirely, not shown-disabled, same convention as the other 10
+                // EuclidNoteSel cases already left out of `euclidNoteSelShown`. `euclidNoteSelLabel` falls through
+                // to `s.rawValue` for both ("RIFF"/"ARP") — no label change needed.
+                let shown = euclidNoteSelShown + (precedingSourceType == .riff ? [.riff] : precedingSourceType == .arp ? [.arp] : [])
+                euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { $0.noteSel = s } }
+                if cur == .cycle || cur == .random || cur == .riff || cur == .arp {
                     HStack(spacing: 6) {
                         Text("DIE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                         numPair(L.dieResolved, 0...8, compact: true, format: { "⚄\($0)" }) { v in euclidLineEdit4(idx) { $0.die = v } }

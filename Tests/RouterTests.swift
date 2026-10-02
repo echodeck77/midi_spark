@@ -5263,6 +5263,156 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(notes(true), notes(nil), "enabled:true and the nil default (also true) resume the identical pattern")
         XCTAssertFalse(notes(nil).isEmpty, "the underlying pulses/steps weren't touched by the toggle — re-enabling plays the same pattern as before")
     }
+    // SEQUENTIAL SOURCES (Paul 2026-10-02): EUCLID reads an immediately-preceding, non-bypassed RIFF or ARP as a
+    // note source — each hit steps through that predecessor's own authored sequence by hit-ordinal, instead of
+    // picking from the held chord. Stateless (the existing per-line `ord` — already driving CYCLE/RANDOM — is
+    // reused unmodified), adjacency-only (not a general upstream scan), and silent (not a crash/fallback) whenever
+    // the predecessor doesn't match.
+    func testEuclidReadsRiffSequenceSkippingRests() {
+        var riff = ProcessorSlot(type: .riff)
+        riff.params.riffSteps = 8
+        riff.params.riffRanks = [1, 0, 2, 3, 0, 2, 0, 1]   // non-rest steps: 0(rank1) 2(rank2) 3(rank3) 5(rank2) 7(rank1)
+        var euclid = ProcessorSlot(type: .euclid)
+        euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff)]   // K=N=8: every tick hits, isolating the sequence walk
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
+        // forceColumn: 0 (PLAY: THIS CELL) bypasses the column-lap gate — without it a bare cell only ticks during
+        // its own grid column's real-time span, too short to reach a 2nd lap of the 5-element non-rest sequence
+        // (same reason testEuclidPingPongDoublesHitsOverAFullLap needs it).
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+        let seq = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
+        XCTAssertEqual(Array(seq.prefix(10)), [60, 64, 67, 64, 60, 60, 64, 67, 64, 60],
+                       "EUCLID steps through RIFF's own non-rest ranks in authored order, wrapping by the non-rest count — not picking from the pool by rank/cycle/random")
+    }
+    func testEuclidReadsArpSequenceInOrder() {
+        var arp = ProcessorSlot(type: .arp); arp.params.pattern = .up
+        var euclid = ProcessorSlot(type: .euclid)
+        euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .arp)]
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, euclid]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
+        let seq = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
+        XCTAssertEqual(Array(seq.prefix(6)), [60, 64, 67, 60, 64, 67], "EUCLID steps through ARP's own UP pattern by hit-ordinal, exactly as arpPick(phaseIndex:) would resolve it directly")
+    }
+    func testEuclidReadsArpRandomOnceSeedDeterministically() {
+        func seqFor(seed: Int) -> [Int] {
+            var arp = ProcessorSlot(type: .arp); arp.params.pattern = .randomOnce; arp.params.arpSeed = seed
+            var euclid = ProcessorSlot(type: .euclid)
+            euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .arp)]
+            let cs = arpMachines()
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, euclid]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
+        }
+        let a1 = seqFor(seed: 42), a2 = seqFor(seed: 42), b1 = seqFor(seed: 99)
+        XCTAssertFalse(a1.isEmpty)
+        XCTAssertEqual(a1, a2, "the same RANDOM ONCE seed reproduces the identical EUCLID-walked sequence — arpPick is a pure hash of (phaseIndex, seed), no accumulated state")
+        XCTAssertNotEqual(a1, b1, "a different seed shuffles the walked sequence differently")
+    }
+    func testEuclidTwoLinesSameRiffPredecessorPhaseIndependently() {
+        var riff = ProcessorSlot(type: .riff)
+        riff.params.riffSteps = 4
+        riff.params.riffRanks = [1, 2, 3, 0]   // non-rest steps: 0(rank1) 1(rank2) 2(rank3)
+        var euclid = ProcessorSlot(type: .euclid)
+        euclid.params.euclidLines = [
+            EuclidLine(target: 0, pulses: 8, steps: 8, die: 0, noteSel: .riff),   // same K/N/rate as line 2 — ticks in lockstep
+            EuclidLine(target: 0, pulses: 8, steps: 8, die: 1, noteSel: .riff),   // own DIE offsets its OWN ord, independent of line 1's
+        ]
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
+        let ordered = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
+        // tick0 (simultaneous): line1(die0)→ord0→rank1(60) emitted before line2(die1)→ord1→rank2(64) (array order);
+        // tick1: line1→ord1→rank2(64), line2→ord2→rank3(67) — a constant +1 offset between the two lines' own walks,
+        // proving each line's `ord`/DIE is independent, not a single counter shared across lines on the same predecessor.
+        XCTAssertEqual(Array(ordered.prefix(4)), [60, 64, 64, 67], "two lines reading the same RIFF predecessor walk independently, each offset by its own DIE")
+    }
+    func testEuclidRiffAllRestPredecessorIsSilentNotACrash() {
+        func onCount(poly: Bool) -> Int {
+            var riff = ProcessorSlot(type: .riff)
+            riff.params.riffSteps = 8
+            if poly { riff.params.riffPoly = true; riff.params.riffMask = Array(repeating: 0, count: 8) }
+            else { riff.params.riffRanks = Array(repeating: 0, count: 8) }
+            var euclid = ProcessorSlot(type: .euclid)
+            euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff)]
+            let cs = arpMachines()
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertEqual(onCount(poly: false), 0, "an all-rest MONO RIFF predecessor (riffRanks all 0) must emit nothing, not crash/hang")
+        XCTAssertEqual(onCount(poly: true), 0, "a POLY RIFF predecessor with an empty mask must emit nothing, not crash/hang")
+    }
+    func testEuclidRiffBypassedPredecessorIsSilent() {
+        // Directly modeled on testChainBypassedHeadArpsSourceOnly: a bypassed slot is "not really there" — the
+        // SAME convention chainDriverIndex/composeChainSet already apply everywhere else in this file.
+        var riff = ProcessorSlot(type: .riff)
+        riff.params.riffSteps = 8
+        riff.params.riffRanks = [1, 2, 3, 1, 2, 3, 1, 2]
+        riff.bypassed = true
+        var euclid = ProcessorSlot(type: .euclid)
+        euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff)]
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a BYPASSED RIFF predecessor is 'not really there' — noteSel .riff finds no matching predecessor and emits nothing, never falls back to a different pick")
+    }
+    func testEuclidRiffPolyStepStrikesSimultaneousChordStab() {
+        var riff = ProcessorSlot(type: .riff)
+        riff.params.riffSteps = 4
+        riff.params.riffPoly = true
+        riff.params.riffMask = [0b011, 0, 0, 0]   // step0 only: ranks 1+2 together (the sole non-rest step)
+        var euclid = ProcessorSlot(type: .euclid)
+        euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff)]
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 1, into: e); assertNothingLeftSounding(e)
+        let aNotes = e.ons.filter { $0.cable == 1 }
+        XCTAssertEqual(Set(aNotes.map { Int($0.note) }), [60, 64], "a POLY RIFF step strikes its whole set rank mask as a chord-stab (ranks 1+2), never rank 3 (never in the mask) nor a lone note")
+        let grouped = Dictionary(grouping: aNotes.map { $0.sample }, by: { $0 })
+        XCTAssertTrue(grouped.values.contains { $0.count == 2 }, "the chord-stab's two notes land on the identical sample time — genuinely simultaneous, not staggered")
+    }
+    func testEuclidRiffTieStepStillCountsAsStruck() {
+        var riff = ProcessorSlot(type: .riff)
+        riff.params.riffSteps = 4
+        riff.params.riffRanks = [1, 2, 3, 2]
+        riff.params.riffTie = [false, true, false, false]   // step1 (rank2) is TIE in RIFF's OWN emission — irrelevant here, never read by .riff
+        var euclid = ProcessorSlot(type: .euclid)
+        euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff)]
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 1, into: e); assertNothingLeftSounding(e)
+        let seq = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
+        XCTAssertEqual(Array(seq.prefix(4)), [60, 64, 67, 64], "a RIFF step marked TIE is NOT a rest in riffRanks — EUCLID still strikes it on its own turn, since .riff never reads riffTie")
+    }
+    func testEuclidOctaveStacksAdditivelyWithRiffOwnOctLane() {
+        var riff = ProcessorSlot(type: .riff)
+        riff.params.riffSteps = 1
+        riff.params.riffRanks = [1]
+        riff.params.riffOct = [1]   // RIFF's own per-step octave: +1 (60→72)
+        var euclid = ProcessorSlot(type: .euclid)
+        euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff, octave: 1)]   // EUCLID's own per-line octave: +1 more (72→84)
+        let cs = arpMachines()
+        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 1, into: e); assertNothingLeftSounding(e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [84], "RIFF's own +1 octave and EUCLID's own +1 octave stack additively (60→72→84) — two independent shifts, not one overriding the other")
+    }
+    func testEuclidDieOffsetsTheRiffSequenceStart() {
+        func firstNote(die: Int) -> Int? {
+            var riff = ProcessorSlot(type: .riff)
+            riff.params.riffSteps = 4
+            riff.params.riffRanks = [1, 2, 3, 0]   // non-rest steps: 0(rank1) 1(rank2) 2(rank3)
+            var euclid = ProcessorSlot(type: .euclid)
+            euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, die: die, noteSel: .riff)]
+            let cs = arpMachines()
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 1, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.first.map { Int($0.note) }
+        }
+        XCTAssertEqual(firstNote(die: 0), 60, "die 0: the walk starts at ord 0 → non-rest step 0 → rank 1 (60)")
+        XCTAssertEqual(firstNote(die: 1), 64, "die 1 offsets the very first hit's ord by 1 → non-rest step 1 → rank 2 (64)")
+        XCTAssertEqual(firstNote(die: 2), 67, "die 2 offsets by 2 → non-rest step 2 → rank 3 (67)")
+    }
     // ARP EUCLID MASK (SPEC-arp-euclid-mask) is REMOVED (Paul 2026-09-28) — fully superseded by the standalone EUCLID
     // MASK processor; see testEuclidMaskFold*/testEuclidMask* above for the surviving REST/TIE/CHORD/ROTATE coverage.
     // WAIT-vs-MARCH had no replacement (Paul: "happy to drop wait as an option" — a downstream fold can't reach a

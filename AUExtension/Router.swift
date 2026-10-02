@@ -3615,23 +3615,33 @@ final class Router {
         // (hocket/echo/tutti/etc, none of which author a per-lane octave) simply omits it, byte-identical. Mirrors
         // UTILITY's `utilOctave`/ARP's `arpPick` convention exactly: ×12, add, clamp 0...127 right at emission —
         // not a new convention invented for EUCLID.
-        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0) {
+        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let tbm = chopMask(cell, m: tau, S: S, base: bm)
-            for (k, sn) in srcNotes.enumerated() {
-                if let only = onlyIndex, k != only { continue }
-                let n = sn.note + transpose + 12 * octave
-                guard n >= 0 && n <= 127 else { continue }
-                let vel = clampVel(Int((Double(max(1, sn.vel)) * velScale).rounded()))   // inherited velocity × envelope
+            func strikeOne(_ rawNote: Int, _ rawVel: UInt8) {
+                let n = rawNote + transpose + 12 * octave
+                guard n >= 0 && n <= 127 else { return }
+                let vel = clampVel(Int((Double(max(1, rawVel)) * velScale).rounded()))   // inherited velocity × envelope
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
-                if !emits { continue }
+                if !emits { return }
                 if hasDownstream {   // fold the post-driver stages onto each generated note (a downstream harmonize/chance/…)
                     emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT,
                                    windowEnd: windowEnd, velocity: vel, m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else if tbm != 0 {
                     emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                 }
+            }
+            // SEQUENTIAL SOURCES (Paul 2026-10-02): a RIFF/ARP-sourced pick resolves to an EXPLICIT note value that
+            // frequently isn't present in srcNotes at all (RIFF's FOLD wrap and per-step octave lane, ARP's own
+            // octave laps, both routinely land outside the composed pool's own pitches) — so it can't flow through
+            // the onlyIndex/srcNotes-index path below. `strikeOne` factors the shared store+emit tail so both paths
+            // (an explicit note, or a srcNotes-indexed pick) run through identical transpose/octave/range/velocity/
+            // downstream-fold-or-direct-emit logic — not a second, divergent copy of it.
+            if let en = explicitNote { strikeOne(en, explicitVel ?? 100); return }
+            for (k, sn) in srcNotes.enumerated() {
+                if let only = onlyIndex, k != only { continue }
+                strikeOne(sn.note, sn.vel)
             }
         }
         // A window-scan generator's FIRST window in each column scans from colStart (not mWinStart) so the DOWNBEAT
@@ -3656,6 +3666,15 @@ final class Router {
             // (they differ by a shift of 2×rotate mod n), so this is a deliberate, tested composition order, not
             // an arbitrary one (see `testEuclidReverseFlipsReadIndexNotRebuiltBuffer`).
             let srcCount = srcNotes.count
+            // SEQUENTIAL SOURCES (Paul 2026-10-02): when the slot immediately before this EUCLID (chainDriver, the
+            // index of EUCLID's own slot since emitGeneratorRow only dispatches here for the chain's driver) is
+            // exactly RIFF or ARP, and NOT bypassed, a line set to the matching noteSel steps through that
+            // predecessor's own authored sequence instead of picking from the held chord — see runEuclidLine's hit
+            // closure below. Bypassed-predecessor excluded to match every other adjacency/scan helper in this file
+            // (chainDriverIndex, composeChainSet's fold loop, the downstream*Index helpers all treat a bypassed
+            // slot as "not really there") — testChainBypassedHeadArpsSourceOnly already locks in the analogous case.
+            let predIdx = chainDriver - 1
+            let predType: ProcessorType? = (chainDriver >= 1 && !cell.slotBypass[predIdx]) ? cell.procs[predIdx].type : nil
             // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
             // DIRECTION (Paul 2026-10-01, 3-way redesign): `dir` replaces the old binary `reverse` — FWD/BKW read the
             // n-length buffer directly/mirrored (unchanged math, renamed); PING-PONG reuses RIFF's own `.pingpong`
@@ -3691,6 +3710,74 @@ final class Router {
                     let ri = euclidReadIndex(raw, n: n, dir: dir)
                     let isHit = invert ? !euclidBuf[ri] : euclidBuf[ri]
                     guard isHit else { return }
+                    // DIE/ord (Paul 2026-09-29 v1b, widened 2026-10-02 for the RIFF/ARP sources below): a monotonic,
+                    // STATELESS "which hit number is this" ordinal — cycle count × this line's own hit density + the
+                    // within-cycle hit rank, salted by DIE. Hoisted above the pick switch (was computed only inside
+                    // .cycle/.random) since .riff/.arp consume it too.
+                    let cy = (localT - Int64(raw)) / Int64(cycleLen)               // floored cycle within the span (localT = cy·cycleLen + raw)
+                    var hitsUpTo = 0; for s in 0...raw where (invert ? !euclidBuf[euclidReadIndex(s, n: n, dir: dir)] : euclidBuf[euclidReadIndex(s, n: n, dir: dir)]) { hitsUpTo += 1 }
+                    let ord = (cy * effHits + Int64(hitsUpTo - 1)) &+ Int64(die)   // v1b: per-line die salts CYCLE (rotates the sequence) / RANDOM (reseeds the scatter) / RIFF·ARP (offsets the walked sequence)
+                    // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
+                    // non-bypassed slot's OWN authored sequence by `ord` — an explicit resolved MIDI note, not an
+                    // index into the held chord, so this is a separate branch, not two more cases folded into the
+                    // pool-index switch below. A stored .riff/.arp whose predecessor no longer matches (chain
+                    // edited, now bypassed) emits nothing — same honest-non-guess contract as every other noteSel
+                    // case that can't resolve (e.g. an aggregate pick against an empty pool).
+                    if noteSel == .riff || noteSel == .arp {
+                        guard (noteSel == .riff && predType == .riff) || (noteSel == .arp && predType == .arp) else { return }
+                        let rp = cell.procs[predIdx]
+                        if noteSel == .riff {
+                            let riffSteps = max(1, min(32, rp.riffSteps))
+                            func riffStepIsRest(_ i: Int) -> Bool {
+                                rp.riffPoly ? ((i < rp.riffMask.count ? rp.riffMask[i] : 0) == 0) : ((i < rp.riffRanks.count ? rp.riffRanks[i] : 0) < 1)
+                            }
+                            // two bounded (≤32) scans, no allocation — mirrors this same function's own cycleHits/
+                            // hitsUpTo idiom above, just counting/locating non-rest steps instead of hit hits.
+                            var nonRestCount = 0
+                            for i in 0..<riffSteps where !riffStepIsRest(i) { nonRestCount += 1 }
+                            guard nonRestCount > 0 else { return }   // all-rest predecessor (POLY empty mask / all-zero MONO ranks) — silent, not a crash
+                            let wantedOrd = Int(((ord % Int64(nonRestCount)) + Int64(nonRestCount)) % Int64(nonRestCount))
+                            var seen = 0; var stepIdx = -1
+                            for i in 0..<riffSteps where !riffStepIsRest(i) {
+                                if seen == wantedOrd { stepIdx = i; break }
+                                seen += 1
+                            }
+                            guard stepIdx >= 0 else { return }
+                            let roct = stepIdx < rp.riffOct.count ? rp.riffOct[stepIdx] : 0        // RIFF's own per-step OCT lane — stacks additively with this line's own `octave` at strikeChord
+                            let raccent = stepIdx < rp.riffAccent.count ? rp.riffAccent[stepIdx] : 0
+                            // RIFF's own exact velocity formula (emitRiffRow) — read off the CELL's raw/live pool
+                            // (`pool`, in scope since the top of emitGeneratorRow), NOT the pool composed below —
+                            // those differ in a 3+-slot chain, and using the wrong one would silently diverge from
+                            // what RIFF's own standalone emission computes for an equivalent chain.
+                            let rbaseVel = max(1, Int(coinVelFactor(pool) * 127))
+                            let rvel = clampVel(rbaseVel + raccent)
+                            composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the riff's own slot (a no-op pass-through when riff is slot 0)
+                            func strikeRiffRank(_ rank: Int) {
+                                guard rank >= 1 else { return }
+                                guard let base = riffResolve(rank: rank, oct: roct, n: chainScratch.srcCount(filter: 0), wrap: rp.riffWrap, asc: { Int(chainScratch.srcAscending($0, filter: 0)) }) else { return }
+                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: rvel)
+                            }
+                            if rp.riffPoly {   // POLY: a step strikes the whole set rank mask as a simultaneous chord-stab
+                                let polyMask = stepIdx < rp.riffMask.count ? rp.riffMask[stepIdx] : 0
+                                for rank in 1...8 where (polyMask & (1 << (rank - 1))) != 0 { strikeRiffRank(rank) }
+                            } else {
+                                strikeRiffRank(stepIdx < rp.riffRanks.count ? rp.riffRanks[stepIdx] : 0)
+                            }
+                        } else {   // .arp
+                            composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the arp's own slot
+                            // `ord` becomes `phaseIndex` directly, unmodified — arpPick is fully pure/total in
+                            // phaseIndex (incl. RANDOM/RANDOM ONCE, both seeded hashes of phaseIndex alone) and
+                            // already respects the upstream ARP's own VELOCITY/VELOCITY TILT controls, so no
+                            // separate velocity formula is needed here (unlike RIFF above).
+                            let pick = arpPick(phaseIndex: ord, octaves: max(1, min(4, Int(rp.octaves))), pattern: rp.patternIndex, pool: chainScratch,
+                                               chanMask: 0xFFFF, cableMask: 0b1111,
+                                               octDown: rp.arpOctDown, randomAnchor: rp.arpRandomAnchor, seed: rp.arpSeed,
+                                               velocity: rp.arpVelocity, velTilt: rp.arpVelTilt)
+                            guard pick.note >= 0 else { return }   // empty predecessor-fed pool
+                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: pick.vel)
+                        }
+                        return
+                    }
                     var pickIndex: Int? = nil
                     var pickRange: (lo: Int, hi: Int)? = nil
                     if let rank = noteSel.specificRank { pickIndex = rank - 1 }   // N1..N8 (strikeChord skips if absent)
@@ -3704,15 +3791,12 @@ final class Router {
                         case .bottom2: if srcCount > 0 { pickRange = (0, min(1, srcCount - 1)) }
                         case .top2: if srcCount > 0 { pickRange = (max(0, srcCount - 2), srcCount - 1) }
                         case .cycle, .random:
-                            let cy = (localT - Int64(raw)) / Int64(cycleLen)               // floored cycle within the span (localT = cy·cycleLen + raw)
-                            var hitsUpTo = 0; for s in 0...raw where (invert ? !euclidBuf[euclidReadIndex(s, n: n, dir: dir)] : euclidBuf[euclidReadIndex(s, n: n, dir: dir)]) { hitsUpTo += 1 }
-                            let ord = (cy * effHits + Int64(hitsUpTo - 1)) &+ Int64(die)   // v1b: per-line die salts CYCLE (rotates the sequence) / RANDOM (reseeds the scatter)
                             if srcCount > 0 {
                                 pickIndex = noteSel == .cycle
                                     ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
                                     : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(srcCount))
                             }
-                        default: break   // N1…N8 already resolved via specificRank above
+                        default: break   // N1…N8 already resolved via specificRank above; .riff/.arp are handled above and never reach here
                         }
                     }
                     // GATE loosens the column-boundary safety clamp 0.9→0.95 so an aggressive per-lane GATE still can't

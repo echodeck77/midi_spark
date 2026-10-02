@@ -202,7 +202,14 @@ enum EuclidNoteSel: String, Codable, CaseIterable {
     case all = "ALL"
     case n1 = "N1", n2 = "N2", n3 = "N3", n4 = "N4", n5 = "N5", n6 = "N6", n7 = "N7", n8 = "N8"
     case low = "LOW", high = "HIGH", bottom2 = "BOT2", top2 = "TOP2", cycle = "CYCLE", random = "RANDOM"
-    /// 1...8 for a specific-rank pick; nil for every aggregate case (ALL/LOW/HIGH/BOT2/TOP2/CYCLE/RANDOM).
+    // SEQUENTIAL SOURCES (Paul 2026-10-02): when the slot immediately before this EUCLID line is exactly RIFF (or
+    // ARP), each hit steps through that predecessor's OWN authored sequence (RIFF's riffRanks/riffMask, or ARP's
+    // own pattern math) by hit-ordinal — not the composed chord pool. Router.swift resolves these; a line stored
+    // with one of these two cases whose predecessor no longer matches (chain edited, or the predecessor is now
+    // bypassed) silently emits nothing — same "resolves correctly or honestly does nothing" contract as every
+    // other case here.
+    case riff = "RIFF", arp = "ARP"
+    /// 1...8 for a specific-rank pick; nil for every aggregate case (ALL/LOW/HIGH/BOT2/TOP2/CYCLE/RANDOM/RIFF/ARP).
     var specificRank: Int? {
         switch self {
         case .n1: 1; case .n2: 2; case .n3: 3; case .n4: 4; case .n5: 5; case .n6: 6; case .n7: 7; case .n8: 8

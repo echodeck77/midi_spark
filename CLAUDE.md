@@ -196,6 +196,60 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID reads RIFF/ARP as a sequential note source (2026-10-02, on `feature/euclid-reads-riff-arp`; macOS
+  1175 green incl. 10 new, iOS builds; DEVICE ear/eye owed — chip legibility and the actual sound of a riff/arp-
+  sourced line are genuinely untestable off-device). Paul: "if a riff is fed into a Euclid then the riff can be
+  chosen as a selected note, and each hit will sequentially play each note from the riff... Please implement this,
+  with RIFF or ARP available as note options if present upstream" — planned first (3 Explore agents + a Plan
+  validation pass, `~/.claude/plans/hidden-yawning-boole.md`) per Paul's own "maybe plan first?" steer, confirmed
+  stateless per his answer to the one open design question. **MODEL:** `EuclidNoteSel` (Models.swift) gains two
+  cases, `.riff`/`.arp` — no new fields anywhere; `EuclidLine.noteSel` already stores them. **ENGINE
+  (Router.swift, `case .euclid:`):** a top-level adjacency check computed once — `predType` = the type of the
+  slot immediately before EUCLID's own driver index, ONLY when that slot is non-bypassed (mirrors
+  `chainDriverIndex`/`composeChainSet`'s own bypass-excludes-a-slot convention throughout this file — a bypassed
+  predecessor is "not really there," same as `testChainBypassedHeadArpsSourceOnly` already locks in). Inside
+  `runEuclidLine`'s hit closure, the existing per-hit `ord` (a monotonic, STATELESS "which hit number is this"
+  ordinal — already driving CYCLE/RANDOM, hoisted up unconditionally so `.riff`/`.arp` can read it too) feeds a
+  NEW branch, separate from the pool-index switch (since RIFF/ARP resolve an EXPLICIT note, not a pool index): a
+  `.riff` line reads the predecessor's own `riffRanks`/`riffMask`/`riffOct`/`riffAccent`/`riffWrap` directly off
+  `cell.procs[predIdx]`, walks its non-rest steps via two bounded (≤32) no-alloc scans (count, then locate — the
+  same idiom this function's own `cycleHits`/`hitsUpTo` already uses), resolves the picked rank(s) against a
+  FRESH `composeChainSet(upto: predIdx - 1)` (the pool feeding INTO riff's own slot — a no-op when RIFF is slot 0
+  — deliberately not EUCLID's own already-composed pool, which would be circular for the ARP case) via
+  `riffResolve` directly (POLY loops every set mask bit as a simultaneous chord-stab), with velocity via RIFF's
+  own exact formula read off the CELL's raw/live pool (not the composed one — these differ in a 3+-slot chain).
+  An `.arp` line composes the same predecessor pool and calls `arpPick(phaseIndex: ord, ...)` directly with the
+  predecessor's own resolved pattern/octaves/velocity/velTilt — `ord` becomes `phaseIndex` unmodified (arpPick is
+  fully pure/total in phaseIndex, incl. RANDOM ONCE). Both emit via a new `strikeChord(explicitNote:explicitVel:)`
+  pair of params (default nil ⇒ byte-identical for every existing call) — factored the shared store+emit tail
+  into a nested `strikeOne` so the explicit-note path and the existing srcNotes-indexed loop share one
+  implementation, not two. A mismatched/bypassed predecessor — or an all-rest one (every non-rest scan comes up
+  empty) — returns silently, never crashes, never falls back to a different pick. EUCLID's own per-line
+  OCTAVE/GATE still apply on top (confirmed additive: RIFF's own octave lane bakes into the resolved note, then
+  EUCLID's `octave` param shifts it again at `strikeChord`). **UI (GridUI.swift/BuildPage.swift):** a new
+  `ProcessorBox.precedingSourceType` stored prop (mirrors `driverNoteRate`'s own "a neighbor slot's value
+  threaded into the editor" shape, with the one correction that precedent didn't need: bypass-aware), computed at
+  `buildSlotBox`'s call site and threaded in; `euclidSettingsPanel` conditionally appends a "RIFF"/"ARP" chip to
+  the NOTE SELECT row only when it matches (hidden entirely, not shown-disabled, matching how the other 10
+  already-trimmed `EuclidNoteSel` cases behave); the DIE control's visibility extended from `.cycle`/`.random` to
+  also include `.riff`/`.arp` (DIE was already mechanically folded into `ord` for free — this just stops it going
+  invisible-but-still-active when a line switches to the new sources). **TESTS:** +10 RouterTests (RIFF sequence
+  skipping rests, wrapping by non-rest count · ARP sequence matching `arpPick` directly, incl. RANDOM ONCE seed-
+  determinism · two lines on the same RIFF predecessor phasing independently via their own DIE · an all-rest
+  predecessor, both MONO and POLY-empty-mask, silent not crashing · a bypassed predecessor silent, mirroring
+  `testChainBypassedHeadArpsSourceOnly` · a POLY step striking a genuine simultaneous chord-stab · a TIE-marked
+  RIFF step still counting as struck (TIE is never read by this feature) · EUCLID's own octave stacking
+  additively with RIFF's per-step octave lane · DIE offsetting the walked sequence's start). One test-authoring
+  lesson hit directly: a bare (un-held) test cell only ticks during its OWN grid column's real-time span by
+  default — `forceColumn: 0` (PLAY: THIS CELL) was needed to reach a 2nd lap of a 5-element sequence, the exact
+  same fix `testEuclidPingPongDoublesHitsOverAFullLap` already needed for the identical reason. **SCOPED OUT,
+  named not accidental (per the approved plan):** a general "scan anywhere upstream" rule (adjacency only); RIFF's
+  own `riffDir` (EUCLID always walks RIFF's authored step order, ignoring however RIFF itself would play back —
+  DRUNK has no stateless form at all); "RIFF's own editor shows a playhead driven by EUCLID's rate" (a separate,
+  visual-only follow-up). **DEVICE-OWED:** the two new chips' legibility/placement in the trimmed NOTE SELECT row;
+  the actual sound of a riff/arp-sourced EUCLID line against a real chord; multi-line phasing audibly working as
+  described (free architecturally — each line's own K/N/rotate/die already gives it an independent `ord`, now
+  worth an ear-check against real material).**
 - **▶ EUCLID EDITOR — PLAY/STOP back inline, SELECT chip removed, tap/drag-to-select instead (2026-10-02, on
   `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye/feel owed — the tap-vs-pan/pinch gesture
   interplay is genuinely untestable off-device). Paul, correcting the immediately-prior 2×2-box relayout: "I

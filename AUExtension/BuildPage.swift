@@ -5180,6 +5180,16 @@ extension DiagView {
             while k >= 0 { if drivers.contains(chain[k].type) { return chain[k].params.rate?.beats ?? 0 }; k -= 1 }
             return 0
         }()
+        // SEQUENTIAL SOURCES (Paul 2026-10-02): EUCLID reading RIFF/ARP as a note source needs the immediately-
+        // preceding slot's type, ADJACENCY ONLY (not a scan, unlike driverNoteRate above) — and, unlike
+        // driverNoteRate's own backward scan, bypass-aware: a bypassed predecessor is "not really there," matching
+        // every other adjacency/scan helper in Router.swift (chainDriverIndex, composeChainSet's fold loop).
+        let precedingSourceType: ProcessorType? = {
+            guard slot.type == .euclid else { return nil }
+            let chain = buildMachineChain(cid)
+            guard i >= 1, i - 1 < chain.count, !chain[i - 1].bypassed else { return nil }
+            return chain[i - 1].type
+        }()
         ProcessorBox(
             machine: sc, machineIndex: -1, face: .a,
             onEdit: { mutate in
@@ -5197,6 +5207,7 @@ extension DiagView {
             // @State (which re-rendered the page every step → the per-step playhead stutter). Left at their -1 defaults.
             beatAnchor: meters.beatAnchor, beatAnchorAt: meters.beatAnchorAt, tempo: meters.tempo, clockPlaying: d.playing,   // RATCHET PATTERN extrapolates its OWN-clock playhead (Paul 2026-09-07)
             driverNoteRate: driverNoteRate,   // NOTE clock: the upstream driver's note rate → the playhead sweeps per-note
+            precedingSourceType: precedingSourceType,   // SEQUENTIAL SOURCES: shows a RIFF/ARP note-select chip on EUCLID only when that source is immediately upstream and not bypassed
             riffDrunkPosLive: buildRiffDrunkPos,   // RIFF DRUNK's true walk position, polled (Paul 2026-09-28) — see AudioUnitViewController's editorOpen poll
             gridStepBeats: stepBeats,   // the DEFAULT grid-column clock for the generic matrices/lanes (Paul 2026-09-11)
 
