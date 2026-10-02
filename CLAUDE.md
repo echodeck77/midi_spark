@@ -196,6 +196,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID DRAG HUD — relocated a SECOND time, now genuinely top-level (2026-10-02, on
+  `feature/euclid-hud-touch-and-polish`; iOS builds, no test-target reach — UI-only, BuildPage.swift/
+  AudioUnitViewController.swift; DEVICE eye owed). Paul, after the first relocation shipped: "the euclid overlay
+  still does not move over the grid. It only seems to be able to live within the confines of the processor edit."
+  **ROOT CAUSE, traced not assumed:** the first relocation (entry directly below) made the HUD a sibling of
+  `buildProcessorPanel`'s OWN `ScrollView` — true, but insufficient, because `roomsProcessorCardAt` (the card's
+  OUTER wrapper, one level further up) applies `.frame(width:height:).background(buildPanel).clipShape(Rounded-
+  Rectangle(cornerRadius: 8))` to its ENTIRE contents — tabs, `buildProcessorPanel`, and any overlay hanging off
+  it, all clipped to the card's own rounded rect as one unit. No `.overlay` attached ANYWHERE inside
+  `buildProcessorPanel` could ever escape that — the first fix solved a real but narrower problem (the
+  ScrollView's own clip) while leaving the actual reported one (the card's clip) untouched. **FIX:** the HUD's
+  RENDERING moved again, this time to `DiagView.body`'s own top-level `ZStack` (AudioUnitViewController.swift) —
+  a sibling of `mainContent(geo)`, the SAME tier the manual/settings/presets/cell-library overlays already live
+  at, reusing the body's own outer `GeometryReader`'s `geo` directly (no nested GeometryReader needed this time).
+  Identical positioning math (the `.global`-origin conversion, the 130pt "~1 inch" offset, the X-clamp) ported
+  verbatim — only WHERE it renders changed, not how it computes position. `buildProcessorPanel` no longer renders
+  the HUD at all, only still SETS `euclidDragHUDInfo` (via `onEuclidDragInfo` on `ProcessorBox`, unchanged).
+  `buildEuclidDragHUD` (the actual card view) dropped its `private` modifier — BuildPage.swift and
+  AudioUnitViewController.swift are different files, and Swift's `private` on an extension member doesn't cross
+  files even for the same type, unlike the plain (internal) functions this codebase already calls cross-file
+  throughout (e.g. `buildMachineChain`). **DEVICE-OWED:** confirm the HUD can now genuinely travel over the grid
+  area (not just no-longer-clipped-inside-the-card-but-still-somehow-bounded) — this is the one thing that could
+  only be confirmed by the device report that triggered this fix in the first place, and is worth a direct
+  on-device check before considering this closed.**
 - **▶ EUCLID DRAG HUD — appears on raw touch-down + tracks the finger end-to-end, tightened to ~1 inch, arrows
   re-added; comet now respects PER-LANE PLAY/STOP; lanes default to 1-of-8 (2026-10-02, on `fix/euclid-die-removal`;
   macOS 1176 green (no new tests — all UI/engine-glue, no test-target reach), iOS builds; DEVICE eye/feel owed —

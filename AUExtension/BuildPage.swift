@@ -4813,36 +4813,16 @@ extension DiagView {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // (The pop-up chrome — buildPanel fill · rounded clip · thick hue border · drop shadow · tap-swallow — is REMOVED so the
         // card reads as part of the page. The card region (roomsProcessorCardAt) provides the flat fill + clip. Paul 2026-09-10.)
-        // EUCLID DRAG HUD (Paul 2026-10-02: "I want the overlay for count, hits to be top level because it's
-        // currently fixed on the scrolling processor edit page... an inch or two above the touch location").
-        // Attached HERE — a SIBLING of the ScrollView above, not a descendant of it — so it floats clear of the
-        // panel's own scroll offset/clip entirely, instead of being laid out (and potentially clipped) inside the
-        // scrolling body the way the old row-anchored HUD was. `GeometryReader` + `.global` converts the touch's
-        // WINDOW-space point (reported from `ProcessorBox`'s UIKit gesture, via `onEuclidDragInfo`) into THIS
-        // view's own local coordinate space.
-        .overlay(alignment: .topLeading) {
-            if let info = euclidDragHUDInfo {
-                GeometryReader { geo in
-                    let origin = geo.frame(in: .global).origin
-                    let hudW: CGFloat = 230
-                    // "an inch above the touch" (Paul 2026-10-02, tightened from the original "an inch or two") —
-                    // ~130pt, the common iPad points-per-inch approximation; still a documented approximation
-                    // (iPad's logical point density isn't a fixed physical inch, and this can't be confirmed
-                    // without a device), just a tighter one than the original 150pt guess. Recomputed from the
-                    // LIVE `info.point` on every call (not cached), so the HUD's Y tracks the finger's own
-                    // vertical movement continuously, staying ~1 inch above wherever the touch currently is.
-                    let aboveTouch: CGFloat = 130
-                    let rawX = info.point.x - origin.x
-                    let halfW = hudW / 2 + 8
-                    let x = min(max(rawX, halfW), max(halfW, geo.size.width - halfW))
-                    let y = max(40, info.point.y - origin.y - aboveTouch)
-                    buildEuclidDragHUD(info).frame(width: hudW).position(x: x, y: y)
-                }
-                .allowsHitTesting(false)
-                .transition(.opacity)
-                .zIndex(2)
-            }
-        }
+        // EUCLID DRAG HUD — NO LONGER rendered here (Paul 2026-10-02, 2nd relocation: "the euclid overlay still
+        // does not move over the grid. It only seems to be able to live within the confines of the processor
+        // edit"). The FIRST relocation (this comment's own prior text) only escaped `buildProcessorPanel`'s own
+        // ScrollView — but `roomsProcessorCardAt`, the card's OUTER wrapper, applies its own
+        // `.clipShape(RoundedRectangle(cornerRadius: 8))` to the WHOLE card (tabs + this panel + any overlay on
+        // it) — an ancestor clip no `.overlay` attached in here could ever escape, regardless of which container
+        // inside the card it's a sibling of. The HUD now renders at `DiagView.body`'s own TOP-LEVEL ZStack
+        // (AudioUnitViewController.swift) — a true sibling of the whole page, same tier as the manual/settings/
+        // presets overlays — so it can float anywhere on screen, including over the grid. `euclidDragHUDInfo` is
+        // still set from here (`onEuclidDragInfo` below); only the RENDERING moved.
     }
     /// STYLE (Paul 2026-10-02: "3 hits out of 8, with offset by 2 in smaller text... more prominent than it is
     /// now"): a plain-English primary line replaces the old 3-stat-box layout (STEPS/HITS/OFFSET side by side);
@@ -4852,7 +4832,7 @@ extension DiagView {
     /// the touch ("they'd point in directions that no longer mean anything now that the card floats freely") —
     /// Paul asked for them back regardless, as a plain "this is draggable" affordance rather than a literal
     /// directional reference. Four chevrons border the card on all 4 sides via `.overlay(alignment:)`.
-    private func buildEuclidDragHUD(_ info: EuclidDragHUDInfo) -> some View {
+    func buildEuclidDragHUD(_ info: EuclidDragHUDInfo) -> some View {   // NOT private — rendered from DiagView.body in AudioUnitViewController.swift (a different file, same type)
         VStack(spacing: 5) {
             Text(info.label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
             Text("\(info.hits) HITS OUT OF \(info.steps)")

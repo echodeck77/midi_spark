@@ -807,6 +807,32 @@ struct DiagView: View {
                 // window"). When the content FITS we render it RAW — a SwiftUI ScrollView delays/swallows the
                 // UIKit ColumnHoldOverlay's multi-touch, so the lap gesture only works un-wrapped.
                 mainContent(geo)
+                // EUCLID DRAG HUD (Paul 2026-10-02, 2nd relocation: "the euclid overlay still does not move over
+                // the grid. It only seems to be able to live within the confines of the processor edit"). The
+                // card hosting the processor editor (`roomsProcessorCardAt`, BuildPage.swift) applies its own
+                // `.clipShape(RoundedRectangle(cornerRadius: 8))` to its ENTIRE contents — an ancestor clip that
+                // trapped the HUD no matter which container inside the card it was attached to (the 1st
+                // relocation only escaped the card's OWN inner ScrollView, a narrower problem than this one).
+                // Rendered HERE instead — a sibling of `mainContent(geo)` at the true top of the page, the SAME
+                // tier as the manual/settings/presets overlays below — so it can float anywhere on screen,
+                // including over the grid. Reuses the OUTER `geo` already in scope (no nested GeometryReader
+                // needed) with the identical `.global`-conversion math the card-level version used, since
+                // `info.point` is still reported in WINDOW coordinates (`ProcessorBox`'s UIKit gesture) and this
+                // root's own origin relative to `.global` isn't assumed to be exactly (0,0) (safe-area insets,
+                // etc.) — converting explicitly is the same safe assumption the original version already made.
+                if let info = euclidDragHUDInfo {
+                    let origin = geo.frame(in: .global).origin
+                    let hudW: CGFloat = 230
+                    let aboveTouch: CGFloat = 130   // "~1 inch above the touch" — see buildEuclidDragHUD's own history for the honest approximation caveat
+                    let rawX = info.point.x - origin.x
+                    let halfW = hudW / 2 + 8
+                    let x = min(max(rawX, halfW), max(halfW, geo.size.width - halfW))
+                    let y = max(40, info.point.y - origin.y - aboveTouch)
+                    buildEuclidDragHUD(info).frame(width: hudW).position(x: x, y: y)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                        .zIndex(2)
+                }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Machines arrive.)
                 if showManual {                         // the in-app MANUAL, scrolled to the last-touched control
