@@ -679,19 +679,15 @@ struct ProcessorBox: View {
             .allowsHitTesting(false)
         }
         // GESTURES (Paul 2026-10-01): 1-finger drag left/right = Δrotate, up/down = Δhits (this row); 2-finger drag
-        // does the same but to EVERY row (`euclidAllRowsEdit`). Inset 14pt each side so the pad's own touch area
-        // never competes with the thin +/- STEPS glyphs sitting in that margin (a ZStack sibling, drawn ON TOP —
-        // SwiftUI hit-tests top-down, so the small glyphs win their own bounds before the pad underneath sees them).
+        // does the same but to EVERY row (`euclidAllRowsEdit`). PINCH = ΔSTEPS (`onStepsDelta`, EuclidGesturePad's
+        // own pinch recognizer) is now the ONLY way to change STEPS from this bar — the thin +/- tap glyphs that
+        // used to sit in the pad's side margins are REMOVED (Paul 2026-10-02: "remove the + and - buttons from
+        // the Euclid lanes"), control only, not the underlying mechanism (pinch still calls the same
+        // `onStepsDelta`). The 14pt inset is LEFT AS-IS, not widened to reclaim the freed margin — the glyphs'
+        // removal wasn't an ask to resize the gesture pad itself, just to drop the redundant discrete buttons.
         EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                          onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
             .padding(.horizontal, 14)
-        HStack {
-            Text("+").font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                .frame(width: 14, height: 30).contentShape(Rectangle()).onTapGesture { onStepsDelta(1) }
-            Spacer(minLength: 0)
-            Text("−").font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                .frame(width: 14, height: 30).contentShape(Rectangle()).onTapGesture { onStepsDelta(-1) }
-        }
         }
     }
     /// A UIKit pan+pinch bridge (Paul 2026-10-01) — SwiftUI's own `DragGesture` doesn't distinguish touch COUNT,
@@ -939,23 +935,27 @@ struct ProcessorBox: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(isMiss ? "LANE \(idx + 1) MISS" : "LANE \(idx + 1) HIT")
                 .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            // RELAYOUT (Paul 2026-10-02: "ensure that the octave controls are lined up with the note selector to
+            // its left and gate below it") — two columns, not the old chip-row+OCT / VEL+GATE split: LEFT = note
+            // chips over VELOCITY, RIGHT = OCTAVE over GATE — so OCTAVE sits beside (lined up with) the note
+            // chips, and GATE sits directly below OCTAVE specifically, not shared with VELOCITY anymore.
             HStack(alignment: .top, spacing: 8) {
-                euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { if isMiss { $0.missNoteSel = s } else { $0.noteSel = s } } }
+                VStack(alignment: .leading, spacing: 6) {
+                    euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { if isMiss { $0.missNoteSel = s } else { $0.noteSel = s } } }
+                    field("VEL  \(Int((isMiss ? L.missVelocityResolved : L.velocityResolved) * 100))%") {
+                        slider(bind(isMiss ? L.missVelocityResolved : L.velocityResolved) { v in
+                            euclidLineEdit4(idx) { if isMiss { $0.missVelocity = v } else { $0.velocity = v } } }, in: 0...2)
+                    }
+                }
                 Spacer(minLength: 4)
-                VStack(alignment: .leading, spacing: 2) {   // OCT label kept (bare arrows alone next to a chip row read ambiguous); `compact: true` is the "half its height" ask
+                VStack(alignment: .leading, spacing: 4) {   // OCT label kept (a bare stepper alone reads ambiguous); `compact: true` is the earlier "half its height" ask
                     Text("OCT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                     numPair(isMiss ? L.missOctaveResolved : L.octaveResolved, -3...3, compact: true) { v in
                         euclidLineEdit4(idx) { if isMiss { $0.missOctave = v } else { $0.octave = v } } }
-                }
-            }
-            HStack(spacing: 8) {
-                field("VEL  \(Int((isMiss ? L.missVelocityResolved : L.velocityResolved) * 100))%") {
-                    slider(bind(isMiss ? L.missVelocityResolved : L.velocityResolved) { v in
-                        euclidLineEdit4(idx) { if isMiss { $0.missVelocity = v } else { $0.velocity = v } } }, in: 0...2)
-                }
-                field("GATE  \(Int((isMiss ? L.missGateResolved : L.gateResolved) * 100))%") {
-                    slider(bind(isMiss ? L.missGateResolved : L.gateResolved) { v in
-                        euclidLineEdit4(idx) { if isMiss { $0.missGate = v } else { $0.gate = v } } }, in: 0.05...1)
+                    field("GATE  \(Int((isMiss ? L.missGateResolved : L.gateResolved) * 100))%") {
+                        slider(bind(isMiss ? L.missGateResolved : L.gateResolved) { v in
+                            euclidLineEdit4(idx) { if isMiss { $0.missGate = v } else { $0.gate = v } } }, in: 0.05...1)
+                    }
                 }
             }
         }
@@ -3047,7 +3047,7 @@ struct ProcessorBox: View {
         let rows = radioRows(options.count)
         return VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, span in
-                HStack(spacing: 6) {
+                HStack(spacing: compact ? 4 : 6) {
                     ForEach(span, id: \.self) { i in
                         let on = options[i] == sel
                         Text(options[i]).font(.system(size: compact ? 11 : 15, weight: .heavy, design: .monospaced))
