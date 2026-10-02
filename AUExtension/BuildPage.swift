@@ -1139,16 +1139,11 @@ extension DiagView {
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative
         buildPublishScene()
     }
-    // PART LOOP SELECTION (Paul 2026-09-26): the bottom-rail loop buttons — tap toggles a column's membership. Adding
-    // APPENDS (added-order, not sorted); re-adding a removed column goes to the END, not back to its old position. An
-    // out-of-range column (the part has since shrunk) is simply dropped by BuildSceneLogic.loopColumnPlan at read time,
-    // never crashes — so no clamping is needed here.
-    func buildTogglePartLoopColumn(_ c: Int) {
-        if let idx = buildPartLoopCols.firstIndex(of: c) { buildPartLoopCols.remove(at: idx) }
-        else { buildPartLoopCols.append(c) }
-        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].loopCols = buildPartLoopCols.isEmpty ? nil : buildPartLoopCols }   // keep buildParts authoritative, mirrors buildSetPartRate
-        buildPublishScene()
-    }
+    // buildTogglePartLoopColumn RETIRED (Paul 2026-10-02: "remove the loop buttons from the bottom of the part
+    // grid" — its only caller, roomsPartLoopFooter's button, is gone). `buildPartLoopCols` itself is UNTOUCHED —
+    // still read everywhere (composeScene's loopColumnPlan, both playheads, session persistence) and still
+    // settable via loading a part/session that already has `loopCols` saved; there's just no UI left to CHANGE
+    // it going forward — a part keeps whatever loop selection it last had.
     func buildSetPartLen(_ n: Int?) {
         let old = buildPartCols
         buildPartLen = n
@@ -2115,10 +2110,12 @@ extension DiagView {
             let ch = m.ch
             let rowH = ch * 0.5                                             // §MERGE (Paul 2026-09-08): interior cells are HALF the ferry-cell height
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)   // the 4-row browser (half-height cells)
-            let footerH = ch / 3.0                                           // HALVED (Paul 2026-09-09): the footer rail is now 1/3 the ferry height
-            let footerY = interiorH + gap                                    // the footer sits flush beneath the last grid row (NOT at the bottom of the unit)
-            let cardY = footerY + ch * 2.0 / 3.0 + gap                       // the card stays put → the freed half is a HIDDEN-CELL GAP between the footer and the card (Paul 2026-09-09)
-            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the footer + the docked card
+            // FOOTER REMOVED (Paul 2026-10-02: "remove the bottom placeholder rail of the select grid") — the
+            // card now docks flush beneath the grid rows (one `gap`), reclaiming the footer's own height AND the
+            // "hidden-cell gap" that used to sit between the footer and the card (both were sized off the now-
+            // gone footerH/footerY).
+            let cardY = interiorH + gap
+            let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)  // below the ferry row: the 4-row browser + the docked card
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: gap) {                                       // the PLAY-ferry row (transport moved to the header play strip — Paul 2026-09-09)
                     Color.clear.frame(width: cw, height: ch)                 // left rail slot — keeps the ferries aligned with the grid's left rail
@@ -2135,11 +2132,9 @@ extension DiagView {
                             }
                         }
                     }
-                    // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
-                    roomsGridFooter(cells: 8, railW: cw, gap: gap, h: footerH)
-                        .frame(width: cw * 10 + gap * 9, height: footerH).offset(y: footerY)   // SELECT = pages (placeholder, not wired)
-                    // The processor-editor card (Paul 2026-09-08): docked BELOW the footer (so it no longer covers it),
-                    // filling the rest of the freed lower half, spanning the full grid-region width.
+                    // The processor-editor card (Paul 2026-09-08): docked flush beneath the grid rows (the
+                    // placeholder footer that used to sit here is gone, Paul 2026-10-02), filling the rest of
+                    // the lower half, spanning the full grid-region width.
                     roomsProcessorCardAt(x: 0, y: cardY, w: cw * 10 + gap * 9, h: max(0, lowerH - cardY))
                 }
             }
@@ -2166,47 +2161,11 @@ extension DiagView {
             .contentShape(Rectangle())
             .onTapGesture { if buildGridSelPage != r && r < roomsSelectCategories.count { buildGridSelSetPage(r) } }
     }
-    // THE GRID FOOTER (Paul 2026-09-08) — a row at the BOTTOM of each grid, mirroring the top ferry row at 2/3 its height,
-    // spanning the MAIN BODY only (the interior columns, NOT the side rails: flanked by rail-width spacers). PLACEHOLDER for
-    // the SELECT grid — SELECT = pages (behaviour deliberately not wired yet; this just reserves the space). PART's own
-    // footer (column-loop buttons) is `roomsPartLoopFooter` below — split out once PART's behaviour was actually built,
-    // so this shell stays untouched for SELECT (Paul 2026-09-26).
-    @ViewBuilder private func roomsGridFooter(cells: Int, railW: CGFloat, gap: CGFloat, h: CGFloat) -> some View {
-        HStack(spacing: gap) {
-            Color.clear.frame(width: railW, height: h)                       // left rail — excluded from the footer's width
-            HStack(spacing: gap) {                                            // the body: one cell per interior column, filling the interior width
-                ForEach(0..<max(1, cells), id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.05))
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, lineWidth: 1))
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            Color.clear.frame(width: railW, height: h)                       // right rail — excluded
-        }
-        .frame(height: h)
-    }
-    // THE PART GRID'S LOOP FOOTER (Paul 2026-09-26) — same shell/sizing as roomsGridFooter (so the button never changes
-    // size), but each cell is a REAL toggle: a "repeat" glyph that restricts playback to the SELECTED columns, in the
-    // order they were tapped (BuildSceneLogic.loopColumnPlan is the single source of truth both the audio — composeScene,
-    // per ferry — and the two playheads below read, so the lit button and what plays can't disagree).
-    @ViewBuilder private func roomsPartLoopFooter(cols: Int, railW: CGFloat, gap: CGFloat, h: CGFloat) -> some View {
-        HStack(spacing: gap) {
-            Color.clear.frame(width: railW, height: h)
-            HStack(spacing: gap) {
-                ForEach(0..<max(1, cols), id: \.self) { c in
-                    let on = buildPartLoopCols.contains(c)
-                    RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : Color.white.opacity(0.05))
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.white.opacity(0.8) : buildEdge, lineWidth: on ? 2 : 1))
-                        .overlay(Image(systemName: "repeat").font(.system(size: 10, weight: .heavy)).foregroundColor(on ? .black : .white.opacity(0.4)))
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                        .onTapGesture { buildTogglePartLoopColumn(c) }
-                }
-            }
-            Color.clear.frame(width: railW, height: h)
-        }
-        .frame(height: h)
-    }
+    // roomsGridFooter (the SELECT grid's bottom placeholder rail) and roomsPartLoopFooter (the PART grid's loop-
+    // column buttons) are RETIRED (Paul 2026-10-02: "Remove the loop buttons from the bottom of the part grid,
+    // and also remove the bottom placeholder rail of the select grid") — both call sites above now dock the
+    // processor card flush beneath the grid instead. See `buildTogglePartLoopColumn`'s own retirement note for
+    // what's still live underneath (the loop-column DATA/engine, just no UI to change it from here anymore).
     // The empty-box PROCESSOR SELECTOR window (the catalog) — the existing modal picker, rendered in the rooms shell. (Paul 2026-08-28)
     @ViewBuilder func roomsProcessorPicker(size: CGSize) -> some View {
         if let slot = buildAddSlot { buildProcessorPicker(slot: slot, size: size) }
@@ -2346,11 +2305,12 @@ extension DiagView {
             // two columns), never becoming 16 (which would index the 8-slot play layer out of range). (Paul 2026-09-04)
             let ferryW = (interiorW - CGFloat(7) * gap) / 8
             let interiorH = rowH * CGFloat(rows) + gap * CGFloat(rows - 1)  // the 4-row grid
-            let footerH = ch / 3.0                                           // HALVED (Paul 2026-09-09): the footer rail is now 1/3 the ferry height
-            let footerY = interiorH + gap                                    // flush beneath the last grid row
-            let cardY = footerY + ch * 2.0 / 3.0 + gap                       // the card stays put → the freed half is a HIDDEN-CELL GAP between the footer and the card (Paul 2026-09-09)
-            // The lower region = everything under the ferry row: the 4-row grid on top, then the footer, then the docked
-            // CARD filling the rest (the freed space from 8→4 rows).
+            // FOOTER REMOVED (Paul 2026-10-02: "remove the loop buttons from the bottom of the part grid") — the
+            // card now docks flush beneath the grid rows (one `gap`), reclaiming the footer's own height AND the
+            // "hidden-cell gap" that used to sit between the footer and the card.
+            let cardY = interiorH + gap
+            // The lower region = everything under the ferry row: the 4-row grid on top, then the docked CARD
+            // filling the rest (the freed space from 8→4 rows).
             let lowerH = max(interiorH, g.size.height - 2 * pad - ch - gap)
             VStack(alignment: .leading, spacing: gap) {
                 HStack(spacing: gap) {                                      // the PLAY-ferry row (transport moved to the header play strip — Paul 2026-09-09)
@@ -2401,12 +2361,9 @@ extension DiagView {
                             }
                         }
                     }
-                    // The footer row (Paul 2026-09-08): flush BENEATH the grid rows, spanning the interior body (rails excluded).
-                    // PART = the loop-column buttons (Paul 2026-09-26, wired — see roomsPartLoopFooter).
-                    roomsPartLoopFooter(cols: cols, railW: railW, gap: gap, h: footerH)
-                        .frame(width: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), height: footerH).offset(y: footerY)
-                    // The processor-editor card (Paul 2026-09-08): docked BELOW the footer (no longer covering it), filling
-                    // the rest of the freed lower half. Spans the FULL grid-region width (every rail + interior cell).
+                    // The processor-editor card (Paul 2026-09-08): docked flush beneath the grid rows (the
+                    // loop-column-button footer that used to sit here is gone, Paul 2026-10-02), filling the
+                    // rest of the lower half. Spans the FULL grid-region width (every rail + interior cell).
                     roomsProcessorCardAt(x: 0, y: cardY, w: cw * CGFloat(cols + 2) + gap * CGFloat(cols + 1), h: max(0, lowerH - cardY))
                 }
             }
