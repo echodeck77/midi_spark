@@ -89,6 +89,30 @@ func euclidPhase(mTickBeat: Double, sub: Double, spanBeats: Double, n: Int) -> D
     let nD = Double(max(1, n))
     return raw - nD * (raw / nD).rounded(.down)   // raw mod n, always in [0, n)
 }
+/// The comet bar's own raw tick count (Paul 2026-10-02: "reverse when BKW, back-and-forth on PING-PONG") —
+/// `euclidPhase` above always mods by `n`, which only ever shows PING-PONG's ascending half; this instead mods
+/// by the DIRECTION's real cycle length (`euclidCycleLen` — n for FWD/BKW, 2n for PING-PONG), matching the real
+/// render path's own `localT mod cycleLen` (Router.swift's `runEuclidLine`) so a full ping-pong lap is visible.
+/// UI-only (GridUI.swift's comet bar) — same as `euclidPhase`, never read by the render path.
+func euclidCometRaw(mTickBeat: Double, sub: Double, spanBeats: Double, n: Int, dir: EuclidDir) -> Double {
+    let phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
+    let raw = phaseBeat / max(0.0001, sub)
+    let cycleLen = Double(euclidCycleLen(dir, n: n))
+    return raw - cycleLen * (raw / cycleLen).rounded(.down)   // raw mod cycleLen, always in [0, cycleLen)
+}
+/// The comet's own SCREEN position (continuous, for smooth sweep) given its raw tick count — the real-valued
+/// analogue of `euclidReadIndex`, allowing a fractional `raw` instead of only integers: FWD sweeps left→right
+/// (pos = raw); BKW sweeps right→left (pos = n − raw); PING-PONG sweeps left→right then bounces back right→left
+/// within the same lap (ascending half pos = raw, descending half pos = 2n − raw). Box CONTENT (which buffer
+/// entry each of the N boxes shows) is untouched by this — only the comet's own visual sweep direction.
+func euclidCometPos(_ raw: Double, n: Int, dir: EuclidDir) -> Double {
+    let nD = Double(max(1, n))
+    switch dir {
+    case .fwd: return raw
+    case .bkw: return nD - raw
+    case .pingpong: return raw < nD ? raw : 2 * nD - raw
+    }
+}
 
 // CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26) — the pure beat → phase transform. A downstream fold
 // consumer (RATCHET's own rate/slice math etc.) asks "what's local time AT this one real beat instant?"; a

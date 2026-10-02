@@ -196,6 +196,44 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID COMET BAR — the sweep now genuinely reverses for BKW and bounces for PING-PONG (2026-10-02, on
+  `main`; macOS 1181 green incl. 1 new, iOS builds; DEVICE eye owed). Paul: "The Euclid processor has an
+  animation that runs left to right on each lane. Please change this so that it reverses directions when
+  reverse is chosen, and it goes back and forth on pingpong." SUPERSEDES an earlier, deliberate same-session
+  design call (the box-redesign doc comment: "the comet always travels left→right... steadier and more
+  legible than having it visually reverse direction, which read as a glitch") — that call predates this ask;
+  Paul's now asking for exactly the motion it had chosen not to build. **ROOT STRUCTURE, traced first:** the
+  comet's screen x-position came from `euclidPhase` — a plain `raw mod n` (raw = elapsed ticks), ALWAYS
+  increasing over time regardless of `dir`, so `xFor(phase)` always swept left→right; separately, `euclidPhase`
+  only ever mods by `n`, never the direction's real cycle length (`euclidCycleLen` — 2n under PING-PONG), so
+  PING-PONG's comet only ever showed the ascending half, repeating — never the bounce back. **FIX (Derivations.
+  swift, two new pure functions, UI-only like `euclidPhase` itself — confirmed via grep, neither reaches the
+  render path):** `euclidCometRaw` mods the raw tick count by `euclidCycleLen(dir, n:)` instead of a fixed `n`,
+  so a full PING-PONG lap (2n ticks) is now actually representable. `euclidCometPos(raw, n, dir)` is the real-
+  valued analogue of `euclidReadIndex` (same branching shape, continuous instead of integer-only): FWD `pos =
+  raw` (unchanged) · BKW `pos = n − raw` (a genuine mirror — as raw climbs, pos falls, so the comet visibly
+  travels right→left) · PING-PONG `raw < n ? raw : 2n − raw` (ascending left→right for the first half-lap,
+  then mirrors back down right→left for the second — the literal "back and forth" asked for). The per-box HIT/
+  REST content (`euclidReadIndex` against the static integer screen index) is UNTOUCHED — only the comet's own
+  visual motion changed, so which boxes light up when is exactly as before. **AGE/FLARE rederived to match:**
+  the per-box "how long ago did the comet pass this box" calc (`age`, driving the flare/afterglow) assumed a
+  monotonically-increasing position tied 1:1 to screen index — no longer true once the comet can move backward
+  or double back. Rederived per direction by inverting each `euclidCometPos` branch: FWD unchanged (`age = raw
+  − i mod n`); BKW `age = raw + i mod n` (the comet visits box i when raw = n−i); PING-PONG visits box i TWICE
+  per lap (ascending at raw=i, descending at raw=2n−i) — `age` takes whichever visit was more recent (`min` of
+  the two, each wrapped mod 2n). **TRAIL DIRECTION:** the comet's own blurred trail (drawn "behind" the glowing
+  head) used a hardcoded left-ward offset (`hx − 22`, clamped to the left inset) — now computed from a
+  `movingRight` flag (true for FWD, false for BKW, and — for PING-PONG — whichever half of the lap `cometRaw`
+  currently sits in), so the trail correctly extends to the RIGHT of the head when the comet is travelling
+  leftward, instead of visually trailing in front of it. **TESTS:** +1 DerivationsTest
+  (`testEuclidCometPosReversesAndBounces` — `euclidCometRaw` wraps by the right cycle length per direction;
+  `euclidCometPos` is a genuine mirror for BKW, not just a relabelling; PING-PONG's ascending/turn/descending
+  points hand-verified against the exact formula). UI+pure-function (GridUI.swift + Derivations.swift +
+  Tests/DerivationsTests.swift), full macOS test-target reach for the new Derivations functions (GridUI's own
+  wiring has none, as always). **DEVICE-OWED:** the whole feature — BKW's comet visibly running right-to-left
+  against the still-left-to-right-laid-out boxes (a deliberate, disclosed asymmetry — the BOXES don't reorder,
+  only the comet's motion does); PING-PONG's bounce reading as a smooth back-and-forth, not a jarring snap at
+  the turn; the trail now correctly pointing backward (not forward) during a leftward sweep.**
 - **▶ EUCLID PANEL — the redundant LANE N header removed, DIRECTION chips halved in height (2026-10-02, on
   `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye owed). Paul: "Remove the LANE 2 header
   from euclid. Halve the height of the direction buttons." The top-of-panel `Text("LANE \(idx+1)")` in

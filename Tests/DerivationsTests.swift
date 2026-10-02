@@ -517,6 +517,29 @@ final class DerivationsTests: XCTestCase {
         let pingpongHitSteps = readSeq.enumerated().filter { rotated[$0.element] }.map { $0.offset }
         XCTAssertEqual(pingpongHitSteps, [2, 5, 7, 8, 10, 13], "hit at buffer index 7 fires on BOTH raw ticks 7 and 8 (the turn)")
     }
+    // COMET SWEEP DIRECTION (Paul 2026-10-02: "reverses direction when reverse is chosen... goes back and forth
+    // on pingpong") — euclidCometRaw/euclidCometPos drive the GridUI comet bar's own visual motion.
+    func testEuclidCometPosReversesAndBounces() {
+        // euclidCometRaw mods by the DIRECTION's own real cycle length — n for FWD/BKW, 2n for PING-PONG — so a
+        // raw mTickBeat well past one lap still wraps into the right range.
+        XCTAssertEqual(euclidCometRaw(mTickBeat: 0, sub: 1, spanBeats: 0, n: 8, dir: .fwd), 0)
+        XCTAssertEqual(euclidCometRaw(mTickBeat: 10, sub: 1, spanBeats: 0, n: 8, dir: .fwd), 2, "10 mod 8 = 2")
+        XCTAssertEqual(euclidCometRaw(mTickBeat: 10, sub: 1, spanBeats: 0, n: 8, dir: .bkw), 2, "BKW's cycle length is still 8 — same raw, only the screen position reads differently")
+        XCTAssertEqual(euclidCometRaw(mTickBeat: 10, sub: 1, spanBeats: 0, n: 8, dir: .pingpong), 10, "PING-PONG mods by 2n=16, so raw 10 stays 10 (not yet wrapped)")
+        XCTAssertEqual(euclidCometRaw(mTickBeat: 18, sub: 1, spanBeats: 0, n: 8, dir: .pingpong), 2, "18 mod 16 = 2")
+        // FWD sweeps left→right (pos == raw); BKW sweeps right→left (pos == n − raw) — a REAL reversal, not just
+        // a relabelling, per Paul's own ask.
+        XCTAssertEqual(euclidCometPos(0, n: 8, dir: .fwd), 0)
+        XCTAssertEqual(euclidCometPos(3, n: 8, dir: .fwd), 3)
+        XCTAssertEqual(euclidCometPos(0, n: 8, dir: .bkw), 8)
+        XCTAssertEqual(euclidCometPos(3, n: 8, dir: .bkw), 5, "n − raw = 8 − 3")
+        // PING-PONG bounces within one lap: the ascending half (raw < n) matches FWD; the descending half
+        // (raw ≥ n) mirrors it back down — "goes back and forth."
+        XCTAssertEqual(euclidCometPos(3, n: 8, dir: .pingpong), 3, "ascending half — same as FWD")
+        XCTAssertEqual(euclidCometPos(8, n: 8, dir: .pingpong), 8, "the turn")
+        XCTAssertEqual(euclidCometPos(11, n: 8, dir: .pingpong), 5, "descending half: 2n − raw = 16 − 11")
+        XCTAssertEqual(euclidCometPos(15, n: 8, dir: .pingpong), 1, "nearly back to the start")
+    }
     func testBurstFractionsCountFirstZeroAndCurve() {
         XCTAssertEqual(burstFractions(count: 4, curve: 0), [0, 0.25, 0.5, 0.75], "even spacing at curve 0")
         XCTAssertEqual(burstFractions(count: 4, curve: 0).first, 0, "first strike at step entry")

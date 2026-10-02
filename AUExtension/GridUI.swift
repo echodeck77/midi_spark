@@ -508,22 +508,22 @@ struct ProcessorBox: View {
     /// THE COMET BAR (Paul 2026-09-30, box redesign 2026-10-02): a non-interactive, live K-of-N hit display — N
     /// gap-separated rounded-rect BOXES (one per step, "easier to see the number of steps" than a dot on a bare
     /// line) with a glowing comet running the pattern continuously over them, flaring each hit box as it passes.
-    /// Reuses `euclidPhase`/`euclidReadIndex`
-    /// (Derivations.swift) — the SAME pure functions the real render path uses for its own step math (Stage 1) —
-    /// so this can never silently disagree with what's actually heard the way RATCHET PATTERN/DEST once did.
+    /// Reuses `euclidReadIndex` (Derivations.swift) for the per-box HIT/REST content — the SAME pure function
+    /// the real render path uses for its own step math (Stage 1) — so the lit boxes can never silently disagree
+    /// with what's actually heard the way RATCHET PATTERN/DEST once did.
     /// NOT swing-warped: a deliberate, disclosed simplification matching every OTHER pattern-processor live sweep
     /// in this file (BURST/RATCHET/TUTTI/DEST's StateMatrixClock/liveCol also read a plain linear beat) — only
     /// EUCLID's actual render path (Router.swift) applies `musicalOf`; threading swing into this widget too would
     /// need a new stored property on `ProcessorBox` for a discrepancy that only shows at non-50 swing settings.
-    /// DESIGN CHOICE (deviates from the approved mockup's literal reversed-comet-direction sketch, flagged
-    /// plainly): screen position i always shows the i-th step in PLAYBACK order (`euclidReadIndex` resolves which
-    /// buffer index that is), so the comet always travels left→right — steadier and more legible than having it
-    /// visually reverse direction, which read as a glitch rather than "impressive" once actually built.
-    /// PING-PONG (Paul 2026-10-01, 3-way DIRECTION): this bar only has N screen slots, but a ping-pong lap is 2N
-    /// ticks — rather than invent a SECOND, bounced comet motion (which BKW/REV never got either, for the exact
-    /// same reason above), the N static node positions show PING-PONG's ascending half only (i in 0..<n always
-    /// hits `euclidReadIndex`'s `raw < n` branch, identical to FWD) — an honest, disclosed simplification, not a
-    /// silent omission; the comet's own continuous sweep is unaffected either way (still left→right, any dir).
+    /// SWEEP DIRECTION (Paul 2026-10-02: "reverses direction when reverse is chosen... goes back and forth on
+    /// pingpong") — SUPERSEDES the earlier "always left→right, any dir" choice (that read as steadier at the
+    /// time, before this was actually asked for): `euclidCometPos`/`euclidCometRaw` (Derivations.swift) give the
+    /// comet its own direction-aware continuous screen position — FWD left→right, BKW right→left, PING-PONG
+    /// bounces between the two within one lap (now shown in FULL — the ascending-half-only simplification from
+    /// when this bar had no bounce motion to show is gone, since PING-PONG now has somewhere to show it). The
+    /// per-box HIT/REST content (still `euclidReadIndex` against the static integer screen index) is untouched —
+    /// only the comet's own visual motion changed; `age` (how long ago the comet passed a given box, driving its
+    /// flare/afterglow) is rederived per direction to match.
     @ViewBuilder private func euclidCometBar(pulses k: Int, steps nIn: Int, rotate: Int, invert: Bool, dir: EuclidDir, rate: ArpRate, spanN: Int, tint: Color,
                                               lanePlaying: Bool,
                                               onRotateDelta: @escaping (Int) -> Void, onHitsDelta: @escaping (Int) -> Void,
@@ -542,7 +542,15 @@ struct ProcessorBox: View {
         ZStack {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running)) { tl in
             let liveBeat = beatAnchor + tl.date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
-            let phase = euclidPhase(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n)
+            // DIRECTION-AWARE SWEEP (Paul 2026-10-02: "reverses direction when reverse is chosen... goes back
+            // and forth on pingpong") — SUPERSEDES the earlier deliberate "always left→right, any dir" choice
+            // (see the box-redesign doc comment above). `cometRaw` is the raw tick count mod the direction's
+            // real cycle length (n, or 2n under PING-PONG); `cometPos` is its continuous screen position, which
+            // now actually reverses/bounces per `euclidCometPos`'s own doc comment. The per-box HIT/REST content
+            // (`euclidReadIndex` below) is untouched — only the comet's own visual sweep motion changed.
+            let cometRaw = euclidCometRaw(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
+            let cometPos = euclidCometPos(cometRaw, n: n, dir: dir)
+            let nD = Double(n)
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
                 _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
@@ -578,9 +586,23 @@ struct ProcessorBox: View {
                         // would leave some hit box stuck mid-flash forever. A stopped lane shows every hit at
                         // one steady, unflared brightness instead — no comet, no animation, no stale frozen flare.
                         if running {
-                            // steps since the comet passed this node (0 = just now), wrapped positive every lap.
-                            let raw = (phase - Double(i)).truncatingRemainder(dividingBy: Double(n))
-                            let age = raw < 0 ? raw + Double(n) : raw
+                            // steps since the comet passed this node (0 = just now), wrapped positive every lap —
+                            // direction-aware (Paul 2026-10-02): FWD unchanged; BKW mirrors it (the comet visits
+                            // box i when cometRaw = n−i); PING-PONG visits box i TWICE per lap (ascending at
+                            // cometRaw=i, descending at cometRaw=2n−i) — age takes whichever visit was more recent.
+                            let age: Double
+                            switch dir {
+                            case .fwd:
+                                let raw = (cometRaw - Double(i)).truncatingRemainder(dividingBy: nD)
+                                age = raw < 0 ? raw + nD : raw
+                            case .bkw:
+                                let raw = (cometRaw + Double(i)).truncatingRemainder(dividingBy: nD)
+                                age = raw < 0 ? raw + nD : raw
+                            case .pingpong:
+                                let cycleLen = 2 * nD
+                                func wrap(_ v: Double) -> Double { let r = v.truncatingRemainder(dividingBy: cycleLen); return r < 0 ? r + cycleLen : r }
+                                age = min(wrap(cometRaw - Double(i)), wrap(cometRaw - (cycleLen - Double(i))))
+                            }
                             let recede = max(0, 1 - age / 1.5)     // the lingering afterglow (unchanged window)
                             // DRAMATIC HIT (Paul 2026-10-01: "brighter, with effects, more dramatic when it hits") —
                             // a short, sharp BURST window layered on top of the lingering afterglow: the box's
@@ -623,18 +645,29 @@ struct ProcessorBox: View {
                         ctx.stroke(box, with: .color(.white.opacity(0.16)), lineWidth: 1)
                     }
                 }
-                // THE COMET — unchanged motion/timing (a soft blurred trail + a glowing head), now riding OVER
-                // the box row instead of a thin baseline. STOPPED: not drawn at all (Paul 2026-10-02, widened the
-                // same day to per-lane PLAY/STOP too) — a paused TimelineView freezes `phase`, so without this
-                // guard the comet would sit motionless at its last live position instead of disappearing.
+                // THE COMET — unchanged timing (a soft blurred trail + a glowing head), now riding OVER the box
+                // row instead of a thin baseline. MOTION (Paul 2026-10-02) now reverses for BKW and bounces for
+                // PING-PONG — `hx` tracks `cometPos`'s own direction-aware sweep; the TRAIL (which side of the
+                // head it extends from — always "behind" the direction of travel) follows `movingRight`, which
+                // flips for BKW and switches mid-lap for PING-PONG. STOPPED: not drawn at all (Paul 2026-10-02,
+                // widened the same day to per-lane PLAY/STOP too) — a paused TimelineView freezes `cometPos`, so
+                // without this guard the comet would sit motionless at its last live position instead of
+                // disappearing.
                 if running {
-                    let hx = xFor(phase)
+                    let hx = xFor(cometPos)
+                    let movingRight: Bool
+                    switch dir {
+                    case .fwd: movingRight = true
+                    case .bkw: movingRight = false
+                    case .pingpong: movingRight = cometRaw < nD
+                    }
+                    let tx = movingRight ? max(insetL, hx - 22) : min(insetL + usable, hx + 22)
                     ctx.drawLayer { layer in
                         layer.addFilter(.blur(radius: 3))
                         var trail = Path()
-                        trail.move(to: CGPoint(x: hx, y: midY)); trail.addLine(to: CGPoint(x: max(insetL, hx - 22), y: midY))
+                        trail.move(to: CGPoint(x: hx, y: midY)); trail.addLine(to: CGPoint(x: tx, y: midY))
                         layer.stroke(trail, with: .linearGradient(Gradient(colors: [tint.opacity(0.55), tint.opacity(0)]),
-                                                                   startPoint: CGPoint(x: hx, y: midY), endPoint: CGPoint(x: hx - 22, y: midY)),
+                                                                   startPoint: CGPoint(x: hx, y: midY), endPoint: CGPoint(x: tx, y: midY)),
                                      lineWidth: 5)
                     }
                     ctx.drawLayer { layer in
