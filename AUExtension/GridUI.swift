@@ -571,9 +571,18 @@ struct ProcessorBox: View {
                 func boxRect(_ i: Int) -> CGRect {
                     CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
                 }
+                // BOX CONTENT IS DIRECTION-INDEPENDENT (Paul 2026-10-02: "when I change the direction, I don't
+                // want the lit cell(s) to jump to the opposite side. These should remain static") — box `i`
+                // always shows `buf[i]`, the raw pattern buffer at that screen position, full stop. This FIXES a
+                // real drift between code and its own stated intent: the surrounding comments already claimed
+                // "box content is untouched by direction" (see euclidCometPos's own doc comment + the note a few
+                // lines above this loop), but the code still read `buf[euclidReadIndex(i, n, dir)]` — BKW mirrors
+                // that mapping (screen i ← buffer n-1-i), so the ENTIRE lit pattern visually flipped the instant
+                // DIRECTION changed, exactly the reported jump. The age/flare timing below is untouched — it was
+                // already keyed on screen position `i` directly (never on the old `ri`), so only the comet's own
+                // motion (via `cometRaw`/`cometPos`, both already direction-aware) still varies by DIRECTION.
                 for i in 0..<n {
-                    let ri = euclidReadIndex(i, n: n, dir: dir)
-                    let hit = invert ? !buf[ri] : buf[ri]
+                    let hit = invert ? !buf[i] : buf[i]
                     let rect = boxRect(i)
                     let box = Path(roundedRect: rect, cornerRadius: corner)
                     if hit {
@@ -902,13 +911,14 @@ struct ProcessorBox: View {
     /// labels itself "LANE N HIT"/"LANE N MISS", so the panel-level one was redundant).
     @ViewBuilder private func euclidSettingsPanel(_ L: EuclidLine, idx: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            // DIRECTION label REMOVED (Paul 2026-10-02) — the >/</>< glyphs read on their own now, same
+            // decluttering as the "LANE N" header removal above; `field()`'s label row is dropped, the `seg`
+            // control itself is unchanged.
             HStack(spacing: 10) {
-                field("DIRECTION") {
-                    let dirLabels = [">", "<", "><"]
-                    let dirSel = dirLabels[[EuclidDir.fwd, .bkw, .pingpong].firstIndex(of: L.directionResolved) ?? 0]
-                    seg(dirLabels, sel: dirSel, compact: true) { i in
-                        euclidLineEdit4(idx) { $0.direction = [EuclidDir.fwd, .bkw, .pingpong][i] } }
-                }
+                let dirLabels = [">", "<", "><"]
+                let dirSel = dirLabels[[EuclidDir.fwd, .bkw, .pingpong].firstIndex(of: L.directionResolved) ?? 0]
+                seg(dirLabels, sel: dirSel, compact: true) { i in
+                    euclidLineEdit4(idx) { $0.direction = [EuclidDir.fwd, .bkw, .pingpong][i] } }
                 Spacer(minLength: 0)
             }
             HStack(alignment: .top, spacing: 10) {

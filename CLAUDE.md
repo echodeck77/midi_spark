@@ -196,6 +196,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID — DIRECTION label removed; the comet box grid is now genuinely direction-independent (2026-10-02, on
+  `fix/euclid-hud-escape-card-clip`; iOS builds, no test-target reach (GridUI.swift-only); DEVICE eye owed). Two
+  asks, same message. **LABEL:** `field("DIRECTION") { seg(...) }` dropped the `field()` wrapper — the `>`/`<`/
+  `><` chips render directly, no "DIRECTION" text above them, same decluttering as the same-day "LANE N" header
+  removal. **BOX JUMP, a real bug not a new design ask — Paul: "when I change the direction, I don't want the
+  lit cell(s) to jump to the opposite side. These should remain static."** Root-caused by reading, not guessed:
+  the SAME-DAY comet-direction rewrite (entry below) already documented the INTENT twice over — `euclidCometPos`'s
+  own doc comment ("Box CONTENT... is untouched by this") and a comment inside `euclidCometBar` itself ("The
+  per-box HIT/REST content... is untouched — only the comet's own visual sweep motion changed") — but the actual
+  box loop still computed `hit` via `buf[euclidReadIndex(i, n, dir)]`, which DOES remap by direction (BKW mirrors
+  screen i ← buffer n-1-i) — the code never caught up to what its own comments already claimed. Fixed to
+  `buf[i]` directly — box `i` always shows the raw pattern buffer at that screen position, full stop, regardless
+  of DIRECTION. **Verified, not just asserted, that this stays musically accurate:** the flare/age timing a few
+  lines below was ALREADY keyed on screen position `i` and the separately direction-aware `cometRaw`, never on
+  the old `ri` — worked through the tick arithmetic by hand for BKW (the comet's own position formula lands it
+  at box `i`'s edge at the exact real tick the engine actually strikes `buf[i]` under BKW) to confirm the comet
+  still visits each visible box in the true real-time strike order post-fix, not just that the boxes stopped
+  moving. Router.swift (the real render path) is completely untouched — this was a UI-only display bug, the
+  engine's own `euclidReadIndex` usage for actual playback was never wrong. **DEVICE-OWED:** confirm the grid now
+  stays visually still across all 3 DIRECTION settings, and that the comet's sweep (left→right FWD, right→left
+  BKW, bounce PING-PONG) still reads as correctly timed against the now-static boxes.**
 - **▶ EUCLID PANEL — DIRECTION shrunk further, OCTAVE/GATE relaid out, the +/- STEPS glyphs removed (2026-10-02,
   on `fix/euclid-hud-escape-card-clip` → `main`; iOS builds, no test-target reach (GridUI.swift-only); DEVICE eye
   owed). Paul: "Reduce the size of the direction controls on the Euclid processor. Then ensure that the octave
