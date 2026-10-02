@@ -196,6 +196,38 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID COMET BAR — redesigned around glowing STEP BOXES, not floating dots (2026-10-02, on `main`; iOS
+  builds, no test-target reach (GridUI-only); DEVICE eye owed — the whole visual treatment is unverifiable off-
+  device). Paul: "Incorporate boxes into the design of the Euclid lanes to represent every step. It needs to be
+  easier to see the number of steps. Make it look cool." The old track was a thin 1pt baseline with small
+  floating dots (hit/rest) plus a sweeping comet — the dots sat on an otherwise-blank line, so the step COUNT
+  itself wasn't legible independent of which steps happened to be lit. **REDESIGN:** the track is now N bounded,
+  gap-separated ROUNDED-RECT boxes — one per step, always drawn (hit or rest), so the grid's own shape
+  communicates "there are N slots" by construction, not just via however many dots happen to be visible. Gap
+  narrows as N grows (4pt at N≤8, 3pt at N≤12, 2pt above) and corner radius is capped relative to box width
+  (`min(5, boxW/2.2)`) so a dense 16-step lane's boxes stay legible rounded rects rather than squashing into
+  near-circles or overlapping. **"MAKE IT LOOK COOL":** a hit box now fills with a top-lit linear gradient
+  (brighter at the top edge, settling toward the tint's own shade at the bottom) instead of a flat dot colour —
+  reads as glassy/lit-from-above rather than a dead swatch — brightening further during its own burst window; a
+  thin border stroke on EVERY box (hit or rest, brighter on a burst) gives the grid definition even when nothing
+  is lit. The existing dramatic-hit effects (burst swell/recede afterglow, a hot white flash core, an expanding
+  "shockwave" ring) are ALL PRESERVED, just re-shaped to match: the flash core is now a bright inset band inside
+  the box rather than a second circle, and the shockwave is an expanding box OUTLINE (`rect.insetBy(dx:-grow,
+  dy:-grow)`) instead of a circular ring — same timing/decay math as before (burst/recede unchanged), only the
+  geometry changed from circles to rounded rects. The REST box keeps this session's own hard-won lesson (a
+  hollow ring reads as "vanished," not "dimmed" — see the 2026-10-01 rest-marker fix) — still a plainly visible
+  FILLED + bordered box, just dim (`white.opacity(0.09)` fill), same shape family as a hit. The old thin
+  horizontal baseline stroke is GONE — the box row itself now IS the track, and a separate line underneath read
+  as redundant clutter once the boxes carry that role. The COMET (continuous blurred trail + glowing head) is
+  UNTOUCHED in position/timing/stopped-state-hiding — still rides on top of the box row exactly as before,
+  independent of the discrete per-box state (`xFor` is still the same continuous-phase function). UI-only
+  (GridUI.swift, `euclidCometBar` only), no engine/model change, no test-target reach. **DEVICE-OWED, and this
+  is a pure Canvas-drawing aesthetic change with real interpretation room — nothing here can be confirmed by
+  reading code alone:** the box grid's legibility at real panel width across the whole 2…16 step range (16
+  steps is the tightest case, worth checking first); whether the gradient fill genuinely reads as "cool"/glassy
+  rather than just "a gradient" at this size; the flash-core/shockwave's new box-shaped geometry feeling as
+  dramatic as the old circular version; confirm the per-box border doesn't make a dense 16-step row look busy/
+  cluttered rather than clean.**
 - **▶ EUCLID EDITOR — the footer below the lanes removed entire: HITS FROM + GRID/SPAN (2026-10-02, on `main`;
   iOS builds, no test-target reach (GridUI-only); DEVICE eye owed). Paul: "Remove everything below the lanes on
   the euclid processor page." Deleted the `field("HITS FROM"...)` toggle and the `frameRow(grid:…, span:…)`
