@@ -196,6 +196,37 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID EDITOR — PLAY/STOP back inline, SELECT chip removed, tap/drag-to-select instead (2026-10-02, on
+  `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye/feel owed — the tap-vs-pan/pinch gesture
+  interplay is genuinely untestable off-device). Paul, correcting the immediately-prior 2×2-box relayout: "I
+  want the play button on its original position as part of the grid lane. No select button please, and if any
+  lane is touched I want it highlighted (the previous behavior of the select button) which will bring its
+  control into focus." SUPERSEDES that pass's separate PLAY/STOP+SELECT control row below the 2×2 box entirely
+  — reverted to a SINGLE stacked section (the 2×2 box, then the selected lane's settings beneath it). PLAY/STOP
+  is back INLINE inside each `euclidLaneBox` (left of the comet bar, its position from before the 2×2 pass);
+  the numbered SELECT chip is GONE — no replacement control, no "select" button anywhere. In its place: tapping
+  ANYWHERE on a lane's box (`.onTapGesture` on the whole cell, chained after the box's own background/border so
+  it covers the full visible area) sets `euclidSelectedLane`, driving the EXACT SAME highlight (`selected`
+  border/background opacity) the old SELECT chip used to drive — "the previous behaviour of the select button,"
+  just triggered by touching the lane itself rather than a dedicated control. ALSO selects on a single-lane
+  drag/pinch start (inside the comet bar's own `onDragState`, gated `!allRows` — the 2-finger ALL-LANES gesture
+  doesn't name one lane, so it's excluded), since "if any lane is touched" reads as covering drag-starts too,
+  not just a plain stationary tap. **WHY A PLAIN TAP REACHES THE OUTER GESTURE AT ALL, reasoned through, not
+  assumed:** the comet bar's gesture pad occupies most of the box via `UIPanGestureRecognizer`/
+  `UIPinchGestureRecognizer`, but BOTH only transition out of `.possible` once a touch moves past UIKit's own
+  recognition threshold — a touch that lifts without moving simply fails them, un-consumed, so SwiftUI's
+  `.onTapGesture` on the ancestor box can still recognize it. PLAY/STOP keeps its OWN inner `.onTapGesture`
+  (toggles `enabled`, never touches pulses/steps/rotate) — tapping it fires ONLY that handler, not also the
+  outer select-tap, by SwiftUI's standard nested-gesture precedence (confirmed behaviour, not new code — no
+  special-casing needed to keep the two independent). `euclidLaneControl` (the now-empty control row) and its
+  call site are DELETED outright, not left dead. UI-only (GridUI.swift), no test-target reach.
+  **DEVICE-OWED, and this is the one piece that genuinely can't be confirmed by reading code — real multi-
+  recognizer touch arbitration only shows itself on a touchscreen:** whether a plain tap on the comet-bar area
+  (not just the blank background margin) actually reaches the outer select-tap in practice, or whether the
+  UIKit pad's mere PRESENCE (even while its own recognizers stay `.possible`) intercepts/delays the touch enough
+  to feel unresponsive; whether tapping PLAY/STOP ever accidentally also selects (shouldn't, per SwiftUI's
+  rules, but unverified); the narrower comet bar's legibility now that PLAY/STOP occupies 44pt+8pt of the
+  already-halved 2×2 cell width again.**
 - **▶ EUCLID EDITOR — relayout: the 4 lanes as a 2×2 box at 50% width, controls moved below (2026-10-02, on
   `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye owed — three stacked sections with real
   interpretation room, nothing here can be confirmed by reading code alone). Paul: "change the layout so the
