@@ -196,6 +196,36 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID EDITOR — relayout: the 4 lanes as a 2×2 box at 50% width, controls moved below (2026-10-02, on
+  `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye owed — three stacked sections with real
+  interpretation room, nothing here can be confirmed by reading code alone). Paul: "change the layout so the
+  four lanes sit as 2x2, taking 50% width of the processor edit box. Move the lane controls to below the box of
+  4 lanes. Put the individual controls per lane below these." Supersedes the 2026-10-01 PLAY/SELECT-inline-
+  beside-a-side-panel design entirely. **JUDGMENT CALL on the two "controls" phrases, flagged to Paul rather
+  than guessed silently:** read "the lane controls" as PLAY/STOP + SELECT (the controls that pick/mute a WHOLE
+  lane) and "the individual controls per lane" as the detailed per-lane settings (NOTE/GATE/OCTAVE/DIRECTION/
+  INVERT) that used to live in the side panel — i.e. two DIFFERENT control groups stacking in that order below
+  the box, not one. **THREE STACKED SECTIONS, top to bottom:** (1) a 2×2 grid of the 4 lanes' comet-bar boxes —
+  `euclidRow` renamed+stripped to `euclidLaneBox` (comet bar + selection-highlight border ONLY, no inline
+  buttons anymore) — sized to HALF the editor's GeometryReader-measured width, left-aligned with a trailing
+  `Spacer` filling the other half (read "taking 50% width" literally — nothing stretches to fill the remaining
+  space); (2) a new `euclidLaneControl` (the PLAY/STOP+SELECT pair, unchanged 44pt sizing, just relocated out
+  of the box) — one row of 4, FULL editor width (four button-pairs don't comfortably fit inside the half-width
+  box, so this row isn't capped to the box's own 50%); (3) `euclidSettingsPanel`, unchanged FIELDS (NOTE chips+
+  DIE·GATE·OCTAVE·DIRECTION·INVERT) but stripped of its forced width/height and inner `ScrollView` — it no
+  longer needs to height-match a lane column beside it (there's no "beside" anymore), so it's now a plain
+  full-width section sized to its own natural content height; `buildProcessorPanel`'s own OUTER ScrollView
+  (BuildPage.swift, unrelated to this change) already handles overflow for the whole editor. The comet bar's
+  own gesture pad (1-finger drag, 2-finger drag, pinch) is completely UNCHANGED inside each 2×2 cell — still
+  the only way to reshape hits/steps/rotate; only its SURROUNDING chrome (the buttons that used to sit beside
+  it) moved. The drag-direction fix and the step-box redesign (both earlier the same day) carry through
+  unmodified — neither depended on the box's position in the page, only on the comet bar's own internals.
+  UI-only (GridUI.swift), no engine/model change, no test-target reach. **DEVICE-OWED, and this is a pure
+  layout change with real room to read it differently than intended:** whether the 50%-width 2×2 box reads as
+  deliberately compact rather than oddly cramped next to its own blank half; whether the 4-wide control row
+  and the lane-above-it correspondence (left-to-right = lanes 1-4, matching 2×2 reading order top-row-then-
+  bottom-row) is intuitive without an explicit visual link between a box and its control pair; confirm the
+  judgment call on "lane controls" vs "individual controls per lane" above actually matches what Paul meant.**
 - **▶ ROOMS GRIDS — both bottom footers removed: the PART loop-column buttons + the SELECT placeholder rail
   (2026-10-02, on `main`; iOS builds, no test-target reach (BuildPage-only); DEVICE eye owed). Paul: "Remove the
   loop buttons from the bottom of the part grid, and also remove the bottom placeholder rail of the select
