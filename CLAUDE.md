@@ -250,6 +250,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   the actual sound of a riff/arp-sourced EUCLID line against a real chord; multi-line phasing audibly working as
   described (free architecturally — each line's own K/N/rotate/die already gives it an independent `ord`, now
   worth an ear-check against real material).**
+- **▶ EUCLID EDITOR — the 2×2 lane box now spans the FULL editor width, not 50% (2026-10-02, on `main`; iOS
+  builds, no test-target reach (GridUI-only); DEVICE eye owed). Paul: "extend the width of the controls so that
+  they take up the entire processor control window. Currently they all sit below the first input piano at the
+  top of the processor control, but they should be below the output piano too. The total width should be the
+  same as the euclid controls box that sits underneath it. Basically, it's now a total 50% of the width
+  available." ROOT CAUSE, traced not guessed: `buildTruthStrips()` (BuildPage.swift) renders the IN and OUT
+  piano strips as two HALF-width `HStack` siblings, side by side (`VStack.frame(maxWidth: .infinity, alignment:
+  .leading)` ×2) — so the editor's visible width is effectively split IN-half | OUT-half at the top. The prior
+  pass's 2×2 box was deliberately half-width AND left-aligned (`geo.size.width * 0.5` + a trailing `Spacer`),
+  which put it squarely under the IN half only — the OUT half had nothing below it — while `euclidSettingsPanel`
+  underneath was ALREADY full width (`.frame(maxWidth: .infinity)`), creating exactly the width mismatch Paul
+  described. **FIX:** dropped the `* 0.5` + `Spacer` entirely — `cellW` is now computed directly off the FULL
+  `geo.size.width` (`(geo.size.width - euclidLaneGap) / 2` per cell, still a 2-column grid, just now spanning
+  the whole editor), so the box reaches under BOTH piano halves and matches the settings panel's own width
+  exactly. Nothing else changed — `euclidLaneBox`'s own internals (PLAY/STOP inline, tap/drag-to-select,
+  comet bar) are untouched; only the OUTER width computation in `case .euclid:` moved. UI-only (GridUI.swift),
+  no test-target reach. **DEVICE-OWED:** confirm the 2×2 box now visually reaches under both the IN and OUT
+  piano strips with no gap/misalignment, and that each lane's comet bar — now roughly DOUBLE its prior width
+  (full-width cells instead of half-width ones) — reads more legibly, not just bigger.**
 - **▶ EUCLID EDITOR — PLAY/STOP back inline, SELECT chip removed, tap/drag-to-select instead (2026-10-02, on
   `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye/feel owed — the tap-vs-pan/pinch gesture
   interplay is genuinely untestable off-device). Paul, correcting the immediately-prior 2×2-box relayout: "I
