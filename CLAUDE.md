@@ -196,6 +196,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ ROOMS GRIDS — both bottom footers removed: the PART loop-column buttons + the SELECT placeholder rail
+  (2026-10-02, on `main`; iOS builds, no test-target reach (BuildPage-only); DEVICE eye owed). Paul: "Remove the
+  loop buttons from the bottom of the part grid, and also remove the bottom placeholder rail of the select
+  grid." Deleted BOTH footer view functions wholesale — `roomsGridFooter` (the SELECT grid's always-placeholder,
+  never-wired shell) and `roomsPartLoopFooter` (the PART grid's real "repeat" toggle row, driving
+  `buildPartLoopCols`) — plus the now-orphaned `buildTogglePartLoopColumn` (its ONLY caller was the deleted
+  button; confirmed via grep before deleting, not assumed). In both `roomsSelectGridUnit` and `roomsPartGrid`,
+  the processor card now docks flush beneath the grid rows (`cardY = interiorH + gap`) instead of below a
+  footer-sized gap PLUS a second "hidden-cell gap" the footer used to leave between itself and the card (a
+  2026-09-09 design choice, `ch*2/3` extra, that only made sense while a footer occupied the first third) — so
+  the card reclaims ALL of that freed space, not just the footer's own height, in both grids. **FLAGGED, not
+  silently absorbed: this is a real loss of reachable control for PART, not purely cosmetic.**
+  `buildPartLoopCols`/`BuildSceneLogic.loopColumnPlan` are UNTOUCHED — composeScene, both playheads, and session
+  persistence (save/restore, part-load) all still read/write the array exactly as before; only the UI button
+  that let a user CHANGE a loop selection by tapping is gone. A part keeps whatever loop columns it last had
+  (restored from a saved doc, or none if it never had any) with no way to set new ones from this page. SELECT's
+  footer was always a pure placeholder (`SELECT = pages (placeholder, not wired)`) — nothing is lost there
+  beyond the reserved visual space itself. UI-only (BuildPage.swift), no test-target reach.
+  **DEVICE-OWED:** confirm both grids now dock their processor card flush beneath the rows with no leftover
+  gap or overlap, and that the PART grid's card is noticeably taller now that both the footer AND the old
+  hidden-cell gap are reclaimed.**
 - **▶ EUCLID COMET BAR — redesigned around glowing STEP BOXES, not floating dots (2026-10-02, on `main`; iOS
   builds, no test-target reach (GridUI-only); DEVICE eye owed — the whole visual treatment is unverifiable off-
   device). Paul: "Incorporate boxes into the design of the Euclid lanes to represent every step. It needs to be
