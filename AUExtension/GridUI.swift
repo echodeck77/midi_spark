@@ -1011,8 +1011,11 @@ struct ProcessorBox: View {
         // second, independently-guessed height constant on top would risk clipping without fixing anything.
         let rightColW: CGFloat = 165
         VStack(alignment: .leading, spacing: 6) {
-            Text(isMiss ? "LANE \(idx + 1) MISS" : "LANE \(idx + 1) HIT")
-                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            HStack(spacing: 5) {
+                Text(isMiss ? "LANE \(idx + 1) MISS" : "LANE \(idx + 1) HIT")
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                euclidBeaconDot(L, isMiss: isMiss)
+            }
             HStack(alignment: .top, spacing: 8) {
                 euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { if isMiss { $0.missNoteSel = s } else { $0.noteSel = s } } }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1039,6 +1042,59 @@ struct ProcessorBox: View {
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+    /// HIT/MISS BEACON (Paul 2026-10-03: "next to the labels mentioning hits and misses... a small beacon flash
+    /// on every playing hit/miss[]. Ensure it's accurate and reliable") — a tiny dot beside each "LANE N HIT"/
+    /// "LANE N MISS" label, sized well under the label's own line height so the row's height is unchanged.
+    /// ACCURATE BY CONSTRUCTION, not just by eye: reuses the EXACT same pure functions the real render path
+    /// uses for its own per-tick hit decision (`euclidReadIndex`/`euclidCycleLen`/`euclidPatternInto`, Router.
+    /// swift's `runEuclidLine`) via the SAME continuous tick-count the comet bar already drives its own sweep
+    /// from (`euclidCometRaw`) — the identical "share the engine's own formula, never re-derive it" discipline
+    /// this file has standardized on since the RATCHET-PATTERN/DEST class of bug. Floors that continuous value
+    /// to the current INTEGER tick, resolves it through the SAME `euclidReadIndex` the engine uses to decide
+    /// which buffer entry sounds at that tick, and flashes the HIT dot when that tick is a hit, the MISS dot
+    /// when it's a rest — so the two dots are always exact complements of one another, never both lit.
+    /// RELIABLE, honestly scoped: this mirrors the PATTERN-level hit/miss decision, the same one the comet bar's
+    /// own box content already reflects — it does NOT re-run the full emission guard chain (RIFF/ARP predecessor
+    /// matching, pool-size clamps, etc.), since replicating that here would need live chain/pool state this
+    /// widget was never given. The ONE condition it DOES check beyond the bare pattern, because it's both
+    /// simple and load-bearing: a MISS tick never actually sounds unless `missNoteSel` is set — an unconfigured
+    /// MISS dot stays dark rather than flashing for a strike that never happens, matching the literal "on every
+    /// PLAYING hit/miss" ask.
+    @ViewBuilder private func euclidBeaconDot(_ L: EuclidLine, isMiss: Bool) -> some View {
+        let n = max(2, min(16, L.steps))
+        let k = max(0, min(n, L.pulses))
+        let dir = L.directionResolved
+        let sub = max(0.03125, (p.euclidRate ?? .r1_16).beats)
+        let spanN = p.euclidSpanN ?? 0
+        let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+        let running = clockPlaying && L.enabledResolved
+        let canPlay = isMiss ? (L.missNoteSel != nil) : true   // an unconfigured MISS never sounds — see doc comment
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || !canPlay)) { tl in
+            beaconCircle(flash: euclidBeaconFlash(tl.date, n: n, k: k, rotate: L.rotate, dir: dir, sub: sub,
+                                                   spanBeats: spanBeats, isMiss: isMiss, running: running, canPlay: canPlay))
+        }
+    }
+    /// Pure scalar half of `euclidBeaconDot` — pulled out so the `TimelineView` closure above stays a single
+    /// simple call (Swift's result-builder type inference choked on the longer inline version: "generic
+    /// parameter 'Content' could not be inferred").
+    private func euclidBeaconFlash(_ date: Date, n: Int, k: Int, rotate: Int, dir: EuclidDir, sub: Double,
+                                    spanBeats: Double, isMiss: Bool, running: Bool, canPlay: Bool) -> Double {
+        guard running && canPlay else { return 0 }
+        let liveBeat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
+        let cometRaw = euclidCometRaw(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
+        var buf = [Bool](repeating: false, count: n)
+        _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
+        let rawTick = Int(cometRaw.rounded(.down))
+        let isHitTick = buf[euclidReadIndex(rawTick, n: n, dir: dir)]
+        guard isMiss ? !isHitTick : isHitTick else { return 0 }
+        let age = cometRaw - Double(rawTick)                 // 0..<1, how far into the current tick we are
+        return max(0, 1 - age / 0.4)                         // a short, sharp pulse — not a held glow
+    }
+    private func beaconCircle(flash: Double) -> some View {
+        Circle().fill(accent.opacity(0.25 + 0.75 * flash))
+            .frame(width: 6, height: 6)
+            .shadow(color: accent.opacity(flash), radius: 3 * flash)
     }
 
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {

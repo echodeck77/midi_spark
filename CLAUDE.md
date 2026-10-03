@@ -196,6 +196,36 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID HIT/MISS BEACON — a small live flash beside each "LANE N HIT"/"LANE N MISS" label (2026-10-03, on
+  `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye owed — genuinely untestable off-device).
+  Paul: "next to the labels mentioning hits and misses, without changing the height used, [add] a small beacon
+  flash on every playing hit/miss[]. Ensure it's accurate and reliable." New `euclidBeaconDot(_:isMiss:)` —
+  a 6pt `Circle`, sized well under the label's own ~9pt-font line height so wrapping it in an `HStack` beside
+  the label doesn't change the row's height at all. **ACCURATE BY CONSTRUCTION, not just by eye** — reuses the
+  EXACT same pure functions the real render path uses for its own per-tick hit decision (`euclidReadIndex`/
+  `euclidCycleLen`/`euclidPatternInto`, Router.swift's `runEuclidLine`) via the SAME continuous tick-count the
+  comet bar already drives its own sweep from (`euclidCometRaw`) — the identical "share the engine's own
+  formula, never re-derive it" discipline this file has standardized on since the RATCHET-PATTERN/DEST class
+  of bug. Floors that continuous value to the current INTEGER tick, resolves it through `euclidReadIndex`
+  exactly as the engine does to decide which buffer entry sounds at that tick, and flashes the HIT dot when
+  that tick is a hit, the MISS dot when it's a rest — the two dots are mutually exclusive by construction
+  (`isHitTick` vs `!isHitTick`), never both lit. **RELIABLE, honestly scoped (flagged, not silently assumed):**
+  this mirrors the PATTERN-level hit/miss decision — the same one the comet bar's own box content already
+  reflects — it does NOT re-run the full emission guard chain (RIFF/ARP predecessor matching, pool-size clamps,
+  the chain-context guards `runEuclidLine`'s own RIFF/ARP branch applies) that could silently make a nominal
+  "hit" produce no actual sound in some edge cases; replicating that fully here would need live chain/pool
+  state this widget was never given. The ONE condition it DOES check beyond the bare pattern, because it's
+  both simple and load-bearing: a MISS tick never actually sounds unless `missNoteSel` is set — an
+  unconfigured MISS dot stays permanently dim/dark rather than flashing for a strike that never happens,
+  matching the literal "on every PLAYING hit/miss" wording. **A real compile error hit and fixed, not guessed
+  around:** the first draft inlined the whole computation inside the `TimelineView`'s own trailing closure —
+  the iOS build failed outright ("generic parameter 'Content' could not be inferred," Swift's result-builder
+  type inference choking on the longer inline expression chain) — fixed by extracting the scalar math into a
+  plain `euclidBeaconFlash(...)` function returning a bare `Double`, leaving the TimelineView closure as a
+  single simple call into a tiny `beaconCircle(flash:)` view-builder. UI-only, no engine/model change, no
+  test-target reach. **DEVICE-OWED:** the dot's legibility/size beside the label at real panel width; the
+  0.4-tick decay window's "short, sharp pulse" feel (a first-pass, tunable constant); confirm the row's height
+  genuinely hasn't shifted now that it carries the dot.**
 - **▶ EUCLID SECOND-FINGER STEPS — made SIDE-AWARE (2026-10-03, on `main`; iOS builds, no test-target reach
   (GridUI+BuildPage+AudioUnitViewController); DEVICE feel owed — genuinely untestable off-device). Direct
   follow-up to the same-day feature: Paul, after I confirmed the first build only read the second touch's own
