@@ -196,6 +196,55 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID — rotate-drag direction fixed for real (round 3) + a SECOND-FINGER steps gesture, anywhere on
+  screen (2026-10-03, on `main`; iOS builds, no test-target reach (GridUI+BuildPage+AudioUnitViewController);
+  DEVICE feel owed on both — genuinely untestable off-device). Paul: "the right/left drag gesture for offset
+  isn't reflected correctly on the lane (as in it sets the offset the wrong way)," plus: "when a single finger
+  drag is used for adding or removing hits, while held, if a second finger drags left or right anywhere on the
+  screen then I want this to work as the same pinch gesture for adding or removing steps." **DRAG-DIRECTION,
+  THE REAL STORY (two passes, same session):** pass 1 re-derived the 2026-09-28 fix (FWD/PING-PONG →
+  `rotate - d`, BKW → `rotate + d`) via a throwaway script and it checked out — so pass 1 just blindly flipped
+  both branches, trusting the device report over paper math it couldn't fault. That flip was WRONG, but not
+  because the device report was wrong — because a CONCURRENT fix on another worktree (`ceedff7`, "fix the
+  comet grid jumping on direction change," landed the same day) had changed the premise pass 1's re-derivation
+  depended on: box content used to be `buf[euclidReadIndex(i,n,dir)]` (BKW mirrored — the EXACT reason the
+  2026-09-28 fix needed a separate BKW sign at all); `ceedff7` made every box always show `buf[i]` directly,
+  for every direction, so a box's screen position no longer depends on DIRECTION at all. Re-verified with a
+  FRESH throwaway script against this current rule: increasing `rotate` now shifts the screen-visible pattern
+  LEFT by one slot, UNIFORMLY, for FWD/BKW/PING-PONG alike — so the whole BKW-vs-other conditional is not just
+  wrong-signed, it's categorically unnecessary now. **THE ACTUAL FIX (pass 2, supersedes pass 1 same-session):**
+  one formula, no direction split — `rotate - d` for both the single-row and all-rows gestures. This also
+  retroactively explains why pass 1's blind flip probably didn't help: Paul was very likely already testing
+  against a build carrying `ceedff7`, where the split itself (not just its sign) was the problem.
+  **SECOND-FINGER STEPS, new feature:** a new `ProcessorBox.onEuclidStepsArm` callback (default no-op, same
+  convention as the existing `onEuclidDragInfo`) fires with a given lane's own `onStepsDelta` the instant that
+  lane's `EuclidGesturePad` recognizes a genuine SINGLE-finger drag (`.began`, `!twoFinger`), and with `nil`
+  the instant it ends — a 2-finger drag starting directly on the pad is the EXISTING, distinct ALL-ROWS
+  gesture and never arms this. Threaded up through `euclidLaneBox`/`buildSlotBox` to a new
+  `AudioUnitViewController` `@State euclidStepsArmedHandler`, read by a new top-level
+  `EuclidSecondFingerCatcher` (a `UIViewRepresentable` rendered once at the SAME top tier as the drag HUD, in
+  `DiagView.body`'s outer ZStack — genuinely window-wide, not scoped to any one lane's small pad, since the
+  whole point is catching a touch that lands somewhere ELSE). **PASS-THROUGH BY CONSTRUCTION, not a guess:**
+  its `hitTest` returns nil (never intercepts anything, anywhere) whenever the armed handler is nil, so it's a
+  complete no-op the rest of the time. Once armed, a NEW touch landing anywhere is claimed and its horizontal
+  drag converted to Δsteps via the SAME 18pt-per-step convention the pad's own 1-finger rotate/hits drag
+  already uses (a plain linear mapping, not the pinch's log-ratio one, since this is a drag not a scale
+  gesture) — fed straight into the armed lane's `onStepsDelta`, exactly as if it were a pinch. **WHY THE FIRST
+  FINGER CAN NEVER BE ACCIDENTALLY STOLEN, reasoned through before shipping:** `hitTest` fires exactly ONCE per
+  touch, at that touch's own touch-down — and arming only happens once the lane's OWN pan recognizer reaches
+  `.began`, which is strictly AFTER that same touch's touch-down has already been dispatched (a recognizer
+  only reaches `.began` once a touch has moved past UIKit's own recognition threshold). So finger 1 is always
+  hit-tested while still unarmed and always passes through correctly to its own pad; only a genuinely separate,
+  LATER touch can ever be claimed by the catcher. UI-only (GridUI.swift + BuildPage.swift +
+  AudioUnitViewController.swift, which gained a new explicit `import UIKit`), no engine/model change, no
+  test-target reach. **DEVICE-OWED, both fronts:** whether the rotate-drag now actually tracks the finger
+  correctly (and if it's STILL wrong, that's the signal to stop guessing the sign and look elsewhere); the
+  whole second-finger mechanism — real multi-touch/hit-testing arbitration across two independent gesture
+  recognizers in different views only shows itself on a touchscreen; a known, accepted consequence worth
+  naming plainly: while armed, the catcher claims ANY new touch anywhere on screen, including one the user
+  didn't intend for this feature (e.g. reaching with their other hand to tap an unrelated button while still
+  holding the first finger down) — this is the literal "anywhere on the screen" Paul asked for, not an
+  oversight, but worth knowing if it ever surprises in practice.**
 - **▶ EUCLID — scrolling disabled on its own panel, DIRECTION reordered, HIT/MISS boxes rebuilt as a true 2×2
   (2026-10-03, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1183 green, iOS builds; DEVICE eye/feel
   owed). Paul: "On the Euclid processor only, prevent scrolling. Change the order of direction to forward, ping

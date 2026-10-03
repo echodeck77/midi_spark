@@ -3,6 +3,7 @@
 
 import CoreAudioKit
 import SwiftUI
+import UIKit
 import os
 
 #if DEBUG
@@ -164,6 +165,64 @@ struct PartRowRollNote: Equatable {
 // Paul 2026-09-05: the WHOLE part-grid state, archived onto a play cell when a part/cell is promoted FROM the part grid, so
 // the part can be RESTORED later (restore is currently unimplemented). In-memory (value copy) this session.
 
+/// SECOND-FINGER STEPS CATCHER (Paul 2026-10-03: "when a single finger drag is used for adding or removing hits,
+/// while held, if a second finger drags left or right ANYWHERE ON THE SCREEN then I want this to work as the
+/// same pinch gesture for adding or removing steps"). A single window-wide overlay, rendered once at the TOP of
+/// `DiagView.body` (same tier as the drag HUD) — NOT scoped to any one EUCLID lane's own small comet-bar pad,
+/// since the whole point is catching a touch that lands somewhere ELSE entirely.
+///
+/// PASS-THROUGH BY DEFAULT: `hitTest` returns nil (never intercepts anything) whenever `armedHandler` is nil —
+/// the overlay is completely invisible to touch delivery the rest of the time, so it can never interfere with
+/// any other control on screen. It only starts claiming NEW touches once some EUCLID lane reports itself armed
+/// (`ProcessorBox.onEuclidStepsArm`, threaded down through `euclidLaneBox`/`euclidCometBar`/`EuclidGesturePad`)
+/// — i.e. while that lane's OWN single-finger drag is held.
+///
+/// WHY THIS CAN'T ACCIDENTALLY STEAL THE FIRST FINGER: `hitTest` runs exactly ONCE per touch, at that touch's
+/// own touch-down. Arming only happens once the lane's pad's OWN `UIPanGestureRecognizer` reaches `.began` —
+/// which is strictly AFTER that same touch's touch-down has already been dispatched (a recognizer only reaches
+/// `.began` once the touch has moved past UIKit's own recognition threshold). So the FIRST finger is always
+/// hit-tested while still unarmed, and always passes through correctly to the pad underneath; only a
+/// genuinely SEPARATE, later touch can ever be claimed here.
+private struct EuclidSecondFingerCatcher: UIViewRepresentable {
+    @Binding var armedHandler: ((Int) -> Void)?
+    func makeUIView(context: Context) -> CatcherView {
+        let v = CatcherView()
+        v.coordinator = context.coordinator
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        pan.minimumNumberOfTouches = 1; pan.maximumNumberOfTouches = 1
+        v.addGestureRecognizer(pan)
+        return v
+    }
+    func updateUIView(_ uiView: CatcherView, context: Context) { context.coordinator.owner = self }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    final class CatcherView: UIView {
+        weak var coordinator: Coordinator?
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard coordinator?.owner.armedHandler != nil else { return nil }   // unarmed → total pass-through
+            return super.hitTest(point, with: event)
+        }
+    }
+    final class Coordinator: NSObject {
+        var owner: EuclidSecondFingerCatcher
+        private var appliedSteps = 0
+        private let stepPt: CGFloat = 18   // same per-step sensitivity as the pad's own 1-finger rotate/hits drag
+        init(_ o: EuclidSecondFingerCatcher) { owner = o }
+        @objc func handlePan(_ g: UIPanGestureRecognizer) {
+            switch g.state {
+            case .began:
+                appliedSteps = 0
+            case .changed:
+                let steps = Int((g.translation(in: g.view).x / stepPt).rounded())
+                if steps != appliedSteps {
+                    owner.armedHandler?(steps - appliedSteps)
+                    appliedSteps = steps
+                }
+            default: break
+            }
+        }
+    }
+}
+
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State var d = KernelDiag()      // polled for the grid's effColumn / playing
@@ -190,6 +249,10 @@ struct DiagView: View {
     // bar — lives HERE (not inside ProcessorBox) specifically so `buildProcessorPanel` can render the actual HUD
     // as a sibling OUTSIDE its own ScrollView, escaping the "fixed on the scrolling processor edit page" bug.
     @State var euclidDragHUDInfo: EuclidDragHUDInfo? = nil
+    // SECOND-FINGER STEPS (Paul 2026-10-03): non-nil only while a euclid lane's own single-finger drag (hits) is
+    // held — carries THAT lane's own `onStepsDelta`. Read by the top-level `EuclidSecondFingerCatcher` below,
+    // which is otherwise a total pass-through; see that struct's own doc comment for the full mechanism.
+    @State var euclidStepsArmedHandler: ((Int) -> Void)? = nil
     // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
     // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-machine.
     // PART AUTOMATION (Paul 2026-09-02): per machineID → its automation (which lane is active + its 5 lanes). The ACTIVE
@@ -833,6 +896,17 @@ struct DiagView: View {
                         .transition(.opacity)
                         .zIndex(2)
                 }
+                // SECOND-FINGER STEPS CATCHER (Paul 2026-10-03) — a window-wide, otherwise fully pass-through
+                // overlay (see its own doc comment for the hitTest mechanism); rendered at the SAME top tier as
+                // the HUD above so it can genuinely catch a touch anywhere on screen, not just within whichever
+                // small comet-bar pad is mid-gesture. `.allowsHitTesting` is left at SwiftUI's default (true) —
+                // unlike the HUD (purely decorative), THIS view must actually be reachable by UIKit's touch
+                // delivery; its own `hitTest` override, not a SwiftUI modifier, is what keeps it inert while
+                // unarmed.
+                EuclidSecondFingerCatcher(armedHandler: $euclidStepsArmedHandler)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .ignoresSafeArea()
+                    .zIndex(3)
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Machines arrive.)
                 if showManual {                         // the in-app MANUAL, scrolled to the last-touched control

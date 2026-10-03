@@ -252,6 +252,13 @@ struct ProcessorBox: View {
     // EUCLID's own editor and don't need it. The HOST renders the actual HUD OUTSIDE its own scrolling container
     // (this box can't escape its own embedding ScrollView from in here) — see `buildProcessorPanel`.
     var onEuclidDragInfo: (EuclidDragHUDInfo?) -> Void = { _ in }
+    // SECOND-FINGER STEPS (Paul 2026-10-03): "while [a single-finger drag for hits is] held, if a second finger
+    // drags left or right anywhere on the screen... I want this to work as the same pinch gesture for adding or
+    // removing steps." Reported UP the same way `onEuclidDragInfo` already is — the handler is non-nil only
+    // while a euclid lane's own single-finger pad-drag is held, carrying THAT lane's own `onStepsDelta`; the
+    // host (AudioUnitViewController's top-level `EuclidSecondFingerCatcher`) routes a separate touch landing
+    // anywhere else on screen into it. Default no-op, same convention as `onEuclidDragInfo`.
+    var onEuclidStepsArm: (((Int) -> Void)?) -> Void = { _ in }
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var lfoEditTarget: String? = nil      // PER-PARAM LFO (Docs/PLAN-param-lfo.md): which param's ∿ LFO editor popover is open
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
@@ -529,7 +536,8 @@ struct ProcessorBox: View {
                                               onRotateDelta: @escaping (Int) -> Void, onHitsDelta: @escaping (Int) -> Void,
                                               onStepsDelta: @escaping (Int) -> Void,
                                               onAllRotateDelta: @escaping (Int) -> Void, onAllHitsDelta: @escaping (Int) -> Void,
-                                              onDragState: @escaping (CGPoint?, Bool) -> Void) -> some View {
+                                              onDragState: @escaping (CGPoint?, Bool) -> Void,
+                                              onArmedStepsHandler: @escaping (((Int) -> Void)?) -> Void) -> some View {
         let n = max(2, min(16, nIn))
         let sub = max(0.03125, rate.beats)
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
@@ -695,7 +703,8 @@ struct ProcessorBox: View {
         // `onStepsDelta`). The 14pt inset is LEFT AS-IS, not widened to reclaim the freed margin — the glyphs'
         // removal wasn't an ask to resize the gesture pad itself, just to drop the redundant discrete buttons.
         EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
-                         onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
+                         onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState,
+                         onArmedStepsHandler: onArmedStepsHandler)
             .padding(.horizontal, 14)
         }
     }
@@ -717,6 +726,12 @@ struct ProcessorBox: View {
         // down, nil the instant it lifts/cancels. Reported on EVERY `.changed` tick too (Paul 2026-10-02), not just
         // begin/end, so a HUD tracking the finger moves continuously, not just at the start of the gesture.
         let onDragState: (CGPoint?, Bool) -> Void
+        // SECOND-FINGER STEPS (Paul 2026-10-03): called with THIS row's `onStepsDelta` the instant a single-
+        // finger drag begins on this pad, and with `nil` the instant it ends — lets a top-level, window-wide
+        // catcher (EuclidSecondFingerCatcher, AudioUnitViewController.swift) route a SEPARATE touch landing
+        // anywhere else on screen into this same row's steps control, as if it were a pinch. Never armed by a
+        // 2-finger drag starting directly on this pad — that's the existing, distinct ALL-ROWS gesture.
+        let onArmedStepsHandler: (((Int) -> Void)?) -> Void
         func makeUIView(context: Context) -> UIView {
             // RAW TOUCH TRACKING (Paul 2026-10-02: "make sure that the overlay... appears on first touch") —
             // UIPanGestureRecognizer/UIPinchGestureRecognizer only transition to .began once a touch has moved
@@ -786,6 +801,9 @@ struct ProcessorBox: View {
                     twoFinger = g.numberOfTouches >= 2
                     appliedX = 0; appliedY = 0
                     owner.onDragState(g.location(in: g.view?.window), twoFinger)
+                    // SECOND-FINGER STEPS (Paul 2026-10-03): arm ONLY on a genuine single-finger start — a
+                    // 2-finger drag starting directly on the pad is the existing, distinct ALL-ROWS gesture.
+                    if !twoFinger { owner.onArmedStepsHandler(owner.onStepsDelta) }
                 case .changed:
                     let t = g.translation(in: g.view)
                     let stepsX = Int((t.x / stepPt).rounded())
@@ -803,6 +821,7 @@ struct ProcessorBox: View {
                     owner.onDragState(g.location(in: g.view?.window), twoFinger)   // every tick — the HUD tracks the finger live, not just at touch-down
                 case .ended, .cancelled, .failed:
                     owner.onDragState(nil, twoFinger)
+                    if !twoFinger { owner.onArmedStepsHandler(nil) }   // disarm — this row no longer accepts a second-finger steps drag
                 default: break
                 }
             }
@@ -849,7 +868,8 @@ struct ProcessorBox: View {
     /// outer tap gesture cleanly (confirmed by reasoning through UIKit's own recognition rules, not guessed —
     /// `UIPanGestureRecognizer`/`UIPinchGestureRecognizer` only transition out of `.possible` once the touch
     /// moves past a system threshold; a touch that never moves simply fails them, un-consumed).
-    @ViewBuilder private func euclidLaneBox(_ idx: Int, _ L: EuclidLine, width: CGFloat, onDragInfo: @escaping (EuclidDragHUDInfo?) -> Void) -> some View {
+    @ViewBuilder private func euclidLaneBox(_ idx: Int, _ L: EuclidLine, width: CGFloat, onDragInfo: @escaping (EuclidDragHUDInfo?) -> Void,
+                                             onStepsArm: @escaping (((Int) -> Void)?) -> Void) -> some View {
         let selected = euclidSelectedLane == idx
         let on = L.enabledResolved
         HStack(spacing: 8) {
@@ -862,31 +882,45 @@ struct ProcessorBox: View {
                 .onTapGesture { euclidLineEdit4(idx) { $0.enabled = !($0.enabledResolved) } }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
             euclidCometBar(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, dir: L.directionResolved,
                            rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent, lanePlaying: on,
-                           // DRAG-DIRECTION FIX (Paul 2026-10-02: "I drag a dot one space left, the lit note doesn't
-                           // follow — it jumps somewhere else"). Traced, not guessed: `euclidPatternInto`'s
-                           // `rotation` is `buf[i] = test((i+rot) % n)` — a TRUE cyclic shift where INCREASING rot
-                           // moves every hit LEFT by one screen slot (worked example: E(3,8) rot=0 hits {0,3,6} →
-                           // rot=1 hits {2,5,7}, i.e. 0→7(wrap),3→2,6→5 — each exactly one slot left). The pan
-                           // gesture's `d` carries the SAME sign as raw finger translation (negative when dragging
-                           // left) and was applied as `rotate + d` — so dragging left DECREASED rotate, which
-                           // shifts the pattern RIGHT: backwards from the finger, exactly the reported symptom.
-                           // Under FWD (screen position i reads buffer index i directly) the fix is `rotate - d`.
-                           // Under BKW (`euclidReadIndex` mirrors: screen position i reads buffer index n-1-i) the
-                           // relationship flips — the ORIGINAL `rotate + d` is actually correct there, confirmed by
-                           // the same substitution worked through the mirrored index. PING-PONG's comet bar reads
-                           // the buffer identically to FWD (its own disclosed simplification, see euclidCometBar's
-                           // doc comment), so it takes the FWD branch too.
-                           onRotateDelta: { d in euclidLineEdit4(idx) { let s = $0.directionResolved == .bkw ? d : -d; $0.rotate = ((($0.rotate + s) % 16) + 16) % 16 } },
+                           // DRAG-DIRECTION FIX, ROUND 3 (Paul 2026-10-03: "the right/left drag gesture for offset
+                           // isn't reflected correctly... it sets the offset the wrong way"). ROUND 2 (a same-day
+                           // blind sign-flip, keeping the BKW-vs-other conditional) is SUPERSEDED here, not by
+                           // trusting the device report a second time, but because a concurrent fix on another
+                           // worktree (`ceedff7`, "fix the comet grid jumping on direction change") changed the
+                           // premise the ORIGINAL 2026-09-28 fix's BKW branch depended on: box content used to be
+                           // `buf[euclidReadIndex(i,n,dir)]` (BKW mirrored, which is WHY that fix needed a
+                           // separate BKW sign in the first place) — now every box always shows `buf[i]` directly,
+                           // for EVERY direction, so DIRECTION no longer affects which screen position shows which
+                           // buffer entry AT ALL. Re-verified via a fresh throwaway script against the CURRENT
+                           // box-content rule: increasing `rotate` shifts the screen-visible pattern LEFT by
+                           // exactly one slot, uniformly, regardless of direction (worked example: E(3,8) rot=0
+                           // hits {0,3,6} → rot=1 hits {2,5,7}, for FWD/BKW/PING-PONG alike now). So there is no
+                           // longer any reason for a direction-dependent sign — a single `rotate - d` (so a left
+                           // drag, d<0, increases rotate, which shifts the pattern left, following the finger)
+                           // applies uniformly. This also retroactively explains ROUND 2's blind flip: Paul was
+                           // very likely already testing against a build with the NEW box-content rule, where the
+                           // OLD (still direction-split) formula's BKW branch was simply wrong for a different
+                           // reason than a sign error — removing the split, not flipping it again, is the fix.
+                           onRotateDelta: { d in euclidLineEdit4(idx) { $0.rotate = ((($0.rotate - d) % 16) + 16) % 16 } },
                            onHitsDelta: { d in euclidLineEdit4(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) } },
                            onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
-                           onAllRotateDelta: { d in euclidAllRowsEdit { line in let s = line.directionResolved == .bkw ? d : -d; line.rotate = ((line.rotate + s) % 16 + 16) % 16 } },
+                           onAllRotateDelta: { d in euclidAllRowsEdit { line in line.rotate = ((line.rotate - d) % 16 + 16) % 16 } },
                            onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } },
                            onDragState: { point, allRows in
                                guard let point else { onDragInfo(nil); return }
                                if !allRows { euclidSelectedLane = idx }   // "if any lane is touched... bring its control into focus" — a single-lane drag/pinch selects too, not just a plain tap; the 2-finger ALL-LANES case doesn't name one lane, so it's excluded
                                let label = allRows ? "ALL LANES" : "LANE \(idx + 1)"
                                onDragInfo(EuclidDragHUDInfo(label: label, hits: L.pulses, steps: L.steps, offset: L.rotate, point: point))
-                           })
+                           },
+                           // SECOND-FINGER STEPS (Paul 2026-10-03): "when a single finger drag is used for adding
+                           // or removing hits, while held, if a second finger drags left or right anywhere on the
+                           // screen then I want this to work as the same pinch gesture for adding or removing
+                           // steps." Reports THIS LANE's own onStepsDelta up to the top-level EuclidSecondFinger-
+                           // Catcher (AudioUnitViewController.swift) while — and only while — this pad's own
+                           // single-finger drag is held; nil the instant it's released. The catcher is a window-
+                           // wide overlay that's a no-op pass-through until armed, so it can never interfere with
+                           // anything else on screen.
+                           onArmedStepsHandler: onStepsArm)
                 .frame(height: 44)
         }
         .padding(6)
@@ -1245,12 +1279,12 @@ struct ProcessorBox: View {
                 let cellW = max(80, (geo.size.width - euclidLaneGap) / 2)
                 VStack(spacing: euclidLaneGap) {
                     HStack(spacing: euclidLaneGap) {
-                        euclidLaneBox(0, rows[0], width: cellW, onDragInfo: onEuclidDragInfo)
-                        euclidLaneBox(1, rows[1], width: cellW, onDragInfo: onEuclidDragInfo)
+                        euclidLaneBox(0, rows[0], width: cellW, onDragInfo: onEuclidDragInfo, onStepsArm: onEuclidStepsArm)
+                        euclidLaneBox(1, rows[1], width: cellW, onDragInfo: onEuclidDragInfo, onStepsArm: onEuclidStepsArm)
                     }
                     HStack(spacing: euclidLaneGap) {
-                        euclidLaneBox(2, rows[2], width: cellW, onDragInfo: onEuclidDragInfo)
-                        euclidLaneBox(3, rows[3], width: cellW, onDragInfo: onEuclidDragInfo)
+                        euclidLaneBox(2, rows[2], width: cellW, onDragInfo: onEuclidDragInfo, onStepsArm: onEuclidStepsArm)
+                        euclidLaneBox(3, rows[3], width: cellW, onDragInfo: onEuclidDragInfo, onStepsArm: onEuclidStepsArm)
                     }
                 }
             }
