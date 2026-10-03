@@ -5243,14 +5243,41 @@ final class RouterTests: XCTestCase {
     // strikeChord's existing velScale parameter (0…2), so a higher setting must produce a measurably louder
     // note than a lower one against the identical held note/pattern.
     func testEuclidVelocityScalesTheStruckNote() {
-        func vel(_ velocity: Double) -> UInt8 {
+        func notes(_ velocity: Double) -> [RecordingEmitter.Ev] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, velocity: velocity)]
             let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.min { $0.sample < $1.sample }!.vel
+            return e.ons.filter { $0.cable == 1 }
         }
+        func vel(_ velocity: Double) -> UInt8 { notes(velocity).min { $0.sample < $1.sample }!.vel }
         XCTAssertLessThan(vel(0.3), vel(1.5), "a higher per-line VELOCITY scale produces a measurably louder note than a lower one")
+    }
+    // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively off with zero
+    // velocity"). Confirmed by testing before fixing, not assumed: velocity:0 used to still strike audibly at
+    // MIDI velocity 1 (strikeChord's own clampVel floors every note to 1...127 — a floor meant to protect an
+    // INHERITED velocity from rounding to 0, never intended as a way to silence a line deliberately scaled to
+    // zero). Fixed with an explicit `guard velocity > 0` ahead of both the HIT and MISS strike paths in
+    // runEuclidLine (Router.swift) — a line scaled to 0 now strikes NOTHING, not an inaudible "technically on."
+    func testEuclidZeroVelocityIsActuallySilentNotVelocityOne() {
+        func noteCount(_ velocity: Double, miss: Bool = false) -> Int {
+            var c = Machine(machineID: "gold", type: .euclid)
+            var line = EuclidLine(target: 0, pulses: 3, steps: 8)
+            if miss {
+                line.velocity = 0   // mute the HIT side entirely (relies on the same fix) so only MISS's own contribution is being counted
+                line.missNoteSel = .all; line.missVelocity = velocity
+            } else {
+                line.velocity = velocity
+            }
+            c.paramsA.euclidLines = [line]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertGreaterThan(noteCount(1), 0, "sanity: the hit side strikes normally at full velocity")
+        XCTAssertEqual(noteCount(0), 0, "a HIT line scaled to velocity 0 must strike nothing — not an inaudible velocity-1 note")
+        XCTAssertGreaterThan(noteCount(1, miss: true), 0, "sanity: the miss side strikes normally at full velocity (HIT already independently confirmed muted at 0 above)")
+        XCTAssertEqual(noteCount(0, miss: true), 0, "a MISS line scaled to velocity 0 must strike nothing either")
     }
     // OCTAVE (new 2026-10-01): shifts the struck note by exactly 12×shift, clamped 0...127 like every other
     // octave-shift site in this codebase (UTILITY/ARP) — an out-of-range shift drops the note silently.
@@ -5401,6 +5428,31 @@ final class RouterTests: XCTestCase {
         let combined = noteCount([line1, line2])
         XCTAssertGreaterThan(combined, solo1, "line 2 adds its own notes on top of line 1's, rather than silently replacing them")
         XCTAssertGreaterThan(combined, solo2, "line 1 adds its own notes on top of line 2's, rather than silently replacing them")
+    }
+    // INVESTIGATED (Paul 2026-10-03: "investigate ... stuck or held notes, particularly when two lanes are set
+    // to the same note"). Traced with an RTCDEBUG trace, not guessed: two lines sharing a row go through
+    // `iterateTicks`' per-ROW `lastTick` dedup SEPARATELY, one after the other, within the same render call —
+    // its own standing comment already names this ("a known limitation for 2+ real lines sharing a row across
+    // a window boundary"). Confirmed what that actually does: when one line's tick advances `lastTick[row]`
+    // past a tick the OTHER line hadn't reached yet in an earlier window, that other line's catch-up fire reads
+    // `sampleOf` in a LATER window's frame, landing its onset ~1 render-window late — a real, audible timing
+    // smear on dense (every-tick) overlap, but NEVER an unterminated voice: `strikeChord`'s on/off pair is
+    // always computed together from the same (possibly late) `tau`, so the mistimed strike still gets a valid,
+    // finite gate. `assertNothingLeftSounding` held clean on every configuration tried (same note, same density,
+    // `forceColumn: 0` stress run to 97 events) — no stuck note was found. The late-onset smear itself is left
+    // alone here: a correct fix needs `lastTick` keyed per-LINE rather than per-ROW, which is shared `iterateTicks`
+    // infrastructure ARP/RIFF/RATCHET-ALL also depend on — a bigger, separate change than this investigation
+    // asked for, flagged in CLAUDE.md rather than attempted blind.
+    func testEuclidTwoLinesSameNoteNeverStickRegardlessOfOverlap() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [
+            EuclidLine(target: 1, pulses: 8, steps: 8),   // dense: every tick — the worst-case "always overlapping" shape
+            EuclidLine(target: 1, pulses: 8, steps: 8),   // SAME note, SAME density, SAME machine-wide rate
+        ]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 8, into: e, forceColumn: 0)   // forceColumn: sustain the overlap well past one column, the stress case that found the timing smear
+        assertNothingLeftSounding(e)   // the actual claim under test: nothing is left stuck, whatever the exact onset timing
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "sanity: the lines are actually sounding, not accidentally silent")
     }
     func testEuclidRiffAllRestPredecessorIsSilentNotACrash() {
         func onCount(poly: Bool) -> Int {

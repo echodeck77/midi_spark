@@ -196,6 +196,33 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID — investigated stuck/held notes (two lanes, same note) + zero-velocity lanes; fixed the real finding
+  (2026-10-03, on `fix/euclid-direction-label-and-box-jump`; macOS 1183 green incl. 2 new/rewritten, iOS builds).
+  Paul asked to investigate both. **STUCK NOTES — investigated, NONE FOUND, traced with an RTCDEBUG trace not
+  guessed (the repeated lesson in this file: hand-derived tick arithmetic is routinely wrong here, verify
+  empirically).** Two fully-dense (K=N=8) lines on the SAME note, same machine-wide rate — the worst-case
+  always-overlapping shape — run clean under `assertNothingLeftSounding` every time, including a `forceColumn:0`
+  stress run to 97 events. A REAL, separate timing quirk was found along the way: `iterateTicks`' per-ROW
+  `lastTick` dedup is a SINGLE scalar shared by all 4 lines on one row (already flagged in `runEuclidLine`'s own
+  standing comment as "a known limitation for 2+ real lines sharing a row across a window boundary") — when one
+  line's tick advances that shared scalar past a tick the OTHER line hasn't reached yet, the other line's
+  catch-up fire computes its `sampleOf` conversion in a LATER window's frame, landing its onset roughly one
+  render-window late. Confirmed this is a TIMING SMEAR, not a stuck voice: `strikeChord` always computes its
+  on/off pair together from whatever `tau` it's given, so even a late-computed strike still gets a valid, finite
+  gate — no voice is ever left open without a scheduled close. **NOT FIXED, flagged rather than attempted
+  blind:** correcting the smear needs `lastTick` keyed per-LINE instead of per-ROW, which touches shared
+  `iterateTicks` infrastructure ARP/RIFF/RATCHET-ALL also depend on — a materially bigger change than this
+  investigation asked for. `testEuclidTwoLinesSameNoteNeverStickRegardlessOfOverlap` locks in the no-stuck-note
+  finding as a permanent regression guard. **ZERO VELOCITY — investigated, CONFIRMED A REAL GAP, FIXED.**
+  `velocity: 0` was NOT silent: `strikeChord`'s own `clampVel` floors every note to MIDI 1...127 (a floor meant
+  to protect an INHERITED velocity from ever rounding to an inaudible 0, not a deliberate "silence this" request)
+  — so a line explicitly scaled to 0% was still striking audibly at velocity 1. Confirmed empirically before
+  fixing (`vel0 = 1`), then fixed with an explicit `guard velocity > 0 else { return }` ahead of BOTH the HIT and
+  MISS strike paths in `runEuclidLine` (Router.swift) — checked early, before any RIFF/ARP/pool resolution work,
+  not just at the final strike call. `testEuclidZeroVelocityIsActuallySilentNotVelocityOne` (+1, replacing a
+  force-unwrap in the existing velocity test that would have crashed once 0 genuinely stopped emitting) locks
+  this in for both HIT and MISS. **DEVICE-OWED:** none specifically new — both findings were fully verified by
+  the macOS test target; the timing smear, if ever pursued, would need a real device/ear check once fixed.**
 - **▶ EUCLID — DIRECTION label removed; the comet box grid is now genuinely direction-independent (2026-10-02, on
   `fix/euclid-hud-escape-card-clip`; iOS builds, no test-target reach (GridUI.swift-only); DEVICE eye owed). Two
   asks, same message. **LABEL:** `field("DIRECTION") { seg(...) }` dropped the `field()` wrapper — the `>`/`<`/

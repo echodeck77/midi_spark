@@ -3738,6 +3738,14 @@ final class Router {
                     let isHit = euclidBuf[ri]
                     let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle within the span (localT = cy·cycleLen + raw) — shared by both the HIT and MISS ordinals below
                     if isHit {
+                        // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively
+                        // off with zero velocity") — confirmed by testing, not assumed: strikeChord's own
+                        // clampVel floors EVERY note to MIDI 1...127 (the inherited-velocity-safety floor, not
+                        // meant for this), so a line scaled to 0 was still striking audibly at velocity 1, never
+                        // actually silent. Skip the strike entirely instead — this is what "zero velocity" means
+                        // to a user reading the control. Checked BEFORE any of the (possibly expensive) RIFF/ARP/
+                        // pool resolution below, not just at the final strikeChord call.
+                        guard velocity > 0 else { return }
                         // ord (Paul 2026-09-29 v1b, widened 2026-10-02 for the RIFF/ARP sources below; DIE REMOVED
                         // 2026-10-02 "drop it, please" — a plain, unsalted ordinal): a monotonic, STATELESS "which
                         // hit number is this" — cycle count × this line's own hit density + the within-cycle hit
@@ -3828,6 +3836,9 @@ final class Router {
                         // stays silent rather than falling through to `resolveEuclidPick`'s `default: (nil, nil)`,
                         // which reads as ALL (strike everything) — an honest no-op, not an accidental loud one.
                         guard missSel != .riff && missSel != .arp else { return }
+                        // VELOCITY 0 = EFFECTIVELY OFF — same guard as the HIT side above, same reasoning (a
+                        // MISS line scaled to 0 should be silent, not audible at clampVel's 1...127 floor).
+                        guard missVelocity > 0 else { return }
                         let effMisses = Int64(max(1, cycleLen - cycleHits))   // every cycle is hits+misses, so this is just the complement of effHits
                         var missesUpTo = 0; for s in 0...raw where !isHitAt(s) { missesUpTo += 1 }
                         let missOrd = cy * effMisses + Int64(missesUpTo - 1)
