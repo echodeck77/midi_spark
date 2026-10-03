@@ -196,6 +196,38 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID — scrolling disabled on its own panel, DIRECTION reordered, HIT/MISS boxes rebuilt as a true 2×2
+  (2026-10-03, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1183 green, iOS builds; DEVICE eye/feel
+  owed). Paul: "On the Euclid processor only, prevent scrolling. Change the order of direction to forward, ping
+  pong, backwards. Put more work into ensuring that note selector, octave, velocity and gate are perfectly lined
+  up 2x2." **NO SCROLL:** `buildProcessorPanel` (BuildPage.swift) now branches on `proc.type == .euclid` — every
+  OTHER processor keeps its `ScrollView(.vertical)` wrapper unchanged; EUCLID gets a bare `VStack` instead. Two
+  real reasons, not just "because asked": the comet bar's own `EuclidGesturePad` hosts a genuine UIKit
+  `UIPanGestureRecognizer`/`UIPinchGestureRecognizer` pair for 1/2-finger drag + pinch, and a SwiftUI ScrollView
+  wrapping it adds the page's OWN vertical-drag recognizer competing for the exact same touches — one less
+  source of gesture-fighting on a control surface already proven fragile around exactly this kind of
+  interaction (the whole `cancelsTouchesInView=false`/raw-touch-channel saga earlier this session). Separately,
+  EUCLID's panel is now a fixed, bounded 2×2 layout with no open-ended list, so there's nothing left to scroll
+  to anyway. **A real Swift constraint hit and fixed along the way:** the first draft wrote the shared body as a
+  local `@ViewBuilder func panelBody()` nested INSIDE `buildProcessorPanel`, itself a `@ViewBuilder` function —
+  the iOS build failed outright ("closure containing a declaration cannot be used with result builder
+  'ViewBuilder'"; Swift's result-builder transform doesn't permit a local declaration inside a transformed
+  body). Fixed by extracting it to a proper sibling method, `buildProcessorPanelBody(slot:proc:cid:hue:)`, called
+  identically from both the EUCLID and non-EUCLID branches — caught by the real compiler, not a review pass; the
+  background-build notification claimed success on the FAILED run (standing lesson re-confirmed: always grep the
+  actual log, never trust the summary alone). **DIRECTION reordered:** `euclidSettingsPanel` (GridUI.swift) now
+  presents **forward · ping-pong · backward** (was forward · backward · ping-pong) via new local `dirOrder`/
+  `dirLabels` arrays — display order only; `EuclidDir`'s own raw values/persistence are untouched, and `dirSel`
+  is still computed by mapping the resolved direction through the new label order (not by string-matching the
+  persisted raw value), so the highlight can't desync from the reorder the way a naive relabel would. **2×2
+  GRID:** `euclidHitMissBox` rebuilt from two independently-sized VStack columns into two true `HStack(alignment:
+  .top)` rows sharing one fixed-width right column (`rightColW: CGFloat = 165`, sized off `NumPair`'s own natural
+  width) and one flexible `.frame(maxWidth: .infinity)` left column — row 1 is NOTE SELECTOR (left) + OCTAVE
+  (right), row 2 is VELOCITY (left) + GATE (right), so OCTAVE sits directly above GATE and NOTE SELECTOR directly
+  above VELOCITY, both columns now the same width top-to-bottom in both the HIT and MISS boxes. **DEVICE-OWED:**
+  confirm EUCLID's panel genuinely no longer scrolls (and that nothing inside it actually needed to); the 2×2
+  alignment reading as a clean grid at real panel width, not just close; the new forward/ping-pong/backward
+  DIRECTION order feeling natural tapped in sequence.**
 - **▶ EUCLID — investigated stuck/held notes (two lanes, same note) + zero-velocity lanes; fixed the real finding
   (2026-10-03, on `fix/euclid-direction-label-and-box-jump`; macOS 1183 green incl. 2 new/rewritten, iOS builds).
   Paul asked to investigate both. **STUCK NOTES — investigated, NONE FOUND, traced with an RTCDEBUG trace not

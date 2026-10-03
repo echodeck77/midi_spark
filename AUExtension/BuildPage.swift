@@ -4793,21 +4793,37 @@ extension DiagView {
         }
     }
 
+    @ViewBuilder private func buildProcessorPanelBody(slot: Int, proc: ProcessorSlot, cid: String, hue: Color) -> some View {
+        // (SOURCE / OCT stage header removed 2026-09-12 — the §1 ANATOMY per-stage CHAIN|MIDI IN|BOTH + OCT ±3 feature was deleted.)
+        // (RIFF CAPTURE row removed 2026-09-10 — the §2 capture feature was deleted.)
+        // (ROW SELECTOR — the "Long press to copy" 1–8 tabs — removed, no longer required. Paul 2026-08-30)
+        buildTruthStrips().padding(.horizontal, 16).padding(.vertical, 8)   // §1 IN | OUT truths — silence explains itself
+        Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
+        buildSlotBox(slot, proc, cid: cid).padding(.horizontal, 16).padding(.vertical, 12)   // CONTROLS — sit directly in the main card (ProcessorBox's own box removed via embedInParent). Paul 2026-09-13
+    }
+
     @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, contentW: CGFloat) -> some View {
         let hue = buildCardHue   // the ONE machine/card hue (grey on the SELECT audition) — never the raw gsAud palette throwback
         // BODY ONLY (Paul 2026-09-10): the old header (machine cell · emblem · name · BYPASS/DELETE/CANCEL/DONE) is GONE — the
         // TAB ROW (buildProcCardTabs) now heads the card; bypass = long-press a chain box, delete = the trash. Just the controls.
+        // EUCLID ONLY: NO SCROLL (Paul 2026-10-03: "on the Euclid processor only, prevent scrolling") — a plain
+        // VStack instead of the ScrollView every other processor gets. Two real reasons, not just "because
+        // asked": EUCLID's own comet bar hosts a genuine UIKit `UIPanGestureRecognizer`/`UIPinchGestureRecognizer`
+        // pair (`EuclidGesturePad`) for 1/2-finger drag + pinch — a SwiftUI ScrollView wrapping that adds ITS
+        // OWN vertical-drag recognizer competing for the exact same touches, a real source of the gesture
+        // fighting these controls are already fragile around; and EUCLID's panel is now a fixed, bounded
+        // layout (2×2 HIT/MISS boxes, no open-ended list), so there's nothing it would ever NEED to scroll to.
+        // (panelBody is a SIBLING method, not a local func here — a @ViewBuilder function's body can't contain
+        // a nested declaration; Swift rejects it outright: "closure containing a declaration cannot be used
+        // with result builder 'ViewBuilder'".)
         VStack(alignment: .leading, spacing: 0) {
-            // SCROLLABLE BODY — SOURCE/OCT, the truth strips, and the controls.
-            ScrollView(.vertical, showsIndicators: true) {
-              VStack(alignment: .leading, spacing: 0) {
-            // (SOURCE / OCT stage header removed 2026-09-12 — the §1 ANATOMY per-stage CHAIN|MIDI IN|BOTH + OCT ±3 feature was deleted.)
-            // (RIFF CAPTURE row removed 2026-09-10 — the §2 capture feature was deleted.)
-            // (ROW SELECTOR — the "Long press to copy" 1–8 tabs — removed, no longer required. Paul 2026-08-30)
-            buildTruthStrips().padding(.horizontal, 16).padding(.vertical, 8)   // §1 IN | OUT truths — silence explains itself
-            Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
-            buildSlotBox(slot, proc, cid: cid).padding(.horizontal, 16).padding(.vertical, 12)   // CONTROLS — sit directly in the main card (ProcessorBox's own box removed via embedInParent). Paul 2026-09-13
-              }
+            if proc.type == .euclid {
+                VStack(alignment: .leading, spacing: 0) { buildProcessorPanelBody(slot: slot, proc: proc, cid: cid, hue: hue) }
+            } else {
+                // SCROLLABLE BODY — SOURCE/OCT, the truth strips, and the controls.
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 0) { buildProcessorPanelBody(slot: slot, proc: proc, cid: cid, hue: hue) }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

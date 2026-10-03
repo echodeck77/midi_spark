@@ -915,10 +915,13 @@ struct ProcessorBox: View {
             // decluttering as the "LANE N" header removal above; `field()`'s label row is dropped, the `seg`
             // control itself is unchanged.
             HStack(spacing: 10) {
-                let dirLabels = [">", "<", "><"]
-                let dirSel = dirLabels[[EuclidDir.fwd, .bkw, .pingpong].firstIndex(of: L.directionResolved) ?? 0]
+                // ORDER (Paul 2026-10-03): forward, ping-pong, backward — was fwd/bkw/pingpong. Display order
+                // only; EuclidDir's own raw values ("FWD"/"BKW"/"PING-PONG") and persistence are untouched.
+                let dirOrder: [EuclidDir] = [.fwd, .pingpong, .bkw]
+                let dirLabels = [">", "><", "<"]
+                let dirSel = dirLabels[dirOrder.firstIndex(of: L.directionResolved) ?? 0]
                 seg(dirLabels, sel: dirSel, compact: true) { i in
-                    euclidLineEdit4(idx) { $0.direction = [EuclidDir.fwd, .bkw, .pingpong][i] } }
+                    euclidLineEdit4(idx) { $0.direction = dirOrder[i] } }
                 Spacer(minLength: 0)
             }
             HStack(alignment: .top, spacing: 10) {
@@ -942,31 +945,42 @@ struct ProcessorBox: View {
         let cur: EuclidNoteSel = isMiss ? (L.missNoteSel ?? .all) : L.noteSelResolved   // MISS: nil (off) highlights nothing — .all is never in euclidNoteSelShown, so this reads honestly as "none picked"
         let shown: [EuclidNoteSel] = isMiss ? euclidNoteSelShown
             : euclidNoteSelShown + (precedingSourceType == .riff ? [.riff] : precedingSourceType == .arp ? [.arp] : [])
+        // PERFECT 2×2 (Paul 2026-10-03: "put more work into ensuring that note selector, octave, velocity and
+        // gate are perfectly lined up 2x2") — rebuilt as two true ROWS, not two independently-stacked columns:
+        // the earlier version let each column size itself from its OWN content (OCT's stepper vs GATE's slider
+        // have different natural widths), so the left/right boundary silently SHIFTED between the two rows —
+        // the actual reason it never quite read as a grid. Now both rows share the EXACT same split: a single
+        // FIXED-width right column (`rightColW`, sized to comfortably fit the OCTAVE stepper's own ~156pt
+        // natural width with room to spare) and a flexible left column filling whatever's left — applied
+        // identically in both rows, so the note-selector/OCTAVE boundary and the VELOCITY/GATE boundary land at
+        // the exact same X. Row HEIGHT needed no explicit override — `HStack(alignment: .top)` already sizes
+        // each row to its tallest child and top-aligns the shorter one, which is already correct; forcing a
+        // second, independently-guessed height constant on top would risk clipping without fixing anything.
+        let rightColW: CGFloat = 165
         VStack(alignment: .leading, spacing: 6) {
             Text(isMiss ? "LANE \(idx + 1) MISS" : "LANE \(idx + 1) HIT")
                 .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            // RELAYOUT (Paul 2026-10-02: "ensure that the octave controls are lined up with the note selector to
-            // its left and gate below it") — two columns, not the old chip-row+OCT / VEL+GATE split: LEFT = note
-            // chips over VELOCITY, RIGHT = OCTAVE over GATE — so OCTAVE sits beside (lined up with) the note
-            // chips, and GATE sits directly below OCTAVE specifically, not shared with VELOCITY anymore.
             HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 6) {
-                    euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { if isMiss { $0.missNoteSel = s } else { $0.noteSel = s } } }
-                    field("VEL  \(Int((isMiss ? L.missVelocityResolved : L.velocityResolved) * 100))%") {
-                        slider(bind(isMiss ? L.missVelocityResolved : L.velocityResolved) { v in
-                            euclidLineEdit4(idx) { if isMiss { $0.missVelocity = v } else { $0.velocity = v } } }, in: 0...2)
-                    }
-                }
-                Spacer(minLength: 4)
+                euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { if isMiss { $0.missNoteSel = s } else { $0.noteSel = s } } }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 4) {   // OCT label kept (a bare stepper alone reads ambiguous); `compact: true` is the earlier "half its height" ask
                     Text("OCT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                     numPair(isMiss ? L.missOctaveResolved : L.octaveResolved, -3...3, compact: true) { v in
                         euclidLineEdit4(idx) { if isMiss { $0.missOctave = v } else { $0.octave = v } } }
-                    field("GATE  \(Int((isMiss ? L.missGateResolved : L.gateResolved) * 100))%") {
-                        slider(bind(isMiss ? L.missGateResolved : L.gateResolved) { v in
-                            euclidLineEdit4(idx) { if isMiss { $0.missGate = v } else { $0.gate = v } } }, in: 0.05...1)
-                    }
                 }
+                .frame(width: rightColW, alignment: .leading)
+            }
+            HStack(alignment: .top, spacing: 8) {
+                field("VEL  \(Int((isMiss ? L.missVelocityResolved : L.velocityResolved) * 100))%") {
+                    slider(bind(isMiss ? L.missVelocityResolved : L.velocityResolved) { v in
+                        euclidLineEdit4(idx) { if isMiss { $0.missVelocity = v } else { $0.velocity = v } } }, in: 0...2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                field("GATE  \(Int((isMiss ? L.missGateResolved : L.gateResolved) * 100))%") {
+                    slider(bind(isMiss ? L.missGateResolved : L.gateResolved) { v in
+                        euclidLineEdit4(idx) { if isMiss { $0.missGate = v } else { $0.gate = v } } }, in: 0.05...1)
+                }
+                .frame(width: rightColW, alignment: .leading)
             }
         }
         .padding(8)
