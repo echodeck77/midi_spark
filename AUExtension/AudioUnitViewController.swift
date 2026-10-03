@@ -183,8 +183,20 @@ struct PartRowRollNote: Equatable {
 /// `.began` once the touch has moved past UIKit's own recognition threshold). So the FIRST finger is always
 /// hit-tested while still unarmed, and always passes through correctly to the pad underneath; only a
 /// genuinely SEPARATE, later touch can ever be claimed here.
+///
+/// SIDE-AWARE (Paul 2026-10-03: "I want it to know if it's the left side or the right side of the pinch") —
+/// a plain absolute drag (right always adds, left always removes) would feel backwards half the time compared
+/// to a REAL pinch, where which way a given finger needs to move depends on which side of the OTHER finger
+/// it's on (moving AWAY from the other finger spreads/adds, moving TOWARD it pinches-in/removes, regardless of
+/// which finger is on which side). `EuclidStepsArm.anchor` (finger 1's own live window-space position, reported
+/// alongside the handler) lets this touch decide, ONCE at its own `.began`, which side it registered on —
+/// `isRightSide` is then LATCHED for the rest of this gesture (mirroring `EuclidGesturePad`'s own `twoFinger`
+/// latch, for the same reason: a touch drifting across the anchor mid-drag shouldn't flip the sense partway
+/// through). A right-side touch keeps the original mapping (right = add); a left-side touch's mapping is
+/// mirrored (left = add, i.e. moving further away from finger 1) — so "spread apart = add, pinch together =
+/// remove" holds regardless of which side the second finger happens to land on.
 private struct EuclidSecondFingerCatcher: UIViewRepresentable {
-    @Binding var armedHandler: ((Int) -> Void)?
+    @Binding var armedHandler: EuclidStepsArm?
     func makeUIView(context: Context) -> CatcherView {
         let v = CatcherView()
         v.coordinator = context.coordinator
@@ -205,16 +217,20 @@ private struct EuclidSecondFingerCatcher: UIViewRepresentable {
     final class Coordinator: NSObject {
         var owner: EuclidSecondFingerCatcher
         private var appliedSteps = 0
+        private var isRightSide = true
         private let stepPt: CGFloat = 18   // same per-step sensitivity as the pad's own 1-finger rotate/hits drag
         init(_ o: EuclidSecondFingerCatcher) { owner = o }
         @objc func handlePan(_ g: UIPanGestureRecognizer) {
             switch g.state {
             case .began:
                 appliedSteps = 0
+                let touchX = g.location(in: g.view?.window).x
+                isRightSide = touchX >= (owner.armedHandler?.anchor.x ?? touchX)
             case .changed:
-                let steps = Int((g.translation(in: g.view).x / stepPt).rounded())
+                let rawSteps = Int((g.translation(in: g.view).x / stepPt).rounded())
+                let steps = isRightSide ? rawSteps : -rawSteps   // mirror a left-side touch so "away from finger 1" always adds
                 if steps != appliedSteps {
-                    owner.armedHandler?(steps - appliedSteps)
+                    owner.armedHandler?.onStepsDelta(steps - appliedSteps)
                     appliedSteps = steps
                 }
             default: break
@@ -252,7 +268,7 @@ struct DiagView: View {
     // SECOND-FINGER STEPS (Paul 2026-10-03): non-nil only while a euclid lane's own single-finger drag (hits) is
     // held — carries THAT lane's own `onStepsDelta`. Read by the top-level `EuclidSecondFingerCatcher` below,
     // which is otherwise a total pass-through; see that struct's own doc comment for the full mechanism.
-    @State var euclidStepsArmedHandler: ((Int) -> Void)? = nil
+    @State var euclidStepsArmedHandler: EuclidStepsArm? = nil
     // PART AUTOMATION (Paul 2026-09-01): the 6-region Auto flow — AUTO 1–5 · processor · parameter · before/after · span ·
     // apply. Macros dropped to v2; each chain gets 5 direct-to-param automation lanes. The lanes live per-machine.
     // PART AUTOMATION (Paul 2026-09-02): per machineID → its automation (which lane is active + its 5 lanes). The ACTIVE

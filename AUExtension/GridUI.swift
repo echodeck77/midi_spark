@@ -195,6 +195,17 @@ struct EuclidDragHUDInfo {
     let point: CGPoint
 }
 
+/// SECOND-FINGER STEPS ARM (Paul 2026-10-03: "I want it to know if it's the left side or the right side of the
+/// pinch") — carries the armed lane's own `onStepsDelta` PLUS finger 1's own CURRENT window-space location, so
+/// the top-level `EuclidSecondFingerCatcher` (AudioUnitViewController.swift) can tell which side of finger 1 a
+/// newly-arriving second touch registers on. `anchor` is re-reported on every `.changed` tick of the arming
+/// gesture (not just once at `.began`), same convention as `EuclidDragHUDInfo.point`, so it stays current while
+/// finger 1 itself is still being dragged.
+struct EuclidStepsArm {
+    let onStepsDelta: (Int) -> Void
+    let anchor: CGPoint
+}
+
 struct ProcessorBox: View {
     enum Face { case a, b }
     let machine: Machine
@@ -254,11 +265,13 @@ struct ProcessorBox: View {
     var onEuclidDragInfo: (EuclidDragHUDInfo?) -> Void = { _ in }
     // SECOND-FINGER STEPS (Paul 2026-10-03): "while [a single-finger drag for hits is] held, if a second finger
     // drags left or right anywhere on the screen... I want this to work as the same pinch gesture for adding or
-    // removing steps." Reported UP the same way `onEuclidDragInfo` already is — the handler is non-nil only
-    // while a euclid lane's own single-finger pad-drag is held, carrying THAT lane's own `onStepsDelta`; the
-    // host (AudioUnitViewController's top-level `EuclidSecondFingerCatcher`) routes a separate touch landing
-    // anywhere else on screen into it. Default no-op, same convention as `onEuclidDragInfo`.
-    var onEuclidStepsArm: (((Int) -> Void)?) -> Void = { _ in }
+    // removing steps," refined same day: "I want it to know if it's the left side or the right side of the
+    // pinch." Reported UP the same way `onEuclidDragInfo` already is — non-nil only while a euclid lane's own
+    // single-finger pad-drag is held, carrying THAT lane's own `onStepsDelta` PLUS finger 1's live anchor
+    // position (`EuclidStepsArm`); the host (AudioUnitViewController's top-level `EuclidSecondFingerCatcher`)
+    // routes a separate touch landing anywhere else on screen into it, using the anchor to tell which side it
+    // registered on. Default no-op, same convention as `onEuclidDragInfo`.
+    var onEuclidStepsArm: (EuclidStepsArm?) -> Void = { _ in }
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var lfoEditTarget: String? = nil      // PER-PARAM LFO (Docs/PLAN-param-lfo.md): which param's ∿ LFO editor popover is open
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
@@ -537,7 +550,7 @@ struct ProcessorBox: View {
                                               onStepsDelta: @escaping (Int) -> Void,
                                               onAllRotateDelta: @escaping (Int) -> Void, onAllHitsDelta: @escaping (Int) -> Void,
                                               onDragState: @escaping (CGPoint?, Bool) -> Void,
-                                              onArmedStepsHandler: @escaping (((Int) -> Void)?) -> Void) -> some View {
+                                              onArmedStepsHandler: @escaping (EuclidStepsArm?) -> Void) -> some View {
         let n = max(2, min(16, nIn))
         let sub = max(0.03125, rate.beats)
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
@@ -726,12 +739,14 @@ struct ProcessorBox: View {
         // down, nil the instant it lifts/cancels. Reported on EVERY `.changed` tick too (Paul 2026-10-02), not just
         // begin/end, so a HUD tracking the finger moves continuously, not just at the start of the gesture.
         let onDragState: (CGPoint?, Bool) -> Void
-        // SECOND-FINGER STEPS (Paul 2026-10-03): called with THIS row's `onStepsDelta` the instant a single-
-        // finger drag begins on this pad, and with `nil` the instant it ends — lets a top-level, window-wide
-        // catcher (EuclidSecondFingerCatcher, AudioUnitViewController.swift) route a SEPARATE touch landing
-        // anywhere else on screen into this same row's steps control, as if it were a pinch. Never armed by a
-        // 2-finger drag starting directly on this pad — that's the existing, distinct ALL-ROWS gesture.
-        let onArmedStepsHandler: (((Int) -> Void)?) -> Void
+        // SECOND-FINGER STEPS (Paul 2026-10-03): called with THIS row's `onStepsDelta` + finger 1's own CURRENT
+        // window-space location the instant a single-finger drag begins on this pad (and again on every
+        // `.changed` tick, so the location stays fresh), and with `nil` the instant it ends — lets a top-level,
+        // window-wide catcher (EuclidSecondFingerCatcher, AudioUnitViewController.swift) route a SEPARATE touch
+        // landing anywhere else on screen into this same row's steps control, as if it were a pinch — and tell
+        // which SIDE of finger 1 it landed on. Never armed by a 2-finger drag starting directly on this pad —
+        // that's the existing, distinct ALL-ROWS gesture.
+        let onArmedStepsHandler: (EuclidStepsArm?) -> Void
         func makeUIView(context: Context) -> UIView {
             // RAW TOUCH TRACKING (Paul 2026-10-02: "make sure that the overlay... appears on first touch") —
             // UIPanGestureRecognizer/UIPinchGestureRecognizer only transition to .began once a touch has moved
@@ -803,7 +818,9 @@ struct ProcessorBox: View {
                     owner.onDragState(g.location(in: g.view?.window), twoFinger)
                     // SECOND-FINGER STEPS (Paul 2026-10-03): arm ONLY on a genuine single-finger start — a
                     // 2-finger drag starting directly on the pad is the existing, distinct ALL-ROWS gesture.
-                    if !twoFinger { owner.onArmedStepsHandler(owner.onStepsDelta) }
+                    // Carries finger 1's OWN current location so the catcher can tell which side a second,
+                    // independent touch lands on.
+                    if !twoFinger { owner.onArmedStepsHandler(EuclidStepsArm(onStepsDelta: owner.onStepsDelta, anchor: g.location(in: g.view?.window))) }
                 case .changed:
                     let t = g.translation(in: g.view)
                     let stepsX = Int((t.x / stepPt).rounded())
@@ -819,6 +836,8 @@ struct ProcessorBox: View {
                         appliedY = stepsY
                     }
                     owner.onDragState(g.location(in: g.view?.window), twoFinger)   // every tick — the HUD tracks the finger live, not just at touch-down
+                    // keep the anchor fresh (Paul 2026-10-03) — finger 1 may still be moving while finger 2 is down.
+                    if !twoFinger { owner.onArmedStepsHandler(EuclidStepsArm(onStepsDelta: owner.onStepsDelta, anchor: g.location(in: g.view?.window))) }
                 case .ended, .cancelled, .failed:
                     owner.onDragState(nil, twoFinger)
                     if !twoFinger { owner.onArmedStepsHandler(nil) }   // disarm — this row no longer accepts a second-finger steps drag
@@ -869,7 +888,7 @@ struct ProcessorBox: View {
     /// `UIPanGestureRecognizer`/`UIPinchGestureRecognizer` only transition out of `.possible` once the touch
     /// moves past a system threshold; a touch that never moves simply fails them, un-consumed).
     @ViewBuilder private func euclidLaneBox(_ idx: Int, _ L: EuclidLine, width: CGFloat, onDragInfo: @escaping (EuclidDragHUDInfo?) -> Void,
-                                             onStepsArm: @escaping (((Int) -> Void)?) -> Void) -> some View {
+                                             onStepsArm: @escaping (EuclidStepsArm?) -> Void) -> some View {
         let selected = euclidSelectedLane == idx
         let on = L.enabledResolved
         HStack(spacing: 8) {

@@ -196,6 +196,31 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID SECOND-FINGER STEPS — made SIDE-AWARE (2026-10-03, on `main`; iOS builds, no test-target reach
+  (GridUI+BuildPage+AudioUnitViewController); DEVICE feel owed — genuinely untestable off-device). Direct
+  follow-up to the same-day feature: Paul, after I confirmed the first build only read the second touch's own
+  ABSOLUTE left/right drag (oblivious to where it landed relative to finger 1): "I want it to know if it's the
+  left side or the right side of the pinch." A plain absolute mapping (right always adds, left always removes)
+  would feel backwards half the time compared to a REAL pinch, where which way a given finger needs to move
+  depends on which side of the OTHER finger it's on — moving AWAY from the other finger spreads/adds, moving
+  TOWARD it pinches-in/removes, regardless of which finger is on which side. **NEW `EuclidStepsArm` struct**
+  (GridUI.swift, beside `EuclidDragHUDInfo`) replaces the bare `((Int) -> Void)?` the arm signal used to carry —
+  now bundles the armed lane's `onStepsDelta` WITH finger 1's own live window-space position (`anchor`), re-
+  reported on every `.changed` tick of `EuclidGesturePad`'s single-finger drag (same convention as
+  `EuclidDragHUDInfo.point`'s own continuous-update pattern) so it stays current while finger 1 is still being
+  dragged. Threaded through the exact same path as before (`onArmedStepsHandler` → `onStepsArm` →
+  `ProcessorBox.onEuclidStepsArm` → `euclidStepsArmedHandler`), just carrying the richer type. **THE SIDE
+  DECISION (`EuclidSecondFingerCatcher.Coordinator`, AudioUnitViewController.swift):** at the second touch's
+  OWN `.began`, compares its location against the LATEST reported `anchor.x` — `isRightSide`, decided ONCE and
+  LATCHED for the rest of that gesture (mirroring `EuclidGesturePad`'s own `twoFinger` latch, for the identical
+  reason: a touch drifting across the anchor mid-drag shouldn't flip the sense partway through). A right-side
+  touch keeps the original mapping (right = add); a LEFT-side touch's raw translation is NEGATED before
+  mapping to steps, so moving further LEFT (away from finger 1) now also adds — "spread apart = add, pinch
+  together = remove" holds regardless of which side the second finger lands on, faithfully mirroring the real
+  pinch gesture this feature stands in for. UI-only, no engine/model change, no test-target reach.
+  **DEVICE-OWED:** whether the side-mirroring actually reads as a natural pinch-equivalent in the hand — the
+  `.began`-time anchor comparison depends on real multi-touch timing (finger 1's reported anchor could be a
+  few milliseconds stale relative to the exact instant finger 2 lands) that only shows itself on a touchscreen.**
 - **▶ EUCLID — rotate-drag direction fixed for real (round 3) + a SECOND-FINGER steps gesture, anywhere on
   screen (2026-10-03, on `main`; iOS builds, no test-target reach (GridUI+BuildPage+AudioUnitViewController);
   DEVICE feel owed on both — genuinely untestable off-device). Paul: "the right/left drag gesture for offset
