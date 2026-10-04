@@ -196,6 +196,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID DRAG HUD — the pinch gesture's jumpiness fixed, two separate causes (2026-10-04, on `main`; iOS
+  builds, no test-target reach (GridUI-only); DEVICE feel owed — genuinely untestable off-device). Paul: "The
+  overlay for the 9 of 12 euclid info overlay is very jumpy on the pinch gesture." Two compounding, independent
+  causes, both specific to pinch (the pan gesture never had either problem, which is why only pinch was
+  flagged): **(1) NUMBER jumpiness** — the steps count was computed from `UIPinchGestureRecognizer.scale`, a
+  RATIO against the pinch's own STARTING finger separation; the SAME absolute finger movement produced a
+  bigger step jump when the two fingers happened to start close together than when they started far apart —
+  inconsistent, position-dependent sensitivity, not something a different constant could fix. Replaced with
+  the ABSOLUTE distance CHANGE between the two touches, in points, read via `location(ofTouch:in:)` — the same
+  fixed-points-per-step convention (`stepPt`, 18pt) the pan gesture's own rotate/hits already uses and which
+  has never been reported as jumpy; the log-ratio math and its `pinchStepRatio` constant are gone entirely, not
+  just retuned. **(2) POSITION jumpiness** — `g.location(in:)` for a 2-touch gesture is the CENTROID of both
+  touches, recomputed on every `.changed` tick; real pinches are rarely symmetric (one finger often moves more
+  or sooner than the other), so that midpoint wanders far more than the pan gesture's own single, stable touch
+  point ever did. Fixed by reporting the HUD's position ONCE, at `.began`, and leaving it there for the rest of
+  the gesture — the STEPS number inside the card still updates live via the unchanged `onStepsDelta` path; only
+  the floating card itself stops chasing a noisy two-finger midpoint. UI-only (GridUI.swift), no engine/model
+  change, no test-target reach. **DEVICE-OWED:** whether the pinch now feels consistently sensitive regardless
+  of starting finger spacing, and whether the frozen-position HUD still reads as clearly tied to the gesture
+  (vs. feeling detached) once it stops moving — the 18pt-per-step reuse is a reasonable first guess, not
+  independently re-tuned for the two-finger case.**
 - **▶ EUCLID LANES — REMOVED the second-finger-anywhere catcher; TWO (OR MORE) LANES can now genuinely be
   touched independently at once, each with a live scale-up "in use" cue (2026-10-04, on `main`; iOS builds, no
   test-target reach (GridUI+BuildPage+AudioUnitViewController); DEVICE feel owed — genuinely untestable off-

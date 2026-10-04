@@ -782,12 +782,10 @@ struct ProcessorBox: View {
             private var twoFinger = false
             private var appliedX = 0, appliedY = 0
             private var appliedPinchSteps = 0
+            private var pinchStartDist: CGFloat = 0
             // ~18pt per step each axis — a first-pass sensitivity (tunable): deliberately coarser than NumPair's
             // own 14pt/step scrub, since this bar is small and a finger resting on it covers a fair chunk of it.
             private let stepPt: CGFloat = 18
-            // ~15% scale change per ±1 step (log-spaced so pinching in and spreading out feel symmetric — a
-            // linear mapping would make the two directions feel unequal) — also a first-pass, tunable threshold.
-            private let pinchStepRatio: Double = 1.15
             init(_ o: EuclidGesturePad) { owner = o }
             func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
             @objc func handlePan(_ g: UIPanGestureRecognizer) {
@@ -816,24 +814,43 @@ struct ProcessorBox: View {
                 default: break
                 }
             }
+            // JUMPY PINCH FIX (Paul 2026-10-04: "the overlay for the 9 of 12 euclid info overlay is very jumpy
+            // on the pinch gesture") — TWO separate, compounding causes, both specific to pinch (the pan
+            // gesture never had either problem):
+            // (1) NUMBER jumpiness: `UIPinchGestureRecognizer.scale` is a RATIO against the pinch's own
+            // STARTING finger separation, so the SAME absolute finger movement produced a bigger step jump when
+            // the fingers happened to start close together than when they started far apart — inconsistent,
+            // position-dependent sensitivity, not a tunable-constant problem. Fixed by measuring the ABSOLUTE
+            // distance CHANGE between the two touches (in points) instead of their scale ratio, via
+            // `location(ofTouch:in:)` — the same fixed-points-per-step convention `stepPt` already uses for the
+            // pan gesture's rotate/hits, which has never been reported as jumpy.
+            // (2) POSITION jumpiness: `g.location(in:)` for a 2-touch gesture is the CENTROID of both touches,
+            // recomputed every `.changed` tick — far noisier than the pan gesture's single, stable touch point,
+            // since real pinches are rarely perfectly symmetric (one finger often moves more/sooner than the
+            // other). Fixed by reporting the HUD's position ONCE, at `.began`, and leaving it there for the rest
+            // of the gesture — the STEPS number inside it still updates live via `onStepsDelta`, only the
+            // floating card itself stops chasing a noisy two-finger midpoint.
             @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
                 switch g.state {
                 case .began:
                     appliedPinchSteps = 0
-                    owner.onDragState(g.location(in: g.view?.window), false)   // pinch is always scoped to this row — no "all rows" steps mode
+                    pinchStartDist = pinchTouchDistance(g)
+                    owner.onDragState(g.location(in: g.view?.window), false)   // pinch is always scoped to this row — no "all rows" steps mode; position set ONCE, not re-tracked below
                 case .changed:
-                    // clamp scale well above 0 before taking its log — two touches landing on nearly the same
-                    // point would send scale → 0, and log(0) → -infinity, which traps converting to Int.
-                    let steps = Int((log(max(0.05, g.scale)) / log(pinchStepRatio)).rounded())
+                    let steps = Int(((pinchTouchDistance(g) - pinchStartDist) / stepPt).rounded())
                     if steps != appliedPinchSteps {
                         owner.onStepsDelta(steps - appliedPinchSteps)
                         appliedPinchSteps = steps
                     }
-                    owner.onDragState(g.location(in: g.view?.window), false)
                 case .ended, .cancelled, .failed:
                     owner.onDragState(nil, false)
                 default: break
                 }
+            }
+            private func pinchTouchDistance(_ g: UIPinchGestureRecognizer) -> CGFloat {
+                guard g.numberOfTouches >= 2 else { return 0 }
+                let p0 = g.location(ofTouch: 0, in: g.view), p1 = g.location(ofTouch: 1, in: g.view)
+                return hypot(p1.x - p0.x, p1.y - p0.y)
             }
         }
     }
