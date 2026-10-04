@@ -5239,8 +5239,7 @@ extension DiagView {
             avoidInputNotes: recvHeldNotes.map { $0.map(Int.init) },   // AVOID piano: per-input held notes (armed/scale doors report their pool) — live while the editor is open
             avoidChainInputDoor: buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver,   // the door feeding THIS chain → the OUTPUT piano predicts from its notes
             doorKeyLabels: (0..<4).map { i in i < receivers.count ? receivers[i].scaleLabel : nil },   // ECHO/CHORDS/AVOID door pickers: the main toggles' own key label, live while the editor is open (Paul 2026-09-29)
-            onEuclidDragInfo: { info in euclidDragHUDInfo = info },   // reported straight to buildProcessorPanel, which renders it OUTSIDE this card's own ScrollView (Paul 2026-10-02)
-            onEuclidStepsArm: { arm in euclidStepsArmedHandler = arm })   // armed/disarmed by a euclid lane's own single-finger drag, carrying finger 1's live anchor position (Paul 2026-10-03) — read by the top-level EuclidSecondFingerCatcher
+            onEuclidDragInfo: { info in euclidDragHUDInfo = info })   // reported straight to buildProcessorPanel, which renders it OUTSIDE this card's own ScrollView (Paul 2026-10-02)
     }
 
     // BUILD chain edits — machine-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written

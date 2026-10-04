@@ -196,6 +196,46 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID LANES — REMOVED the second-finger-anywhere catcher; TWO (OR MORE) LANES can now genuinely be
+  touched independently at once, each with a live scale-up "in use" cue (2026-10-04, on `main`; iOS builds, no
+  test-target reach (GridUI+BuildPage+AudioUnitViewController); DEVICE feel owed — genuinely untestable off-
+  device). Paul, after I asked whether the then-current "second finger anywhere = steps for lane 1, even over
+  another lane's own pad" behaviour should be clarified or changed: "On touch, I want the first selected lane
+  to increase in size a little without misaligning the space around it. If a second lane is pressed then the
+  gestures should work around that too. So touches elsewhere on the screen shouldn't work after the first
+  lane touch, unless it's on another Euclid lane. The idea is that we allow a user to control hits and offset
+  for two or more lanes simultaneously." **THE REAL FIX TURNED OUT TO BE A REMOVAL, not new routing logic:**
+  `EuclidSecondFingerCatcher` (yesterday's window-wide overlay, built for the ORIGINAL "second finger anywhere
+  = steps" ask) sat TOPMOST in z-order and claimed EVERY second touch once armed, REGARDLESS of where it
+  landed — including squarely over a DIFFERENT lane's own comet-bar pad, stealing that touch away from that
+  pad's own, otherwise perfectly capable `UIPanGestureRecognizer` before it ever arrived. That was the ONE
+  thing standing between "two lanes independently touched" and working: UIKit already supports multiple
+  sibling views each tracking their own independent touch simultaneously, completely natively, with ZERO extra
+  plumbing needed — once nothing is stealing the second touch first. **REMOVED ENTIRE** (not narrowed, not
+  kept-as-dead-code): `EuclidStepsArm` struct, `onArmedStepsHandler`/`onEuclidStepsArm`/`onStepsArm` at every
+  layer (`EuclidGesturePad` → `euclidCometBar` → `euclidLaneBox` → `ProcessorBox` → `buildSlotBox`), the
+  `@State euclidStepsArmedHandler`, and the `EuclidSecondFingerCatcher` struct + its construction site in
+  `DiagView.body` (AudioUnitViewController.swift) — along with the now-unneeded `import UIKit` there (restored
+  once the build showed `UIHostingController`, used elsewhere in that file, genuinely needs it after all).
+  PINCH-to-steps on each lane's OWN pad is completely untouched — this only ever affected the brand-new second-
+  finger mechanism, not the original gesture set. **NEW "IN USE" SCALE-UP, replacing it:** a new TRANSIENT
+  `@State euclidTouchedLanes: Set<Int>`, distinct from the existing STICKY `euclidSelectedLane` (which persists
+  after the touch lifts and drives the settings panel below) — populated/cleared directly from each lane's own
+  `onDragState` (already fired by `EuclidGesturePad` on every `.began`/`.changed`/`.ended`, no new plumbing
+  needed): a plain single-finger touch marks only its own lane; the existing 2-finger-ALL-ROWS gesture marks
+  all 4, since it genuinely reshapes every lane's pattern together. Each lane's box gets `.scaleEffect(touched
+  ? 1.07 : 1.0)` + `.zIndex(touched ? 1 : 0)` + a short `.easeOut` transition — `.scaleEffect` is a pure RENDER
+  transform, never a LAYOUT one, so SwiftUI's layout system never sees a size change and neighbouring lanes in
+  the 2×2 grid never shift — satisfying "increase in size a little without misaligning the space around it"
+  exactly. `.zIndex` keeps a touched lane drawing over its neighbours so the (modest, ~7%) overlap never reads
+  as clipped. Since EACH lane independently computes its own `touched` from the SAME shared
+  `euclidTouchedLanes` set, two lanes touched at once each scale up simultaneously, with no coordination code
+  needed beyond the set itself. UI-only, no engine/model change, no test-target reach. **DEVICE-OWED, and this
+  is the one area most resistant to verification by reading code — real multi-touch arbitration across sibling
+  UIKit views only shows itself on a touchscreen:** whether two lanes really do respond independently and
+  simultaneously to two separate fingers now that the one thing blocking it is gone; the 7% scale amount/0.12s
+  transition feel; confirm the scaled-up box's slight overlap into its neighbour's margin reads as "a lane
+  lighting up," not as a glitch.**
 - **▶ EUCLID HIT/MISS BEACON — a small live flash beside each "LANE N HIT"/"LANE N MISS" label (2026-10-03, on
   `main`; iOS builds, no test-target reach (GridUI-only); DEVICE eye owed — genuinely untestable off-device).
   Paul: "next to the labels mentioning hits and misses, without changing the height used, [add] a small beacon
