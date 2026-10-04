@@ -820,16 +820,30 @@ struct ProcessorBox: View {
             // (1) NUMBER jumpiness: `UIPinchGestureRecognizer.scale` is a RATIO against the pinch's own
             // STARTING finger separation, so the SAME absolute finger movement produced a bigger step jump when
             // the fingers happened to start close together than when they started far apart — inconsistent,
-            // position-dependent sensitivity, not a tunable-constant problem. Fixed by measuring the ABSOLUTE
-            // distance CHANGE between the two touches (in points) instead of their scale ratio, via
-            // `location(ofTouch:in:)` — the same fixed-points-per-step convention `stepPt` already uses for the
-            // pan gesture's rotate/hits, which has never been reported as jumpy.
+            // position-dependent sensitivity, not a tunable-constant problem. Fixed by scaling a captured
+            // STARTING distance by `scale` to get an absolute points-based delta instead of using the raw ratio
+            // directly — see `handlePinch`'s own comment below for why this reads `scale`, not
+            // `location(ofTouch:)`, every tick (a reliability fix on top of this one, same day).
             // (2) POSITION jumpiness: `g.location(in:)` for a 2-touch gesture is the CENTROID of both touches,
             // recomputed every `.changed` tick — far noisier than the pan gesture's single, stable touch point,
             // since real pinches are rarely perfectly symmetric (one finger often moves more/sooner than the
             // other). Fixed by reporting the HUD's position ONCE, at `.began`, and leaving it there for the rest
             // of the gesture — the STEPS number inside it still updates live via `onStepsDelta`, only the
             // floating card itself stops chasing a noisy two-finger midpoint.
+            // RELIABILITY FIX (Paul 2026-10-04: "quite unreliable, often snapping back to 2 — is this due to
+            // the overrides I requested? Maybe a simple pinch... would work better to simplify"). YES — traced,
+            // not guessed: the previous pass's `pinchTouchDistance` re-queried `location(ofTouch: 0/1, in:)`
+            // on EVERY `.changed` tick, falling back to 0 whenever `numberOfTouches` momentarily read below 2
+            // (a known UIKit edge case, especially right as a finger lifts). Since `pinchStartDist` is typically
+            // 60–150pt, that single bad reading computed a huge spurious NEGATIVE step delta in one tick,
+            // slamming `steps` straight to its floor of 2 — exactly the reported symptom. SIMPLIFIED per Paul's
+            // own instinct: derive the live distance from UIKit's own `scale` property instead
+            // (`pinchStartDist × scale` — exactly recovers the current distance by definition, since `scale`
+            // literally IS currentDistance/initialDistance) — `scale` is maintained internally by UIKit's own
+            // touch tracking and is never subject to a `location(ofTouch:)`-style transient misread, so
+            // `location(ofTouch:)` is no longer called at all past `.began`. Keeps the SAME goal as the
+            // previous pass (fixed points-per-step, independent of where the pinch started), just computed the
+            // robust way instead of re-deriving the fragile part every frame.
             @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
                 switch g.state {
                 case .began:
@@ -837,7 +851,8 @@ struct ProcessorBox: View {
                     pinchStartDist = pinchTouchDistance(g)
                     owner.onDragState(g.location(in: g.view?.window), false)   // pinch is always scoped to this row — no "all rows" steps mode; position set ONCE, not re-tracked below
                 case .changed:
-                    let steps = Int(((pinchTouchDistance(g) - pinchStartDist) / stepPt).rounded())
+                    let delta = pinchStartDist * (g.scale - 1)
+                    let steps = Int((delta / stepPt).rounded())
                     if steps != appliedPinchSteps {
                         owner.onStepsDelta(steps - appliedPinchSteps)
                         appliedPinchSteps = steps
@@ -848,7 +863,7 @@ struct ProcessorBox: View {
                 }
             }
             private func pinchTouchDistance(_ g: UIPinchGestureRecognizer) -> CGFloat {
-                guard g.numberOfTouches >= 2 else { return 0 }
+                guard g.numberOfTouches >= 2 else { return 60 }   // a sane fallback — UIKit guarantees 2 touches by the time .began fires, so this shouldn't trigger in practice
                 let p0 = g.location(ofTouch: 0, in: g.view), p1 = g.location(ofTouch: 1, in: g.view)
                 return hypot(p1.x - p0.x, p1.y - p0.y)
             }

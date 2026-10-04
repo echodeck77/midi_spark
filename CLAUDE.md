@@ -196,6 +196,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID PINCH — a self-inflicted reliability bug fixed, same day as the jumpiness fix below (2026-10-04,
+  on `main`; iOS builds, no test-target reach (GridUI-only); DEVICE feel owed — genuinely untestable off-
+  device). Paul, testing the jumpiness fix: "I find the pinch gesture on Euclid lanes quite unreliable (often
+  snapping back to 2). Is this due to the overrides I requested? Maybe a simple pinch within the confines of
+  the lane would work better to simplify." **YES — confirmed, traced not guessed:** the jumpiness fix's own
+  `pinchTouchDistance` re-queried `location(ofTouch: 0/1, in:)` on EVERY `.changed` tick, falling back to `0`
+  whenever `g.numberOfTouches` momentarily read below 2 — a known UIKit edge case, especially right as a
+  finger lifts at the end of the gesture. Since `pinchStartDist` is typically 60–150pt, that single bad
+  reading computed a huge SPURIOUS negative step delta in one tick, slamming `steps` straight down to its
+  floor of 2 — exactly the reported symptom, and a direct, self-inflicted consequence of that same-day change.
+  **SIMPLIFIED per Paul's own instinct, not patched with another guard:** the live distance is now derived
+  from UIKit's OWN `scale` property (`pinchStartDist × scale` — exactly recovers the current distance by
+  definition, since `scale` literally IS currentDistance/initialDistance) instead of re-deriving it from raw
+  touch positions every frame. `scale` is maintained internally by UIKit's own touch tracking and was never
+  subject to the `location(ofTouch:)`-style transient misread — `location(ofTouch:)` is now called exactly
+  ONCE per gesture, at `.began`, to establish the starting distance (with a defensive 60pt fallback, which
+  shouldn't trigger in practice since UIKit guarantees 2 touches by the time `.began` fires), never touched
+  again. Keeps the SAME goal the jumpiness fix introduced (fixed points-per-step, independent of where the
+  pinch started) — just computed the robust way instead of the fragile one. UI-only (GridUI.swift), no
+  engine/model change, no test-target reach. **DEVICE-OWED:** whether the pinch now holds steady through a
+  full gesture including the release at the end (the specific moment most likely to have triggered the old
+  bug); the 18pt-per-step sensitivity re-derived this way still feeling right.**
 - **▶ EUCLID DRAG HUD — the pinch gesture's jumpiness fixed, two separate causes (2026-10-04, on `main`; iOS
   builds, no test-target reach (GridUI-only); DEVICE feel owed — genuinely untestable off-device). Paul: "The
   overlay for the 9 of 12 euclid info overlay is very jumpy on the pinch gesture." Two compounding, independent
