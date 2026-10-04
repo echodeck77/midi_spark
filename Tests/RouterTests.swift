@@ -138,6 +138,88 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ons(spanN: 1), 24, "SPAN=1: re-anchored EVERY column to step 0 (always a hit) → all 8 columns fire × 3 notes")
         XCTAssertGreaterThan(ons(spanN: 1), ons(spanN: nil), "the re-anchor changes the sequenced pattern")
     }
+    // INVESTIGATION (Paul 2026-10-04): "I sometimes see euclid play for only half the duration of a pass on the
+    // part grid" + "it feels more like a problem with the part grid than the euclid, or it may be in the way they
+    // interact." Builds the EXACT real pipeline (BuildSceneLogic.composeScene → SnapshotBuilder → Router) instead
+    // of a hand-rolled SnapshotBox, mimicking a freshly-created EUCLID row (today's real fresh-card default: 1
+    // pulse of 8 steps, GRID 1/16, SPAN free) selected across every column of a freshly-created, all-default part
+    // — to see whether the PART GRID's own composition silently restricts playback to less than the part's full
+    // pass, independent of EUCLID's own internal math. A bare NotePool chord (not a held one) is used, matching a
+    // real `[A]→receiver` live-input setup rather than a latch.
+    func testEuclidFreshRowOnAFreshPartPlaysThroughTheWholePass() {
+        var eu = ProcessorSlot(type: .euclid)
+        eu.params.euclidPulses = 1; eu.params.euclidSteps = 8   // today's real fresh-card default (1-of-8, pick=LOW)
+
+        var part = BuildPart()
+        for c in 0..<8 { part.stagingCells[c][0] = "gold" }        // row 0 spans every visible column (CLONE/CREATE's own effect)
+        part.stagingSel = Array(repeating: 0, count: Snap.maxCols) // row 0 selected in every column
+        part.rowChain[0] = [eu]
+        part.emitters = [.a]
+        // rate/length left nil ⇒ the scene default (today's real "freshly created part" state)
+
+        var input = BuildSceneLogic.Input()
+        input.ferryParts[0] = part
+        input.ferryRowChain[0] = part.rowChain
+        input.ferryOn[0] = true
+        input.ferryAudible[0] = true
+
+        let scene = BuildSceneLogic.composeScene(input)!
+        let st = PluginState(machines: [Machine(machineID: "gold", type: .euclid)], scenes: [scene])
+        let snap = SnapshotBuilder.build(from: st)
+
+        let e = RecordingEmitter()
+        run(snap, chord([60]), beats: 64, into: e)   // several full passes (pass = Snap.cols(8) × stepRate .r1_2(2 beats) = 16 beats)
+        assertNothingLeftSounding(e)
+
+        let passBeats = 16.0
+        let onBeats = e.ons.filter { $0.cable == 1 }.map { Double($0.sample) / (48_000.0 * 60.0 / 120.0) }
+        XCTAssertFalse(onBeats.isEmpty, "the fresh euclid row should sound at all")
+        // Bucket every onset by its position WITHIN its own pass (mod 16 beats) into first-half / second-half.
+        let firstHalf = onBeats.filter { $0.truncatingRemainder(dividingBy: passBeats) < passBeats / 2 }.count
+        let secondHalf = onBeats.count - firstHalf
+        XCTAssertGreaterThan(secondHalf, 0, "onsets cluster in the FIRST half of every \(passBeats)-beat pass only (\(firstHalf) first-half vs \(secondHalf) second-half) — reproduces the reported symptom")
+    }
+    // Same investigation, but on a 16-COLUMN part (the STEPS 8|16 toggle — a PART GRID feature, not a EUCLID one) —
+    // testing Paul's own redirect: "it feels more like a problem with the part grid than the euclid, or it may be
+    // in the way they interact." Also forces an EXPLICIT rate/length (not nil) to exercise the MULTI-CLOCK per-row
+    // path instead of the uniform fast path the all-defaults test above silently fell onto.
+    func testEuclidFreshRowOnA16WidePartPlaysThroughAllSixteenColumns() {
+        var eu = ProcessorSlot(type: .euclid)
+        eu.params.euclidPulses = 1; eu.params.euclidSteps = 8
+
+        var part = BuildPart()
+        for c in 0..<16 { part.stagingCells[c][0] = "gold" }
+        part.stagingSel = Array(repeating: 0, count: Snap.maxCols)
+        part.rowChain[0] = [eu]
+        part.emitters = [.a]
+        part.rate = .r1_8      // EXPLICIT (not nil) ⇒ forces the per-row multi-clock path
+        part.length = 16       // the 16-step part width
+
+        var input = BuildSceneLogic.Input()
+        input.ferryParts[0] = part
+        input.ferryRowChain[0] = part.rowChain
+        input.ferryOn[0] = true
+        input.ferryAudible[0] = true
+
+        let scene = BuildSceneLogic.composeScene(input)!
+        // Sanity: the PART GRID's own composition must actually reach all 16 logical columns, before blaming EUCLID.
+        let base = Snap.ferryRowBase(0)
+        for c in 0..<16 { XCTAssertNotNil(scene.cellAt(c, base), "composeScene dropped column \(c) of 16 — a PART GRID bug, not EUCLID") }
+        XCTAssertEqual(scene.rowLen?[base], 16, "the row's own resolved length must be the full 16, not truncated to 8")
+
+        let st = PluginState(machines: [Machine(machineID: "gold", type: .euclid)], scenes: [scene])
+        let snap = SnapshotBuilder.build(from: st)
+        let e = RecordingEmitter()
+        let passBeats = 16.0 * 0.5   // 16 columns × 1/8-note (0.5 beat) step
+        run(snap, chord([60]), beats: passBeats * 4, into: e)
+        assertNothingLeftSounding(e)
+
+        let onBeats = e.ons.filter { $0.cable == 1 }.map { Double($0.sample) / (48_000.0 * 60.0 / 120.0) }
+        XCTAssertFalse(onBeats.isEmpty, "the fresh euclid row should sound at all")
+        let firstHalf = onBeats.filter { $0.truncatingRemainder(dividingBy: passBeats) < passBeats / 2 }.count
+        let secondHalf = onBeats.count - firstHalf
+        XCTAssertGreaterThan(secondHalf, 0, "onsets cluster in the FIRST half of the 16-column pass only (\(firstHalf) vs \(secondHalf)) — reproduces the symptom on a 16-wide part")
+    }
     // DEST MATRIX (Paul 2026-08-22 §5): [ARP→DEST] hockets the walk across emitters — each onset-slice routes to its
     // chosen emitter (the routing override wins over the cell's fan-out).
     func testDestMatrixHocketsTheArpAcrossEmitters() {

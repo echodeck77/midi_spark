@@ -1809,15 +1809,25 @@ final class Router {
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                              beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
             case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:
+                // PART GRID × GENERATOR interaction bug (Paul 2026-10-04, "it feels more like a problem with the
+                // part grid than the euclid, or it may be in the way they interact"): this STANDALONE-driver branch
+                // (chainDriverIndex(cell) < 0 — no multi-slot chain to fold) used to omit cycleBeats entirely, so
+                // emitGeneratorRow's `cyc = cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S` silently fell back
+                // to the hardcoded 8-column default — on a 16-wide part (or any row whose per-part RATE/LENGTH
+                // differs from the scene default, forcing the multi-clock path), the generator's own SPAN re-anchor
+                // and its `columns:` wraparound both derived from that wrong, too-short cycle, permanently capping
+                // it to the FIRST HALF of a 16-column pass (or more generally, Snap.cols worth of it) — reproduced
+                // in testEuclidFreshRowOnA16WidePartPlaysThroughAllSixteenColumns. The sibling ARP/RATCHET/RIFF
+                // cases a few lines above already pass cycleBeats correctly; this was the one gap.
                 emitGeneratorRow(mode: mode, cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                 S: S, a: a, out: out, diag: &diag)
+                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
             case .weave:
                 emitWeaveRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                              pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                              windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                             S: S, a: a, out: out, diag: &diag)
+                             S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
             case .riff:                            // DRIVER — the stored rank stencil, derived against the held chord
                 emitRiffRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                             box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
