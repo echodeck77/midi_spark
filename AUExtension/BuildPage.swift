@@ -3771,7 +3771,7 @@ extension DiagView {
         buildRecordUndo()
         let y = buildNewMachine(hex: buildDistinctHue(), machine: chain)
         buildSetRow(row, to: y)                                  // place the machine across the row's cells (selectable in any column)
-        buildSelectRow(row)                                      // AUTO-SELECT the new row across every column (Paul 2026-09-10)
+        buildSelectRow(row, additive: true)                      // AUTO-SELECT the new row (Paul 2026-09-10) — ADDS to the layer under MULTI instead of silencing it (Paul 2026-10-04)
         buildRoomsSetActiveSide(row); buildSelectID(y); buildTapMachineTab(row)   // focus the new row → the machine box now edits it
         buildStagingSyncIfPlaying()
     }
@@ -4219,12 +4219,29 @@ extension DiagView {
     // buildClearPartGrid + buildArchivePartToPlay RETIRED (Paul 2026-09-12 dead-code sweep — the old PROMOTE-to-play-cell
     // archive path; its only caller (roomsAssignPlayColumn/roomsFlattenPartToPlay) went in the 2026-09-12 ferry sweep).
     // SELECT mode: make this row the selected rung in EVERY column — the whole-row equivalent of tapping a cell.
-    private func buildSelectRow(_ row: Int) {
+    // `additive` (Paul 2026-10-04, bugfix): when the ferry is in MULTI mode, ADD this row to whatever's already
+    // selected per column instead of wiping it out. ROOT CAUSE of "cloned a row and the additional rows don't
+    // sound": row CREATION (MUTATE/RANDOM/CREATE/CLONE, via buildCreateRowMachine below) called this with the old
+    // unconditional replace — so building a SECOND/THIRD row to layer alongside an already-MULTI-selected one
+    // silently force-replaced the WHOLE column selection down to just the new row, deselecting (silencing) every
+    // other row that had been sounding, including the very row it was cloned from. Only buildCreateRowMachine opts
+    // into `additive: true`; the whole-row RAIL TAP (buildToggleSelectRow) keeps the original replace behaviour —
+    // "this row is now the thing" is a deliberate replace, per the 2026-09-27 multi-select v1 decision, untouched.
+    private func buildSelectRow(_ row: Int, additive: Bool = false) {
         guard row >= 0, row < 8 else { return }
-        for c in 0..<Snap.maxCols { buildStagingSel[c] = row }   // §E 16-col
-        // MULTI-SELECT (Paul 2026-09-27): "select this whole row" REPLACES a column's active set with {row}, even in
-        // MULTI mode — it's a "this row is now the thing" gesture, not an addition to whatever else was sounding.
-        buildStagingMulti = Array(repeating: 0, count: Snap.maxCols)
+        if additive && buildSelMultiActive {
+            for c in 0..<Snap.maxCols {
+                var mask = buildStagingMulti[c]
+                if mask == 0, buildStagingSel[c] >= 0 { mask = UInt8(1 << buildStagingSel[c]) }   // seed from today's lead — same convention as the per-cell MULTI toggle
+                buildStagingMulti[c] = mask | UInt8(1 << row)
+                buildStagingSel[c] = row                                 // the lead follows the newest row (keeps the "focus the new content" cue)
+            }
+        } else {
+            for c in 0..<Snap.maxCols { buildStagingSel[c] = row }   // §E 16-col
+            // MULTI-SELECT (Paul 2026-09-27): "select this whole row" REPLACES a column's active set with {row}, even in
+            // MULTI mode — it's a "this row is now the thing" gesture, not an addition to whatever else was sounding.
+            buildStagingMulti = Array(repeating: 0, count: Snap.maxCols)
+        }
         buildStagingSyncIfPlaying()
     }
     // THE LEFT RAIL TAP (Paul 2026-09-15): tapping a row rail selects the WHOLE row for playback; tapping the SAME rail a
