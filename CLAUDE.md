@@ -196,6 +196,78 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID / PART-GRID BUG-HUNT ARC — a 20-bug sweep, the "hardcoded 8 columns" cluster, AU thread-safety, +4
+  closing fixes (2026-10-04/05, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`, `28b7d1f`…`e638d77`;
+  macOS 1189 green (was 1183 at the start of this arc, +6 net), iOS builds; DEVICE-owed per item, noted below).
+  Paul reported two bugs in one message ("I sometimes see euclid play for only half the duration of a pass on the
+  part grid. I've also cloned a row and found that the additional rows don't sound"), then — after the first fix —
+  asked me to "search for 20 bugs," approved the primary recommendation with "I'll follow your advice. Go," then
+  "please move onto the next problem" (autonomous, one item at a time), then "I want all of these done, please" for
+  the remaining 4. **ROW-CLONE MULTI-SELECT WIPE (`28b7d1f`):** cloning/mutating/randomizing/creating a row from the
+  row-creator menu REPLACED the column's active-rungs selection with just the new row, instead of ADDING to it — so
+  a MULTI-selected column lost its other rows' sound the instant a new row was created in it. `buildSelectRow` (the
+  shared selection-setter every row-creation path already called) gained an `additive: Bool = false` param; the 4
+  row-creation call sites (CLONE/MUTATE/RANDOM/CREATE NEW) pass `true`. **THE "HALF A PASS" REPORT, root-caused —
+  EUCLID's STANDALONE-DRIVER dispatch silently hardcoded an 8-column pass (`47537cc`):** `emitTickRow`'s two
+  per-tick generator dispatch switches (one for a real chain driver, one for a bare standalone driver) had
+  DIVERGED in which params they forwarded — the chain-driver switch passed `cycleBeats`/`chainDriver` to EUCLID (and
+  BURST/CASCADE/DRONE/SHIFT/HUMANIZE/HOCKET/WEAVE); the standalone-driver switch didn't, so those cases fell back to
+  a literal `Double(Snap.cols) * S` (Snap.cols = 8) instead of the row's REAL length — correct only by coincidence
+  on a default 8-column, default-rate part; silently wrong (effectively halving the audible pass) on a 16-wide part
+  or any row with a custom per-row rate. Fixed by passing `cycleBeats`/`chainDriver` through both switches
+  identically. **THE SAME BUG, SWEPT EVERYWHERE ELSE IT HAD SPREAD (`b94516d`):** a full sweep of
+  `Double(Snap.cols) * S`-shaped hardcoding found it ALSO in `emitColumnHolds`/`emitColumnTransition` (STRIKE PER
+  SPAN + the CHORDS-hold pool compose), `emitTuttiPatternRow`, `emitLengthRow`, `emitStrumRow`, and
+  `modPeriodBeats`/`applyInternalMods` (MOD's own span) — all six gained/threaded a real `cycleBeats: Double`
+  parameter instead of the hardcoded literal. Mirrored on the UI side (GridUI.swift): `ProcessorBox` gained
+  `gridCols: Int = Snap.cols` (threaded from `buildSlotBox` in BuildPage.swift as `roomsRoom == .part ?
+  buildPartCols : Snap.cols`) and 7 call sites (EUCLID's comet bar, BURST, TUTTI, RIFF, the LFO editor's live-rate
+  readouts) switched from a bare `8 *` to `Double(gridCols) *` — so the editor's own live sweep can't show a
+  DIFFERENT pass length than what's actually heard. +6 RouterTests comparing a 16-column/custom-rate row against an
+  equivalent 8-column-with-explicit-span reference (this codebase's own standing lesson: prefer equivalence checks
+  over hand-derived exact-tick predictions) — one (`testModRowSpanUsesTheRealRowLength`) needed a full redesign
+  mid-build after discovering `SnapshotBuilder` clamps `modSteps` to exactly 8/16/32 entries regardless of row
+  width (`cycleBeats` only changes traversal SPEED, not which indices exist) — rewritten to check WHEN a step lands
+  rather than WHICH indices are reachable. **AU PARAMETER THREAD-SAFETY (`e494f9d`):** a 20-bug sweep turned up
+  `wireParameterTree()`'s `implementorValueObserver`/`Provider` closures mutating/reading `self.document` directly
+  — Apple's own docs say these can be called from ANY thread including realtime ones, but this codebase's own
+  convention enforces main-thread-only document mutation elsewhere (`dispatchPrecondition(.onQueue(.main))`, e.g.
+  `loadTestSession`/`setActiveScene`) and had no such guard here. Restructured into `applyParamValue`/
+  `currentParamValue` (both asserting main-thread via `dispatchPrecondition`) with the observer/provider closures
+  hopping to main (`DispatchQueue.main.async`/`.sync`) when called off it, rather than assuming the host always
+  calls on main. **HARDENING SWEEP (`031f9a2`):** a latent `UInt8(1 << row)` overflow-trap risk in `buildSelectRow`
+  tightened from `row < 8` to `row < Snap.rowsPerFerry` (+3 call sites, `buildCreateRowMachine`/
+  `buildToggleSelectRow`/`buildRowMachine`, same tightening); a dead `top: String` param removed from
+  `buildIOSelectChip` (+ its now-orphaned `letter` local); stale `Array(repeating: nil, count: 8)` fallbacks (3
+  sites across BuildPage.swift/AudioUnitViewController.swift) resized to `count: Snap.rowsPerFerry`. **THE FINAL
+  FOUR, closing out the full bug list (`e638d77`):** (1) `euclidTouchedLanes` (GridUI.swift) was one shared `Set`
+  trying to represent two independent things — "all 4 lanes lit by a 2-finger ALL-ROWS gesture" and "lane 2 ALSO
+  independently lit by its own single-finger touch" — so ending the ALL-ROWS gesture's `.removeAll()` wrongly wiped
+  an unrelated lane's still-held touch too; split into `euclidSingleTouchedLanes`/`euclidAllRowsTouched`, two
+  sources that can only ever clear their own contribution. (2) `pinchTouchDistance`'s `<2-touches` fallback changed
+  from a guessed `60` to `0` — UIKit guarantees 2 touches by `.began` so this shouldn't trigger, but IF it ever
+  did, `0` makes `delta = pinchStartDist*(scale-1)` a clean no-op instead of a guessed-and-possibly-wrong step
+  change. (3) **THE ARCHITECTURAL FIX:** `lastTick[row]` (Router.swift's `iterateTicks`, shared by ARP/RIFF/
+  RATCHET-ALL/HOCKET/EUCLID) was a single per-ROW dedup scalar — already flagged in an earlier session's own
+  investigation as "a known limitation for 2+ real lines sharing a row" (one EUCLID line's tick could advance the
+  shared dedup past a tick a SECOND line on the same row hadn't reached yet, smearing that line's onset into a
+  later render window). Widened to `Snap.rows * tickDedupSlotsPerRow`(4) with a new `lineIndex` threaded through
+  `iterateTicks`/`runEuclidLine`/the calling `for (lineIndex, L) in p.euclidLines.enumerated()` loop, so each of
+  EUCLID's up to 4 lines gets its own dedup slot; added `resetTickDedup(row:)`/`resetAllTickDedup()` helpers and
+  updated all 6 reset/flush call sites that used to index `lastTick.indices` directly in a shared loop with the
+  (still row-sized) `strumProgress`/`lastGenStep` arrays — left as-is, those would have read/written out of bounds
+  once `lastTick` grew to 4× their length. Full 1189-test macOS suite green after the widening — the most
+  render-critical change in this whole arc. (4) the EUCLID hit/miss beacon's `canPlay` check (previously ONLY "is
+  MISS configured") gained `euclidBeaconCanPlay`, additionally checking a RIFF/ARP pick whose predecessor doesn't
+  match (mirrors Router.swift's own early-return) and a numbered-rank pick beyond the held note count or against an
+  empty pool (mirrors `resolveEuclidPick`'s index math) — disclosed as still approximate (doesn't walk RIFF/ARP's
+  own resolved note; reads the door's raw held notes, not the fully-resolved upstream-chain pool right before this
+  EUCLID slot). **DEVICE-OWED, per item:** items 1/2/4 above and the row-clone/UI-sweep halves of the earlier fixes
+  are UI-only with no macOS test-target reach (GridUI/BuildPage, as always) — confirm two independently-touched
+  EUCLID lanes no longer cross-clear, a real pinch gesture still feels unchanged, and the beacon now stays dark for
+  an out-of-range RIFF/ARP/ranked pick instead of falsely flashing; item 3 (the `lastTick` fix) is machine-verified
+  by the full suite but its audible effect (two real EUCLID lines sharing a row no longer smearing a tick into the
+  wrong render window) is a genuinely subtle, narrow-window timing case worth an ear-check if ever suspected again.**
 - **▶ EUCLID PINCH — a self-inflicted reliability bug fixed, same day as the jumpiness fix below (2026-10-04,
   on `main`; iOS builds, no test-target reach (GridUI-only); DEVICE feel owed — genuinely untestable off-
   device). Paul, testing the jumpiness fix: "I find the pinch gesture on Euclid lanes quite unreliable (often
