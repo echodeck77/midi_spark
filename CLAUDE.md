@@ -196,6 +196,82 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a new standalone, playable 4-lane EUCLID instrument page, SHIPPED end-to-end (2026-10-05/06, on
+  `main`, `7cf1856`…`6d3514b`; macOS 1207 green incl. 19 new, iOS builds; whole-feature DEVICE pass owed). Paul:
+  "I want a new page on the app called Euclideous... centre around four Euclid lanes in the centre of the
+  screen... as part of the same Euclid control will be tabs for x/y gestures. Default is hits/offset, then
+  velocity/gate, then note/octave. It should have rate per lane, invert, and one or more emitters can be toggled
+  per lane. The goal is to make it feel like a playable, grabbable instrument." Also named as a future standalone-
+  app extraction candidate. **PLANNED FIRST** (EnterPlanMode, 3 parallel Explore agents covering the EUCLID
+  engine internals / the existing lane UI / the live-cell+standalone-seam architecture, then a dedicated Plan-
+  agent validation pass that caught two real `composeSceneMeta` guard bugs, a missing `machineID`-resolution
+  requirement, and a genuine correctness bug in the first-draft INVERT design before any of it shipped) — plan at
+  `~/.claude/plans/woolly-crafting-music.md`. Three architecture forks ratified with Paul via AskUserQuestion
+  before planning: navigation = a header-icon overlay (CogPage's presentation precedent); lane architecture = ONE
+  EuclidMachine with 4 EuclidLines (today's model, extended), not 4 separate cells; gesture tabs = independent per
+  lane. **A self-caught plan revision, flagged back to Paul before implementing:** my own first plan draft said
+  "mirror CogPage's shape exactly," conflating CogPage's presentation MECHANISM (a plain overlay, engine never
+  stops — worth reusing) with its SIZING (a small ~540×620 settings card — wrong for "centre of the screen... a
+  playable, grabbable instrument"); caught on Paul's own "check for shortcuts" prompt, corrected before
+  ExitPlanMode, and (separately) the extracted lane box's `height` was about to inherit a hardcoded 56pt constant
+  tuned for BuildPage's cramped inline panel — added as an explicit parameter specifically so Euclideous isn't
+  silently stuck at BUILD-page size. **ENGINE (Models.swift/SnapshotBuilder.swift/Router.swift):**
+  `EuclidLine.rate: ArpRate?` (nil ⇒ inherit the machine-wide rate) and `.emitterMask: UInt8?` (bit i = emitter
+  A–D, nil ⇒ inherit the cell's own bus mask — mirrors `echoInKeyReceivers`'s exact convention) — threaded through
+  the CR-8 decoder, the SnapshotBuilder's explicit `EuclidLine(...)` reconstruction (a fresh literal, not copy-
+  with-mutation — the exact gotcha a prior RATE-automation feature was bitten by), `strikeChord`'s new
+  `busOverride` param (reaches `chopMask`'s `base:` only — EUCLID is structurally always the chain tail for
+  Euclideous's one-slot cell, a provable consequence of its own shape, not a separately-enforced limit), and
+  `runEuclidLine`'s now-explicit `rate`/`busOverride` params (was a closure-captured machine-wide field). Shared
+  with the existing BUILD-page EUCLID processor — nil-default byte-identical either way, disclosed in the field's
+  own doc comment. **PERSISTENCE:** `PluginState.euclideousLines/Enabled/Receiver` — genuinely authored, saved-
+  document state (not an ephemeral BUILD-page audition, which never survives closing the plugin).
+  **ROW RESERVATION (Snapshot.swift/BuildSceneLogic.swift):** all 32 existing engine rows are permanently claimed
+  (8 ferries × 4 rows); the existing chain-audition mechanism was rejected as a foundation (squats in whichever
+  row is free in the CURRENTLY ACTIVE ferry's block, singular, coupled to unrelated BUILD-page resets — wrong for
+  "a reliable, always-on instrument"). Confirmed the render engine itself is ferry-agnostic (every full-row loop
+  in Router/Kernel/SnapshotBuilder treats every row identically; ferry semantics live only in BUILD-page authoring
+  code, which derives rows FROM a ferry index, never the reverse) — so `Snap.rows` widened 32→33, with
+  `Snap.euclideousRow` the new reserved index. `composeSceneMeta` composes+pins Euclideous's one cell there
+  unconditionally when enabled — needed two specific, easy-to-miss guard edits (the function's own opening
+  early-return, and the `rowLane` PUBLISH guard — a full-vs-empty-array contract separate from computing the pin
+  itself), both caught by the Plan-agent validation pass before shipping, not discovered as a device bug. A narrow
+  pre-existing `AutoLane` legacy decoder (`cells / Snap.rows`, targeting pre-2026-09-04 docs) was frozen to the
+  literal 32 so the live widening can't misread it. **UI EXTRACTION (GridUI.swift → new EuclidLaneUI.swift):** the
+  existing BUILD-page EUCLID editor's lane box/comet bar/gesture pad/beacon were ALL private members nested inside
+  the one ~3600-line `ProcessorBox` — unreachable from a new page by both access control and implicit-`self`
+  coupling to ~10 stored properties. Extracted (not duplicated — this codebase's own standing "share the formula,
+  never re-derive it" discipline, applied to UI) into `EuclidLaneBox`/`EuclidBeacon`/`EuclidGesturePad`, each
+  explicitly parameterized (a new `EuclidLiveClock` bundles the 6 shared "live clock" scalars); `ProcessorBox`'s
+  own `case .euclid:` now calls the same shared components — a pure refactor, its behaviour should be unchanged.
+  **THE PAGE ITSELF (new EuclideousPage.swift):** reuses CogPage's presentation mechanism only (a plain
+  `if showEuclideous {}` sibling in `DiagView`'s root ZStack, confirmed not to stop the engine), filling the
+  screen rather than a bounded card. A fixed sentinel ephemeral machine id (`"euclideous"`) makes the cell's
+  `machineID` resolve at all (confirmed the registered machine's own stored params are irrelevant at render time —
+  `emitGeneratorRow` always overwrites `.a` with the cell's own chain — so re-registering it every publish is
+  simple, not wasteful in any way that matters). `setFreeRunEnabled`'s OR-chain gained `euclideousEnabled`; a new
+  poll for beacon readiness runs independent of the existing `editorOpen`-gated one. **GESTURE TABS** (HITS/OFFSET
+  → VELOCITY/GATE → NOTE/OCTAVE, independent per lane) retarget the SAME `onRotateDelta`/`onHitsDelta` closures
+  `EuclidGesturePad` already exposes — their callback type was already a bare, meaning-free `(Int) -> Void`, so
+  zero gesture-component changes were needed, only per-lane tab state at the call site. NOTE/OCTAVE's cycle
+  deliberately excludes `.riff`/`.arp` (only resolve against a matching predecessor chain slot; Euclideous's cell
+  has none by construction — landing on either would silently go silent). **INVERT** is built entirely from the
+  existing, already-live HIT/MISS split — not a revival of the old dead `invert` field, which would have changed
+  the SHARED `EuclidLine` model's behaviour for the existing BUILD-page processor too. A first-draft naive 4-field
+  swap was WRONG for the single most common case (a fresh hit-only lane): `missNoteSel == nil` is the engine's own
+  "MISS off" sentinel, but `noteSel == nil` falls back to legacy target/pick resolution (audible `.all`, not
+  silence) — the two sides aren't symmetric by default. Fixed by establishing a real invariant first
+  (`missNoteSel` always populated once touched, `missVelocity <= 0` is this page's own "off" signal, symmetric
+  with the hit side's existing convention) — the pure swap logic lives in Derivations.swift specifically (not
+  EuclideousPage.swift, which imports SwiftUI) so it reaches the macOS test target; verified by hand AND by test
+  that inverting twice is a genuine behavioural no-op. **TESTS:** +19 across Models/SnapshotBuilder/Router/
+  BuildSceneLogic/Derivations (decode-tolerance, the SnapshotBuilder reconstruction gotcha, per-line rate density,
+  per-line emitter routing, the two composeSceneMeta guards in isolation, the INVERT fresh-lane/round-trip/both-
+  sides-configured cases, the note-select cycle's riff/arp exclusion). **DEVICE-OWED, the whole feature:** every
+  item any prior EUCLID UI entry in this log has owed, now compounded across 4 simultaneous lanes — real size/
+  touch-target feel, all 3 gesture tabs actually retargeting correctly in the hand, beacon accuracy, surviving
+  host stop/resume and a full app relaunch (persistence), coexisting with an active ferry, free-running with the
+  page closed, and confirming the BUILD-page EUCLID editor is still pixel/gesture-identical after the extraction.**
 - **▶ EUCLID BEACON — the full-guard-chain gap CLOSED FOR REAL via render-thread readiness, not a door-note
   approximation (2026-10-05, on `main`, `e4f252b`; macOS 1193 green incl. 3 new, iOS builds). Direct follow-up:
   Paul asked "are there any outstanding bugs?" after the prior session's 19-bug sweep closed 18/19 — the one
