@@ -278,7 +278,13 @@ struct ProcessorBox: View {
     /// gesture recognizer, so UIKit already tracks two independent touches on two different lanes natively —
     /// nothing stops that from working now that nothing claims a touch before it reaches its own lane's pad
     /// (see the removed EuclidSecondFingerCatcher, AudioUnitViewController.swift, for what USED to swallow it).
-    @State private var euclidTouchedLanes: Set<Int> = []
+    /// SPLIT INTO TWO SOURCES (Paul 2026-10-05, bugfix): a single shared `Set` couldn't tell "all 4 lanes lit
+    /// because of THIS lane's 2-finger ALL-ROWS gesture" apart from "lane 2 is ALSO independently lit by its own
+    /// single-finger touch" — ending the ALL-ROWS gesture called `.removeAll()`, which incorrectly cleared lane
+    /// 2's highlight too even though that finger was still down. Two independent pieces of state fix this by
+    /// construction: ending one source only ever clears ITS OWN contribution, never the other's.
+    @State private var euclidSingleTouchedLanes: Set<Int> = []   // lanes with their OWN independent single-finger touch
+    @State private var euclidAllRowsTouched = false              // a 2-finger ALL-ROWS gesture is live (lights every lane)
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -871,7 +877,14 @@ struct ProcessorBox: View {
                 }
             }
             private func pinchTouchDistance(_ g: UIPinchGestureRecognizer) -> CGFloat {
-                guard g.numberOfTouches >= 2 else { return 60 }   // a sane fallback — UIKit guarantees 2 touches by the time .began fires, so this shouldn't trigger in practice
+                // Paul 2026-10-05 (hardening): UIKit guarantees 2 touches by the time .began fires, so this guard
+                // shouldn't trigger in practice — but IF it ever did, a non-zero guess here would silently compute
+                // a WRONG step delta (0 ≠ scale's own true starting distance), reintroducing a narrower version of
+                // the exact bug the scale-based rewrite just fixed. 0 is the one value that's always SAFE: it's
+                // only ever read as `pinchStartDist` at .began, and `delta = pinchStartDist * (scale - 1)` is then
+                // 0 for the gesture's entire lifetime regardless of scale — a clean no-op (no spurious step
+                // change) rather than a guessed-but-wrong one.
+                guard g.numberOfTouches >= 2 else { return 0 }
                 let p0 = g.location(ofTouch: 0, in: g.view), p1 = g.location(ofTouch: 1, in: g.view)
                 return hypot(p1.x - p0.x, p1.y - p0.y)
             }
@@ -901,7 +914,7 @@ struct ProcessorBox: View {
     /// moves past a system threshold; a touch that never moves simply fails them, un-consumed).
     @ViewBuilder private func euclidLaneBox(_ idx: Int, _ L: EuclidLine, width: CGFloat, onDragInfo: @escaping (EuclidDragHUDInfo?) -> Void) -> some View {
         let selected = euclidSelectedLane == idx
-        let touched = euclidTouchedLanes.contains(idx)
+        let touched = euclidAllRowsTouched || euclidSingleTouchedLanes.contains(idx)
         let on = L.enabledResolved
         HStack(spacing: 8) {
             Image(systemName: on ? "play.fill" : "stop.fill")
@@ -942,8 +955,8 @@ struct ProcessorBox: View {
                                // finger down, independent of the sticky `euclidSelectedLane`. ALL ROWS (the
                                // 2-finger-on-one-pad gesture) genuinely reshapes every lane, so all 4 light up
                                // together; a plain single-finger touch marks only its own lane.
-                               if point == nil { if allRows { euclidTouchedLanes.removeAll() } else { euclidTouchedLanes.remove(idx) } }
-                               else { if allRows { euclidTouchedLanes = Set(0..<4) } else { euclidTouchedLanes.insert(idx) } }
+                               if point == nil { if allRows { euclidAllRowsTouched = false } else { euclidSingleTouchedLanes.remove(idx) } }
+                               else { if allRows { euclidAllRowsTouched = true } else { euclidSingleTouchedLanes.insert(idx) } }
                                guard let point else { onDragInfo(nil); return }
                                if !allRows { euclidSelectedLane = idx }   // "if any lane is touched... bring its control into focus" — a single-lane drag/pinch selects too, not just a plain tap; the 2-finger ALL-LANES case doesn't name one lane, so it's excluded
                                let label = allRows ? "ALL LANES" : "LANE \(idx + 1)"
@@ -1072,12 +1085,18 @@ struct ProcessorBox: View {
     /// which buffer entry sounds at that tick, and flashes the HIT dot when that tick is a hit, the MISS dot
     /// when it's a rest — so the two dots are always exact complements of one another, never both lit.
     /// RELIABLE, honestly scoped: this mirrors the PATTERN-level hit/miss decision, the same one the comet bar's
-    /// own box content already reflects — it does NOT re-run the full emission guard chain (RIFF/ARP predecessor
-    /// matching, pool-size clamps, etc.), since replicating that here would need live chain/pool state this
-    /// widget was never given. The ONE condition it DOES check beyond the bare pattern, because it's both
-    /// simple and load-bearing: a MISS tick never actually sounds unless `missNoteSel` is set — an unconfigured
-    /// MISS dot stays dark rather than flashing for a strike that never happens, matching the literal "on every
-    /// PLAYING hit/miss" ask.
+    /// own box content already reflects. UPDATED (Paul 2026-10-05): it now ALSO checks the two cheapest, most-
+    /// common ways a nominal "hit" silently produces no sound — a MISS tick never actually sounds unless
+    /// `missNoteSel` is set; a RIFF/ARP pick whose predecessor doesn't genuinely match never sounds
+    /// (`precedingSourceType`, mirroring Router.swift's own early-return guard exactly); a numbered-rank pick
+    /// (N1…N8) beyond the currently-held note count, or any pick against an empty pool, never sounds
+    /// (`avoidInputNotes`/`avoidChainInputDoor`, mirroring `resolveEuclidPick`'s own index math) — see
+    /// `euclidBeaconCanPlay`'s own doc comment for what's still APPROXIMATE about that last one. Still NOT a full
+    /// re-implementation of the emission guard chain: it doesn't walk RIFF/ARP's own resolved note (only whether
+    /// the predecessor TYPE matches), and the pool-size reading is the door's raw held notes, not the fully-
+    /// resolved upstream-chain pool right before this EUCLID slot — a chain stage between the door and EUCLID
+    /// that changes note count (e.g. CHANCE dropping notes) still isn't seen. Closing that fully would need live
+    /// chain/pool state this widget still isn't given.
     @ViewBuilder private func euclidBeaconDot(_ L: EuclidLine, isMiss: Bool) -> some View {
         let n = max(2, min(16, L.steps))
         let k = max(0, min(n, L.pulses))
@@ -1086,11 +1105,28 @@ struct ProcessorBox: View {
         let spanN = p.euclidSpanN ?? 0
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: Double(gridCols) * gridStepBeats) : 0
         let running = clockPlaying && L.enabledResolved
-        let canPlay = isMiss ? (L.missNoteSel != nil) : true   // an unconfigured MISS never sounds — see doc comment
+        let canPlay = euclidBeaconCanPlay(L, isMiss: isMiss)
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || !canPlay)) { tl in
             beaconCircle(flash: euclidBeaconFlash(tl.date, n: n, k: k, rotate: L.rotate, dir: dir, sub: sub,
                                                    spanBeats: spanBeats, isMiss: isMiss, running: running, canPlay: canPlay))
         }
+    }
+    /// Whether this beacon's resolved note-select could EVER sound, independent of the pattern's own hit/miss
+    /// timing — see `euclidBeaconDot`'s own doc comment for exactly what this does and doesn't replicate. Pulled
+    /// out to a plain function for the SAME reason `euclidBeaconFlash` below is: too much inline logic inside an
+    /// `@ViewBuilder` function body confuses Swift's result-builder inference ("type '()' cannot conform to
+    /// 'View'" — hit this directly while adding the checks, not guessed around).
+    private func euclidBeaconCanPlay(_ L: EuclidLine, isMiss: Bool) -> Bool {
+        guard !isMiss || L.missNoteSel != nil else { return false }   // an unconfigured MISS never sounds
+        let cur: EuclidNoteSel = isMiss ? (L.missNoteSel ?? .all) : L.noteSelResolved
+        let predecessorOK = cur == .riff ? precedingSourceType == .riff : cur == .arp ? precedingSourceType == .arp : true
+        guard predecessorOK else { return false }
+        if cur == .riff || cur == .arp { return true }   // resolved via the predecessor, not the pool — no count to check
+        // APPROXIMATE (see euclidBeaconDot's doc comment): the door's own held notes, not the fully-resolved
+        // upstream-chain pool right before this EUCLID slot.
+        let srcCountApprox = (avoidChainInputDoor >= 0 && avoidChainInputDoor < avoidInputNotes.count) ? avoidInputNotes[avoidChainInputDoor].count : 0
+        if let rank = cur.specificRank { return srcCountApprox >= rank }
+        return srcCountApprox > 0
     }
     /// Pure scalar half of `euclidBeaconDot` — pulled out so the `TimelineView` closure above stays a single
     /// simple call (Swift's result-builder type inference choked on the longer inline version: "generic

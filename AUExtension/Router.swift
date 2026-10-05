@@ -567,7 +567,34 @@ final class Router {
             srcNoteBuf[srcNoteCount] = (Int(n), pool.velocity(n)); srcNoteCount += 1
         }
     }
-    private var lastTick = [Int64](repeating: -1, count: Snap.rows)
+    // TICK DEDUP, keyed per (row, slot) not just per row (Paul 2026-10-05, fixing the timing smear investigated
+    // and left open on 2026-10-03: "`lastTick[row]` is a SINGLE scalar SHARED across every line on this row —
+    // safe for one real line; a known limitation for 2+ real lines sharing a row across a window boundary").
+    // EUCLID's up-to-4-lines-per-row design (the ONLY `iterateTicks` caller that invokes it more than once per
+    // row in a single render — ARP/RIFF/RATCHET-ALL/HOCKET each call it exactly once per row) meant two real
+    // lines on the same row shared ONE dedup scalar: when one line's tick advanced it past a tick the OTHER
+    // line hadn't reached yet, the other line's catch-up fire computed its `sampleOf` conversion in a LATER
+    // window's frame, landing roughly one render-window late — never a stuck note (every strike still gets a
+    // valid on/off pair), just smeared timing. `tickDedupSlotsPerRow` matches EUCLID's fixed 4-line count;
+    // every OTHER caller passes the default `lineIndex: 0`, landing on slot 0 of its row — the SAME single
+    // scalar-per-row behaviour as before, byte-identical.
+    private static let tickDedupSlotsPerRow = 4
+    private var lastTick = [Int64](repeating: -1, count: Snap.rows * Router.tickDedupSlotsPerRow)
+    /// Reset every tick-dedup slot for ONE row (all `tickDedupSlotsPerRow` lines) — the per-row flush/transition
+    /// edges that used to do a single `lastTick[row] = -1`.
+    private func resetTickDedup(row: Int) {
+        guard row >= 0 else { return }
+        let base = row * Router.tickDedupSlotsPerRow
+        for s in 0..<Router.tickDedupSlotsPerRow where base + s < lastTick.count { lastTick[base + s] = -1 }
+    }
+    /// Reset every tick-dedup slot for EVERY row — the whole-grid flush edges that used to do
+    /// `for r in lastTick.indices { lastTick[r] = -1 }` (still correct post-widening on its own, since
+    /// `.indices` adapts to the new size, but factored here so callers that paired it with a row-SIZED loop
+    /// over `strumProgress`/`lastGenStep` in the SAME `for` don't silently go out of bounds now that `lastTick`
+    /// is 4× longer than those two arrays).
+    private func resetAllTickDedup() {
+        for i in lastTick.indices { lastTick[i] = -1 }
+    }
     // Per-row: the absolute column-step a window-scan GENERATOR (burst/cascade/drone/shift/humanize) last emitted in.
     // On a column's FIRST window it differs from the current step → scan from colStart so the DOWNBEAT (and any pulse
     // in [colStart, mWinStart)) fires once instead of being dropped at the boundary. (Paul 2026-08-18)
@@ -810,7 +837,7 @@ final class Router {
         for i in refcount.indices { refcount[i] = 0 }
         distinctSounding = 0
         wasPlaying = false
-        for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
+        resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0b1111
         prevFreezeActive = false   // ROW 8 FREEZE: a reset clears the sustain edge
@@ -2328,8 +2355,10 @@ final class Router {
                               beatPos: Double, windowBeats: Double, windowStart: Int64,
                               beatsPerSample: Double, S: Double, a: Double, columns: Int = Snap.cols,
                               clockCell: SnapCell? = nil, clockFrom: Int = 0, clockTo: Int = 0, cycleBeats: Double = 0,
+                              lineIndex: Int = 0,   // which of this row's up-to-tickDedupSlotsPerRow lines this call is (EUCLID only; every other caller keeps the default, landing on slot 0 — byte-identical to the old single-scalar-per-row dedup)
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
+        let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
         let hasClock = clockCell != nil && clockTo > clockFrom
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2356,8 +2385,8 @@ final class Router {
             // PLAY: THIS CELL holds one column → its ticks fire EVERY window (decoupled from the timeline); normally
             // a tick fires only in its own effective column.
             if !forceColumnHold && lapColumn(laneMask: rowHeld[row], absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }   // PER-ROW LAP
-            if tick == lastTick[row] { continue }
-            lastTick[row] = tick
+            if tick == lastTick[dedupSlot] { continue }
+            lastTick[dedupSlot] = tick
 
             let onTime = sampleOf(musical: mTickBeatReal, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                   windowStart: windowStart, S: S, a: a)
@@ -2400,8 +2429,8 @@ final class Router {
                 let off = max(0, (realB - beatPos) / beatsPerSample)
                 closeExceptLegatoHolds(atSample: windowStart + Int64(off), out: out, onlyRow: onlyRow)
             }
-            if let rr = onlyRow { lastTick[rr] = -1; strumProgress[rr] = 0; lastGenStep[rr] = Int64.min }
-            else { for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min } }
+            if let rr = onlyRow { resetTickDedup(row: rr); strumProgress[rr] = 0; lastGenStep[rr] = Int64.min }
+            else { resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0; lastGenStep[r] = Int64.min } }
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, cycleBeats: cycleBeats, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)   // pinned → strike immortal so the preview rings
@@ -2573,7 +2602,7 @@ final class Router {
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
             allNotesOff(atSample: renderSampleImmediate, out: out)
-            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
+            resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             prevEffColumn = -1
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
@@ -2625,7 +2654,7 @@ final class Router {
             if !frozen {                                  // unfreeze: release + resume
                 allNotesOff(atSample: renderSampleImmediate, out: out, includeBypass: true)
                 prevEffColumn = -1
-                for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
+                resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0; lastGenStep[r] = Int64.min }
                 for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 }
                 clearEchoTails()
                 resetRecorderCapture(full: false)             // RECORDER: unfreeze keeps the loop
@@ -2650,7 +2679,7 @@ final class Router {
         if preview.active != prevPreviewActive {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             auditionStartSample = windowStart; auditionLastTick = -1
-            for i in lastTick.indices { lastTick[i] = -1; lastGenStep[i] = Int64.min }      // free the solo row's tick-dedup
+            resetAllTickDedup(); for i in lastGenStep.indices { lastGenStep[i] = Int64.min }      // free the solo row's tick-dedup
             previewPrevColumn = -1; strumProgress[0] = 0        // fresh column edge for the virtual cell
             clearEchoTails()                                    // parity with the other flush edges
             resetRecorderCapture(full: false)             // RECORDER: a uniform↔multi clock switch keeps the loop
@@ -2681,7 +2710,7 @@ final class Router {
             passAnchor = beatPos
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
-            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
+            resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             clearEchoTails()                             // ECHO: a pass restart drops the old pass's tails
             resetRecorderCapture(full: false)             // RECORDER: a pass restart keeps the loop (it IS the loop)
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
@@ -3723,7 +3752,7 @@ final class Router {
                 default: return (nil, nil)   // N1…N8 already resolved via specificRank above; .riff/.arp never reach here
                 }
             }
-            func runEuclidLine(pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double,
+            func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
@@ -3746,7 +3775,8 @@ final class Router {
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                              beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
-                             clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc) { _, mTickBeat, _, _ in
+                             clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc,
+                             lineIndex: lineIndex) { _, mTickBeat, _, _ in
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
                     // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a
@@ -3873,19 +3903,25 @@ final class Router {
                 }
             }
             // A pulses<=0 row is an UNUSED fixed slot — skipped entirely, not run-and-silenced. `iterateTicks`
-            // dedups via a scalar `lastTick[row]` SHARED across every line on this row (safe for one real line;
-            // already a known limitation for 2+ real lines sharing a row across a window boundary — pre-existing,
-            // not introduced here). Running all 4 lines unconditionally under POOL (which overrides EVERY line's K
-            // to the held-note count, ignoring its own authored `pulses`) turned the 3 always-present silent
-            // padding rows into 3 more real, identical lines competing for that shared dedup state — caught by
+            // used to dedup via a scalar `lastTick[row]` SHARED across every line on this row (safe for one real
+            // line; a known timing-smear limitation for 2+ real lines sharing a row across a window boundary —
+            // FIXED 2026-10-05, `iterateTicks` now dedups per (row, lineIndex), one scalar per line). Before that
+            // fix, running all 4 lines unconditionally under POOL (which overrides EVERY line's K to the
+            // held-note count, ignoring its own authored `pulses`) turned the 3 always-present silent padding
+            // rows into 3 more real, identical lines competing for that shared dedup state — caught by
             // `testEuclidPulsesFromPoolTracksHeldCount` going 9→54 note-ons, traced with a throwaway debug trace,
-            // not guessed. Skipping a pulses<=0 row keeps it out of the dedup contention entirely, matching the
-            // idle-row mockup ("0 hits, no comet") — an unused row stays silent regardless of POOL.
+            // not guessed. Skipping a pulses<=0 row still keeps it out of the dedup contention entirely (now
+            // moot for correctness, since lines no longer share a slot, but still cheap and matches the idle-row
+            // mockup — "0 hits, no comet" — an unused row stays silent regardless of POOL).
             // PLAY/STOP (Paul 2026-10-01): `enabledResolved` gates emission ONLY — pulses/steps/rotate are never
             // touched by the toggle, so re-enabling a lane resumes exactly the pattern it had before (not the
             // pulses=0 "unused slot" case just above, which is a different, permanent-until-edited state).
-            for L in p.euclidLines where L.pulses > 0 && L.enabledResolved {
-                runEuclidLine(pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
+            // `lineIndex` (the array position, 0...3 — fixed per-lane identity, NOT a re-packed "nth active
+            // line" count) is each line's OWN tick-dedup slot, so a lane keeps the SAME slot across windows
+            // where a sibling lane happens to be silent — using `.enumerated()`'s offset directly, not a
+            // separately-tracked "active line count", is what makes that stable.
+            for (lineIndex, L) in p.euclidLines.enumerated() where L.pulses > 0 && L.enabledResolved {
+                runEuclidLine(lineIndex: lineIndex, pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved)
             }
