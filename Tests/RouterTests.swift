@@ -5448,6 +5448,46 @@ final class RouterTests: XCTestCase {
         func vel(_ velocity: Double) -> UInt8 { notes(velocity).min { $0.sample < $1.sample }!.vel }
         XCTAssertLessThan(vel(0.3), vel(1.5), "a higher per-line VELOCITY scale produces a measurably louder note than a lower one")
     }
+    // EUCLIDEOUS (Paul 2026-10-05): per-line RATE overrides the machine-wide euclidRate — a line with its own
+    // fast rate must strike measurably MORE often than a sibling line left at the (slow) machine-wide default,
+    // over the identical real-time window. An inequality, not a hand-derived exact count — this project's own
+    // standing lesson (hand-derived tick arithmetic here is routinely wrong without an empirical check).
+    func testEuclidPerLineRateOverridesTheMachineWideRate() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidRate = .r1_2   // machine-wide default: slow
+        c.paramsA.euclidLines = [
+            EuclidLine(target: 0, pulses: 8, steps: 8),                  // no override → inherits the slow machine-wide rate
+            EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_16),    // its own, much faster rate
+        ]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 64]), beats: 4, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+        // both lines strike the SAME 2-note chord on the SAME bus — distinguish them only by onset DENSITY: the
+        // fast line's own strikes land far more often than the slow line's would alone, so the combined count is
+        // measurably more than double what the slow line alone would produce in the same window.
+        func soloCount(rate: ArpRate?) -> Int {
+            var solo = Machine(machineID: "gold", type: .euclid)
+            solo.paramsA.euclidRate = .r1_2
+            solo.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: rate)]
+            let sb = box(machines: machineIDs.map { $0 == "gold" ? solo : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let se = RecordingEmitter(); run(sb, chord([60, 64]), beats: 4, into: se, forceColumn: 0); assertNothingLeftSounding(se)
+            return se.ons.filter { $0.cable == 1 }.count
+        }
+        let slowAlone = soloCount(rate: nil), fastAlone = soloCount(rate: .r1_16)
+        XCTAssertGreaterThan(fastAlone, slowAlone, "sanity: .r1_16 alone strikes more often than the slow machine-wide default alone")
+        let combined = e.ons.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(combined, slowAlone, "the fast-rate line adds its own, more frequent strikes on top of the slow line's")
+    }
+    // EUCLIDEOUS: per-line emitterMask routes THIS line's strikes to a DIFFERENT bus than the cell's own —
+    // overriding, not ANDing with, the cell's resolved bm (mirrors CHOP's own ALT-destination precedent).
+    func testEuclidPerLineEmitterMaskOverridesTheCellsOwnBus() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, emitterMask: 0b0010)]   // B only — the cell itself is wired to A
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.contains { $0.cable == 2 }, "cable 2 = emitter B (Bus.cable 1 + 1) — the override must route here")
+        XCTAssertFalse(e.ons.contains { $0.cable == 1 }, "cable 1 = emitter A (the cell's own bus) — the override must NOT also sound here")
+        XCTAssertTrue(e.ons.contains { $0.cable == 0 }, "sanity: the shared ALL cable still fires per §7b, regardless of which specific bus the override picked")
+    }
     // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively off with zero
     // velocity"). Confirmed by testing before fixing, not assumed: velocity:0 used to still strike audibly at
     // MIDI velocity 1 (strikeChord's own clampVel floors every note to 1...127 — a floor meant to protect an

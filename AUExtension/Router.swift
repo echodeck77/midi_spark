@@ -3725,10 +3725,17 @@ final class Router {
         // (hocket/echo/tutti/etc, none of which author a per-lane octave) simply omits it, byte-identical. Mirrors
         // UTILITY's `utilOctave`/ARP's `arpPick` convention exactly: ×12, add, clamp 0...127 right at emission —
         // not a new convention invented for EUCLID.
-        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil) {
+        // EUCLIDEOUS (Paul 2026-10-05): `busOverride` lets a PER-LINE EuclidLine.emitterMask replace the cell's
+        // own `bm` for this one strike — nil (every existing caller) is byte-identical. Only reaches `chopMask`'s
+        // `base:` (not `emitDriverNote`'s separate `bm:` a few lines down) — EUCLID is structurally always the
+        // chain tail for Euclideous's one-slot cell (`hasDownstream` is permanently false there), so this is
+        // sufficient for that use. Since EuclidLine is shared with the existing, chainable BUILD-page EUCLID
+        // processor too, a line with emitterMask SET there would also route independently of the cell's own
+        // buses the moment a downstream processor exists — a disclosed, nil-default-safe consequence, not a bug.
+        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-            let tbm = chopMask(cell, m: tau, S: S, base: bm)
+            let tbm = chopMask(cell, m: tau, S: S, base: busOverride ?? bm)
             func strikeOne(_ rawNote: Int, _ rawVel: UInt8) {
                 let n = rawNote + transpose + 12 * octave
                 guard n >= 0 && n <= 127 else { return }
@@ -3866,7 +3873,7 @@ final class Router {
                 default: return (nil, nil)   // N1…N8 already resolved via specificRank above; .riff/.arp never reach here
                 }
             }
-            func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double,
+            func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, rate: Double, busOverride: UInt8?,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
@@ -3874,7 +3881,11 @@ final class Router {
                 // RATE×ladder (Paul 2026-08-27): GRID = the fixed step grain (density lives here + K/N); SPAN re-syncs the
                 // pattern every N columns (FREE = 0 = free-run). Rate and loop decoupled — an odd N against an aligning
                 // span drifts then snaps back. (Was the WIDTH model `sub = spanWidth/n`, where SPAN just scaled the speed.)
-                let sub = p.euclidRateBeats
+                // EUCLIDEOUS (Paul 2026-10-05): `rate` is now a PASSED-IN parameter (the caller resolves
+                // L.rate?.beats ?? p.euclidRateBeats) instead of this closure directly capturing the machine-wide
+                // field — lets each of Euclideous's 4 lines run its own rate; every existing non-Euclideous call
+                // resolves to the exact same machine-wide value as before, byte-identical.
+                let sub = rate
                 let spanBeats = p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0
                 // cycleLen (2n under PING-PONG, else n): looping the hit-count over the FULL cycle naturally
                 // double-counts a ping-pong's repeated endpoints the same way the real read-sequence does — no
@@ -3956,7 +3967,7 @@ final class Router {
                                 func strikeRiffRank(_ rank: Int) {
                                     guard rank >= 1 else { return }
                                     guard let base = riffResolve(rank: rank, oct: roct, n: chainScratch.srcCount(filter: 0), wrap: rp.riffWrap, asc: { Int(chainScratch.srcAscending($0, filter: 0)) }) else { return }
-                                    strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: rvel)
+                                    strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: rvel, busOverride: busOverride)
                                 }
                                 if rp.riffPoly {   // POLY: a step strikes the whole set rank mask as a simultaneous chord-stab
                                     let polyMask = stepIdx < rp.riffMask.count ? rp.riffMask[stepIdx] : 0
@@ -3975,7 +3986,7 @@ final class Router {
                                                    octDown: rp.arpOctDown, randomAnchor: rp.arpRandomAnchor, seed: rp.arpSeed,
                                                    velocity: rp.arpVelocity, velTilt: rp.arpVelTilt)
                                 guard pick.note >= 0 else { return }   // empty predecessor-fed pool
-                                strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: pick.vel)
+                                strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: pick.vel, busOverride: busOverride)
                             }
                             return
                         }
@@ -3986,9 +3997,9 @@ final class Router {
                         // byte-identical to before this field existed.
                         let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord)
                         if let range = pickRange {
-                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave) }
+                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave, busOverride: busOverride) }
                         } else {
-                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave)
+                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave, busOverride: busOverride)
                         }
                     } else if let missSel = missNoteSel {
                         // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — a REST step can now ALSO strike,
@@ -4009,9 +4020,9 @@ final class Router {
                         let missOrd = cy * effMisses + Int64(missesUpTo - 1)
                         let (pickIndex, pickRange) = resolveEuclidPick(missSel, ord: missOrd)
                         if let range = pickRange {
-                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: idx, octave: missOctave) }
+                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: idx, octave: missOctave, busOverride: busOverride) }
                         } else {
-                            strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: pickIndex, octave: missOctave)
+                            strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: pickIndex, octave: missOctave, busOverride: busOverride)
                         }
                     }
                 }
@@ -4035,8 +4046,12 @@ final class Router {
             // where a sibling lane happens to be silent — using `.enumerated()`'s offset directly, not a
             // separately-tracked "active line count", is what makes that stable.
             for (lineIndex, L) in p.euclidLines.enumerated() where L.pulses > 0 && L.enabledResolved {
+                // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
+                // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the
+                // cell's own bm, via strikeChord's busOverride).
                 runEuclidLine(lineIndex: lineIndex, pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved,
+                              rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved)
             }
         case .burst:
