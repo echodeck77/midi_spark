@@ -678,6 +678,47 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertNotNil(BuildSceneLogic.composeSceneMeta(i).auditionRow, "the fallback still exposes a row for the ferry's live feed")
     }
 
+    // EUCLIDEOUS (Paul 2026-10-05): ALWAYS composes into its own reserved Snap.euclideousRow, independent of
+    // any ferry — these lock in the two specific guard-edits the plan's own validation pass caught (both are
+    // easy to miss: a function that already early-returns before reaching new code, and a publish condition
+    // keyed on OTHER voices being active).
+    func testEuclideousComposesWithZeroFerriesActive() {
+        // The function's own OPENING guard (`anyFerryOn || i.chainActive`) would otherwise return (nil, nil)
+        // before any Euclideous-specific code even runs, when Euclideous is the ONLY active thing.
+        var i = BuildSceneLogic.Input()
+        i.euclideousOn = true
+        i.euclideousMachineID = "cyan"
+        i.euclideousChain = []
+        let s = BuildSceneLogic.composeScene(i)
+        XCTAssertNotNil(s, "Euclideous alone (no ferry, no chain audition) must still compose a scene")
+        XCTAssertEqual(s?.cellAt(0, Snap.euclideousRow)?.machineID, "cyan", "the Euclideous cell lands at column 0 of its own reserved row")
+    }
+    func testEuclideousRowIsGenuinelyPinned() {
+        // The `rowLane` PUBLISH guard (`s.rowLane = rowLane`) is gated on OTHER voices being active
+        // (stagingLane/playLane/anyFerryOn/chainLaneRow) — without `|| i.euclideousOn` added there too, the pin
+        // set earlier in the function is computed but never actually PUBLISHED, so the row would fall back to
+        // sweeping on whatever the ephemeral global lap key happens to be, instead of staying pinned.
+        var i = BuildSceneLogic.Input()
+        i.euclideousOn = true
+        i.euclideousMachineID = "cyan"
+        let s = BuildSceneLogic.composeScene(i)!
+        let lane = try! XCTUnwrap(s.rowLane, "Euclideous alone must still publish a rowLane array")
+        XCTAssertEqual(lane[Snap.euclideousRow], 0b1, "the row loops column 0 → a genuine 1-step continuous pin")
+    }
+    func testEuclideousCoexistsWithAnActiveFerry() {
+        // Euclideous's reserved row must compose alongside a normal, independently-active ferry — neither
+        // should affect the other's cell placement or rowLane entry.
+        var i = stagingInput(cells: partGrid([(0, 0, "gold")]), sel: [0, -1, -1, -1, -1, -1, -1, -1],
+                              rowChain: Array(repeating: [ProcessorSlot(type: .arp)], count: Snap.rowsPerFerry))
+        i.euclideousOn = true
+        i.euclideousMachineID = "cyan"
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, Snap.euclideousRow)?.machineID, "cyan", "Euclideous still composes at its own row")
+        XCTAssertEqual(s.cellAt(0, Snap.ferryRowBase(0))?.machineID, "gold", "the active ferry's own staging content is unaffected")
+        let lane = try! XCTUnwrap(s.rowLane)
+        XCTAssertEqual(lane[Snap.euclideousRow], 0b1, "Euclideous's row stays pinned even with a ferry also active")
+    }
+
     func testChainFallsBackToTheLeastOccupiedRowWhenPieceIsFull() {
         // PIECE (many cells per row) is gone; staging places at most ONE cell per column, so "one row far MORE
         // occupied than the rest, none empty" can no longer be constructed directly. The tied-occupancy diagonal

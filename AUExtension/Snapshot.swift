@@ -27,9 +27,18 @@ enum Snap {
     static let cols = 8, machines = 16, maxCols = 16
     static let ferries = 8, rowsPerFerry = 4
     static func ferryRowBase(_ t: Int) -> Int { t * rowsPerFerry }   // ferry t's own dedicated row block — the PERMANENT addressing
-    static let rows = ferries * rowsPerFerry   // 32 — the transitional Stage-2 stagingRowBase reservation is gone: the
-    // active ferry now composes through its own ferryRowBase block like every other ferry (Stage 3), so nothing needs a
-    // block reserved PAST the ferries' own rows anymore.
+    // EUCLIDEOUS (Paul 2026-10-05): ONE further reserved row, past the last ferry's own block — the standalone
+    // 4-lane instrument page's one EuclidMachine cell lives here, PINNED (its rowLane set to a single-column lap
+    // mask), always live, independent of which ferry is open on the BUILD-page bench. Deliberately NOT reused
+    // from the existing "chain audition" squat-in-whichever-ferry-row-is-empty mechanism — that's singular,
+    // fragile, and coupled to unrelated BUILD-page bench state, the wrong foundation for "a reliable, always-on
+    // instrument." The render engine itself is confirmed ferry-agnostic (every `for r in 0..<Snap.rows` loop in
+    // Router.swift/Kernel.swift/SnapshotBuilder.swift treats every row identically; ferry/row-block semantics
+    // live entirely in BUILD-page authoring code, which derives a row range FROM a ferry index via
+    // `ferryRowBase(t)`, never a ferry index FROM a row via reverse division) — so one extra non-ferry row is
+    // safe to add without touching render-path logic at all.
+    static let euclideousRow = ferries * rowsPerFerry   // = 32, the first index beyond the last ferry's own block
+    static let rows = ferries * rowsPerFerry + 1   // 33 = 32 ferry rows + Euclideous's own reserved row
     static var cells: Int { maxCols * rows }   // the per-cell array/feed size (index = col*rows + row, col 0…15)
     // delta §9 item 11: a source filter ≥17 matches no held note (NotePool.matches never sees chan ≥16),
     // so it is the render-free way to express a MUTED receiver — its subscribers read an empty pool.

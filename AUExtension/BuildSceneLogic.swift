@@ -34,6 +34,15 @@ enum BuildSceneLogic {
         // PART AUTOMATION (Paul 2026-09-02): per-machine AUTO lanes. A machine's active lane ramps a param across its
         // EXTENT of part cells, baked per-cell here (applyAuto). Empty ⇒ byte-identical.
         var partAuto: [String: PartAutoMachine] = [:]
+        // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument page — ALWAYS composes into its own
+        // reserved `Snap.euclideousRow`, independent of which ferry (if any) is active, so it's genuinely
+        // always-on rather than squatting in whichever ferry happens to have a free row (the chain-audition's
+        // own, deliberately NOT reused, mechanism above).
+        var euclideousOn = false
+        var euclideousChain: [ProcessorSlot] = []
+        var euclideousReceiver = 0
+        var euclideousEmitters: Set<Bus> = [.a, .b, .c, .d]   // full-open default — each EuclidLine's own emitterMask is the real per-lane selector
+        var euclideousMachineID: String? = nil
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -187,7 +196,7 @@ enum BuildSceneLogic {
     /// #5: the audition composes on a DYNAMIC row, so the ferry couldn't line up its strikes without knowing which).
     static func composeSceneMeta(_ i: Input) -> (scene: SceneState?, auditionRow: Int?) {
         let anyFerryOn = zip(i.ferryOn, i.ferryAudible).contains { on, audible in on && audible }
-        guard anyFerryOn || i.chainActive else { return (nil, nil) }
+        guard anyFerryOn || i.chainActive || i.euclideousOn else { return (nil, nil) }
         var s = SceneState.empty()
         var chainLaneRow: Int? = nil                                // the SELECT audition's engine row → looped to column 0 (a 1-step continuous pass)
         var chainPinned = false                                     // P1 (2026-08-30): pin col 0 ONLY for the single-cell (empty-row) audition; the fallback lays across many cols and must SWEEP
@@ -278,6 +287,19 @@ enum BuildSceneLogic {
             }
         }
 
+        // EUCLIDEOUS (Paul 2026-10-05): ALWAYS composes into its own reserved row when enabled — a 1-step
+        // CONTINUOUS pass exactly like the chain audition's own pinned shape above, but unconditional (no "is
+        // there a free row" search; this row is reserved specifically for Euclideous and nothing else can ever
+        // occupy it, so there's no fallback branch to write either).
+        if i.euclideousOn, let cid = i.euclideousMachineID {
+            let recv = max(0, min(3, i.euclideousReceiver))
+            var cell = Cell(machineID: cid, buses: i.euclideousEmitters.isEmpty ? [.a] : i.euclideousEmitters)
+            cell.inputReceiver = recv
+            cell.processors = i.euclideousChain
+            s.setCell(0, Snap.euclideousRow, cell)
+            rowLane[Snap.euclideousRow] = 0b0000_0001   // pinned — a 1-step continuous pass, always, independent of chainPinned/chainLaneRow above
+        }
+
         // PLAY-FERRY LAUNCH (Paul 2026-09-09): carry the per-engine-row launch anchors onto the scene (0 ⇒ no anchor,
         // transport-locked). A non-zero anchor forces the multi-clock path in the Router and phases the row from column 0.
         if i.rowLaunchAnchor.contains(where: { $0 != 0 }) {
@@ -289,7 +311,11 @@ enum BuildSceneLogic {
         // means "use the ephemeral GLOBAL lap key for every row" — a full Snap.rows array (even all-zero) means "each
         // row's own entry decides (0 = no loop)". So this must fire whenever ANY ferry is on, not just when a pin/lane
         // is actually non-zero, else a currently-held global lap key would leak onto a ferry row that should play free.
-        if i.stagingLane != 0 || i.playLane != 0 || anyFerryOn || chainLaneRow != nil { s.rowLane = rowLane }
+        // EUCLIDEOUS (Paul 2026-10-05): its own pin above is subject to the EXACT same contract — without
+        // `|| i.euclideousOn` here, an enabled-but-otherwise-lone Euclideous page would never get its pin
+        // published at all, and its row would fall back to sweeping on unrelated global lap state instead of
+        // staying pinned (caught during planning, not discovered as a device bug — see the plan's own validation pass).
+        if i.stagingLane != 0 || i.playLane != 0 || anyFerryOn || chainLaneRow != nil || i.euclideousOn { s.rowLane = rowLane }
 
         return (s, chainLaneRow)
     }

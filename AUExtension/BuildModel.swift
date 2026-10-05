@@ -249,9 +249,13 @@ extension AutoLane {
         spanPasses = try c.decodeIfPresent(Int.self, forKey: .spanPasses)
         smooth     = try c.decodeIfPresent(Bool.self, forKey: .smooth) ?? false
         // MIGRATION (Paul 2026-09-04): a pre-span-only lane stored its extent in `cells`; derive a contiguous span from
-        // that column range so old automations survive the model switch.
+        // that column range so old automations survive the model switch. FROZEN to the literal 32 (Paul 2026-10-05,
+        // EUCLIDEOUS widened the LIVE Snap.rows to 33) — `cells` was encoded as `col * Snap.rows + row` under the
+        // ORIGINAL Snap.rows==32 regime this migration targets; reading it back against whatever Snap.rows happens
+        // to be TODAY would misinterpret a document saved before 2026-09-04 that has never been resaved since (a
+        // narrow, self-healing, non-destructive case — spanStart/spanLen get re-persisted going forward either way).
         if spanStart == nil, spanLen == nil, !cells.isEmpty {
-            let cols = cells.map { $0 / Snap.rows }
+            let cols = cells.map { $0 / 32 }
             if let lo = cols.min(), let hi = cols.max() { spanStart = lo; spanLen = max(1, hi - lo + 1) }
         }
     }
