@@ -2906,16 +2906,14 @@ extension DiagView {
         // read buildSelReceiver while the write went to the row → the toggle looked dead/incorrect).
         let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i }
             ?? (buildSelReceiver == i)
-        // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label; the door letter moves to the
-        // top so its identity is kept. (Paul 2026-08-29) Otherwise, show the notes this door is receiving LIVE, or
-        // "no input" when it's holding nothing (Paul 2026-09-29) — the top caption is now ALWAYS the letter, since
-        // every branch fills the big slot with something (key, live notes, or the "no input" state); there's no
-        // remaining case where the big slot shows the plain letter itself. SCALE is the ONLY exception (Paul: "the
-        // exception being scale") — a CHORD door used to share this branch too (`buildChordDoorLabel`, "A · CHRD"),
-        // which read as "it still shows 'chord'"; dropped, so a CHORD door now falls through to live notes/no input
-        // like any other door — its own resolved chord pool, live, is exactly as meaningful a "notes received"
-        // readout as a plain input door's.
-        let letter = ["A", "B", "C", "D"][i]
+        // If the door has a KEY selected (a SCALE door → its root), show the KEY as the label. (Paul 2026-08-29)
+        // Otherwise, show the notes this door is receiving LIVE, or "no input" when it's holding nothing (Paul
+        // 2026-09-29) — every branch fills the chip with something (key, live notes, or the "no input" state);
+        // there's no remaining case where the chip shows the plain door letter itself. SCALE is the ONLY exception
+        // (Paul: "the exception being scale") — a CHORD door used to share this branch too (`buildChordDoorLabel`,
+        // "A · CHRD"), which read as "it still shows 'chord'"; dropped, so a CHORD door now falls through to live
+        // notes/no input like any other door — its own resolved chord pool, live, is exactly as meaningful a
+        // "notes received" readout as a plain input door's.
         let key: String? = i < receivers.count ? receivers[i].scaleLabel : nil   // "A MIXO" (SCALE), else nil
         let big = key ?? liveNoteClassLabel(i) ?? "no input"
         // SMALLER TEXT (Paul 2026-09-29): the note-name/key/"no input" readout was rendering at the chip's full 15pt —
@@ -2923,7 +2921,7 @@ extension DiagView {
         // avoid clipping, so it was rendering near that full size and reading as too dominant. `textSize:` overrides
         // ONLY this call (the receiver toggles); buildEmitterToggles below keeps the default 15 — Paul has scoped this
         // note-display feature to receiver chips specifically before ("not the separate MIDI-OUT emitter toggles").
-        buildIOSelectChip(top: letter, letter: big, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, textSize: 11, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
+        buildIOSelectChip(letter: big, on: buildIONullPending ? false : on, accent: receiverGrey(i), pulse: buildIONullPending, textSize: 11, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })   // ON = the receiver's SIGNATURE GREY (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05)
     }
     // A door's currently-held notes as a live pitch-class label (see the shared `noteClassLabel` in GridUI.swift —
     // "c e g", lowercase, no octave). Reuses recvHeldNotes, the same live per-door feed the config-sheet REPLAY
@@ -2946,7 +2944,7 @@ extension DiagView {
         HStack(spacing: 4) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in
                 let on = resolved.contains(b)
-                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildIONullPending ? false : on, accent: emitterHue(b), pulse: buildIONullPending, chaseIndex: allOff ? i : nil, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE machine (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05); all-off ⇒ chase (Paul 2026-09-29)
+                buildIOSelectChip(letter: b.rawValue, on: buildIONullPending ? false : on, accent: emitterHue(b), pulse: buildIONullPending, chaseIndex: allOff ? i : nil, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })   // ON = the emitter's SIGNATURE machine (Paul 2026-08-30); null-pending ⇒ off + pulse (Paul 2026-09-05); all-off ⇒ chase (Paul 2026-09-29)
             }
         }
         .frame(width: castW)
@@ -2967,7 +2965,7 @@ extension DiagView {
     // emitter toggles so they read identically. (Paul 2026-08-18)
     // `textSize` (Paul 2026-09-29): default 15 keeps buildEmitterToggles' plain bus letter unchanged; buildReceiverSelectChip
     // passes 11 for its note-name/key/"no input" readout, which read too large at the full size (see its own call site).
-    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, accent: Color? = nil, pulse: Bool = false, chaseIndex: Int? = nil, textSize: CGFloat = 15, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
+    @ViewBuilder private func buildIOSelectChip(letter: String, on: Bool, accent: Color? = nil, pulse: Bool = false, chaseIndex: Int? = nil, textSize: CGFloat = 15, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
         // Paul 2026-08-30: HALF height (48→24) + only the LARGER line (the letter) — the small "MIDI IN"/"MIDI OUT" caption dropped.
         Text(letter).font(.system(size: textSize, weight: .black, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.4)   // scale to fit a longer key label like "A MIXO"
         .foregroundColor(on ? Color.black : buildDim)
@@ -3767,7 +3765,7 @@ extension DiagView {
     // (the chain + verb/play buttons — everything between the two toggle sets) is REPLACED by these big creation buttons,
     // in the SAME footprint. Each mints a machine onto the empty row (the machine box then edits it, available to sequence).
     private func buildCreateRowMachine(_ row: Int, chain: [ProcessorSlot]) {
-        guard row >= 0, row < 8 else { return }
+        guard row >= 0, row < Snap.rowsPerFerry else { return }   // a part has 4 real rows, not 8 (Paul 2026-10-05, hardening — see buildSelectRow's own note)
         buildRecordUndo()
         let y = buildNewMachine(hex: buildDistinctHue(), machine: chain)
         buildSetRow(row, to: y)                                  // place the machine across the row's cells (selectable in any column)
@@ -3954,8 +3952,8 @@ extension DiagView {
         buildStagingMulti = Snap.padCols(p.stagingMulti ?? [], 0)   // MULTI-SELECT (2026-09-27); nil/short ⇒ no mask (falls back to the lead)
         buildRowChain = p.rowChain; buildRowShade = p.rowShade; buildRowUnder = p.rowUnder
         buildSelID = p.selID; ddMachineSel = p.selID.flatMap { machineIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast; buildCastSlots = p.castSlots
-        buildRowReceiver = p.rowReceiver ?? Array(repeating: nil, count: 8)   // PER-ROW I/O — old parts have nil → all rows inherit (Paul 2026-08-18)
-        buildRowEmitters = p.rowEmitters ?? Array(repeating: nil, count: 8)
+        buildRowReceiver = p.rowReceiver ?? Array(repeating: nil, count: Snap.rowsPerFerry)   // PER-ROW I/O — old parts have nil → all rows inherit (Paul 2026-08-18)
+        buildRowEmitters = p.rowEmitters ?? Array(repeating: nil, count: Snap.rowsPerFerry)
         buildPartRate = p.rate; buildPartLen = p.length                       // PER-PART CLOCK (Paul 2026-08-19)
         buildPartLoopCols = p.loopCols ?? []                                  // PART LOOP SELECTION (Paul 2026-09-26)
         buildReslotCast()                                       // migrate old parts + backfill any extra machine missing a slot
@@ -4209,7 +4207,7 @@ extension DiagView {
 
 
     // buildStagingTap RETIRED (Paul 2026-09-12 dead-code sweep — no caller; the part grid drives selection elsewhere).
-    func buildRowMachine(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<Snap.maxCols).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe; §E: scan all 16 columns
+    func buildRowMachine(_ r: Int) -> String? { r >= 0 && r < Snap.rowsPerFerry ? (0..<Snap.maxCols).compactMap { $0 < buildStagingCells.count && r < buildStagingCells[$0].count ? buildStagingCells[$0][r] : nil }.first : nil }   // Rooms4: bounds-safe; §E: scan all 16 columns
     private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one machine
         for c in 0..<Snap.maxCols { buildStagingCells[c][r] = cid }   // §E: fill the whole 16-col row (width governs view/play)
         if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the machine's OWN machine (no per-row variation override)
@@ -4228,7 +4226,12 @@ extension DiagView {
     // into `additive: true`; the whole-row RAIL TAP (buildToggleSelectRow) keeps the original replace behaviour —
     // "this row is now the thing" is a deliberate replace, per the 2026-09-27 multi-select v1 decision, untouched.
     private func buildSelectRow(_ row: Int, additive: Bool = false) {
-        guard row >= 0, row < 8 else { return }
+        // Paul 2026-10-05 (hardening): a part has Snap.rowsPerFerry(4) real rows, not 8 — this guard predates the
+        // ferry-row-unification shrink and was never tightened (harmless until now, since every actual caller
+        // already only ever passes 0..<4). Matters now because the `additive` branch below does `UInt8(1 << row)` —
+        // for row >= 8 that TRAPS (Swift's UInt8(_:) conversion overflow check), a latent crash this stale bound
+        // would have let through.
+        guard row >= 0, row < Snap.rowsPerFerry else { return }
         if additive && buildSelMultiActive {
             for c in 0..<Snap.maxCols {
                 var mask = buildStagingMulti[c]
@@ -4248,7 +4251,7 @@ extension DiagView {
     // SECOND time (while its whole-row select is still in effect) REVERTS to the per-column selection that existed before —
     // an undo for an accidental hit. Any intervening edit breaks the "still in effect" test, so a later tap re-selects afresh.
     private func buildToggleSelectRow(_ row: Int) {
-        guard row >= 0, row < 8 else { return }
+        guard row >= 0, row < Snap.rowsPerFerry else { return }   // a part has 4 real rows, not 8 (Paul 2026-10-05, hardening — see buildSelectRow's own note)
         // Revert only if the last rail tap was THIS row AND its whole-row select is still standing untouched.
         if let rv = buildRowSelectRevert, rv.row == row, buildStagingSel.allSatisfy({ $0 == row }) {
             buildStagingSel = rv.prev

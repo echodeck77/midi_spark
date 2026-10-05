@@ -265,8 +265,8 @@ struct DiagView: View {
     @State var reelStateRing: [Int: BuildSceneSnapshot] = [:]
     @State var reelLastPassCounter = -1
     // PER-ROW I/O (Paul 2026-08-18): each staging row can override the part's default door/emitters; nil = inherit.
-    @State var buildRowReceiver: [Int?] = Array(repeating: nil, count: 8)
-    @State var buildRowEmitters: [Set<Bus>?] = Array(repeating: nil, count: 8)
+    @State var buildRowReceiver: [Int?] = Array(repeating: nil, count: Snap.rowsPerFerry)
+    @State var buildRowEmitters: [Set<Bus>?] = Array(repeating: nil, count: Snap.rowsPerFerry)
     @State var buildPendingSource: [ProcessorSlot] = []  // the chain the pending tab was copied from — diverge = PLACED
     @State var buildRow8Cells: [Row8Cell] = Row8Cell.factoryDeck   // ROW 8 (Paul 2026-08-22): the authored action cells (refreshed from the document)
     @State var buildRow8On: [Bool] = Array(repeating: false, count: 8)   // ROW 8: the active scene's lit TOGGLE state
