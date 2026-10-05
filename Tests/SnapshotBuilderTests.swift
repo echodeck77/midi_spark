@@ -672,6 +672,22 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(a.euclidLines[0].noteSelResolved, .high, "no per-line pick ⇒ falls back to the machine-wide global, not ALL")
     }
 
+    // EUCLIDEOUS (Paul 2026-10-05): rate/emitterMask must survive the explicit EuclidLine(...) reconstruction in
+    // SnapshotBuilder — that constructor is a fresh literal, not copy-with-mutation, so this is a REAL regression
+    // guard (a prior RATE-automation feature was bitten by exactly this omission).
+    func testEuclidLineRateAndEmitterMaskSurviveSnapshotBuild() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, rate: .r1_8t, emitterMask: 0b1011)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(a.euclidLines[0].rate, .r1_8t, "per-line rate must survive the resolve, not silently reset")
+        XCTAssertEqual(a.euclidLines[0].emitterMask, 0b1011, "per-line emitter override must survive the resolve")
+        // defensive masking, mirroring echoInKeyReceivers's own "only bits 0-3 are meaningful" guard
+        let masked = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, emitterMask: 0xFF)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(masked.euclidLines[0].emitterMask, 0x0F, "only the low 4 bits (A-D) are meaningful")
+    }
+
     // The 16-machine cap is lifted: the builder sizes its machine array to the document and resolves cells BY ID, so a
     // machine appended beyond the canonical 16 (a BUILD ephemeral machine) renders instead of being skipped. (2026-08-15)
     func testBuilderResolvesMachineBeyondTheSixteen() {

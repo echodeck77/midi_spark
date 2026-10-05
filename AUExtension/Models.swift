@@ -188,6 +188,17 @@ struct EuclidLine: Codable, Equatable {
     var missGate: Double? = nil        // MISS gate length. nil ⇒ 0.9 (same default as hit's own gate)
     var missOctave: Int? = nil         // MISS octave shift. nil ⇒ 0
     var missVelocity: Double? = nil    // MISS velocity multiplier. nil ⇒ 1.0
+    // PER-LINE RATE (Paul 2026-10-05, EUCLIDEOUS): nil ⇒ inherit the machine-wide `euclidRate`/`euclidRateBeats`
+    // (byte-identical for every existing doc, incl. the BUILD-page EUCLID processor, which has no UI for this and
+    // will never set it). Lets each of Euclideous's 4 lanes run its own tempo-relative rate.
+    var rate: ArpRate? = nil
+    // PER-LINE EMITTER OVERRIDE (Paul 2026-10-05, EUCLIDEOUS): bit i = emitter A…D — mirrors `echoInKeyReceivers`'s
+    // exact convention (same bit layout, same nil-means-unset semantics). nil ⇒ inherit the cell's own resolved
+    // bus mask, byte-identical for every existing doc. Only reaches Router.swift's `strikeChord` when EUCLID is
+    // the chain's own tail (true by construction for Euclideous's one-slot cell) — see Router.swift's own comment
+    // at the call site for the one disclosed consequence of this field being shared with the chainable BUILD-page
+    // EUCLID processor too.
+    var emitterMask: UInt8? = nil
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -240,6 +251,8 @@ extension EuclidLine {
         missGate = try c.decodeIfPresent(Double.self, forKey: .missGate)
         missOctave = try c.decodeIfPresent(Int.self, forKey: .missOctave)
         missVelocity = try c.decodeIfPresent(Double.self, forKey: .missVelocity)
+        rate = try c.decodeIfPresent(ArpRate.self, forKey: .rate)
+        emitterMask = try c.decodeIfPresent(UInt8.self, forKey: .emitterMask)
     }
 }
 // EUCLID DIRECTION (Paul 2026-10-01): a DEDICATED enum, not a reuse of RIFF's own `RiffDir` — EUCLID needs only
@@ -1732,6 +1745,21 @@ struct PluginState: Codable, Equatable {
         if let e = claimEmitter, (0..<4).contains(e) { return UInt8(1 << e) }
         return 0
     }
+    // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument page's own PERSISTED config — not an
+    // ephemeral BUILD-page audition (which never survives closing/reopening the plugin), a genuine authored
+    // document field. Additive-Optional, same CR-8 reasoning as every other field on this struct: a missing key
+    // decodes nil ⇒ the page has never been touched (resolves to the 4-fixed-line default shape, disabled).
+    var euclideousLines: [EuclidLine]? = nil
+    var euclideousEnabled: Bool? = nil
+    var euclideousReceiver: Int? = nil
+    /// Always exactly 4 (mirrors `MachineParams.euclidLinesForEditing()`'s own pad/truncate contract — a short
+    /// or missing array pads with silent (pulses: 0) lines, an over-long one truncates). Non-persisting.
+    var euclideousLinesResolved: [EuclidLine] {
+        let L = euclideousLines ?? []
+        return Array((L + Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)).prefix(4))
+    }
+    var euclideousEnabledResolved: Bool { euclideousEnabled ?? false }
+    var euclideousReceiverResolved: Int { max(0, min(3, euclideousReceiver ?? 0)) }
     // delta §6a CLAIM v2 LEAK %: per-claimant bleed — a claimed pitch class passes on non-claimants at this
     // scaled velocity (0 = full suppression = v1; the hole becomes a SHADOW). Persisted. Optional → nil = all 0.
     var claimLeak: [Int]? = nil

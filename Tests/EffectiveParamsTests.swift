@@ -114,6 +114,45 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(line.pulses, 5)
     }
 
+    // EUCLIDEOUS (Paul 2026-10-05): rate/emitterMask are the newest two EuclidLine fields — same CR-8 contract as
+    // die/noteSel/gate/etc above, a doc saved before they existed must still decode without throwing.
+    func testEuclidLineDecodesWithoutRateOrEmitterMaskKeys() throws {
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
+        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertNil(line.rate, "nil ⇒ inherit the machine-wide rate")
+        XCTAssertNil(line.emitterMask, "nil ⇒ inherit the cell's own bus mask")
+    }
+    func testEuclidLineRateAndEmitterMaskRoundTripThroughCodable() throws {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.rate = .r1_8t
+        line.emitterMask = 0b0101   // A + C
+        let data = try JSONEncoder().encode(line)
+        let back = try JSONDecoder().decode(EuclidLine.self, from: data)
+        XCTAssertEqual(back.rate, .r1_8t)
+        XCTAssertEqual(back.emitterMask, 0b0101)
+    }
+
+    // EUCLIDEOUS: PluginState's own persisted config — a doc saved before this feature existed must decode with
+    // the page simply absent/disabled, never throw (the same CR-8 contract every other PluginState field follows).
+    func testEuclideousFieldsDecodeAbsentAndResolveToDisabled() throws {
+        let legacy = doc()   // no euclideousLines/Enabled/Receiver keys at all — PluginState's synthesized Decodable
+        let data = try JSONEncoder().encode(legacy)
+        let back = try JSONDecoder().decode(PluginState.self, from: data)
+        XCTAssertFalse(back.euclideousEnabledResolved)
+        XCTAssertEqual(back.euclideousReceiverResolved, 0)
+        XCTAssertEqual(back.euclideousLinesResolved.count, 4, "always pads to exactly 4, mirroring euclidLinesForEditing()")
+        XCTAssertTrue(back.euclideousLinesResolved.allSatisfy { $0.pulses == 0 }, "an untouched page's 4 lines are silent placeholders")
+    }
+    func testEuclideousLinesResolvedPadsAndTruncates() {
+        var d = doc()
+        d.euclideousLines = [EuclidLine(pulses: 4, steps: 8)]   // only 1 of 4 authored
+        XCTAssertEqual(d.euclideousLinesResolved.count, 4)
+        XCTAssertEqual(d.euclideousLinesResolved[0].pulses, 4)
+        XCTAssertEqual(d.euclideousLinesResolved[1].pulses, 0)
+        d.euclideousLines = Array(repeating: EuclidLine(pulses: 2, steps: 8), count: 6)   // over-long
+        XCTAssertEqual(d.euclideousLinesResolved.count, 4)
+    }
+
     /// The builder mirrors the 16 macro values into the snapshot (clamped 0…1); a clean doc yields 16 zeros.
     func testBuilderMirrorsMacroValuesClamped() {
         var doc = self.doc()
