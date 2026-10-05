@@ -5247,6 +5247,7 @@ extension DiagView {
             precedingSourceType: precedingSourceType,   // SEQUENTIAL SOURCES: shows a RIFF/ARP note-select chip on EUCLID only when that source is immediately upstream and not bypassed
             riffDrunkPosLive: buildRiffDrunkPos,   // RIFF DRUNK's true walk position, polled (Paul 2026-09-28) — see AudioUnitViewController's editorOpen poll
             gridStepBeats: stepBeats,   // the DEFAULT grid-column clock for the generic matrices/lanes (Paul 2026-09-11)
+            gridCols: roomsRoom == .part ? buildPartCols : Snap.cols,   // the EDITED row's real width (Paul 2026-10-05) — PART can be 16-wide; SELECT's audition has no multi-column part to be wrong about, so it keeps today's 8
 
             onBypass: { buildChainToggleBypass(i) },
             onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },

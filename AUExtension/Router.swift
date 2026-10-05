@@ -1688,7 +1688,7 @@ final class Router {
                              beatsPerSample: Double, a: Double, heldCell: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
             var cell = box.cells[effColumn * Snap.rows + r]
             if cell.machineIndex < 0 || cell.muted || cell.dormant { return }   // LADDER dormant
-            applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
+            applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, cycleBeats: cycleBeats, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
             if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: musicalOf(beatPos, stepBeats: S, a: a), S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp
             if box.hasParamLFO { applyParamLFO(&cell, box: box, r: r, beat: musicalOf(beatPos, stepBeats: S, a: a), S: S, column: effColumn) }   // PER-PARAM LFO (Docs/PLAN-param-lfo.md): swing scalar params around their base
             if soloSilenced(cell) { return }   // receiver strip: input SOLO excludes this cell's receiver
@@ -1763,7 +1763,7 @@ final class Router {
                 case .strum:
                     emitStrumRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                  pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                                 beatsPerSample: beatsPerSample, S: S, a: a, chainDriver: driver, out: out, diag: &diag)
+                                 beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
                 case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:   // GENERATORS as chain drivers (user 2026-08-09; HOCKET 2026-08-27)
                     let dm = cellMode(type: driveP.type, bypassed: false)
                     emitGeneratorRow(mode: dm, cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
@@ -1807,7 +1807,7 @@ final class Router {
             case .strum:
                 emitStrumRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                             beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+                             beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:
                 // PART GRID × GENERATOR interaction bug (Paul 2026-10-04, "it feels more like a problem with the
                 // part grid than the euclid, or it may be in the way they interact"): this STANDALONE-driver branch
@@ -1839,12 +1839,12 @@ final class Router {
                 if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
                     emitTuttiPatternRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                                         pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                                        windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+                                        windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
                 }
             case .length:                          // standalone LENGTH re-articulates the held chord per the painted gate
                 emitLengthRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                               pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                              windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+                              windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .silent:
                 break   // a silenced downstream stage → nothing this window
             }
@@ -1854,6 +1854,14 @@ final class Router {
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
                                  beatsPerSample: Double, windowStart: Int64,
                                  windowEnd: Int64, tempo: Double, out: MIDIEmitter?,
+                                 // PART GRID × GENERATOR interaction bug (Paul 2026-10-05, same root cause as the
+                                 // EUCLID 16-wide-part fix the day before): STRIKE PER SPAN and the CHORDS-hold
+                                 // composeChainSet pass counter used to hardcode Double(Snap.cols) * S instead of
+                                 // the row's REAL cycle length — correct only by coincidence on a default 8-column,
+                                 // default-rate row. Required (no default): this function has no business guessing
+                                 // a row's length when every caller already has the right value in scope (the
+                                 // uniform fast path's own global cycleBeats, or the multi-clock path's per-row cycR).
+                                 cycleBeats: Double,
                                  reconcileOnly: Bool = false,   // PLAY: THIS CELL frozen-column re-run — adopt/close the immortal holds only, never re-strike
                                  auditionSustain: Bool = false, // PINNED continuous row (the SELECT/PLAY audition): sustain EVERY hold like forceColumnHold, so a frozen single-column preview rings continuously
                                  onlyRow: Int? = nil,           // PER-PART CLOCK: scope the hold reconcile + emit to ONE row
@@ -1882,7 +1890,7 @@ final class Router {
             if cell.machineIndex < 0 || cell.busMask == 0 || cell.muted || cell.dormant { continue }   // LADDER dormant
             if cell.passthrough && cell.resolvedReceiver >= 0 { continue }   // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected passthrough passes its input straight through in REALTIME (reconcileBypass), NOT on the grid's step clock. (A door-less passthrough — no receiver to source from in the per-door bypass pass — stays a gridded hold.)
             if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: mNow, S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp (a hold samples the value at the column-entry beat)
-            applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
+            applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, cycleBeats: cycleBeats, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
             if box.hasParamLFO { applyParamLFO(&cell, box: box, r: r, beat: mNow, S: S, column: column) }   // PER-PARAM LFO (Docs/PLAN-param-lfo.md): swing scalar params around their base
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if composableLengthTailIndex(cell) != nil { continue }   // [→ LENGTH] re-articulates the composed set in the tick loop (emitLengthComposedRow), never a plain hold here
@@ -1946,7 +1954,7 @@ final class Router {
             // — a clean re-attack. Between origins we adopt (no re-strike). Key-up (empty pool) closes as usual. Skipped
             // under reconcileOnly (PLAY: THIS CELL freezes the column → would re-articulate every window). nil ⇒ off ⇒ today's drone.
             let spsSpanBeats = (legato && treat.a.strikePerSpan && !reconcileOnly)
-                ? spanLadderBeats(treat.a.strikeSpanN, S: S, row: Double(Snap.cols) * S) : 0
+                ? spanLadderBeats(treat.a.strikeSpanN, S: S, row: cycleBeats) : 0
             let spsReArticulate = spsSpanBeats > 0 && abs(colStart - columnStart(colStart, spsSpanBeats)) < 1e-9
             // §cell-edit F CHOP: a hold is ONE articulation (at colStart = slice 0), so route it by that slice's
             // chop — MAIN adds the cell's own emitters, ALT adds altDest, MUTE silences. `chopMask` returns `bm`
@@ -1956,8 +1964,8 @@ final class Router {
             // CHORDS reads its progression clock from the RAW beat (mNow), NOT the grid-quantized colStart — else the rate
             // step is sampled only at column boundaries and aliases to one degree (Paul 2026-09-01). Other holds keep colStart.
             let composeM = chordsHold ? mNow : colStart
-            if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: chordsHold ? tailIdx : tailIdx - 1, m: composeM, S: S, cycleBeats: Double(Snap.cols) * S) }   // CHORDS tail: include the stage so chainScratch holds the derived chord
-            else if chordsHold { composeChainSet(cell: cell, pool: cellPool, upto: 0, m: composeM, S: S, cycleBeats: Double(Snap.cols) * S) }   // lone [CHORDS]: fold the single stage
+            if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: chordsHold ? tailIdx : tailIdx - 1, m: composeM, S: S, cycleBeats: cycleBeats) }   // CHORDS tail: include the stage so chainScratch holds the derived chord
+            else if chordsHold { composeChainSet(cell: cell, pool: cellPool, upto: 0, m: composeM, S: S, cycleBeats: cycleBeats) }   // lone [CHORDS]: fold the single stage
             let srcN = readScratch ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter (CHORDS reads the composed chord)
             // §2 POOL-STEP UNITS (standalone/hold): TRANSPOSE steps the note by pool DEGREES; HARMONIZE voices in degrees.
             // The pool mask = the SOURCE set's pitch classes (the scale/chord feeding the cell). procShift = the processor's
@@ -2380,6 +2388,7 @@ final class Router {
     private func emitColumnTransition(box: SnapshotBox, effCol: Int, prevEdge: Int, onlyRow: Int?,
                                       S: Double, a: Double, mNow: Double, pass: Int, tempo: Double,
                                       beatPos: Double, beatsPerSample: Double, windowStart: Int64, windowEnd: Int64,
+                                      cycleBeats: Double,   // the row's real pass length — see emitColumnHolds's own doc comment
                                       heldActive: Bool, pinned: Bool = false, pool: NotePool, out: MIDIEmitter?, diag: inout KernelDiag) -> Int {
         let savedPass = diag.pass
         diag.pass = pass
@@ -2395,7 +2404,7 @@ final class Router {
             else { for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min } }
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)   // pinned → strike immortal so the preview rings
+                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, cycleBeats: cycleBeats, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)   // pinned → strike immortal so the preview rings
             emitEchoColumn(box: box, column: effCol, pool: pool, pass: pass,   // ECHO: strike the dry + register the tail
                            S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                            windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
@@ -2407,12 +2416,12 @@ final class Router {
             // latch / a changing FOLLOW note on the audition instead of striking once and gating off (Paul 2026-09-01).
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, reconcileOnly: true, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)
+                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, cycleBeats: cycleBeats, reconcileOnly: true, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)
         } else if heldActive && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
             // AUDIT B2: a single-column lap pins the column so no edge fires — reconcile now to close orphaned drones.
             emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, onlyRow: onlyRow, diag: &diag)
+                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, cycleBeats: cycleBeats, onlyRow: onlyRow, diag: &diag)
         }
         return prevEdge
     }
@@ -2745,7 +2754,7 @@ final class Router {
             prevEffColumn = emitColumnTransition(box: box, effCol: effColumn, prevEdge: prevEffColumn, onlyRow: nil,
                                                  S: S, a: a, mNow: mNow, pass: diag.pass, tempo: tempo,
                                                  beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                                 windowStart: windowStart, windowEnd: windowEnd,
+                                                 windowStart: windowStart, windowEnd: windowEnd, cycleBeats: cycleBeats,
                                                  heldActive: heldColumns != 0, pool: pool, out: out, diag: &diag)
         } else {
             // ===== MULTI-CLOCK PATH — each row on its own step rate; each transition on that row's OWN clock =====
@@ -2778,7 +2787,7 @@ final class Router {
                 prevEffColumnRow[r] = emitColumnTransition(box: box, effCol: effColR, prevEdge: prevEffColumnRow[r], onlyRow: r,
                                                            S: Sr, a: a, mNow: mNr, pass: passR, tempo: tempo,
                                                            beatPos: beatPos - anchor, beatsPerSample: beatsPerSample,   // PLAY-FERRY LAUNCH: the ANCHORED beat, so the transition's strike/close sample offsets stay in the raw window (anchor cancels in the difference) while the phase shifts
-                                                           windowStart: windowStart, windowEnd: windowEnd,
+                                                           windowStart: windowStart, windowEnd: windowEnd, cycleBeats: cycR,
                                                            heldActive: rowHeld[r] != 0, pinned: pinnedRow, pool: pool, out: out, diag: &diag)
             }
             diag.pass = globalPass
@@ -2905,28 +2914,30 @@ final class Router {
 
     // SPAN — SHAPE: CELL = the modRate period · ROW = the whole bar. STEPS: PERIOD = the rate period · ROW/×2/×4 =
     // 1/2/4 bars. Shared by the CC emit path and the §2 internal-target sampler.
-    private func modPeriodBeats(_ p: SnapParams, box: SnapshotBox) -> Double {
-        let bar = Double(Snap.cols) * box.stepBeats
-        if p.modStepSpanN > 0 { return max(0.03125, spanLadderBeats(p.modStepSpanN, S: box.stepBeats, row: bar)) }   // GRID STEPS duration (Paul 2026-09-16, the arp-LFO ladder) — supersedes modRate/modSpan when set
+    // S/cycleBeats (Paul 2026-10-05) are now the CALLER's real per-row step/pass length, not Double(Snap.cols)*
+    // box.stepBeats — same bug class as the EUCLID 16-wide-part fix, here affecting MOD's ROW/ROW2/ROW4 span
+    // modes and its GRID STEPS duration ladder. `box` is no longer needed now that both quantities are passed in.
+    private func modPeriodBeats(_ p: SnapParams, S: Double, cycleBeats: Double) -> Double {
+        if p.modStepSpanN > 0 { return max(0.03125, spanLadderBeats(p.modStepSpanN, S: S, row: cycleBeats)) }   // GRID STEPS duration (Paul 2026-09-16, the arp-LFO ladder) — supersedes modRate/modSpan when set
         if p.modSource == .steps {
             switch p.modStepSpan {
             case .period: return max(0.03125, p.modRate.periodBeats)
-            case .row:    return max(0.03125, bar)
-            case .row2:   return max(0.03125, 2 * bar)
-            case .row4:   return max(0.03125, 4 * bar)
+            case .row:    return max(0.03125, cycleBeats)
+            case .row2:   return max(0.03125, 2 * cycleBeats)
+            case .row4:   return max(0.03125, 4 * cycleBeats)
             }
         }
-        return (p.modSpan == .row) ? max(0.03125, bar) : max(0.03125, p.modRate.periodBeats)
+        return (p.modSpan == .row) ? max(0.03125, cycleBeats) : max(0.03125, p.modRate.periodBeats)
     }
 
     // §2 INTERNAL TARGET (Paul 2026-08-20): apply each internal-target MOD's BOUNDARY value (sampled once at the column
     // start — boundary-deferred) to the cell's chain params, on the offset lane. Byte-identical when no MOD targets the
     // chain (the loop finds none → cell untouched). Applied to EVERY slot (harmless where the param is unused) + the head.
-    private func applyInternalMods(_ cell: inout SnapCell, column: Int, pool: NotePool, mNow: Double, S: Double, box: SnapshotBox) {
+    private func applyInternalMods(_ cell: inout SnapCell, column: Int, pool: NotePool, mNow: Double, S: Double, cycleBeats: Double, box: SnapshotBox) {
         let boundary = columnStart(mNow, S)   // no render-path allocation — apply each internal MOD's offset inline (invariant 3)
         for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modTarget == .chain {
             let mp = cell.procs[si]
-            let u = modSourceUnipolar(mp, cell: cell, pool: pool, b: boundary, period: modPeriodBeats(mp, box: box), column: column, entryBeat: boundary)
+            let u = modSourceUnipolar(mp, cell: cell, pool: pool, b: boundary, period: modPeriodBeats(mp, S: S, cycleBeats: cycleBeats), column: column, entryBeat: boundary)
             let out = Double(mp.modMin) / 127 + u * Double(mp.modMax - mp.modMin) / 127   // MIN/MAX re-range (MIN>MAX inverts)
             let off = out * macroParamSpan(mp.modChainParam)                               // scale to the param's span (approved v1 mapping)
             if off == 0 { continue }
@@ -2967,7 +2978,7 @@ final class Router {
                     modPrevTarget[tkey] = Int16(p.modCC)
                 }
                 if p.modTarget == .chain { continue }   // §2 INTERNAL TARGET: emits NO CC — the offset is applied to the chain in emitTickRow/emitColumnHolds
-                let period = modPeriodBeats(p, box: box)
+                let period = modPeriodBeats(p, S: S, cycleBeats: cycleBeats)
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
@@ -3006,7 +3017,7 @@ final class Router {
             let rowS = box.rowStep[row], rowCyc = Double(box.rowLength[row]) * rowS   // CLOCK (Stage 3): this row's own clock, for the transform below
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modFree && cell.procs[si].modTarget == .cc {
                 let p = cell.procs[si]
-                let period = modPeriodBeats(p, box: box)
+                let period = modPeriodBeats(p, S: rowS, cycleBeats: rowCyc)
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
@@ -4346,16 +4357,18 @@ final class Router {
     /// notes: every strike carries an explicit off sample through emitArtic, the same lifecycle the generators use.
     private func emitTuttiPatternRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int, emits: Bool,
                                      pool: NotePool, beatPos: Double, windowBeats: Double, windowStart: Int64,
-                                     windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
+                                     windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                                      out: MIDIEmitter?, diag: inout KernelDiag) {
         let p = machine.a
         // SPAN LADDER (Paul 2026-08-22, RATE×ladder): when tuttiSpanN>0, the RATE is the slice width and SPAN N sets the
         // loop PERIOD in columns (the pattern re-anchors every N columns → polymeter). tuttiSpanN==0 keeps the LEGACY
         // CELL|ROW path (byte-identical): CELL strides the 8-slice pattern at the RATE; ROW spans the 8 slices over the bar.
+        // cycleBeats (Paul 2026-10-05) is the row's REAL pass length, not a hardcoded Double(Snap.cols) * S — matters
+        // the moment this row's part is wider than 8 columns or runs a custom rate (same bug class as the EUCLID fix).
         let tuttiLadder = p.tuttiSpanN > 0
-        let tuttiSpanBeats = tuttiLadder ? spanLadderBeats(p.tuttiSpanN, S: S, row: Double(Snap.cols) * S) : 0
+        let tuttiSpanBeats = tuttiLadder ? spanLadderBeats(p.tuttiSpanN, S: S, row: cycleBeats) : 0
         let sub = tuttiLadder ? max(0.03125, p.tuttiSliceBeats)
-                              : ((p.tuttiSpan == .row) ? max(0.03125, Double(Snap.cols) * S / 8.0) : max(0.03125, p.tuttiSliceBeats))
+                              : ((p.tuttiSpan == .row) ? max(0.03125, cycleBeats / 8.0) : max(0.03125, p.tuttiSliceBeats))
         let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -4413,7 +4426,7 @@ final class Router {
     /// No stuck notes: finite offs capped at the step end, through the same emitArtic lifecycle the generators use.
     private func emitLengthRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int, emits: Bool,
                                pool: NotePool, beatPos: Double, windowBeats: Double, windowStart: Int64,
-                               windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
+                               windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                                out: MIDIEmitter?, diag: inout KernelDiag) {
         guard S > 0 else { return }
         let p = machine.a
@@ -4425,7 +4438,8 @@ final class Router {
         guard !srcNotes.isEmpty else { return }
         // SPAN: CELL fits the 8 slices in each column; ROW stretches them across the whole BAR (slice i = column i) → a
         // whole-bar trance-gate phrase. Only the span width changes; the window gate keeps each cell to its own slice.
-        let span = spanLadderBeats(p.lenSpanN, S: S, row: Double(Snap.cols) * S)   // SPAN LADDER (Paul 2026-08-22)
+        // cycleBeats (Paul 2026-10-05) is the row's REAL pass length, not a hardcoded Double(Snap.cols) * S.
+        let span = spanLadderBeats(p.lenSpanN, S: S, row: cycleBeats)   // SPAN LADDER (Paul 2026-08-22)
         var col = columnStart(mWinStart, span)
         while col < mWinEnd {
             let evN = lengthColumnEventsInto(&lenEventBuf, slices: p.lenSlices, rotate: p.lenRotate, shortFrac: p.lenShort, longFrac: p.lenLong, colStart: col, S: span)
@@ -5575,14 +5589,15 @@ final class Router {
     /// boundary. Emitted per-window as each onset arrives (strumProgress, reset per column) — each note fires once.
     private func emitStrumRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                               emits: Bool, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
-                              beatsPerSample: Double, S: Double, a: Double, chainDriver: Int = -1,
+                              beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double, chainDriver: Int = -1,
                               out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
         let spread = effectiveSpread(machine)
         let curve = machine.a.curve, tilt = machine.a.velTilt, dir = machine.a.strumDir
         let colStart = columnStart(musicalOf(beatPos, stepBeats: S, a: a), S)
-        let cycleBeats = Double(Snap.cols) * S
+        // cycleBeats (Paul 2026-10-05) is now the CALLER's real per-row pass length, not a local Double(Snap.cols)*S —
+        // same bug class as the EUCLID 16-wide-part fix, here affecting STRUM's own upstream compose + downstream fold.
         // CELL MACHINE: a STRUM chain DRIVER staggers the composed set of the stages BEFORE it (derived once at colStart).
         if chainDriver >= 0 { composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cycleBeats) }
         let count = chainDriver >= 0 ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : pool.srcCount(for: cell)   // §7 source filter

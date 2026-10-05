@@ -220,6 +220,99 @@ final class RouterTests: XCTestCase {
         let secondHalf = onBeats.count - firstHalf
         XCTAssertGreaterThan(secondHalf, 0, "onsets cluster in the FIRST half of the 16-column pass only (\(firstHalf) vs \(secondHalf)) — reproduces the symptom on a 16-wide part")
     }
+    // PART GRID × GENERATOR interaction bug, ROUND 2 (Paul 2026-10-05): the same hardcoded-8-column defect found
+    // in the EUCLID fix above turned out to be systemic — STRIKE PER SPAN, CHORDS-hold, TUTTI PATTERN, LENGTH,
+    // STRUM, and MOD all independently hardcoded Double(Snap.cols)*S instead of the row's real pass length. Each
+    // test below forces the MULTI-CLOCK path (an explicit, non-default rowStepRate) on a 16-column row and proves
+    // the SPAN control now scales with the row's real width.
+
+    // STRIKE PER SPAN: on a 16-column row, SPAN=8 ("the whole row") must mean 16 beats, re-articulating ONCE per
+    // full pass — not twice (at the real halfway point, col 8), which is what the hardcoded 8-column fallback gave.
+    func testStrikePerSpanWholeRowUsesTheRealRowLength() {
+        var c = Machine(machineID: "gold", type: .drone)
+        c.paramsA.strikePerSpan = true; c.paramsA.strikeSpanN = 8   // 8 = "the whole row" rung (spanLadderBeats' row: argument)
+        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        let b = box(machines: cs) { s in
+            for col in 0..<16 { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
+            s.rowStepRate = [.r1_4] + Array(repeating: nil, count: 7)   // 1 beat/column
+            s.rowLen = [16] + Array(repeating: nil, count: 7)           // a genuinely 16-column row
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 15.9, into: e)   // one full 16-beat pass, no wrap
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 1,
+                       "the whole-row span is 16 beats on a 16-column row → re-articulates once per pass, not twice at the old hardcoded 8-beat halfway point")
+    }
+    // TUTTI PATTERN / LENGTH / MOD share one proof shape: an explicit ×2 span on a (bug-immune) 8-column row is a
+    // trusted 16-beat reference; the SAME nominal 16 beats via the "whole row" rung on a genuinely 16-column row
+    // must produce an IDENTICAL result if cycleBeats correctly tracks the real row width. The reference case is
+    // bug-immune because on an 8-column row Snap.cols already equals the real length, bug or no bug.
+    func testTuttiPatternSpanUsesTheRealRowLength() {
+        func onsets(rowLen: Int, spanN: Int) -> [Int64] {
+            var c = Machine(machineID: "gold", type: .tutti)
+            c.paramsA.tuttiMode = .pattern; c.paramsA.tuttiSpanN = spanN
+            c.paramsA.tuttiRate = .r1_1   // 4-beat slices: 8×4=32 is not a multiple of either candidate span (8 or 16), so a wrong re-anchor is observable
+            c.paramsA.tuttiSlices = [.rest, .rest, .all, .rest, .rest, .rest, .rest, .rest]
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { s in
+                for col in 0..<rowLen { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
+                s.rowStepRate = [.r1_4] + Array(repeating: nil, count: 7)
+                s.rowLen = [rowLen] + Array(repeating: nil, count: 7)
+            }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 31.9, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
+        }
+        let ref = onsets(rowLen: 8, spanN: 16)     // 2× an 8-column row = 16 beats, unaffected by the bug
+        let real = onsets(rowLen: 16, spanN: 8)    // "the whole row" on a genuinely 16-column row = 16 beats, ONLY if fixed
+        XCTAssertFalse(ref.isEmpty, "the reference case should sound at all")
+        XCTAssertEqual(ref, real, "a 16-column row's own 'whole row' SPAN must land identically to an explicit ×2 span on an 8-column row — both are nominally 16 beats")
+    }
+    func testLengthSpanUsesTheRealRowLength() {
+        func onsets(rowLen: Int, spanN: Int) -> [Int64] {
+            var c = Machine(machineID: "gold", type: .length)
+            c.paramsA.lenSpanN = spanN
+            c.paramsA.lenSlices = [.pass, .mute, .pass, .mute, .pass, .mute, .pass, .mute]
+            let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) { s in
+                for col in 0..<rowLen { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }
+                s.rowStepRate = [.r1_4] + Array(repeating: nil, count: 7)
+                s.rowLen = [rowLen] + Array(repeating: nil, count: 7)
+            }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 31.9, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
+        }
+        let ref = onsets(rowLen: 8, spanN: 16)
+        let real = onsets(rowLen: 16, spanN: 8)
+        XCTAssertFalse(ref.isEmpty, "the reference case should sound at all")
+        XCTAssertEqual(ref, real, "a 16-column row's own 'whole row' LENGTH span must land identically to an explicit ×2 span on an 8-column row")
+    }
+    // MOD: `.row` mode's step TABLE is always resolved to exactly 8 entries (SnapshotBuilder clamps modSteps.count
+    // to 8/16/32 by modStepSpan, independent of any row-length bug) — so unlike TUTTI/LENGTH, the observable here
+    // isn't WHICH steps are reached, it's WHEN (the real-beat SPEED of walking those 8 steps). modSteps has a
+    // single HIGH entry at index 5, rest LOW. With period correctly = 16 beats (a 16-column row's whole-row span),
+    // phase 5/8 — and so the HIGH step — lands at beat 16×5/8 = 10. Under the old hardcoded-8-beat bug it would
+    // land at beat 8×5/8 = 5 instead (and again at 13, repeating every 8 beats) — never at 10.
+    func testModRowSpanUsesTheRealRowLength() {
+        var mod = ProcessorSlot(type: .mod)
+        mod.params.modCC = 74; mod.params.modSource = .steps; mod.params.modSmooth = false; mod.params.modStepSpan = .row
+        mod.params.modSteps = [0, 0, 0, 0, 0, 127, 0, 0]   // HIGH only at index 5
+        mod.params.modMin = 0; mod.params.modMax = 127
+        let cs = arpMachines()
+        let b = box(machines: cs) { s in
+            for col in 0..<16 { s.cells[col][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            s.rowStepRate = [.r1_4] + Array(repeating: nil, count: 7)   // 1 beat/column
+            s.rowLen = [16] + Array(repeating: nil, count: 7)           // a genuinely 16-column row
+        }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        let tempo = 120.0, sr = 48_000.0
+        func beatOf(_ s: Int64) -> Double { Double(s) / (sr * 60.0 / tempo) }
+        let highNear10 = modCC74Events(e).contains { Int($0.vel) > 60 && abs(beatOf($0.sample) - 10) < 0.5 }
+        let highNear5 = modCC74Events(e).contains { Int($0.vel) > 60 && abs(beatOf($0.sample) - 5) < 0.5 }
+        XCTAssertTrue(highNear10, "with the real 16-beat period, the single HIGH step lands at beat 16×5/8=10")
+        XCTAssertFalse(highNear5, "beat 5 is where the HIGH step would land under the old hardcoded-8-beat period — it must NOT appear there")
+    }
     // DEST MATRIX (Paul 2026-08-22 §5): [ARP→DEST] hockets the walk across emitters — each onset-slice routes to its
     // chosen emitter (the routing override wins over the cell's fan-out).
     func testDestMatrixHocketsTheArpAcrossEmitters() {

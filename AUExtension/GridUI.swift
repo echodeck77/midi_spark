@@ -233,6 +233,14 @@ struct ProcessorBox: View {
     var precedingSourceType: ProcessorType? = nil
     var riffDrunkPosLive: Int = -1                       // RIFF DRUNK's true walk position, polled from the render thread (−1 = unknown/not this mode/cell) — Paul 2026-09-28
     var gridStepBeats: Double = 0.25                     // the SCENE step in beats → the DEFAULT (grid-column) matrix/lane playhead clock (Paul 2026-09-11)
+    // PART GRID × GENERATOR interaction bug, UI side (Paul 2026-10-05): EUCLID's comet bar + beacon, BURST's and
+    // RIFF's own live sweeps, and the per-param LFO editor's period ladder all hardcoded "8 columns" for their own
+    // SPAN-ladder "row:" argument — fine on a default 8-column part, visibly wrong (and now, after the matching
+    // Router.swift fix, newly INCONSISTENT with the actual audio) on a 16-column part. Default Snap.cols preserves
+    // today's behaviour for every caller that doesn't thread a real value (the SELECT-audition call sites, which
+    // have no multi-column part to be wrong about); only buildSlotBox (the real chain-slot editor) passes the
+    // CURRENTLY-EDITED part's own real width when the room is PART.
+    var gridCols: Int = Snap.cols
     // A self-clock for a state matrix's playhead — extrapolated per frame so it can sweep faster than the diag poll.
     // `span` = the loop period in BEATS (0 = free-run over all STEPS); the playhead re-anchors every `span`.
     struct StateMatrixClock { let anchor: Double; let anchorAt: Date; let tempo: Double; let rate: Double; let steps: Int; let rotate: Int; let span: Double }
@@ -542,7 +550,7 @@ struct ProcessorBox: View {
                                               onDragState: @escaping (CGPoint?, Bool) -> Void) -> some View {
         let n = max(2, min(16, nIn))
         let sub = max(0.03125, rate.beats)
-        let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+        let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: Double(gridCols) * gridStepBeats) : 0
         // PER-LANE PLAY/STOP (Paul 2026-10-02: "make sure that if a lane is stopped then the comet doesn't move
         // across it") — a SECOND, independent gate alongside `clockPlaying` (the HOST transport). `running` is
         // true only when BOTH the transport is playing AND this specific lane's own PLAY/STOP is engaged; a
@@ -1076,7 +1084,7 @@ struct ProcessorBox: View {
         let dir = L.directionResolved
         let sub = max(0.03125, (p.euclidRate ?? .r1_16).beats)
         let spanN = p.euclidSpanN ?? 0
-        let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+        let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: Double(gridCols) * gridStepBeats) : 0
         let running = clockPlaying && L.enabledResolved
         let canPlay = isMiss ? (L.missNoteSel != nil) : true   // an unconfigured MISS never sounds — see doc comment
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || !canPlay)) { tl in
@@ -1398,7 +1406,7 @@ struct ProcessorBox: View {
                 // `(i − rotate) mod 8`, the opposite sign from stateMatrixRadio's own `(g + rotate)` convention —
                 // confirmed by reading the engine, not assumed (BURST is the one processor in this file where the
                 // two conventions run backwards from each other).
-                let burstSpanBeats = spanLadderBeats(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1), S: gridStepBeats, row: 8 * gridStepBeats)
+                let burstSpanBeats = spanLadderBeats(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1), S: gridStepBeats, row: Double(gridCols) * gridStepBeats)
                 let burstSliceW = (p.burstRateOn ?? false) ? Swift.max(0.03125, (p.burstRate ?? .r1_8).beats) : Swift.max(0.03125, burstSpanBeats / 8)
                 let burstClock = clockPlaying
                     ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo, rate: burstSliceW, steps: 8, rotate: -(p.burstRotate ?? 0), span: burstSpanBeats)
@@ -1557,7 +1565,7 @@ struct ProcessorBox: View {
                 // (Router.emitTuttiPatternRow) — the pattern walks at its own tuttiRate, re-anchoring every
                 // tuttiSpanN columns when set (0 = free-running), never the scene's default grid clock.
                 let tuttiSub = Swift.max(0.03125, (p.tuttiRate ?? .r1_8).beats)
-                let tuttiSpanBeats = (p.tuttiSpanN ?? 0) > 0 ? spanLadderBeats(p.tuttiSpanN ?? 0, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+                let tuttiSpanBeats = (p.tuttiSpanN ?? 0) > 0 ? spanLadderBeats(p.tuttiSpanN ?? 0, S: gridStepBeats, row: Double(gridCols) * gridStepBeats) : 0
                 let tuttiClock = clockPlaying
                     ? StateMatrixClock(anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo, rate: tuttiSub, steps: 8, rotate: p.tuttiRotate ?? 0, span: tuttiSpanBeats)
                     : nil
@@ -1928,7 +1936,7 @@ struct ProcessorBox: View {
             // plausible-looking wrong one.
             let riffDirNow = p.riffDir ?? .forward
             let riffRateBeatsNow = Swift.max(0.03125, (p.riffRate ?? .r1_16).beats)
-            let riffSpanBeatsNow = (p.riffSpanN ?? 0) > 0 ? spanLadderBeats(p.riffSpanN ?? 0, S: gridStepBeats, row: 8 * gridStepBeats) : 0
+            let riffSpanBeatsNow = (p.riffSpanN ?? 0) > 0 ? spanLadderBeats(p.riffSpanN ?? 0, S: gridStepBeats, row: Double(gridCols) * gridStepBeats) : 0
             let riffSeedNow = UInt64(bitPattern: Int64(p.riffDirSeed ?? 0))
             let riffLive: ((Date) -> Int?)? = clockPlaying ? (riffDirNow == .drunk
                 ? { _ in (riffDrunkPosLive >= 0 && riffDrunkPosLive < steps) ? riffDrunkPosLive : nil }
@@ -2953,7 +2961,7 @@ struct ProcessorBox: View {
         let from = lfoSeedFrom(lfo.target)   // FROM ≡ the base param (two views)
         guard clockPlaying, let to = lfo.to, from != to else { return nil }
         let S = Swift.max(0.0001, gridStepBeats)
-        let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: 8 * S) : lfo.period.periodBeats
+        let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: Double(gridCols) * S) : lfo.period.periodBeats
         guard periodBeats > 0 else { return nil }
         let beat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
         let cyc = Int((beat / periodBeats).rounded(.down))
@@ -2969,7 +2977,7 @@ struct ProcessorBox: View {
         let from = lfoSeedFrom(lfo.target)   // FROM ≡ the base param (two views)
         guard clockPlaying, let to = lfo.to, from != to else { return nil }
         let S = Swift.max(0.0001, gridStepBeats)
-        let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: 8 * S) : lfo.period.periodBeats
+        let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: Double(gridCols) * S) : lfo.period.periodBeats
         guard periodBeats > 0 else { return nil }
         let beat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
         let cyc = Int((beat / periodBeats).rounded(.down))
