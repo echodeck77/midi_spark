@@ -913,40 +913,61 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return AUParameterTree.createTree(withChildren: params)
     }
 
+    // THREAD SAFETY (Paul 2026-10-05): `implementorValueObserver`/`Provider` are AUParameterTree callbacks — Apple
+    // documents these as callable from ANY thread, including a realtime one, for host automation. The architecture's
+    // own invariant #1 (document mutation is MAIN-THREAD-ONLY, enforced elsewhere via `dispatchPrecondition` — see
+    // `loadTestSession`/`setActiveScene`) was being silently violated here: the old code mutated `self.document`
+    // (and read it back in the provider) DIRECTLY, synchronously, on whatever thread the host happened to call from
+    // — a genuine data race against the main thread's own concurrent document edits (UI-driven), previously marked
+    // "TODO(spec §7): For the scaffold, write into the document directly" and never revisited. Fixed by marshaling
+    // both sides onto the main thread: the observer hops via `.async` (fire-and-forget, matching scheduleRebuild's
+    // own pattern) when called off-main, or runs inline when already on it (the common case — most hosts drive
+    // these from their own main/UI thread; a stray realtime automation touch now queues instead of racing). The
+    // provider needs a VALUE back immediately, so it uses `.sync` — but ONLY when NOT already on main, since
+    // `DispatchQueue.main.sync` from the main thread itself is an instant deadlock.
     private func wireParameterTree() {
-        // TODO(spec §7): route into the snapshot. For the scaffold, write into the document directly.
         _parameterTree.implementorValueObserver = { [weak self] param, value in
             guard let self else { return }
-            defer { self.scheduleRebuild() }
-            switch param.address {
-            case ParamAddress.stepRate:
-                guard !self.document.scenes.isEmpty else { break }   // K3: never subscript an empty scenes array (host automation before a scene exists)
-                let all = StepRate.allCases
-                self.document.scenes[self.document.activeSceneResolved].stepRate = all[min(all.count - 1, max(0, Int(value)))]
-            case ParamAddress.swing:
-                guard !self.document.scenes.isEmpty else { break }   // K3
-                self.document.scenes[self.document.activeSceneResolved].swing = Int(value)
-            case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
-                let idx = Int(a - 100); if idx < self.document.machines.count { self.document.machines[idx].transpose = Int(value) }
-            case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
-                // MACRO SLIDER (host automation / CC rail / in-app fader): OFFSET only — bases untouched.
-                if self.document.macros == nil { self.document.macros = self.document.macrosResolved }
-                self.document.macros?[Int(a - 400)].value = max(0, min(1, Double(value)))
-            default: break
-            }
+            if Thread.isMainThread { self.applyParamValue(param, value) }
+            else { DispatchQueue.main.async { self.applyParamValue(param, value) } }
         }
         _parameterTree.implementorValueProvider = { [weak self] param in
             guard let self else { return 0 }
-            switch param.address {
-            case ParamAddress.stepRate:
-                return AUValue(StepRate.allCases.firstIndex(of: self.document.activeSceneState.stepRate) ?? 2)
-            case ParamAddress.swing: return AUValue(self.document.activeSceneState.swing)
-            case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
-                let idx = Int(a - 100); return idx < self.document.machines.count ? AUValue(self.document.machines[idx].transpose) : 0
-            case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
-                return AUValue(self.document.macrosResolved[Int(a - 400)].value)
-            default: return 0
-            }
+            if Thread.isMainThread { return self.currentParamValue(param) }
+            return DispatchQueue.main.sync { self.currentParamValue(param) }
+        }
+    }
+    private func applyParamValue(_ param: AUParameter, _ value: AUValue) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        defer { scheduleRebuild() }
+        switch param.address {
+        case ParamAddress.stepRate:
+            guard !document.scenes.isEmpty else { break }   // K3: never subscript an empty scenes array (host automation before a scene exists)
+            let all = StepRate.allCases
+            document.scenes[document.activeSceneResolved].stepRate = all[min(all.count - 1, max(0, Int(value)))]
+        case ParamAddress.swing:
+            guard !document.scenes.isEmpty else { break }   // K3
+            document.scenes[document.activeSceneResolved].swing = Int(value)
+        case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
+            let idx = Int(a - 100); if idx < document.machines.count { document.machines[idx].transpose = Int(value) }
+        case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
+            // MACRO SLIDER (host automation / CC rail / in-app fader): OFFSET only — bases untouched.
+            if document.macros == nil { document.macros = document.macrosResolved }
+            document.macros?[Int(a - 400)].value = max(0, min(1, Double(value)))
+        default: break
+        }
+    }
+    private func currentParamValue(_ param: AUParameter) -> AUValue {
+        dispatchPrecondition(condition: .onQueue(.main))
+        switch param.address {
+        case ParamAddress.stepRate:
+            return AUValue(StepRate.allCases.firstIndex(of: document.activeSceneState.stepRate) ?? 2)
+        case ParamAddress.swing: return AUValue(document.activeSceneState.swing)
+        case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
+            let idx = Int(a - 100); return idx < document.machines.count ? AUValue(document.machines[idx].transpose) : 0
+        case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
+            return AUValue(document.macrosResolved[Int(a - 400)].value)
+        default: return 0
         }
     }
 
