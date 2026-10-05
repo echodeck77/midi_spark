@@ -530,367 +530,9 @@ struct ProcessorBox: View {
             }
         }
     }
-    /// THE COMET BAR (Paul 2026-09-30, box redesign 2026-10-02): a non-interactive, live K-of-N hit display — N
-    /// gap-separated rounded-rect BOXES (one per step, "easier to see the number of steps" than a dot on a bare
-    /// line) with a glowing comet running the pattern continuously over them, flaring each hit box as it passes.
-    /// Reuses `euclidReadIndex` (Derivations.swift) for the per-box HIT/REST content — the SAME pure function
-    /// the real render path uses for its own step math (Stage 1) — so the lit boxes can never silently disagree
-    /// with what's actually heard the way RATCHET PATTERN/DEST once did.
-    /// NOT swing-warped: a deliberate, disclosed simplification matching every OTHER pattern-processor live sweep
-    /// in this file (BURST/RATCHET/TUTTI/DEST's StateMatrixClock/liveCol also read a plain linear beat) — only
-    /// EUCLID's actual render path (Router.swift) applies `musicalOf`; threading swing into this widget too would
-    /// need a new stored property on `ProcessorBox` for a discrepancy that only shows at non-50 swing settings.
-    /// SWEEP DIRECTION (Paul 2026-10-02: "reverses direction when reverse is chosen... goes back and forth on
-    /// pingpong") — SUPERSEDES the earlier "always left→right, any dir" choice (that read as steadier at the
-    /// time, before this was actually asked for): `euclidCometPos`/`euclidCometRaw` (Derivations.swift) give the
-    /// comet its own direction-aware continuous screen position — FWD left→right, BKW right→left, PING-PONG
-    /// bounces between the two within one lap (now shown in FULL — the ascending-half-only simplification from
-    /// when this bar had no bounce motion to show is gone, since PING-PONG now has somewhere to show it). The
-    /// per-box HIT/REST content (still `euclidReadIndex` against the static integer screen index) is untouched —
-    /// only the comet's own visual motion changed; `age` (how long ago the comet passed a given box, driving its
-    /// flare/afterglow) is rederived per direction to match.
-    @ViewBuilder private func euclidCometBar(pulses k: Int, steps nIn: Int, rotate: Int, invert: Bool, dir: EuclidDir, rate: ArpRate, spanN: Int, tint: Color,
-                                              lanePlaying: Bool,
-                                              onRotateDelta: @escaping (Int) -> Void, onHitsDelta: @escaping (Int) -> Void,
-                                              onStepsDelta: @escaping (Int) -> Void,
-                                              onAllRotateDelta: @escaping (Int) -> Void, onAllHitsDelta: @escaping (Int) -> Void,
-                                              onDragState: @escaping (CGPoint?, Bool) -> Void) -> some View {
-        let n = max(2, min(16, nIn))
-        let sub = max(0.03125, rate.beats)
-        let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: Double(gridCols) * gridStepBeats) : 0
-        // PER-LANE PLAY/STOP (Paul 2026-10-02: "make sure that if a lane is stopped then the comet doesn't move
-        // across it") — a SECOND, independent gate alongside `clockPlaying` (the HOST transport). `running` is
-        // true only when BOTH the transport is playing AND this specific lane's own PLAY/STOP is engaged; a
-        // stopped lane freezes/hides its comet exactly like a stopped transport does (same `else` branch below),
-        // regardless of whether OTHER lanes (or the transport itself) are still running.
-        let running = clockPlaying && lanePlaying
-        ZStack {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running)) { tl in
-            let liveBeat = beatAnchor + tl.date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
-            // DIRECTION-AWARE SWEEP (Paul 2026-10-02: "reverses direction when reverse is chosen... goes back
-            // and forth on pingpong") — SUPERSEDES the earlier deliberate "always left→right, any dir" choice
-            // (see the box-redesign doc comment above). `cometRaw` is the raw tick count mod the direction's
-            // real cycle length (n, or 2n under PING-PONG); `cometPos` is its continuous screen position, which
-            // now actually reverses/bounces per `euclidCometPos`'s own doc comment. The per-box HIT/REST content
-            // (`euclidReadIndex` below) is untouched — only the comet's own visual sweep motion changed.
-            let cometRaw = euclidCometRaw(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
-            let cometPos = euclidCometPos(cometRaw, n: n, dir: dir)
-            let nD = Double(n)
-            Canvas { ctx, size in
-                var buf = [Bool](repeating: false, count: n)
-                _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
-                let w = size.width, midY = size.height / 2
-                let insetL: CGFloat = 6, insetR: CGFloat = 6
-                let usable = max(1, w - insetL - insetR)
-                func xFor(_ pos: Double) -> CGFloat { insetL + usable * CGFloat(pos / Double(n)) }   // the comet still rides this CONTINUOUS position — independent of the discrete boxes below
-                // STEP BOXES (Paul 2026-10-02: "incorporate boxes into the design... to represent every step. It
-                // needs to be easier to see the number of steps."). Replaces the old thin-baseline + floating-dot
-                // track: N bounded, gap-separated rounded-rect slots read the step COUNT at a glance in a way a
-                // dot sitting on an otherwise-blank line never did — the boxes themselves ARE the grid, with or
-                // without anything lit. Gap narrows as N grows so a dense 16-step lane doesn't crush its boxes
-                // into nothing; corner radius is capped relative to box width for the same reason at the thin end.
-                let gap: CGFloat = n <= 8 ? 4 : (n <= 12 ? 3 : 2)
-                let boxW = max(3, (usable - gap * CGFloat(n - 1)) / CGFloat(n))
-                let boxH = min(30, size.height - 6)
-                let corner = min(5, boxW / 2.2)
-                func boxRect(_ i: Int) -> CGRect {
-                    CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
-                }
-                // BOX CONTENT IS DIRECTION-INDEPENDENT (Paul 2026-10-02: "when I change the direction, I don't
-                // want the lit cell(s) to jump to the opposite side. These should remain static") — box `i`
-                // always shows `buf[i]`, the raw pattern buffer at that screen position, full stop. This FIXES a
-                // real drift between code and its own stated intent: the surrounding comments already claimed
-                // "box content is untouched by direction" (see euclidCometPos's own doc comment + the note a few
-                // lines above this loop), but the code still read `buf[euclidReadIndex(i, n, dir)]` — BKW mirrors
-                // that mapping (screen i ← buffer n-1-i), so the ENTIRE lit pattern visually flipped the instant
-                // DIRECTION changed, exactly the reported jump. The age/flare timing below is untouched — it was
-                // already keyed on screen position `i` directly (never on the old `ri`), so only the comet's own
-                // motion (via `cometRaw`/`cometPos`, both already direction-aware) still varies by DIRECTION.
-                for i in 0..<n {
-                    let hit = invert ? !buf[i] : buf[i]
-                    let rect = boxRect(i)
-                    let box = Path(roundedRect: rect, cornerRadius: corner)
-                    if hit {
-                        // STOPPED (Paul 2026-10-02: "don't show the playhead comets when the playhead isn't
-                        // running" — later widened the SAME day to per-lane: "make sure that if a lane is
-                        // stopped then the comet doesn't move across it") — `running` false (either the HOST
-                        // transport, or THIS LANE's own PLAY/STOP) means the TimelineView above is PAUSED, so
-                        // `phase` is frozen at whatever it was the instant playback stopped, not a meaningful
-                        // "time since the comet passed." Drawing the age/recede/burst flare off a frozen age
-                        // would leave some hit box stuck mid-flash forever. A stopped lane shows every hit at
-                        // one steady, unflared brightness instead — no comet, no animation, no stale frozen flare.
-                        if running {
-                            // steps since the comet passed this node (0 = just now), wrapped positive every lap —
-                            // direction-aware (Paul 2026-10-02): FWD unchanged; BKW mirrors it (the comet visits
-                            // box i when cometRaw = n−i); PING-PONG visits box i TWICE per lap (ascending at
-                            // cometRaw=i, descending at cometRaw=2n−i) — age takes whichever visit was more recent.
-                            let age: Double
-                            switch dir {
-                            case .fwd:
-                                let raw = (cometRaw - Double(i)).truncatingRemainder(dividingBy: nD)
-                                age = raw < 0 ? raw + nD : raw
-                            case .bkw:
-                                let raw = (cometRaw + Double(i)).truncatingRemainder(dividingBy: nD)
-                                age = raw < 0 ? raw + nD : raw
-                            case .pingpong:
-                                let cycleLen = 2 * nD
-                                func wrap(_ v: Double) -> Double { let r = v.truncatingRemainder(dividingBy: cycleLen); return r < 0 ? r + cycleLen : r }
-                                age = min(wrap(cometRaw - Double(i)), wrap(cometRaw - (cycleLen - Double(i))))
-                            }
-                            let recede = max(0, 1 - age / 1.5)     // the lingering afterglow (unchanged window)
-                            // DRAMATIC HIT (Paul 2026-10-01: "brighter, with effects, more dramatic when it hits") —
-                            // a short, sharp BURST window layered on top of the lingering afterglow: the box's
-                            // glow swells, a hot white flash core blooms inside it, and a shockwave OUTLINE (the
-                            // box-shaped echo of the old circular ring) expands outward — all decay much faster
-                            // than `recede` so the strike itself reads as an impact, not just a brighter box.
-                            let burst = max(0, 1 - age / 0.35)
-                            // a top-lit gradient fill (COOL factor, Paul 2026-10-02: "make it look cool") — a
-                            // flat fill read as a dead swatch; light-to-dark top-to-bottom gives each box a
-                            // glassy, lit-from-above quality, brightening further on its own burst.
-                            ctx.drawLayer { layer in
-                                layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 14 * burst + 4 * recede))
-                                layer.fill(box, with: .linearGradient(Gradient(colors: [tint.opacity(min(1, 0.95 + 0.3 * burst)), tint.opacity(0.55 + 0.25 * recede)]),
-                                                                       startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
-                            }
-                            ctx.stroke(box, with: .color(.white.opacity(0.18 + 0.5 * burst)), lineWidth: 1)
-                            if burst > 0.04 {   // the hot flash core — a bright inset band, not a second shape
-                                let core = Path(roundedRect: rect.insetBy(dx: rect.width * 0.22, dy: rect.height * 0.3), cornerRadius: corner * 0.6)
-                                ctx.drawLayer { layer in
-                                    layer.addFilter(.shadow(color: .white.opacity(burst), radius: 6 * burst))
-                                    layer.fill(core, with: .color(.white.opacity(burst * 0.9)))
-                                }
-                            }
-                            if burst > 0.06 {   // the shockwave — an expanding box outline, reads as an impact not just a flash
-                                let grow = 11 * (1 - burst)
-                                let ring = Path(roundedRect: rect.insetBy(dx: -grow, dy: -grow), cornerRadius: corner + grow * 0.4)
-                                ctx.stroke(ring, with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
-                            }
-                        } else {
-                            ctx.fill(box, with: .color(tint.opacity(0.55)))
-                            ctx.stroke(box, with: .color(.white.opacity(0.2)), lineWidth: 1)
-                        }
-                    } else {
-                        // REST (Paul 2026-10-01: "the position of the notes move, not just switch on and off") —
-                        // every box's RECT is mathematically fixed per step index regardless of hit/rest, so the
-                        // grid itself never relocates — only which boxes are lit does. A plainly visible FILLED +
-                        // bordered box (same shape family as a hit, just dim), not a hollow ring, so the fixed
-                        // slot grid stays legible regardless of which subset is currently lit.
-                        ctx.fill(box, with: .color(.white.opacity(0.09)))
-                        ctx.stroke(box, with: .color(.white.opacity(0.16)), lineWidth: 1)
-                    }
-                }
-                // THE COMET — unchanged timing (a soft blurred trail + a glowing head), now riding OVER the box
-                // row instead of a thin baseline. MOTION (Paul 2026-10-02) now reverses for BKW and bounces for
-                // PING-PONG — `hx` tracks `cometPos`'s own direction-aware sweep; the TRAIL (which side of the
-                // head it extends from — always "behind" the direction of travel) follows `movingRight`, which
-                // flips for BKW and switches mid-lap for PING-PONG. STOPPED: not drawn at all (Paul 2026-10-02,
-                // widened the same day to per-lane PLAY/STOP too) — a paused TimelineView freezes `cometPos`, so
-                // without this guard the comet would sit motionless at its last live position instead of
-                // disappearing.
-                if running {
-                    let hx = xFor(cometPos)
-                    let movingRight: Bool
-                    switch dir {
-                    case .fwd: movingRight = true
-                    case .bkw: movingRight = false
-                    case .pingpong: movingRight = cometRaw < nD
-                    }
-                    let tx = movingRight ? max(insetL, hx - 22) : min(insetL + usable, hx + 22)
-                    ctx.drawLayer { layer in
-                        layer.addFilter(.blur(radius: 3))
-                        var trail = Path()
-                        trail.move(to: CGPoint(x: hx, y: midY)); trail.addLine(to: CGPoint(x: tx, y: midY))
-                        layer.stroke(trail, with: .linearGradient(Gradient(colors: [tint.opacity(0.55), tint.opacity(0)]),
-                                                                   startPoint: CGPoint(x: hx, y: midY), endPoint: CGPoint(x: tx, y: midY)),
-                                     lineWidth: 5)
-                    }
-                    ctx.drawLayer { layer in
-                        layer.addFilter(.shadow(color: tint, radius: 9))
-                        layer.fill(Path(ellipseIn: CGRect(x: hx - 5, y: midY - 5, width: 10, height: 10)), with: .color(tint))
-                    }
-                }
-            }
-            .allowsHitTesting(false)
-        }
-        // GESTURES (Paul 2026-10-01): 1-finger drag left/right = Δrotate, up/down = Δhits (this row); 2-finger drag
-        // does the same but to EVERY row (`euclidAllRowsEdit`). PINCH = ΔSTEPS (`onStepsDelta`, EuclidGesturePad's
-        // own pinch recognizer) is now the ONLY way to change STEPS from this bar — the thin +/- tap glyphs that
-        // used to sit in the pad's side margins are REMOVED (Paul 2026-10-02: "remove the + and - buttons from
-        // the Euclid lanes"), control only, not the underlying mechanism (pinch still calls the same
-        // `onStepsDelta`). The 14pt inset is LEFT AS-IS, not widened to reclaim the freed margin — the glyphs'
-        // removal wasn't an ask to resize the gesture pad itself, just to drop the redundant discrete buttons.
-        EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
-                         onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
-            .padding(.horizontal, 14)
-        }
-    }
-    /// A UIKit pan+pinch bridge (Paul 2026-10-01) — SwiftUI's own `DragGesture` doesn't distinguish touch COUNT,
-    /// only position, and the EUCLID bar needs a genuine 1-vs-2-finger distinction (1 finger = this row, 2 fingers
-    /// = every row). Touch count is LATCHED at `.began`, not re-read every `.changed`, so a finger lifting or
-    /// landing mid-drag can't flip which mode the drag is in partway through. PINCH (spread = add steps, pinch-in
-    /// = remove) runs on the SAME view as a second recognizer — a genuine pinch (fingers moving apart/together,
-    /// centroid roughly static) and a 2-finger pan (both fingers moving together) measure near-orthogonal things,
-    /// so they coexist without fighting in practice; the delegate below just lifts UIKit's own default "one
-    /// gesture at a time per view" restriction so neither silently blocks the other.
-    private struct EuclidGesturePad: UIViewRepresentable {
-        let onRotateDelta: (Int) -> Void        // 1-finger horizontal — Δrotate, this row
-        let onHitsDelta: (Int) -> Void          // 1-finger vertical — Δhits, this row
-        let onStepsDelta: (Int) -> Void         // pinch — Δsteps, this row (shared with the +/- tap glyphs)
-        let onAllRotateDelta: (Int) -> Void     // 2-finger horizontal — Δrotate, every row
-        let onAllHitsDelta: (Int) -> Void       // 2-finger vertical — Δhits, every row
-        // (location, isAllRows) — location is WINDOW-space (`location(in: view.window)`), non-nil while a touch is
-        // down, nil the instant it lifts/cancels. Reported on EVERY `.changed` tick too (Paul 2026-10-02), not just
-        // begin/end, so a HUD tracking the finger moves continuously, not just at the start of the gesture.
-        let onDragState: (CGPoint?, Bool) -> Void
-        func makeUIView(context: Context) -> UIView {
-            // RAW TOUCH TRACKING (Paul 2026-10-02: "make sure that the overlay... appears on first touch") —
-            // UIPanGestureRecognizer/UIPinchGestureRecognizer only transition to .began once a touch has moved
-            // past UIKit's own recognition slop, so driving the HUD from them alone leaves a dead zone right
-            // after contact (and a plain tap that never moves enough never shows anything). TouchView's raw
-            // touchesBegan/Moved/Ended bridge that gap — see its own doc comment below.
-            let v = TouchView(); v.backgroundColor = .clear; v.isOpaque = false
-            v.coordinator = context.coordinator
-            let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
-            pan.minimumNumberOfTouches = 1; pan.maximumNumberOfTouches = 2
-            pan.delegate = context.coordinator
-            pan.cancelsTouchesInView = false   // let TouchView keep receiving touch events through the whole gesture, not just up to the moment the recognizer takes over
-            v.addGestureRecognizer(pan)
-            let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
-            pinch.delegate = context.coordinator
-            pinch.cancelsTouchesInView = false
-            v.addGestureRecognizer(pinch)
-            return v
-        }
-        func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.owner = self }
-        func makeCoordinator() -> Coordinator { Coordinator(self) }
-        /// Reports raw touch contact straight to the Coordinator, independent of whatever the pan/pinch
-        /// recognizers decide — see `makeUIView`'s own comment for why this exists. Tracks the active touch SET
-        /// (not just one) so a 2-finger gesture doesn't look "lifted" the instant the FIRST of the two fingers
-        /// comes up; `allRows` (≥2 touches) is a plain snapshot of that count, not a latch — it's only used for
-        /// this early, pre-recognition HUD label, and corrects itself within milliseconds once the real
-        /// recognizer's own LATCHED `twoFinger` (handlePan) takes over reporting.
-        private final class TouchView: UIView {
-            weak var coordinator: Coordinator?
-            private var active: Set<UITouch> = []
-            private func report() {
-                guard let t = active.first else { return }
-                coordinator?.handleRawTouch(t.location(in: window), active.count >= 2)
-            }
-            override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-                super.touchesBegan(touches, with: event); active.formUnion(touches); report()
-            }
-            override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-                super.touchesMoved(touches, with: event); report()
-            }
-            override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-                super.touchesEnded(touches, with: event); active.subtract(touches)
-                active.isEmpty ? coordinator?.handleRawTouch(nil, false) : report()
-            }
-            override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-                super.touchesCancelled(touches, with: event); active.subtract(touches)
-                active.isEmpty ? coordinator?.handleRawTouch(nil, false) : report()
-            }
-        }
-        final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-            var owner: EuclidGesturePad
-            func handleRawTouch(_ point: CGPoint?, _ allRows: Bool) { owner.onDragState(point, allRows) }
-            private var twoFinger = false
-            private var appliedX = 0, appliedY = 0
-            private var appliedPinchSteps = 0
-            private var pinchStartDist: CGFloat = 0
-            // ~18pt per step each axis — a first-pass sensitivity (tunable): deliberately coarser than NumPair's
-            // own 14pt/step scrub, since this bar is small and a finger resting on it covers a fair chunk of it.
-            private let stepPt: CGFloat = 18
-            init(_ o: EuclidGesturePad) { owner = o }
-            func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
-            @objc func handlePan(_ g: UIPanGestureRecognizer) {
-                switch g.state {
-                case .began:
-                    twoFinger = g.numberOfTouches >= 2
-                    appliedX = 0; appliedY = 0
-                    owner.onDragState(g.location(in: g.view?.window), twoFinger)
-                case .changed:
-                    let t = g.translation(in: g.view)
-                    let stepsX = Int((t.x / stepPt).rounded())
-                    let stepsY = Int((-t.y / stepPt).rounded())   // screen-down is +y; dragging UP should INCREASE
-                    if stepsX != appliedX {
-                        let d = stepsX - appliedX
-                        twoFinger ? owner.onAllRotateDelta(d) : owner.onRotateDelta(d)
-                        appliedX = stepsX
-                    }
-                    if stepsY != appliedY {
-                        let d = stepsY - appliedY
-                        twoFinger ? owner.onAllHitsDelta(d) : owner.onHitsDelta(d)
-                        appliedY = stepsY
-                    }
-                    owner.onDragState(g.location(in: g.view?.window), twoFinger)   // every tick — the HUD tracks the finger live, not just at touch-down
-                case .ended, .cancelled, .failed:
-                    owner.onDragState(nil, twoFinger)
-                default: break
-                }
-            }
-            // JUMPY PINCH FIX (Paul 2026-10-04: "the overlay for the 9 of 12 euclid info overlay is very jumpy
-            // on the pinch gesture") — TWO separate, compounding causes, both specific to pinch (the pan
-            // gesture never had either problem):
-            // (1) NUMBER jumpiness: `UIPinchGestureRecognizer.scale` is a RATIO against the pinch's own
-            // STARTING finger separation, so the SAME absolute finger movement produced a bigger step jump when
-            // the fingers happened to start close together than when they started far apart — inconsistent,
-            // position-dependent sensitivity, not a tunable-constant problem. Fixed by scaling a captured
-            // STARTING distance by `scale` to get an absolute points-based delta instead of using the raw ratio
-            // directly — see `handlePinch`'s own comment below for why this reads `scale`, not
-            // `location(ofTouch:)`, every tick (a reliability fix on top of this one, same day).
-            // (2) POSITION jumpiness: `g.location(in:)` for a 2-touch gesture is the CENTROID of both touches,
-            // recomputed every `.changed` tick — far noisier than the pan gesture's single, stable touch point,
-            // since real pinches are rarely perfectly symmetric (one finger often moves more/sooner than the
-            // other). Fixed by reporting the HUD's position ONCE, at `.began`, and leaving it there for the rest
-            // of the gesture — the STEPS number inside it still updates live via `onStepsDelta`, only the
-            // floating card itself stops chasing a noisy two-finger midpoint.
-            // RELIABILITY FIX (Paul 2026-10-04: "quite unreliable, often snapping back to 2 — is this due to
-            // the overrides I requested? Maybe a simple pinch... would work better to simplify"). YES — traced,
-            // not guessed: the previous pass's `pinchTouchDistance` re-queried `location(ofTouch: 0/1, in:)`
-            // on EVERY `.changed` tick, falling back to 0 whenever `numberOfTouches` momentarily read below 2
-            // (a known UIKit edge case, especially right as a finger lifts). Since `pinchStartDist` is typically
-            // 60–150pt, that single bad reading computed a huge spurious NEGATIVE step delta in one tick,
-            // slamming `steps` straight to its floor of 2 — exactly the reported symptom. SIMPLIFIED per Paul's
-            // own instinct: derive the live distance from UIKit's own `scale` property instead
-            // (`pinchStartDist × scale` — exactly recovers the current distance by definition, since `scale`
-            // literally IS currentDistance/initialDistance) — `scale` is maintained internally by UIKit's own
-            // touch tracking and is never subject to a `location(ofTouch:)`-style transient misread, so
-            // `location(ofTouch:)` is no longer called at all past `.began`. Keeps the SAME goal as the
-            // previous pass (fixed points-per-step, independent of where the pinch started), just computed the
-            // robust way instead of re-deriving the fragile part every frame.
-            @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
-                switch g.state {
-                case .began:
-                    appliedPinchSteps = 0
-                    pinchStartDist = pinchTouchDistance(g)
-                    owner.onDragState(g.location(in: g.view?.window), false)   // pinch is always scoped to this row — no "all rows" steps mode; position set ONCE, not re-tracked below
-                case .changed:
-                    let delta = pinchStartDist * (g.scale - 1)
-                    let steps = Int((delta / stepPt).rounded())
-                    if steps != appliedPinchSteps {
-                        owner.onStepsDelta(steps - appliedPinchSteps)
-                        appliedPinchSteps = steps
-                    }
-                case .ended, .cancelled, .failed:
-                    owner.onDragState(nil, false)
-                default: break
-                }
-            }
-            private func pinchTouchDistance(_ g: UIPinchGestureRecognizer) -> CGFloat {
-                // Paul 2026-10-05 (hardening): UIKit guarantees 2 touches by the time .began fires, so this guard
-                // shouldn't trigger in practice — but IF it ever did, a non-zero guess here would silently compute
-                // a WRONG step delta (0 ≠ scale's own true starting distance), reintroducing a narrower version of
-                // the exact bug the scale-based rewrite just fixed. 0 is the one value that's always SAFE: it's
-                // only ever read as `pinchStartDist` at .began, and `delta = pinchStartDist * (scale - 1)` is then
-                // 0 for the gesture's entire lifetime regardless of scale — a clean no-op (no spurious step
-                // change) rather than a guessed-but-wrong one.
-                guard g.numberOfTouches >= 2 else { return 0 }
-                let p0 = g.location(ofTouch: 0, in: g.view), p1 = g.location(ofTouch: 1, in: g.view)
-                return hypot(p1.x - p0.x, p1.y - p0.y)
-            }
-        }
-    }
+    // EUCLID COMET BAR + GESTURE PAD — extracted (Paul 2026-10-05, EUCLIDEOUS) to EuclidLaneUI.swift as
+    // `EuclidCometBar`/`EuclidGesturePad`, shared with the new Euclideous page. `euclidLaneBox` below now
+    // calls the extracted `EuclidCometBar` directly instead of a private method on this type.
     // THE DRAG HUD moved OUT of this box entirely (Paul 2026-10-02: "I want the overlay... to be top level because
     // it's currently fixed on the scrolling processor edit page") — rendering it here could never escape this
     // box's own embedding ScrollView (`buildProcessorPanel`). See `EuclidDragHUDInfo`/`onEuclidDragInfo` above and
@@ -899,87 +541,42 @@ struct ProcessorBox: View {
     /// comet bar + 6pt padding top/bottom = 56.
     private var euclidLaneH: CGFloat { 56 }
     private var euclidLaneGap: CGFloat { 8 }
-    /// One of the four EUCLID lanes' box (Paul 2026-10-02, THIRD relayout pass: "I want the play button on its
-    /// original position as part of the grid lane. No select button please, and if any lane is touched I want
-    /// it highlighted (the previous behaviour of the select button) which will bring its control into focus").
-    /// SUPERSEDES the immediately-prior pass, which had pulled PLAY/STOP out to a separate control row below
-    /// and added a dedicated numbered SELECT chip — both reverted here. PLAY/STOP is back INLINE (left of the
-    /// comet bar, its original position from before that pass); there is NO select chip anymore — tapping
-    /// ANYWHERE on the box (`.onTapGesture` on the whole cell), OR starting a single-lane drag/pinch on its
-    /// comet bar, selects it instead, driving the exact same highlight (`selected` border/background) the old
-    /// SELECT button used to drive, and the settings panel below focuses on it. The comet bar's own gesture pad
-    /// (1-finger drag, 2-finger drag, pinch) is UNCHANGED — still the only way to reshape hits/steps/rotate; a
-    /// plain tap (no movement) is never consumed by the pan/pinch recognizers, so it falls through to this
-    /// outer tap gesture cleanly (confirmed by reasoning through UIKit's own recognition rules, not guessed —
-    /// `UIPanGestureRecognizer`/`UIPinchGestureRecognizer` only transition out of `.possible` once the touch
-    /// moves past a system threshold; a touch that never moves simply fails them, un-consumed).
-    @ViewBuilder private func euclidLaneBox(_ idx: Int, _ L: EuclidLine, width: CGFloat, onDragInfo: @escaping (EuclidDragHUDInfo?) -> Void) -> some View {
-        let selected = euclidSelectedLane == idx
-        let touched = euclidAllRowsTouched || euclidSingleTouchedLanes.contains(idx)
-        let on = L.enabledResolved
-        HStack(spacing: 8) {
-            Image(systemName: on ? "play.fill" : "stop.fill")
-                .font(.system(size: 15, weight: .black))
-                .foregroundColor(on ? accent : .white.opacity(0.4))
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
-                .contentShape(Rectangle())
-                .onTapGesture { euclidLineEdit4(idx) { $0.enabled = !($0.enabledResolved) } }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
-            euclidCometBar(pulses: L.pulses, steps: L.steps, rotate: L.rotate, invert: L.invert, dir: L.directionResolved,
-                           rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0, tint: accent, lanePlaying: on,
-                           // DRAG-DIRECTION FIX, ROUND 3 (Paul 2026-10-03: "the right/left drag gesture for offset
-                           // isn't reflected correctly... it sets the offset the wrong way"). ROUND 2 (a same-day
-                           // blind sign-flip, keeping the BKW-vs-other conditional) is SUPERSEDED here, not by
-                           // trusting the device report a second time, but because a concurrent fix on another
-                           // worktree (`ceedff7`, "fix the comet grid jumping on direction change") changed the
-                           // premise the ORIGINAL 2026-09-28 fix's BKW branch depended on: box content used to be
-                           // `buf[euclidReadIndex(i,n,dir)]` (BKW mirrored, which is WHY that fix needed a
-                           // separate BKW sign in the first place) — now every box always shows `buf[i]` directly,
-                           // for EVERY direction, so DIRECTION no longer affects which screen position shows which
-                           // buffer entry AT ALL. Re-verified via a fresh throwaway script against the CURRENT
-                           // box-content rule: increasing `rotate` shifts the screen-visible pattern LEFT by
-                           // exactly one slot, uniformly, regardless of direction (worked example: E(3,8) rot=0
-                           // hits {0,3,6} → rot=1 hits {2,5,7}, for FWD/BKW/PING-PONG alike now). So there is no
-                           // longer any reason for a direction-dependent sign — a single `rotate - d` (so a left
-                           // drag, d<0, increases rotate, which shifts the pattern left, following the finger)
-                           // applies uniformly. This also retroactively explains ROUND 2's blind flip: Paul was
-                           // very likely already testing against a build with the NEW box-content rule, where the
-                           // OLD (still direction-split) formula's BKW branch was simply wrong for a different
-                           // reason than a sign error — removing the split, not flipping it again, is the fix.
-                           onRotateDelta: { d in euclidLineEdit4(idx) { $0.rotate = ((($0.rotate - d) % 16) + 16) % 16 } },
-                           onHitsDelta: { d in euclidLineEdit4(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) } },
-                           onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
-                           onAllRotateDelta: { d in euclidAllRowsEdit { line in line.rotate = ((line.rotate - d) % 16 + 16) % 16 } },
-                           onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } },
-                           onDragState: { point, allRows in
-                               // LIVE "IN USE" (Paul 2026-10-04): track exactly which lane(s) currently have a
-                               // finger down, independent of the sticky `euclidSelectedLane`. ALL ROWS (the
-                               // 2-finger-on-one-pad gesture) genuinely reshapes every lane, so all 4 light up
-                               // together; a plain single-finger touch marks only its own lane.
-                               if point == nil { if allRows { euclidAllRowsTouched = false } else { euclidSingleTouchedLanes.remove(idx) } }
-                               else { if allRows { euclidAllRowsTouched = true } else { euclidSingleTouchedLanes.insert(idx) } }
-                               guard let point else { onDragInfo(nil); return }
-                               if !allRows { euclidSelectedLane = idx }   // "if any lane is touched... bring its control into focus" — a single-lane drag/pinch selects too, not just a plain tap; the 2-finger ALL-LANES case doesn't name one lane, so it's excluded
-                               let label = allRows ? "ALL LANES" : "LANE \(idx + 1)"
-                               onDragInfo(EuclidDragHUDInfo(label: label, hits: L.pulses, steps: L.steps, offset: L.rotate, point: point))
-                           })
-                .frame(height: 44)
-        }
-        .padding(6)
-        .frame(width: width, height: euclidLaneH)   // EXPLICIT width — the stroke/background below can never bleed past it
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(selected ? 0.07 : 0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? accent.opacity(0.5) : Color.clear, lineWidth: 1.5))
-        // "IN USE" SCALE-UP (Paul 2026-10-04: "increase in size a little without misaligning the space around
-        // it... two [lanes] can be touched at the same time"). `.scaleEffect` is a pure RENDER transform — it
-        // never changes what SwiftUI's layout system thinks this view's size is, so neighbours in the 2×2 grid
-        // never shift; the grown box simply draws slightly over its own margin. `.zIndex` keeps a touched lane
-        // drawing OVER its neighbours so the overlap (if any, at this modest scale) never reads as clipped.
-        .scaleEffect(touched ? 1.07 : 1.0)
-        .zIndex(touched ? 1 : 0)
-        .animation(.easeOut(duration: 0.12), value: touched)
-        .contentShape(Rectangle())
-        .onTapGesture { euclidSelectedLane = idx }   // a plain tap anywhere on the cell selects it — the SELECT chip's replacement
+    /// The 6 "live clock" scalars `EuclidLaneBox`/`EuclidBeacon` (EuclidLaneUI.swift) need, bundled once here so
+    /// the two call sites below don't each separately repeat the same 6 names (Paul 2026-10-05, EUCLIDEOUS).
+    private var euclidClock: EuclidLiveClock {
+        EuclidLiveClock(stepBeats: gridStepBeats, cols: gridCols, anchor: beatAnchor, anchorAt: beatAnchorAt, tempo: tempo, playing: clockPlaying)
     }
+    /// Constructs one `EuclidLaneBox` (EuclidLaneUI.swift) wired to this editor's own state — a thin, real
+    /// private METHOD (not a local closure inside the `@ViewBuilder` call site) so this stays a plain instance
+    /// method, not a declaration nested inside a result-builder-transformed body (this file's own standing
+    /// lesson: Swift's result-builder transform rejects a local declaration inside a transformed closure —
+    /// "closure containing a declaration cannot be used with result builder 'ViewBuilder'").
+    @ViewBuilder private func euclidLaneBoxView(_ idx: Int, _ L: EuclidLine, width: CGFloat) -> some View {
+        EuclidLaneBox(idx: idx, line: L, width: width, height: euclidLaneH, accent: accent,
+                      selected: euclidSelectedLane == idx,
+                      touched: euclidAllRowsTouched || euclidSingleTouchedLanes.contains(idx),
+                      clock: euclidClock, rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0,
+                      onRotateDelta: { d in euclidLineEdit4(idx) { $0.rotate = ((($0.rotate - d) % 16) + 16) % 16 } },
+                      onHitsDelta: { d in euclidLineEdit4(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) } },
+                      onStepsDelta: { d in euclidLineEdit4(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
+                      onAllRotateDelta: { d in euclidAllRowsEdit { line in line.rotate = ((line.rotate - d) % 16 + 16) % 16 } },
+                      onAllHitsDelta: { d in euclidAllRowsEdit { line in let v = max(0, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps) } },
+                      onDragState: { point, allRows in
+                          // LIVE "IN USE": track exactly which lane(s) currently have a finger down, independent of
+                          // the sticky `euclidSelectedLane`. ALL ROWS (the 2-finger-on-one-pad gesture) genuinely
+                          // reshapes every lane, so all 4 light up together; a plain single-finger touch marks
+                          // only its own lane.
+                          if point == nil { if allRows { euclidAllRowsTouched = false } else { euclidSingleTouchedLanes.remove(idx) } }
+                          else { if allRows { euclidAllRowsTouched = true } else { euclidSingleTouchedLanes.insert(idx) } }
+                          guard let point else { onEuclidDragInfo(nil); return }
+                          if !allRows { euclidSelectedLane = idx }   // "if any lane is touched... bring its control into focus" — a single-lane drag/pinch selects too, not just a plain tap; the 2-finger ALL-LANES case doesn't name one lane, so it's excluded
+                          onEuclidDragInfo(euclidLaneDragHUDInfo(idx: idx, line: L, point: point, allRows: allRows))
+                      },
+                      onSelect: { euclidSelectedLane = idx },
+                      onToggleEnabled: { euclidLineEdit4(idx) { $0.enabled = !($0.enabledResolved) } })
+    }
+    // euclidLaneBox REMOVED (Paul 2026-10-05, EUCLIDEOUS) — ProcessorBox's own `case .euclid:` now
+    // constructs `EuclidLaneBox` (EuclidLaneUI.swift) directly, same as the new Euclideous page.
     /// THE INDIVIDUAL CONTROLS PER LANE (Paul 2026-10-02, HIT/MISS SPLIT: "I want the bottom controls... to
     /// split into two. On the left is 'Lane 1 hit' and on the right is 'Lane 1 miss', which plays the off
     /// notes... Ensure that both 'hits' and 'misses' boxes have identical controls"). DIRECTION stays SINGULAR,
@@ -1045,7 +642,9 @@ struct ProcessorBox: View {
             HStack(spacing: 5) {
                 Text(isMiss ? "LANE \(idx + 1) MISS" : "LANE \(idx + 1) HIT")
                     .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                euclidBeaconDot(idx, L, isMiss: isMiss)
+                EuclidBeacon(line: L, isMiss: isMiss, accent: accent, clock: euclidClock,
+                             rate: p.euclidRate ?? .r1_16, spanN: p.euclidSpanN ?? 0,
+                             isReady: (euclidLineReadyLive & UInt8(1 << (idx * 2 + (isMiss ? 1 : 0)))) != 0)
             }
             HStack(alignment: .top, spacing: 8) {
                 euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { if isMiss { $0.missNoteSel = s } else { $0.noteSel = s } } }
@@ -1074,76 +673,8 @@ struct ProcessorBox: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
-    /// HIT/MISS BEACON (Paul 2026-10-03: "next to the labels mentioning hits and misses... a small beacon flash
-    /// on every playing hit/miss[]. Ensure it's accurate and reliable") — a tiny dot beside each "LANE N HIT"/
-    /// "LANE N MISS" label, sized well under the label's own line height so the row's height is unchanged.
-    /// ACCURATE BY CONSTRUCTION, not just by eye: reuses the EXACT same pure functions the real render path
-    /// uses for its own per-tick hit decision (`euclidReadIndex`/`euclidCycleLen`/`euclidPatternInto`, Router.
-    /// swift's `runEuclidLine`) via the SAME continuous tick-count the comet bar already drives its own sweep
-    /// from (`euclidCometRaw`) — the identical "share the engine's own formula, never re-derive it" discipline
-    /// this file has standardized on since the RATCHET-PATTERN/DEST class of bug. Floors that continuous value
-    /// to the current INTEGER tick, resolves it through the SAME `euclidReadIndex` the engine uses to decide
-    /// which buffer entry sounds at that tick, and flashes the HIT dot when that tick is a hit, the MISS dot
-    /// when it's a rest — so the two dots are always exact complements of one another, never both lit.
-    /// RELIABLE: this mirrors the PATTERN-level hit/miss decision, the same one the comet bar's own box content
-    /// already reflects. FULLY CLOSED (Paul 2026-10-05): `canPlay` no longer approximates whether a nominal
-    /// "hit" would actually produce sound — it reads `euclidLineReadyLive`, a bit computed on the RENDER THREAD
-    /// itself (Router.swift's `case .euclid:`, stored in `euclidLineReady`, polled the same way `riffDrunkPos`
-    /// already is) using the EXACT same guards `runEuclidLine`'s hit/miss closures apply: velocity>0 · for a
-    /// RIFF/ARP pick, the predecessor genuinely has an available note (not just a matching TYPE — RIFF's own
-    /// authored pattern has a non-rest step AND the pool feeding its slot is non-empty; ARP's own pool is
-    /// non-empty) · for every other pick, the TRUE upstream pool size already composed for this cell's chain —
-    /// not an approximation off a door's raw held notes. See `euclidLineReady`'s own doc comment (Router.swift)
-    /// for the one honest remaining limit: a CHANCE-style probabilistic stage between the door and this slot is
-    /// read at the current render beat, not the exact future tick the beacon asks about — inherent to a
-    /// probabilistic stage, not a shortcut.
-    @ViewBuilder private func euclidBeaconDot(_ idx: Int, _ L: EuclidLine, isMiss: Bool) -> some View {
-        let n = max(2, min(16, L.steps))
-        let k = max(0, min(n, L.pulses))
-        let dir = L.directionResolved
-        let sub = max(0.03125, (p.euclidRate ?? .r1_16).beats)
-        let spanN = p.euclidSpanN ?? 0
-        let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: Double(gridCols) * gridStepBeats) : 0
-        let running = clockPlaying && L.enabledResolved
-        let canPlay = euclidBeaconCanPlay(idx, isMiss: isMiss)
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || !canPlay)) { tl in
-            beaconCircle(flash: euclidBeaconFlash(tl.date, n: n, k: k, rotate: L.rotate, dir: dir, sub: sub,
-                                                   spanBeats: spanBeats, isMiss: isMiss, running: running, canPlay: canPlay))
-        }
-    }
-    /// Whether this beacon's resolved note-select could EVER sound, independent of the pattern's own hit/miss
-    /// timing — see `euclidBeaconDot`'s own doc comment above. A plain bit-read of `euclidLineReadyLive` (the
-    /// render-thread-computed readiness for this editor's focused cell) — bit layout matches Router.swift's
-    /// `euclidLineReady`: `idx*2 + (isMiss ? 1 : 0)`. Pulled out to a plain function for the SAME reason
-    /// `euclidBeaconFlash` below is: too much inline logic inside an `@ViewBuilder` function body confuses
-    /// Swift's result-builder inference ("type '()' cannot conform to 'View'" — hit this directly, not guessed
-    /// around).
-    private func euclidBeaconCanPlay(_ idx: Int, isMiss: Bool) -> Bool {
-        let bit = idx * 2 + (isMiss ? 1 : 0)
-        guard bit >= 0 && bit < 8 else { return false }
-        return (euclidLineReadyLive & UInt8(1 << bit)) != 0
-    }
-    /// Pure scalar half of `euclidBeaconDot` — pulled out so the `TimelineView` closure above stays a single
-    /// simple call (Swift's result-builder type inference choked on the longer inline version: "generic
-    /// parameter 'Content' could not be inferred").
-    private func euclidBeaconFlash(_ date: Date, n: Int, k: Int, rotate: Int, dir: EuclidDir, sub: Double,
-                                    spanBeats: Double, isMiss: Bool, running: Bool, canPlay: Bool) -> Double {
-        guard running && canPlay else { return 0 }
-        let liveBeat = beatAnchor + date.timeIntervalSince(beatAnchorAt) * tempo / 60.0
-        let cometRaw = euclidCometRaw(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
-        var buf = [Bool](repeating: false, count: n)
-        _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
-        let rawTick = Int(cometRaw.rounded(.down))
-        let isHitTick = buf[euclidReadIndex(rawTick, n: n, dir: dir)]
-        guard isMiss ? !isHitTick : isHitTick else { return 0 }
-        let age = cometRaw - Double(rawTick)                 // 0..<1, how far into the current tick we are
-        return max(0, 1 - age / 0.4)                         // a short, sharp pulse — not a held glow
-    }
-    private func beaconCircle(flash: Double) -> some View {
-        Circle().fill(accent.opacity(0.25 + 0.75 * flash))
-            .frame(width: 6, height: 6)
-            .shadow(color: accent.opacity(flash), radius: 3 * flash)
-    }
+    // euclidBeaconDot/euclidBeaconCanPlay/euclidBeaconFlash/beaconCircle REMOVED (Paul 2026-10-05,
+    // EUCLIDEOUS) — euclidHitMissBox above now constructs `EuclidBeacon` (EuclidLaneUI.swift) directly.
 
     @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
         switch ft {
@@ -1402,12 +933,12 @@ struct ProcessorBox: View {
                 let cellW = max(80, (geo.size.width - euclidLaneGap) / 2)
                 VStack(spacing: euclidLaneGap) {
                     HStack(spacing: euclidLaneGap) {
-                        euclidLaneBox(0, rows[0], width: cellW, onDragInfo: onEuclidDragInfo)
-                        euclidLaneBox(1, rows[1], width: cellW, onDragInfo: onEuclidDragInfo)
+                        euclidLaneBoxView(0, rows[0], width: cellW)
+                        euclidLaneBoxView(1, rows[1], width: cellW)
                     }
                     HStack(spacing: euclidLaneGap) {
-                        euclidLaneBox(2, rows[2], width: cellW, onDragInfo: onEuclidDragInfo)
-                        euclidLaneBox(3, rows[3], width: cellW, onDragInfo: onEuclidDragInfo)
+                        euclidLaneBoxView(2, rows[2], width: cellW)
+                        euclidLaneBoxView(3, rows[3], width: cellW)
                     }
                 }
             }
