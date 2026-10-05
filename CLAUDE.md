@@ -196,6 +196,46 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID BEACON — the full-guard-chain gap CLOSED FOR REAL via render-thread readiness, not a door-note
+  approximation (2026-10-05, on `main`, `e4f252b`; macOS 1193 green incl. 3 new, iOS builds). Direct follow-up:
+  Paul asked "are there any outstanding bugs?" after the prior session's 19-bug sweep closed 18/19 — the one
+  disclosed partial was the beacon's own `canPlay` check approximating the engine's real emission guard chain
+  off a door's raw held-note count. Paul: "Please fix that bug." **THE REAL FIX NEEDED LIVE ENGINE STATE, not a
+  better UI-side guess:** `composeChainSet`/`chainScratch` (the functions that resolve RIFF/ARP predecessors and
+  the true upstream pool) mutate shared render-thread scratch buffers — calling them from a UI-polling thread
+  would race against the real render path using the SAME buffers concurrently. Followed this codebase's own
+  established idiom instead (the same one `cellSoundingNotes`/`riffDrunkPosAt`/`rowSoundingVoices` already use):
+  compute the answer ONCE per cell per render, ON the render thread, write it into a plain per-cell array, and
+  let the UI poll that. **NEW `Router.euclidLineReady: [UInt8]`** (2 bits per line — hit/miss — packed per cell),
+  computed inside `case .euclid:` itself using the EXACT guards `runEuclidLine`'s hit/miss closures apply:
+  velocity>0 (a genuinely MISSED guard, not just approximated — the beacon never checked this before at all); for
+  a RIFF pick, at least one non-rest authored step AND a non-empty pool feeding riff's own slot (confirmed via
+  `riffResolve`'s own doc comment — it only ever fails for rank<1 or an empty pool, so "pool non-empty" is
+  exactly sufficient, not an approximation); for an ARP pick, a non-empty pool feeding arp's own slot (same
+  confirmation via `arpPick`'s "returns -1 for an empty pool" doc comment); for every other pick, the TRUE
+  upstream `srcCount` already composed for this cell's chain — not the door's raw held notes, closing the
+  originally-disclosed gap exactly. Explicitly zeroed at `process()`'s pool-empty guard so "nothing held" reads
+  as "nothing can play" promptly rather than going stale between renders. **THREADED through the identical chain
+  `riffDrunkPos` already established:** `Router.euclidLineReadyAt` → `Kernel.euclidLineReadyAt` →
+  `MidiSparkAudioUnit.pollEuclidLineReady` → the existing ~30fps `editorOpen` poll in AudioUnitViewController
+  (`@State buildEuclidLineReady`) → `BuildPage`'s `ProcessorBox` construction → `GridUI`'s
+  `euclidLineReadyLive` — `euclidBeaconCanPlay` collapses to a single bit-read; every approximate check that used
+  to live in GridUI.swift (door-note counting, predecessor-type-only matching) is gone. **+3 RouterTests**
+  exercising `Router.euclidLineReadyAt` directly via a new `runKeepingRouter` test helper (the shared `run()`
+  helper discards its `Router` instance; this one hands it back) — velocity 0 vs 1 on the same line; a
+  `[CHANCE(0%)→EUCLID]` chain reading not-ready despite a healthy 3-note held chord (the core "composed pool, not
+  door count" proof) vs. CHANCE fully open reading ready; a RIFF predecessor with an all-rest pattern vs. one
+  with a genuine non-rest step; an ARP predecessor fed by an emptied upstream pool despite the predecessor TYPE
+  matching. **PROCESS NOTE:** the iOS build's own background-task notification falsely reported "failed, exit
+  code 1" — traced to my own verification script's trailing `grep -c "BUILD FAILED"` legitimately exiting 1 for
+  finding zero matches (the GOOD outcome), which the harness surfaced as the overall command's exit status; the
+  actual log, read directly, showed `BUILD SUCCEEDED` with zero "error:" lines across all 453 lines — the
+  standing "always check the real log, never trust the notification alone" lesson, confirmed yet again, just in
+  the opposite direction this time (false failure, not false success). **DEVICE-OWED:** the beacon's accuracy is
+  now machine-verified end-to-end for the engine half (Router.swift, full test coverage); the UI threading
+  (GridUI/BuildPage/AudioUnitViewController/MidiSparkAudioUnit) has no macOS test-target reach as always — confirm
+  on device that a RIFF/ARP-sourced or rank-beyond-pool-size lane now correctly stays dark instead of flashing for
+  a strike that never sounds.**
 - **▶ CODE REVIEW — 5 parallel reviews of the 5 most critical subsystems (named off CLAUDE.md's own architecture
   invariants: the render/SnapshotStore boundary, the derived-never-accumulated discipline, Codable decode-
   safety, the dual host-automation routes, render-path allocation), every finding independently re-verified
