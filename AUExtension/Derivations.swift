@@ -2314,6 +2314,77 @@ func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
 /// must reduce its raw tick count mod THIS, not mod `n`, before calling `euclidReadIndex` above.
 @inline(__always) func euclidCycleLen(_ dir: EuclidDir, n: Int) -> Int { dir == .pingpong ? max(1, 2 * n) : max(1, n) }
 
+// ── EUCLIDEOUS (Paul 2026-10-05) — pure, testable logic for the standalone 4-lane instrument page ──────────────────
+// Lives here (not in EuclideousPage.swift, which imports SwiftUI) specifically so it reaches the Foundation-only
+// macOS unit-test target — this codebase's own standing rule: "keep new pure logic in Derivations.swift so it
+// stays testable."
+
+/// EUCLIDEOUS INVERT: swaps the HIT and MISS field-quads — "what used to sound on hits now sounds on misses, and
+/// vice versa." A clean, self-inverting (tap twice = functionally back to the start) operation built entirely
+/// from the EXISTING, already-live HIT/MISS split — no new engine field, no revival of the old removed `invert`
+/// field (which would have changed the SHARED EuclidLine model's behaviour for the existing BUILD-page EUCLID
+/// processor too, not just here).
+///
+/// CORRECTNESS NOTE (caught during planning, not shipped wrong first): `missNoteSel == nil` is the engine's own
+/// "MISS feature off" sentinel, but `noteSel == nil` means something different — it falls back to legacy
+/// target/pick resolution, which resolves to `.all` (audible), NOT silence. The two sides are NOT symmetric by
+/// default, so a naive 4-field swap is WRONG for the single most common starting case (a fresh, hit-only lane):
+/// it would leave the new "hit" side un-silenced instead of going quiet as "invert" implies.
+/// `euclideousEnsureMissDefaults` establishes the real invariant this page relies on BEFORE any swap: once a
+/// lane is first touched here, `missNoteSel` is ALWAYS populated (mirroring the hit side), and
+/// `missVelocity <= 0` — not `missNoteSel == nil` — is THIS page's own "this side is off" signal, symmetric with
+/// the hit side's own existing `velocity <= 0` = off convention (confirmed against Router.swift's own guard:
+/// `if let missSel = missNoteSel { guard missVelocity > 0 else { return } ... }` — the velocity gate alone
+/// already correctly silences a non-nil-but-zero-velocity MISS, so a persistently-non-nil `missNoteSel` after a
+/// round-trip invert is a harmless cosmetic difference, not a behavioural one). With both sides gated purely by
+/// velocity, the swap becomes exactly correct with no special-casing.
+func euclideousEnsureMissDefaults(_ line: EuclidLine) -> EuclidLine {
+    guard line.missNoteSel == nil else { return line }
+    var out = line
+    out.missNoteSel = line.noteSelResolved
+    out.missVelocity = 0   // OFF by default, matching today's "unconfigured MISS is silent" behaviour
+    out.missGate = line.gateResolved
+    out.missOctave = line.octaveResolved
+    return out
+}
+func euclideousInvertLine(_ line: EuclidLine) -> EuclidLine {
+    let p = euclideousEnsureMissDefaults(line)
+    var out = p
+    out.noteSel = p.missNoteSel
+    out.missNoteSel = p.noteSelResolved
+    out.velocity = p.missVelocityResolved
+    out.missVelocity = p.velocityResolved
+    out.gate = p.missGateResolved
+    out.missGate = p.gateResolved
+    out.octave = p.missOctaveResolved
+    out.missOctave = p.octaveResolved
+    return out
+}
+
+/// NOTE/OCTAVE gesture tab's X-axis cycle list — the FULL remaining `EuclidNoteSel` set (not the existing 5-chip
+/// *display-trimmed* list used elsewhere, which was trimmed for visual WIDTH, a constraint a drag gesture
+/// doesn't have) — EXCLUDING `.riff`/`.arp`. Those two only resolve when the immediately-preceding chain slot
+/// matches (Router.swift's `predType` check); Euclideous's cell has exactly one processor slot by construction,
+/// so `predType` is permanently nil there — if the cycle ever landed on either, that lane would silently go
+/// silent with no on-screen explanation (caught during planning, not discovered as a device bug).
+let euclideousNoteSelCycle: [EuclidNoteSel] = [.all, .n1, .n2, .n3, .n4, .n5, .n6, .n7, .n8, .low, .high, .bottom2, .top2, .cycle, .random]
+
+/// Steps an `EuclidNoteSel` by `delta` positions through `euclideousNoteSelCycle`, wrapping.
+func euclideousStepNoteSel(_ cur: EuclidNoteSel, by delta: Int) -> EuclidNoteSel {
+    let list = euclideousNoteSelCycle
+    let i = list.firstIndex(of: cur) ?? 0
+    let n = list.count
+    return list[((i + delta) % n + n) % n]
+}
+
+/// A plain tap-to-advance rate stepper — steps through the 18-case `ArpRate` ladder in its own declared
+/// (straight → dotted → triplet) order.
+func euclideousNextRate(_ cur: ArpRate) -> ArpRate {
+    let all = ArpRate.allCases
+    let i = all.firstIndex(of: cur) ?? 0
+    return all[(i + 1) % all.count]
+}
+
 // ── ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26) ──────────────────────────────────────────────────
 // Pure per-step helpers over a Bjorklund K-of-N mask (SAME formula as euclidPatternInto). No allocation — safe in the
 // render hot loop. `step` is the global arp-tick index. K == N ⇒ every step a hit (mask OFF) → callers short-circuit.

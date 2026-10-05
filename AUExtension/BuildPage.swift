@@ -3523,6 +3523,27 @@ extension DiagView {
         input.chainReceiver = selR.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         input.chainEmitters = selR.map { buildRowEmittersResolved($0) } ?? (buildDefaultEmitters)
 
+        // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — a single-slot EUCLID chain, re-derived
+        // from the live `euclideousLines` @State every publish (so it can never drift from `buildMachineReg`'s
+        // own copy, re-synced here too) and registered under a FIXED sentinel id ("euclideous" — can't collide
+        // with the auto-incrementing "b<n>" ephemeral scheme or the 16 canonical palette ids). Full-open emitters
+        // by default — each EuclidLine's own `emitterMask` is the real per-lane selector.
+        input.euclideousOn = euclideousEnabled
+        if euclideousEnabled {
+            input.euclideousMachineID = "euclideous"
+            var p = MachineParams(); p.euclidLines = euclideousLines
+            let chain = [ProcessorSlot(type: .euclid, params: p)]
+            // NOTE: the registered machine's OWN stored params are irrelevant at render time — Router.swift's
+            // `emitGeneratorRow` always overwrites `.a` with the CELL's own `processors` (confirmed: `treat.a =
+            // cell.proc`) — this registration exists SOLELY so `cell.machineID` resolves at all
+            // (SnapshotBuilder.build silently skips any cell whose machineID doesn't resolve against doc.machines
+            // + the ephemeral registry). Re-written every publish for simplicity, not because it needs to be.
+            if buildMachineReg["euclideous"] != chain { buildMachineReg["euclideous"] = chain; buildSyncMachines() }
+            input.euclideousChain = chain
+            input.euclideousReceiver = euclideousReceiver
+            input.euclideousEmitters = [.a, .b, .c, .d]
+        }
+
         input.activeFerry = buildActiveFerry ?? -1
         input.ferryOn = (0..<Snap.ferries).map { $0 < buildPlayColOn.count ? buildPlayColOn[$0] : false }
         input.ferryAudible = (0..<Snap.ferries).map { buildFerryAudible($0) }   // MUTE/SOLO gate — uniform for active + background
@@ -3565,7 +3586,7 @@ extension DiagView {
         // even while the host transport is stopped. HOST TRANSPORT SYNC (Paul 2026-09-02): a host-transport STOP does NOT
         // de-arm — it sets buildHostHalted, gating free-run OFF (halt/silence) while the cells stay armed; the host START
         // edge clears it so the armed voices RESUME in sync. An explicit BUILD play also clears it (audition while stopped).
-        au?.setFreeRunEnabled((ddSolo || buildStagingPlaying || buildPlayPlaying) && !buildHostHalted)   // halted (host stopped after playing) → NO free-run, the voices resume when the host does
+        au?.setFreeRunEnabled((ddSolo || buildStagingPlaying || buildPlayPlaying || euclideousEnabled) && !buildHostHalted)   // halted (host stopped after playing) → NO free-run, the voices resume when the host does; EUCLIDEOUS (Paul 2026-10-05): "a playable instrument" must keep running even with the host transport stopped
     }
     // buildStopAllOnTransportStop RETIRED (Paul 2026-09-12): the OLD "host stop de-arms everything" handler. SUPERSEDED by
     // buildTransportEdge (wired at the poll) — which HALTS play but KEEPS cells armed so START resumes in sync (Paul

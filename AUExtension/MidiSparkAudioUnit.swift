@@ -507,6 +507,15 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// (buttons are no longer a radio — several light); `setClaimLeak` sets its 0…100 % bleed. The legacy
     /// single `claimEmitter` field is kept in sync (lowest claimed bus) so an OLDER build downgrades cleanly.
     func uiClaimMask() -> UInt8 { document.claimMaskResolved }
+    // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument page's persisted config.
+    func uiEuclideousLines() -> [EuclidLine] { document.euclideousLinesResolved }
+    func uiEuclideousEnabled() -> Bool { document.euclideousEnabledResolved }
+    func uiEuclideousReceiver() -> Int { document.euclideousReceiverResolved }
+    /// Euclideous's own beacon readiness, polled independent of the BUILD-page editor's own editorOpen-gated
+    /// poll — Euclideous's page can be open (and its beacon needs updating) whether or not BuildPage's own
+    /// processor editor happens to be open at the same time. Its cell always sits at column 0 of its own
+    /// reserved row, so the cell index IS the row index (col 0 × Snap.rows contributes nothing).
+    func pollEuclideousLineReady() -> UInt8 { kernel.euclidLineReadyAt(Snap.euclideousRow) }
     func uiClaimLeak() -> [Int] { document.claimLeakResolved }
     func setClaim(_ bus: Int) {
         guard (0..<4).contains(bus) else { return }

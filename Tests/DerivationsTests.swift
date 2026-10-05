@@ -517,6 +517,50 @@ final class DerivationsTests: XCTestCase {
         let pingpongHitSteps = readSeq.enumerated().filter { rotated[$0.element] }.map { $0.offset }
         XCTAssertEqual(pingpongHitSteps, [2, 5, 7, 8, 10, 13], "hit at buffer index 7 fires on BOTH raw ticks 7 and 8 (the turn)")
     }
+    // EUCLIDEOUS INVERT (Paul 2026-10-05) — the explicit acceptance case the plan's own validation pass called
+    // out as the one most likely to silently regress: a FRESH, hit-only lane (missNoteSel == nil, the engine's
+    // "MISS feature off" sentinel) inverted must go SILENT on the hit side and SOUND on the miss side — not
+    // leave the hit side audible via the legacy target/pick fallback (`noteSelResolved` resolves a bare
+    // `noteSel == nil` to `.all`, NOT silence, which is why a naive field-swap would be wrong here).
+    func testEuclideousInvertSilencesAFreshHitOnlyLane() {
+        let fresh = EuclidLine(target: 0, pulses: 4, steps: 8, noteSel: .low, gate: 0.6, octave: 1, velocity: 0.8)
+        XCTAssertNil(fresh.missNoteSel, "sanity: a fresh lane has never touched MISS")
+        let inverted = euclideousInvertLine(fresh)
+        XCTAssertEqual(inverted.velocityResolved, 0, "the HIT side must go silent — not fall through to the legacy ALL default")
+        XCTAssertEqual(inverted.missNoteSel, .low, "the MISS side now carries what used to be the HIT side's own pick")
+        XCTAssertEqual(inverted.missVelocityResolved, 0.8, accuracy: 1e-9, "...and its velocity")
+        XCTAssertEqual(inverted.missGateResolved, 0.6, accuracy: 1e-9)
+        XCTAssertEqual(inverted.missOctaveResolved, 1)
+    }
+    // Inverting TWICE must be a no-op in every OBSERVABLE (resolved) respect — the engine gates MISS purely on
+    // `missVelocity > 0` (Router.swift's own guard), so `missNoteSel` staying non-nil after the round trip
+    // (rather than returning to its original nil) is an accepted, harmless, purely-cosmetic difference.
+    func testEuclideousInvertTwiceRestoresTheOriginalResolvedState() {
+        let fresh = EuclidLine(target: 0, pulses: 4, steps: 8, noteSel: .low, gate: 0.6, octave: 1, velocity: 0.8)
+        let twice = euclideousInvertLine(euclideousInvertLine(fresh))
+        XCTAssertEqual(twice.noteSelResolved, fresh.noteSelResolved)
+        XCTAssertEqual(twice.velocityResolved, fresh.velocityResolved, accuracy: 1e-9)
+        XCTAssertEqual(twice.gateResolved, fresh.gateResolved, accuracy: 1e-9)
+        XCTAssertEqual(twice.octaveResolved, fresh.octaveResolved)
+        XCTAssertEqual(twice.missVelocityResolved, 0, "the MISS side is silent again too — the round trip is a genuine no-op, not just hit-side-identical")
+    }
+    // A lane with BOTH sides already configured (not Euclideous's own fresh-lane default) swaps symmetrically —
+    // no special-casing needed once ensureMissDefaults's invariant already holds.
+    func testEuclideousInvertSwapsBothFullyConfiguredSides() {
+        var line = EuclidLine(target: 0, pulses: 4, steps: 8, noteSel: .high, gate: 0.9, octave: -1, velocity: 1.2)
+        line.missNoteSel = .low; line.missVelocity = 0.4; line.missGate = 0.5; line.missOctave = 2
+        let inverted = euclideousInvertLine(line)
+        XCTAssertEqual(inverted.noteSelResolved, .low); XCTAssertEqual(inverted.velocityResolved, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(inverted.gateResolved, 0.5, accuracy: 1e-9); XCTAssertEqual(inverted.octaveResolved, 2)
+        XCTAssertEqual(inverted.missNoteSel, .high); XCTAssertEqual(inverted.missVelocityResolved, 1.2, accuracy: 1e-9)
+        XCTAssertEqual(inverted.missGateResolved, 0.9, accuracy: 1e-9); XCTAssertEqual(inverted.missOctaveResolved, -1)
+    }
+    func testEuclideousStepNoteSelCyclesAndWraps() {
+        XCTAssertEqual(euclideousStepNoteSel(.all, by: 1), .n1)
+        XCTAssertEqual(euclideousStepNoteSel(.all, by: -1), euclideousNoteSelCycle.last)
+        XCTAssertFalse(euclideousNoteSelCycle.contains(.riff), ".riff must never appear in the cycle — Euclideous's cell has no preceding slot, so it would silently go silent")
+        XCTAssertFalse(euclideousNoteSelCycle.contains(.arp), "same for .arp")
+    }
     // COMET SWEEP DIRECTION (Paul 2026-10-02: "reverses direction when reverse is chosen... goes back and forth
     // on pingpong") — euclidCometRaw/euclidCometPos drive the GridUI comet bar's own visual motion.
     func testEuclidCometPosReversesAndBounces() {

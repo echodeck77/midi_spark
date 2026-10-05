@@ -179,6 +179,20 @@ struct DiagView: View {
     @State var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
+    // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument page — same "overlay, engine never stops"
+    // presentation pattern as showSettings above, but filling the available screen rather than a small card
+    // (see EuclideousPage.swift). `euclideousLines`/`Enabled`/`Receiver` are LIVE MIRRORS of the persisted
+    // PluginState fields (loaded in refreshFromDocument, written back via au?.editDocument on every edit) —
+    // genuinely authored state, unlike a BUILD-page audition, so it must survive closing/reopening the plugin.
+    // `euclideousGestureTab` is deliberately ephemeral (never persisted) — each of the 4 lanes' own X/Y drag-
+    // gesture tab (0=hits/offset 1=velocity/gate 2=note/octave), matching the existing `euclidSelectedLane`
+    // precedent of resetting on reopen rather than being saved.
+    @State var showEuclideous = false
+    @State var euclideousLines: [EuclidLine] = Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)
+    @State var euclideousEnabled = false
+    @State var euclideousReceiver = 0
+    @State var euclideousGestureTab: [Int] = [0, 0, 0, 0]
+    @State var euclideousLineReady: UInt8 = 0
     @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); the AnyView boundaries fixed the metadata-stack crash
     // BUILD page (user 2026-08-11): the selected PART's cast machine (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
@@ -635,6 +649,9 @@ struct DiagView: View {
         masterKey = au.uiMasterKey()
         sceneEmpty = au.uiScenes().map { $0.isEmpty }   // MULTI-SCENE strip occupancy + active
         activeSceneIdx = au.uiActiveScene()
+        euclideousLines = au.uiEuclideousLines()
+        euclideousEnabled = au.uiEuclideousEnabled()
+        euclideousReceiver = au.uiEuclideousReceiver()
     }
 
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
@@ -859,6 +876,29 @@ struct DiagView: View {
                             roomsLeftOriented: $roomsLeftOriented,
                             onClose: { showSettings = false })
                 }
+                if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
+                    EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled, receiver: euclideousReceiver,
+                                   gestureTab: $euclideousGestureTab, lineReady: euclideousLineReady,
+                                   clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying),
+                                   onEdit: { mutate in
+                                       var lines = euclideousLines
+                                       mutate(&lines)
+                                       euclideousLines = lines
+                                       au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
+                                       buildPublishScene()
+                                   },
+                                   onToggleEnabled: {
+                                       euclideousEnabled.toggle()
+                                       au?.editDocument { $0.euclideousEnabled = euclideousEnabled }
+                                       buildPublishScene()
+                                   },
+                                   onSetReceiver: { r in
+                                       euclideousReceiver = r
+                                       au?.editDocument { $0.euclideousReceiver = r }
+                                       buildPublishScene()
+                                   },
+                                   onClose: { showEuclideous = false })
+                }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
                     PresetBrowser(presets: presetList, factory: au?.factoryPresetNames() ?? [], current: currentPreset,
                                   onSave: savePreset, onLoad: loadPreset, onLoadFactory: loadFactoryPreset,
@@ -928,6 +968,13 @@ struct DiagView: View {
                 if !buildOutHeld.isEmpty { buildOutHeld = [] }
                 if buildRiffDrunkPos != -1 { buildRiffDrunkPos = -1 }
                 if buildEuclidLineReady != 0 { buildEuclidLineReady = 0 }
+            }
+            // EUCLIDEOUS (Paul 2026-10-05): its own beacon readiness, polled independent of the `editorOpen` gate
+            // above — Euclideous's page can be open (and need a fresh reading) whether or not BuildPage's own
+            // processor editor happens to be open at the same time.
+            if showEuclideous {
+                let er = au.pollEuclideousLineReady()
+                if er != euclideousLineReady { euclideousLineReady = er }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the
             // OUT piano above, same reason (a poll-driven held-note feed is visibly laggy at 4Hz). Deliberately does
@@ -1400,6 +1447,7 @@ struct DiagView: View {
                        onUndo: undo, onRedo: redo,
                        showScenes: showScenes,                                  // scene row visibility (cog toggle)
                        onOpenManual: { showManual = true },                     // "?" → the in-app manual
+                       onOpenEuclideous: { showEuclideous = true },             // EUCLIDEOUS (Paul 2026-10-05) → the standalone 4-lane instrument page
                        stepIndex: stepIndex, swing: swing,                      // LAYOUT v2: the clock now lives in the header
                        onStep: { au?.setStepRateIndex($0); refreshTiming() },
                        onSwing: { au?.setSwing($0); refreshTiming() },

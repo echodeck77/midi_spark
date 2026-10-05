@@ -30,6 +30,7 @@ struct ArrangementBar: View {
     var onRedo: () -> Void = {}
     var showScenes: Bool = true             // the 16-scene row is HIDDEN by default; toggled on the cog page (user 2026-08-03)
     var onOpenManual: () -> Void = {}        // the "?" → the in-app manual, scrolled to the last-touched control
+    var onOpenEuclideous: () -> Void = {}    // EUCLIDEOUS (Paul 2026-10-05) → the standalone 4-lane instrument page (rendered at the VC's top level, same tier as the cog page)
     var stepIndex: Int = 4                  // LAYOUT v2: the clock (STEP rate + SWING) moved into the header from ControlsView
     var swing: Int = 50
     var onStep: (Int) -> Void = { _ in }     // AUParameter 0 (step rate index)
@@ -68,6 +69,7 @@ struct ArrangementBar: View {
                 clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate (SWING moved out to the header)
                 undoRedo.helpAnchor("#undo")                                       // labelled UNDO/REDO, moved to the right (user 2026-08-03)
                 helpButton                                                         // "?" → the in-app manual at the last-touched control
+                euclideousButton.helpAnchor("#euclideous-open")                     // EUCLIDEOUS (Paul 2026-10-05) → the standalone 4-lane instrument page
                 cogOrCan.helpAnchor("#cog-open")                                    // ⚙ ⇄ 🗑 (the can in place during a drag)
                 headerExtras                                                       // BUILD: RATE · MIDI IN · MIDI OUT · RACK · RECORD — RECORD top-right corner (Paul 2026-08-23)
             }
@@ -190,6 +192,13 @@ struct ArrangementBar: View {
             .foregroundColor(.white.opacity(0.6))
             .frame(width: 30, height: 26).contentShape(Rectangle())
             .onTapGesture { onOpenManual() }
+    }
+    // EUCLIDEOUS (Paul 2026-10-05) — opens the standalone 4-lane instrument page.
+    private var euclideousButton: some View {
+        Image(systemName: "circle.grid.2x2.fill").font(.system(size: 14, weight: .semibold))
+            .foregroundColor(.white.opacity(0.6))
+            .frame(width: 30, height: 26).contentShape(Rectangle())
+            .onTapGesture { onOpenEuclideous() }
     }
     private func sceneChip(_ i: Int, chipW: CGFloat, rowWidth: CGFloat) -> some View {
         let empty = i >= sceneEmpty.count || sceneEmpty[i]
