@@ -82,6 +82,26 @@ final class RouterTests: XCTestCase {
 
     private func arpMachines() -> [Machine] { machineIDs.map { Machine(machineID: $0, type: .arp) } }
 
+    /// Like `run()`, but hands back the `Router` instance instead of discarding it — for tests that need to
+    /// poll a UI-facing readout (e.g. `euclidLineReadyAt`) after rendering, not just inspect the emitted wire
+    /// stream. Deliberately skips `run()`'s trailing release/stop-edge calls: those exist to prove no stuck
+    /// notes at teardown, irrelevant here and an unnecessary extra edge to reason about for a readout that
+    /// doesn't depend on transport play/stop state at all (Paul 2026-10-05, EUCLID beacon readiness).
+    private func runKeepingRouter(_ box: SnapshotBox, _ pool: NotePool, beats: Double, into emitter: RecordingEmitter,
+                                   tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) -> Router {
+        let router = Router()
+        var diag = KernelDiag()
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < beats {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames,
+                           out: emitter, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        return router
+    }
+
     // MARK: tests
 
     func testArpSoundsAndLeavesNothingStuck() {
@@ -5658,6 +5678,73 @@ final class RouterTests: XCTestCase {
         let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
         XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a BYPASSED RIFF predecessor is 'not really there' — noteSel .riff finds no matching predecessor and emits nothing, never falls back to a different pick")
+    }
+    // EUCLID BEACON READINESS (Paul 2026-10-05, "please fix that bug" — closing the beacon's own disclosed gap:
+    // "doesn't walk RIFF/ARP's own resolved note... reads the door's raw held notes, not the fully-resolved
+    // upstream-chain pool"). These exercise `Router.euclidLineReadyAt` directly — the render-thread-computed
+    // readout GridUI's beacon now polls instead of approximating from a door's raw note count. Bit 0 = line
+    // index 0's HIT bit (the only line/side each of these tests uses).
+    func testEuclidBeaconReadinessOffWhenVelocityZero() {
+        func readiness(velocity: Double) -> UInt8 {
+            var euclid = ProcessorSlot(type: .euclid)
+            euclid.params.euclidLines = [EuclidLine(pulses: 8, steps: 8, noteSel: .low, velocity: velocity)]
+            let cs = arpMachines()
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [euclid]; return c }() }
+            let e = RecordingEmitter()
+            let router = runKeepingRouter(b, chord([60, 64, 67]), beats: 1, into: e)
+            return router.euclidLineReadyAt(0)
+        }
+        XCTAssertEqual(readiness(velocity: 0) & 0b01, 0, "velocity 0 means this line's HIT can never actually sound (strikeChord's clampVel floor would otherwise mask it, per runEuclidLine's own 'VELOCITY 0 = EFFECTIVELY OFF' guard) — the beacon must not flash for it")
+        XCTAssertNotEqual(readiness(velocity: 1) & 0b01, 0, "sanity: the identical line at velocity 1 reads TRUE — the difference above is the velocity guard, not some other factor")
+    }
+    func testEuclidBeaconReadinessUsesComposedPoolNotRawDoorCount() {
+        func readiness(chanceProbability: Double) -> UInt8 {
+            var chance = ProcessorSlot(type: .chance)
+            chance.params.probability = chanceProbability
+            var euclid = ProcessorSlot(type: .euclid)
+            euclid.params.euclidLines = [EuclidLine(pulses: 8, steps: 8, noteSel: .low, velocity: 1)]
+            let cs = arpMachines()
+            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [chance, euclid]; return c }() }
+            let e = RecordingEmitter()
+            let router = runKeepingRouter(b, chord([60, 64, 67]), beats: 1, into: e)
+            return router.euclidLineReadyAt(0)
+        }
+        XCTAssertEqual(readiness(chanceProbability: 0) & 0b01, 0, "a [CHANCE(0%)→EUCLID] chain deterministically empties the pool feeding EUCLID — readiness must read FALSE even though the door's own raw held chord has 3 notes; this is exactly the 'fully-resolved upstream pool, not the door's raw notes' gap the beacon used to have")
+        XCTAssertNotEqual(readiness(chanceProbability: 1) & 0b01, 0, "sanity: the identical chain with CHANCE fully open reads TRUE — the difference above is the upstream fold, not some other factor")
+    }
+    func testEuclidBeaconReadinessRequiresRiffArpPredecessorToHaveAnAvailableNote() {
+        // RIFF: an all-rest predecessor pattern must read not-ready even though the door holds a healthy chord —
+        // mirrors testEuclidRiffAllRestPredecessorIsSilentNotACrash's own repro shape.
+        var riffAllRest = ProcessorSlot(type: .riff)
+        riffAllRest.params.riffSteps = 4
+        riffAllRest.params.riffRanks = [0, 0, 0, 0]
+        var euclidRiff = ProcessorSlot(type: .euclid)
+        euclidRiff.params.euclidLines = [EuclidLine(pulses: 8, steps: 8, noteSel: .riff, velocity: 1)]
+        let cs = arpMachines()
+        let b1 = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riffAllRest, euclidRiff]; return c }() }
+        let e1 = RecordingEmitter()
+        let r1 = runKeepingRouter(b1, chord([60, 64, 67]), beats: 1, into: e1)
+        XCTAssertEqual(r1.euclidLineReadyAt(0) & 0b01, 0, "an all-rest RIFF predecessor has no non-rest step to walk — readiness must read FALSE, not just 'predecessor type matches'")
+
+        // Same RIFF predecessor shape, but WITH a real non-rest step — readiness must flip to TRUE.
+        var riffHasHits = ProcessorSlot(type: .riff)
+        riffHasHits.params.riffSteps = 4
+        riffHasHits.params.riffRanks = [1, 0, 0, 0]
+        let b2 = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riffHasHits, euclidRiff]; return c }() }
+        let e2 = RecordingEmitter()
+        let r2 = runKeepingRouter(b2, chord([60, 64, 67]), beats: 1, into: e2)
+        XCTAssertNotEqual(r2.euclidLineReadyAt(0) & 0b01, 0, "a RIFF predecessor with a genuine non-rest step, fed by a non-empty pool, must read TRUE")
+
+        // ARP: the predecessor TYPE matches, but the pool feeding INTO arp's own slot is empty
+        // ([CHANCE(0%)→ARP→EUCLID]) — readiness must read FALSE, not just "predecessor type matches".
+        var chanceEmpty = ProcessorSlot(type: .chance); chanceEmpty.params.probability = 0
+        var arp = ProcessorSlot(type: .arp); arp.params.pattern = .up
+        var euclidArp = ProcessorSlot(type: .euclid)
+        euclidArp.params.euclidLines = [EuclidLine(pulses: 8, steps: 8, noteSel: .arp, velocity: 1)]
+        let b3 = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [chanceEmpty, arp, euclidArp]; return c }() }
+        let e3 = RecordingEmitter()
+        let r3 = runKeepingRouter(b3, chord([60, 64, 67]), beats: 1, into: e3)
+        XCTAssertEqual(r3.euclidLineReadyAt(0) & 0b01, 0, "an ARP predecessor fed by an EMPTIED upstream pool (CHANCE at 0%) has no note to pick — readiness must read FALSE, not just 'predecessor type matches'")
     }
     func testEuclidRiffPolyStepStrikesSimultaneousChordStab() {
         var riff = ProcessorSlot(type: .riff)

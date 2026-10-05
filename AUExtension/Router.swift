@@ -340,6 +340,16 @@ final class Router {
     private var riffDrunkPos = [Int](repeating: -1, count: Snap.cells)           // −1 ⇒ not yet started (first strike parks at step 0)
     private var riffDrunkPrevPos = [Int](repeating: -1, count: Snap.cells)       // the position immediately BEFORE the current tick's move — −1 ⇒ no previous strike yet (SLIDE's own lookback, Paul 2026-09-28)
     private var riffDrunkLastTick = [Int64](repeating: .min, count: Snap.cells)  // last tick this cell's walk advanced on
+    // EUCLID BEACON READINESS (Paul 2026-10-05, closing the beacon's own disclosed gap — "doesn't walk RIFF/ARP's
+    // own resolved note... reads the door's raw held notes, not the fully-resolved upstream-chain pool"). Bit
+    // (lineIndex*2 + (isMiss?1:0)) is set when that line's resolved noteSel/missNoteSel currently has a genuine
+    // target to strike — computed from the SAME real guards runEuclidLine's hit/miss closures apply (see the
+    // computation site in `case .euclid:`), not approximated from a door's raw note count. NOT accumulated state
+    // (unlike riffDrunkPos above) — fully recomputed every render for every cell currently dispatching as EUCLID,
+    // and explicitly zeroed at the pool-empty guard in `process()` so "nothing held" reads as "nothing can play"
+    // promptly rather than going stale. UI-poll read via `euclidLineReadyAt`, same plain-array-read safety as
+    // `riffDrunkPosAt`/`cellSoundVel` (a torn UInt8 is benign — one stale frame).
+    private var euclidLineReady = [UInt8](repeating: 0, count: Snap.cells)
     // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18) — the looper-in-a-chain. STAGE 1: LOOP · PASSES|STEPS ·
     // ON PLAY|AFTER N · REPLACE|LAYER · CAPTURE ONCE, fed by an UPSTREAM DRIVER (captured in the driver fold). Per-cell
     // render-side buffer (persistence + FREEZE/CANON/REFRESH/CLEAR are later stages). Sanctioned accumulated-state
@@ -1161,6 +1171,14 @@ final class Router {
     func riffDrunkPosAt(_ cellIndex: Int) -> Int {
         guard cellIndex >= 0 && cellIndex < riffDrunkPos.count else { return -1 }
         return riffDrunkPos[cellIndex]
+    }
+
+    /// UI-poll read: this cell's EUCLID beacon readiness bits (see `euclidLineReady`'s own declaration for the
+    /// bit layout and what "ready" means) — 0 for a cell that isn't currently dispatching as EUCLID, or that
+    /// hasn't rendered since its pool last went empty.
+    func euclidLineReadyAt(_ cellIndex: Int) -> UInt8 {
+        guard cellIndex >= 0 && cellIndex < euclidLineReady.count else { return 0 }
+        return euclidLineReady[cellIndex]
     }
 
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
@@ -2909,6 +2927,7 @@ final class Router {
                                  beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
 
         guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
+            for i in euclidLineReady.indices { euclidLineReady[i] = 0 }   // nothing held/latched ⇒ nothing can play; case .euclid: won't run below to refresh this itself
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
 
@@ -3766,6 +3785,60 @@ final class Router {
             // slot as "not really there") — testChainBypassedHeadArpsSourceOnly already locks in the analogous case.
             let predIdx = chainDriver - 1
             let predType: ProcessorType? = (chainDriver >= 1 && !cell.slotBypass[predIdx]) ? cell.procs[predIdx].type : nil
+            // EUCLID BEACON READINESS (Paul 2026-10-05): computed once per cell per render (not per tick — none of
+            // these conditions are tick-dependent), written into `euclidLineReady`, read by GridUI's beacon via
+            // `euclidLineReadyAt`. Mirrors the EXACT guards `runEuclidLine`'s hit/miss closures apply below, not an
+            // approximation: velocity>0 · for .riff/.arp, the predecessor TYPE matches AND has a genuine target
+            // (RIFF: at least one non-rest authored step, confirmed via the same bounded scan `runEuclidLine` uses,
+            // AND a non-empty pool feeding riff's own slot — `riffResolve` only ever fails for rank<1 or an empty
+            // pool, per its own doc comment, so "pool non-empty" is exactly sufficient, not an approximation; ARP:
+            // a non-empty pool feeding arp's own slot — `arpPick`/`arpPickSource` only ever return note<0 for an
+            // empty [chan/cable-filtered] pool, per their own doc comments) · for every other pick (ranked N1…N8 or
+            // aggregate ALL/LOW/HIGH/BOT2/TOP2/CYCLE/RANDOM), the TRUE upstream `srcCount` already composed for
+            // this cell's chain — not the door's raw held notes (the beacon's own disclosed gap before this fix).
+            // HONEST LIMIT, same posture as `riffDrunkPosAt`'s own doc comment: a CHANCE-style probabilistic stage
+            // between the door and this slot is read at THIS render's current beat (mWinStart), not the exact
+            // future tick the beacon is asking about — inherent to a probabilistic stage, not a shortcut taken.
+            if currentCellIndex >= 0 && currentCellIndex < euclidLineReady.count {
+                var ready: UInt8 = 0
+                for (li, L) in p.euclidLines.enumerated() where li < 4 {
+                    if L.velocityResolved > 0 {
+                        let sel = L.noteSelResolved
+                        var hitOK = false
+                        if sel == .riff {
+                            if predType == .riff {
+                                let rp = cell.procs[predIdx]
+                                let riffSteps = max(1, min(32, rp.riffSteps))
+                                var nonRest = 0
+                                for i in 0..<riffSteps {
+                                    let isRest = rp.riffPoly ? ((i < rp.riffMask.count ? rp.riffMask[i] : 0) == 0)
+                                                              : ((i < rp.riffRanks.count ? rp.riffRanks[i] : 0) < 1)
+                                    if !isRest { nonRest += 1 }
+                                }
+                                if nonRest > 0 {
+                                    composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mWinStart, S: S, cycleBeats: cyc)
+                                    hitOK = chainScratch.srcCount(filter: 0) > 0
+                                }
+                            }
+                        } else if sel == .arp {
+                            if predType == .arp {
+                                composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mWinStart, S: S, cycleBeats: cyc)
+                                hitOK = chainScratch.srcCount(filter: 0) > 0
+                            }
+                        } else if let rank = sel.specificRank {
+                            hitOK = srcCount >= rank
+                        } else {
+                            hitOK = srcCount > 0
+                        }
+                        if hitOK { ready |= UInt8(1 << (li * 2)) }
+                    }
+                    if let missSel = L.missNoteSel, missSel != .riff, missSel != .arp, L.missVelocityResolved > 0 {
+                        let missOK = missSel.specificRank.map { srcCount >= $0 } ?? (srcCount > 0)
+                        if missOK { ready |= UInt8(1 << (li * 2 + 1)) }
+                    }
+                }
+                euclidLineReady[currentCellIndex] = ready
+            }
             // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
             // DIRECTION (Paul 2026-10-01, 3-way redesign): `dir` replaces the old binary `reverse` — FWD/BKW read the
             // n-length buffer directly/mirrored (unchanged math, renamed); PING-PONG reuses RIFF's own `.pingpong`

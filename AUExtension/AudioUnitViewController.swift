@@ -492,6 +492,7 @@ struct DiagView: View {
     @State var buildOutHeld: [Int] = []                       // §1 TRUTH STRIPS: the focused processor instance's currently-SOUNDING output pitches (editor-open only)
     @State var buildOutProcessing: Bool = false                // §1 TRUTH STRIPS: is MIDI reaching this instance right now (Paul 2026-09-29) — polled alongside buildOutHeld so the two can never disagree; see buildTruthStrips
     @State var buildRiffDrunkPos: Int = -1                     // RIFF's DRUNK walk position for the focused cell (editor-open only); −1 = unknown/not this mode (Paul 2026-09-28)
+    @State var buildEuclidLineReady: UInt8 = 0                 // EUCLID beacon readiness bits for the focused cell (editor-open only); 0 = unknown/not this mode (Paul 2026-10-05)
     @State var buildFocusNotes: [BuildFocusNote] = []         // the focused machine cell's REAL emitted notes (+ beats) — drives the real chain-flow comets (Paul 2026-08-31)
     @State var buildStageEye = false                          // §4 STAGE EYE: the expanded 3-lane (input · mechanism · output) view is open
     @State var buildStageEyeDoor = -1                         // the door the eye watches (set on open) — drives the INPUT-onset accumulation below
@@ -920,10 +921,13 @@ struct DiagView: View {
                 if held != buildOutHeld { buildOutHeld = held }
                 let drunk = idx >= 0 ? au.pollRiffDrunkPos(idx) : -1
                 if drunk != buildRiffDrunkPos { buildRiffDrunkPos = drunk }
+                let ready: UInt8 = idx >= 0 ? au.pollEuclidLineReady(idx) : 0
+                if ready != buildEuclidLineReady { buildEuclidLineReady = ready }
             } else {
                 if buildOutProcessing { buildOutProcessing = false }
                 if !buildOutHeld.isEmpty { buildOutHeld = [] }
                 if buildRiffDrunkPos != -1 { buildRiffDrunkPos = -1 }
+                if buildEuclidLineReady != 0 { buildEuclidLineReady = 0 }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the
             // OUT piano above, same reason (a poll-driven held-note feed is visibly laggy at 4Hz). Deliberately does

@@ -469,6 +469,7 @@ final class Kernel {
     func cellSoundingNotes(_ cellIndex: Int) -> [UInt8] { router.cellSoundingNotes(cellIndex) }   // the processor editor's OUTPUT piano (Paul 2026-09-28)
     func rowSoundingVoices() -> [[(note: UInt8, vel: UInt8, onBeat: Double)]] { router.rowSoundingVoices() }   // PART grid's live per-row piano-roll (Paul 2026-09-29)
     func riffDrunkPosAt(_ cellIndex: Int) -> Int { router.riffDrunkPosAt(cellIndex) }   // RIFF's DRUNK sweep, polled (Paul 2026-09-28)
+    func euclidLineReadyAt(_ cellIndex: Int) -> UInt8 { router.euclidLineReadyAt(cellIndex) }   // EUCLID beacon readiness bits, polled (Paul 2026-10-05)
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.

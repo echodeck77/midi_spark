@@ -232,6 +232,7 @@ struct ProcessorBox: View {
     // correction this needs that driverNoteRate's own backward scan doesn't: bypass-aware (see BuildPage.swift).
     var precedingSourceType: ProcessorType? = nil
     var riffDrunkPosLive: Int = -1                       // RIFF DRUNK's true walk position, polled from the render thread (−1 = unknown/not this mode/cell) — Paul 2026-09-28
+    var euclidLineReadyLive: UInt8 = 0                   // EUCLID beacon readiness bits, polled from the render thread (see euclidBeaconCanPlay) — Paul 2026-10-05
     var gridStepBeats: Double = 0.25                     // the SCENE step in beats → the DEFAULT (grid-column) matrix/lane playhead clock (Paul 2026-09-11)
     // PART GRID × GENERATOR interaction bug, UI side (Paul 2026-10-05): EUCLID's comet bar + beacon, BURST's and
     // RIFF's own live sweeps, and the per-param LFO editor's period ladder all hardcoded "8 columns" for their own
@@ -1044,7 +1045,7 @@ struct ProcessorBox: View {
             HStack(spacing: 5) {
                 Text(isMiss ? "LANE \(idx + 1) MISS" : "LANE \(idx + 1) HIT")
                     .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                euclidBeaconDot(L, isMiss: isMiss)
+                euclidBeaconDot(idx, L, isMiss: isMiss)
             }
             HStack(alignment: .top, spacing: 8) {
                 euclidNoteSelChipRow(shown, cur) { s in euclidLineEdit4(idx) { if isMiss { $0.missNoteSel = s } else { $0.noteSel = s } } }
@@ -1084,20 +1085,19 @@ struct ProcessorBox: View {
     /// to the current INTEGER tick, resolves it through the SAME `euclidReadIndex` the engine uses to decide
     /// which buffer entry sounds at that tick, and flashes the HIT dot when that tick is a hit, the MISS dot
     /// when it's a rest — so the two dots are always exact complements of one another, never both lit.
-    /// RELIABLE, honestly scoped: this mirrors the PATTERN-level hit/miss decision, the same one the comet bar's
-    /// own box content already reflects. UPDATED (Paul 2026-10-05): it now ALSO checks the two cheapest, most-
-    /// common ways a nominal "hit" silently produces no sound — a MISS tick never actually sounds unless
-    /// `missNoteSel` is set; a RIFF/ARP pick whose predecessor doesn't genuinely match never sounds
-    /// (`precedingSourceType`, mirroring Router.swift's own early-return guard exactly); a numbered-rank pick
-    /// (N1…N8) beyond the currently-held note count, or any pick against an empty pool, never sounds
-    /// (`avoidInputNotes`/`avoidChainInputDoor`, mirroring `resolveEuclidPick`'s own index math) — see
-    /// `euclidBeaconCanPlay`'s own doc comment for what's still APPROXIMATE about that last one. Still NOT a full
-    /// re-implementation of the emission guard chain: it doesn't walk RIFF/ARP's own resolved note (only whether
-    /// the predecessor TYPE matches), and the pool-size reading is the door's raw held notes, not the fully-
-    /// resolved upstream-chain pool right before this EUCLID slot — a chain stage between the door and EUCLID
-    /// that changes note count (e.g. CHANCE dropping notes) still isn't seen. Closing that fully would need live
-    /// chain/pool state this widget still isn't given.
-    @ViewBuilder private func euclidBeaconDot(_ L: EuclidLine, isMiss: Bool) -> some View {
+    /// RELIABLE: this mirrors the PATTERN-level hit/miss decision, the same one the comet bar's own box content
+    /// already reflects. FULLY CLOSED (Paul 2026-10-05): `canPlay` no longer approximates whether a nominal
+    /// "hit" would actually produce sound — it reads `euclidLineReadyLive`, a bit computed on the RENDER THREAD
+    /// itself (Router.swift's `case .euclid:`, stored in `euclidLineReady`, polled the same way `riffDrunkPos`
+    /// already is) using the EXACT same guards `runEuclidLine`'s hit/miss closures apply: velocity>0 · for a
+    /// RIFF/ARP pick, the predecessor genuinely has an available note (not just a matching TYPE — RIFF's own
+    /// authored pattern has a non-rest step AND the pool feeding its slot is non-empty; ARP's own pool is
+    /// non-empty) · for every other pick, the TRUE upstream pool size already composed for this cell's chain —
+    /// not an approximation off a door's raw held notes. See `euclidLineReady`'s own doc comment (Router.swift)
+    /// for the one honest remaining limit: a CHANCE-style probabilistic stage between the door and this slot is
+    /// read at the current render beat, not the exact future tick the beacon asks about — inherent to a
+    /// probabilistic stage, not a shortcut.
+    @ViewBuilder private func euclidBeaconDot(_ idx: Int, _ L: EuclidLine, isMiss: Bool) -> some View {
         let n = max(2, min(16, L.steps))
         let k = max(0, min(n, L.pulses))
         let dir = L.directionResolved
@@ -1105,28 +1105,23 @@ struct ProcessorBox: View {
         let spanN = p.euclidSpanN ?? 0
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: gridStepBeats, row: Double(gridCols) * gridStepBeats) : 0
         let running = clockPlaying && L.enabledResolved
-        let canPlay = euclidBeaconCanPlay(L, isMiss: isMiss)
+        let canPlay = euclidBeaconCanPlay(idx, isMiss: isMiss)
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || !canPlay)) { tl in
             beaconCircle(flash: euclidBeaconFlash(tl.date, n: n, k: k, rotate: L.rotate, dir: dir, sub: sub,
                                                    spanBeats: spanBeats, isMiss: isMiss, running: running, canPlay: canPlay))
         }
     }
     /// Whether this beacon's resolved note-select could EVER sound, independent of the pattern's own hit/miss
-    /// timing — see `euclidBeaconDot`'s own doc comment for exactly what this does and doesn't replicate. Pulled
-    /// out to a plain function for the SAME reason `euclidBeaconFlash` below is: too much inline logic inside an
-    /// `@ViewBuilder` function body confuses Swift's result-builder inference ("type '()' cannot conform to
-    /// 'View'" — hit this directly while adding the checks, not guessed around).
-    private func euclidBeaconCanPlay(_ L: EuclidLine, isMiss: Bool) -> Bool {
-        guard !isMiss || L.missNoteSel != nil else { return false }   // an unconfigured MISS never sounds
-        let cur: EuclidNoteSel = isMiss ? (L.missNoteSel ?? .all) : L.noteSelResolved
-        let predecessorOK = cur == .riff ? precedingSourceType == .riff : cur == .arp ? precedingSourceType == .arp : true
-        guard predecessorOK else { return false }
-        if cur == .riff || cur == .arp { return true }   // resolved via the predecessor, not the pool — no count to check
-        // APPROXIMATE (see euclidBeaconDot's doc comment): the door's own held notes, not the fully-resolved
-        // upstream-chain pool right before this EUCLID slot.
-        let srcCountApprox = (avoidChainInputDoor >= 0 && avoidChainInputDoor < avoidInputNotes.count) ? avoidInputNotes[avoidChainInputDoor].count : 0
-        if let rank = cur.specificRank { return srcCountApprox >= rank }
-        return srcCountApprox > 0
+    /// timing — see `euclidBeaconDot`'s own doc comment above. A plain bit-read of `euclidLineReadyLive` (the
+    /// render-thread-computed readiness for this editor's focused cell) — bit layout matches Router.swift's
+    /// `euclidLineReady`: `idx*2 + (isMiss ? 1 : 0)`. Pulled out to a plain function for the SAME reason
+    /// `euclidBeaconFlash` below is: too much inline logic inside an `@ViewBuilder` function body confuses
+    /// Swift's result-builder inference ("type '()' cannot conform to 'View'" — hit this directly, not guessed
+    /// around).
+    private func euclidBeaconCanPlay(_ idx: Int, isMiss: Bool) -> Bool {
+        let bit = idx * 2 + (isMiss ? 1 : 0)
+        guard bit >= 0 && bit < 8 else { return false }
+        return (euclidLineReadyLive & UInt8(1 << bit)) != 0
     }
     /// Pure scalar half of `euclidBeaconDot` — pulled out so the `TimelineView` closure above stays a single
     /// simple call (Swift's result-builder type inference choked on the longer inline version: "generic

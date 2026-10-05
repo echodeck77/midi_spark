@@ -329,6 +329,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollCellSoundingNotes(_ cellIndex: Int) -> [UInt8] { kernel.cellSoundingNotes(cellIndex) }   // the processor editor's OUTPUT piano (Paul 2026-09-28)
     func pollRowSoundingVoices() -> [[(note: UInt8, vel: UInt8, onBeat: Double)]] { kernel.rowSoundingVoices() }   // PART grid's live per-row piano-roll (Paul 2026-09-29)
     func pollRiffDrunkPos(_ cellIndex: Int) -> Int { kernel.riffDrunkPosAt(cellIndex) }   // RIFF's DRUNK sweep, polled (Paul 2026-09-28)
+    func pollEuclidLineReady(_ cellIndex: Int) -> UInt8 { kernel.euclidLineReadyAt(cellIndex) }   // EUCLID beacon readiness bits, polled (Paul 2026-10-05)
     // PART ROLL (Paul 2026-09-02): the live per-part-cycle emitted-note capture for the part-page piano roll.
     func setPartRoll(active: Bool, cycleBeats: Double) { kernel.setPartRoll(active: active, cycleBeats: cycleBeats) }
     func pollPartRoll() -> [PartRollDeck.Note] { kernel.pollPartRoll() }
