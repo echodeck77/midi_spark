@@ -213,6 +213,35 @@ struct EuclidLine: Codable, Equatable {
     /// bool (FWD/BKW only — PING-PONG never existed before this, so there's nothing for an old doc to migrate to).
     var directionResolved: EuclidDir { direction ?? (reverseResolved ? .bkw : .fwd) }
 }
+// DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04): every field EuclidLine has gained SINCE day one
+// was correctly added as Optional, but the five ORIGINAL fields (target/pulses/steps/rotate/invert) are plain
+// non-Optional with no custom init — safe today only by discipline, not by structure. EuclidLine is the single
+// most actively-developed struct in this codebase (gained 9+ fields in the last few days alone); this closes
+// the gap the same way Cell/Machine/OnConfig/etc. already are, so the NEXT field added here — even a careless
+// non-Optional one — can never regress to a whole-session factory reset.
+extension EuclidLine {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        target = try c.decodeIfPresent(Int.self, forKey: .target) ?? 0
+        pulses = try c.decodeIfPresent(Int.self, forKey: .pulses) ?? 1
+        steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? 8
+        rotate = try c.decodeIfPresent(Int.self, forKey: .rotate) ?? 0
+        invert = try c.decodeIfPresent(Bool.self, forKey: .invert) ?? false
+        pick = try c.decodeIfPresent(EuclidPick.self, forKey: .pick)
+        die = try c.decodeIfPresent(Int.self, forKey: .die)
+        noteSel = try c.decodeIfPresent(EuclidNoteSel.self, forKey: .noteSel)
+        reverse = try c.decodeIfPresent(Bool.self, forKey: .reverse)
+        gate = try c.decodeIfPresent(Double.self, forKey: .gate)
+        octave = try c.decodeIfPresent(Int.self, forKey: .octave)
+        direction = try c.decodeIfPresent(EuclidDir.self, forKey: .direction)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
+        velocity = try c.decodeIfPresent(Double.self, forKey: .velocity)
+        missNoteSel = try c.decodeIfPresent(EuclidNoteSel.self, forKey: .missNoteSel)
+        missGate = try c.decodeIfPresent(Double.self, forKey: .missGate)
+        missOctave = try c.decodeIfPresent(Int.self, forKey: .missOctave)
+        missVelocity = try c.decodeIfPresent(Double.self, forKey: .missVelocity)
+    }
+}
 // EUCLID DIRECTION (Paul 2026-10-01): a DEDICATED enum, not a reuse of RIFF's own `RiffDir` — EUCLID needs only
 // 3 of RiffDir's 6 cases (no RANDOM/DRUNK) and RiffDir's own PENDULUM/PING-PONG naming history (the persisted
 // string and the display label disagree, for legacy-compat reasons specific to RIFF) would be a confusing fit
@@ -342,6 +371,20 @@ struct ParamLFO: Codable, Equatable {
     var to: Double? = nil            // sweep endpoint (the LFO's far end); FROM = the base param. ACTIVE when to != the base.
     var rateIgnore: Int? = nil       // "arpRate" only (Paul 2026-09-16): IGNORE families the sweep skips — bit0 normal · bit1 dotted · bit2 triplet. nil ⇒ default IGNORE dotted+triplet (0b110 = normal only). The full grid still shows; ignored rows just aren't swept.
     var rateIgnoreResolved: Int { let m = (rateIgnore ?? 0b110) & 0b111; return m == 0b111 ? 0b110 : m }   // never ignore ALL three (would leave no rate) — fall back to keeping normal
+}
+// DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04) — target/shape/period are the only non-Optional
+// fields here; same gap and same fix as EuclidLine above.
+extension ParamLFO {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        target = try c.decodeIfPresent(String.self, forKey: .target) ?? "gate"
+        shape = try c.decodeIfPresent(ModShape.self, forKey: .shape) ?? .sine
+        period = try c.decodeIfPresent(ModRate.self, forKey: .period) ?? .r2
+        stepSpan = try c.decodeIfPresent(Int.self, forKey: .stepSpan)
+        from = try c.decodeIfPresent(Double.self, forKey: .from)
+        to = try c.decodeIfPresent(Double.self, forKey: .to)
+        rateIgnore = try c.decodeIfPresent(Int.self, forKey: .rateIgnore)
+    }
 }
 
 struct MachineParams: Codable, Equatable {
@@ -860,6 +903,36 @@ struct OnConfig: Codable, Equatable {
         return parts.joined(separator: " · ")
     }
 }
+// DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04): `Machine`'s own decode-tolerant `init(from:)`
+// reads `on` via `c.decodeIfPresent(OnConfig.self, forKey: .on)` — but `decodeIfPresent` only swallows a
+// MISSING-KEY error at THAT level; if the key is present (true for any doc that's ever touched the ON editor)
+// and OnConfig's OWN synthesized decode throws because one of ITS 16 non-Optional fields is missing, that
+// throw propagates straight through Machine's "safe" init, defeating it entirely. Same decodeIfPresent-every-
+// field pattern as Cell/Machine, scoped to this nested type so adding a 17th OnConfig field can never regress
+// to a whole-document factory reset.
+extension OnConfig {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tap = try c.decodeIfPresent(OnTap.self, forKey: .tap) ?? .none
+        tapWhen = try c.decodeIfPresent(OnTapWhen.self, forKey: .tapWhen) ?? .now
+        tapFor = try c.decodeIfPresent(OnTapFor.self, forKey: .tapFor) ?? .retap
+        hold = try c.decodeIfPresent(OnHold.self, forKey: .hold) ?? .none
+        holdRelease = try c.decodeIfPresent(OnHoldRelease.self, forKey: .holdRelease) ?? .spring
+        sliceSize = try c.decodeIfPresent(SliceSize.self, forKey: .sliceSize) ?? .quarter
+        octUp = try c.decodeIfPresent(Bool.self, forKey: .octUp) ?? true
+        arrive = try c.decodeIfPresent(OnArrive.self, forKey: .arrive) ?? .none
+        arriveEvery = try c.decodeIfPresent(Int.self, forKey: .arriveEvery) ?? 1
+        driftPct = try c.decodeIfPresent(Int.self, forKey: .driftPct) ?? 10
+        driftMode = try c.decodeIfPresent(DriftMode.self, forKey: .driftMode) ?? .pingpong
+        leave = try c.decodeIfPresent(OnLeave.self, forKey: .leave) ?? .none
+        sceneEntrance = try c.decodeIfPresent(Bool.self, forKey: .sceneEntrance) ?? false
+        entrancePass = try c.decodeIfPresent(Int.self, forKey: .entrancePass) ?? 1
+        sceneExit = try c.decodeIfPresent(Bool.self, forKey: .sceneExit) ?? false
+        exitPass = try c.decodeIfPresent(Int.self, forKey: .exitPass) ?? 1
+        sceneResetMorph = try c.decodeIfPresent(Bool.self, forKey: .sceneResetMorph) ?? false
+        sceneAutoArm = try c.decodeIfPresent(Bool.self, forKey: .sceneAutoArm) ?? false
+    }
+}
 
 // MARK: - Cell (the patch point) — §1.1: cells share nothing.
 
@@ -873,12 +946,31 @@ struct ChordSplit: Codable, Equatable {
     var note: Int = 60       // RANGE: the split point (MIDI note)
     var high: Bool = true    // RANGE: side — true = notes ≥ split (HIGH), false = notes < split (LOW)
 }
+// DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04) — same reasoning as OnConfig above: `Cell`'s
+// own init reads this via `decodeIfPresent(ChordSplit.self, forKey: .chordSplit)`, which only guards a MISSING
+// key, not a nested decode throw. ChordSplit/VelWindow/Chop all get the same treatment below.
+extension ChordSplit {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try c.decodeIfPresent(SplitMode.self, forKey: .mode) ?? .all
+        n = try c.decodeIfPresent(Int.self, forKey: .n) ?? 2
+        note = try c.decodeIfPresent(Int.self, forKey: .note) ?? 60
+        high = try c.decodeIfPresent(Bool.self, forKey: .high) ?? true
+    }
+}
 
 /// §cell-edit D — VELOCITY WINDOW: a MIDI-IN cell admits only source notes whose velocity is in [floor, ceil].
 /// The default (1…127) admits everything; it gates at the source boundary, BEFORE the chord split selects.
 struct VelWindow: Codable, Equatable {
     var floor: Int = 1       // 1…127
     var ceil: Int = 127      // 1…127 (≥ floor)
+}
+extension VelWindow {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        floor = try c.decodeIfPresent(Int.self, forKey: .floor) ?? 1
+        ceil = try c.decodeIfPresent(Int.self, forKey: .ceil) ?? 127
+    }
 }
 
 /// §cell-edit F — per-slice output CHOP: each of a column's 8 slices can INDEPENDENTLY route to MAIN (own
@@ -889,6 +981,15 @@ struct Chop: Codable, Equatable {
     var altMask: UInt8 = 0       // slices ALSO routed to altDest
     var muteMask: UInt8 = 0      // slices silenced (overrides main/alt)
     var altDest: Set<Bus> = []
+}
+extension Chop {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mainMask = try c.decodeIfPresent(UInt8.self, forKey: .mainMask) ?? 0xFF
+        altMask = try c.decodeIfPresent(UInt8.self, forKey: .altMask) ?? 0
+        muteMask = try c.decodeIfPresent(UInt8.self, forKey: .muteMask) ?? 0
+        altDest = try c.decodeIfPresent(Set<Bus>.self, forKey: .altDest) ?? []
+    }
 }
 
 struct Cell: Codable, Equatable {
@@ -1123,6 +1224,18 @@ struct ScalePool: Codable, Equatable {
     var type: ScaleType = .major
     var baseOct: Int = 3         // home octave
     var octaves: Int = 2         // span
+}
+// DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04) — `Receiver`'s own init reads this via
+// `decodeIfPresent([ScalePool].self, forKey: .scalePools)`, which only guards a MISSING key/array, not a
+// per-element decode throw inside ScalePool itself. Same treatment as OnConfig/ChordSplit/VelWindow/Chop.
+extension ScalePool {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        root = try c.decodeIfPresent(Int.self, forKey: .root) ?? 0
+        type = try c.decodeIfPresent(ScaleType.self, forKey: .type) ?? .major
+        baseOct = try c.decodeIfPresent(Int.self, forKey: .baseOct) ?? 3
+        octaves = try c.decodeIfPresent(Int.self, forKey: .octaves) ?? 2
+    }
 }
 
 struct Receiver: Codable, Equatable {
@@ -1383,6 +1496,21 @@ struct MacroTarget: Codable, Equatable {
     var param: String        // the modulated param — a `MacroParam` raw value
     var delta: Double        // B − A, in the param's native units (may be negative = an inverted B)
 }
+// DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04): unlike Cell/Machine, this struct had ZERO
+// Optional fields and no custom init at all — the next field added here would throw on any doc containing a
+// macro binding, factory-resetting the whole session. `param: ""` falls back to an unrecognized MacroParam raw
+// value (silently inert, the honest "doesn't match any known param" case, not a wrong guess); `delta: 0` is the
+// safe no-op offset (home, nothing to apply) — same defaults MacroEmitterTarget/MacroCellValue use below.
+extension MacroTarget {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        col = try c.decodeIfPresent(Int.self, forKey: .col) ?? 0
+        row = try c.decodeIfPresent(Int.self, forKey: .row) ?? 0
+        slot = try c.decodeIfPresent(Int.self, forKey: .slot) ?? 0
+        param = try c.decodeIfPresent(String.self, forKey: .param) ?? ""
+        delta = try c.decodeIfPresent(Double.self, forKey: .delta) ?? 0
+    }
+}
 
 /// The per-emitter OUTPUT role amounts a macro may modulate (the RACK's continuous amounts). Append-only.
 enum MacroEmitterParam: String, Codable { case leak, duck, curve, pocket }
@@ -1394,6 +1522,15 @@ struct MacroEmitterTarget: Codable, Equatable {
     var param: String        // a `MacroEmitterParam` raw value
     var delta: Double        // B − A, in the amount's native units (LEAK/DUCK %, CURVE −100…100, POCKET ms)
 }
+// DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04) — same gap and same fix as MacroTarget above.
+extension MacroEmitterTarget {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        emitter = try c.decodeIfPresent(Int.self, forKey: .emitter) ?? 0
+        param = try c.decodeIfPresent(String.self, forKey: .param) ?? ""
+        delta = try c.decodeIfPresent(Double.self, forKey: .delta) ?? 0
+    }
+}
 
 /// PER-CELL macro VALUE (macro-automation §A2, Paul §K1 2026-09-01): PUNCH draws a per-cell value/state and SPAN a
 /// sweep, so a macro's *value* can vary per grid cell instead of the one global PLAY value. Sparse (a short list of
@@ -1404,6 +1541,16 @@ struct MacroCellValue: Codable, Equatable {
     var row: Int             // the grid row
     var macro: Int           // which macro (0–15)
     var value: Double        // the per-cell override value (0…1) — replaces the global macroValues[macro] for this cell
+}
+// DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04) — same gap and same fix as MacroTarget above.
+extension MacroCellValue {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        col = try c.decodeIfPresent(Int.self, forKey: .col) ?? 0
+        row = try c.decodeIfPresent(Int.self, forKey: .row) ?? 0
+        macro = try c.decodeIfPresent(Int.self, forKey: .macro) ?? 0
+        value = try c.decodeIfPresent(Double.self, forKey: .value) ?? 0
+    }
 }
 
 /// One macro slot: a modulator that OFFSETS its targets (never rewrites their bases). Value 0 = home (nothing to

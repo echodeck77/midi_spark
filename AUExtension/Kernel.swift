@@ -894,7 +894,8 @@ final class Kernel {
                 }
             case .parameter, .parameterRamp:
                 let pe = e.pointee.parameter
-                router.applyParamEvent(pe.parameterAddress, Double(pe.value), diag: &diag)
+                router.applyParamEvent(pe.parameterAddress, Double(pe.value), atSample: pe.eventSampleTime,
+                                       rampDurationSampleFrames: pe.rampDurationSampleFrames, diag: &diag)
             default:
                 break
             }
@@ -1090,7 +1091,9 @@ final class Kernel {
         diag.panics &+= 1
         router.allNotesOff(atSample: now, out: liveEmitter)              // close any leaked sequenced voices (alloc-free)
         if let out = midiOut {                                           // flush stranded echoes as offs on All + Emit A
-            for (chan, note) in passthroughGate.drainActive() {         // drainActive returns the shared empty array (no alloc) unless echoes are genuinely stranded
+            let drained = passthroughGate.drainActive()                  // fills a fixed-size scratch + returns a count — no allocation even when echoes are genuinely stranded (code-review finding 2026-10-04)
+            for i in 0..<drained {
+                let (chan, note) = passthroughGate.drained(i)
                 passthroughScratch[0] = 0x80 | chan; passthroughScratch[1] = note; passthroughScratch[2] = 0
                 _ = out(now, 0, 3, &passthroughScratch)
                 _ = out(now, 1, 3, &passthroughScratch)

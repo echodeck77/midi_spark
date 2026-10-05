@@ -196,6 +196,69 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ CODE REVIEW — 5 parallel reviews of the 5 most critical subsystems (named off CLAUDE.md's own architecture
+  invariants: the render/SnapshotStore boundary, the derived-never-accumulated discipline, Codable decode-
+  safety, the dual host-automation routes, render-path allocation), every finding independently re-verified
+  before acting (2026-10-05, on `main`; macOS 1184 green incl. +4, iOS builds). Paul: "Please perform code
+  reviews of the 5 most critical parts of the system," then "Please fix this." **DECODE-SAFETY (CR-8 class):**
+  ten structs had either NO custom decode-tolerant `init(from:)` at all, or sat NESTED inside an already-"safe"
+  parent whose own `decodeIfPresent(NestedType.self, forKey:)` only guards a MISSING KEY — if the key IS present
+  but the nested type's OWN synthesized decode throws (because one of ITS non-Optional fields is missing), that
+  throw propagates straight through the parent's "safe" init, defeating it entirely. Found + fixed across all
+  nesting levels, not just the top: `OnConfig` (16 fields, nested under `Machine`), `ChordSplit`/`VelWindow`/
+  `Chop` (nested under `Cell`), `ScalePool` (nested under `Receiver`), `MacroTarget`/`MacroEmitterTarget`/
+  `MacroCellValue` (nested under a macro slot, previously ZERO Optional fields and no custom init at all — the
+  worst-exposed of the ten), `EuclidLine` (the 5 ORIGINAL day-one fields — target/pulses/steps/rotate/invert —
+  were still plain non-Optional despite 13 fields added since; EUCLID is the most actively-developed struct in
+  the codebase, so this was the single highest-probability next factory-reset), `ParamLFO` (target/shape/period).
+  Each gets the house `decodeIfPresent(...) ?? default` pattern, one line per field, in a separate `extension`
+  (preserves the memberwise init + synthesized Encodable/CodingKeys, matching Cell/Machine's own precedent).
+  **DEAD-CODE:** `isModifierFoldable` checked `.velocity`/`.euclidMask` alongside `.shift`/`.humanize`, but its
+  ONLY caller (`chainDriverIndex`) only ever evaluates it inside an `isDriverType(...)` guard whose exhaustive
+  switch never includes those two types — the arms could never fire. Removed; both types' real fold-eligibility
+  is handled correctly elsewhere (`downstreamMaskFoldIndex`, VELOCITY's own dedicated fold in `emitDriverNote`),
+  so this changes nothing behaviourally. **RENDER-THREAD ALLOCATION:** `PassthroughGate.drainActive()` built and
+  returned a fresh `[(UInt8,UInt8)]` on the genuinely-stranded-echo path (PANIC) — a real heap allocation on the
+  render thread, violating invariant 3, just rare enough (only fires when echoes are ACTUALLY stranded) to have
+  gone unnoticed. Fixed with a preallocated, fixed-size `drainScratch` (16×128, the absolute worst case) filled
+  IN PLACE; `drainActive()` now returns a count, a new `drained(_:)` reads each entry — the Kernel.swift PANIC
+  call site and its one test updated to match. **PARAMETER RAMPS NEVER SMOOTHED (the big one):** a host
+  `.parameterRamp` event (automation drawing a continuous sweep, not a step) was applied EXACTLY like a plain
+  `.parameter` event — `applyParamEvent` snapped `overrides[idx]` straight to the final value, discarding
+  `rampDurationSampleFrames` entirely (confirmed via grep: that field was referenced NOWHERE in the codebase
+  before this). A host sweep rendered as a staircase of per-block jumps, not a ramp. **FIX:** 4 new parallel
+  arrays (`rampFrom`/`rampTo`/`rampStartSample`/`rampDurationSamples`, fixed-size, matching `overrides`) + a new
+  `tickRamps(atSample:)` called once at the top of `process()` (before anything reads `over(_:_:)`), which
+  linearly interpolates any in-flight ramp to its value at this render window's start sample, settling exactly
+  at the target once the ramp's duration elapses. `applyParamEvent` now takes `atSample`/`rampDurationSampleFrames`
+  (threaded from the real `AUParameterEvent` at the Kernel.swift call site) and ARMS a ramp instead of snapping,
+  UNLESS nothing has overridden that slot yet — a first touch with no known starting value snaps instead of
+  fabricating a baseline (an honest limitation, not silently guessed). Ramp state clears alongside `overrides`
+  on both existing drop-points (`reset()`, and `refreshOverrides` on a real generation change) — a document edit
+  is still the one truth that cancels any in-flight automation. **A MORE SEVERE DISCOVERY, flagged not fixed:**
+  tracing this surfaced that MACRO automation via this route is a complete NO-OP, not merely unsmoothed —
+  `slot(for:)` never maps macro addresses (400+i) at all, so `applyParamEvent` silently no-ops for them via its
+  own `guard let idx = slot(for: address) else { return }`; and separately, `box.macroValues` (the field that
+  WOULD carry a live macro value into the render path) is read NOWHERE in Router.swift — macro effects are
+  baked into their target params entirely at BUILD TIME (`SnapshotBuilder`, main thread), never read live by the
+  render thread. So a macro's only functioning automation route today is the AUParameterTree's `implementorValue
+  Observer` → `scheduleRebuild()` → a full rebuild, with no sample-accuracy guarantee at all. Properly fixing
+  this needs a genuinely bigger architectural change (moving macro modulation from build-time-bake to render-
+  time-read) — deliberately SCOPED OUT of this fix as too large/risky to bundle with the rest; swing/stepRate/
+  transpose (the params that DO flow through the override-read path) are the ones this fix actually smooths.
+  **SNAPSHOTSTORE (theoretical, practically-mitigated use-after-free):** `acquire()` is deliberately
+  `takeUnretainedValue()` (zero retain traffic on the render path) — the ONLY thing keeping an acquired box
+  alive while render reads it is the main-thread `live` array's strong reference, and the old retention window
+  (`keep last 3`) was close enough to a plausible publish-storm (e.g. a fast UI drag, each tick calling
+  `scheduleRebuild()`) that a render call stretched by OS scheduling jitter could plausibly outlive it — a real,
+  if rare, risk, not purely theoretical. Widened the retention window 3→16 (cheap — `SnapshotBox` instances, not
+  audio buffers) and documented the real fix (an acquire/release handshake, render reporting back which
+  generation it's done with) as deliberately not built, since it would add atomic traffic to the render path for
+  a finding this margin already covers. +4 RouterTests (the two pre-existing `applyParamEvent` call sites
+  updated to the new signature; one new test driving a ramp end-to-end — no-prior-override snaps, mid-ramp reads
+  the linear midpoint, past the ramp's end sample settles exactly at the target). **DEVICE-OWED:** none of this
+  is UI — every fix lands inside the macOS test target or is covered by the existing iOS build; nothing here
+  needs a device pass.**
 - **▶ EUCLID / PART-GRID BUG-HUNT ARC — a 20-bug sweep, the "hardcoded 8 columns" cluster, AU thread-safety, +4
   closing fixes (2026-10-04/05, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`, `28b7d1f`…`e638d77`;
   macOS 1189 green (was 1183 at the start of this arc, +6 net), iOS builds; DEVICE-owed per item, noted below).

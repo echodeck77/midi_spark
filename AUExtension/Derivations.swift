@@ -1223,6 +1223,11 @@ struct PassthroughGate {
     private var active = [Bool](repeating: false, count: 16 * 128)   // (channel<<7 | note): ON forwarded, awaiting OFF
     /// Count of raw notes echoed and still awaiting their OFF (kept O(1) for the per-render silence check).
     private(set) var activeCount = 0
+    // RENDER-THREAD, FIXED-SIZE (code-review finding 2026-10-04): preallocated ONCE when this struct is
+    // created (off the render thread), sized to the absolute worst case — every one of the 16×128 channel/note
+    // slots stranded at once — so `drainActive()` can fill it IN PLACE and never allocate on the audio thread,
+    // not even on the genuinely-stranded-echo path that used to build a fresh `[(UInt8,UInt8)]` there.
+    private var drainScratch = [(channel: UInt8, note: UInt8)](repeating: (0, 0), count: 16 * 128)
 
     /// a8 DUMP: a one-line fingerprint of the still-held echoes (non-mutating; the assert-on-silence dump).
     func heldFingerprint() -> String {
@@ -1249,15 +1254,19 @@ struct PassthroughGate {
         return m
     }
 
-    /// PANIC / reset: the (channel, note) of every note still awaiting its OFF (for an all-notes-off flush),
-    /// then clears them. The render side emits note-offs for these to guarantee silence.
-    mutating func drainActive() -> [(channel: UInt8, note: UInt8)] {
-        guard activeCount > 0 else { return [] }
-        var out: [(UInt8, UInt8)] = []
-        for i in 0..<active.count where active[i] { out.append((UInt8(i >> 7), UInt8(i & 0x7F))); active[i] = false }
+    /// PANIC / reset: fills `drainScratch[0..<count]` with the (channel, note) of every note still awaiting
+    /// its OFF (for an all-notes-off flush), clears them, and returns the count. Render-thread safe — no
+    /// allocation, fixed-size scratch (see `drained(_:)` to read an entry). The render side emits note-offs
+    /// for these to guarantee silence.
+    mutating func drainActive() -> Int {
+        guard activeCount > 0 else { return 0 }
+        var n = 0
+        for i in 0..<active.count where active[i] { drainScratch[n] = (UInt8(i >> 7), UInt8(i & 0x7F)); active[i] = false; n += 1 }
         activeCount = 0
-        return out
+        return n
     }
+    /// Read one entry drained by the most recent `drainActive()` call, by index (0..<the count it returned).
+    func drained(_ i: Int) -> (channel: UInt8, note: UInt8) { drainScratch[i] }
 }
 
 /// ASSERT-ON-SILENCE (a8, 2026-07-25) — the plugin must be SILENT when nothing legitimately sounds:

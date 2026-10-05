@@ -8183,7 +8183,7 @@ final class RouterTests: XCTestCase {
         }
         win(gen(1))                                                  // baseline — no override
         XCTAssertTrue(e.ons.contains { $0.note == 60 }, "baseline sounds the held note")
-        router.applyParamEvent(100, 12, diag: &diag)                // +12 on gold (address 100 = machine 0 transpose)
+        router.applyParamEvent(100, 12, atSample: 0, rampDurationSampleFrames: 0, diag: &diag)   // +12 on gold (address 100 = machine 0 transpose), a plain instant .parameter event
         let mark = e.events.count
         win(gen(1))                                                 // same generation → the override persists
         XCTAssertTrue(e.events[mark...].contains { $0.status == 0x90 && $0.note == 72 }, "the param event shifts gold +12")
@@ -8201,8 +8201,46 @@ final class RouterTests: XCTestCase {
     /// An UNMAPPED param address (no slot) is a silent no-op — it never traps, never writes an override.
     func testUnmappedParamEventIsANoOp() {
         let router = Router(); var diag = KernelDiag()
-        router.applyParamEvent(9_999, 42, diag: &diag)
+        router.applyParamEvent(9_999, 42, atSample: 0, rampDurationSampleFrames: 0, diag: &diag)
         XCTAssertEqual(diag.paramEventCount, 0, "an unmapped address applies nothing")
+    }
+
+    /// A genuine `.parameterRamp` event (rampDurationSampleFrames > 1) now smooths instead of stair-stepping:
+    /// the override reads an intermediate value partway through the ramp window, reaches the target exactly at
+    /// (or past) the ramp's end sample, and — since nothing had overridden this slot before the ramp — a FIRST
+    /// touch with no known starting value snaps instead of guessing a baseline.
+    func testRenderParamRampEventInterpolatesLinearlyThenSettles() {
+        let cs = arpMachines()
+        func gen(_ g: UInt64) -> SnapshotBox {
+            var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
+            var st = PluginState(machines: cs, scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            return SnapshotBuilder.build(from: st, generation: g)
+        }
+        let router = Router(); var diag = KernelDiag()
+        let box = gen(1)
+        router.refreshOverrides(forGeneration: box.generation)
+        // A FIRST touch at this slot is a ramp with no known prior override → snaps instantly to the target,
+        // rather than fabricating a starting value. (address 100 = gold's transpose, same as the sibling test.)
+        router.applyParamEvent(100, 7, atSample: 0, rampDurationSampleFrames: 1000, diag: &diag)
+        var e = RecordingEmitter()
+        router.process(box: box, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 0, frameCount: 512, out: e, diag: &diag)
+        XCTAssertTrue(e.ons.contains { $0.note == 67 }, "no prior override to ramp FROM → the first touch snaps straight to +7")
+        // NOW arm a genuine ramp from the known current value (7) to a new target (19) over 1000 samples,
+        // starting at this render's own sample time.
+        router.applyParamEvent(100, 19, atSample: 1000, rampDurationSampleFrames: 1000, diag: &diag)
+        e = RecordingEmitter()
+        router.process(box: box, pool: chord([60]), playing: true, beatPos: 0.25, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 1500, frameCount: 512, out: e, diag: &diag)   // 500/1000 samples into the ramp → halfway: 7 + 0.5*(19-7) = 13
+        XCTAssertTrue(e.ons.contains { $0.note == 73 }, "halfway through the ramp window the override reads the linear midpoint (+13), not a step straight to +19")
+        e = RecordingEmitter()
+        router.process(box: box, pool: chord([60]), playing: true, beatPos: 0.5, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 2100, frameCount: 512, out: e, diag: &diag)   // past the ramp's end sample (2000) → settled at the target
+        XCTAssertTrue(e.ons.contains { $0.note == 79 }, "past the ramp's end sample the override has settled exactly at the target (+19)")
+        // release + stop to leave nothing stuck
+        router.process(box: box, pool: NotePool(), playing: false, beatPos: 1, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 2600, frameCount: 512, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
     }
 
     // MARK: - the PLAYING CHANCE chord-hold path (distinct from audition/preview)

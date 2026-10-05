@@ -32,6 +32,14 @@ final class Router {
     // .parameter event ever targets them; transpose (2+i) is the only live per-machine override. Array kept at 35.
     private var overrides = [Double](repeating: .nan, count: 35)
     private var overrideGen: UInt64 = .max
+    // §7 RAMP SMOOTHING: a .parameterRamp event (host automation draws a line, not a step) arms a linear
+    // interpolation instead of snapping `overrides[idx]` immediately. rampDurationSamples[i] == 0 is the
+    // sentinel for "no ramp in flight at slot i" — tickRamps() skips those slots entirely (cheap, no branch
+    // cost beyond the guard). Fixed-size, parallel to `overrides`; no allocation on the render path.
+    private var rampFrom = [Double](repeating: 0, count: 35)
+    private var rampTo = [Double](repeating: 0, count: 35)
+    private var rampStartSample = [Int64](repeating: 0, count: 35)
+    private var rampDurationSamples = [Int64](repeating: 0, count: 35)
 
     // Poly note tracker (§7). Each sounding note is a Voice carrying the channel + cable its on used
     // and an ABSOLUTE gate-off sample, drained every render so an off beyond its opening window is
@@ -845,6 +853,7 @@ final class Router {
         prevAudition = -1; auditionLastTick = -1
         for i in 0..<4 { noteOnsThisBeat[i] = 0 }; lastGovBeat = Int.min   // FLOOD GOVERNOR: fresh budget on transport reset (floodDropped is a session total)
         for i in overrides.indices { overrides[i] = .nan }
+        for i in rampDurationSamples.indices { rampDurationSamples[i] = 0 }   // a reset drops any in-flight ramp too
         overrideGen = .max
         clearEchoTails()
         resetRecorderCapture(full: true)             // RECORDER: a full reset clears the loops
@@ -897,17 +906,48 @@ final class Router {
     func refreshOverrides(forGeneration generation: UInt64) {
         if generation != overrideGen {
             for i in overrides.indices { overrides[i] = .nan }
+            for i in rampDurationSamples.indices { rampDurationSamples[i] = 0 }   // a real doc edit is the new truth — drop any in-flight ramp too
             overrideGen = generation
         }
     }
 
-    /// Apply one render-side .parameter/.parameterRamp event.
-    func applyParamEvent(_ address: UInt64, _ value: Double, diag: inout KernelDiag) {
+    /// Apply one render-side .parameter/.parameterRamp event. A plain .parameter (rampDurationSampleFrames
+    /// ≤1) snaps `overrides[idx]` immediately, same as before. A genuine .parameterRamp arms a linear
+    /// interpolation from the CURRENT override to `value`, advanced each render by tickRamps(atSample:) —
+    /// so a host-automated sweep draws a ramp instead of a staircase of per-block jumps (§7 second route).
+    /// If nothing has overridden this slot yet (no known starting value to ramp FROM), snaps instead of
+    /// guessing a baseline.
+    func applyParamEvent(_ address: UInt64, _ value: Double, atSample: Int64, rampDurationSampleFrames: UInt32, diag: inout KernelDiag) {
         guard let idx = slot(for: address) else { return }
-        overrides[idx] = value
+        if rampDurationSampleFrames > 1, !overrides[idx].isNaN {
+            rampFrom[idx] = overrides[idx]
+            rampTo[idx] = value
+            rampStartSample[idx] = atSample
+            rampDurationSamples[idx] = Int64(rampDurationSampleFrames)
+        } else {
+            overrides[idx] = value
+            rampDurationSamples[idx] = 0   // an instant .parameter event supersedes any ramp already in flight at this slot
+        }
         diag.paramEventCount &+= 1
         diag.lastParamAddr = Int64(address)
         diag.lastParamValue = value
+    }
+
+    /// Advance every in-flight render-side ramp to its value at this render window's start sample.
+    /// Called once per render (top of process()), before anything reads `overrides` via `over(_:_:)`.
+    private func tickRamps(atSample: Int64) {
+        for i in rampDurationSamples.indices where rampDurationSamples[i] > 0 {
+            let elapsed = atSample - rampStartSample[i]
+            if elapsed >= rampDurationSamples[i] {
+                overrides[i] = rampTo[i]
+                rampDurationSamples[i] = 0
+            } else if elapsed > 0 {
+                let frac = Double(elapsed) / Double(rampDurationSamples[i])
+                overrides[i] = rampFrom[i] + (rampTo[i] - rampFrom[i]) * frac
+            }
+            // elapsed <= 0: the ramp's start sample hasn't arrived yet this window (armed mid-block, this
+            // IS that block) — leave `overrides[i]` at rampFrom[i], its value since the instant it was armed.
+        }
     }
 
     // Topmost occupied, non-muted cell in a grid column — the single active cell (grid-chaining across
@@ -2487,6 +2527,7 @@ final class Router {
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
+        tickRamps(atSample: Int64(timestampSample))   // §7: advance any in-flight .parameterRamp before this window's over() reads
         self.soloEmitterMask = soloEmitterMask     // emitter strip: additive foot SOLO set (bits A–D)
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
@@ -4099,7 +4140,12 @@ final class Router {
     /// SHIFT / HUMANIZE are per-note MODIFIERS (Paul 2026-09-06): downstream of a real driver they don't re-pool — they
     /// jitter/push each driven note IN PLACE (emitDriverNote), so [ARP→HUMANIZE] humanizes the arp's notes + keeps its
     /// rhythm. As the ONLY driver (standalone / [non-driver→SHIFT]) they still GENERATE (chainDriverIndex falls to lastDriver).
-    private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize || p.type == .velocity || p.type == .euclidMask }
+    /// DEAD-CODE CLEANUP (code-review finding 2026-10-04): this used to also check `.velocity`/`.euclidMask`, but its
+    /// ONLY caller (chainDriverIndex, below) only ever evaluates it inside `isDriverType(...)==true`, and that switch's
+    /// exhaustive case list never includes `.velocity`/`.euclidMask` — those two arms could never fire. Both types'
+    /// real fold-eligibility is correctly handled elsewhere (`downstreamMaskFoldIndex` and VELOCITY's own dedicated
+    /// per-note fold in `emitDriverNote`), so removing the unreachable checks here changes nothing behaviourally.
+    private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize }
     /// The FIRST non-bypassed foldable RATCHET slot after `driver` — PATTERN (per-slice REST/pass/burst) or COIN PASS-THROUGH.
     private func downstreamRatchetFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
         var j = driver + 1

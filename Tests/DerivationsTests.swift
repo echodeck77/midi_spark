@@ -925,16 +925,19 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(g.mask(statusByte: 0xE0, note: 0,  velocity: 64,  playing: true,  auditionSuppressing: true),  allAndA, "pitch bend")
     }
 
-    // drainActive returns every note still awaiting its OFF (for a panic all-notes-off), then clears.
+    // drainActive fills a fixed-size scratch buffer with every note still awaiting its OFF (for a panic
+    // all-notes-off) and returns the count, then clears (render-thread-safe: no allocation — code-review
+    // finding 2026-10-04 converted this from a returned Array to a count + `drained(_:)` accessor).
     func testGateDrainActiveReportsHeldPassthroughNotes() {
         var g = PassthroughGate()
         _ = g.mask(statusByte: 0x90, note: 60, velocity: 100, playing: false, auditionSuppressing: false)
         _ = g.mask(statusByte: 0x91, note: 72, velocity: 100, playing: false, auditionSuppressing: false)
-        let held = g.drainActive().sorted { ($0.channel, $0.note) < ($1.channel, $1.note) }
+        let n = g.drainActive()
+        let held = (0..<n).map { g.drained($0) }.sorted { ($0.channel, $0.note) < ($1.channel, $1.note) }
         XCTAssertEqual(held.count, 2)
         XCTAssertEqual(held[0].channel, 0); XCTAssertEqual(held[0].note, 60)
         XCTAssertEqual(held[1].channel, 1); XCTAssertEqual(held[1].note, 72)
-        XCTAssertTrue(g.drainActive().isEmpty, "drain clears")
+        XCTAssertEqual(g.drainActive(), 0, "drain clears")
     }
 
     // a8 dump: the held-echo fingerprint lists the awaiting-OFF notes and reads "none" when balanced.

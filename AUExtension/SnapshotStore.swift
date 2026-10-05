@@ -12,9 +12,18 @@ import Atomics   // swift-atomics via SPM — see project.yml `packages:`
 final class SnapshotStore {
     private let current: ManagedAtomic<UnsafeMutableRawPointer>
     private var live: [SnapshotBox]          // MAIN THREAD ONLY — keeps recent boxes alive
-    // Lifetime rule: render uses a box only within one render callback (< ms); the publisher
-    // keeps the last 3 boxes strongly referenced, so an in-flight render can never see a
-    // deallocated box. Publish is main-only; violating that voids the guarantee.
+    // Lifetime rule: render uses a box only within one render callback — acquire() is deliberately
+    // `takeUnretainedValue()` (zero retain traffic on the render path, per the no-locks/no-ObjC-dispatch
+    // invariant), so the box's ONLY thing keeping it alive while render reads it is this array's strong
+    // reference. The retention window must outlive every render call that could still be holding a box
+    // acquired before the most recent few publishes. A render callback's wall-clock budget is bounded by
+    // its buffer duration (a few ms at typical settings) but can be stretched by OS scheduling jitter; a
+    // publish-storm on the main thread (e.g. a fast UI drag, each tick calling scheduleRebuild()) can
+    // plausibly fire faster than that. `3` was cutting it close enough to be a real (if rare) use-after-
+    // free risk, not just a theoretical one — widened generously; the real fix would be an acquire/
+    // release handshake (render reports back which generation it's done with), deliberately not built
+    // here since it would add atomic traffic to the render path for a finding this margin already covers.
+    private static let retainWindow = 16
 
     init(initial: SnapshotBox) {
         live = [initial]
@@ -25,7 +34,7 @@ final class SnapshotStore {
         dispatchPrecondition(condition: .onQueue(.main))
         live.append(box)
         current.store(Unmanaged.passUnretained(box).toOpaque(), ordering: .releasing)
-        if live.count > 3 { live.removeFirst(live.count - 3) }
+        if live.count > Self.retainWindow { live.removeFirst(live.count - Self.retainWindow) }
     }
 
     @inline(__always)
