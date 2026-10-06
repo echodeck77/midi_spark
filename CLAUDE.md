@@ -196,6 +196,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — fixed a lane-card height-budget miscalculation that left the RATE button (and the rest of
+  its row) unresponsive to touch (2026-10-06, on `main`; iOS builds, no test-target reach (EuclideousPage.swift-
+  only); DEVICE feel owed). Paul: "The rate button doesn't respond to touch." Traced via exact arithmetic, not
+  guessed. `laneCard`'s height split (the entry 3 commits earlier, "merge the gesture tab into the lane's own
+  box") reserved `EuclidLaneBox` `height − 60`, leaving only 60pt external for `laneControls` below it — but
+  `laneControls` actually needs `16` (the outer `.padding(8)`×2) `+ 8` (the VStack's own spacing) `+ 46`
+  (`laneControls`' own 2 remaining rows: 22 INV/beacon + 6 internal spacing + 18 OUT/RATE) `= 70`pt, a 10pt
+  shortfall. The overflow pushed `laneControls`' LAST row — OUT/RATE, where the RATE chip lives — past this
+  card's own nominal bottom edge, into the NEXT lane card down in the 2×2 grid; since that sibling is declared
+  LATER in the outer VStack, it wins hit-testing in the overlapping region — a tap aimed at RATE was landing on
+  whatever actually sat on top there instead, reading as "doesn't respond." Fixed the split to `height − 76`
+  (a few pt of margin over the bare 70pt minimum, matching the pre-merge code's own built-in slack rather than
+  computing to the exact byte). UI-only, no engine/model change. **DEVICE-OWED:** confirm RATE (and the rest of
+  the OUT/RATE row) now responds reliably across all 4 lane positions, including the bottom row (lanes 2/3),
+  which has no sibling below it to overlap but should read identically now that the budget itself is correct.**
 - **▶ EUCLIDEOUS — a silent, never-restored state finally traced to its REAL root cause: the persisted config
   was never resynced on a fresh plugin load, at all (2026-10-06, on `main`; iOS builds, macOS 1207 green
   (Models.swift-only reach); DEVICE ear owed — the other two prior "fixes" this session were real but

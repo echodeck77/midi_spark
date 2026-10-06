@@ -121,7 +121,18 @@ struct EuclideousPage: View {
             // TAB SELECTOR INSIDE THE LANE BOX (Paul 2026-10-06): passed as EuclidLaneBox's own `trailingContent`
             // so it renders inside THAT box's border/background, directly below the play+comet row — "the same
             // control as the Euclid lane, not a separate box" — rather than floating in laneControls below it.
-            EuclidLaneBox(idx: idx, line: line, width: width, height: max(80, height - 60), accent: accent,
+            // HEIGHT BUDGET (Paul 2026-10-06, "the rate button doesn't respond to touch"): laneControls below
+            // needs at least 70pt, not 60 — 16 (outer .padding(8)×2) + 8 (this VStack's own spacing) + 46
+            // (laneControls' own 2 remaining rows: 22 INV/beacon + 6 internal spacing + 18 OUT/RATE) = 70. The
+            // prior -60 under-reserved by exactly 10pt (a miscalculation from the tab-row-merge change, which
+            // moved one row OUT of laneControls and INTO EuclidLaneBox's own budget but recomputed the external
+            // split wrong) — the overflow pushed laneControls' last row (OUT/RATE, where the RATE chip lives)
+            // past this card's own nominal bottom edge, into the lane card BELOW it in the 2×2 grid, which —
+            // declared later in the VStack — wins hit-testing in the overlapping region: taps on RATE were
+            // landing on whatever was actually on top there, not the RATE chip underneath it, reading as
+            // "doesn't respond to touch." -76 (a few pt of margin over the bare 70 minimum, matching the
+            // pre-merge code's own slack rather than computing to the exact byte).
+            EuclidLaneBox(idx: idx, line: line, width: width, height: max(80, height - 76), accent: accent,
                           selected: selectedLane == idx, touched: allRowsTouched || singleTouchedLanes.contains(idx),
                           clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
                           onRotateDelta: { d in euclideousApplyX(idx, tab, d) },
