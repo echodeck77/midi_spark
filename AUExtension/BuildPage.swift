@@ -4892,10 +4892,10 @@ extension DiagView {
     func buildEuclidDragHUD(_ info: EuclidDragHUDInfo) -> some View {   // NOT private — rendered from DiagView.body in AudioUnitViewController.swift (a different file, same type)
         VStack(spacing: 5) {
             Text(info.label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Text("\(info.hits) HITS OUT OF \(info.steps)")
+            Text(info.primary)
                 .font(.system(size: 22, weight: .heavy, design: .monospaced))
                 .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.6)
-            Text("OFFSET BY \(info.offset)")
+            Text(info.secondary)
                 .font(.system(size: 12, weight: .heavy, design: .monospaced))
                 .foregroundColor(.white.opacity(0.6))
         }

@@ -184,14 +184,13 @@ struct DiagView: View {
     // (see EuclideousPage.swift). `euclideousLines`/`Enabled`/`Receiver` are LIVE MIRRORS of the persisted
     // PluginState fields (loaded in refreshFromDocument, written back via au?.editDocument on every edit) —
     // genuinely authored state, unlike a BUILD-page audition, so it must survive closing/reopening the plugin.
-    // `euclideousGestureTab` is deliberately ephemeral (never persisted) — each of the 4 lanes' own X/Y drag-
-    // gesture tab (0=hits/offset 1=velocity/gate 2=note/octave), matching the existing `euclidSelectedLane`
-    // precedent of resetting on reopen rather than being saved.
+    // (`euclideousGestureTab`, a per-lane "which tab is selected" flag, was REMOVED 2026-10-06 — the per-
+    // button gesture-pad redesign made a single persisted "selected tab" concept obsolete; EuclideousPage now
+    // tracks which pad is momentarily touched via its own purely-local, ephemeral @State instead.)
     @State var showEuclideous = false
     @State var euclideousLines: [EuclidLine] = Array(repeating: EuclidLine(noteSel: .all), count: 4)   // pulses:1/steps:8 (the struct's own "fresh lane" default) — NOT silent; overwritten by refreshFromDocument() the instant the real doc loads
     @State var euclideousEnabled = false
     @State var euclideousReceiver = 0
-    @State var euclideousGestureTab: [Int] = [0, 0, 0, 0]
     @State var euclideousLineReady: UInt8 = 0
     @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); the AnyView boundaries fixed the metadata-stack crash
     // BUILD page (user 2026-08-11): the selected PART's cast machine (index into the part palette; −1 = none). Placement-skeleton state.
@@ -878,7 +877,7 @@ struct DiagView: View {
                 }
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
                     EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled, receiver: euclideousReceiver,
-                                   gestureTab: $euclideousGestureTab, lineReady: euclideousLineReady,
+                                   lineReady: euclideousLineReady,
                                    clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying),
                                    onEdit: { mutate in
                                        var lines = euclideousLines

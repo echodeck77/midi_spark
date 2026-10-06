@@ -187,11 +187,15 @@ private struct FixedHeightIf: ViewModifier {
 /// whoever hosts `ProcessorBox`, since the HUD itself must render OUTSIDE this box's own (possibly scrolling)
 /// container to float truly "above the touch," not fixed to the scrolling processor-edit page. `point` is in
 /// WINDOW coordinates (UIKit's `location(in: view.window)`) — the host converts it into its own local space.
+/// GENERALIZED (Paul 2026-10-06, EUCLIDEOUS's per-tab gesture pads): `primary`/`secondary` replace the old
+/// rigid `hits`/`steps`/`offset` ints — "we need different overlays for velocity, gate, etc." needed a format
+/// each caller controls, not one hardcoded to a single meaning. `euclidLaneDragHUDInfo` (below) is the ONE,
+/// UNCHANGED hits/offset formatting both the regular BUILD-page editor and Euclideous's own HITS/OFFSET pad
+/// still share; Euclideous's two NEW tabs (VEL/GATE, NOTE/OCT) get their own formatters in EuclideousPage.swift.
 struct EuclidDragHUDInfo {
-    let label: String    // "LANE 1"…"LANE 4" or "ALL LANES" (2-finger)
-    let hits: Int
-    let steps: Int
-    let offset: Int
+    let label: String      // "LANE 1"…"LANE 4" or "ALL LANES" (2-finger)
+    let primary: String    // the big, central readout
+    let secondary: String  // the smaller sub-line beneath it
     let point: CGPoint
 }
 

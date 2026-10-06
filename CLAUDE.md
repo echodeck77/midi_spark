@@ -196,6 +196,74 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — an alternative gesture control: 3 square per-tab pads replace toggle-then-drag; lanes grow
+  to fit; per-tab drag HUDs (2026-10-06, on `main`; iOS builds, no test-target reach (EuclidLaneUI.swift/
+  GridUI.swift/BuildPage.swift/EuclideousPage.swift/AudioUnitViewController.swift); DEVICE feel owed — this
+  is a genuinely new interaction, the one area most resistant to verification by reading code). Paul: "I want
+  to try an alternative gesture control. Change the toggle buttons to be square, with each button taking up a
+  third of the width of the Euclid lane to which it is attached. Each of these buttons, instead of toggling
+  x/y, will act as an x/y pad in itself. The user holds, for example, velocity/gate, drags away and it behaves
+  exactly as the lane gestures do now (except the pinch)." **A REAL GEOMETRIC CONFLICT, surfaced before
+  touching code, not discovered mid-build:** a literal square button at 1/3 a quarter-screen-WIDE lane's width
+  (~300pt on a typical iPad → ~100pt square) would, by itself, consume nearly ALL of a quarter-screen-TALL
+  lane's height budget (confirmed by exact arithmetic: even squeezing the play button and existing controls to
+  their bare minimums, the total still exceeded a typical quarter-screen height) — asked Paul via
+  AskUserQuestion rather than silently picking a resolution; he chose "grow the lane taller." **LAYOUT,
+  rebuilt bottom-up instead of top-down:** `laneCard` no longer takes an explicit `height:` — it computes its
+  OWN exact height from its content (`12`pt padding + a new fixed `cometRowH=56` play/comet row, matching the
+  regular BUILD-page editor's own established `euclidLaneH` constant, + the gesture row's own exact
+  `width/3`) and lets the VStack size naturally; `laneGrid` dropped its OWN height computation entirely. Width
+  stays a literal screen quarter (never in tension the way height was). The whole grid is now wrapped in a
+  `ScrollView` (was a fixed, non-scrolling 2×2) since 2 rows of taller lanes may exceed some screens' height —
+  flagged to Paul as an accepted consequence of his own chosen resolution, not a bug. **THE GESTURE MODEL
+  ITSELF:** the old `gestureTab: [Int]` — a PERSISTED-per-lane "which tab is currently selected, dragging
+  the comet bar affects THAT one" flag — is GONE entirely (removed from `AudioUnitViewController.swift`'s
+  `@State` and the `EuclideousPage` call site cleanly, not left half-wired) — there is no more "selected tab"
+  concept, since each of the 3 new buttons is now its OWN ALWAYS-LIVE pad for its OWN fixed mapping. Each
+  button gets its own `EuclidGesturePad` instance (the SAME shared UIKit pan/pinch bridge the comet bar
+  already used — dropped from `private` to internal so `EuclideousPage.swift` can construct it directly,
+  "share the component, don't duplicate it" extended to a second caller) wired straight to that button's own
+  tab via the EXISTING `euclideousApplyX`/`Y` functions (now refactored into pure `applyX`/`applyY(inout
+  EuclidLine, tab, d)` + thin single-lane/all-lanes wrappers, so both paths share one mutation definition).
+  PINCH (`onStepsDelta`) is a deliberate no-op on all 3 new pads — "except the pinch" — and stays on the comet
+  bar itself instead, which is otherwise NEUTERED (its own `onRotateDelta`/`onHitsDelta`/`onAllRotateDelta`/
+  `onAllHitsDelta`/`onDragState` are now plain no-ops, since the 3 buttons own that role exclusively — a 1-/2-
+  finger drag directly on the step boxes themselves no longer does anything but pinch still resizes steps
+  there). **A FREE FIX, not deliberately targeted:** the OLD 2-finger "all lanes" gesture was hard-coded to
+  rotate/hits ALWAYS, regardless of whichever tab happened to be selected at the time (a real, pre-existing
+  limitation, never by design) — the new `euclideousApplyAllX/Y(tab, d)` genuinely respect the tab the touched
+  button represents, closing that gap as a natural side effect of each button now carrying its own explicit
+  tab rather than reading a shared "current selection." **SENSITIVITY — "exactly as the lane gestures do
+  now":** recomputes the SAME box-pitch-derived `rotateStepPt` the comet bar's own X-axis already used
+  (`euclidBoxGeometry`, the identical formula/inputs) and applies it UNIFORMLY to all 3 buttons' X-axis — not
+  just HITS/OFFSET — because the comet bar's existing sensitivity was never actually tab-specific either (one
+  `rotateStepPt` served whichever tab was selected), so this is a faithful match, not a new behaviour invented
+  for VEL/GATE or NOTE/OCT. **THE DRAG HUD, extended mid-task (Paul, before this was even fully wired up):
+  "There's an overlay that shows the number of hits and steps. We need different overlays for velocity, gate,
+  etc."** `EuclidDragHUDInfo` (GridUI.swift) was rigid — hardcoded `hits`/`steps`/`offset` ints, rendered as
+  "N HITS OUT OF M" / "OFFSET BY K" with no way to show anything else. Generalized to `primary`/`secondary`
+  STRINGS instead, pre-formatted by whichever caller builds the info — `euclidLaneDragHUDInfo` (the ONE
+  existing, SHARED constructor, still used by both the regular BUILD-page editor and Euclideous's own HITS/
+  OFFSET pad) keeps its exact original text; two NEW, Euclideous-only formatters
+  (`euclideousVelGateHUDInfo`/`euclideousNoteOctHUDInfo`) show "VEL N%"/"GATE N%" and the note-select's own
+  `rawValue`/"OCTAVE ±N" respectively — the BUILD-page editor has no VEL/GATE or NOTE/OCT tab, so it was never
+  touched. Both HUD-rendering functions (`buildEuclidDragHUD` in BuildPage.swift, `euclideousDragHUD` here)
+  now just display `info.primary`/`.secondary` directly instead of formatting from raw ints — genuinely
+  format-agnostic now, not hardcoded to one meaning. **CAUGHT BY THE COMPILER, not a hand-check:** a first
+  draft of `euclideousNoteOctHUDInfo` (which needs a local `let oct = ...` before building the struct, unlike
+  the other formatters' single-expression bodies) omitted the `return` — Swift's implicit-return sugar only
+  applies when a function body is a SINGLE statement; the build caught this immediately, fixed before it ever
+  reached the output. **FLAGGED, not silently assumed:** the VEL/GATE button's X-axis (velocity) and the
+  NOTE/OCT button's X-axis (note-select stepping) now ALSO use the box-pitch sensitivity by faithful
+  replication of existing behaviour, even though neither has any visual "box" relationship to that pitch — an
+  honest consequence of "exactly as now," not a new design choice; the square buttons' corner radius (6pt,
+  not a literal sharp square) and label font size (13pt, up from the old chips' 10pt) are first-pass aesthetic
+  judgment calls, easily tunable. UI-only, no engine/model change. **DEVICE-OWED, the whole feature:** the
+  actual feel of holding a square pad and dragging immediately (vs. the old select-then-drag-elsewhere model);
+  whether the grown lane height / scroll reads as acceptable on the real device; each of the 3 per-tab HUDs
+  actually showing sensible values live; confirm the regular BUILD-page EUCLID editor's own comet-bar drag
+  still works exactly as before (it was never touched, but it shares `EuclidGesturePad`/`EuclidDragHUDInfo`
+  with everything changed here).**
 - **▶ EUCLIDEOUS — the gesture-tab row (HITS/OFFS·VEL/GATE·NOTE/OCT) sits flush beneath the step-box row, zero
   gap (2026-10-06, on `main`; iOS builds, no test-target reach (EuclidLaneUI.swift-only); DEVICE eye owed).
   Paul: "I want the buttons that toggle x/y to be directly under the boxes on the lane with no gap or

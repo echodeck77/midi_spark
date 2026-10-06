@@ -46,7 +46,8 @@ func euclidBoxGeometry(n: Int, usableWidth: CGFloat) -> (boxW: CGFloat, gap: CGF
 /// `EuclidLaneBox` itself) so every caller constructs the SAME "ALL LANES" vs "LANE N" label the
 /// same way, without duplicating the logic at each call site.
 func euclidLaneDragHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
-    EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)", hits: line.pulses, steps: line.steps, offset: line.rotate, point: point)
+    EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
+                       primary: "\(line.pulses) HITS OUT OF \(line.steps)", secondary: "OFFSET BY \(line.rotate)", point: point)
 }
 
 /// One EUCLID lane: a PLAY/STOP icon beside the comet-bar step track. Explicitly parameterized
@@ -323,7 +324,10 @@ struct EuclidCometBar: View {
 /// (both fingers moving together) measure near-orthogonal things, so they coexist without
 /// fighting in practice; the delegate below just lifts UIKit's own default "one gesture at a
 /// time per view" restriction so neither silently blocks the other.
-private struct EuclidGesturePad: UIViewRepresentable {
+// NOT private (Paul 2026-10-06): the per-button gesture pads on Euclideous's new 1/3-width square
+// buttons (EuclideousPage.swift) construct this SAME component directly, each wired to a different
+// X/Y mapping — "share the component, don't duplicate it" extended to a second caller.
+struct EuclidGesturePad: UIViewRepresentable {
     let onRotateDelta: (Int) -> Void        // 1-finger horizontal — Δrotate, this lane
     let onHitsDelta: (Int) -> Void          // 1-finger vertical — Δhits, this lane
     let onStepsDelta: (Int) -> Void         // pinch — Δsteps, this lane (shared with the +/- tap glyphs)

@@ -14,11 +14,11 @@ import SwiftUI
 // live in Derivations.swift (Paul 2026-10-05) — Foundation-only, so they reach the macOS
 // unit-test target; this file only CALLS them.
 
-/// One lane's 3 gesture tabs — the X/Y drag retargets per the active tab. HITS/OFFSET is the
-/// default and exactly matches the EXISTING EuclidGesturePad mapping (X=rotate, Y=hits); the
-/// other two tabs reinterpret the SAME `(Int) -> Void` callback slots `EuclidLaneBox`/
-/// `EuclidGesturePad` already expose — no changes needed to either, since their callback type was
-/// already a bare, meaning-free `(Int) -> Void` (confirmed during planning).
+/// One lane's 3 gesture PADS (Paul 2026-10-06: square buttons, each its own independent x/y drag
+/// surface — superseding the original toggle-then-drag-the-comet-bar design). HITS/OFFSET's mapping
+/// exactly matches the comet bar's own original drag (X=rotate, Y=hits); the other two reinterpret
+/// the SAME `(Int) -> Void` callback slots `EuclidGesturePad` already exposes — no changes needed to
+/// that component itself, since its callback type was already a bare, meaning-free `(Int) -> Void`.
 enum EuclideousGestureTab: Int, CaseIterable { case hitsOffset = 0, velocityGate = 1, noteOctave = 2
     var label: String { switch self { case .hitsOffset: "HITS/OFFS"; case .velocityGate: "VEL/GATE"; case .noteOctave: "NOTE/OCT" } }
 }
@@ -27,7 +27,6 @@ struct EuclideousPage: View {
     let lines: [EuclidLine]
     let enabled: Bool
     let receiver: Int
-    @Binding var gestureTab: [Int]
     let lineReady: UInt8
     let clock: EuclidLiveClock
     let onEdit: (@escaping (inout [EuclidLine]) -> Void) -> Void
@@ -39,6 +38,13 @@ struct EuclideousPage: View {
     @State private var singleTouchedLanes: Set<Int> = []
     @State private var allRowsTouched = false
     @State private var dragHUDInfo: EuclidDragHUDInfo? = nil
+    // ALTERNATIVE GESTURE CONTROL (Paul 2026-10-06): "change the toggle buttons to be square... each will act
+    // as an x/y pad in itself" — REPLACES the old toggle-then-drag-the-comet-bar model (which needed a
+    // persisted "which tab is selected" flag) with 3 independent, always-live gesture pads per lane; nothing
+    // is "selected" anymore, so there's nothing to persist. `touchedPad[lane]` is purely ephemeral — which of
+    // the 3 pads (if any) currently has a finger down, for visual highlight only, matching the SAME
+    // "local @State, never persisted" convention as `selectedLane`/`singleTouchedLanes` above.
+    @State private var touchedPad: [Int?] = [nil, nil, nil, nil]
 
     private let laneAccents: [Color] = [
         Color(red: 0.95, green: 0.35, blue: 0.35), Color(red: 0.35, green: 0.75, blue: 0.95),
@@ -54,15 +60,20 @@ struct EuclideousPage: View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 Color(red: 0.05, green: 0.055, blue: 0.07).ignoresSafeArea()
-                // LAYOUT (Paul 2026-10-06): each lane control is exactly 1/4 the SCREEN's own width/height
-                // (computed from `geo.size`, the full page geometry — not the space left over after the
-                // header), and the resulting 2×2 block is CENTRED — both axes — in whatever space remains
-                // below the header. The header keeps its own fixed padding/position; `laneGrid` expands to
-                // fill the rest and centers its (now fixed, smaller-than-before) natural-sized content
-                // within that via `.frame(maxWidth: .infinity, maxHeight: .infinity)`.
+                // LAYOUT (Paul 2026-10-06, revised same day for the square gesture-pad redesign below): each
+                // lane's own CONTENT now dictates its height bottom-up (play+comet row + the new, much taller
+                // square gesture-pad row + the existing controls row) rather than a fixed quarter-screen
+                // height forced top-down — a literal square gesture button at 1/3 the lane's WIDTH is often
+                // taller than a quarter-screen lane could hold alongside everything else (confirmed by exact
+                // arithmetic before asking; Paul's own call: let the lane grow rather than compromise the
+                // square sizing or drop the existing controls). Width stays a literal screen quarter (never
+                // in tension the same way). Wrapped in a ScrollView since 2 rows of now-taller lanes may
+                // exceed the screen height on some devices — scrolls rather than silently clipping.
                 VStack(spacing: 0) {
                     header.padding(16)
-                    laneGrid(geo.size).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    ScrollView(.vertical, showsIndicators: false) {
+                        laneGrid(geo.size.width).frame(maxWidth: .infinity, alignment: .center)
+                    }
                 }
                 // THE DRAG HUD — same floating-card pattern as the existing EUCLID editor's own HUD
                 // (BuildPage.swift's buildEuclidDragHUD/AudioUnitViewController.swift's root-ZStack
@@ -107,99 +118,158 @@ struct EuclideousPage: View {
         }
     }
 
-    private func laneGrid(_ size: CGSize) -> some View {
+    private func laneGrid(_ screenWidth: CGFloat) -> some View {
         let gap: CGFloat = 12
-        // QUARTER-SCREEN SIZING (Paul 2026-10-06): "each Euclid lane control to be 1 quarter width and
-        // quarter height of the screen" — a LITERAL quarter of the full page geometry, not the space left
-        // over after padding/gaps are subtracted (the previous formula's own approach). `gap` is extra
-        // breathing room BETWEEN the 4 cards, on top of their exact quarter sizes, not stolen from them —
-        // so the full 2×2 block is slightly LARGER than exactly half the screen in each dimension, by `gap`.
-        let cellW = size.width / 4
-        let cellH = size.height / 4
+        // QUARTER-SCREEN WIDTH (Paul 2026-10-06): still a literal quarter of the screen's own width — width
+        // was never in tension with the square-button redesign the way height was, so this stays unchanged.
+        // HEIGHT is no longer computed here at all — `laneCard` now sizes itself bottom-up from its own
+        // content (see its own doc comment), so the grid's total height simply falls out of that naturally.
+        let cellW = screenWidth / 4
         return VStack(spacing: gap) {
-            HStack(spacing: gap) { laneCard(0, width: cellW, height: cellH); laneCard(1, width: cellW, height: cellH) }
-            HStack(spacing: gap) { laneCard(2, width: cellW, height: cellH); laneCard(3, width: cellW, height: cellH) }
+            HStack(spacing: gap) { laneCard(0, width: cellW); laneCard(1, width: cellW) }
+            HStack(spacing: gap) { laneCard(2, width: cellW); laneCard(3, width: cellW) }
         }
     }
 
-    @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
+    // COMET ROW HEIGHT (Paul 2026-10-06): a modest, FIXED height for the play-button+comet-bar row — no
+    // longer "generously sized" the way it was before this redesign, since the step-pattern DISPLAY/pinch-to-
+    // resize-steps is now a secondary, visual role; the 3 square pads below are the lane's own PRIMARY
+    // interactive surface. Matches the regular BUILD-page EUCLID editor's own established `euclidLaneH`
+    // constant (GridUI.swift) rather than inventing a new number.
+    private let cometRowH: CGFloat = 56
+
+    @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
-        let tab = EuclideousGestureTab(rawValue: idx < gestureTab.count ? gestureTab[idx] : 0) ?? .hitsOffset
+        // ALTERNATIVE GESTURE CONTROL (Paul 2026-10-06): "change the toggle buttons to be square, with each
+        // button taking up a third of the width of the Euclid lane... each will act as an x/y pad in itself."
+        // `gestureRowH` is a literal square (1/3 the lane's own WIDTH, on both axes) — this REPLACES the old
+        // toggle-then-drag-the-comet-bar model entirely, so `EuclidLaneBox`'s own play+comet row no longer
+        // needs to host a live rotate/hits drag at all: its onRotateDelta/onHitsDelta/onAllRotateDelta/
+        // onAllHitsDelta/onDragState are now plain no-ops (PINCH, via onStepsDelta, is the one thing explicitly
+        // KEPT there — "it behaves exactly as the lane gestures do now (except the pinch)" names pinch as the
+        // one exclusion from the NEW per-button pads, which by construction says nothing about removing it
+        // from the comet bar itself). `euclidBoxH` is computed bottom-up (12pt padding + the fixed comet row +
+        // the exact square gesture row, zero gap between them per the earlier no-gap fix) rather than forced
+        // top-down — EuclidLaneBox's own internal math (`reserve`/the comet row's height) is self-consistent
+        // by construction, so handing it this EXACT total can never overflow or leave slack.
+        let gestureRowH = width / 3
+        let euclidBoxH = 12 + cometRowH + gestureRowH
+        // ROTATE SENSITIVITY (Paul 2026-10-06): "it behaves exactly as the lane gestures do now" — the SAME
+        // box-pitch-derived points-per-step the comet bar's own X-axis currently uses (EuclidCometBar.body),
+        // recomputed here with the identical formula/inputs so the two can't disagree, since the comet bar's
+        // OWN pan is being retired in favour of these buttons. Used uniformly for all 3 buttons' X-axis, not
+        // just HITS/OFFSET — the comet bar's existing sensitivity was never actually tab-specific either (one
+        // `rotateStepPt` served whichever tab happened to be selected), so this is a faithful match, not a
+        // new behaviour invented for the other two tabs.
+        let steps = max(2, min(16, line.steps))
+        let rotateStepPt = euclidBoxGeometry(n: steps, usableWidth: max(1, (width - 64) - 12)).pitch
         VStack(alignment: .leading, spacing: 8) {
-            // TAB SELECTOR INSIDE THE LANE BOX (Paul 2026-10-06): passed as EuclidLaneBox's own `trailingContent`
-            // so it renders inside THAT box's border/background, directly below the play+comet row — "the same
-            // control as the Euclid lane, not a separate box" — rather than floating in laneControls below it.
-            // HEIGHT BUDGET (Paul 2026-10-06, "the rate button doesn't respond to touch"): laneControls below
-            // needs at least 70pt, not 60 — 16 (outer .padding(8)×2) + 8 (this VStack's own spacing) + 46
-            // (laneControls' own 2 remaining rows: 22 INV/beacon + 6 internal spacing + 18 OUT/RATE) = 70. The
-            // prior -60 under-reserved by exactly 10pt (a miscalculation from the tab-row-merge change, which
-            // moved one row OUT of laneControls and INTO EuclidLaneBox's own budget but recomputed the external
-            // split wrong) — the overflow pushed laneControls' last row (OUT/RATE, where the RATE chip lives)
-            // past this card's own nominal bottom edge, into the lane card BELOW it in the 2×2 grid, which —
-            // declared later in the VStack — wins hit-testing in the overlapping region: taps on RATE were
-            // landing on whatever was actually on top there, not the RATE chip underneath it, reading as
-            // "doesn't respond to touch." -76 (a few pt of margin over the bare 70 minimum, matching the
-            // pre-merge code's own slack rather than computing to the exact byte).
-            EuclidLaneBox(idx: idx, line: line, width: width, height: max(80, height - 76), accent: accent,
+            EuclidLaneBox(idx: idx, line: line, width: width, height: euclidBoxH, accent: accent,
                           selected: selectedLane == idx, touched: allRowsTouched || singleTouchedLanes.contains(idx),
                           clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
-                          onRotateDelta: { d in euclideousApplyX(idx, tab, d) },
-                          onHitsDelta: { d in euclideousApplyY(idx, tab, d) },
-                          onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
-                          onAllRotateDelta: { d in onEdit { lines in for i in lines.indices { lines[i].rotate = ((lines[i].rotate - d) % 16 + 16) % 16 } } },
-                          onAllHitsDelta: { d in onEdit { lines in for i in lines.indices { let v = max(1, min(max(2, lines[i].steps), lines[i].pulses + d)); lines[i].pulses = min(v, lines[i].steps) } } },   // floored at 1, matching euclideousApplyY
-                          onDragState: { point, allRows in
-                              if point == nil { if allRows { allRowsTouched = false } else { singleTouchedLanes.remove(idx) } }
-                              else { if allRows { allRowsTouched = true } else { singleTouchedLanes.insert(idx) } }
-                              guard let point else { dragHUDInfo = nil; return }
-                              if !allRows { selectedLane = idx }
-                              dragHUDInfo = euclidLaneDragHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
-                          },
+                          onRotateDelta: { _ in }, onHitsDelta: { _ in },      // NEUTERED — the 3 square pads below own this now
+                          onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
+                          onAllRotateDelta: { _ in }, onAllHitsDelta: { _ in },   // NEUTERED, same reason
+                          onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          trailingContent: AnyView(gestureTabRow(idx, tab, accent)), trailingHeight: 22)
+                          trailingContent: AnyView(gesturePadRow(idx, accent, cellSize: gestureRowH, rotateStepPt: rotateStepPt)),
+                          trailingHeight: gestureRowH)
             laneControls(idx, line, accent: accent)
         }
         .padding(8)
-        .frame(width: width, height: height, alignment: .top)
+        .frame(width: width)   // height no longer forced — the VStack sizes naturally from its two exactly-sized children
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))
     }
 
-    /// The 3-way HITS/OFFS · VEL/GATE · NOTE/OCT selector — factored out so it can be handed to
-    /// `EuclidLaneBox` as `trailingContent` (rendering inside the lane's own box) instead of living
-    /// in `laneControls` (a separate, unbordered area below it).
-    private func gestureTabRow(_ idx: Int, _ tab: EuclideousGestureTab, _ accent: Color) -> some View {
-        HStack(spacing: 6) {
+    /// The 3 gesture PADS (HITS/OFFS · VEL/GATE · NOTE/OCT) — square, 1/3 the lane's own width each,
+    /// handed to `EuclidLaneBox` as `trailingContent` (renders inside the lane's own box, flush beneath the
+    /// step boxes). Each is its OWN independent 1-/2-finger drag surface (via a dedicated `EuclidGesturePad`
+    /// instance per button) wired directly to that button's own X/Y mapping — no "selected tab" to toggle
+    /// first; touching VEL/GATE and dragging immediately adjusts velocity/gate, just as touching HITS/OFFS
+    /// and dragging immediately adjusts offset/hits. PINCH (`onStepsDelta`) is a no-op here — "except the
+    /// pinch" — that gesture stays on the comet bar itself.
+    private func gesturePadRow(_ idx: Int, _ accent: Color, cellSize: CGFloat, rotateStepPt: CGFloat) -> some View {
+        HStack(spacing: 0) {
             ForEach(EuclideousGestureTab.allCases, id: \.rawValue) { t in
-                let on = tab == t
-                Text(t.label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : .white.opacity(0.55))
-                    .padding(.horizontal, 8).frame(height: 22)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.08)))
-                    .onTapGesture { if idx < gestureTab.count { gestureTab[idx] = t.rawValue } }
+                let touched = touchedPad[idx] == t.rawValue
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(touched ? accent.opacity(0.35) : Color.white.opacity(0.06))
+                    Text(t.label).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                        .foregroundColor(touched ? .black : .white.opacity(0.65))
+                        .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.5)
+                        .padding(4)
+                }
+                .frame(width: cellSize, height: cellSize)
+                .overlay(
+                    EuclidGesturePad(
+                        onRotateDelta: { d in euclideousApplyX(idx, t, d) },
+                        onHitsDelta: { d in euclideousApplyY(idx, t, d) },
+                        onStepsDelta: { _ in },                              // "except the pinch" — a deliberate no-op on these pads
+                        onAllRotateDelta: { d in euclideousApplyAllX(t, d) },
+                        onAllHitsDelta: { d in euclideousApplyAllY(t, d) },
+                        onDragState: { point, allRows in
+                            touchedPad[idx] = point == nil ? nil : t.rawValue
+                            guard let point else { dragHUDInfo = nil; return }
+                            let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+                            // EACH TAB gets its OWN HUD content (Paul 2026-10-06: "we need different overlays
+                            // for velocity, gate, etc.") — three dedicated formatters, not one hardcoded to
+                            // hits/offset. `euclidLaneDragHUDInfo` is the pre-existing, SHARED hits/offset
+                            // formatter (also used by the regular BUILD-page editor); the other two are new,
+                            // Euclideous-only (below) — the BUILD-page editor has no VEL/GATE or NOTE/OCT tab.
+                            switch t {
+                            case .hitsOffset: dragHUDInfo = euclidLaneDragHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
+                            case .velocityGate: dragHUDInfo = euclideousVelGateHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
+                            case .noteOctave: dragHUDInfo = euclideousNoteOctHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
+                            }
+                        },
+                        rotateStepPt: rotateStepPt)
+                )
             }
-            Spacer(minLength: 0)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    /// Retargets the gesture pad's X-axis delta per the lane's own active tab — HITS/OFFSET (default,
-    /// unchanged) → Δrotate; VELOCITY/GATE → Δvelocity (scaled); NOTE/OCTAVE → step the note-select cycle.
-    private func euclideousApplyX(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) {
+    /// Pure per-line mutation, shared by the single-lane and all-lanes paths below — HITS/OFFSET (default) →
+    /// Δrotate; VELOCITY/GATE → Δvelocity (scaled); NOTE/OCTAVE → step the note-select cycle.
+    private func applyX(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
         switch tab {
-        case .hitsOffset: edit(idx) { $0.rotate = (($0.rotate - d) % 16 + 16) % 16 }
-        case .velocityGate: edit(idx) { $0.velocity = max(0, min(2, $0.velocityResolved + Double(d) * 0.05)) }
-        case .noteOctave: edit(idx) { $0.noteSel = euclideousStepNoteSel($0.noteSelResolved, by: d) }
+        case .hitsOffset: line.rotate = ((line.rotate - d) % 16 + 16) % 16
+        case .velocityGate: line.velocity = max(0, min(2, line.velocityResolved + Double(d) * 0.05))
+        case .noteOctave: line.noteSel = euclideousStepNoteSel(line.noteSelResolved, by: d)
         }
     }
-    /// Retargets the gesture pad's Y-axis delta — HITS/OFFSET → Δhits; VELOCITY/GATE → Δgate (scaled);
-    /// NOTE/OCTAVE → Δoctave.
-    private func euclideousApplyY(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) {
+    /// Pure per-line mutation — HITS/OFFSET → Δhits; VELOCITY/GATE → Δgate (scaled); NOTE/OCTAVE → Δoctave.
+    private func applyY(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
         switch tab {
-        case .hitsOffset: edit(idx) { let v = max(1, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) }   // floored at 1, not 0 (Paul 2026-10-06) — 0 hits is never meaningful here; `enabled: false` is the real mute
-        case .velocityGate: edit(idx) { $0.gate = max(0.05, min(1, $0.gateResolved + Double(d) * 0.03)) }
-        case .noteOctave: edit(idx) { $0.octave = max(-3, min(3, $0.octaveResolved + d)) }
+        case .hitsOffset: let v = max(1, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps)   // floored at 1, not 0 (Paul 2026-10-06) — 0 hits is never meaningful here; `enabled: false` is the real mute
+        case .velocityGate: line.gate = max(0.05, min(1, line.gateResolved + Double(d) * 0.03))
+        case .noteOctave: line.octave = max(-3, min(3, line.octaveResolved + d))
         }
+    }
+    private func euclideousApplyX(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) { edit(idx) { applyX(&$0, tab, d) } }
+    private func euclideousApplyY(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) { edit(idx) { applyY(&$0, tab, d) } }
+    // ALL-LANES (2-finger) variants — now genuinely TAB-AWARE, unlike the old comet-bar all-rows gesture it
+    // replaces (that one was hard-coded to rotate/hits always, regardless of which tab happened to be
+    // selected — a pre-existing limitation, never deliberately designed, that this redesign naturally fixes
+    // as a side effect of each button now carrying its own explicit tab).
+    private func euclideousApplyAllX(_ tab: EuclideousGestureTab, _ d: Int) { onEdit { lines in for i in lines.indices { applyX(&lines[i], tab, d) } } }
+    private func euclideousApplyAllY(_ tab: EuclideousGestureTab, _ d: Int) { onEdit { lines in for i in lines.indices { applyY(&lines[i], tab, d) } } }
+
+    // THE OTHER TWO HUD FORMATTERS (Paul 2026-10-06: "we need different overlays for velocity, gate, etc.") —
+    // Euclideous-only (the BUILD-page editor has no VEL/GATE or NOTE/OCT tab to show one for), mirroring
+    // `euclidLaneDragHUDInfo`'s own (label, primary, secondary, point) shape exactly.
+    private func euclideousVelGateHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
+        EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
+                           primary: "VEL \(Int((line.velocityResolved * 100).rounded()))%",
+                           secondary: "GATE \(Int((line.gateResolved * 100).rounded()))%", point: point)
+    }
+    private func euclideousNoteOctHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
+        let oct = line.octaveResolved
+        return EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
+                                  primary: line.noteSelResolved.rawValue,
+                                  secondary: "OCTAVE \(oct > 0 ? "+" : "")\(oct)", point: point)
     }
 
     @ViewBuilder private func laneControls(_ idx: Int, _ line: EuclidLine, accent: Color) -> some View {
@@ -240,10 +310,10 @@ struct EuclideousPage: View {
     private func euclideousDragHUD(_ info: EuclidDragHUDInfo) -> some View {
         VStack(spacing: 5) {
             Text(info.label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Text("\(info.hits) HITS OUT OF \(info.steps)")
+            Text(info.primary)
                 .font(.system(size: 22, weight: .heavy, design: .monospaced))
                 .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.6)
-            Text("OFFSET BY \(info.offset)")
+            Text(info.secondary)
                 .font(.system(size: 12, weight: .heavy, design: .monospaced))
                 .foregroundColor(.white.opacity(0.6))
         }
