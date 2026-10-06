@@ -141,14 +141,17 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertFalse(back.euclideousEnabledResolved)
         XCTAssertEqual(back.euclideousReceiverResolved, 0)
         XCTAssertEqual(back.euclideousLinesResolved.count, 4, "always pads to exactly 4, mirroring euclidLinesForEditing()")
-        XCTAssertTrue(back.euclideousLinesResolved.allSatisfy { $0.pulses == 0 }, "an untouched page's 4 lines are silent placeholders")
+        // UNLIKE euclidLinesForEditing() (whose pad rows ARE silent by design), Euclideous pads with the struct's
+        // own plain default (pulses:1/steps:8 — "a fresh lane defaults to 1 of 8") so all 4 lanes are independently
+        // audible from a never-touched session (Paul 2026-10-06: a pulses:0 pad made every lane permanently mute).
+        XCTAssertTrue(back.euclideousLinesResolved.allSatisfy { $0.pulses == 1 && $0.steps == 8 }, "an untouched page's 4 lines default to 1-of-8, not silence")
     }
     func testEuclideousLinesResolvedPadsAndTruncates() {
         var d = doc()
         d.euclideousLines = [EuclidLine(pulses: 4, steps: 8)]   // only 1 of 4 authored
         XCTAssertEqual(d.euclideousLinesResolved.count, 4)
         XCTAssertEqual(d.euclideousLinesResolved[0].pulses, 4)
-        XCTAssertEqual(d.euclideousLinesResolved[1].pulses, 0)
+        XCTAssertEqual(d.euclideousLinesResolved[1].pulses, 1, "a padded-in lane is the struct's own non-silent default (1 of 8), not mute")
         d.euclideousLines = Array(repeating: EuclidLine(pulses: 2, steps: 8), count: 6)   // over-long
         XCTAssertEqual(d.euclideousLinesResolved.count, 4)
     }

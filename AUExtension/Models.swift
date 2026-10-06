@@ -1752,11 +1752,16 @@ struct PluginState: Codable, Equatable {
     var euclideousLines: [EuclidLine]? = nil
     var euclideousEnabled: Bool? = nil
     var euclideousReceiver: Int? = nil
-    /// Always exactly 4 (mirrors `MachineParams.euclidLinesForEditing()`'s own pad/truncate contract — a short
-    /// or missing array pads with silent (pulses: 0) lines, an over-long one truncates). Non-persisting.
+    /// Always exactly 4. UNLIKE `MachineParams.euclidLinesForEditing()` (whose rows 1-3 pad SILENT by design —
+    /// only row 0 is meant active there), a short/missing array here pads with the struct's own plain default
+    /// (`EuclidLine()`: pulses 1, steps 8 — "a fresh lane defaults to 1 of 8", the SAME convention the per-line
+    /// EUCLID editor already uses) so all 4 of Euclideous's lanes are independently playable/audible from a
+    /// fresh, never-touched session — a silent (pulses: 0) default here was a copy-paste of the WRONG padding
+    /// convention and made every lane permanently mute regardless of receiver/emitter/note config (Paul
+    /// 2026-10-06: "not making any sound at all, regardless of what emitters, receivers, notes, etc I use").
     var euclideousLinesResolved: [EuclidLine] {
         let L = euclideousLines ?? []
-        return Array((L + Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)).prefix(4))
+        return Array((L + Array(repeating: EuclidLine(noteSel: .all), count: 4)).prefix(4))
     }
     var euclideousEnabledResolved: Bool { euclideousEnabled ?? false }
     var euclideousReceiverResolved: Int { max(0, min(3, euclideousReceiver ?? 0)) }

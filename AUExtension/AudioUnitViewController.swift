@@ -188,7 +188,7 @@ struct DiagView: View {
     // gesture tab (0=hits/offset 1=velocity/gate 2=note/octave), matching the existing `euclidSelectedLane`
     // precedent of resetting on reopen rather than being saved.
     @State var showEuclideous = false
-    @State var euclideousLines: [EuclidLine] = Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)
+    @State var euclideousLines: [EuclidLine] = Array(repeating: EuclidLine(noteSel: .all), count: 4)   // pulses:1/steps:8 (the struct's own "fresh lane" default) — NOT silent; overwritten by refreshFromDocument() the instant the real doc loads
     @State var euclideousEnabled = false
     @State var euclideousReceiver = 0
     @State var euclideousGestureTab: [Int] = [0, 0, 0, 0]

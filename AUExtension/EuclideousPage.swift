@@ -114,7 +114,7 @@ struct EuclideousPage: View {
     }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
-        let line = idx < lines.count ? lines[idx] : EuclidLine(pulses: 0, noteSel: .all)
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
         let tab = EuclideousGestureTab(rawValue: idx < gestureTab.count ? gestureTab[idx] : 0) ?? .hitsOffset
         VStack(alignment: .leading, spacing: 8) {
