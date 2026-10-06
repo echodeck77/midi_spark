@@ -511,6 +511,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiEuclideousLines() -> [EuclidLine] { document.euclideousLinesResolved }
     func uiEuclideousEnabled() -> Bool { document.euclideousEnabledResolved }
     func uiEuclideousReceiver() -> Int { document.euclideousReceiverResolved }
+    func uiEuclideousRiff() -> EuclideousRiff { document.euclideousRiffResolved }   // EUCLIDEOUS's shared riff pattern (Paul 2026-10-06)
+    /// Each of Euclideous's 4 lanes' own live riff-advance step index, polled on the SAME fast ~30fps cadence as
+    /// `pollEuclideousLineReady` below (not the slow ~4Hz config-resync timer) — this is a per-hit, responsive
+    /// indicator, not config.
+    func pollEuclideousRiffPositions() -> [Int] { kernel.euclideousRiffPositions() }
     /// Euclideous's own beacon readiness, polled independent of the BUILD-page editor's own editorOpen-gated
     /// poll — Euclideous's page can be open (and its beacon needs updating) whether or not BuildPage's own
     /// processor editor happens to be open at the same time. Its cell always sits at column 0 of its own

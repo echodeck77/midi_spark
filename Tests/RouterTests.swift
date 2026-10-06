@@ -5347,6 +5347,59 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
         XCTAssertEqual(beyond, 0, "a TARGET past the held chord (rank 6 of 3 notes) strikes NOTHING — correctly silent, never wraps")
     }
+    // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): "each hit will progress riff by 1 step" — a line with useRiff on
+    // reads the page's ONE shared riff pattern instead of noteSel on every hit ("replaces it entirely," Paul's own
+    // ratified answer), using its own stateless hit-ordinal for 5 of 6 directions (needs zero new persisted state)
+    // and a small, dedicated per-lane walk for DRUNK alone (the one genuinely path-dependent direction).
+    func testEuclidLineUseRiffReplacesNoteSelectWithSharedRiffPattern() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 3], direction: .forward)   // rank 1 = lowest, rank 3 = 3rd-lowest
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, noteSel: .high, useRiff: true)]   // noteSel=.high would strike ONLY the top note (72) if useRiff didn't override it
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 4, into: e); assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notes.contains(60), "rank 1 (the lowest pool note) must appear — useRiff reads the shared riff pattern")
+        XCTAssertTrue(notes.contains(67), "rank 3 (the 3rd-lowest pool note) must appear too")
+        XCTAssertFalse(notes.contains(72), "noteSel=.high (the top note) must be IGNORED — useRiff replaces it entirely, not layered on top")
+    }
+    func testEuclidLineUseRiffRotateShiftsWhichRankIsStruck() {
+        // pulses:1/steps:1 (fully dense, one tick per rate interval) + forceColumn:0 isolates the VERY FIRST hit,
+        // at hit-ordinal 0 — so rotate alone decides which riff step (and therefore which rank/note) is read.
+        func firstNote(rotate: Int) -> Int? {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 2, 3, 4], direction: .forward)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffRotate: rotate)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }.first
+        }
+        XCTAssertEqual(firstNote(rotate: 0), 60, "ord=0, rotate=0 → riff step 0 → rank 1 → the lowest pool note")
+        XCTAssertEqual(firstNote(rotate: 2), 67, "ord=0, rotate=2 → riff step 2 → rank 3 → the 3rd-lowest pool note — matches euclidPatternInto's own (i+rot)%n convention")
+    }
+    func testEuclidLineUseRiffOctaveReplacesTheLinesOwnOctaveNotStacksWithIt() {
+        func firstNote(riffOctave: Int) -> Int? {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1], direction: .forward)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, octave: 2, useRiff: true, riffOctave: riffOctave)]   // octave:2 deliberately set — must be ignored, not stacked
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }.first
+        }
+        XCTAssertEqual(firstNote(riffOctave: 0), 60, "riffOctave 0 = unshifted — and the line's own octave:2 must NOT also apply")
+        XCTAssertEqual(firstNote(riffOctave: 1), 72, "riffOctave +1 shifts by exactly one octave (would be 96 if octave:2 also stacked)")
+    }
+    func testEuclidLineUseRiffDrunkWalksAndStaysInPool() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8], direction: .drunk, directionBias: 0)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true)]
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 4, into: e); assertNothingLeftSounding(e)
+        let notes = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        XCTAssertFalse(notes.isEmpty, "DRUNK must still produce real strikes, not silently do nothing")
+        XCTAssertTrue(notes.allSatisfy { pool.contains(UInt8($0)) }, "every DRUNK-resolved note must come from the held pool")
+        XCTAssertGreaterThan(Set(notes).count, 1, "a random walk over many hits must visit more than one position, not stay stuck at the start")
+    }
     func testEuclidLinesPerLinePick() {
         // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick.
         func notesOf(_ line: EuclidLine) -> [Int] {

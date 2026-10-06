@@ -3531,7 +3531,7 @@ extension DiagView {
         input.euclideousOn = euclideousEnabled
         if euclideousEnabled {
             input.euclideousMachineID = "euclideous"
-            var p = MachineParams(); p.euclidLines = euclideousLines
+            var p = MachineParams(); p.euclidLines = euclideousLines; p.euclideousRiff = euclideousRiff
             let chain = [ProcessorSlot(type: .euclid, params: p)]
             // NOTE: the registered machine's OWN stored params are irrelevant at render time — Router.swift's
             // `emitGeneratorRow` always overwrites `.a` with the CELL's own `processors` (confirmed: `treat.a =

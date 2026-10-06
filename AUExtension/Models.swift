@@ -199,6 +199,15 @@ struct EuclidLine: Codable, Equatable {
     // at the call site for the one disclosed consequence of this field being shared with the chainable BUILD-page
     // EUCLID processor too.
     var emitterMask: UInt8? = nil
+    // RIFF ADVANCE (Paul 2026-10-06, EUCLIDEOUS): when on, this lane's hits step through the page's shared
+    // EuclideousRiff pattern instead of noteSel/octave — REPLACES them entirely, not layered on top. riffRotate/
+    // riffOctave are this lane's own INDEPENDENT offsets into that one shared pattern (driven by the same
+    // NOTE/OCTAVE gesture pad, relabelled, once useRiff is on). Only meaningful for Euclideous's own cell — the
+    // regular chainable BUILD-page EUCLID processor has no UI for these and will never set them; a hand-edited
+    // doc that did would resolve against the page's default-empty EuclideousRiff (a silent rest, not a crash).
+    var useRiff: Bool? = nil
+    var riffRotate: Int? = nil
+    var riffOctave: Int? = nil
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -206,6 +215,9 @@ struct EuclidLine: Codable, Equatable {
     var missGateResolved: Double { missGate ?? 0.9 }
     var missOctaveResolved: Int { missOctave ?? 0 }
     var missVelocityResolved: Double { max(0, min(2, missVelocity ?? 1.0)) }
+    var useRiffResolved: Bool { useRiff ?? false }
+    var riffRotateResolved: Int { riffRotate ?? 0 }
+    var riffOctaveResolved: Int { max(-3, min(3, riffOctave ?? 0)) }
     /// The effective note selection — `noteSel` once the line's been touched under the new UI, else derived from
     /// the old target/pick pair so a pre-redesign line resolves identically to what it always played.
     var noteSelResolved: EuclidNoteSel {
@@ -253,7 +265,36 @@ extension EuclidLine {
         missVelocity = try c.decodeIfPresent(Double.self, forKey: .missVelocity)
         rate = try c.decodeIfPresent(ArpRate.self, forKey: .rate)
         emitterMask = try c.decodeIfPresent(UInt8.self, forKey: .emitterMask)
+        useRiff = try c.decodeIfPresent(Bool.self, forKey: .useRiff)
+        riffRotate = try c.decodeIfPresent(Int.self, forKey: .riffRotate)
+        riffOctave = try c.decodeIfPresent(Int.self, forKey: .riffOctave)
     }
+}
+// EUCLIDEOUS RIFF (Paul 2026-10-06): a single, SHARED step pattern on the Euclideous page — any of its 4 lines can
+// opt in (EuclidLine.useRiff) to step through it on each of its own hits instead of its normal note-select. ONE
+// struct, not an array-of-4 like euclideousLinesResolved's own lines — the pattern is shared; only each line's own
+// cursor/rotate/octave (on EuclidLine itself) is independent. Brand new, so a synthesized Decodable is safe (no
+// legacy doc ever had a non-Optional field here to break). Scoped deliberately small — no POLY/TIE/SLIDE/ACCENT
+// (not asked for), no RATE/SPAN (advancement is hit-triggered, not time-triggered, so neither applies).
+struct EuclideousRiff: Codable, Equatable {
+    var steps: Int = 16                  // 1...32, mirrors riffSteps' own range/default feel
+    var ranks: [Int]? = nil              // MONO per-step: 0 = rest, 1...8 = pool rank. nil ⇒ an ascending default figure
+    var direction: RiffDir = .forward    // all 6 of RiffDir's existing cases — "all options of that type currently on riff"
+    var directionSeed: Int? = nil        // mirrors riffDirSeed; nil ⇒ 0
+    var directionBias: Double = 0        // DRUNK only, -1...1, mirrors riffDirBias
+    /// 1...32, defensive against a hand-edited or future out-of-range doc.
+    var stepsResolved: Int { max(1, min(32, steps)) }
+    /// Padded/truncated to `stepsResolved` length; an unset/short doc gets a simple ascending 1...8 cycling figure
+    /// (never silence by default — matches EuclidLine's own "a fresh lane defaults to something audible" convention).
+    var ranksResolved: [Int] {
+        let n = stepsResolved
+        var r = ranks ?? (0..<n).map { ($0 % 8) + 1 }
+        if r.count < n { r += (r.count..<n).map { ($0 % 8) + 1 } }
+        if r.count > n { r = Array(r.prefix(n)) }
+        return r
+    }
+    var directionSeedResolved: Int { directionSeed ?? 0 }
+    var directionBiasResolved: Double { max(-1, min(1, directionBias)) }
 }
 // EUCLID DIRECTION (Paul 2026-10-01): a DEDICATED enum, not a reuse of RIFF's own `RiffDir` — EUCLID needs only
 // 3 of RiffDir's 6 cases (no RANDOM/DRUNK) and RiffDir's own PENDULUM/PING-PONG naming history (the persisted
@@ -486,6 +527,7 @@ struct MachineParams: Codable, Equatable {
     var euclidSpanN: Int? = nil               // SPAN RE-ANCHOR (Paul 2026-08-27, RATE×ladder): nil/0 ⇒ FREE (phase forever) · 1·2·3·4·6·8·16(×2)·32(×4) ⇒ re-sync the pattern to step 0 every N columns. Was the WIDTH-span (n steps across the span, which just scaled the speed).
     var euclidPick: EuclidPick? = nil         // PICK: ALL (today) | CYCLE | LOW | HIGH | RANDOM — what each hit strikes (Paul 2026-08-22)
     var euclidLines: [EuclidLine]? = nil      // EUCLID LINES (§10, ratified): up to 8 lines (each K·N·ROTATE·INVERT·TARGET). nil ⇒ the single euclid above (byte-identical)
+    var euclideousRiff: EuclideousRiff? = nil // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06) — only meaningful for Euclideous's cell; nil ⇒ the struct's own plain defaults
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
     var burstSpanN: Int? = nil                // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from burstSpan)
@@ -1776,6 +1818,10 @@ struct PluginState: Codable, Equatable {
     }
     var euclideousEnabledResolved: Bool { euclideousEnabled ?? false }
     var euclideousReceiverResolved: Int { max(0, min(3, euclideousReceiver ?? 0)) }
+    // EUCLIDEOUS RIFF (Paul 2026-10-06): the page's one shared riff pattern, independent of which/how-many lines
+    // have opted in via EuclidLine.useRiff. nil ⇒ the struct's own plain defaults (16 steps, an ascending figure).
+    var euclideousRiff: EuclideousRiff? = nil
+    var euclideousRiffResolved: EuclideousRiff { euclideousRiff ?? EuclideousRiff() }
     // delta §6a CLAIM v2 LEAK %: per-claimant bleed — a claimed pitch class passes on non-claimants at this
     // scaled velocity (0 = full suppression = v1; the hole becomes a SHADOW). Persisted. Optional → nil = all 0.
     var claimLeak: [Int]? = nil

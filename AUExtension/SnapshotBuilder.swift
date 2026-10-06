@@ -632,7 +632,12 @@ enum SnapshotBuilder {
                                                                       missOctave: $0.missOctave.map { clamp($0, -3, 3) },
                                                                       missVelocity: $0.missVelocity.map { clamp($0, 0, 2) },
                                                                       rate: $0.rate,
-                                                                      emitterMask: $0.emitterMask.map { $0 & 0x0F }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by)
+                                                                      emitterMask: $0.emitterMask.map { $0 & 0x0F },
+                                                                      useRiff: $0.useRiff, riffRotate: $0.riffRotate,
+                                                                      riffOctave: $0.riffOctave.map { clamp($0, -3, 3) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by)
+        out.euclideousRiff = { let r = p.euclideousRiff ?? EuclideousRiff(); var rr = r
+            rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved; rr.directionBias = clamp(r.directionBias, -1, 1)
+            return rr }()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved/clamped once here
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
         if let v = p.burstMode { out.burstMode = v }

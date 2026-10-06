@@ -2061,6 +2061,17 @@ func riffDrunkPeek(fromPos: Int, tick: Int64, aheadBy: Int, steps: Int, bias: Do
     return pos
 }
 
+/// EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): applies a lane's own HORIZONTAL offset to an already-resolved riff
+/// step index — mirrors `euclidPatternInto`'s own rotation convention exactly (`buf[i] = pattern[(i + rot) % n]`,
+/// i.e. rotate shifts the READ index forward by `+rot`), so a positive rotate reads the same direction EUCLID's
+/// own ROTATE already does. Pure, and always returns a value in `0..<steps` regardless of sign (Swift's `%` can
+/// return negative for a negative operand, so the double-mod is load-bearing, not decorative).
+@inline(__always)
+func riffRotateStep(_ step: Int, by rotate: Int, steps: Int) -> Int {
+    guard steps > 0 else { return 0 }
+    return ((step + rotate) % steps + steps) % steps
+}
+
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
 
 /// Whether a step is TUTTI (the whole set passes) vs SOLO (one note). DETERMINISTIC per STEP — a pure hash of the

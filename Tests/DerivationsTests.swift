@@ -2726,6 +2726,19 @@ final class DerivationsTests: XCTestCase {
     // RIFF CAPTURE (SPEC-riff-processor §2, Paul 2026-09-09): play a line in → recorded AS RANKS against a FRAME. The
     // (RIFF CAPTURE tests removed 2026-09-10 — the §2 capture feature was deleted.)
 
+    // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): a lane's own horizontal offset into the shared riff pattern —
+    // mirrors euclidPatternInto's own `(i + rot) % n` read-index convention exactly, always wrapping into 0..<steps
+    // regardless of a negative step or rotate (Swift's `%` alone can return negative, so the double-mod is the
+    // actual thing under test here, not a decoration).
+    func testRiffRotateStepWrapsPositiveAndNegative() {
+        XCTAssertEqual(riffRotateStep(0, by: 0, steps: 8), 0)
+        XCTAssertEqual(riffRotateStep(3, by: 2, steps: 8), 5)
+        XCTAssertEqual(riffRotateStep(7, by: 2, steps: 8), 1, "wraps forward past the last step")
+        XCTAssertEqual(riffRotateStep(1, by: -3, steps: 8), 6, "a negative rotate wraps backward, never a negative index")
+        XCTAssertEqual(riffRotateStep(0, by: -1, steps: 8), 7)
+        XCTAssertEqual(riffRotateStep(5, by: 0, steps: 0), 0, "defensive: zero steps never divides by zero")
+    }
+
     // MARK: - defensive resolver clamps (reachable only via a hostile/legacy DECODE — the UI constrains these)
 
     // These guard the classic silent-regression: someone "simplifies" the negative-safe modulo / drops a clamp and a

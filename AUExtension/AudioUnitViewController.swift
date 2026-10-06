@@ -192,6 +192,11 @@ struct DiagView: View {
     @State var euclideousEnabled = false
     @State var euclideousReceiver = 0
     @State var euclideousLineReady: UInt8 = 0
+    // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): `euclideousRiff` is CONFIG (the shared pattern — same persisted/
+    // live-mirror treatment as euclideousLines/Enabled/Receiver above, resynced on the slow timer); `euclideousRiffPositions`
+    // is a live, responsive PER-LANE INDICATOR (not persisted config), polled on the fast meterTimer beside euclideousLineReady.
+    @State var euclideousRiff: EuclideousRiff = EuclideousRiff()
+    @State var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
     @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); the AnyView boundaries fixed the metadata-stack crash
     // BUILD page (user 2026-08-11): the selected PART's cast machine (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
@@ -651,6 +656,7 @@ struct DiagView: View {
         euclideousLines = au.uiEuclideousLines()
         euclideousEnabled = au.uiEuclideousEnabled()
         euclideousReceiver = au.uiEuclideousReceiver()
+        euclideousRiff = au.uiEuclideousRiff()
     }
 
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
@@ -878,12 +884,20 @@ struct DiagView: View {
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
                     EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled, receiver: euclideousReceiver,
                                    lineReady: euclideousLineReady,
+                                   riff: euclideousRiff, riffPositions: euclideousRiffPositions,
                                    clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying),
                                    onEdit: { mutate in
                                        var lines = euclideousLines
                                        mutate(&lines)
                                        euclideousLines = lines
                                        au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
+                                       buildPublishScene()
+                                   },
+                                   onEditRiff: { mutate in
+                                       var riff = euclideousRiff
+                                       mutate(&riff)
+                                       euclideousRiff = riff
+                                       au?.editDocument(coalesceKey: "euclideousRiff") { $0.euclideousRiff = riff }
                                        buildPublishScene()
                                    },
                                    onToggleEnabled: {
@@ -974,6 +988,8 @@ struct DiagView: View {
             if showEuclideous {
                 let er = au.pollEuclideousLineReady()
                 if er != euclideousLineReady { euclideousLineReady = er }
+                let rp = au.pollEuclideousRiffPositions()
+                if rp != euclideousRiffPositions { euclideousRiffPositions = rp }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the
             // OUT piano above, same reason (a poll-driven held-note feed is visibly laggy at 4Hz). Deliberately does
@@ -1044,6 +1060,7 @@ struct DiagView: View {
             let elv = au.uiEuclideousLines(); if elv != euclideousLines { euclideousLines = elv; euclideousResynced = true }
             let eev = au.uiEuclideousEnabled(); if eev != euclideousEnabled { euclideousEnabled = eev; euclideousResynced = true }
             let erv = au.uiEuclideousReceiver(); if erv != euclideousReceiver { euclideousReceiver = erv; euclideousResynced = true }
+            let erf = au.uiEuclideousRiff(); if erf != euclideousRiff { euclideousRiff = erf; euclideousResynced = true }
             if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)

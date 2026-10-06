@@ -340,6 +340,19 @@ final class Router {
     private var riffDrunkPos = [Int](repeating: -1, count: Snap.cells)           // −1 ⇒ not yet started (first strike parks at step 0)
     private var riffDrunkPrevPos = [Int](repeating: -1, count: Snap.cells)       // the position immediately BEFORE the current tick's move — −1 ⇒ no previous strike yet (SLIDE's own lookback, Paul 2026-09-28)
     private var riffDrunkLastTick = [Int64](repeating: .min, count: Snap.cells)  // last tick this cell's walk advanced on
+    // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): each of Euclideous's 4 lines gets its OWN independent cursor into
+    // the page's one shared riff pattern, advancing by exactly one step on that line's OWN hit (not on elapsed
+    // time) — "each hit will progress riff by 1 step." For 5 of 6 directions this needs ZERO new memory: the
+    // line's own hit-ordinal (`ord`, already computed stateless in `runEuclidLine`) drives `riffStepAt` directly.
+    // Only DRUNK is genuinely path-dependent (a random walk's position depends on its own history, not just "what
+    // time is it now") — same accepted-exception class as `riffDrunkPos` above (not replay-exact across a seek),
+    // just HIT-triggered (keyed on distinct `ord`) instead of tick-triggered, and sized 4 (one per Euclideous
+    // lane, not `Snap.cells`) since Euclideous is always exactly 4 lines at one fixed, reserved cell.
+    private var euclideousRiffDrunkPos = [Int](repeating: -1, count: 4)
+    private var euclideousRiffDrunkLastOrd = [Int64](repeating: .min, count: 4)
+    // Unified UI-poll surface: EVERY direction (not just DRUNK) writes its resolved step index here, so the poll
+    // layer only ever reads one simple array regardless of which direction a lane is using.
+    private var euclideousRiffStep = [Int](repeating: -1, count: 4)
     // EUCLID BEACON READINESS (Paul 2026-10-05, closing the beacon's own disclosed gap — "doesn't walk RIFF/ARP's
     // own resolved note... reads the door's raw held notes, not the fully-resolved upstream-chain pool"). Bit
     // (lineIndex*2 + (isMiss?1:0)) is set when that line's resolved noteSel/missNoteSel currently has a genuine
@@ -1180,6 +1193,11 @@ final class Router {
         guard cellIndex >= 0 && cellIndex < euclidLineReady.count else { return 0 }
         return euclidLineReady[cellIndex]
     }
+
+    /// UI-poll read: each of Euclideous's 4 lines' own current riff-advance step index (−1 = not started / useRiff
+    /// off). Plain array read, same shape as `riffDrunkPosAt` above — unlike that one, this reports ALL 6
+    /// directions through one surface (`euclideousRiffStep` is written on every useRiff hit, not just DRUNK).
+    func euclideousRiffPositions() -> [Int] { euclideousRiffStep }
 
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
     /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source machine) set.
@@ -2666,6 +2684,7 @@ final class Router {
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
             for i in riffDrunkPos.indices { riffDrunkPos[i] = -1; riffDrunkPrevPos[i] = -1; riffDrunkLastTick[i] = .min }   // RIFF DRUNK: a fresh play restarts the walk (Paul 2026-09-28)
+            for i in euclideousRiffDrunkPos.indices { euclideousRiffDrunkPos[i] = -1; euclideousRiffDrunkLastOrd[i] = .min; euclideousRiffStep[i] = -1 }   // EUCLIDEOUS RIFF: a fresh play restarts every lane's walk/cursor (Paul 2026-10-06)
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
@@ -3874,7 +3893,8 @@ final class Router {
                 }
             }
             func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, rate: Double, busOverride: UInt8?,
-                                missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0) {
+                                missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
+                                useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -3929,6 +3949,40 @@ final class Router {
                         // .riff/.arp consume it too.
                         var hitsUpTo = 0; for s in 0...raw where isHitAt(s) { hitsUpTo += 1 }
                         let ord = cy * effHits + Int64(hitsUpTo - 1)
+                        // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): "each hit will progress riff by 1 step" —
+                        // REPLACES noteSel/octave entirely when on (checked BEFORE the .riff/.arp sequential-source
+                        // branch just below, not layered after it, so this wins regardless of whatever noteSel
+                        // happens to be stored underneath — Paul's own ruling, not a guess). For 5 of 6 directions
+                        // this needs zero new memory: `ord` (just computed above) IS "which hit number is this,"
+                        // stateless — feeding it straight into `riffStepAt` gives "which step plays on this hit"
+                        // with no accumulated state at all. Only DRUNK is genuinely path-dependent (see
+                        // `euclideousRiffDrunkStep`'s own declaration for why). `riffRotate`/`riffOctave` are this
+                        // LANE's own independent offset into the one shared pattern (Paul: "independent cursor per
+                        // lane") — rotate matches `euclidPatternInto`'s own `(i + rot) % n` read-index convention
+                        // exactly (see `riffRotateStep`). OCTAVE REPLACES this line's own `octave` rather than
+                        // stacking with it (passed 0 below) — the gesture pad that used to drive `octave` now
+                        // drives `riffOctave` exclusively, so consulting the old frozen value too would silently
+                        // reintroduce an offset the user can no longer see or edit.
+                        if useRiff {
+                            let rp = p.euclideousRiff
+                            let riffN = rp.stepsResolved
+                            guard srcCount > 0 else { return }
+                            let stepIdx = rp.direction == .drunk
+                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: ord, steps: riffN, bias: rp.directionBias, seed: UInt64(bitPattern: Int64(rp.directionSeed ?? 0)))
+                                : riffStepAt(rp.direction, raw: Int(ord), steps: riffN, seed: UInt64(bitPattern: Int64(rp.directionSeed ?? 0)))
+                            let rotIdx = riffRotateStep(stepIdx, by: riffRotate, steps: riffN)
+                            let ranks = rp.ranks ?? []   // SnapshotBuilder always resolves this to a full, padded array (main thread) before Router ever sees it — `?? []` is a type-safety unwrap here, not a real fallback allocation
+                            let rank = rotIdx < ranks.count ? ranks[rotIdx] : 0
+                            euclideousRiffStep[lineIndex] = rotIdx   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern
+                            // VELOCITY: read from the SAME pool index FOLD resolves the note from where possible —
+                            // an honest inherited velocity, not a guessed flat value. Not provably the exact FOLD
+                            // index for a rank that wraps the pool more than once (flagged in the plan; a listen
+                            // once built is the real check, not re-deriving FOLD's own index formula up front).
+                            guard rank >= 1, let note = riffResolve(rank: rank, oct: riffOctave, n: srcCount, wrap: .fold, asc: { srcNotes[$0].note }) else { return }
+                            let velIdx = ((rank - 1) % srcCount + srcCount) % srcCount
+                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: 0, explicitNote: note, explicitVel: srcNotes[velIdx].vel, busOverride: busOverride)
+                            return
+                        }
                         // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
                         // non-bypassed slot's OWN authored sequence by `ord` — an explicit resolved MIDI note, not an
                         // index into the held chord, so this is a separate branch, not two more cases folded into the
@@ -4052,7 +4106,8 @@ final class Router {
                 runEuclidLine(lineIndex: lineIndex, pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
-                              missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved)
+                              missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
+                              useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved)
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
@@ -5290,6 +5345,24 @@ final class Router {
             riffDrunkPos[ci] = max(0, min(steps - 1, np))
         }
         return riffDrunkPos[ci]
+    }
+    /// EUCLIDEOUS RIFF ADVANCE, the DRUNK case: the sibling of `riffDrunkStep` above, but HIT-triggered (keyed on
+    /// distinct `ord`, a lane's own stateless hit-ordinal) instead of TICK-triggered — "each hit will progress
+    /// riff by 1 step," not "each elapsed beat". Sized 4 (one per Euclideous lane), not `Snap.cells`, since
+    /// Euclideous is always exactly 4 lines at one fixed, reserved cell. Same `previewMode` guard as
+    /// `riffDrunkStep` — an audition pass must not perturb the real, persisted walk.
+    private func euclideousRiffDrunkStep(lane: Int, ord: Int64, steps: Int, bias: Double, seed: UInt64) -> Int {
+        guard lane >= 0, lane < euclideousRiffDrunkPos.count else { return 0 }
+        if previewMode { return euclideousRiffDrunkPos[lane] < 0 ? 0 : min(steps - 1, euclideousRiffDrunkPos[lane]) }
+        if euclideousRiffDrunkPos[lane] < 0 { euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord; return 0 }
+        if ord != euclideousRiffDrunkLastOrd[lane] {
+            euclideousRiffDrunkLastOrd[lane] = ord
+            var np = euclideousRiffDrunkPos[lane] + riffDrunkDelta(tick: ord, bias: bias, seed: seed)
+            if np < 0 { np = -np }
+            if np > steps - 1 { np = 2 * (steps - 1) - np }
+            euclideousRiffDrunkPos[lane] = max(0, min(steps - 1, np))
+        }
+        return euclideousRiffDrunkPos[lane]
     }
     private func emitRiffRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                              emits: Bool, box: SnapshotBox, pool: NotePool,

@@ -132,6 +132,34 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(back.emitterMask, 0b0101)
     }
 
+    // RIFF ADVANCE (Paul 2026-10-06): useRiff/riffRotate/riffOctave are the newest three EuclidLine fields — same
+    // CR-8 contract as rate/emitterMask above, a doc saved before they existed must still decode without throwing.
+    func testEuclidLineDecodesWithoutRiffAdvanceKeys() throws {
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
+        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertFalse(line.useRiffResolved, "nil ⇒ off, byte-identical for every existing doc")
+        XCTAssertEqual(line.riffRotateResolved, 0)
+        XCTAssertEqual(line.riffOctaveResolved, 0)
+    }
+    func testEuclidLineRiffAdvanceRoundTripsThroughCodable() throws {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.useRiff = true
+        line.riffRotate = 5
+        line.riffOctave = -2
+        let data = try JSONEncoder().encode(line)
+        let back = try JSONDecoder().decode(EuclidLine.self, from: data)
+        XCTAssertTrue(back.useRiffResolved)
+        XCTAssertEqual(back.riffRotateResolved, 5)
+        XCTAssertEqual(back.riffOctaveResolved, -2)
+    }
+    func testEuclidLineRiffOctaveClampsToPlusMinusThree() {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.riffOctave = 9
+        XCTAssertEqual(line.riffOctaveResolved, 3)
+        line.riffOctave = -9
+        XCTAssertEqual(line.riffOctaveResolved, -3)
+    }
+
     // EUCLIDEOUS: PluginState's own persisted config — a doc saved before this feature existed must decode with
     // the page simply absent/disabled, never throw (the same CR-8 contract every other PluginState field follows).
     func testEuclideousFieldsDecodeAbsentAndResolveToDisabled() throws {
@@ -169,6 +197,35 @@ final class EffectiveParamsTests: XCTestCase {
         d2.euclideousLines = [EuclidLine(pulses: 0, steps: 8), EuclidLine(pulses: 3, steps: 8), EuclidLine(pulses: 0, steps: 16), EuclidLine(pulses: 5, steps: 8)]
         let r = d2.euclideousLinesResolved
         XCTAssertEqual(r.map(\.pulses), [1, 3, 1, 5])
+    }
+
+    // RIFF ADVANCE (Paul 2026-10-06): the page's ONE shared riff pattern — same additive-Optional CR-8 contract,
+    // a doc saved before this feature existed decodes to the struct's own plain defaults, never throws.
+    func testEuclideousRiffResolvedDefaultsAbsent() throws {
+        let legacy = doc()   // no euclideousRiff key at all
+        let data = try JSONEncoder().encode(legacy)
+        let back = try JSONDecoder().decode(PluginState.self, from: data)
+        XCTAssertEqual(back.euclideousRiffResolved.stepsResolved, 16)
+        XCTAssertEqual(back.euclideousRiffResolved.ranksResolved.count, 16)
+        XCTAssertEqual(back.euclideousRiffResolved.direction, .forward)
+    }
+    func testEuclideousRiffResolvedClampsStepsAndPadsRanks() {
+        var d = doc()
+        d.euclideousRiff = EuclideousRiff(steps: 40, ranks: [1, 2, 3])   // over-range steps, short ranks
+        let r = d.euclideousRiffResolved
+        XCTAssertEqual(r.stepsResolved, 32, "clamps to the 1...32 range")
+        XCTAssertEqual(r.ranksResolved.count, 32, "pads the short ranks array out to the resolved step count")
+        XCTAssertEqual(Array(r.ranksResolved.prefix(3)), [1, 2, 3], "existing authored ranks are preserved, not overwritten")
+        var d2 = doc()
+        d2.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 2, 3, 4, 5, 6, 7, 8])   // over-long ranks, truncate to steps
+        XCTAssertEqual(d2.euclideousRiffResolved.ranksResolved, [1, 2, 3, 4])
+    }
+    func testEuclideousRiffResolvedClampsDirectionBias() {
+        var d = doc()
+        d.euclideousRiff = EuclideousRiff(directionBias: 5)
+        XCTAssertEqual(d.euclideousRiffResolved.directionBiasResolved, 1)
+        d.euclideousRiff = EuclideousRiff(directionBias: -5)
+        XCTAssertEqual(d.euclideousRiffResolved.directionBiasResolved, -1)
     }
 
     /// The builder mirrors the 16 macro values into the snapshot (clamped 0…1); a clean doc yields 16 zeros.

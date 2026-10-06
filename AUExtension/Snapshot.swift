@@ -169,6 +169,7 @@ struct SnapParams {
     var euclidPick: EuclidPick = .all        // what each hit strikes: ALL | CYCLE (walk) | LOW | HIGH | RANDOM (Paul 2026-08-22)
     var euclidInvert: Bool = false           // play the N−K rests instead (the anti-pattern) — Paul 2026-08-22
     var euclidLines: [EuclidLine] = []       // EUCLID LINES (§10): up to 8 lines; EMPTY ⇒ the single euclid above (byte-identical)
+    var euclideousRiff: EuclideousRiff = EuclideousRiff()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
     var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns
     var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)
