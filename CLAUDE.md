@@ -196,6 +196,29 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a DIRECTION row added directly beneath the 3 gesture pads (2026-10-06, on `main`; iOS
+  builds, no test-target reach (EuclideousPage.swift-only); DEVICE eye owed). Paul: "Directly below the x/y
+  control, put short backwards, ping pong, forwards buttons, aligned with the three x/y controls. Represent
+  fwd etc with >,>< and <." A plain 3-way exclusive tap-to-select (not a drag pad — direction is a discrete
+  choice, not a continuous target), reusing the SAME glyph convention the regular BUILD-page EUCLID editor's
+  own DIRECTION control already established (">"=forward, "<"=backward, "><"=ping-pong) rather than inventing
+  a new one. **LAYOUT:** `directionRow` is a new SHORT (32pt, vs. the gesture pads' own square ~width/3) row,
+  3 columns at the EXACT SAME width as the 3 gesture pads above it (`cellSize`, passed through unchanged) so
+  the two rows line up column-for-column as asked. Left-to-right order matches Paul's own wording exactly:
+  BACKWARDS("<") · PING-PONG("><") · FORWARDS(">") — NOT alphabetical or the enum's own declaration order.
+  Combined with `gesturePadRow` into ONE `VStack(spacing: 0)` passed as `EuclidLaneBox`'s single
+  `trailingContent` slot (that slot only accepts one view) — zero gap between the two new rows, matching the
+  same "no gap or padding" convention already established for the step-boxes→gesture-pads seam. `euclidBoxH`
+  (the lane's own bottom-up height computation, introduced in the previous redesign) gained `+ directionRowH`
+  to account for the new row; `trailingHeight` passed to `EuclidLaneBox` likewise became `gestureRowH +
+  directionRowH` so its internal comet-row-vs-trailing-content math stays self-consistent (unchanged formula,
+  just handed the new combined total). Tapping a button sets `EuclidLine.direction` directly (not a drag
+  delta); the currently-resolved direction (`directionResolved`, honouring the legacy `reverse` bool fallback
+  for old docs) highlights with the lane's own accent colour, matching the gesture pads' own touched-state
+  styling language. UI-only, no engine/model change — `EuclidDir`/`directionResolved` are pre-existing,
+  unchanged. **DEVICE-OWED:** confirm the two rows visually read as one continuous, column-aligned block;
+  the 32pt row height feels proportionate next to the much taller square pads above it; the glyphs are legible
+  at this size; tapping each button audibly changes the lane's direction as expected.**
 - **▶ EUCLIDEOUS — an alternative gesture control: 3 square per-tab pads replace toggle-then-drag; lanes grow
   to fit; per-tab drag HUDs (2026-10-06, on `main`; iOS builds, no test-target reach (EuclidLaneUI.swift/
   GridUI.swift/BuildPage.swift/EuclideousPage.swift/AudioUnitViewController.swift); DEVICE feel owed — this

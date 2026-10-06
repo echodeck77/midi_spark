@@ -154,7 +154,12 @@ struct EuclideousPage: View {
         // top-down — EuclidLaneBox's own internal math (`reserve`/the comet row's height) is self-consistent
         // by construction, so handing it this EXACT total can never overflow or leave slack.
         let gestureRowH = width / 3
-        let euclidBoxH = 12 + cometRowH + gestureRowH
+        // DIRECTION ROW (Paul 2026-10-06): "directly below the x/y control, put short backwards, ping pong,
+        // forwards buttons, aligned with the three x/y controls" — a SECOND, SHORT (not square) row, same 3
+        // column widths as the gesture pads above it, stacked immediately beneath with zero gap (the same
+        // "no gap or padding" convention already established for the step-boxes→gesture-pads transition).
+        let directionRowH: CGFloat = 32
+        let euclidBoxH = 12 + cometRowH + gestureRowH + directionRowH
         // ROTATE SENSITIVITY (Paul 2026-10-06): "it behaves exactly as the lane gestures do now" — the SAME
         // box-pitch-derived points-per-step the comet bar's own X-axis currently uses (EuclidCometBar.body),
         // recomputed here with the identical formula/inputs so the two can't disagree, since the comet bar's
@@ -174,8 +179,13 @@ struct EuclideousPage: View {
                           onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          trailingContent: AnyView(gesturePadRow(idx, accent, cellSize: gestureRowH, rotateStepPt: rotateStepPt)),
-                          trailingHeight: gestureRowH)
+                          trailingContent: AnyView(
+                              VStack(spacing: 0) {
+                                  gesturePadRow(idx, accent, cellSize: gestureRowH, rotateStepPt: rotateStepPt)
+                                  directionRow(idx, line, accent, cellSize: gestureRowH, rowH: directionRowH)
+                              }
+                          ),
+                          trailingHeight: gestureRowH + directionRowH)
             laneControls(idx, line, accent: accent)
         }
         .padding(8)
@@ -226,6 +236,27 @@ struct EuclideousPage: View {
                         },
                         rotateStepPt: rotateStepPt)
                 )
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    /// The 3 DIRECTION buttons (Paul 2026-10-06) — short (not square), same 3 column widths as the gesture
+    /// pads directly above, so the two rows line up. Left-to-right as asked: BACKWARDS · PING-PONG ·
+    /// FORWARDS, glyphs "<" / "><" / ">" (the SAME convention the regular BUILD-page EUCLID editor's own
+    /// DIRECTION control already uses — reused, not reinvented). A plain 3-way exclusive tap-to-select, not a
+    /// drag pad — direction is a discrete choice, not a continuous X/Y target.
+    private func directionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowH: CGFloat) -> some View {
+        let order: [(EuclidDir, String)] = [(.bkw, "<"), (.pingpong, "><"), (.fwd, ">")]
+        return HStack(spacing: 0) {
+            ForEach(order, id: \.0) { dir, glyph in
+                let on = line.directionResolved == dir
+                Text(glyph).font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.6))
+                    .frame(width: cellSize, height: rowH)
+                    .background(on ? accent.opacity(0.55) : Color.white.opacity(0.06))
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit(idx) { $0.direction = dir } }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
