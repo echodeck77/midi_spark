@@ -62,22 +62,33 @@ struct EuclidLaneBox: View {
     let onDragState: (CGPoint?, Bool) -> Void
     let onSelect: () -> Void
     let onToggleEnabled: () -> Void
+    // TRAILING CONTENT (Paul 2026-10-06, EUCLIDEOUS): an optional extra row drawn INSIDE this box's own
+    // border/background, directly below the play+comet row — so a caller's own per-lane controls (e.g.
+    // Euclideous's gesture-tab selector) read as "part of the lane control", not a separate floating box
+    // underneath it. nil (every existing BUILD-page call site) ⇒ byte-identical to before. Type-erased
+    // (not generic) so this struct's own type stays concrete/unchanged for its existing callers.
+    var trailingContent: AnyView? = nil
+    var trailingHeight: CGFloat = 0   // the exact height the caller's trailingContent needs — lets the comet row claim the rest, rather than guessing
 
     var body: some View {
         let on = line.enabledResolved
-        HStack(spacing: 8) {
-            Image(systemName: on ? "play.fill" : "stop.fill")
-                .font(.system(size: 15, weight: .black))
-                .foregroundColor(on ? accent : .white.opacity(0.4))
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
-                .contentShape(Rectangle())
-                .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
-            EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
-                           rate: rate, spanN: spanN, tint: accent, lanePlaying: on, clock: clock,
-                           onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
-                           onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
-                .frame(height: max(20, height - 12))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
+        let reserve: CGFloat = trailingContent == nil ? 0 : trailingHeight + 6   // +6 = the VStack's own inter-row spacing below
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: on ? "play.fill" : "stop.fill")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundColor(on ? accent : .white.opacity(0.4))
+                    .frame(width: 44, height: 44)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
+                EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
+                               rate: rate, spanN: spanN, tint: accent, lanePlaying: on, clock: clock,
+                               onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
+                               onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
+                    .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
+            }
+            if let trailingContent { trailingContent }
         }
         .padding(6)
         .frame(width: width, height: height)   // EXPLICIT width/height — the stroke/background below can never bleed past it

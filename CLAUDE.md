@@ -272,6 +272,40 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   touch-target feel, all 3 gesture tabs actually retargeting correctly in the hand, beacon accuracy, surviving
   host stop/resume and a full app relaunch (persistence), coexisting with an active ferry, free-running with the
   page closed, and confirming the BUILD-page EUCLID editor is still pixel/gesture-identical after the extraction.**
+- **▶ EUCLIDEOUS — two follow-up fixes: total silence (self-inflicted) + the gesture tabs merged into the lane's
+  own box (2026-10-06, on `main`, `f3cbe05`+1 more; macOS 1207 green, iOS builds; DEVICE eye/ear owed on both).
+  **SILENCE, Paul: "It's not making any sound at all, regardless of what emitters, receivers, notes, etc I use."**
+  Traced empirically (ruled out the row-pin math, the per-row clock fallback, and a stale-decode-array theory in
+  turn, each by direct code reading, before finding it) to `euclideousLines` defaulting ALL 4 lanes to `pulses: 0`
+  in three places (the `@State` default, `PluginState.euclideousLinesResolved`'s padding, a UI fallback) — a
+  copy-paste of `euclidLinesForEditing()`'s OWN "rows 1-3 pad silent" convention (correct THERE — only row 0 of
+  the BUILD-page's 4-row widget is meant active by default), wrongly applied to Euclideous's 4 INDEPENDENTLY-live
+  lanes. A zero-hit pattern can never sound regardless of anything downstream, exactly matching the report. FIX:
+  all 3 spots now fall back to `EuclidLine`'s own plain default (`pulses:1, steps:8` — "a fresh lane defaults to
+  1 of 8," already an established convention elsewhere in this codebase) instead of overriding it with silence.
+  Also fixed the 2 existing unit tests that had encoded the bug as expected behaviour (written to match my own
+  implementation, not the actual intent) — a lesson on its own: a passing test is only as good as what it asserts.
+  **TAB MERGE, same session, Paul: "I want the x/y toggles to be named more clearly (vel/gate, note/oct,
+  hits/offs). I want this tab to appear as the same control as the Euclid lane, as opposed to being in a separate
+  box."** Labels: H/O·V/G·N/O → HITS/OFFS·VEL/GATE·NOTE/OCT (`EuclideousGestureTab.label`, display-only, no
+  persisted-value change). **LAYOUT:** `EuclidLaneBox` (EuclidLaneUI.swift, SHARED with the regular BUILD-page
+  EUCLID editor) gained an optional `trailingContent: AnyView? = nil` + `trailingHeight: CGFloat = 0` — type-
+  erased rather than generic, so the struct's own type stays unchanged for its existing caller, and nil (every
+  BUILD-page call site) is byte-identical to before. Its `body` now wraps the play+comet row and `trailingContent`
+  in ONE `VStack`, with the box's existing border/background/selection-highlight modifiers applied to THAT VStack
+  — so a caller's trailing content renders INSIDE the same bordered box as the lane itself, not floating in a
+  separate, unbordered area below it (confirmed this was the actual visual cause: `EuclidLaneBox` already drew
+  its own visible border/fill; the gesture-tab row lived in a plain, borderless `laneControls` block beneath it,
+  reading as two different things even though both sat inside one near-invisible 3.5%-opacity outer card).
+  `EuclideousPage.swift`'s `laneCard` now hands the (factored-out) `gestureTabRow` to `EuclidLaneBox` as
+  `trailingContent`, with `trailingHeight: 22` so the comet bar correctly cedes exactly that much internal room
+  rather than guessing; `laneControls` lost its tab row (now just INV + 2 beacons + the OUT/RATE row) and the
+  height split between `EuclidLaneBox`/`laneControls` was recomputed from the real per-row heights (92→60
+  external reserve, the difference moving into `EuclidLaneBox`'s own now-larger budget). UI-only (EuclidLaneUI.
+  swift + EuclideousPage.swift), no engine/model change, no test-target reach. **DEVICE-OWED:** confirm all 4
+  lanes genuinely sound the instant a note is held post-fix; the merged box reads as one continuous control
+  rather than a border mismatch; the longer tab labels fit without wrapping/clipping at real lane width; confirm
+  the regular BUILD-page EUCLID editor is still pixel-identical (its own call site never passes the new params).**
 - **▶ EUCLID BEACON — the full-guard-chain gap CLOSED FOR REAL via render-thread readiness, not a door-note
   approximation (2026-10-05, on `main`, `e4f252b`; macOS 1193 green incl. 3 new, iOS builds). Direct follow-up:
   Paul asked "are there any outstanding bugs?" after the prior session's 19-bug sweep closed 18/19 — the one

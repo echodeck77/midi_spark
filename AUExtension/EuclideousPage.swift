@@ -20,7 +20,7 @@ import SwiftUI
 /// `EuclidGesturePad` already expose — no changes needed to either, since their callback type was
 /// already a bare, meaning-free `(Int) -> Void` (confirmed during planning).
 enum EuclideousGestureTab: Int, CaseIterable { case hitsOffset = 0, velocityGate = 1, noteOctave = 2
-    var label: String { switch self { case .hitsOffset: "H/O"; case .velocityGate: "V/G"; case .noteOctave: "N/O" } }
+    var label: String { switch self { case .hitsOffset: "HITS/OFFS"; case .velocityGate: "VEL/GATE"; case .noteOctave: "NOTE/OCT" } }
 }
 
 struct EuclideousPage: View {
@@ -118,7 +118,10 @@ struct EuclideousPage: View {
         let accent = laneAccents[idx % laneAccents.count]
         let tab = EuclideousGestureTab(rawValue: idx < gestureTab.count ? gestureTab[idx] : 0) ?? .hitsOffset
         VStack(alignment: .leading, spacing: 8) {
-            EuclidLaneBox(idx: idx, line: line, width: width, height: max(60, height - 92), accent: accent,
+            // TAB SELECTOR INSIDE THE LANE BOX (Paul 2026-10-06): passed as EuclidLaneBox's own `trailingContent`
+            // so it renders inside THAT box's border/background, directly below the play+comet row — "the same
+            // control as the Euclid lane, not a separate box" — rather than floating in laneControls below it.
+            EuclidLaneBox(idx: idx, line: line, width: width, height: max(80, height - 60), accent: accent,
                           selected: selectedLane == idx, touched: allRowsTouched || singleTouchedLanes.contains(idx),
                           clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
                           onRotateDelta: { d in euclideousApplyX(idx, tab, d) },
@@ -134,12 +137,30 @@ struct EuclideousPage: View {
                               dragHUDInfo = euclidLaneDragHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
                           },
                           onSelect: { selectedLane = idx },
-                          onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } })
-            laneControls(idx, line, accent: accent, tab: tab)
+                          onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
+                          trailingContent: AnyView(gestureTabRow(idx, tab, accent)), trailingHeight: 22)
+            laneControls(idx, line, accent: accent)
         }
         .padding(8)
         .frame(width: width, height: height, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))
+    }
+
+    /// The 3-way HITS/OFFS · VEL/GATE · NOTE/OCT selector — factored out so it can be handed to
+    /// `EuclidLaneBox` as `trailingContent` (rendering inside the lane's own box) instead of living
+    /// in `laneControls` (a separate, unbordered area below it).
+    private func gestureTabRow(_ idx: Int, _ tab: EuclideousGestureTab, _ accent: Color) -> some View {
+        HStack(spacing: 6) {
+            ForEach(EuclideousGestureTab.allCases, id: \.rawValue) { t in
+                let on = tab == t
+                Text(t.label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.55))
+                    .padding(.horizontal, 8).frame(height: 22)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.08)))
+                    .onTapGesture { if idx < gestureTab.count { gestureTab[idx] = t.rawValue } }
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     /// Retargets the gesture pad's X-axis delta per the lane's own active tab — HITS/OFFSET (default,
@@ -161,18 +182,9 @@ struct EuclideousPage: View {
         }
     }
 
-    @ViewBuilder private func laneControls(_ idx: Int, _ line: EuclidLine, accent: Color, tab: EuclideousGestureTab) -> some View {
+    @ViewBuilder private func laneControls(_ idx: Int, _ line: EuclidLine, accent: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                ForEach(EuclideousGestureTab.allCases, id: \.rawValue) { t in
-                    let on = tab == t
-                    Text(t.label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.55))
-                        .padding(.horizontal, 8).frame(height: 22)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : Color.white.opacity(0.08)))
-                        .onTapGesture { if idx < gestureTab.count { gestureTab[idx] = t.rawValue } }
-                }
-                Spacer(minLength: 0)
                 Text("INV").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
                     .padding(.horizontal, 8).frame(height: 22)
                     .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.1)))
@@ -181,6 +193,7 @@ struct EuclideousPage: View {
                              isReady: (lineReady & UInt8(1 << (idx * 2))) != 0)
                 EuclidBeacon(line: line, isMiss: true, accent: accent, clock: clock, rate: line.rate ?? .r1_16, spanN: 0,
                              isReady: (lineReady & UInt8(1 << (idx * 2 + 1))) != 0)
+                Spacer(minLength: 0)
             }
             HStack(spacing: 6) {
                 Text("OUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
