@@ -196,6 +196,31 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — each lane control is now a literal quarter of the SCREEN, the 2×2 block centred (2026-10-06,
+  on `main`; iOS builds, no test-target reach (EuclideousPage.swift-only); DEVICE eye owed). Paul: "I want each
+  Euclid lane control to be 1 quarter width and quarter height of the screen. I want the four boxes to be
+  centred in 2x2 alignment." The prior sizing (`laneGrid`) derived each cell from the space LEFT OVER after
+  subtracting outer padding/gaps, filling that space edge-to-edge with no margin — not a literal screen
+  quarter, and nothing centred (the grid just sat flush under the header, pushed up by a trailing `Spacer`).
+  **FIX:** `cellW`/`cellH` are now `size.width / 4` / `size.height / 4` exactly (`size` = `geo.size`, the FULL
+  page geometry from the outer `GeometryReader` — a true screen quarter, not the post-padding remainder); the
+  12pt inter-card `gap` is extra breathing room ON TOP of these exact quarters, not carved out of them, so the
+  full 2×2 block is slightly LARGER than exactly half the screen each way, by `gap`. **CENTRING:** restructured
+  `body` — the header keeps its own fixed `.padding(16)` at the top; `laneGrid(geo.size)` gets
+  `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)`, expanding to fill all remaining
+  space below the header and centring its now-fixed-size (and generally SMALLER than before) 2×2 content
+  within it, on both axes — replacing the old single trailing `Spacer` that only pushed content up, never
+  centred it. UI-only, no engine/model change. **FLAGGED, not silently absorbed:** quarter-SCREEN sizing
+  (rather than quarter of the space already excluding the header) means the lane cards are now noticeably
+  SMALLER than before on every screen size, and on a shorter/landscape iPad the available height could leave
+  `EuclidLaneBox` close to its own 80pt floor (worked through the arithmetic: at a ~600pt page height, the box
+  lands around 74–80pt, right at that floor, with `laneControls` below it correspondingly tight) — this is the
+  literal result of "quarter of the screen," not a bug, but worth a direct look on the actual device/iPad size
+  you're using, since I can't verify real screen proportions from here. **DEVICE-OWED:** confirm the 2×2 block
+  reads as genuinely centred (not just vertically centred below the header, which is what this implements, vs.
+  centred on the TRUE full-screen midpoint if that's what was actually meant); confirm each card's quarter
+  size still leaves every control (including the RATE row fixed last entry) comfortably legible and tappable
+  at the real, smaller size — not just structurally present per the arithmetic above.**
 - **▶ EUCLIDEOUS — fixed a lane-card height-budget miscalculation that left the RATE button (and the rest of
   its row) unresponsive to touch (2026-10-06, on `main`; iOS builds, no test-target reach (EuclideousPage.swift-
   only); DEVICE feel owed). Paul: "The rate button doesn't respond to touch." Traced via exact arithmetic, not

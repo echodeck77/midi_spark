@@ -54,12 +54,16 @@ struct EuclideousPage: View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 Color(red: 0.05, green: 0.055, blue: 0.07).ignoresSafeArea()
-                VStack(spacing: 10) {
-                    header
-                    laneGrid(geo.size)
-                    Spacer(minLength: 0)
+                // LAYOUT (Paul 2026-10-06): each lane control is exactly 1/4 the SCREEN's own width/height
+                // (computed from `geo.size`, the full page geometry — not the space left over after the
+                // header), and the resulting 2×2 block is CENTRED — both axes — in whatever space remains
+                // below the header. The header keeps its own fixed padding/position; `laneGrid` expands to
+                // fill the rest and centers its (now fixed, smaller-than-before) natural-sized content
+                // within that via `.frame(maxWidth: .infinity, maxHeight: .infinity)`.
+                VStack(spacing: 0) {
+                    header.padding(16)
+                    laneGrid(geo.size).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
-                .padding(16)
                 // THE DRAG HUD — same floating-card pattern as the existing EUCLID editor's own HUD
                 // (BuildPage.swift's buildEuclidDragHUD/AudioUnitViewController.swift's root-ZStack
                 // rendering): a top-level sibling so it can float anywhere over the lanes, converting
@@ -105,8 +109,13 @@ struct EuclideousPage: View {
 
     private func laneGrid(_ size: CGSize) -> some View {
         let gap: CGFloat = 12
-        let cellW = (size.width - 32 - gap) / 2
-        let cellH = (size.height - 120) / 2   // 120 ≈ header + outer padding, leaving the rest to the 2×2 grid
+        // QUARTER-SCREEN SIZING (Paul 2026-10-06): "each Euclid lane control to be 1 quarter width and
+        // quarter height of the screen" — a LITERAL quarter of the full page geometry, not the space left
+        // over after padding/gaps are subtracted (the previous formula's own approach). `gap` is extra
+        // breathing room BETWEEN the 4 cards, on top of their exact quarter sizes, not stolen from them —
+        // so the full 2×2 block is slightly LARGER than exactly half the screen in each dimension, by `gap`.
+        let cellW = size.width / 4
+        let cellH = size.height / 4
         return VStack(spacing: gap) {
             HStack(spacing: gap) { laneCard(0, width: cellW, height: cellH); laneCard(1, width: cellW, height: cellH) }
             HStack(spacing: gap) { laneCard(2, width: cellW, height: cellH); laneCard(3, width: cellW, height: cellH) }
