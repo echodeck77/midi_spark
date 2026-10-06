@@ -196,6 +196,40 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the offset drag now visually SLIDES the box grid with the finger (2026-10-06, on `main`;
+  iOS builds, no test-target reach (EuclidLaneUI.swift-only); DEVICE feel owed — genuinely untestable off-
+  device). Paul: "When I move offer [offset], I want the boxes to move left/right alongside my finger. I want
+  it to feel like I'm dragging the box forward or back in place." SUPERSEDES, for the DURATION of an active
+  horizontal drag only, several earlier sessions' own deliberate "box content is direction-independent, the
+  grid itself never relocates" design (still true at rest and for the DIRECTION toggle — this ask was
+  specifically about the live feel of the ROTATE DRAG gesture, a different interaction this codebase hadn't
+  previously targeted). **MECHANISM:** `EuclidGesturePad`'s pan handler already computed, each `.changed` tick,
+  a discrete step count via `round(t.x/stepPt)` — the ACTUAL `rotate` value only ever moves in whole steps,
+  unchanged by this fix. New `onDragOffsetX: (CGFloat?) -> Void` callback reports the SUB-STEP LEFTOVER (`t.x −
+  committedSteps×stepPt`, always within ~±stepPt/2, nil when no horizontal drag is active) on every tick;
+  `EuclidCometBar` holds this in a new local `@State dragOffsetX` and, while non-nil, renders a SIMPLIFIED
+  "sliding belt": every box's screen x shifts by `(dragOffsetX/stepPt) × boxPitch` — scaling the raw finger
+  leftover into box-pitch units so the visual tracks 1:1 and lands in sync with each discrete rotate-commit —
+  with TWO extra virtual boxes just outside the normal `0..<n` range (indices −1 and n, content read via `((i
+  mod n)+n) mod n`) so whichever sliver is entering from the wrap edge is always covered, no actual position-
+  wrapping math needed. The comet + per-box flare/burst are SUPPRESSED during this mode (flagged, not silent) —
+  both are tied to PLAYBACK TIME and keyed on each box's STATIC screen position, which is meaningless while
+  boxes are themselves sliding; they resume unchanged the instant the drag ends, by which point `rotate` has
+  already landed on its new value via the SAME discrete `onRotateDelta`/`onAllRotateDelta` calls this gesture
+  has been sending throughout — so there's no pop/mismatch at release, only a loss of the comet/flare DURING
+  the brief scrub itself. Hoisted the `18pt`/step sensitivity from a `private` constant inside
+  `EuclidGesturePad.Coordinator` to a shared file-level `euclidDragStepPt`, so the Canvas's visual scaling and
+  the gesture's own discrete stepping can never drift onto two different numbers. Applies to BOTH the 1-finger
+  (this lane) and 2-finger (every lane) horizontal drag alike — only on whichever lane(s) the touch physically
+  lands on, since each lane owns its own `EuclidGesturePad`/`@State`; a lane nudged along by a 2-finger
+  ALL-LANES drag on a DIFFERENT lane still just updates its static grid in discrete jumps, as before. Shared
+  with the regular BUILD-page EUCLID editor (`EuclidCometBar` is the one component both use) — the new visual
+  applies there too, not just Euclideous, since Paul's asks about this comet bar have never previously
+  distinguished the two editors. Vertical (hits) drag is UNTOUCHED — scoped to "left/right" exactly as asked.
+  UI-only, no engine/model change. **DEVICE-OWED:** the slide reading as smooth/responsive rather than janky;
+  confirm no visible pop or stutter at the moment the drag ends and the comet/flare reappear; the wrap-around
+  feel at the pattern's edges; confirm the regular BUILD-page EUCLID editor's drag now feels the same way,
+  which is intended, not a regression if unexpected.**
 - **▶ EUCLIDEOUS — a new standalone, playable 4-lane EUCLID instrument page, SHIPPED end-to-end (2026-10-05/06, on
   `main`, `7cf1856`…`6d3514b`; macOS 1207 green incl. 19 new, iOS builds; whole-feature DEVICE pass owed). Paul:
   "I want a new page on the app called Euclideous... centre around four Euclid lanes in the centre of the
