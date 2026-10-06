@@ -89,8 +89,11 @@ struct EuclidLaneBox: View {
 
     var body: some View {
         let on = line.enabledResolved
-        let reserve: CGFloat = trailingContent == nil ? 0 : trailingHeight + 6   // +6 = the VStack's own inter-row spacing below
-        VStack(spacing: 6) {
+        // NO GAP (Paul 2026-10-06): "the buttons that toggle x/y [to] be directly under the boxes on the lane
+        // with no gap or padding" — the VStack spacing between the step-box row and trailingContent (the
+        // gesture-tab row) is 0; `reserve` drops its own +6 for that now-removed gap to match exactly.
+        let reserve: CGFloat = trailingContent == nil ? 0 : trailingHeight
+        VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: on ? "play.fill" : "stop.fill")
                     .font(.system(size: 15, weight: .black))

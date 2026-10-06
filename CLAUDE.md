@@ -196,6 +196,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the gesture-tab row (HITS/OFFS·VEL/GATE·NOTE/OCT) sits flush beneath the step-box row, zero
+  gap (2026-10-06, on `main`; iOS builds, no test-target reach (EuclidLaneUI.swift-only); DEVICE eye owed).
+  Paul: "I want the buttons that toggle x/y to be directly under the boxes on the lane with no gap or
+  padding." Since the gesture-tab row merged INTO `EuclidLaneBox`'s own `trailingContent` slot (a few commits
+  earlier), it sat below the play+comet row separated by the box's own `VStack(spacing: 6)` — a deliberate
+  6pt gap at the time, now removed: `VStack(spacing: 0)`, and `reserve` (how much height the comet row cedes
+  to trailingContent) drops its own `+6` to match exactly — the comet bar simply claims those 6pt instead,
+  so nothing is lost, the gap is just gone. Confirmed byte-identical for the regular BUILD-page EUCLID editor
+  (`ProcessorBox`'s own `case .euclid:` never passes `trailingContent`, so `reserve` was already 0 there, and
+  a single-child VStack's spacing has no visible effect regardless). **FLAGGED, not silently assumed covered:**
+  the step BOXES themselves (drawn inside the comet bar's own Canvas) are vertically CENTRED within whatever
+  height the comet bar receives, not bottom-anchored — so if the comet bar ends up taller than the ~30pt the
+  boxes themselves occupy (plausible, given Euclideous's generously-sized lanes), there could still be a
+  SMALL residual visual gap below the boxes even with zero SwiftUI-level spacing, independent of this fix.
+  Deliberately NOT touched this round — reworking the Canvas's own vertical anchor would also require moving
+  the comet's OWN position (currently centred at the same `midY`, its glow/trail/burst math all keyed off it)
+  to match, a materially bigger and riskier change than what was asked; worth a direct look first, since the
+  gap this fix removes is likely the dominant, most visible one. UI-only, no engine/model change. **DEVICE-
+  OWED:** confirm the tab row now reads as flush against the step boxes; if a smaller gap is still visible,
+  that's the Canvas-centring nuance above, not an unfixed version of this same request.**
 - **▶ EUCLIDEOUS — each lane control is now a literal quarter of the SCREEN, the 2×2 block centred (2026-10-06,
   on `main`; iOS builds, no test-target reach (EuclideousPage.swift-only); DEVICE eye owed). Paul: "I want each
   Euclid lane control to be 1 quarter width and quarter height of the screen. I want the four boxes to be
