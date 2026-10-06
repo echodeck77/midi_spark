@@ -196,6 +196,78 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a shared RIFF grid, hit-triggered advancement, PLANNED THEN SHIPPED (2026-10-06/07, on
+  `main`, `7ab577c`; macOS 1221 green incl. 13 new, iOS builds; DEVICE eye/ear owed on the whole feature). Paul:
+  "At the top center of the page, I want a riff grid, with step count. This will appear small until touched,
+  then it will take up more of the screen. Each Euclid control will have a riff option. When enabled, each hit
+  will progress riff by 1 step. It will have forward, backwards, drunk, and all options of that type currently
+  on riff. It will have vertical and horizontal offset." PLANNED FIRST (full Plan Mode — 3 parallel Explore
+  agents + a Plan-agent validation pass, this project's own standing practice for Euclideous-class features) —
+  3 architecture forks ratified with Paul via AskUserQuestion before any code: (1) riff enabled REPLACES a
+  lane's NOTE/OCT behaviour ENTIRELY, not layered on top; (2) each lane gets an INDEPENDENT cursor into one
+  SHARED riff pattern, not one global shared cursor; (3) "vertical and horizontal offset" = the EXISTING NOTE/
+  OCTAVE gesture pad, relabelled — reused in place rather than a new control. **THE CENTRAL TENSION, RESOLVED BY
+  REUSE, NOT A NEW EXCEPTION:** "each hit progresses riff by 1 step" sounds like it needs genuinely accumulated,
+  cross-render state — in tension with invariant 2 ("derived, never accumulated"). Turns out true for only 1 of
+  6 directions: EUCLID's own per-hit ordinal (`ord`, Router.swift's `runEuclidLine`, already computed stateless
+  — "which hit number is this," a pure function of the line's own K/N/rotate pattern and tick position) drives
+  `riffStepAt` directly for FWD/REV/PENDULUM/PINGPONG/RANDOM — ZERO new persisted state. Only DRUNK is genuinely
+  path-dependent (a random walk's position depends on its own history, not just "what time is it now") — gets a
+  NEW, small (4 lanes, not `Snap.cells`-sized) accumulated pair (`euclideousRiffDrunkPos`/`LastOrd`), modeled
+  EXACTLY on the existing `riffDrunkPos` precedent but keyed on *distinct `ord`* (hit-triggered) instead of
+  *distinct tick* (time-triggered) — same disclosed-exception class, same transport-edge reset site. A
+  Plan-agent validation pass caught 2 real gaps before any code: `useRiff` must pre-empt `noteSel` ENTIRELY
+  (checked before the existing `.riff`/`.arp` sequential-source branch, not merely after it) to honour "replaces
+  it entirely" regardless of whatever `noteSel` happens to be stored; and `SnapshotBuilder`'s `EuclidLine(...)`
+  reconstruction is a FRESH LITERAL, not copy-with-mutation — the 3 new fields needed threading through a 4th
+  site beyond the struct/decoder/resolved-accessors, "the exact gotcha a prior RATE-automation feature was
+  bitten by" (already logged in this file). **MODEL:** new `EuclideousRiff` struct (steps 1…32 · per-step MONO
+  rank 0…8 · `RiffDir` · seed · bias) — ONE shared struct, not an array-of-4 like `euclideousLinesResolved`'s own
+  lines, since the PATTERN is shared and only each lane's own cursor/rotate/octave is independent. Deliberately
+  scoped OUT: POLY/TIE/SLIDE/ACCENT/WRAP (not asked for) and RATE/SPAN (advancement is hit-triggered, not
+  time-triggered, so neither applies). `PluginState.euclideousRiff`/`MachineParams.euclideousRiff`/
+  `SnapParams.euclideousRiff` thread it through the usual 3-layer resolve. `EuclidLine` gains `useRiff`/
+  `riffRotate`/`riffOctave` (additive-Optional, in all 4 required sites). **ENGINE (Router.swift):** a new
+  branch in `runEuclidLine`'s hit closure, inserted right after `ord` is computed, before the `.riff`/`.arp`
+  check — resolves the lane's own step via `riffStepAt`(5 directions)/`euclideousRiffDrunkStep`(DRUNK) → applies
+  `riffRotate` via a new pure `riffRotateStep` (Derivations.swift, mirrors `euclidPatternInto`'s own `(i+rot)%n`
+  convention) → resolves the rank via the EXISTING `riffResolve` against the cell's own plain pool (`srcNotes`/
+  `srcCount` — Euclideous's cell has no chain predecessor, so this is the right pool, not `chainScratch`) →
+  strikes via `strikeChord(explicitNote:explicitVel:)`. **OCTAVE REPLACES, doesn't stack** — `octave: 0` passed
+  to `strikeChord`, `riffOctave` does the only shifting — the gesture pad that used to drive `octave` now drives
+  `riffOctave` exclusively; consulting the old frozen value too would silently reintroduce an invisible offset.
+  Every direction (not just DRUNK) writes its resolved step into a new unified `euclideousRiffStep[4]` — the
+  UI-poll layer reads one simple array regardless of direction. **UI POLL (4-tier, mirrors `euclidLineReady`
+  exactly):** `Router.euclideousRiffPositions()` → `Kernel`/`MidiSparkAudioUnit` thin forwards →
+  `AudioUnitViewController`'s fast ~30fps `meterTimer` block (NOT the slow ~4Hz config-resync timer — a live,
+  responsive per-hit indicator, not config). **UI (EuclideousPage.swift):** a new top-center riff grid — small
+  pill (step count + a mini rank-tick strip + each `useRiff`-on lane's own live cursor dot, visualizing "4
+  independent cursors, one shared pattern" even collapsed) that expands on tap into the full MONO rank matrix
+  (radio-per-column) + STEPS ± + a 6-way DIRECTION seg + a BIAS slider (DRUNK only) — kept deliberately simple
+  (an `@State` bool + animated frame change inside the existing ScrollView, so expanding pushes the lanes down;
+  no prior art for this interaction anywhere in this codebase). **THE NOTE/OCT PAD REPURPOSED IN PLACE, not a
+  new row:** reuses the EXACT tap-under-drag technique `EuclidLaneBox`'s own PLAY/STOP button already proves
+  safe in this file (a stationary tap never arms `EuclidGesturePad`'s pan/pinch recognizers, so a sibling
+  `.onTapGesture` on the same cell catches it cleanly) — a plain tap toggles `useRiff`; the pad's label/tint
+  change ("RIFF H/V") and its drag retargets from noteSel/octave to riffRotate/riffOctave, all on the SAME
+  gesture-pad cell — `euclidBoxH`/`trailingHeight`'s height arithmetic is untouched, confirmed no new row
+  needed. **TESTS (+13):** EuclidLine's 3 new fields' decode-safety/round-trip/clamp (EffectiveParamsTests);
+  the SnapshotBuilder fresh-literal regression for all 3 fields + the new struct (SnapshotBuilderTests,
+  mirroring `testEuclidLineRateAndEmitterMaskSurviveSnapshotBuild` exactly — this project's own standing lesson
+  about this exact bug class); `riffRotateStep`'s wrap behaviour (DerivationsTests); 4 Router integration tests
+  — useRiff genuinely REPLACES noteSel (set `noteSel: .high`, confirm the top note never sounds and the riff
+  ranks' notes do instead), riffRotate shifts which rank a hit reads (isolated via `forceColumn: 0` to the very
+  first hit), riffOctave replaces (not stacks with) the line's own octave, and DRUNK produces valid, varied,
+  pool-bound notes over many hits (membership/variety checks, not a hand-derived exact sequence — this
+  project's own standing preference for this class of test). **DEVICE-OWED, the whole feature:** the riff
+  grid's expand/collapse feel at real size; the 4-lane independent-cursor model actually reading clearly in the
+  collapsed mini-strip; the relabelled NOTE/OCT pad's tap-to-toggle not fighting its own drag in the hand
+  (flagged to Paul as a real discoverability risk before shipping — nothing currently visually distinguishes
+  "this pad also responds to a tap" ahead of the first touch); DRUNK's walk feeling musical when hit-triggered
+  rather than time-triggered; the velocity read on a riff-sourced note (an honest approximation — reads
+  `srcNotes[(rank-1) % srcCount].vel`, not provably the exact pool index FOLD would resolve for a rank that
+  wraps the pool more than once — flagged for an ear-check rather than deriving FOLD's own index formula up
+  front).**
 - **▶ EUCLIDEOUS — INVERT rebuilt as a symmetric HIT|MISS selector, RATE rebuilt as a real pop-up (2026-10-06,
   on `main`; macOS 1208 green (DerivationsTests re-run after removing dead code), iOS builds; DEVICE eye owed).
   Paul: "Directly below the last set of buttons that were added, put the invert button and rate button. Rate
