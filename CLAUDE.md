@@ -196,6 +196,49 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — INVERT rebuilt as a symmetric HIT|MISS selector, RATE rebuilt as a real pop-up (2026-10-06,
+  on `main`; macOS 1208 green (DerivationsTests re-run after removing dead code), iOS builds; DEVICE eye owed).
+  Paul: "Directly below the last set of buttons that were added, put the invert button and rate button. Rate
+  should be nil by default. I hate the current control and want a pop-up. For invert, I want the outline of
+  the hit button to look selected and the misses to appear like hits do now." **LAYOUT:** a THIRD row —
+  `hitMissRateRow` — stacked with zero gap directly beneath the DIRECTION row (same pattern: combined into
+  ONE `trailingContent` VStack, `euclidBoxH`/`trailingHeight` both gained the new row's height), 3 columns at
+  the SAME width as the gesture pads/direction buttons above: HIT · MISS · RATE. **INVERT, redesigned not
+  just relabelled:** the old single "INV" pill (which performed `euclideousInvertLine`'s field-swap with no
+  visual feedback about which side was "currently" hit vs miss) is GONE — replaced by a genuinely symmetric
+  2-way toggle. New `missSelected: [Bool]` (per-lane, purely local/ephemeral — `EuclidLine` has no persisted
+  "which side is primary" flag, since the invert function performs a destructive field SWAP, not a flag flip,
+  so the swapped state alone can't say which side was "originally" hit) tracks which of HIT/MISS currently
+  reads as selected, starting at HIT (not inverted) for all 4 lanes. Tapping the NON-selected side triggers
+  the real invert AND flips the selection; tapping the ALREADY-selected side is a no-op (not a second,
+  cancelling invert). "The outline... to look selected" is literal — SELECTED is an accent-coloured STROKE
+  (`RoundedRectangle.stroke`, matching `EuclidLaneBox`'s own pre-existing `selected` convention exactly), not
+  a filled background like the gesture pads/direction buttons use — a deliberate, different visual language
+  for this ONE control, per Paul's explicit wording. "The misses to appear like hits do now" needed no
+  separate code path: both buttons share ONE `sideButton` helper, so whichever one is currently selected
+  automatically gets the identical treatment "hit" has right now — symmetry by construction, not a special
+  case for misses. **RATE, a real pop-up replacing a tap-to-cycle control:** the old control
+  (`Text(rate.rawValue)...onTapGesture { rate = euclideousNextRate(rate) }`) cycled through all 18 `ArpRate`
+  cases one tap at a time — confirmed via `euclideousNextRate`'s own body before touching anything (`(i+1) %
+  allCases.count`) — meaning reaching a distant rate took UP TO 17 TAPS, and there was NO WAY BACK to nil
+  ("inherit the machine-wide rate") once ANY rate had been explicitly set, since the function always lands on
+  a concrete `ArpRate`, never nil. Confirmed `EuclidLine.rate`'s own struct default IS already `nil` — "rate
+  should be nil by default" was about the UI never being able to genuinely RETURN to or correctly DISPLAY that
+  default, not a model change. **FIX:** `euclideousNextRate` deleted entirely (zero other callers, confirmed
+  by grep, zero test references) — replaced with `ratePopupLane: Int?` (which lane's pop-up is open, nil =
+  none) and a new `ratePopupCard` — a scrim + centred card (the SAME "tap outside to dismiss" shape already
+  used elsewhere in this app for the scale-pool/chord popups), showing an explicit "— (MACHINE RATE)" row
+  (sets `rate = nil`) plus all 18 `ArpRate` cases in their own natural 3-row grouping (6 straight · 6 dotted ·
+  6 triplet, `ArpRate.allCases`'s own declared order — no re-sorting needed). The ROW BUTTON itself now shows
+  "—" when `line.rate == nil`, not a misleading "1/16" — the OLD code's `(line.rate ?? .r1_16).rawValue`
+  pattern (still used elsewhere for passing a CONCRETE rate into `EuclidBeacon`/`EuclidCometBar`, which
+  genuinely need a real number to animate against) made every line look like it had an explicit rate even
+  when none was ever set; the DISPLAY-only read is now the one place that shows the honest unset state.
+  UI-only, no engine/model change — `ArpRate`/`EuclidLine.rate` are pre-existing, unchanged.
+  **DEVICE-OWED:** confirm the HIT|MISS outline reads clearly as "selected" against this page's dark
+  background; the pop-up's legibility/tap targets at real size; picking "— (MACHINE RATE)" and confirming the
+  lane's rate genuinely reads as inherited (matching whatever the OTHER lanes'/the machine-wide rate produces)
+  rather than silently keeping its last concrete value.**
 - **▶ EUCLIDEOUS — a DIRECTION row added directly beneath the 3 gesture pads (2026-10-06, on `main`; iOS
   builds, no test-target reach (EuclideousPage.swift-only); DEVICE eye owed). Paul: "Directly below the x/y
   control, put short backwards, ping pong, forwards buttons, aligned with the three x/y controls. Represent

@@ -2377,13 +2377,9 @@ func euclideousStepNoteSel(_ cur: EuclidNoteSel, by delta: Int) -> EuclidNoteSel
     return list[((i + delta) % n + n) % n]
 }
 
-/// A plain tap-to-advance rate stepper — steps through the 18-case `ArpRate` ladder in its own declared
-/// (straight → dotted → triplet) order.
-func euclideousNextRate(_ cur: ArpRate) -> ArpRate {
-    let all = ArpRate.allCases
-    let i = all.firstIndex(of: cur) ?? 0
-    return all[(i + 1) % all.count]
-}
+// euclideousNextRate (a plain tap-to-advance 18-case cycle) REMOVED 2026-10-06 — Paul: "I hate the current
+// control and want a pop-up"; EuclideousPage's own ratePopupCard lets the user pick a rate directly instead
+// of cycling through all 18 one tap at a time (and never offering a way back to nil/"inherit the machine rate").
 
 // ── ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26) ──────────────────────────────────────────────────
 // Pure per-step helpers over a Bjorklund K-of-N mask (SAME formula as euclidPatternInto). No allocation — safe in the

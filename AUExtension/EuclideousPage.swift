@@ -9,10 +9,10 @@
 
 import SwiftUI
 
-// EUCLIDEOUS INVERT (euclideousInvertLine/euclideousEnsureMissDefaults), the NOTE/OCTAVE cycle
-// (euclideousNoteSelCycle/euclideousStepNoteSel), and the rate stepper (euclideousNextRate) all
-// live in Derivations.swift (Paul 2026-10-05) — Foundation-only, so they reach the macOS
-// unit-test target; this file only CALLS them.
+// EUCLIDEOUS INVERT (euclideousInvertLine/euclideousEnsureMissDefaults) and the NOTE/OCTAVE cycle
+// (euclideousNoteSelCycle/euclideousStepNoteSel) live in Derivations.swift (Paul 2026-10-05) —
+// Foundation-only, so they reach the macOS unit-test target; this file only CALLS them. (The rate
+// stepper, euclideousNextRate, was REMOVED 2026-10-06 — superseded by ratePopupCard below.)
 
 /// One lane's 3 gesture PADS (Paul 2026-10-06: square buttons, each its own independent x/y drag
 /// surface — superseding the original toggle-then-drag-the-comet-bar design). HITS/OFFSET's mapping
@@ -45,6 +45,18 @@ struct EuclideousPage: View {
     // the 3 pads (if any) currently has a finger down, for visual highlight only, matching the SAME
     // "local @State, never persisted" convention as `selectedLane`/`singleTouchedLanes` above.
     @State private var touchedPad: [Int?] = [nil, nil, nil, nil]
+    // HIT|MISS SELECTOR (Paul 2026-10-06): "I want the outline of the hit button to look selected and the
+    // misses to appear like hits do now" — a symmetric 2-way toggle (not the old single "INV" pill): exactly
+    // one of HIT/MISS is "selected" (an outline, matching EuclidLaneBox's own `selected` convention) at a
+    // time. There's no persisted "which side is primary" flag on EuclidLine itself — `euclideousInvertLine`
+    // performs a destructive field SWAP, not a flag flip, so the swapped state alone can't say which side was
+    // "originally" hit vs miss. Purely local/ephemeral, starting at HIT selected (not inverted) for all 4
+    // lanes — tapping the NON-selected side triggers the actual invert and flips which one shows selected.
+    @State private var missSelected: [Bool] = [false, false, false, false]
+    // RATE POPUP (Paul 2026-10-06): "I hate the current [tap-to-cycle] control and want a pop-up" — replaces
+    // cycling through all 18 ArpRate cases one tap at a time (and never offering a way back to nil/"inherit
+    // the machine rate") with a single list the user picks from directly. nil = no popup open.
+    @State private var ratePopupLane: Int? = nil
 
     private let laneAccents: [Color] = [
         Color(red: 0.95, green: 0.35, blue: 0.35), Color(red: 0.35, green: 0.75, blue: 0.95),
@@ -87,6 +99,14 @@ struct EuclideousPage: View {
                     let x = min(max(rawX, halfW), max(halfW, geo.size.width - halfW))
                     let y = max(40, info.point.y - origin.y - 130)
                     euclideousDragHUD(info).frame(width: hudW).position(x: x, y: y).allowsHitTesting(false).zIndex(2)
+                }
+                // THE RATE POP-UP (Paul 2026-10-06) — a scrim + centred card, the standard "tap outside to
+                // dismiss" popup shape already used elsewhere in this app (e.g. the scale-pool/chord popups).
+                if let lane = ratePopupLane {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { ratePopupLane = nil }
+                        .zIndex(3)
+                    ratePopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
             }
         }
@@ -159,7 +179,12 @@ struct EuclideousPage: View {
         // column widths as the gesture pads above it, stacked immediately beneath with zero gap (the same
         // "no gap or padding" convention already established for the step-boxes→gesture-pads transition).
         let directionRowH: CGFloat = 32
-        let euclidBoxH = 12 + cometRowH + gestureRowH + directionRowH
+        // HIT | MISS | RATE ROW (Paul 2026-10-06): "directly below the last set of buttons that were added,
+        // put the invert button and rate button" — a THIRD stacked row, same height/convention as the
+        // direction row above it, same 3-column width split (HIT · MISS · RATE) matching the gesture-pad/
+        // direction rows' own established rhythm.
+        let hitMissRateRowH: CGFloat = 32
+        let euclidBoxH = 12 + cometRowH + gestureRowH + directionRowH + hitMissRateRowH
         // ROTATE SENSITIVITY (Paul 2026-10-06): "it behaves exactly as the lane gestures do now" — the SAME
         // box-pitch-derived points-per-step the comet bar's own X-axis currently uses (EuclidCometBar.body),
         // recomputed here with the identical formula/inputs so the two can't disagree, since the comet bar's
@@ -183,9 +208,10 @@ struct EuclideousPage: View {
                               VStack(spacing: 0) {
                                   gesturePadRow(idx, accent, cellSize: gestureRowH, rotateStepPt: rotateStepPt)
                                   directionRow(idx, line, accent, cellSize: gestureRowH, rowH: directionRowH)
+                                  hitMissRateRow(idx, line, accent, cellSize: gestureRowH, rowH: hitMissRateRowH)
                               }
                           ),
-                          trailingHeight: gestureRowH + directionRowH)
+                          trailingHeight: gestureRowH + directionRowH + hitMissRateRowH)
             laneControls(idx, line, accent: accent)
         }
         .padding(8)
@@ -262,6 +288,84 @@ struct EuclideousPage: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
+    /// HIT | MISS | RATE (Paul 2026-10-06) — 3 columns matching the gesture-pad/direction rows above. HIT/MISS
+    /// is a symmetric 2-way selector (see `missSelected`'s own doc comment) — tapping the NON-selected side
+    /// performs the actual invert (`euclideousInvertLine`) and flips which one shows "selected"; tapping the
+    /// already-selected side is a no-op. "The outline... to look selected" — SELECTED = an accent-coloured
+    /// STROKE (matching `EuclidLaneBox`'s own `selected` convention exactly), not a filled background, so
+    /// whichever side is currently selected visually reads the same way regardless of which it is — "the
+    /// misses to appear like hits do now" IS this symmetry, not a separate treatment to build for misses only.
+    /// RATE opens the pop-up (`ratePopupLane`); the button itself shows "—" when the line's rate is genuinely
+    /// unset (nil ⇒ inherit the machine-wide rate) rather than silently defaulting the display to 1/16.
+    private func hitMissRateRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowH: CGFloat) -> some View {
+        let missOn = idx < missSelected.count && missSelected[idx]
+        func sideButton(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+            Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(selected ? 0.95 : 0.5))
+                .frame(width: cellSize, height: rowH)
+                .background(Color.white.opacity(0.06))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? accent.opacity(0.85) : Color.clear, lineWidth: 1.5))
+                .contentShape(Rectangle())
+                .onTapGesture(perform: action)
+        }
+        return HStack(spacing: 0) {
+            sideButton("HIT", selected: !missOn) {
+                guard missOn else { return }   // already selected — a no-op, not a second invert
+                edit(idx) { $0 = euclideousInvertLine($0) }
+                if idx < missSelected.count { missSelected[idx] = false }
+            }
+            sideButton("MISS", selected: missOn) {
+                guard !missOn else { return }
+                edit(idx) { $0 = euclideousInvertLine($0) }
+                if idx < missSelected.count { missSelected[idx] = true }
+            }
+            Text(line.rate == nil ? "—" : line.rate!.rawValue)
+                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(0.7))
+                .frame(width: cellSize, height: rowH)
+                .background(Color.white.opacity(0.06))
+                .contentShape(Rectangle())
+                .onTapGesture { ratePopupLane = idx }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    /// The RATE pop-up card — an explicit "—" (inherit the machine-wide rate, nil) plus all 18 `ArpRate`
+    /// cases grouped exactly as `ArpRate.allCases` already orders them (6 straight · 6 dotted · 6 triplet),
+    /// one row per group. Picking any option closes the pop-up.
+    private func ratePopupCard(_ idx: Int) -> some View {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let groups = stride(from: 0, to: ArpRate.allCases.count, by: 6).map { Array(ArpRate.allCases[$0..<min($0 + 6, ArpRate.allCases.count)]) }
+        return VStack(spacing: 10) {
+            Text("LANE \(idx + 1) RATE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            Text("— (MACHINE RATE)")
+                .font(.system(size: 12, weight: .heavy, design: .monospaced))
+                .foregroundColor(line.rate == nil ? .black : .white.opacity(0.75))
+                .frame(maxWidth: .infinity).frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: 6).fill(line.rate == nil ? laneAccents[idx % laneAccents.count] : Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
+                .onTapGesture { edit(idx) { $0.rate = nil }; ratePopupLane = nil }
+            ForEach(groups.indices, id: \.self) { g in
+                HStack(spacing: 4) {
+                    ForEach(groups[g], id: \.self) { r in
+                        let on = line.rate == r
+                        Text(r.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                            .foregroundColor(on ? .black : .white.opacity(0.75))
+                            .frame(maxWidth: .infinity).frame(height: 28)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? laneAccents[idx % laneAccents.count] : Color.white.opacity(0.08)))
+                            .contentShape(Rectangle())
+                            .onTapGesture { edit(idx) { $0.rate = r }; ratePopupLane = nil }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 280)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
+
     /// Pure per-line mutation, shared by the single-lane and all-lanes paths below — HITS/OFFSET (default) →
     /// Δrotate; VELOCITY/GATE → Δvelocity (scaled); NOTE/OCTAVE → step the note-select cycle.
     private func applyX(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
@@ -303,13 +407,11 @@ struct EuclideousPage: View {
                                   secondary: "OCTAVE \(oct > 0 ? "+" : "")\(oct)", point: point)
     }
 
+    // INV + RATE moved OUT of here (Paul 2026-10-06) — now `hitMissRateRow`, stacked directly beneath the
+    // DIRECTION row inside EuclidLaneBox's own trailingContent. This row keeps just the 2 beacons + OUT.
     @ViewBuilder private func laneControls(_ idx: Int, _ line: EuclidLine, accent: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text("INV").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
-                    .padding(.horizontal, 8).frame(height: 22)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.1)))
-                    .onTapGesture { edit(idx) { $0 = euclideousInvertLine($0) } }
                 EuclidBeacon(line: line, isMiss: false, accent: accent, clock: clock, rate: line.rate ?? .r1_16, spanN: 0,
                              isReady: (lineReady & UInt8(1 << (idx * 2))) != 0)
                 EuclidBeacon(line: line, isMiss: true, accent: accent, clock: clock, rate: line.rate ?? .r1_16, spanN: 0,
@@ -327,13 +429,7 @@ struct EuclideousPage: View {
                         .background(Circle().fill(on ? accent : Color.white.opacity(0.08)))
                         .onTapGesture { edit(idx) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
                 }
-                Spacer(minLength: 6)
-                Text("RATE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                Text((line.rate ?? .r1_16).rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.75))
-                    .padding(.horizontal, 6).frame(height: 18)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
-                    .onTapGesture { edit(idx) { $0.rate = euclideousNextRate($0.rate ?? .r1_16) } }
+                Spacer(minLength: 0)
             }
         }
     }
