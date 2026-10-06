@@ -128,7 +128,7 @@ struct EuclideousPage: View {
                           onHitsDelta: { d in euclideousApplyY(idx, tab, d) },
                           onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },
                           onAllRotateDelta: { d in onEdit { lines in for i in lines.indices { lines[i].rotate = ((lines[i].rotate - d) % 16 + 16) % 16 } } },
-                          onAllHitsDelta: { d in onEdit { lines in for i in lines.indices { let v = max(0, min(max(2, lines[i].steps), lines[i].pulses + d)); lines[i].pulses = min(v, lines[i].steps) } } },
+                          onAllHitsDelta: { d in onEdit { lines in for i in lines.indices { let v = max(1, min(max(2, lines[i].steps), lines[i].pulses + d)); lines[i].pulses = min(v, lines[i].steps) } } },   // floored at 1, matching euclideousApplyY
                           onDragState: { point, allRows in
                               if point == nil { if allRows { allRowsTouched = false } else { singleTouchedLanes.remove(idx) } }
                               else { if allRows { allRowsTouched = true } else { singleTouchedLanes.insert(idx) } }
@@ -176,7 +176,7 @@ struct EuclideousPage: View {
     /// NOTE/OCTAVE → Δoctave.
     private func euclideousApplyY(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) {
         switch tab {
-        case .hitsOffset: edit(idx) { let v = max(0, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) }
+        case .hitsOffset: edit(idx) { let v = max(1, min(max(2, $0.steps), $0.pulses + d)); $0.pulses = min(v, $0.steps) }   // floored at 1, not 0 (Paul 2026-10-06) — 0 hits is never meaningful here; `enabled: false` is the real mute
         case .velocityGate: edit(idx) { $0.gate = max(0.05, min(1, $0.gateResolved + Double(d) * 0.03)) }
         case .noteOctave: edit(idx) { $0.octave = max(-3, min(3, $0.octaveResolved + d)) }
         }

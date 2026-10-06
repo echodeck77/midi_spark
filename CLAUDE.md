@@ -196,7 +196,81 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
-- **▶ EUCLIDEOUS — the offset drag now visually SLIDES the box grid with the finger (2026-10-06, on `main`;
+- **▶ EUCLIDEOUS — a silent, never-restored state finally traced to its REAL root cause: the persisted config
+  was never resynced on a fresh plugin load, at all (2026-10-06, on `main`; iOS builds, macOS 1207 green
+  (Models.swift-only reach); DEVICE ear owed — the other two prior "fixes" this session were real but
+  insufficient on their own, confirmed only by this third one). Paul, after the pulses:0 default fix two
+  commits earlier: "I still don't hear this euclidius playing." Traced methodically rather than assuming the
+  prior fix had simply failed. **FINDING 1 (closes a real but narrower gap):** ANY edit to ANY of Euclideous's
+  4 lines — even an unrelated one, e.g. an emitter-toggle tap — persists the WHOLE 4-line array wholesale via
+  `editDocument`. So a session that touched Euclideous even ONCE during the brief window the pulses:0 bug was
+  live got the bad value baked into the DOCUMENT as real, non-nil data — which the earlier padding-fallback
+  fix never even runs for (padding only applies when the field is nil/short). Fixed by moving the pulses-floor
+  from the PADDING step into `euclideousLinesResolved` itself, applied to EVERY resolved line unconditionally
+  (`if pulses <= 0 { pulses = 1 }`) — repairs an already-stuck persisted document on its very next resolve,
+  not just a never-touched one. 0 hits is never musically meaningful for a EUCLID line (`enabled: false` is
+  the real, existing mute) and was never reachable via the gesture before this session anyway, so this is
+  safe going forward too; the gesture clamps (`euclideousApplyY`/`onAllHitsDelta`) were floored at 1 to match,
+  so the live HUD readout never shows a value the engine won't honour. +1 regression test exercising the
+  exact stuck-document shape. **FINDING 2 (the ACTUAL root cause of "still doesn't play"):** traced the full
+  document-load lifecycle by hand rather than assuming `refreshFromDocument()` covers every load path — it
+  doesn't. `fullState.set` (AUM loading a saved project — the single most common real path, and what happens
+  on EVERY Xcode reinstall) reassigns `document` wholesale but calls NEITHER `refreshFromDocument()` NOR
+  anything that would notify the SwiftUI layer. The OTHER persisted BuildPage subsystems (`buildPlayGrid`/
+  `partAuto`/`buildScenes`/`buildUnassigned`) are robust to this ONLY because `buildPersistTick()`'s own
+  recurring consume-poll (on the existing ~4Hz timer) periodically re-checks "is there new document data I
+  haven't picked up yet" — a self-healing pattern Euclideous was simply never wired into when it shipped.
+  Net effect, confirmed by tracing rather than guessed: EVERY fresh plugin instance (any Xcode rebuild+
+  reinstall, or AUM reopening a saved session) silently reset Euclideous to OFF + the bare default lines,
+  REGARDLESS of what had been authored/saved — and since OFF never even composes into the scene, this alone
+  fully explains continued silence no matter how correct the pulses floor was. **FIX:** added a parallel,
+  UNGATED poll-and-compare alongside the existing `buildPersistTick()` call in the same `.onReceive(timer)`
+  block (AudioUnitViewController.swift) — reads `au.uiEuclideousLines/Enabled/Receiver()` every tick,
+  writes `@State` ONLY on change (matching this poll's own stated "don't force a re-render every tick"
+  convention), and calls `buildPublishScene()` once if anything actually changed (the engine only ever reads
+  these @State vars through that function's own `Input` fold — a silent resync with no republish would sit
+  unapplied). NOT a pending/clear transport like `buildPlayGrid` (which gets unconditionally re-written every
+  tick regardless, so nil-ing after consuming is safe there) — Euclideous's fields are ONLY written on a real
+  user edit, so nil-ing them after a read would have silently discarded a user's saved configuration on the
+  very next encode; a plain, non-destructive read-and-compare was the correct, safer shape for this field.
+  Confirmed safe against a live drag: `editDocument` mutates `document` SYNCHRONOUSLY on every call —
+  `coalesceKey` only coalesces the UNDO SNAPSHOT, never the write itself — so the document and the @State
+  can never differ mid-gesture, ruling out the race a naive "always re-read" approach could otherwise hit.
+  NOT gated on `buildPersistTick()`'s own `activeTab == .build` guard, since Euclideous opens from the
+  persistent header, independent of which tab is active. **DEVICE-OWED:** the actual, concrete test this
+  whole chain of fixes needs — rebuild, reinstall fresh via Xcode (a genuinely NEW plugin instance, not just
+  reopening the still-running one), open a session that previously had Euclideous configured, and confirm it
+  now shows ON/the saved pattern/the saved receiver immediately, without needing to manually re-toggle
+  anything; separately, confirm a brand-new, never-touched Euclideous session still opens with all 4 lanes
+  audibly playing as soon as a note is held (the pulses-floor fix's own, narrower claim).**
+- **▶ EUCLID/EUCLIDEOUS — the drag-slide visual from the entry below was REVERTED same day; offset-drag
+  sensitivity now matches box pitch instead (2026-10-06, on `main`; iOS builds, no test-target reach
+  (EuclidLaneUI.swift-only); DEVICE feel owed). Paul, after trying the sliding-belt visual: "I don't like the
+  way the offset now works after your last change. I preferred it as it was, but with the distance the
+  finger moves to [sic] moves should line up with the number of spaces a hit moves." Two parts: (1) revert
+  the sliding-box rendering entirely — restored the comet+flare+static-box drawing unconditionally (removed
+  `@State dragOffsetX`, the `if let dragOffsetX {…} else {…}` branch, and `EuclidGesturePad`'s
+  `onDragOffsetX` callback + its two `Coordinator` call sites, all clean deletions, not dead code left
+  behind). (2) the ACTUAL ask, a genuine sensitivity fix: the horizontal (rotate) drag used a FIXED 18pt-per-
+  step regardless of the lane's own step count/width, so a visual box's on-screen width almost never matched
+  how far the finger had to travel to move it — "the distance moved should line up with the number of
+  spaces moved" names this mismatch precisely. New shared `euclidBoxGeometry(n:usableWidth:) ->
+  (boxW:gap:pitch:)` (ONE formula, so the Canvas's own box layout and the gesture's rotate sensitivity can
+  never compute two different box widths for the same lane — the RATCHET/DEST class of bug this codebase
+  keeps guarding against). `EuclidCometBar` gained an explicit `width: CGFloat` param — NOT measured via a
+  new GeometryReader, but derived EXACTLY from `EuclidLaneBox`'s own existing layout math at its one call
+  site (`width - 64`: the 6pt×2 outer padding + the 44pt play button + 8pt HStack spacing the comet bar never
+  occupies) — so the pitch computed for gesture sensitivity is provably the SAME width the Canvas will
+  actually render at, no approximation. `EuclidGesturePad` traded its removed `onDragOffsetX` for a new
+  `rotateStepPt: CGFloat` (the caller-computed, box-pitch-matched points-per-step), used ONLY for the
+  horizontal axis in `Coordinator.handlePan`; the vertical (hits) axis and the pinch (steps) handler keep the
+  original fixed `euclidDragStepPt` — Paul's wording named "offset" specifically, not hits. Shared component
+  (`EuclidCometBar`/`EuclidGesturePad`), so this also fixes the regular BUILD-page EUCLID editor's own rotate-
+  drag feel, not just Euclideous's. **DEVICE-OWED:** confirm a drag across exactly one visible box's width
+  now moves the offset by exactly one step, at a few different step counts (2, 8, 16) where the box pitch
+  differs substantially; confirm the regular BUILD-page EUCLID editor's drag feels right too.**
+- **▶ EUCLIDEOUS — the offset drag now visually SLIDES the box grid with the finger — REVERTED same day, see
+  the entry above (this entry is kept as history, not current behaviour) (2026-10-06, on `main`;
   iOS builds, no test-target reach (EuclidLaneUI.swift-only); DEVICE feel owed — genuinely untestable off-
   device). Paul: "When I move offer [offset], I want the boxes to move left/right alongside my finger. I want
   it to feel like I'm dragging the box forward or back in place." SUPERSEDES, for the DURATION of an active

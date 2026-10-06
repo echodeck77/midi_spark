@@ -25,12 +25,22 @@ struct EuclidLiveClock {
     var playing: Bool         // the HOST transport (a lane's OWN play/stop is a separate, caller-supplied flag)
 }
 
-/// ~18pt per step each axis — a first-pass sensitivity (tunable): deliberately coarser than NumPair's own
-/// 14pt/step scrub, since this bar is small and a finger resting on it covers a fair chunk of it. Shared
-/// (not a private constant inside `EuclidGesturePad.Coordinator`) because `EuclidCometBar`'s own Canvas
-/// drawing needs the SAME value to scale its live drag-slide visual (Paul 2026-10-06) — one number, so the
-/// visual shift and the discrete rotate-step it's standing in for can never drift out of sync.
+/// ~18pt per step, vertical (hits) axis — a first-pass sensitivity (tunable): deliberately coarser than
+/// NumPair's own 14pt/step scrub, since this bar is small and a finger resting on it covers a fair chunk of
+/// it. The HORIZONTAL (rotate/offset) axis instead uses `euclidBoxGeometry`'s own pitch (below) — Paul
+/// 2026-10-06: "the distance the finger moves should line up with the number of spaces a hit moves."
 let euclidDragStepPt: CGFloat = 18
+
+/// Shared step-box geometry — the SAME formula `EuclidCometBar`'s own Canvas drawing uses for box width/
+/// gap, so the gesture pad's rotate-drag sensitivity (how many points of finger movement = one step) can
+/// never compute a DIFFERENT box pitch than what's actually on screen for that lane. One function, two
+/// callers, by construction can't drift apart (the RATCHET/DEST class of bug this codebase keeps guarding
+/// against — a widget and the thing it controls silently disagreeing about the same quantity).
+func euclidBoxGeometry(n: Int, usableWidth: CGFloat) -> (boxW: CGFloat, gap: CGFloat, pitch: CGFloat) {
+    let gap: CGFloat = n <= 8 ? 4 : (n <= 12 ? 3 : 2)
+    let boxW = max(3, (usableWidth - gap * CGFloat(n - 1)) / CGFloat(n))
+    return (boxW, gap, boxW + gap)
+}
 
 /// Builds the floating drag-HUD payload for a lane's gesture — a free function (not baked into
 /// `EuclidLaneBox` itself) so every caller constructs the SAME "ALL LANES" vs "LANE N" label the
@@ -89,8 +99,12 @@ struct EuclidLaneBox: View {
                     .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
                     .contentShape(Rectangle())
                     .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
+                // WIDTH (Paul 2026-10-06): the comet bar's own real rendered width, derived exactly from this
+                // box's layout (6pt padding ×2 + the 44pt play button + 8pt HStack spacing = 64pt not its own)
+                // — NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch (for the
+                // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
                 EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
-                               rate: rate, spanN: spanN, tint: accent, lanePlaying: on, clock: clock,
+                               rate: rate, spanN: spanN, tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64),
                                onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                                onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
                     .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
@@ -129,17 +143,17 @@ struct EuclidCometBar: View {
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
+    // WIDTH (Paul 2026-10-06): this bar's own real rendered width, as computed by its caller (`EuclidLaneBox`)
+    // — needed OUTSIDE the Canvas so the rotate-drag's step distance can be derived from the SAME box pitch
+    // the Canvas will draw, via the shared `euclidBoxGeometry`. Not optional/defaulted: every current caller
+    // (just `EuclidLaneBox`) already knows its own layout precisely enough to supply it.
+    let width: CGFloat
     let onRotateDelta: (Int) -> Void
     let onHitsDelta: (Int) -> Void
     let onStepsDelta: (Int) -> Void
     let onAllRotateDelta: (Int) -> Void
     let onAllHitsDelta: (Int) -> Void
     let onDragState: (CGPoint?, Bool) -> Void
-    // LIVE DRAG-SLIDE (Paul 2026-10-06): purely local, ephemeral gesture feedback — nil whenever no horizontal
-    // drag is active (the normal comet+flare rendering below), the pan's own sub-step leftover otherwise (see
-    // `EuclidGesturePad.onDragOffsetX`'s own doc comment). Local `@State`, same convention as every other
-    // transient per-gesture flag in this file (`euclidSelectedLane`, `singleTouchedLanes`, …) — never persisted.
-    @State private var dragOffsetX: CGFloat? = nil
 
     var body: some View {
         let k = pulses
@@ -151,6 +165,11 @@ struct EuclidCometBar: View {
         // stopped lane freezes/hides its comet exactly like a stopped transport does, regardless of whether OTHER
         // lanes (or the transport itself) are still running.
         let running = clock.playing && lanePlaying
+        // ROTATE-DRAG SENSITIVITY (Paul 2026-10-06): "the distance the finger moves should line up with the
+        // number of spaces a hit moves" — one finger-pitch of travel = one step, matching what's actually on
+        // screen for THIS lane's own step count, instead of a fixed point distance regardless of N/width.
+        let insetL: CGFloat = 6, insetR: CGFloat = 6
+        let rotateStepPt = euclidBoxGeometry(n: n, usableWidth: max(1, width - insetL - insetR)).pitch
         ZStack {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running)) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
@@ -172,42 +191,12 @@ struct EuclidCometBar: View {
                 // boxes themselves ARE the grid, with or without anything lit. Gap narrows as N grows so a dense
                 // 16-step lane doesn't crush its boxes into nothing; corner radius is capped relative to box width
                 // for the same reason at the thin end.
-                let gap: CGFloat = n <= 8 ? 4 : (n <= 12 ? 3 : 2)
-                let boxW = max(3, (usable - gap * CGFloat(n - 1)) / CGFloat(n))
+                let (boxW, gap, _) = euclidBoxGeometry(n: n, usableWidth: usable)   // the SAME shared formula the outer rotate-drag sensitivity uses — can't drift apart
                 let boxH = min(30, size.height - 6)
                 let corner = min(5, boxW / 2.2)
                 func boxRect(_ i: Int) -> CGRect {
                     CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
                 }
-                if let dragOffsetX {
-                    // LIVE DRAG-SLIDE (Paul 2026-10-06): "I want the boxes to move left/right alongside my
-                    // finger... dragging the box forward or back in place." A direct, continuous visual —
-                    // boxes slide by exactly `dragOffsetX` scaled into box-pitch units, so the grid tracks the
-                    // raw finger motion 1:1 rather than only jumping in discrete rotate-steps. WRAPS via two
-                    // extra virtual boxes just outside 0..<n (indices -1 and n, their CONTENT read modulo n) —
-                    // `dragOffsetX` is bounded to roughly ±stepPt/2 by the gesture pad itself, so one extra box
-                    // on each side is always enough to fill whatever sliver is entering from the opposite edge;
-                    // no position-wrapping math is needed, only this widened index range. Deliberately a
-                    // SIMPLER flat-fill render, no comet/flare: those are tied to PLAYBACK time, keyed on each
-                    // box's STATIC screen position — meaningless while boxes are themselves moving — and resume
-                    // unchanged the instant the drag ends, by which point `rotate` has already landed on its
-                    // new value via the discrete onRotateDelta calls this same gesture has been sending all along.
-                    let pitch = boxW + gap
-                    let dx = (dragOffsetX / euclidDragStepPt) * pitch
-                    for i in -1...n {
-                        let bufIdx = ((i % n) + n) % n
-                        let hit = invert ? !buf[bufIdx] : buf[bufIdx]
-                        let rect = CGRect(x: insetL + CGFloat(i) * pitch + dx, y: midY - boxH / 2, width: boxW, height: boxH)
-                        let box = Path(roundedRect: rect, cornerRadius: corner)
-                        if hit {
-                            ctx.fill(box, with: .color(tint.opacity(0.8)))
-                            ctx.stroke(box, with: .color(.white.opacity(0.3)), lineWidth: 1)
-                        } else {
-                            ctx.fill(box, with: .color(.white.opacity(0.09)))
-                            ctx.stroke(box, with: .color(.white.opacity(0.16)), lineWidth: 1)
-                        }
-                    }
-                } else {
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at
                 // that screen position, full stop. The age/flare timing below is keyed on screen position `i`
                 // directly; only the comet's own motion (via `cometRaw`/`cometPos`, already direction-aware)
@@ -308,16 +297,15 @@ struct EuclidCometBar: View {
                         layer.fill(Path(ellipseIn: CGRect(x: hx - 5, y: midY - 5, width: 10, height: 10)), with: .color(tint))
                     }
                 }
-                }
             }
             .allowsHitTesting(false)
         }
         // GESTURES: 1-finger drag left/right = Δrotate, up/down = Δhits (this lane); 2-finger drag does the same
         // but to EVERY lane (the caller's own `onAllRotateDelta`/`onAllHitsDelta`). PINCH = ΔSTEPS is the only way
-        // to change STEPS from this bar.
+        // to change STEPS from this bar. `rotateStepPt` (box-pitch-matched) governs the horizontal axis only.
         EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                          onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState,
-                         onDragOffsetX: { dragOffsetX = $0 })
+                         rotateStepPt: rotateStepPt)
             .padding(.horizontal, 14)
         }
     }
@@ -342,13 +330,11 @@ private struct EuclidGesturePad: UIViewRepresentable {
     // down, nil the instant it lifts/cancels. Reported on EVERY `.changed` tick too, not just begin/end, so a
     // HUD tracking the finger moves continuously, not just at the start of the gesture.
     let onDragState: (CGPoint?, Bool) -> Void
-    // LIVE DRAG-SLIDE (Paul 2026-10-06): the SUB-STEP leftover of the horizontal translation — how far past
-    // the last COMMITTED rotate-step the finger currently sits, in points, roughly within ±stepPt/2. nil
-    // while no horizontal drag is active. `EuclidCometBar` uses this to slide its box grid continuously with
-    // the finger ("I want the boxes to move left/right alongside my finger... dragging the box forward or
-    // back in place") while the discrete `onRotateDelta`/`onAllRotateDelta` calls keep committing the actual
-    // steps exactly as before — the two can't drift apart because this IS that same gesture's own leftover.
-    let onDragOffsetX: (CGFloat?) -> Void
+    // ROTATE SENSITIVITY (Paul 2026-10-06): "the distance the finger moves should line up with the number of
+    // spaces a hit moves" — the HORIZONTAL axis's own points-per-step, computed by the caller from this
+    // lane's real box pitch (`euclidBoxGeometry`), so a drag of exactly one box's width moves rotate by
+    // exactly one step. The VERTICAL (hits) axis is unaffected — it keeps the fixed `euclidDragStepPt`.
+    let rotateStepPt: CGFloat
     func makeUIView(context: Context) -> UIView {
         // RAW TOUCH TRACKING — UIPanGestureRecognizer/UIPinchGestureRecognizer only transition to .began once a
         // touch has moved past UIKit's own recognition slop, so driving the HUD from them alone leaves a dead
@@ -413,10 +399,9 @@ private struct EuclidGesturePad: UIViewRepresentable {
                 twoFinger = g.numberOfTouches >= 2
                 appliedX = 0; appliedY = 0
                 owner.onDragState(g.location(in: g.view?.window), twoFinger)
-                owner.onDragOffsetX(0)
             case .changed:
                 let t = g.translation(in: g.view)
-                let stepsX = Int((t.x / stepPt).rounded())
+                let stepsX = Int((t.x / owner.rotateStepPt).rounded())   // box-pitch-matched — Paul 2026-10-06
                 let stepsY = Int((-t.y / stepPt).rounded())   // screen-down is +y; dragging UP should INCREASE
                 if stepsX != appliedX {
                     let d = stepsX - appliedX
@@ -429,10 +414,8 @@ private struct EuclidGesturePad: UIViewRepresentable {
                     appliedY = stepsY
                 }
                 owner.onDragState(g.location(in: g.view?.window), twoFinger)   // every tick — the HUD tracks the finger live, not just at touch-down
-                owner.onDragOffsetX(t.x - CGFloat(appliedX) * stepPt)   // the leftover beyond whatever's already committed — always within ~±stepPt/2
             case .ended, .cancelled, .failed:
                 owner.onDragState(nil, twoFinger)
-                owner.onDragOffsetX(nil)
             default: break
             }
         }

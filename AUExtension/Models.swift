@@ -1759,9 +1759,20 @@ struct PluginState: Codable, Equatable {
     /// fresh, never-touched session — a silent (pulses: 0) default here was a copy-paste of the WRONG padding
     /// convention and made every lane permanently mute regardless of receiver/emitter/note config (Paul
     /// 2026-10-06: "not making any sound at all, regardless of what emitters, receivers, notes, etc I use").
+    /// EVERY resolved line's pulses is ALSO floored to ≥1 here (Paul 2026-10-06, "I still don't hear it
+    /// playing" — a SECOND report after the padding fix above): the padding fix alone only helps a line that
+    /// was NEVER written to this document field at all — but ANY edit to ANY of the 4 lines (even an
+    /// unrelated one, e.g. tapping an emitter toggle) persists the WHOLE 4-line array wholesale, so a session
+    /// that touched Euclideous even once during the brief window the pulses:0 bug was live got the bad value
+    /// BAKED IN as real, non-nil, persisted data — which the padding fallback above never even runs for. 0
+    /// hits is never musically meaningful for a EUCLID line (unlike `enabled: false`, the existing, correct
+    /// way to deliberately silence a lane) and was never reachable through the gesture before this session's
+    /// own now-floored clamp (see `EuclideousPage.euclideousApplyY`) — so flooring it HERE, unconditionally,
+    /// repairs an already-stuck persisted document on its very next load, not just a fresh one.
     var euclideousLinesResolved: [EuclidLine] {
         let L = euclideousLines ?? []
-        return Array((L + Array(repeating: EuclidLine(noteSel: .all), count: 4)).prefix(4))
+        let padded = Array((L + Array(repeating: EuclidLine(noteSel: .all), count: 4)).prefix(4))
+        return padded.map { line in var x = line; if x.pulses <= 0 { x.pulses = 1 }; return x }
     }
     var euclideousEnabledResolved: Bool { euclideousEnabled ?? false }
     var euclideousReceiverResolved: Int { max(0, min(3, euclideousReceiver ?? 0)) }

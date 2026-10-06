@@ -1029,6 +1029,23 @@ struct DiagView: View {
         .onReceive(timer) { _ in
             guard uiAppeared, let au else { return }   // CR-17: don't drain the render→main feeds while the view is hidden/backgrounded (perf + narrows CR-1's race window). buildPersistTick resumes on re-appear — a load restores then.
             buildPersistTick()   // BUILD: keep the saved unassigned part current + restore a just-loaded one (no-op off BUILD)
+            // EUCLIDEOUS (Paul 2026-10-06, "I still don't hear it playing" even after the pulses:0 fixes): a
+            // host-driven document load (`fullState.set`, AUM reopening a saved project) never routed through
+            // ANY resync — unlike buildPlayGrid/partAuto, which self-heal via buildPersistTick's own consume*
+            // poll, nothing was ever reading Euclideous's 3 persisted fields back into this @State after the
+            // very first view construction. So every fresh plugin instance (any Xcode reinstall, or AUM
+            // reloading a saved session) silently reset Euclideous to OFF + the bare default lines, no matter
+            // what had been authored/saved — regardless of the pulses floor fix, since OFF never even
+            // composes. Plain poll-and-compare (not a pending/clear transport like buildPlayGrid) is safe here:
+            // `editDocument` mutates `document` SYNCHRONOUSLY on every edit (coalesceKey only affects the undo
+            // snapshot, not the write), so this can never race a live drag — write-on-change only, not every
+            // tick, matching this same poll's own stated convention below. NOT gated on buildPersistTick's own
+            // `activeTab == .build` (Euclideous opens from the persistent header, independent of the active tab).
+            var euclideousResynced = false
+            let elv = au.uiEuclideousLines(); if elv != euclideousLines { euclideousLines = elv; euclideousResynced = true }
+            let eev = au.uiEuclideousEnabled(); if eev != euclideousEnabled { euclideousEnabled = eev; euclideousResynced = true }
+            let erv = au.uiEuclideousReceiver(); if erv != euclideousReceiver { euclideousReceiver = erv; euclideousResynced = true }
+            if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)
             #if DEBUG

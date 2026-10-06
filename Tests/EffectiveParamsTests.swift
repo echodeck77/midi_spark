@@ -155,6 +155,21 @@ final class EffectiveParamsTests: XCTestCase {
         d.euclideousLines = Array(repeating: EuclidLine(pulses: 2, steps: 8), count: 6)   // over-long
         XCTAssertEqual(d.euclideousLinesResolved.count, 4)
     }
+    // THE ACTUAL REGRESSION (Paul 2026-10-06, a SECOND "I still don't hear it playing" after the padding fix
+    // above): a session that touched Euclideous even ONCE during the brief window the pulses:0 bug was live
+    // got the bad value PERSISTED as real, non-nil data (any edit — even an unrelated one, like an emitter
+    // toggle — writes the WHOLE 4-line array wholesale) — which the padding fallback never runs for, since
+    // `euclideousLines` is no longer nil/short once that's happened. This is the exact shape: all 4 lines
+    // EXPLICITLY present, all at the old buggy pulses:0.
+    func testEuclideousLinesResolvedRepairsAnAlreadyStuckZeroPulsesDocument() {
+        var d = doc()
+        d.euclideousLines = Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)
+        XCTAssertTrue(d.euclideousLinesResolved.allSatisfy { $0.pulses >= 1 }, "every line must resolve audible, even one already stuck at pulses:0 in the persisted document")
+        var d2 = doc()   // a MIX — one legitimately 0, three fine — the floor must apply per-line, not skip the array once any line is OK
+        d2.euclideousLines = [EuclidLine(pulses: 0, steps: 8), EuclidLine(pulses: 3, steps: 8), EuclidLine(pulses: 0, steps: 16), EuclidLine(pulses: 5, steps: 8)]
+        let r = d2.euclideousLinesResolved
+        XCTAssertEqual(r.map(\.pulses), [1, 3, 1, 5])
+    }
 
     /// The builder mirrors the 16 macro values into the snapshot (clamped 0…1); a clean doc yields 16 zeros.
     func testBuilderMirrorsMacroValuesClamped() {
