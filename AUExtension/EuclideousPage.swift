@@ -41,9 +41,10 @@ struct EuclideousPage: View {
     let onClose: () -> Void
 
     @State private var selectedLane = 0
-    // RIFF GRID (Paul 2026-10-06): "small until touched, then takes up more of the screen" — no prior art for
-    // this interaction anywhere in this codebase; kept deliberately simple, an @State bool driving an animated
-    // frame/content swap inside the existing ScrollView (so expanding pushes the lanes down, no overlay needed).
+    // RIFF GRID (Paul 2026-10-06): "small until touched, then takes up more of the screen." Collapsed form
+    // lives inline in the header row; expanded form is a floating scrim+card overlay (see `body`) — REVISED
+    // 2026-10-07 ("the riff overlay should not move the rest of the page down") from an earlier in-flow/
+    // ScrollView design that this flag originally drove directly.
     @State private var riffExpanded = false
     @State private var singleTouchedLanes: Set<Int> = []
     @State private var allRowsTouched = false
@@ -275,7 +276,8 @@ struct EuclideousPage: View {
             }
             // DIRECTION IS PER-LANE now (Paul 2026-10-07: "the back/forward, drunk controls should be per
             // lane, not on the riff control") — this card holds only the SHARED pattern content (steps/ranks);
-            // each lane's own direction/bias lives on its own card via `riffDirRow`/`riffBiasRow` below.
+            // each lane's own direction lives on its own card via `riffDirRow` below (no BIAS control anymore
+            // either — dropped same session, never requested).
             Text("Each lane picks its own direction on its own card (OFF / FWD / REV / …).")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.35))
         }
@@ -330,13 +332,13 @@ struct EuclideousPage: View {
         // RIFF DIRECTION ROW, PER LANE (Paul 2026-10-07: "the back/forward, drunk controls should be per lane,
         // not on the riff control" — "I don't see the riff controls" named this as plainly missing). A FOURTH
         // stacked row — OFF + all 6 RiffDir options in one compact strip — replacing the earlier hidden tap-
-        // toggle on the NOTE/OCT pad with something actually visible. BIAS is a conditional FIFTH row, shown
-        // only when THIS lane is both using riff and currently set to DRUNK, so the other 3 lanes don't pay
-        // for a control that's meaningless to them.
+        // toggle on the NOTE/OCT pad with something actually visible. (A conditional BIAS row for DRUNK was
+        // here too, same day — DROPPED (Paul 2026-10-07, same session: "another control that I didn't ask
+        // for... can we drop?") — never requested, modeled on RIFF's own BIAS knob without being asked.
+        // `EuclidLine.riffDirBias`/`riffDirBiasResolved` stay in the model, unreachable from any UI now — a
+        // harmless, always-neutral (0) resting value, not worth the churn of also ripping out of Router.swift.)
         let riffDirRowH: CGFloat = 26
-        let showRiffBias = line.useRiffResolved && line.riffDirResolved == .drunk
-        let riffBiasRowH: CGFloat = showRiffBias ? 24 : 0
-        let euclidBoxH = 12 + cometRowH + gestureRowH + directionRowH + hitMissRateRowH + riffDirRowH + riffBiasRowH
+        let euclidBoxH = 12 + cometRowH + gestureRowH + directionRowH + hitMissRateRowH + riffDirRowH
         // ROTATE SENSITIVITY (Paul 2026-10-06): "it behaves exactly as the lane gestures do now" — the SAME
         // box-pitch-derived points-per-step the comet bar's own X-axis currently uses (EuclidCometBar.body),
         // recomputed here with the identical formula/inputs so the two can't disagree, since the comet bar's
@@ -362,10 +364,9 @@ struct EuclideousPage: View {
                                   directionRow(idx, line, accent, cellSize: gestureRowH, rowH: directionRowH)
                                   hitMissRateRow(idx, line, accent, cellSize: gestureRowH, rowH: hitMissRateRowH)
                                   riffDirRow(idx, line, accent, rowH: riffDirRowH)
-                                  if showRiffBias { riffBiasRow(idx, line, rowH: riffBiasRowH) }
                               }
                           ),
-                          trailingHeight: gestureRowH + directionRowH + hitMissRateRowH + riffDirRowH + riffBiasRowH)
+                          trailingHeight: gestureRowH + directionRowH + hitMissRateRowH + riffDirRowH)
             laneControls(idx, line, accent: accent)
         }
         .padding(8)
@@ -518,19 +519,6 @@ struct EuclideousPage: View {
         }
         .frame(height: rowH)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    /// RIFF DIRECTION BIAS, PER LANE — DRUNK only (shown/hidden by `laneCard`'s own `showRiffBias`, which also
-    /// drives the height budget so this row costs nothing on the other 3 lanes). Mirrors RIFF's own BIAS slider.
-    private func riffBiasRow(_ idx: Int, _ line: EuclidLine, rowH: CGFloat) -> some View {
-        HStack(spacing: 6) {
-            Text("BIAS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Slider(value: Binding(
-                get: { line.riffDirBiasResolved },
-                set: { v in edit(idx) { $0.riffDirBias = v } }
-            ), in: -1...1)
-        }
-        .frame(height: rowH)
     }
 
     /// The RATE pop-up card — an explicit "—" (inherit the machine-wide rate, nil) plus all 18 `ArpRate`
