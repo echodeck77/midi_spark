@@ -196,6 +196,53 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS RIFF — first device pass on the grid above: direction moved per-lane, scroll disabled, the
+  overlay no longer shifts the page, VEL/GATE sensitivity tripled (2026-10-07, on `main`, `7e302ea`; macOS 1223
+  green, iOS builds; DEVICE eye/feel owed on all four). Paul, after the first build: "I don't see the riff
+  controls. Per lane. The back/forward, drunk controls should be per lane, not on the riff control. The
+  velocity/gate controls need me to move my fingers way too far. Disable the scrolling on this page. The riff
+  overlay should not move the rest of the page down." Four distinct fixes. **(1) DIRECTION IS NOW PER-LANE, A
+  REAL MODEL CHANGE:** `RiffDir`/seed/bias moved OFF the shared `EuclideousRiff` struct (which now holds only
+  `steps`/`ranks` — the pattern CONTENT) and ONTO `EuclidLine` itself as `riffDir`/`riffDirSeed`/`riffDirBias`
+  (additive-Optional, threaded through all 4 of EuclidLine's required sites — struct/custom-decoder/resolved-
+  accessors/the SnapshotBuilder fresh-literal rebuild, the same discipline the original feature's own fields
+  needed). Router.swift's `runEuclidLine` reads direction from the new per-lane params instead of `p.
+  euclideousRiff`; the DRUNK accumulated-state array (`euclideousRiffDrunkPos`, already per-lane by index) was
+  structurally unaffected. **THE HIDDEN TOGGLE IS GONE, REPLACED BY A VISIBLE ROW:** the earlier "tap the NOTE/
+  OCT pad to turn riff on" mechanism — which this file's own prior entry had already flagged as a real
+  discoverability risk before shipping ("nothing currently visually distinguishes 'this pad also responds to a
+  tap'") — is exactly what Paul couldn't find. Replaced with a new, plainly visible `riffDirRow` per lane: OFF +
+  all 6 `RiffDir` options in one strip; picking a direction turns `useRiff` on AND sets it in one tap (no
+  separate enable step), picking OFF turns it off. A conditional `riffBiasRow` (DRUNK only, costs zero height on
+  the other 3 lanes) sits beneath it. The NOTE/OCT pad's own relabelling + drag-retargeting to riffRotate/
+  riffOctave is UNCHANGED — only its tap-to-toggle is removed; "via the existing, relabelled note/octave
+  control" still describes the drag, just not the on/off switch anymore. The shared riff grid's EXPANDED card
+  dropped its own DIRECTION/BIAS row entirely (now per-lane) — it's just STEPS + the rank matrix + the per-lane
+  cursor overlay. **(2) NO SCROLL:** the `ScrollView(.vertical)` wrapping the lane grid is gone — same
+  reasoning already established for the regular BUILD-page EUCLID editor (a SwiftUI ScrollView's own pan
+  recognizer competes with every `EuclidGesturePad`'s UIKit pan/pinch recognizers, and this page has far more of
+  those — 3 pads × 4 lanes — than that one ever did). **FLAGGED, not silently assumed safe:** removing the
+  scroll's overflow safety net means the now-5-row-tall lane cards (gesture pads + direction + hit/miss/rate +
+  the new riff-direction row, +bias conditionally) must fit the real screen without clipping — worked through
+  the arithmetic (≈310-334pt per lane × 2 rows + gaps + header ≈ 690-740pt) and it should fit a typical
+  landscape AUv3 panel, but this is exactly the kind of sizing claim that needs a real device to confirm, not
+  arithmetic alone. **(3) THE OVERLAY NO LONGER MOVES THE PAGE:** the collapsed riff pill (step count + mini
+  tick-strip + live per-lane cursor dots) moved OUT of the scrolling/flowing body and INLINE into the header
+  row — a fixed single row regardless of state, so toggling it can never shift anything. The EXPANDED view
+  became a true floating scrim+card overlay (the exact same pattern the RATE pop-up a few entries below already
+  uses), positioned independently of the page's own layout flow rather than occupying space inside it. **(4)
+  VEL/GATE SENSITIVITY TRIPLED:** `applyX`/`applyY`'s `.velocityGate` per-step deltas (0.05→0.15 for VELOCITY's
+  0...2 range, 0.03→0.09 for GATE's 0.05...1 range) — Paul: "need me to move my fingers way too far"; a plain
+  output-scale increase, no change to the underlying pixel-to-step quantization shared with the other two tabs.
+  **TESTS:** the 4 Router/SnapshotBuilder/EffectiveParams tests from the original feature that constructed
+  `EuclideousRiff(direction:...)` were updated to set direction on the `EuclidLine` instead (not deleted — the
+  same assertions, relocated to match the new model) +1 new Router test
+  (`testEuclidLinesEachHaveIndependentRiffDirectionIntoTheSharedPattern`) proving two lanes with different
+  `riffDir` on the SAME shared pattern land on different positions — the direct regression guard for "per lane,
+  not shared." **DEVICE-OWED:** the per-lane direction row's legibility at 7 buttons across one lane's width;
+  confirm the lane cards now fit without clipping on the real panel with scrolling gone; the VEL/GATE feel at
+  the new sensitivity (tripled is a first-pass guess, not device-tuned); the overlay genuinely reads as floating
+  rather than still perceptibly shifting anything underneath it.**
 - **▶ EUCLIDEOUS — a shared RIFF grid, hit-triggered advancement, PLANNED THEN SHIPPED (2026-10-06/07, on
   `main`, `7ab577c`; macOS 1221 green incl. 13 new, iOS builds; DEVICE eye/ear owed on the whole feature). Paul:
   "At the top center of the page, I want a riff grid, with step count. This will appear small until touched,
