@@ -5353,7 +5353,7 @@ final class RouterTests: XCTestCase {
     // and a small, dedicated per-lane walk for DRUNK alone (the one genuinely path-dependent direction).
     func testEuclidLineUseRiffReplacesNoteSelectWithSharedRiffPattern() {
         var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 3], direction: .forward)   // rank 1 = lowest, rank 3 = 3rd-lowest
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 3])   // rank 1 = lowest, rank 3 = 3rd-lowest; direction defaults to FWD
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, noteSel: .high, useRiff: true)]   // noteSel=.high would strike ONLY the top note (72) if useRiff didn't override it
         let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 4, into: e); assertNothingLeftSounding(e)
@@ -5367,7 +5367,7 @@ final class RouterTests: XCTestCase {
         // at hit-ordinal 0 — so rotate alone decides which riff step (and therefore which rank/note) is read.
         func firstNote(rotate: Int) -> Int? {
             var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 2, 3, 4], direction: .forward)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 2, 3, 4])
             c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffRotate: rotate)]
             let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
@@ -5379,7 +5379,7 @@ final class RouterTests: XCTestCase {
     func testEuclidLineUseRiffOctaveReplacesTheLinesOwnOctaveNotStacksWithIt() {
         func firstNote(riffOctave: Int) -> Int? {
             var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1], direction: .forward)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
             c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, octave: 2, useRiff: true, riffOctave: riffOctave)]   // octave:2 deliberately set — must be ignored, not stacked
             let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
@@ -5388,10 +5388,26 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(firstNote(riffOctave: 0), 60, "riffOctave 0 = unshifted — and the line's own octave:2 must NOT also apply")
         XCTAssertEqual(firstNote(riffOctave: 1), 72, "riffOctave +1 shifts by exactly one octave (would be 96 if octave:2 also stacked)")
     }
+    // DIRECTION IS PER-LANE, NOT SHARED (Paul 2026-10-07: "the back/forward, drunk controls should be per lane,
+    // not on the riff control") — two lanes reading the SAME shared pattern with DIFFERENT riffDir must land on
+    // DIFFERENT positions, proving direction genuinely lives on EuclidLine, not on the shared EuclideousRiff.
+    func testEuclidLinesEachHaveIndependentRiffDirectionIntoTheSharedPattern() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 2, 3, 4])
+        c.paramsA.euclidLines = [
+            EuclidLine(pulses: 1, steps: 1, useRiff: true, riffDir: .forward),
+            EuclidLine(pulses: 1, steps: 1, useRiff: true, riffDir: .reverse),
+        ]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notes.contains(60), "lane 0 (FWD), ord=0 → riff step 0 → rank 1 → the lowest pool note")
+        XCTAssertTrue(notes.contains(72), "lane 1 (REV), ord=0 → riff step 3 → rank 4 → the highest pool note — the SAME shared pattern read from a different direction, independently per lane")
+    }
     func testEuclidLineUseRiffDrunkWalksAndStaysInPool() {
         var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8], direction: .drunk, directionBias: 0)
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true)]
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true, riffDir: .drunk, riffDirBias: 0)]
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord(pool), beats: 4, into: e); assertNothingLeftSounding(e)

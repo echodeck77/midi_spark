@@ -159,6 +159,30 @@ final class EffectiveParamsTests: XCTestCase {
         line.riffOctave = -9
         XCTAssertEqual(line.riffOctaveResolved, -3)
     }
+    // RIFF DIRECTION, PER-LANE (Paul 2026-10-07): moved off the shared EuclideousRiff struct onto EuclidLine
+    // itself — "the back/forward, drunk controls should be per lane, not on the riff control."
+    func testEuclidLineRiffDirDefaultsForwardAndBiasClamps() {
+        let fresh = EuclidLine(pulses: 3, steps: 8)
+        XCTAssertEqual(fresh.riffDirResolved, .forward, "nil ⇒ forward, byte-identical for every existing doc")
+        XCTAssertEqual(fresh.riffDirSeedResolved, 0)
+        XCTAssertEqual(fresh.riffDirBiasResolved, 0)
+        var line = fresh
+        line.riffDirBias = 5
+        XCTAssertEqual(line.riffDirBiasResolved, 1, "clamps to -1...1")
+        line.riffDirBias = -5
+        XCTAssertEqual(line.riffDirBiasResolved, -1)
+    }
+    func testEuclidLineRiffDirRoundTripsThroughCodable() throws {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.riffDir = .drunk
+        line.riffDirSeed = 7
+        line.riffDirBias = 0.5
+        let data = try JSONEncoder().encode(line)
+        let back = try JSONDecoder().decode(EuclidLine.self, from: data)
+        XCTAssertEqual(back.riffDirResolved, .drunk)
+        XCTAssertEqual(back.riffDirSeedResolved, 7)
+        XCTAssertEqual(back.riffDirBiasResolved, 0.5)
+    }
 
     // EUCLIDEOUS: PluginState's own persisted config — a doc saved before this feature existed must decode with
     // the page simply absent/disabled, never throw (the same CR-8 contract every other PluginState field follows).
@@ -207,7 +231,6 @@ final class EffectiveParamsTests: XCTestCase {
         let back = try JSONDecoder().decode(PluginState.self, from: data)
         XCTAssertEqual(back.euclideousRiffResolved.stepsResolved, 16)
         XCTAssertEqual(back.euclideousRiffResolved.ranksResolved.count, 16)
-        XCTAssertEqual(back.euclideousRiffResolved.direction, .forward)
     }
     func testEuclideousRiffResolvedClampsStepsAndPadsRanks() {
         var d = doc()
@@ -219,13 +242,6 @@ final class EffectiveParamsTests: XCTestCase {
         var d2 = doc()
         d2.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 2, 3, 4, 5, 6, 7, 8])   // over-long ranks, truncate to steps
         XCTAssertEqual(d2.euclideousRiffResolved.ranksResolved, [1, 2, 3, 4])
-    }
-    func testEuclideousRiffResolvedClampsDirectionBias() {
-        var d = doc()
-        d.euclideousRiff = EuclideousRiff(directionBias: 5)
-        XCTAssertEqual(d.euclideousRiffResolved.directionBiasResolved, 1)
-        d.euclideousRiff = EuclideousRiff(directionBias: -5)
-        XCTAssertEqual(d.euclideousRiffResolved.directionBiasResolved, -1)
     }
 
     /// The builder mirrors the 16 macro values into the snapshot (clamped 0…1); a clean doc yields 16 zeros.

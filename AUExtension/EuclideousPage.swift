@@ -89,18 +89,26 @@ struct EuclideousPage: View {
                 // taller than a quarter-screen lane could hold alongside everything else (confirmed by exact
                 // arithmetic before asking; Paul's own call: let the lane grow rather than compromise the
                 // square sizing or drop the existing controls). Width stays a literal screen quarter (never
-                // in tension the same way). Wrapped in a ScrollView since 2 rows of now-taller lanes may
-                // exceed the screen height on some devices — scrolls rather than silently clipping.
+                // in tension the same way). NO SCROLL (Paul 2026-10-07: "disable the scrolling on this page")
+                // — the same reasoning already established for the regular BUILD-page EUCLID editor: a
+                // SwiftUI ScrollView's own pan recognizer competes with the UIKit pan/pinch recognizers every
+                // gesture pad on this page hosts, and this page has FAR more of those than that one ever did.
                 VStack(spacing: 0) {
                     header.padding(16)
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 16) {
-                            riffGridSection(geo.size.width)
-                            laneGrid(geo.size.width)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.horizontal, 16)
-                    }
+                    laneGrid(geo.size.width).frame(maxWidth: .infinity, alignment: .center).padding(.horizontal, 16)
+                }
+                // THE RIFF GRID, EXPANDED (Paul 2026-10-07: "should not move the rest of the page down") — a
+                // scrim + centred card, the SAME overlay shape as the rate pop-up just below, floating entirely
+                // OUTSIDE the page's own layout flow so opening/closing it can never shift the lane grid.
+                if riffExpanded {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { withAnimation { riffExpanded = false } }
+                        .zIndex(3)
+                    let cardW = min(geo.size.width - 40, 560)
+                    riffGridExpanded(cardW)
+                        .frame(width: cardW)
+                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                        .zIndex(4)
                 }
                 // THE DRAG HUD — same floating-card pattern as the existing EUCLID editor's own HUD
                 // (BuildPage.swift's buildEuclidDragHUD/AudioUnitViewController.swift's root-ZStack
@@ -130,6 +138,11 @@ struct EuclideousPage: View {
     private var header: some View {
         HStack(spacing: 14) {
             Text("EUCLIDEOUS").font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+            // RIFF GRID, COLLAPSED (Paul 2026-10-07: "the riff overlay should not move the rest of the page
+            // down") — lives INLINE in the header row (a fixed, single row regardless of state) rather than in
+            // the scrolling/flowing body, so toggling it can never shift the lane grid. Tapping it opens the
+            // EXPANDED view as a true overlay (see `body`'s own `riffExpanded` branch), not an in-flow reveal.
+            riffGridCollapsed
             Spacer(minLength: 8)
             Text("IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             HStack(spacing: 4) {
@@ -167,19 +180,19 @@ struct EuclideousPage: View {
     }
 
     // RIFF GRID (Paul 2026-10-06): "at the top centre of the page... a riff grid with step count... small
-    // until touched, then takes up more of the screen." One SHARED pattern (`riff`), independent of how many/
-    // which lines have opted in via `EuclidLine.useRiff`. Collapsed: step count + a mini per-step tick strip +
-    // each useRiff-on lane's own live cursor, so "4 independent cursors, one shared pattern" reads even closed.
-    @ViewBuilder private func riffGridSection(_ screenWidth: CGFloat) -> some View {
-        if riffExpanded { riffGridExpanded(screenWidth) } else { riffGridCollapsed }
-    }
-
+    // until touched, then takes up more of the screen." One SHARED pattern (`riff`) — just the step CONTENT
+    // (steps/ranks); DIRECTION is per-lane now (see `riffDirRow` below), not shown here. Collapsed (called
+    // inline from `header`): step count + a mini per-step tick strip + each useRiff-on lane's own live cursor,
+    // so "4 independent cursors, one shared pattern" reads even closed. Expanded (called from `body` as a
+    // floating overlay when `riffExpanded`): the full rank matrix.
     private var riffGridCollapsed: some View {
         let n = riff.stepsResolved
         let ranks = riff.ranksResolved
-        let stripW: CGFloat = 200
+        // NARROWER now it lives inline in the header row (Paul 2026-10-07), sharing space with the title/IN/
+        // ON-OFF/close cluster — was 200pt as a standalone top-center pill, which no longer fits here.
+        let stripW: CGFloat = 110
         let stepW = stripW / CGFloat(max(1, n))
-        return HStack(spacing: 10) {
+        return HStack(spacing: 8) {
             Text("RIFF").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
             Text("\(n)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
             ZStack(alignment: .leading) {
@@ -200,10 +213,9 @@ struct EuclideousPage: View {
                 }
             }
             .frame(width: stripW, height: 12)
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14).frame(height: 40)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.06)))
+        .padding(.horizontal, 10).frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
         .contentShape(Rectangle())
         .onTapGesture { withAnimation { riffExpanded = true } }
     }
@@ -261,30 +273,17 @@ struct EuclideousPage: View {
                     }
                 }
             }
-            HStack(spacing: 4) {
-                ForEach(RiffDir.allCases, id: \.self) { d in
-                    let on = riff.direction == d
-                    Text(d.displayLabel).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.65))
-                        .padding(.horizontal, 8).frame(height: 26)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08)))
-                        .contentShape(Rectangle())
-                        .onTapGesture { onEditRiff { r in r.direction = d } }
-                }
-            }
-            if riff.direction == .drunk {
-                HStack(spacing: 8) {
-                    Text("BIAS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                    Slider(value: Binding(
-                        get: { riff.directionBiasResolved },
-                        set: { v in onEditRiff { r in r.directionBias = v } }
-                    ), in: -1...1)
-                }
-            }
+            // DIRECTION IS PER-LANE now (Paul 2026-10-07: "the back/forward, drunk controls should be per
+            // lane, not on the riff control") — this card holds only the SHARED pattern content (steps/ranks);
+            // each lane's own direction/bias lives on its own card via `riffDirRow`/`riffBiasRow` below.
+            Text("Each lane picks its own direction on its own card (OFF / FWD / REV / …).")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.35))
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.06)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
     private func riffStepperButton(_ label: String, action: @escaping () -> Void) -> some View {
@@ -328,7 +327,16 @@ struct EuclideousPage: View {
         // direction row above it, same 3-column width split (HIT · MISS · RATE) matching the gesture-pad/
         // direction rows' own established rhythm.
         let hitMissRateRowH: CGFloat = 32
-        let euclidBoxH = 12 + cometRowH + gestureRowH + directionRowH + hitMissRateRowH
+        // RIFF DIRECTION ROW, PER LANE (Paul 2026-10-07: "the back/forward, drunk controls should be per lane,
+        // not on the riff control" — "I don't see the riff controls" named this as plainly missing). A FOURTH
+        // stacked row — OFF + all 6 RiffDir options in one compact strip — replacing the earlier hidden tap-
+        // toggle on the NOTE/OCT pad with something actually visible. BIAS is a conditional FIFTH row, shown
+        // only when THIS lane is both using riff and currently set to DRUNK, so the other 3 lanes don't pay
+        // for a control that's meaningless to them.
+        let riffDirRowH: CGFloat = 26
+        let showRiffBias = line.useRiffResolved && line.riffDirResolved == .drunk
+        let riffBiasRowH: CGFloat = showRiffBias ? 24 : 0
+        let euclidBoxH = 12 + cometRowH + gestureRowH + directionRowH + hitMissRateRowH + riffDirRowH + riffBiasRowH
         // ROTATE SENSITIVITY (Paul 2026-10-06): "it behaves exactly as the lane gestures do now" — the SAME
         // box-pitch-derived points-per-step the comet bar's own X-axis currently uses (EuclidCometBar.body),
         // recomputed here with the identical formula/inputs so the two can't disagree, since the comet bar's
@@ -353,9 +361,11 @@ struct EuclideousPage: View {
                                   gesturePadRow(idx, line, accent, cellSize: gestureRowH, rotateStepPt: rotateStepPt)
                                   directionRow(idx, line, accent, cellSize: gestureRowH, rowH: directionRowH)
                                   hitMissRateRow(idx, line, accent, cellSize: gestureRowH, rowH: hitMissRateRowH)
+                                  riffDirRow(idx, line, accent, rowH: riffDirRowH)
+                                  if showRiffBias { riffBiasRow(idx, line, rowH: riffBiasRowH) }
                               }
                           ),
-                          trailingHeight: gestureRowH + directionRowH + hitMissRateRowH)
+                          trailingHeight: gestureRowH + directionRowH + hitMissRateRowH + riffDirRowH + riffBiasRowH)
             laneControls(idx, line, accent: accent)
         }
         .padding(8)
@@ -374,12 +384,12 @@ struct EuclideousPage: View {
         HStack(spacing: 0) {
             ForEach(EuclideousGestureTab.allCases, id: \.rawValue) { t in
                 let touched = touchedPad[idx] == t.rawValue
-                // RIFF ADVANCE (Paul 2026-10-06): "replaces [NOTE/OCT] entirely... via the existing, relabelled
-                // note/octave control" — once a lane's useRiff is on, this ONE pad is repurposed in place rather
-                // than adding a 4th row: its label/tint change to reflect the new role, and a plain TAP (not a
-                // drag) on it toggles useRiff — reusing the exact "a stationary tap never arms the pan/pinch
-                // recognizers, so it falls through to a sibling .onTapGesture" technique `EuclidLaneBox`'s own
-                // select-tap already proves safe in this codebase, under the SAME `EuclidGesturePad` overlay class.
+                // RIFF ADVANCE (Paul 2026-10-06, toggle relocated 2026-10-07 — "I don't see the riff controls...
+                // per lane"): once a lane's useRiff is on (via the now-visible `riffDirRow` below, NOT a hidden
+                // tap on this pad — that was undiscoverable and has been removed), this ONE pad's label/tint
+                // change to reflect the new role and its DRAG retargets to riffRotate/riffOctave instead of
+                // noteSel/octave — "via the existing, relabelled note/octave control" still holds for the drag,
+                // just not for the on/off switch anymore.
                 let isRiffPad = t == .noteOctave && line.useRiffResolved
                 ZStack {
                     RoundedRectangle(cornerRadius: 6).fill(touched ? accent.opacity(0.35) : (isRiffPad ? accent.opacity(0.22) : Color.white.opacity(0.06)))
@@ -390,7 +400,6 @@ struct EuclideousPage: View {
                 }
                 .frame(width: cellSize, height: cellSize)
                 .contentShape(Rectangle())
-                .onTapGesture { if t == .noteOctave { euclideousToggleRiff(idx) } }
                 .overlay(
                     EuclidGesturePad(
                         onRotateDelta: { d in euclideousApplyX(idx, t, d) },
@@ -483,6 +492,47 @@ struct EuclideousPage: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
+    /// RIFF DIRECTION, PER LANE (Paul 2026-10-07): OFF + all 6 `RiffDir` cases in ONE visible row — "the back/
+    /// forward, drunk controls should be per lane, not on the riff control," replacing the earlier hidden tap-
+    /// toggle on the NOTE/OCT pad. Picking a direction turns `useRiff` ON and sets it in a single tap (no
+    /// separate enable step); picking OFF turns it off. One unified selector, not a toggle plus a picker.
+    private func riffDirRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
+        let options: [RiffDir?] = [nil] + RiffDir.allCases   // nil = OFF
+        return HStack(spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
+                let isOff = opt == nil
+                let on = isOff ? !line.useRiffResolved : (line.useRiffResolved && line.riffDirResolved == opt)
+                Text(isOff ? "OFF" : opt!.displayLabel)
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.6))
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(on ? accent.opacity(0.7) : Color.white.opacity(0.06))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        edit(idx) {
+                            if isOff { $0.useRiff = false } else { $0.useRiff = true; $0.riffDir = opt }
+                        }
+                    }
+            }
+        }
+        .frame(height: rowH)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    /// RIFF DIRECTION BIAS, PER LANE — DRUNK only (shown/hidden by `laneCard`'s own `showRiffBias`, which also
+    /// drives the height budget so this row costs nothing on the other 3 lanes). Mirrors RIFF's own BIAS slider.
+    private func riffBiasRow(_ idx: Int, _ line: EuclidLine, rowH: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            Text("BIAS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Slider(value: Binding(
+                get: { line.riffDirBiasResolved },
+                set: { v in edit(idx) { $0.riffDirBias = v } }
+            ), in: -1...1)
+        }
+        .frame(height: rowH)
+    }
+
     /// The RATE pop-up card — an explicit "—" (inherit the machine-wide rate, nil) plus all 18 `ArpRate`
     /// cases grouped exactly as `ArpRate.allCases` already orders them (6 straight · 6 dotted · 6 triplet),
     /// one row per group. Picking any option closes the pop-up.
@@ -524,7 +574,10 @@ struct EuclideousPage: View {
     private func applyX(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
         switch tab {
         case .hitsOffset: line.rotate = ((line.rotate - d) % 16 + 16) % 16
-        case .velocityGate: line.velocity = max(0, min(2, line.velocityResolved + Double(d) * 0.05))
+        // SENSITIVITY (Paul 2026-10-07: "the velocity/gate controls need me to move my fingers way too far") —
+        // tripled from 0.05/step so a full pad-width drag actually spans a meaningful fraction of VELOCITY's
+        // 0...2 range, instead of needing several repeats of the same drag to get anywhere near the extremes.
+        case .velocityGate: line.velocity = max(0, min(2, line.velocityResolved + Double(d) * 0.15))
         case .noteOctave:
             // RIFF ADVANCE (Paul 2026-10-06): once useRiff is on, this SAME pad's X-axis drives the lane's own
             // horizontal offset into the shared riff pattern instead of stepping noteSel — "replaces it
@@ -539,7 +592,9 @@ struct EuclideousPage: View {
     private func applyY(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
         switch tab {
         case .hitsOffset: let v = max(1, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps)   // floored at 1, not 0 (Paul 2026-10-06) — 0 hits is never meaningful here; `enabled: false` is the real mute
-        case .velocityGate: line.gate = max(0.05, min(1, line.gateResolved + Double(d) * 0.03))
+        // SENSITIVITY (Paul 2026-10-07, same complaint as VELOCITY above) — tripled from 0.03/step for the
+        // same reason, scaled to GATE's narrower 0.05...1 range.
+        case .velocityGate: line.gate = max(0.05, min(1, line.gateResolved + Double(d) * 0.09))
         case .noteOctave:
             // RIFF ADVANCE: Y-axis drives the lane's own vertical offset (riffOctave) into the shared pattern
             // instead of the plain octave shift, once useRiff is on — same ±3 clamp as octave's own.
@@ -549,10 +604,6 @@ struct EuclideousPage: View {
     }
     private func euclideousApplyX(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) { edit(idx) { applyX(&$0, tab, d) } }
     private func euclideousApplyY(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) { edit(idx) { applyY(&$0, tab, d) } }
-    /// The NOTE/OCTAVE pad's plain-tap toggle (Paul 2026-10-06) — "via the existing, relabelled note/octave
-    /// control." Flips this ONE lane's useRiff; `applyX`/`applyY`'s `.noteOctave` branches above immediately
-    /// start reading riffRotate/riffOctave instead of noteSel/octave the next time this same pad is dragged.
-    private func euclideousToggleRiff(_ idx: Int) { edit(idx) { $0.useRiff = !($0.useRiffResolved) } }
     // ALL-LANES (2-finger) variants — now genuinely TAB-AWARE, unlike the old comet-bar all-rows gesture it
     // replaces (that one was hard-coded to rotate/hits always, regardless of which tab happened to be
     // selected — a pre-existing limitation, never deliberately designed, that this redesign naturally fixes

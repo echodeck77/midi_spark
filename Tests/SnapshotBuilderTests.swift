@@ -692,27 +692,32 @@ final class SnapshotBuilderTests: XCTestCase {
     // the SAME fresh-literal reconstruction — the exact regression class the entry above already guards for.
     func testEuclidLineRiffAdvanceFieldsSurviveSnapshotBuild() {
         let a = box(machines(customizing: 0) {
-            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, useRiff: true, riffRotate: 6, riffOctave: -2)]
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, useRiff: true, riffRotate: 6, riffOctave: -2, riffDir: .drunk, riffDirSeed: 7, riffDirBias: 0.5)]
         }) { _ in }.machines[0].a
         XCTAssertTrue(a.euclidLines[0].useRiffResolved, "useRiff must survive the resolve, not silently reset")
         XCTAssertEqual(a.euclidLines[0].riffRotateResolved, 6)
         XCTAssertEqual(a.euclidLines[0].riffOctaveResolved, -2)
-        // riffOctave is clamped here too, mirroring octave's own -3...3 clamp a few lines above
+        // DIRECTION IS PER-LANE (Paul 2026-10-07) — riffDir/riffDirSeed/riffDirBias must also survive this
+        // same fresh-literal reconstruction, not just steps/ranks on the shared EuclideousRiff below.
+        XCTAssertEqual(a.euclidLines[0].riffDirResolved, .drunk)
+        XCTAssertEqual(a.euclidLines[0].riffDirSeedResolved, 7)
+        XCTAssertEqual(a.euclidLines[0].riffDirBiasResolved, 0.5)
+        // riffOctave/riffDirBias are clamped here too, mirroring octave's own -3...3 clamp a few lines above
         let clamped = box(machines(customizing: 0) {
-            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, riffOctave: 9)]
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, riffOctave: 9, riffDirBias: 5)]
         }) { _ in }.machines[0].a
         XCTAssertEqual(clamped.euclidLines[0].riffOctaveResolved, 3)
+        XCTAssertEqual(clamped.euclidLines[0].riffDirBiasResolved, 1)
     }
 
-    // RIFF ADVANCE: the page's own shared riff pattern must also survive the build, resolved/clamped once here.
+    // RIFF ADVANCE: the page's own shared riff pattern CONTENT (steps/ranks only — direction moved per-lane,
+    // see the EuclidLine test above) must also survive the build, resolved/clamped once here.
     func testEuclideousRiffSurvivesSnapshotBuild() {
         let a = box(machines(customizing: 0) {
-            $0.paramsA.euclideousRiff = EuclideousRiff(steps: 40, ranks: [1, 2, 3], direction: .drunk, directionBias: 5)
+            $0.paramsA.euclideousRiff = EuclideousRiff(steps: 40, ranks: [1, 2, 3])
         }) { _ in }.machines[0].a
         XCTAssertEqual(a.euclideousRiff.stepsResolved, 32, "clamped at build time")
         XCTAssertEqual(a.euclideousRiff.ranksResolved.count, 32, "padded at build time")
-        XCTAssertEqual(a.euclideousRiff.direction, .drunk)
-        XCTAssertEqual(a.euclideousRiff.directionBiasResolved, 1, "clamped at build time")
     }
 
     // The 16-machine cap is lifted: the builder sizes its machine array to the document and resolves cells BY ID, so a

@@ -3894,7 +3894,8 @@ final class Router {
             }
             func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, rate: Double, busOverride: UInt8?,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
-                                useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0) {
+                                useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0,
+                                riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -3964,12 +3965,16 @@ final class Router {
                         // drives `riffOctave` exclusively, so consulting the old frozen value too would silently
                         // reintroduce an offset the user can no longer see or edit.
                         if useRiff {
+                            // DIRECTION IS PER-LANE (Paul 2026-10-07): riffDir/riffDirSeed/riffDirBias now come from
+                            // THIS line (the fn params above), not the shared `p.euclideousRiff` — only the pattern
+                            // CONTENT (steps/ranks) is shared; each lane walks it its own way.
                             let rp = p.euclideousRiff
                             let riffN = rp.stepsResolved
                             guard srcCount > 0 else { return }
-                            let stepIdx = rp.direction == .drunk
-                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: ord, steps: riffN, bias: rp.directionBias, seed: UInt64(bitPattern: Int64(rp.directionSeed ?? 0)))
-                                : riffStepAt(rp.direction, raw: Int(ord), steps: riffN, seed: UInt64(bitPattern: Int64(rp.directionSeed ?? 0)))
+                            let seed = UInt64(bitPattern: Int64(riffDirSeed))
+                            let stepIdx = riffDir == .drunk
+                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: ord, steps: riffN, bias: riffDirBias, seed: seed)
+                                : riffStepAt(riffDir, raw: Int(ord), steps: riffN, seed: seed)
                             let rotIdx = riffRotateStep(stepIdx, by: riffRotate, steps: riffN)
                             let ranks = rp.ranks ?? []   // SnapshotBuilder always resolves this to a full, padded array (main thread) before Router ever sees it — `?? []` is a type-safety unwrap here, not a real fallback allocation
                             let rank = rotIdx < ranks.count ? ranks[rotIdx] : 0
@@ -4107,7 +4112,8 @@ final class Router {
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
-                              useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved)
+                              useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved,
+                              riffDir: L.riffDirResolved, riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved)
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))

@@ -208,6 +208,14 @@ struct EuclidLine: Codable, Equatable {
     var useRiff: Bool? = nil
     var riffRotate: Int? = nil
     var riffOctave: Int? = nil
+    // RIFF DIRECTION, PER-LANE (Paul 2026-10-07: "the back/forward, drunk controls should be per lane, not on
+    // the riff control" — supersedes the first-draft design, which put these on the SHARED EuclideousRiff struct
+    // and hid the on/off toggle behind a tap on the NOTE/OCTAVE pad; a visible per-lane selector replaces both).
+    // riffDir nil ⇒ .forward; riffDirSeed/riffDirBias mirror RIFF's own riffDirSeed/riffDirBias (seed for RANDOM,
+    // bias for DRUNK only).
+    var riffDir: RiffDir? = nil
+    var riffDirSeed: Int? = nil
+    var riffDirBias: Double? = nil
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -218,6 +226,9 @@ struct EuclidLine: Codable, Equatable {
     var useRiffResolved: Bool { useRiff ?? false }
     var riffRotateResolved: Int { riffRotate ?? 0 }
     var riffOctaveResolved: Int { max(-3, min(3, riffOctave ?? 0)) }
+    var riffDirResolved: RiffDir { riffDir ?? .forward }
+    var riffDirSeedResolved: Int { riffDirSeed ?? 0 }
+    var riffDirBiasResolved: Double { max(-1, min(1, riffDirBias ?? 0)) }
     /// The effective note selection — `noteSel` once the line's been touched under the new UI, else derived from
     /// the old target/pick pair so a pre-redesign line resolves identically to what it always played.
     var noteSelResolved: EuclidNoteSel {
@@ -268,20 +279,22 @@ extension EuclidLine {
         useRiff = try c.decodeIfPresent(Bool.self, forKey: .useRiff)
         riffRotate = try c.decodeIfPresent(Int.self, forKey: .riffRotate)
         riffOctave = try c.decodeIfPresent(Int.self, forKey: .riffOctave)
+        riffDir = try c.decodeIfPresent(RiffDir.self, forKey: .riffDir)
+        riffDirSeed = try c.decodeIfPresent(Int.self, forKey: .riffDirSeed)
+        riffDirBias = try c.decodeIfPresent(Double.self, forKey: .riffDirBias)
     }
 }
 // EUCLIDEOUS RIFF (Paul 2026-10-06): a single, SHARED step pattern on the Euclideous page — any of its 4 lines can
 // opt in (EuclidLine.useRiff) to step through it on each of its own hits instead of its normal note-select. ONE
-// struct, not an array-of-4 like euclideousLinesResolved's own lines — the pattern is shared; only each line's own
-// cursor/rotate/octave (on EuclidLine itself) is independent. Brand new, so a synthesized Decodable is safe (no
-// legacy doc ever had a non-Optional field here to break). Scoped deliberately small — no POLY/TIE/SLIDE/ACCENT
-// (not asked for), no RATE/SPAN (advancement is hit-triggered, not time-triggered, so neither applies).
+// struct, not an array-of-4 like euclideousLinesResolved's own lines — the pattern CONTENT (steps/ranks) is
+// shared; each line's own cursor/rotate/octave/DIRECTION (all on EuclidLine itself — Paul 2026-10-07: "the back/
+// forward, drunk controls should be per lane, not on the riff control") is independent. Brand new, so a
+// synthesized Decodable is safe (no legacy doc ever had a non-Optional field here to break). Scoped deliberately
+// small — no POLY/TIE/SLIDE/ACCENT (not asked for), no RATE/SPAN (advancement is hit-triggered, not time-
+// triggered, so neither applies).
 struct EuclideousRiff: Codable, Equatable {
     var steps: Int = 16                  // 1...32, mirrors riffSteps' own range/default feel
     var ranks: [Int]? = nil              // MONO per-step: 0 = rest, 1...8 = pool rank. nil ⇒ an ascending default figure
-    var direction: RiffDir = .forward    // all 6 of RiffDir's existing cases — "all options of that type currently on riff"
-    var directionSeed: Int? = nil        // mirrors riffDirSeed; nil ⇒ 0
-    var directionBias: Double = 0        // DRUNK only, -1...1, mirrors riffDirBias
     /// 1...32, defensive against a hand-edited or future out-of-range doc.
     var stepsResolved: Int { max(1, min(32, steps)) }
     /// Padded/truncated to `stepsResolved` length; an unset/short doc gets a simple ascending 1...8 cycling figure
@@ -293,8 +306,6 @@ struct EuclideousRiff: Codable, Equatable {
         if r.count > n { r = Array(r.prefix(n)) }
         return r
     }
-    var directionSeedResolved: Int { directionSeed ?? 0 }
-    var directionBiasResolved: Double { max(-1, min(1, directionBias)) }
 }
 // EUCLID DIRECTION (Paul 2026-10-01): a DEDICATED enum, not a reuse of RIFF's own `RiffDir` — EUCLID needs only
 // 3 of RiffDir's 6 cases (no RANDOM/DRUNK) and RiffDir's own PENDULUM/PING-PONG naming history (the persisted
