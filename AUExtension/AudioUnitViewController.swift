@@ -168,6 +168,16 @@ struct PartRowRollNote: Equatable {
 
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
+
+    // STARTUP VIEW (Paul 2026-10-08): seed showEuclideous's initial value from the persisted cog preference —
+    // read directly off UserDefaults.standard (the same store @AppStorage uses with no explicit `store:`, so
+    // this agrees with the launchIntoEuclideous toggle on the cog page) since a struct init runs before any
+    // @AppStorage-wrapped property on this view exists to read from. Every other @State property keeps its own
+    // declared default — a custom init only needs to touch the ones it actually overrides.
+    init(au: MidiSparkAudioUnit?) {
+        self.au = au
+        _showEuclideous = State(initialValue: UserDefaults.standard.bool(forKey: "midispark.launchIntoEuclideous"))
+    }
     @State var d = KernelDiag()      // polled for the grid's effColumn / playing
     @State var lastStuckPanics: UInt64 = 0   // a8 STUCK-NOTE: last-seen heal count — the poll logs a heal ONCE (off the render thread) when this rises
     static let hangLog = OSLog(subsystem: "com.paulbarrett.MidiSpark", category: "hang")   // a8 corpse log — now written from the MAIN thread (the render thread only records counts) so it can't crackle the audio
@@ -431,6 +441,13 @@ struct DiagView: View {
     // trash+row-rail flank on the RIGHT (swapped with the verb-button cluster), and the part grid's numbered rail on
     // the LEFT with the chevron rail on the RIGHT. FALSE = the classic layout (main's shape before this toggle existed).
     @AppStorage("midispark.roomsLeftOriented") var roomsLeftOriented = true
+    // STARTUP VIEW (Paul 2026-10-08): "I want it to load as euclidious, maybe with a cog setting to switch
+    // between them" — same @AppStorage display-preference class as showScenes/roomsLeftOriented above (the
+    // user's own setup, not a per-project document field). Read directly off UserDefaults in DiagView's own
+    // init (below) to seed showEuclideous's STARTING value once per fresh plugin instance — a live toggle here
+    // only changes what the NEXT instance opens into, matching "load as", not an instant in-session switch (the
+    // existing header icon + showEuclideous already provide that).
+    @AppStorage("midispark.launchIntoEuclideous") var launchIntoEuclideous = false
     // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — a parallel NEW-interface shell behind a preview toggle
     // (old BUILD stays the default + fully working). Off ⇒ the current BUILD page; on ⇒ the room shell (roomsPage).
     @State var roomsRoom: Room = .select       // which room is in view in the new shell (one grid at a time)
@@ -903,6 +920,7 @@ struct DiagView: View {
                     CogPage(au: au, d: d, aboutLine: aboutLine,
                             showScenes: $showScenes,
                             roomsLeftOriented: $roomsLeftOriented,
+                            launchIntoEuclideous: $launchIntoEuclideous,
                             onClose: { showSettings = false })
                 }
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card

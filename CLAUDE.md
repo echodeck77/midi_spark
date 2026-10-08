@@ -196,6 +196,44 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a cog setting controls which view a FRESH plugin instance opens into (2026-10-08, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no warnings in the touched files; no macOS
+  test-target reach — pure UI/@AppStorage glue; DEVICE eye owed). Context: Paul asked whether Euclideous was
+  worth extracting into its own standalone app/plugin now — recommended not yet (it's one reserved row inside
+  the shared engine, not a self-contained module, and several of its own design questions are still explicitly
+  open per spec §4) — Paul's follow-up: "In that case, I want it to load as euclidious, maybe with a cog
+  setting to switch between them." Built the lighter-weight version of that ask: a new DISPLAY preference,
+  **STARTS ON: WORKBENCH | EUCLIDEOUS**, on the cog page, governing which view a plugin instance shows the
+  INSTANT it's created — not a live in-session switch (the existing header icon + `showEuclideous` already
+  provide that; closing Euclideous still always falls back to the normal workbench, unchanged). **MECHANISM:**
+  `launchIntoEuclideous` is a new `@AppStorage("midispark.launchIntoEuclideous")` Bool (default false — the
+  same device-wide DISPLAY-preference class as `showScenes`/`roomsLeftOriented`, not a PluginState/document
+  field, since this is about the user's own setup, not any one project). `DiagView` gained its FIRST custom
+  `init(au:)` (it previously relied entirely on the synthesized memberwise init, confirmed via grep to have
+  exactly one call site, `AudioUnitViewController.embedUI()` — safe to add) which seeds `_showEuclideous =
+  State(initialValue: UserDefaults.standard.bool(forKey: "midispark.launchIntoEuclideous"))` — read directly
+  off `UserDefaults.standard` (the same implicit store `@AppStorage` with no explicit `store:` argument always
+  uses) since a struct's own init runs before any of its `@AppStorage`-wrapped properties exist to read from.
+  Every OTHER `@State` property on `DiagView` keeps its own declared default — confirmed Swift runs a stored
+  property's own default initializer automatically for anything a custom init doesn't explicitly touch, so
+  this is a 2-line init, not a full property-by-property rewrite. `embedUI()`'s `DiagView(au: audioUnit)` call
+  site needed NO change — the new `init` has the same external signature as the old synthesized one for `au`.
+  **WHY `viewDidLoad`-adjacent construction is the right trigger, not a plain `.onAppear`:** `embedUI()` is
+  itself guarded (`guard children.isEmpty else { return }`) and only ever constructs ONE `DiagView` per real
+  AU view-controller instance — i.e. once per actual "this plugin was just loaded into the host" event,
+  exactly matching "load as X." A bare `.onAppear` on the SwiftUI tree would have fired on every reappearance
+  (backgrounding/foregrounding, switching away and back in a multi-plugin host), silently re-forcing Euclideous
+  back open even after the user had deliberately closed it mid-session — considered and rejected before
+  writing any code, not discovered as a bug afterward. **CONTROL:** `CogPage` gained a `@Binding var
+  launchIntoEuclideous: Bool` (threaded from the one real construction site in `DiagView.body`) and a new
+  `startupToggle` helper — a two-way WORKBENCH|EUCLIDEOUS segmented control, same visual family as the
+  existing `leftRightToggle` (ORIENTATION) but with named segments at a wider 74pt (vs. LEFT/RIGHT's 40pt, to
+  fit "EUCLIDEOUS") rather than `onOffToggle`'s bare ON/OFF, since neither side reads as a default "off" state.
+  Placed directly under ORIENTATION in the existing DISPLAY section — no new section needed. **DEVICE-OWED:**
+  confirm a fresh plugin instance (a real Xcode reinstall, or AUM adding a new instance) actually opens
+  straight into Euclideous when the toggle is set that way, and that flipping the toggle while an instance is
+  already running does NOT retroactively reopen/close anything in that running instance (by design — it only
+  seeds the NEXT instance's startup) — worth confirming that reads as expected rather than as unresponsive.**
 - **▶ EUCLIDEOUS — a FERRY doc reverses the single-row riff + note display, and the page becomes genuinely
   orientation-aware (2026-10-08, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no
   warnings; no macOS test-target reach — UI-only; DEVICE eye owed on everything, more than usual — see the

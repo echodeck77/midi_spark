@@ -12,6 +12,7 @@ struct CogPage: View {
     let aboutLine: String
     @Binding var showScenes: Bool     // DISPLAY: the arrangement bar's 16-scene row (hidden by default)
     @Binding var roomsLeftOriented: Bool   // DISPLAY: left/right handedness of the rooms workbench (Paul 2026-10-01)
+    @Binding var launchIntoEuclideous: Bool   // DISPLAY: which view a FRESH plugin instance opens into (Paul 2026-10-08)
     let onClose: () -> Void
 
     private let ink = Color.white
@@ -38,6 +39,12 @@ struct CogPage: View {
                             Text("machine column, row-rail/trash, and part-grid rails: LEFT or RIGHT").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
                             Spacer()
                             leftRightToggle(left: roomsLeftOriented) { roomsLeftOriented = $0 }
+                        }
+                        HStack(spacing: 8) {
+                            Text("STARTS ON").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).fixedSize()
+                            Text("which view a fresh plugin instance opens into").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+                            Spacer()
+                            startupToggle(euclideous: launchIntoEuclideous) { launchIntoEuclideous = $0 }
                         }
                         divider
                         section("INPUT")
@@ -159,6 +166,20 @@ struct CogPage: View {
                     .foregroundColor(left == v ? .black : ink.opacity(0.45))
                     .frame(width: 40, height: 20)
                     .background(RoundedRectangle(cornerRadius: 3).fill(left == v ? green : ink.opacity(0.07)))
+                    .contentShape(Rectangle()).onTapGesture { set(v) }
+            }
+        }
+    }
+    // A two-way WORKBENCH|EUCLIDEOUS segmented toggle (Paul 2026-10-08, STARTS ON) — same shape as
+    // leftRightToggle above, named segments rather than onOffToggle's bare ON/OFF since neither side reads
+    // as a default "off" state.
+    private func startupToggle(euclideous: Bool, _ set: @escaping (Bool) -> Void) -> some View {
+        HStack(spacing: 2) {
+            ForEach([false, true], id: \.self) { v in
+                Text(v ? "EUCLIDEOUS" : "WORKBENCH").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(euclideous == v ? .black : ink.opacity(0.45))
+                    .frame(width: 74, height: 20)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(euclideous == v ? green : ink.opacity(0.07)))
                     .contentShape(Rectangle()).onTapGesture { set(v) }
             }
         }
