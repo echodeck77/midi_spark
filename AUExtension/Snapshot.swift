@@ -170,6 +170,12 @@ struct SnapParams {
     var euclidInvert: Bool = false           // play the N−K rests instead (the anti-pattern) — Paul 2026-08-22
     var euclidLines: [EuclidLine] = []       // EUCLID LINES (§10): up to 8 lines; EMPTY ⇒ the single euclid above (byte-identical)
     var euclideousRiff: EuclideousRiff = EuclideousRiff()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved
+    // EUCLIDEOUS PAGE REWORK (2026-10-07): mainOutMask gates every chain's emission uniformly (default
+    // all-open, byte-identical for every non-Euclideous processor); riffSrcChanMask is Euclideous-only (every
+    // other chain's EuclidLine.useRiff branch, if ever reached, sees 0 = matches nothing — a safe no-op,
+    // since no other chain's SnapshotBuilder resolve path ever sets this).
+    var mainOutMask: UInt8 = 0b1111
+    var riffSrcChanMask: UInt16 = 0
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
     var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns
     var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)

@@ -512,6 +512,13 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiEuclideousEnabled() -> Bool { document.euclideousEnabledResolved }
     func uiEuclideousReceiver() -> Int { document.euclideousReceiverResolved }
     func uiEuclideousRiff() -> EuclideousRiff { document.euclideousRiffResolved }   // EUCLIDEOUS's shared riff pattern (Paul 2026-10-06)
+    // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config.
+    func uiEuclideousResetSpanBars() -> Int { document.euclideousResetSpanBarsResolved }
+    func uiEuclideousKeyRoot() -> Int { document.euclideousKeyRootResolved }
+    func uiEuclideousKeyType() -> ScaleType { document.euclideousKeyTypeResolved }
+    func uiEuclideousRiffSourceMidi() -> Bool { document.euclideousRiffSourceMidiResolved }
+    func uiEuclideousLanesSourceMidi() -> Bool { document.euclideousLanesSourceMidiResolved }
+    func uiEuclideousMainOutMask() -> UInt8 { document.euclideousMainOutMaskResolved }
     /// Each of Euclideous's 4 lanes' own live riff-advance step index, polled on the SAME fast ~30fps cadence as
     /// `pollEuclideousLineReady` below (not the slow ~4Hz config-resync timer) — this is a per-hit, responsive
     /// indicator, not config.

@@ -196,6 +196,92 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the FULL PAGE REWORK, ratified spec built end-to-end (2026-10-08, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1230 green incl. 7 new, iOS builds; DEVICE eye/ear
+  owed on the whole UI). A design-channel spec (`FERRY-euclideous-page-rework.md`, ratified by Paul 2026-10-07
+  including its mockup) arrived via `_dear_claude_code/`; archived as `Docs/SPEC-euclideous-rework.md` +
+  `Docs/euclideous-rework-mockup-2026-10-07.html`. Planned first (full Plan Mode: 3 parallel Explore agents + a
+  Plan-agent validation pass, then — per Paul's own standing mid-planning instruction, "once all tasks are
+  complete... run a full review... root out shortcuts and find better ways" — TWO audit passes, one against the
+  plan before coding, one against the actual shipped code after). Plan: `~/.claude/plans/woolly-crafting-
+  music.md`. **RECEIVER POOL-SPLIT:** the lanes' pool is hardcoded to receiver index 3 ("receiver 4") directly
+  in `BuildSceneLogic.composeSceneMeta` (`i.euclideousReceiver` now unreachable, left inert — the OLD IN A/B/
+  C/D selector UI is gone, matching how `riffDirBias` was handled when ITS control was dropped); the riff's
+  pool is genuinely NEW — a parallel Router.swift scratch buffer (`riffSrcNoteBuf`/`riffSrcNoteCount`, mirroring
+  `fillSrcFromPool`'s own shape) filled from `doc.receivers[0]` ("receiver 1") via a new `SnapParams.
+  riffSrcChanMask`, resolved in SnapshotBuilder gated to `Snap.euclideousRow` only. **A REAL BUG CAUGHT BY THE
+  TEST SUITE, not by inspection:** the first cut of this gating broke the PRE-EXISTING `useRiff` RouterTests
+  (5 tests, all placed at row 0 not `Snap.euclideousRow`, since the underlying `useRiff`/`EuclideousRiff`
+  mechanism is row-agnostic in the model — only Euclideous's own UI happens to be the one place that sets
+  these fields today) — fixed by falling back to a COPY of the lane's own `srcNoteBuf`/`srcNoteCount` for any
+  row OTHER than Euclideous's reserved one, restoring byte-identical pre-split behaviour everywhere else.
+  **MAIN OUT MASK:** a new global `SnapParams.mainOutMask` (default `0b1111`), applied in `strikeChord` as
+  `chopMask(...) & p.mainOutMask` — AFTER `chopMask`'s full result, not pre-masked into `base`, PROVEN from
+  actual source (not reasoning alone) during planning: `chopBusMask`'s ALT path and DEST's own routing both
+  build their bus bits completely INDEPENDENT of `base`, so pre-masking would silently fail to suppress an
+  ALT- or DEST-routed note. **A SECOND real gap found while writing the TEST for this, not shipped blind:** a
+  3rd planned test case (mainOutMask suppressing a DEST-routed note) failed — traced to `strikeChord`'s
+  `hasDownstream` branch, which routes emission through `emitDriverNote` (a SEPARATE function with its OWN
+  internal bus resolution that never reads `tbm`/`mainOutMask` at all) whenever EUCLID has ANY following
+  processor slot in the SAME chain. Confirmed this is NOT reachable by the real feature (Euclideous's own cell
+  is structurally always exactly ONE slot, so a DEST slot can never coexist with EUCLID there, and
+  `mainOutMask` has no UI path to reach any OTHER chain shape) — dropped the DEST sub-case rather than chase a
+  fix into `emitDriverNote`'s shared per-note fold (used by every driver type with downstream processors) for
+  a combination nothing can actually trigger; flagged honestly inline and here, not silently absorbed. **NEW
+  GLOBAL FIELDS** (`PluginState.euclideousResetSpanBars`/`KeyRoot`/`KeyType`/`RiffSourceMidi`/`LanesSourceMidi`/
+  `MainOutMask`, all additive-Optional): source-mode fields default to **MIDI, not KEY** — a deliberate
+  correction during planning (the Plan agent's own suggestion of nil⇒KEY would have silently SILENCED every
+  existing Euclideous session the moment this shipped, since KEY mode resolves to an empty pool and nothing
+  had opted into it yet). New `EuclidLine.mask: EuclidLineMask?` (nested struct: enabled/pulses/steps/rotate,
+  mirroring the existing `Chop`-on-`Cell` precedent) threaded through all 4 required EuclidLine sites incl. the
+  SnapshotBuilder fresh-literal rebuild hazard spot. Every new field added to the AudioUnitViewController.swift
+  slow-timer `euclideousResynced` checklist — this project's own documented "Euclideous has silently reset on
+  reload before from a field missing there" bug class, treated as a literal must-do, not a maybe. **UI
+  (`EuclideousPage.swift`, rewritten in full):** header row 1 = title · RESET SPAN chip+popup (OFF/1/2/4/8/16
+  bars) · MAIN OUT A/B/C/D (36pt) · ON · close; row 2 = KEY −/chip/+ (reuses the canonical 13-case `ScaleType`
+  + the standard 12-note-name array — §4.3's deeper "reuse SCALE-door/FOUNT machinery?" question stays
+  explicitly OPEN, flagged not answered) · LANES KEY|MIDI switch. The riff editor moved ONTO the page (no more
+  popup/expand-collapse): a single full-width row of 8 hardcoded cells (rank number + a bar encoding pitch rank
+  — NOT a resolved note NAME per the mockup's own sample data, since no live-pool data reaches this page today
+  to resolve one from; a named simplification, not a silent gap) + per-lane cursor dots + its own SOURCE
+  KEY|MIDI switch; tap-to-cycle rank 0...8 is an explicit INTERIM editing gesture (the real one is §4.6,
+  explicitly open). Lane boxes are SQUARE, sized from width per the mockup's own rule — **with one shortcut-
+  audit addition beyond the plan's literal wording:** a height budget cap (reserving a header allowance + a
+  riff-panel minimum) so a wide/short real host panel can't derive a lane size so large it starves the riff
+  panel of all remaining space, directly undermining "give the space to the lane boxes"; still square (one
+  `size` drives both axes), just the smaller of the width- and height-derived candidates — still flagged
+  device-owed, a reasoned cap not a measured one. Each lane gained PATTERN/RIFF/MASK tabs (own `@State` array,
+  switching independently per lane) under the XY pads — PATTERN wraps the existing direction+hit/miss/rate rows
+  verbatim (empty rate now reads FOLLOW, not "—"); RIFF relaid as a 4-column×2-row grid with LOCAL short labels
+  (PEND/PING/RAND, a scoped lookup that never touches the shared `RiffDir.displayLabel` enum — that enum also
+  serves the unrelated regular chainable RIFF processor elsewhere in the app); MASK is new. **PER-LANE EUCLID
+  MASK:** a SECOND, independent `EuclidCometBar`+`EuclidGesturePad` pair per lane (not `EuclidLaneBox` itself —
+  its select/trailingContent machinery has no meaning here), wired so dragging its OWN grid mutates `line.
+  mask?.rotate` directly (rotation IS the gesture, no separate control, per the spec) — confirmed by direct
+  grep that `line.mask` is read NOWHERE in Router.swift's emission path, so the mask has GENUINELY zero effect
+  on sound, satisfying "must not change the lane's output" by construction, not by promise. Its own line 2 (the
+  effect/amount/hit-count the mockup drew) is a plainly-labelled "EFFECT — NOT YET AVAILABLE" stub, not omitted
+  and not a dead-looking-but-tappable control. `EuclidLaneBox` gained one small additive (`nil`-default)
+  `stepCountBadge` param for the passive step-count numeral beside the lane's own comet bar — the ONE edit to
+  the shared `EuclidLaneUI.swift` component, safe for its other caller (the regular BUILD-page EUCLID editor,
+  which never passes it). The 3 XY pads now show their value PERMANENTLY on their own face (reusing the 3
+  existing HUD formatter functions for both the face text and the transient drag overlay, so the two can never
+  disagree) — a genuine behaviour change from today, per the mockup. OUT row: lane toggles 18→30pt, a new
+  36pt MAIN OUT tier; two genuinely SEPARATE conditions (not one "something's wrong" treatment) — NO OUTPUT
+  when a lane's own `emitterMask` is empty, dashed/hollow stroke when a bit is set but that bus's MAIN toggle
+  is off. Both `EuclidBeacon` calls removed entire. **+7 tests** (RouterTests: riff pool reads receiver 0
+  independent of the lanes' receiver 3; KEY mode on either switch yields a genuinely empty pool, not a silent
+  MIDI fallback (2 tests); mainOutMask suppresses a plain AND a CHOP-ALT-routed note alike, the ordering proof,
+  with the DEST case's omission documented inline. SnapshotBuilderTests: `EuclidLine.mask` survives the fresh-
+  literal rebuild + stays nil when untouched; `mainOutMask` resolves/clamps to 4 bits; the new source-mode
+  fields default to MIDI on an untouched document). **DEVICE-OWED, the whole feature:** the 2-row header's
+  real-width legibility; the square lanes' actual size + the new height-cap's real-world adequacy; the 30pt/
+  36pt toggles sitting under the usual 44pt touch floor (the spec's own disclosed risk); the mask's independent
+  comet-bar+rotate-drag feeling distinct from the lane's own pad-driven gestures rather than confusing; the
+  riff panel's new tap-to-cycle gesture feel; whether "receiver 1=riff, receiver 4=lanes" (a reading of the
+  spec's own prose ordering, not confirmed text) is actually correct once heard. §4's open items (mask effects,
+  reset-span semantics, key-picker scope, KEY-mode pool mapping, default source, the riff editing gesture, main-
+  out-off cutoff timing) are answered in the ferry acknowledgment with a named question each, not guessed.**
 - **▶ EUCLIDEOUS RIFF — first device pass on the grid above: direction moved per-lane, scroll disabled, the
   overlay no longer shifts the page, VEL/GATE sensitivity tripled (2026-10-07, on `main`, `7e302ea`; macOS 1223
   green, iOS builds; DEVICE eye/feel owed on all four). Paul, after the first build: "I don't see the riff

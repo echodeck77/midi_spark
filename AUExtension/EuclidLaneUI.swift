@@ -87,6 +87,10 @@ struct EuclidLaneBox: View {
     // (not generic) so this struct's own type stays concrete/unchanged for its existing callers.
     var trailingContent: AnyView? = nil
     var trailingHeight: CGFloat = 0   // the exact height the caller's trailingContent needs — lets the comet row claim the rest, rather than guessing
+    // STEP-COUNT BADGE (EUCLIDEOUS PAGE REWORK, Paul 2026-10-07: "a step count shown as a number" beside the
+    // comet bar, permanently) — an optional trailing sibling in the SAME play+comet HStack, same additive-
+    // nil-default shape as `trailingContent` above. nil (every existing BUILD-page call site) ⇒ byte-identical.
+    var stepCountBadge: AnyView? = nil
 
     var body: some View {
         let on = line.enabledResolved
@@ -112,6 +116,7 @@ struct EuclidLaneBox: View {
                                onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                                onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
                     .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
+                if let stepCountBadge { stepCountBadge }
             }
             if let trailingContent { trailingContent }
         }

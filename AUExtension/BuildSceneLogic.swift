@@ -292,7 +292,13 @@ enum BuildSceneLogic {
         // there a free row" search; this row is reserved specifically for Euclideous and nothing else can ever
         // occupy it, so there's no fallback branch to write either).
         if i.euclideousOn, let cid = i.euclideousMachineID {
-            let recv = max(0, min(3, i.euclideousReceiver))
+            // PAGE REWORK (2026-10-07, ratified — Docs/SPEC-euclideous-rework.md §2.4/§2.5): the single IN
+            // A/B/C/D selector is removed from the page; the lanes' own note-picking source is now a GLOBAL
+            // KEY|MIDI switch, hardcoded to receiver index 3 ("receiver 4") when MIDI. `i.euclideousReceiver`
+            // is now UNREACHABLE from any UI — left in place inert, matching how `EuclidLine.riffDirBias` was
+            // already handled when ITS control was dropped. KEY mode's own silencing happens in
+            // SnapshotBuilder's per-cell receiver resolve, not here (this is still just "which receiver").
+            let recv = 3
             var cell = Cell(machineID: cid, buses: i.euclideousEmitters.isEmpty ? [.a] : i.euclideousEmitters)
             cell.inputReceiver = recv
             cell.processors = i.euclideousChain

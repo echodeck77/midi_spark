@@ -710,6 +710,42 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(clamped.euclidLines[0].riffDirBiasResolved, 1)
     }
 
+    // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): `mask` is the newest EuclidLine field through the SAME
+    // fresh-literal reconstruction — the exact regression class the two entries above already guard for.
+    func testEuclidLineMaskSurvivesSnapshotBuild() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, mask: EuclidLineMask(enabled: false, pulses: 3, steps: 5, rotate: 2))]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(a.euclidLines[0].mask?.enabled, false, "mask.enabled must survive the resolve, not silently reset")
+        XCTAssertEqual(a.euclidLines[0].mask?.pulses, 3, "mask.pulses must survive the resolve")
+        XCTAssertEqual(a.euclidLines[0].mask?.steps, 5, "mask.steps must survive the resolve")
+        XCTAssertEqual(a.euclidLines[0].mask?.rotate, 2, "mask.rotate must survive the resolve")
+        // an untouched line's mask stays nil — no mask is ever silently fabricated
+        let untouched = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
+        }) { _ in }.machines[0].a
+        XCTAssertNil(untouched.euclidLines[0].mask, "a line that never touched MASK must resolve with no mask at all")
+    }
+
+    // EUCLIDEOUS PAGE REWORK: the new GLOBAL main-out mask, mirroring emitterMask's own "only 4 bits meaningful" guard.
+    func testEuclideousMainOutMaskResolvesAndMasksToFourBits() {
+        let b = box(machines(customizing: 0) { $0.paramsA.mainOutMask = 0xFF }) { _ in }
+        XCTAssertEqual(b.machines[0].a.mainOutMask, 0x0F, "only the low 4 bits (A-D) are meaningful")
+        let def = box(machines(customizing: 0) { _ in }) { _ in }
+        XCTAssertEqual(def.machines[0].a.mainOutMask, 0b1111, "unset ⇒ fully open — byte-identical for every non-Euclideous chain")
+    }
+
+    // EUCLIDEOUS PAGE REWORK: a document that has never touched any of the new global fields must resolve
+    // to MIDI for both source switches — flipping this default would silently mute every existing Euclideous
+    // session the moment this feature ships (KEY mode resolves to an empty pool until §4.4 is answered).
+    func testEuclideousSourceModeDefaultsToMidiOnAnUntouchedDocument() {
+        let st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        XCTAssertTrue(st.euclideousRiffSourceMidiResolved, "an untouched document must default to MIDI for the riff's own source")
+        XCTAssertTrue(st.euclideousLanesSourceMidiResolved, "and for the lanes' own source")
+        XCTAssertEqual(st.euclideousMainOutMaskResolved, 0b1111, "main out starts fully open")
+        XCTAssertEqual(st.euclideousResetSpanBarsResolved, 0, "reset span starts OFF")
+    }
+
     // RIFF ADVANCE: the page's own shared riff pattern CONTENT (steps/ranks only — direction moved per-lane,
     // see the EuclidLine test above) must also survive the build, resolved/clamped once here.
     func testEuclideousRiffSurvivesSnapshotBuild() {

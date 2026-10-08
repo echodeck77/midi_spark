@@ -3532,6 +3532,7 @@ extension DiagView {
         if euclideousEnabled {
             input.euclideousMachineID = "euclideous"
             var p = MachineParams(); p.euclidLines = euclideousLines; p.euclideousRiff = euclideousRiff
+            p.mainOutMask = euclideousMainOutMask   // EUCLIDEOUS PAGE REWORK (2026-10-07): the global MAIN OUT gate
             let chain = [ProcessorSlot(type: .euclid, params: p)]
             // NOTE: the registered machine's OWN stored params are irrelevant at render time — Router.swift's
             // `emitGeneratorRow` always overwrites `.a` with the CELL's own `processors` (confirmed: `treat.a =
@@ -3540,7 +3541,9 @@ extension DiagView {
             // + the ephemeral registry). Re-written every publish for simplicity, not because it needs to be.
             if buildMachineReg["euclideous"] != chain { buildMachineReg["euclideous"] = chain; buildSyncMachines() }
             input.euclideousChain = chain
-            input.euclideousReceiver = euclideousReceiver
+            // EUCLIDEOUS PAGE REWORK (2026-10-07): `input.euclideousReceiver` is no longer written here — the
+            // old IN A/B/C/D selector + its backing @State are gone (§2.5); `composeSceneMeta` now hardcodes
+            // the lanes' receiver to index 3 directly and never reads this field (see BuildSceneLogic.swift).
             input.euclideousEmitters = [.a, .b, .c, .d]
         }
 

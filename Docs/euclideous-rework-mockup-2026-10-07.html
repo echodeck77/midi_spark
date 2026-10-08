@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Euclideous page</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;border:0;padding:0;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 800px; height: 1090px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 10px; background: #0d0f14; color: #f2f4f7; font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 700">
+
+<div style="display: flex; align-items: center; gap: 8px; height: 44px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0.5px">EUCLIDEOUS</h1>
+<div style="flex: 1"></div>
+<span style="font-size: 11px; color: #aab0ba; letter-spacing: 1px">RESET</span>
+<button aria-label="Reset span" style="width: 100px; height: 44px; border-radius: 10px; background: #1b1d23; color: #f2f4f7; font-size: 13px; font-weight: 800">4 BARS ▾</button>
+<span style="font-size: 11px; color: #aab0ba; letter-spacing: 1px; margin-left: 8px">MAIN OUT</span>
+<sc-for list="{{ mains }}" as="d" hint-placeholder-count="4">
+<button aria-label="{{ d.aria }}" style="width: 36px; height: 36px; border-radius: 18px; font-size: 13px; font-weight: 800; box-sizing: border-box; {{ d.css }}">{{ d.label }}</button>
+</sc-for>
+<button style="width: 60px; height: 44px; border-radius: 10px; background: #35c15f; color: #0d0f14; font-size: 14px; font-weight: 800; margin-left: 8px">ON</button>
+<button aria-label="Close page" style="width: 44px; height: 44px; border-radius: 10px; background: #1b1d23; color: #f2f4f7; font-size: 18px">
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"></path></svg>
+</button>
+</div>
+
+<div style="display: flex; align-items: center; gap: 6px; height: 44px">
+<span style="font-size: 11px; color: #aab0ba; letter-spacing: 1px">KEY</span>
+<button aria-label="Key down" style="width: 44px; height: 44px; border-radius: 10px; background: #1b1d23; color: #f2f4f7; font-size: 18px; font-weight: 800">−</button>
+<button aria-label="Choose key and scale" style="width: 112px; height: 44px; border-radius: 10px; background: #f2f4f7; color: #0d0f14; font-size: 13px; font-weight: 800">C MINOR ▾</button>
+<button aria-label="Key up" style="width: 44px; height: 44px; border-radius: 10px; background: #1b1d23; color: #f2f4f7; font-size: 18px; font-weight: 800">+</button>
+<div style="flex: 1"></div>
+<span style="font-size: 11px; color: #aab0ba; letter-spacing: 1px">LANES</span>
+<div style="display: flex; gap: 2px; background: #1b1d23; border-radius: 10px; padding: 2px">
+<sc-for list="{{ laneSrc }}" as="s" hint-placeholder-count="2">
+<button aria-label="{{ s.aria }}" style="width: 54px; height: 40px; border-radius: 8px; font-size: 12px; font-weight: 800; {{ s.css }}">{{ s.label }}</button>
+</sc-for>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{ lanes }}" as="lane" hint-placeholder-count="4">
+<div style="background: #1b1d23; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; height: 380px; {{ lane.cardCss }}">
+
+<div style="display: flex; gap: 6px; align-items: center">
+<button aria-label="{{ lane.playAria }}" style="width: 44px; height: 44px; border-radius: 9px; background: #2a2d34; display: flex; align-items: center; justify-content: center; flex: none">
+<span style="display: block; {{ lane.playCss }}"></span>
+</button>
+<div style="flex: 1; display: flex; gap: 3px; height: 44px">
+<sc-for list="{{ lane.steps }}" as="st" hint-placeholder-count="8">
+<div style="flex: 1; border-radius: 5px; box-sizing: border-box; {{ st.css }}"></div>
+</sc-for>
+</div>
+<button aria-label="Step count" style="width: 44px; height: 44px; border-radius: 9px; background: #2a2d34; color: #f2f4f7; font-size: 15px; font-weight: 800; flex: none">{{ lane.n }}</button>
+</div>
+
+<div style="flex: 1; min-height: 0; display: flex; gap: 6px">
+<sc-for list="{{ lane.pads }}" as="pad" hint-placeholder-count="3">
+<div style="flex: 1; min-width: 0; border-radius: 9px; padding: 7px 9px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; {{ pad.css }}">
+<span style="font-size: 10px; letter-spacing: 0.8px; color: #b6bcc6">{{ pad.label }}</span>
+<span style="font-size: 15px; font-weight: 800; color: #f2f4f7">{{ pad.value }}</span>
+</div>
+</sc-for>
+</div>
+
+<div style="display: flex; gap: 4px">
+<sc-for list="{{ lane.tabs }}" as="t" hint-placeholder-count="3">
+<button aria-label="{{ t.aria }}" style="flex: 1; height: 44px; background: transparent; font-size: 12px; font-weight: 800; letter-spacing: 1px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 6px; {{ t.css }}">
+<span>{{ t.label }}</span>
+<span style="width: 7px; height: 7px; border-radius: 4px; {{ t.dotCss }}"></span>
+</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ lane.isPattern }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; gap: 4px; align-items: center; height: 44px">
+<span style="font-size: 10px; letter-spacing: 0.8px; color: #aab0ba; width: 64px">DIRECTION</span>
+<sc-for list="{{ lane.dirs }}" as="b" hint-placeholder-count="3">
+<button aria-label="{{ b.aria }}" style="flex: 1; height: 44px; border-radius: 8px; font-size: 14px; font-weight: 800; {{ b.css }}">{{ b.label }}</button>
+</sc-for>
+</div>
+<div style="display: flex; gap: 4px; align-items: center; height: 44px">
+<button style="flex: 1; height: 44px; border-radius: 8px; background: transparent; color: #f2f4f7; font-size: 13px; font-weight: 800; box-sizing: border-box; {{ lane.faceCss }}">HIT</button>
+<button style="flex: 1; height: 44px; border-radius: 8px; background: #2a2d34; color: #aab0ba; font-size: 13px; font-weight: 700">MISS</button>
+<span style="font-size: 10px; letter-spacing: 0.8px; color: #aab0ba; margin-left: 6px">RATE</span>
+<button style="flex: 1; height: 44px; border-radius: 8px; background: #2a2d34; color: #aab0ba; font-size: 12px; font-weight: 700">FOLLOW</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ lane.isRiff }}" hint-placeholder-val="{{ false }}">
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 4px">
+<sc-for list="{{ lane.riffOpts }}" as="b" hint-placeholder-count="7">
+<button aria-label="{{ b.aria }}" style="height: 44px; border-radius: 8px; font-size: 12px; font-weight: 800; {{ b.css }}">{{ b.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ lane.isMask }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; gap: 6px; align-items: center">
+<button aria-label="Play or stop mask" style="width: 44px; height: 44px; border-radius: 9px; background: #2a2d34; display: flex; align-items: center; justify-content: center; flex: none">
+<span style="display: block; {{ lane.maskPlayCss }}"></span>
+</button>
+<div style="flex: 1; display: flex; gap: 3px; height: 44px">
+<sc-for list="{{ lane.maskSteps }}" as="st" hint-placeholder-count="5">
+<div style="flex: 1; border-radius: 5px; box-sizing: border-box; {{ st.css }}"></div>
+</sc-for>
+</div>
+<button aria-label="Mask step count" style="width: 44px; height: 44px; border-radius: 9px; background: #2a2d34; color: #f2f4f7; font-size: 15px; font-weight: 800; flex: none">{{ lane.maskN }}</button>
+</div>
+<div style="display: flex; gap: 4px; align-items: center; height: 44px">
+<button aria-label="Mask effect" style="width: 112px; height: 44px; border-radius: 8px; font-size: 12px; font-weight: 800; {{ lane.maskFxCss }}">{{ lane.maskFx }}</button>
+<button aria-label="Effect amount" style="width: 56px; height: 44px; border-radius: 8px; background: #2a2d34; color: #f2f4f7; font-size: 13px; font-weight: 800">{{ lane.maskAmt }}</button>
+<span style="font-size: 10px; letter-spacing: 0.8px; color: #aab0ba; margin-left: 4px">HITS</span>
+<button aria-label="Fewer mask hits" style="width: 44px; height: 44px; border-radius: 8px; background: #2a2d34; color: #f2f4f7; font-size: 16px; font-weight: 800">−</button>
+<span style="flex: 1; text-align: center; font-size: 13px; font-weight: 800">{{ lane.maskCount }}</span>
+<button aria-label="More mask hits" style="width: 44px; height: 44px; border-radius: 8px; background: #2a2d34; color: #f2f4f7; font-size: 16px; font-weight: 800">+</button>
+</div>
+</div>
+</sc-if>
+
+<div style="display: flex; gap: 6px; align-items: center">
+<span style="font-size: 10px; letter-spacing: 0.8px; color: #aab0ba; width: 30px">OUT</span>
+<sc-for list="{{ lane.outs }}" as="o" hint-placeholder-count="4">
+<button aria-label="{{ o.aria }}" style="width: 30px; height: 30px; border-radius: 15px; font-size: 11px; font-weight: 800; box-sizing: border-box; {{ o.css }}">{{ o.label }}</button>
+</sc-for>
+<div style="flex: 1"></div>
+<span style="font-size: 11px; letter-spacing: 0.8px; font-weight: 800; {{ lane.noteCss }}">{{ lane.note }}</span>
+</div>
+
+</div>
+</sc-for>
+</div>
+
+<div style="flex: 1; background: #1b1d23; border-radius: 12px; padding: 10px 12px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; min-height: 0">
+<div style="display: flex; align-items: center; gap: 10px; height: 32px">
+<span style="font-size: 15px; font-weight: 800; letter-spacing: 0.5px">RIFF</span>
+<span style="font-size: 11px; color: #aab0ba; letter-spacing: 0.8px">8 STEPS · SHARED BY EVERY LANE WITH RIFF ON</span>
+<div style="flex: 1"></div>
+<span style="font-size: 11px; color: #aab0ba; letter-spacing: 1px">SOURCE</span>
+<div style="display: flex; gap: 2px; background: #0d0f14; border-radius: 10px; padding: 2px">
+<sc-for list="{{ riffSrc }}" as="s" hint-placeholder-count="2">
+<button aria-label="{{ s.aria }}" style="width: 54px; height: 28px; border-radius: 8px; font-size: 12px; font-weight: 800; {{ s.css }}">{{ s.label }}</button>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; gap: 4px; height: 10px">
+<sc-for list="{{ riffCols }}" as="c" hint-placeholder-count="8">
+<div style="flex: 1; display: flex; gap: 4px; justify-content: center; align-items: center">
+<sc-for list="{{ c.dots }}" as="dot" hint-placeholder-count="1">
+<span style="width: 9px; height: 9px; border-radius: 5px; {{ dot.css }}"></span>
+</sc-for>
+</div>
+</sc-for>
+</div>
+<div style="flex: 1; display: flex; gap: 4px; min-height: 0">
+<sc-for list="{{ riffCols }}" as="c" hint-placeholder-count="8">
+<button aria-label="{{ c.aria }}" style="flex: 1; border-radius: 8px; background: #2a2d34; color: #f2f4f7; display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; overflow: hidden">
+<span style="font-size: 13px; font-weight: 800; padding-top: 6px">{{ c.name }}</span>
+<span style="display: block; {{ c.barCss }}"></span>
+</button>
+</sc-for>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":800,"height":1090}}'>
+class Component extends DCLogic {
+renderVals() {
+var INK = '#0d0f14', CELL = '#2a2d34', MUTED = '#aab0ba';
+var seg = function (on, col) {
+return on ? 'background:' + col + ';color:' + INK : 'background:' + CELL + ';color:' + MUTED;
+};
+var letters = ['A', 'B', 'C', 'D'];
+var mainOn = [true, true, false, true];
+var mains = letters.map(function (l, i) {
+return { label: l, aria: 'Main output ' + l + (mainOn[i] ? ' on' : ' off'), css: mainOn[i] ? 'background:#f2f4f7;color:' + INK : 'background:transparent;color:' + MUTED + ';border:2px solid #4a4e57' };
+});
+var srcSeg = function (who, active) {
+return ['KEY', 'MIDI'].map(function (l) {
+return { label: l, aria: who + ' notes from ' + l, css: l === active ? 'background:#f2f4f7;color:' + INK : 'background:transparent;color:' + MUTED };
+});
+};
+
+var defs = [
+{ col: '#f0524f', n: 16, hits: [0, 3, 6, 9, 13], head: 14, playing: true, dir: 1, riff: 'FWD', out: [0], sel: false, tab: 0,
+mask: { fx: 'OCT', amt: '+1', n: 7, hits: [0, 3], head: 1 },
+pads: [['HITS / OFFS', '5/16 · +0'], ['VEL / GATE', '100 · 50%'], ['RIFF SHIFT / OCT', '+2 · 0']] },
+{ col: '#4db5e8', n: 8, hits: [0, 2, 5], head: 6, playing: true, dir: 2, riff: 'FWD', out: [0], sel: true, tab: 1,
+mask: null,
+pads: [['HITS / OFFS', '3/8 · +0'], ['VEL / GATE', '90 · 75%'], ['RIFF SHIFT / OCT', '0 · +1']] },
+{ col: '#f2b93b', n: 8, hits: [0, 3, 6], head: 4, playing: true, dir: 2, riff: 'DRUNK', out: [0, 2], sel: false, tab: 2,
+mask: { fx: 'RATCHET', amt: '×3', n: 5, hits: [0, 2], head: 3 },
+pads: [['HITS / OFFS', '3/8 · +0'], ['VEL / GATE', '110 · 25%'], ['RIFF SHIFT / OCT', '0 · -1']] },
+{ col: '#7dc46c', n: 8, hits: [0], head: -1, playing: false, dir: 2, riff: 'OFF', out: [], sel: false, tab: 0,
+mask: null,
+pads: [['HITS / OFFS', '1/8 · +0'], ['VEL / GATE', '100 · 50%'], ['NOTE / OCT', 'LOWEST · 0']] }
+];
+
+var lanes = defs.map(function (d, li) {
+var steps = [];
+for (var i = 0; i < d.n; i++) {
+var on = d.hits.indexOf(i) >= 0;
+var css = 'background:' + (on ? d.col : '#2c2f36');
+if (!d.playing && on) css += ';opacity:0.55';
+if (i === d.head) css += ';border:2px solid #f2f4f7';
+steps.push({ css: css });
+}
+var maskSteps = [];
+var mk = d.mask || { n: 8, hits: [], head: -1 };
+for (var j = 0; j < mk.n; j++) {
+var mcss = 'background:' + (mk.hits.indexOf(j) >= 0 ? '#f2f4f7' : '#2c2f36');
+if (j === mk.head) mcss += ';border:2px solid ' + d.col;
+maskSteps.push({ css: mcss });
+}
+var riffOn = d.riff !== 'OFF';
+var outs = letters.map(function (l, i) {
+var routed = d.out.indexOf(i) >= 0;
+var css, aria = 'Lane ' + (li + 1) + ' to output ' + l;
+if (routed && mainOn[i]) css = 'background:' + d.col + ';color:' + INK;
+else if (routed) { css = 'background:transparent;color:' + d.col + ';border:2px dashed ' + d.col; aria += ', held by main output'; }
+else css = 'background:' + CELL + ';color:' + MUTED;
+return { label: l, aria: aria, css: css };
+});
+var tabActive = [true, riffOn, !!d.mask];
+var tabs = ['PATTERN', 'RIFF', 'MASK'].map(function (l, ti) {
+var sel = ti === d.tab;
+return {
+label: l,
+aria: l + ' settings' + (ti > 0 ? (tabActive[ti] ? ', on' : ', off') : ''),
+css: 'color:' + (sel ? '#f2f4f7' : MUTED) + ';border-bottom:3px solid ' + (sel ? d.col : '#2a2d34'),
+dotCss: ti > 0 ? ('background:' + (tabActive[ti] ? d.col : 'transparent') + ';border:1px solid ' + (tabActive[ti] ? d.col : '#5a5f69')) : 'display:none'
+};
+});
+return {
+n: d.n,
+cardCss: 'border:2px solid ' + (d.sel ? d.col : 'transparent'),
+playAria: d.playing ? 'Stop lane ' + (li + 1) : 'Play lane ' + (li + 1),
+playCss: d.playing
+? 'width:0;height:0;border-left:15px solid ' + d.col + ';border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px'
+: 'width:16px;height:16px;border-radius:3px;background:#8a8f99',
+steps: steps,
+pads: d.pads.map(function (p, pi) {
+return { label: p[0], value: p[1], css: 'background:' + (pi === 2 && riffOn ? d.col + '33' : CELL) };
+}),
+tabs: tabs,
+isPattern: d.tab === 0,
+isRiff: d.tab === 1,
+isMask: d.tab === 2,
+dirs: [['<', 'Pattern backward'], ['><', 'Pattern ping-pong'], ['>', 'Pattern forward']].map(function (b, bi) {
+return { label: b[0], aria: b[1], css: seg(bi === d.dir, d.col) };
+}),
+faceCss: 'border:2px solid ' + d.col,
+riffOpts: ['OFF', 'FWD', 'REV', 'PEND', 'PING', 'RAND', 'DRUNK'].map(function (l) {
+return { label: l, aria: 'Riff ' + l, css: seg(l === d.riff, d.col) };
+}),
+maskFx: (d.mask ? d.mask.fx : 'OFF') + ' ▾',
+maskFxCss: seg(!!d.mask, d.col),
+maskAmt: d.mask ? d.mask.amt : '–',
+maskCount: String(mk.hits.length),
+maskSteps: maskSteps,
+maskN: mk.n,
+maskPlayCss: 'width:0;height:0;border-left:15px solid ' + d.col + ';border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px',
+outs: outs,
+note: d.out.length === 0 ? 'NO OUTPUT' : (li === 2 ? 'C HELD BY MAIN' : ''),
+noteCss: 'color:' + (d.out.length === 0 ? '#ffb454' : MUTED)
+};
+});
+
+var pattern = [1, 4, 5, 0, 2, 3, 4, 4];
+var names = ['C', 'D', 'E♭', 'F', 'G', 'A♭', 'B♭', 'C'];
+var riffRows = [];
+for (var rank = 8; rank >= 1; rank--) {
+riffRows.push({
+name: names[rank - 1],
+cells: pattern.map(function (p, ci) {
+var on = p === rank;
+return { aria: 'Step ' + (ci + 1) + ', ' + names[rank - 1] + (on ? ', set' : ''), css: 'background:' + (on ? '#dfe3ea' : CELL) };
+})
+});
+}
+var dotAt = { 4: ['#f0524f'], 1: ['#4db5e8'], 5: ['#f2b93b'] };
+var riffCols = pattern.map(function (p, ci) {
+return {
+name: p ? names[p - 1] : '–',
+aria: 'Step ' + (ci + 1) + ': ' + (p ? names[p - 1] : 'rest'),
+barCss: 'height:' + (p * 8.5) + '%;background:' + (p ? '#dfe3ea' : 'transparent'),
+dots: (dotAt[ci] || []).map(function (c) { return { css: 'background:' + c }; })
+};
+});
+
+return { laneSrc: srcSeg('Lane', 'MIDI'), riffSrc: srcSeg('Riff', 'KEY'), mains: mains, lanes: lanes, riffCols: riffCols };
+}
+}
+</script>
+</body>
+</html>

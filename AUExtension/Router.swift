@@ -598,6 +598,21 @@ final class Router {
             srcNoteBuf[srcNoteCount] = (Int(n), pool.velocity(n)); srcNoteCount += 1
         }
     }
+    // EUCLIDEOUS PAGE REWORK (2026-10-07): the riff's own note-picking source is a SEPARATE pool from the
+    // lanes' own (`srcNoteBuf` above) — read via an EXPLICIT chanMask (not `for: cell`, which reads the
+    // cell's own resolved receiver fields — those belong to the lanes' source). Mirrors `fillSrcFromPool`
+    // exactly, just keyed by a raw chanMask instead of a SnapCell. `chanMask == 0` (KEY mode, or no doc
+    // receivers) naturally yields `c == 0` — an honest empty pool, no separate guard needed.
+    private var riffSrcNoteBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
+    private var riffSrcNoteCount = 0
+    private func fillRiffSrcFromPool(_ pool: NotePool, chanMask: UInt16) {
+        riffSrcNoteCount = 0
+        let c = pool.srcCount(chanMask: chanMask, cableMask: 0b1111)
+        for k in 0..<c where riffSrcNoteCount < riffSrcNoteBuf.count {
+            let n = pool.srcAscending(k, chanMask: chanMask, cableMask: 0b1111)
+            riffSrcNoteBuf[riffSrcNoteCount] = (Int(n), pool.velocity(n)); riffSrcNoteCount += 1
+        }
+    }
     // TICK DEDUP, keyed per (row, slot) not just per row (Paul 2026-10-05, fixing the timing smear investigated
     // and left open on 2026-10-03: "`lastTick[row]` is a SINGLE scalar SHARED across every line on this row —
     // safe for one real line; a known limitation for 2+ real lines sharing a row across a window boundary").
@@ -3754,7 +3769,12 @@ final class Router {
         func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-            let tbm = chopMask(cell, m: tau, S: S, base: busOverride ?? bm)
+            // EUCLIDEOUS PAGE REWORK (2026-10-07): a global MAIN OUT master gate, applied AFTER chopMask's
+            // own full DEST/CHOP/MUTE-MATRIX routing resolves `tbm` — not pre-masked into `base` — since
+            // ALT-routing (`chopBusMask`) and DEST-routing both construct their own bus bits independent of
+            // `base`; pre-masking would silently fail to suppress an ALT- or DEST-routed note. `p.mainOutMask`
+            // is 0b1111 (all-open) for every non-Euclideous chain, so this is byte-identical everywhere else.
+            let tbm = chopMask(cell, m: tau, S: S, base: busOverride ?? bm) & p.mainOutMask
             func strikeOne(_ rawNote: Int, _ rawVel: UInt8) {
                 let n = rawNote + transpose + 12 * octave
                 guard n >= 0 && n <= 127 else { return }
@@ -3970,7 +3990,12 @@ final class Router {
                             // CONTENT (steps/ranks) is shared; each lane walks it its own way.
                             let rp = p.euclideousRiff
                             let riffN = rp.stepsResolved
-                            guard srcCount > 0 else { return }
+                            // EUCLIDEOUS PAGE REWORK (2026-10-07): the riff reads its OWN pool now
+                            // (`riffSrcNoteBuf`/`riffSrcNoteCount`, filled once per cell above the per-line
+                            // loop from `p.riffSrcChanMask`) — NOT the lanes' own `srcNotes`/`srcCount`,
+                            // which is a genuinely different, independently-sourced pool since the riff and
+                            // lanes can each be set to a different receiver/KEY|MIDI switch.
+                            guard riffSrcNoteCount > 0 else { return }
                             let seed = UInt64(bitPattern: Int64(riffDirSeed))
                             let stepIdx = riffDir == .drunk
                                 ? euclideousRiffDrunkStep(lane: lineIndex, ord: ord, steps: riffN, bias: riffDirBias, seed: seed)
@@ -3983,9 +4008,9 @@ final class Router {
                             // an honest inherited velocity, not a guessed flat value. Not provably the exact FOLD
                             // index for a rank that wraps the pool more than once (flagged in the plan; a listen
                             // once built is the real check, not re-deriving FOLD's own index formula up front).
-                            guard rank >= 1, let note = riffResolve(rank: rank, oct: riffOctave, n: srcCount, wrap: .fold, asc: { srcNotes[$0].note }) else { return }
-                            let velIdx = ((rank - 1) % srcCount + srcCount) % srcCount
-                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: 0, explicitNote: note, explicitVel: srcNotes[velIdx].vel, busOverride: busOverride)
+                            guard rank >= 1, let note = riffResolve(rank: rank, oct: riffOctave, n: riffSrcNoteCount, wrap: .fold, asc: { riffSrcNoteBuf[$0].note }) else { return }
+                            let velIdx = ((rank - 1) % riffSrcNoteCount + riffSrcNoteCount) % riffSrcNoteCount
+                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: 0, explicitNote: note, explicitVel: riffSrcNoteBuf[velIdx].vel, busOverride: busOverride)
                             return
                         }
                         // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
@@ -4104,6 +4129,22 @@ final class Router {
             // line" count) is each line's OWN tick-dedup slot, so a lane keeps the SAME slot across windows
             // where a sibling lane happens to be silent — using `.enumerated()`'s offset directly, not a
             // separately-tracked "active line count", is what makes that stable.
+            // EUCLIDEOUS PAGE REWORK (2026-10-07): the riff's own pool is SEPARATE from the lanes' pool
+            // (`srcNotes`/`srcCount` above, read from `cell`'s own resolved receiver) ONLY on Euclideous's
+            // own reserved row — filled ONCE per cell, before the per-line loop, mirroring `fillSrcFromPool`'s
+            // own "once per cell, not per line" shape. `useRiff`/`euclideousRiff` are plain fields on the
+            // SHARED EuclidLine/MachineParams — row-agnostic in the model and in SnapshotBuilder's resolve —
+            // so a `.euclid` cell anywhere else in the grid (every pre-existing `useRiff` RouterTest places
+            // its cell at row 0, not Snap.euclideousRow) must keep reading the SAME pool the lanes themselves
+            // use, exactly as before this split. Falling back to a COPY of srcNoteBuf/srcNoteCount (already
+            // filled above, before the switch) rather than leaving riffSrcNoteBuf stale/empty keeps every
+            // non-Euclideous row byte-identical to its pre-split behaviour.
+            if r == Snap.euclideousRow {
+                fillRiffSrcFromPool(pool, chanMask: p.riffSrcChanMask)
+            } else {
+                riffSrcNoteCount = srcNoteCount
+                for i in 0..<srcNoteCount { riffSrcNoteBuf[i] = srcNoteBuf[i] }
+            }
             for (lineIndex, L) in p.euclidLines.enumerated() where L.pulses > 0 && L.enabledResolved {
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
                 // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the

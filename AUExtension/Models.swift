@@ -216,6 +216,14 @@ struct EuclidLine: Codable, Equatable {
     var riffDir: RiffDir? = nil
     var riffDirSeed: Int? = nil
     var riffDirBias: Double? = nil
+    // EUCLID MASK, PER LANE (Paul/design-channel 2026-10-07, ratified — Docs/SPEC-euclideous-rework.md §2.7):
+    // a second, independent step pattern per lane — its own play/stop, step count, rotate (set via a DRAG
+    // GESTURE on its own grid, not a separate control). Nested, mirroring `Chop`'s own nested-struct-on-a-
+    // per-cell-model precedent (Models.swift, `Cell.chop`) — NOT flattened at the Snapshot layer like `Chop`
+    // is, since there's no render consumer yet (the mask's actual musical EFFECT is explicitly deferred; it
+    // must not alter the lane's output until that's designed). Carried wholesale into SnapParams, like
+    // EuclidLine/EuclideousRiff themselves.
+    var mask: EuclidLineMask? = nil
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -229,6 +237,7 @@ struct EuclidLine: Codable, Equatable {
     var riffDirResolved: RiffDir { riffDir ?? .forward }
     var riffDirSeedResolved: Int { riffDirSeed ?? 0 }
     var riffDirBiasResolved: Double { max(-1, min(1, riffDirBias ?? 0)) }
+    var maskResolved: EuclidLineMask { mask ?? EuclidLineMask() }
     /// The effective note selection — `noteSel` once the line's been touched under the new UI, else derived from
     /// the old target/pick pair so a pre-redesign line resolves identically to what it always played.
     var noteSelResolved: EuclidNoteSel {
@@ -282,6 +291,29 @@ extension EuclidLine {
         riffDir = try c.decodeIfPresent(RiffDir.self, forKey: .riffDir)
         riffDirSeed = try c.decodeIfPresent(Int.self, forKey: .riffDirSeed)
         riffDirBias = try c.decodeIfPresent(Double.self, forKey: .riffDirBias)
+        mask = try c.decodeIfPresent(EuclidLineMask.self, forKey: .mask)
+    }
+}
+// EUCLID MASK, PER LANE (Paul/design-channel 2026-10-07, ratified): a small, nested, effect-less step
+// pattern — see `EuclidLine.mask`'s own doc comment for the full rationale. Brand new, so a synthesized
+// Decodable would be safe, but given its OWN custom init anyway (matching `Chop`'s precedent exactly)
+// costs nothing and future-proofs the very first field added here later.
+struct EuclidLineMask: Codable, Equatable {
+    var enabled: Bool? = nil   // play/stop; nil ⇒ true (a fresh mask starts audible/active, matching EuclidLine's own enabledResolved convention)
+    var pulses: Int? = nil     // K; nil ⇒ 1 (matches EuclidLine's own "a fresh lane defaults to 1 of 8")
+    var steps: Int? = nil      // N; nil ⇒ 8
+    var rotate: Int? = nil     // nil ⇒ 0; unbounded here, wrapped mod steps at read time (matches EuclidLine.rotate's own convention)
+    var enabledResolved: Bool { enabled ?? true }
+    var pulsesResolved: Int { max(1, pulses ?? 1) }
+    var stepsResolved: Int { max(2, min(16, steps ?? 8)) }
+}
+extension EuclidLineMask {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
+        pulses = try c.decodeIfPresent(Int.self, forKey: .pulses)
+        steps = try c.decodeIfPresent(Int.self, forKey: .steps)
+        rotate = try c.decodeIfPresent(Int.self, forKey: .rotate)
     }
 }
 // EUCLIDEOUS RIFF (Paul 2026-10-06): a single, SHARED step pattern on the Euclideous page — any of its 4 lines can
@@ -539,6 +571,7 @@ struct MachineParams: Codable, Equatable {
     var euclidPick: EuclidPick? = nil         // PICK: ALL (today) | CYCLE | LOW | HIGH | RANDOM — what each hit strikes (Paul 2026-08-22)
     var euclidLines: [EuclidLine]? = nil      // EUCLID LINES (§10, ratified): up to 8 lines (each K·N·ROTATE·INVERT·TARGET). nil ⇒ the single euclid above (byte-identical)
     var euclideousRiff: EuclideousRiff? = nil // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06) — only meaningful for Euclideous's cell; nil ⇒ the struct's own plain defaults
+    var mainOutMask: UInt8? = nil // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07) — only meaningful for Euclideous's cell; nil ⇒ 0b1111 (all open, byte-identical for every other chain)
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
     var burstSpanN: Int? = nil                // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from burstSpan)
@@ -1833,6 +1866,39 @@ struct PluginState: Codable, Equatable {
     // have opted in via EuclidLine.useRiff. nil ⇒ the struct's own plain defaults (16 steps, an ascending figure).
     var euclideousRiff: EuclideousRiff? = nil
     var euclideousRiffResolved: EuclideousRiff { euclideousRiff ?? EuclideousRiff() }
+    // EUCLIDEOUS PAGE REWORK (Paul/design-channel, 2026-10-07, ratified — Docs/SPEC-euclideous-rework.md):
+    // global controls. `euclideousReceiver`/`euclideousReceiverResolved` above are now UNREACHABLE from any
+    // UI (the single IN A/B/C/D selector was removed) but left in place inert, matching how `riffDirBias`
+    // was already handled when ITS control was dropped — the lanes' own MIDI source is hardcoded to
+    // receiver index 3 instead (BuildSceneLogic.swift), the riff's own to receiver index 0 (SnapshotBuilder.swift).
+    //
+    // RESET SPAN: a literal bar count (0=OFF·1·2·4·8·16) — deliberately NOT the existing `spanLadderBeats`
+    // raw-value ladder, which uses a DIFFERENT unit (n=1...6 are literal columns there, only 8/16/32 mean
+    // row-multiples) that only coincidentally agrees with "bars" at the top end. Genuinely inert for now —
+    // §4.2 of the spec explicitly leaves "what exactly resets" undecided; this persists the CONTROL's value
+    // only, nothing in Router reads it yet.
+    var euclideousResetSpanBars: Int? = nil
+    var euclideousResetSpanBarsResolved: Int { let v = euclideousResetSpanBars ?? 0; return [0, 1, 2, 4, 8, 16].contains(v) ? v : 0 }
+    // KEY + SCALE: a page-level root+type pair, reusing the existing `ScaleType` enum purely as storage —
+    // does NOT pre-wire the SCALE-door/KEY±/FOUNT machinery §4.3 explicitly leaves open (a genuinely
+    // independent new field, not a reference to any door's own scale pool).
+    var euclideousKeyRoot: Int? = nil
+    var euclideousKeyRootResolved: Int { ((euclideousKeyRoot ?? 0) % 12 + 12) % 12 }
+    var euclideousKeyType: ScaleType? = nil
+    var euclideousKeyTypeResolved: ScaleType { euclideousKeyType ?? .naturalMinor }
+    // SOURCE MODE, riff and lanes independently: nil ⇒ MIDI (true), NOT key — a fresh/never-touched doc, and
+    // every EXISTING session saved before this rework, must keep sounding exactly as it did (its receiver-fed
+    // MIDI pool), not go silent the instant this update lands (KEY mode currently resolves to an empty pool,
+    // since §4.4's key-to-rank mapping is undecided — defaulting new installs to the SILENT mode would be a
+    // real regression, not a neutral stub).
+    var euclideousRiffSourceMidi: Bool? = nil
+    var euclideousRiffSourceMidiResolved: Bool { euclideousRiffSourceMidi ?? true }
+    var euclideousLanesSourceMidi: Bool? = nil
+    var euclideousLanesSourceMidiResolved: Bool { euclideousLanesSourceMidi ?? true }
+    // MAIN OUT: a global master gate over every lane's own per-lane `emitterMask` routing. nil ⇒ 0b1111
+    // (all open, byte-identical to every doc saved before this field existed).
+    var euclideousMainOutMask: UInt8? = nil
+    var euclideousMainOutMaskResolved: UInt8 { (euclideousMainOutMask ?? 0b1111) & 0x0F }
     // delta §6a CLAIM v2 LEAK %: per-claimant bleed — a claimed pitch class passes on non-claimants at this
     // scaled velocity (0 = full suppression = v1; the hole becomes a SHADOW). Persisted. Optional → nil = all 0.
     var claimLeak: [Int]? = nil

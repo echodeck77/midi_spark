@@ -26,9 +26,11 @@ final class RouterTests: XCTestCase {
 
     /// A one-scene document with the given machines + cell layout, then its resolved SnapshotBox.
     private func box(machines cs: [Machine], busChannels: [Int] = [1, 2, 3, 4], masterMute: Bool = false,
+                     receivers: [Receiver]? = nil,
                      _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: cs, scenes: [s]); st.busChannels = busChannels; st.masterMute = masterMute
+        if let receivers { st.receivers = receivers }
         return SnapshotBuilder.build(from: st)
     }
 
@@ -5355,7 +5357,7 @@ final class RouterTests: XCTestCase {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 3])   // rank 1 = lowest, rank 3 = 3rd-lowest; direction defaults to FWD
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, noteSel: .high, useRiff: true)]   // noteSel=.high would strike ONLY the top note (72) if useRiff didn't override it
-        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, receivers: [Receiver(name: "1")]) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 4, into: e); assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         XCTAssertTrue(notes.contains(60), "rank 1 (the lowest pool note) must appear — useRiff reads the shared riff pattern")
@@ -5369,7 +5371,7 @@ final class RouterTests: XCTestCase {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 2, 3, 4])
             c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffRotate: rotate)]
-            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, receivers: [Receiver(name: "1")]) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }.first
         }
@@ -5381,7 +5383,7 @@ final class RouterTests: XCTestCase {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
             c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, octave: 2, useRiff: true, riffOctave: riffOctave)]   // octave:2 deliberately set — must be ignored, not stacked
-            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, receivers: [Receiver(name: "1")]) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }.first
         }
@@ -5398,7 +5400,7 @@ final class RouterTests: XCTestCase {
             EuclidLine(pulses: 1, steps: 1, useRiff: true, riffDir: .forward),
             EuclidLine(pulses: 1, steps: 1, useRiff: true, riffDir: .reverse),
         ]
-        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, receivers: [Receiver(name: "1")]) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         XCTAssertTrue(notes.contains(60), "lane 0 (FWD), ord=0 → riff step 0 → rank 1 → the lowest pool note")
@@ -5409,12 +5411,115 @@ final class RouterTests: XCTestCase {
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true, riffDir: .drunk, riffDirBias: 0)]
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
-        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, receivers: [Receiver(name: "1")]) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord(pool), beats: 4, into: e); assertNothingLeftSounding(e)
         let notes = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
         XCTAssertFalse(notes.isEmpty, "DRUNK must still produce real strikes, not silently do nothing")
         XCTAssertTrue(notes.allSatisfy { pool.contains(UInt8($0)) }, "every DRUNK-resolved note must come from the held pool")
         XCTAssertGreaterThan(Set(notes).count, 1, "a random walk over many hits must visit more than one position, not stay stuck at the start")
+    }
+    // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the riff's own pool is now a SEPARATE global receiver (index 0,
+    // "receiver 1") from the lanes' own pool (hardcoded to index 3, "receiver 4") — both resolved independently
+    // of whatever the cell's own inputReceiver happens to be. This split only engages on Snap.euclideousRow —
+    // every other row keeps reading ONE pool for both (see the fallback in Router.swift's `.euclid` case,
+    // proven safe by the testEuclidLineUseRiff* tests above, all placed at row 0, all still green).
+    func testEuclideousRiffPoolResolvesFromReceiverZeroIndependentOfLanesReceiverThree() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        c.paramsA.euclidLines = [
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low),   // lane 0: plain pick — the LANES pool
+            EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true),   // lane 1: useRiff — the RIFF pool
+        ]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
+                                  s.cells[0][Snap.euclideousRow] = cell
+                                  return s }()])
+        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
+        let pool = NotePool()
+        pool.noteOn(72, velocity: 100, channel: 0)   // wire ch 0 → receiver[0] (ch 1) — the RIFF source
+        pool.noteOn(60, velocity: 100, channel: 1)   // wire ch 1 → receiver[3] (ch 2) — the LANES source
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notes.contains(60), "lane 0 (plain LOW pick) must read the LANES pool — receiver index 3 (wire ch 1)")
+        XCTAssertTrue(notes.contains(72), "lane 1 (useRiff) must read the RIFF pool — receiver index 0 (wire ch 0) — independent of the lanes' own receiver")
+    }
+    func testEuclideousRiffKeyModeYieldsEmptyPoolNotMidiFallback() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
+                                  s.cells[0][Snap.euclideousRow] = cell
+                                  return s }()])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        st.euclideousRiffSourceMidi = false   // KEY mode — must NOT silently fall back to MIDI
+        let pool = NotePool(); pool.noteOn(72, velocity: 100, channel: 0)   // real MIDI present on receiver[0]'s own channel
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "KEY mode must yield a genuinely empty riff pool, not silently fall back to the MIDI receiver")
+    }
+    func testEuclideousLanesKeyModeYieldsEmptyPoolNotMidiFallback() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
+                                  s.cells[0][Snap.euclideousRow] = cell
+                                  return s }()])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        st.euclideousLanesSourceMidi = false   // KEY mode on the lanes' own switch
+        let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.isEmpty, "KEY mode on the lanes' own switch must silence the lane, not fall back to MIDI")
+    }
+    // EUCLIDEOUS PAGE REWORK: `mainOutMask` is a GLOBAL master gate applied AFTER chopMask's full result, not
+    // pre-masked into `base` — proven by two cases, a plain strike and a CHOP-ALT-routed one, since CHOP-ALT
+    // builds its bus bit completely INDEPENDENT of `base` (`chopBusMask`'s own `alt ? altMask : 0`) — a
+    // pre-mask-base implementation would pass case 1 but silently fail case 2. (A third, DEST-routed case was
+    // attempted and deliberately dropped — see the comment inline below, right after case 2.)
+    func testEuclideousMainOutMaskSuppressesPlainAndChopAltRoutedNotesAlike() {
+        func plain(_ mainOutMask: UInt8) -> RecordingEmitter {
+            var euclid = Machine(machineID: "gold", type: .euclid)
+            euclid.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low)]
+            euclid.paramsA.mainOutMask = mainOutMask
+            let b = box(machines: machineIDs.map { $0 == "gold" ? euclid : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e); return e
+        }
+        XCTAssertFalse(plain(0b1111).ons.filter { $0.cable == 1 }.isEmpty, "bus A open — a plain strike (no CHOP/DEST) reaches it")
+        XCTAssertTrue(plain(0b1110).ons.filter { $0.cable == 1 }.isEmpty, "bus A closed by MAIN OUT — a plain, uncomplicated strike must still be suppressed")
+
+        func chopAlt(_ mainOutMask: UInt8) -> RecordingEmitter {
+            var euclid = ProcessorSlot(type: .euclid)
+            euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low)]
+            euclid.params.mainOutMask = mainOutMask
+            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
+            let b = box(machines: cs) {
+                $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [euclid]
+                    c.chop = Chop(mainMask: 0, altMask: 0xFF, altDest: [.b]); return c }()
+            }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e); return e
+        }
+        XCTAssertFalse(chopAlt(0b1111).ons.filter { $0.cable == 2 }.isEmpty, "bus B open — the ALT-routed note reaches it")
+        XCTAssertTrue(chopAlt(0b1101).ons.filter { $0.cable == 2 }.isEmpty, "bus B closed by MAIN OUT — an ALT-routed note (built independent of `base`) must still be suppressed")
+
+        // A THIRD case (DEST-routed) was attempted and DROPPED, not silently skipped: `tbm` (the masked value)
+        // only ever reaches emission on the NON-downstream path (`strikeChord`'s `else if tbm != 0` branch) —
+        // a chain with a SECOND slot (needed to host a `.dest` processor at all, since DEST is a processor
+        // TYPE, unlike CHOP which is a plain per-cell field) makes `hasDownstream` true, routing emission
+        // through `emitDriverNote` instead, which resolves its OWN bus mask internally and never reads `tbm`/
+        // `mainOutMask` at all. Confirmed this is NOT reachable by the real feature: Euclideous's own cell is
+        // structurally always exactly ONE slot (the EUCLID processor itself — see strikeChord's own doc
+        // comment, "EUCLID is structurally always the chain tail for Euclideous's one-slot cell"), so a DEST
+        // slot can never coexist with EUCLID in that one real chain, and `mainOutMask` has no UI path to reach
+        // any OTHER chain shape (it's only ever set via Euclideous's own fixed single-slot publish site,
+        // BuildPage.swift). Extending `mainOutMask` into `emitDriverNote`'s own bus resolution — the core per-
+        // note fold shared by every driver type with downstream processors (ARP/RIFF/STRUM/RATCHET/…) — would
+        // be a materially bigger change than this rework asks for, to close a gap nothing can actually trigger.
+        // Flagged honestly in the ferry acknowledgment rather than silently left untested or chased unscoped.
     }
     func testEuclidLinesPerLinePick() {
         // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick.

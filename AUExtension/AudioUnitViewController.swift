@@ -190,13 +190,29 @@ struct DiagView: View {
     @State var showEuclideous = false
     @State var euclideousLines: [EuclidLine] = Array(repeating: EuclidLine(noteSel: .all), count: 4)   // pulses:1/steps:8 (the struct's own "fresh lane" default) — NOT silent; overwritten by refreshFromDocument() the instant the real doc loads
     @State var euclideousEnabled = false
-    @State var euclideousReceiver = 0
+    // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): `euclideousReceiver`/`onSetReceiver`/the old IN A/B/C/D
+    // selector UI are REMOVED (§2.5 — MIDI mode now reads receivers 1 and 4 behind the scenes). The
+    // underlying `PluginState.euclideousReceiver`/`Resolved` model field and `uiEuclideousReceiver()` AU
+    // getter stay in place, unreachable from any UI — decode-safety for an old saved doc, not dead weight
+    // worth stripping further (matches how `EuclidLine.riffDirBias` was already handled when its own
+    // control was dropped).
     @State var euclideousLineReady: UInt8 = 0
     // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): `euclideousRiff` is CONFIG (the shared pattern — same persisted/
     // live-mirror treatment as euclideousLines/Enabled/Receiver above, resynced on the slow timer); `euclideousRiffPositions`
     // is a live, responsive PER-LANE INDICATOR (not persisted config), polled on the fast meterTimer beside euclideousLineReady.
     @State var euclideousRiff: EuclideousRiff = EuclideousRiff()
     @State var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
+    // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config — same
+    // persisted/live-mirror treatment as the fields above (loaded in refreshFromDocument, written back via
+    // au?.editDocument on every edit, resynced on the slow timer). Defaults here are the SAME defaults their
+    // `...Resolved` PluginState accessors fall back to (nil), so a never-touched document and a freshly-launched
+    // UI agree before the first refreshFromDocument() call lands.
+    @State var euclideousResetSpanBars: Int = 0                 // 0 = OFF
+    @State var euclideousKeyRoot: Int = 0
+    @State var euclideousKeyType: ScaleType = .naturalMinor
+    @State var euclideousRiffSourceMidi: Bool = true            // MIDI is the default (preserves pre-rework behaviour)
+    @State var euclideousLanesSourceMidi: Bool = true
+    @State var euclideousMainOutMask: UInt8 = 0b1111            // all 4 buses open by default
     @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); the AnyView boundaries fixed the metadata-stack crash
     // BUILD page (user 2026-08-11): the selected PART's cast machine (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
@@ -655,8 +671,13 @@ struct DiagView: View {
         activeSceneIdx = au.uiActiveScene()
         euclideousLines = au.uiEuclideousLines()
         euclideousEnabled = au.uiEuclideousEnabled()
-        euclideousReceiver = au.uiEuclideousReceiver()
         euclideousRiff = au.uiEuclideousRiff()
+        euclideousResetSpanBars = au.uiEuclideousResetSpanBars()
+        euclideousKeyRoot = au.uiEuclideousKeyRoot()
+        euclideousKeyType = au.uiEuclideousKeyType()
+        euclideousRiffSourceMidi = au.uiEuclideousRiffSourceMidi()
+        euclideousLanesSourceMidi = au.uiEuclideousLanesSourceMidi()
+        euclideousMainOutMask = au.uiEuclideousMainOutMask()
     }
 
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
@@ -882,9 +903,12 @@ struct DiagView: View {
                             onClose: { showSettings = false })
                 }
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
-                    EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled, receiver: euclideousReceiver,
+                    EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled,
                                    lineReady: euclideousLineReady,
                                    riff: euclideousRiff, riffPositions: euclideousRiffPositions,
+                                   resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
+                                   riffSourceMidi: euclideousRiffSourceMidi, lanesSourceMidi: euclideousLanesSourceMidi,
+                                   mainOutMask: euclideousMainOutMask,
                                    clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying),
                                    onEdit: { mutate in
                                        var lines = euclideousLines
@@ -905,9 +929,34 @@ struct DiagView: View {
                                        au?.editDocument { $0.euclideousEnabled = euclideousEnabled }
                                        buildPublishScene()
                                    },
-                                   onSetReceiver: { r in
-                                       euclideousReceiver = r
-                                       au?.editDocument { $0.euclideousReceiver = r }
+                                   onSetResetSpanBars: { v in
+                                       euclideousResetSpanBars = v
+                                       au?.editDocument { $0.euclideousResetSpanBars = v }
+                                       buildPublishScene()
+                                   },
+                                   onSetKeyRoot: { v in
+                                       euclideousKeyRoot = v
+                                       au?.editDocument { $0.euclideousKeyRoot = v }
+                                       buildPublishScene()
+                                   },
+                                   onSetKeyType: { v in
+                                       euclideousKeyType = v
+                                       au?.editDocument { $0.euclideousKeyType = v }
+                                       buildPublishScene()
+                                   },
+                                   onSetRiffSourceMidi: { v in
+                                       euclideousRiffSourceMidi = v
+                                       au?.editDocument { $0.euclideousRiffSourceMidi = v }
+                                       buildPublishScene()
+                                   },
+                                   onSetLanesSourceMidi: { v in
+                                       euclideousLanesSourceMidi = v
+                                       au?.editDocument { $0.euclideousLanesSourceMidi = v }
+                                       buildPublishScene()
+                                   },
+                                   onSetMainOutMask: { v in
+                                       euclideousMainOutMask = v
+                                       au?.editDocument { $0.euclideousMainOutMask = v }
                                        buildPublishScene()
                                    },
                                    onClose: { showEuclideous = false })
@@ -1059,8 +1108,16 @@ struct DiagView: View {
             var euclideousResynced = false
             let elv = au.uiEuclideousLines(); if elv != euclideousLines { euclideousLines = elv; euclideousResynced = true }
             let eev = au.uiEuclideousEnabled(); if eev != euclideousEnabled { euclideousEnabled = eev; euclideousResynced = true }
-            let erv = au.uiEuclideousReceiver(); if erv != euclideousReceiver { euclideousReceiver = erv; euclideousResynced = true }
             let erf = au.uiEuclideousRiff(); if erf != euclideousRiff { euclideousRiff = erf; euclideousResynced = true }
+            // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): every new global field MUST be resynced here too — this
+            // exact block has silently reset Euclideous on reload before when a field was missing from this
+            // checklist (see the fresh-plugin-load history above), so each of the 6 new fields gets its own line.
+            let ersb = au.uiEuclideousResetSpanBars(); if ersb != euclideousResetSpanBars { euclideousResetSpanBars = ersb; euclideousResynced = true }
+            let ekr = au.uiEuclideousKeyRoot(); if ekr != euclideousKeyRoot { euclideousKeyRoot = ekr; euclideousResynced = true }
+            let ekt = au.uiEuclideousKeyType(); if ekt != euclideousKeyType { euclideousKeyType = ekt; euclideousResynced = true }
+            let erfm = au.uiEuclideousRiffSourceMidi(); if erfm != euclideousRiffSourceMidi { euclideousRiffSourceMidi = erfm; euclideousResynced = true }
+            let elsm = au.uiEuclideousLanesSourceMidi(); if elsm != euclideousLanesSourceMidi { euclideousLanesSourceMidi = elsm; euclideousResynced = true }
+            let emom = au.uiEuclideousMainOutMask(); if emom != euclideousMainOutMask { euclideousMainOutMask = emom; euclideousResynced = true }
             if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)
